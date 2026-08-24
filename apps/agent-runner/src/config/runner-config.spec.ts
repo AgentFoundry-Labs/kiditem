@@ -224,6 +224,7 @@ describe('loadRunnerConfig', () => {
     const serviceSid = 'S-1-5-80-12345';
     const options = {
       entrypoint: join(root, 'dist', 'main.cjs'),
+      windowsProtectedPathAnchor: root,
       protectedPathInspector: fixtureWindowsInspector(serviceSid, {
         readPaths: [configPath, tokenFile],
         readExecutePaths: [root],
@@ -248,10 +249,42 @@ describe('loadRunnerConfig', () => {
     const serviceSid = 'S-1-5-80-12345';
     const options = {
       entrypoint: join(root, 'dist', 'main.cjs'),
+      windowsProtectedPathAnchor: root,
       protectedPathInspector: fixtureWindowsInspector(serviceSid, {
         readPaths: [configPath, tokenFile],
         readExecutePaths: [root],
         writePaths: [attempts],
+      }),
+    } as unknown as Parameters<typeof loadRunnerConfig>[1];
+
+    await expect(loadRunnerConfig(['--config', configPath], options)).resolves.toMatchObject({
+      tokenFile: resolve(tokenFile),
+      attemptRoot: resolve(attempts),
+    });
+  });
+
+  it('accepts ordinary Windows ProgramData-parent writer grants while enforcing the derived KidItem anchor', async () => {
+    const root = await fixtureRoot();
+    const configPath = join(root, 'runner.json');
+    const tokenFile = join(root, 'token');
+    const attempts = join(root, 'attempts');
+    await mkdir(attempts, { mode: 0o700 });
+    await writeFile(tokenFile, 'A'.repeat(43), { mode: 0o600 });
+    await writeFile(configPath, JSON.stringify({
+      controlOrigin: 'http://127.0.0.1:4000', tokenFile, attemptRoot: attempts, runtimeRoot: root,
+    }), { mode: 0o600 });
+    const serviceSid = 'S-1-5-80-12345';
+    const anchor = resolve(root);
+    const options = {
+      entrypoint: join(root, 'dist', 'main.cjs'),
+      windowsProtectedPathAnchor: anchor,
+      protectedPathInspector: fixtureWindowsInspector(serviceSid, {
+        readPaths: [configPath, tokenFile],
+        readExecutePaths: [root],
+        writePaths: [attempts],
+        extraEntries: (path) => path === anchor || path.startsWith(`${anchor}/`)
+          ? []
+          : [{ identity: 'BU', access: 'allow', rights: 'write' as const }],
       }),
     } as unknown as Parameters<typeof loadRunnerConfig>[1];
 

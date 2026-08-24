@@ -2,17 +2,17 @@
 
 [CmdletBinding()]
 param(
-  [ValidateSet('Deploy', 'Status', 'Rollback', 'RotateRunnerToken')]
+  [ValidateSet('Deploy', 'CutoverDeploy', 'Status', 'Rollback', 'RotateRunnerToken')]
   [string]$Operation = 'Status',
   [string]$ManifestPath,
   [string]$RepoRoot = 'C:\workspace\kiditem',
-  [string]$OfficeRoot = 'C:\ProgramData\KidItem',
   [string]$DockerDataRoot = '',
   [ValidateRange(5, 500)]
   [int]$MinimumFreeGb = 10,
   [switch]$PruneBuildCache,
   [switch]$ApplySchema,
   [switch]$AcceptDataLoss,
+  [switch]$ConfirmCutoverDeploy,
   [ValidateRange(30, 900)]
   [int]$HealthTimeoutSeconds = 300,
   # This local account is provisioned before any release. The deployment only
@@ -24,21 +24,64 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:ComposePath = Join-Path $OfficeRoot 'compose.office.yml'
-$script:OfficeEnvPath = Join-Path $OfficeRoot '.env.office'
-$script:DeployEnvPath = Join-Path $OfficeRoot '.env.office.deploy'
-$script:DeploymentsRoot = Join-Path $OfficeRoot 'deployments'
+# This is a release-contract constant, deliberately not an operator or Runner
+# config input.  The Host Runner only admits descendants of this exact anchor.
+$script:OfficeRoot = 'C:\ProgramData\KidItem'
+$script:ComposePath = Join-Path $script:OfficeRoot 'compose.office.yml'
+$script:OfficeEnvPath = Join-Path $script:OfficeRoot '.env.office'
+$script:DeployEnvPath = Join-Path $script:OfficeRoot '.env.office.deploy'
+$script:DeploymentsRoot = Join-Path $script:OfficeRoot 'deployments'
 $script:CurrentManifestPath = Join-Path $script:DeploymentsRoot 'current.json'
 $script:PreviousManifestPath = Join-Path $script:DeploymentsRoot 'previous.json'
 $script:ComposeArgs = @()
-$script:RunnerServiceAccount = if ($RunnerServiceAccount -match '[\\@]') { $RunnerServiceAccount } else { ".\\$RunnerServiceAccount" }
+# Keep a configured domain identity intact.  A bare name is explicitly local
+# and is resolved to its SID before it is ever granted ACLs or scheduled.
+$script:RunnerServiceAccount = if ($RunnerServiceAccount -match '[\\@]') { $RunnerServiceAccount } else { "$env:COMPUTERNAME\$RunnerServiceAccount" }
+$script:RunnerServicePrincipal = $null
 $script:RunnerTaskName = 'KidItem Agent Runner'
-$script:RunnerRoot = Join-Path $OfficeRoot 'agent-runner'
+$script:RunnerRoot = Join-Path $script:OfficeRoot 'agent-runner'
 $script:RunnerReleasesRoot = Join-Path $script:RunnerRoot 'releases'
 $script:RunnerCurrentPointerPath = Join-Path $script:RunnerRoot 'current.json'
 $script:RunnerAttemptRoot = Join-Path $script:RunnerRoot 'attempts'
-$script:RunnerTokenPath = Join-Path $OfficeRoot 'secrets\agent-runner-token'
+$script:RunnerTokenPath = Join-Path $script:OfficeRoot 'secrets\agent-runner-token'
 $script:RunnerConfigName = 'runner-config.json'
+
+function Assert-OfficeRootAnchor {
+  # Do not accept a redirected ProgramData, UNC/device spelling, a different
+  # drive, or a short-name alias as a deployment root.  Case differences are
+  # harmless on NTFS, but all runtime paths must resolve below this one
+  # code-owned canonical Office anchor.
+  $expected = [System.IO.Path]::GetFullPath('C:\ProgramData\KidItem')
+  $configured = [System.IO.Path]::GetFullPath($script:OfficeRoot)
+  if (-not [string]::Equals($configured, $expected, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Office root must be the canonical C:\ProgramData\KidItem deployment anchor.'
+  }
+  foreach ($ancestor in @(
+    [System.IO.Path]::GetPathRoot($expected),
+    [System.IO.Path]::GetFullPath('C:\ProgramData')
+  )) {
+    $item = Get-Item -LiteralPath $ancestor -Force -ErrorAction Stop
+    if (-not $item.PSIsContainer) {
+      throw 'Office root anchor ancestor is not a directory.'
+    }
+    if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw 'Office root anchor ancestor is a reparse point.'
+    }
+  }
+  if (Test-Path -LiteralPath $script:OfficeRoot) {
+    $rootItem = Get-Item -LiteralPath $script:OfficeRoot -Force -ErrorAction Stop
+    if (-not $rootItem.PSIsContainer) {
+      throw 'Office root anchor is not a directory.'
+    }
+    if (($rootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw 'Office root anchor is a reparse point.'
+    }
+    $resolved = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $script:OfficeRoot -ErrorAction Stop).ProviderPath)
+    if (-not [string]::Equals($resolved, $expected, [System.StringComparison]::OrdinalIgnoreCase)) {
+      throw 'Office root anchor canonical path does not match C:\ProgramData\KidItem.'
+    }
+  }
+}
 
 function Invoke-Checked {
   param(
@@ -118,7 +161,7 @@ function Get-DockerDataGuardPath {
   if (Test-Path -LiteralPath $standardVhdx -PathType Leaf) {
     return $standardVhdx
   }
-  return $OfficeRoot
+  return $script:OfficeRoot
 }
 
 function Assert-DiskCapacity {
@@ -127,7 +170,7 @@ function Assert-DiskCapacity {
     Invoke-Checked docker buildx prune --max-used-space 5gb --force
   }
 
-  $guardPaths = @($OfficeRoot, (Get-DockerDataGuardPath))
+  $guardPaths = @($script:OfficeRoot, (Get-DockerDataGuardPath))
   $checkedRoots = @{}
   foreach ($path in $guardPaths) {
     $root = [System.IO.Path]::GetPathRoot($path)
@@ -302,17 +345,93 @@ function Assert-RunnerInstallationPrerequisites {
   }
 }
 
-function Assert-RunnerServiceAccount {
-  $localName = $script:RunnerServiceAccount.Split('\\')[-1]
+function Resolve-RunnerServicePrincipal {
+  if ($null -ne $script:RunnerServicePrincipal) {
+    return $script:RunnerServicePrincipal
+  }
   try {
-    $account = Get-LocalUser -Name $localName -ErrorAction Stop
+    $account = [System.Security.Principal.NTAccount]::new($script:RunnerServiceAccount)
+    $sid = $account.Translate([System.Security.Principal.SecurityIdentifier])
+    $canonical = $sid.Translate([System.Security.Principal.NTAccount]).Value
   }
   catch {
-    throw "Pre-provisioned dedicated Host Runner account is missing: $script:RunnerServiceAccount"
+    throw 'Pre-provisioned dedicated Host Runner principal cannot be resolved to an exact SID.'
   }
-  if (-not $account.Enabled) {
-    throw "Pre-provisioned dedicated Host Runner account is disabled: $script:RunnerServiceAccount"
+  if ($sid.Value -in @('S-1-5-18', 'S-1-5-19', 'S-1-5-20', 'S-1-5-32-544')) {
+    throw 'Host Runner principal must be a dedicated least-privilege user, not a built-in service or administrator.'
   }
+  $script:RunnerServicePrincipal = [pscustomobject]@{
+    Sid = $sid
+    AccountName = $canonical
+  }
+  return $script:RunnerServicePrincipal
+}
+
+function Assert-RunnerPrincipalIsLeastPrivilege {
+  param([Parameter(Mandatory = $true)][object]$Principal)
+
+  # These local built-in groups can bypass the dedicated Runner boundary.  The
+  # deployment never changes group membership; it blocks until an operator
+  # provisions an account outside them.
+  foreach ($groupSid in @('S-1-5-32-544', 'S-1-5-32-547', 'S-1-5-32-548', 'S-1-5-32-551')) {
+    try {
+      $members = @(Get-LocalGroupMember -SID $groupSid -ErrorAction Stop)
+    }
+    catch {
+      throw 'Host Runner least-privilege group membership cannot be verified.'
+    }
+    if (@($members | Where-Object { $_.SID -and $_.SID.Value -eq $Principal.Sid.Value }).Count -ne 0) {
+      throw 'Host Runner principal belongs to a prohibited high-privilege local group.'
+    }
+  }
+}
+
+function Assert-RunnerPrincipalProfileAndBatchLogon {
+  param([Parameter(Mandatory = $true)][object]$Principal)
+
+  $profileKey = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$($Principal.Sid.Value)"
+  try {
+    $profile = Get-ItemProperty -LiteralPath $profileKey -ErrorAction Stop
+    $profilePath = [Environment]::ExpandEnvironmentVariables([string]$profile.ProfileImagePath)
+  }
+  catch {
+    throw 'Host Runner principal does not have a provisioned user profile.'
+  }
+  if (-not $profilePath -or -not (Test-Path -LiteralPath $profilePath -PathType Container)) {
+    throw 'Host Runner principal does not have an accessible provisioned user profile.'
+  }
+
+  $rightsExport = [System.IO.Path]::GetTempFileName()
+  try {
+    Invoke-Checked secedit.exe /export /cfg $rightsExport /areas USER_RIGHTS
+    $batchLine = Select-String -LiteralPath $rightsExport -Pattern '^SeBatchLogonRight\s*=\s*(.*)$' | Select-Object -First 1
+    if ($null -eq $batchLine) {
+      throw 'Host Runner principal does not have the required SeBatchLogonRight assignment.'
+    }
+    $assigned = @($batchLine.Matches[0].Groups[1].Value -split ',' | ForEach-Object { $_.Trim().TrimStart('*') })
+    if ($assigned -notcontains $Principal.Sid.Value) {
+      throw 'Host Runner principal does not have the required SeBatchLogonRight assignment.'
+    }
+  }
+  finally {
+    Remove-Item -LiteralPath $rightsExport -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Assert-RunnerServiceAccount {
+  $principal = Resolve-RunnerServicePrincipal
+  try {
+    $account = Get-CimInstance -ClassName Win32_UserAccount -Filter ("SID='{0}'" -f $principal.Sid.Value) -ErrorAction Stop
+  }
+  catch {
+    throw 'Pre-provisioned dedicated Host Runner user cannot be verified.'
+  }
+  if ($null -eq $account -or $account.Disabled) {
+    throw 'Pre-provisioned dedicated Host Runner user is missing or disabled.'
+  }
+  Assert-RunnerPrincipalIsLeastPrivilege $principal
+  Assert-RunnerPrincipalProfileAndBatchLogon $principal
+  return $principal
 }
 
 function Invoke-Icacls {
@@ -327,9 +446,14 @@ function Invoke-Icacls {
 function Set-RunnerProtectedAcl {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
-    [ValidateSet('Read', 'ReadExecute', 'Write')][string]$Mode = 'Read'
+    [ValidateSet('Read', 'ReadExecute', 'Write')][string]$Mode = 'Read',
+    # The fixed ProgramData\\KidItem anchor grants Runner traverse/read on the
+    # anchor itself, but deliberately does not propagate that grant to unrelated
+    # Office files such as the Docker environment file.
+    [switch]$Anchor
   )
 
+  $principal = Assert-RunnerServiceAccount
   $directory = Test-Path -LiteralPath $Path -PathType Container
   $serviceRights = switch ($Mode) {
     'Read' { 'R' }
@@ -338,7 +462,9 @@ function Set-RunnerProtectedAcl {
   }
   $systemRights = $serviceRights
   if ($directory) {
-    $serviceRights = "(OI)(CI)$serviceRights"
+    if (-not $Anchor) {
+      $serviceRights = "(OI)(CI)$serviceRights"
+    }
     $systemRights = "(OI)(CI)$systemRights"
     $administratorRights = '(OI)(CI)F'
   }
@@ -350,7 +476,7 @@ function Set-RunnerProtectedAcl {
     $Path,
     '/inheritance:r',
     '/grant:r',
-    "${script:RunnerServiceAccount}:$serviceRights",
+    "*$($principal.Sid.Value):$serviceRights",
     "SYSTEM:$systemRights",
     "Administrators:$administratorRights",
     '/remove:g', 'Users', 'Authenticated Users', 'Everyone'
@@ -358,6 +484,14 @@ function Set-RunnerProtectedAcl {
 }
 
 function Initialize-RunnerStorage {
+  # C:\ProgramData itself normally grants Users container-create.  The fixed
+  # KidItem anchor is the first deployment-owned boundary, so protect it before
+  # any Runner token/config/release descendant can inherit an unsafe writer.
+  Assert-OfficeRootAnchor
+  New-Item -ItemType Directory -Path $script:OfficeRoot -Force | Out-Null
+  Assert-OfficeRootAnchor
+  Set-RunnerProtectedAcl -Path $script:OfficeRoot -Mode ReadExecute -Anchor
+  Assert-OfficeRootAnchor
   New-Item -ItemType Directory -Path $script:RunnerRoot -Force | Out-Null
   Set-RunnerProtectedAcl -Path $script:RunnerRoot -Mode ReadExecute
   foreach ($path in @($script:RunnerReleasesRoot, $script:RunnerAttemptRoot, (Split-Path -Parent $script:RunnerTokenPath))) {
@@ -538,6 +672,7 @@ function Assert-RunnerPackageContents {
   foreach ($path in @(
     (Join-Path $ReleaseRoot 'agent-runner.tgz'),
     (Join-Path $ReleaseRoot 'KidItem.JobRunner.exe'),
+    (Join-Path $ReleaseRoot 'package\\windows\\KidItem.JobRunner.exe'),
     (Join-Path $ReleaseRoot 'package\\dist\\main.cjs'),
     (Join-Path $ReleaseRoot 'package\\node_modules\\@openai\\codex\\package.json'),
     (Join-Path $ReleaseRoot 'package\\node_modules\\@anthropic-ai\\claude-code\\package.json')
@@ -551,22 +686,46 @@ function Assert-RunnerPackageContents {
   if ($codexPackage.version -ne $Manifest.runnerRuntime.codexVersion -or $claudePackage.version -ne $Manifest.runnerRuntime.claudeVersion) {
     throw 'Bundled provider versions do not match the immutable Runner runtime contract.'
   }
+  Assert-RunnerExtractionTree $ReleaseRoot
+}
+
+function Assert-RunnerArchiveEntryName {
+  param([Parameter(Mandatory = $true)][string]$Entry)
+
+  if ([string]::IsNullOrWhiteSpace($Entry)) {
+    throw 'Runner archive contains an empty path.'
+  }
+  # Archive paths are protocol names, not native paths. Reject every form
+  # which can become a rooted Windows path, traverse a parent, or name an ADS.
+  if (
+    $Entry.IndexOf([char]92) -ge 0 -or
+    $Entry.StartsWith('/') -or
+    $Entry -match '^[A-Za-z]:' -or
+    $Entry.Contains(':') -or
+    $Entry -match '(^|/)\.\.(/|$)' -or
+    -not $Entry.StartsWith('package/')
+  ) {
+    throw 'Runner package archive contains an unsafe path.'
+  }
 }
 
 function Assert-RunnerArchiveEntries {
   param([Parameter(Mandatory = $true)][string]$TarPath)
 
-  $entries = & tar.exe -tf $TarPath
+  $entries = @(& tar.exe -tf $TarPath)
   if ($LASTEXITCODE -ne 0) {
     throw 'Runner package archive cannot be listed.'
   }
-  foreach ($entry in $entries) {
-    if (
-      [System.IO.Path]::IsPathRooted($entry) -or
-      $entry -match '(^|[\\/])\.\.([\\/]|$)' -or
-      -not $entry.StartsWith('package/')
-    ) {
-      throw 'Runner package archive contains an unsafe path.'
+  $metadata = @(& tar.exe -tvf $TarPath)
+  if ($LASTEXITCODE -ne 0 -or $metadata.Count -ne $entries.Count) {
+    throw 'Runner package archive metadata cannot be listed.'
+  }
+  for ($index = 0; $index -lt $entries.Count; $index += 1) {
+    $entry = [string]$entries[$index]
+    Assert-RunnerArchiveEntryName $entry
+    $detail = [string]$metadata[$index]
+    if ($detail.Length -lt 1 -or $detail[0] -notin @('-', 'd')) {
+      throw 'Runner package archive contains a non-regular entry.'
     }
   }
 }
@@ -578,14 +737,24 @@ function Assert-RunnerOuterArchiveEntries {
   $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
   try {
     $expected = @('agent-runner.tgz', 'KidItem.JobRunner.exe', 'runner-runtime-contract.json')
-    $entries = @($archive.Entries | ForEach-Object { $_.FullName })
-    foreach ($entry in $entries) {
+    $entries = @()
+    foreach ($entry in @($archive.Entries)) {
+      $name = [string]$entry.FullName
       if (
-        [System.IO.Path]::IsPathRooted($entry.Replace('/', '\')) -or
-        $entry -match '(^|[\\/])\.\.([\\/]|$)'
+        [string]::IsNullOrWhiteSpace($name) -or
+        $name.IndexOf([char]92) -ge 0 -or
+        $name.StartsWith('/') -or
+        $name -match '^[A-Za-z]:' -or
+        $name.Contains(':') -or
+        $name -match '(^|/)\.\.(/|$)'
       ) {
         throw 'Runner archive contains an unsafe path.'
       }
+      $unixType = (([int64]$entry.ExternalAttributes -shr 16) -band 0xF000)
+      if (($unixType -ne 0 -and $unixType -ne 0x8000) -or (($entry.ExternalAttributes -band 0x10) -ne 0)) {
+        throw 'Runner archive contains a non-regular entry.'
+      }
+      $entries += $name
     }
     if ($entries.Count -ne $expected.Count -or @(Compare-Object -ReferenceObject $expected -DifferenceObject $entries).Count -ne 0) {
       throw 'Runner archive does not have the approved closed file set.'
@@ -593,6 +762,53 @@ function Assert-RunnerOuterArchiveEntries {
   }
   finally {
     $archive.Dispose()
+  }
+}
+
+function Test-RunnerPathWithinRoot {
+  param(
+    [Parameter(Mandatory = $true)][string]$Root,
+    [Parameter(Mandatory = $true)][string]$Candidate
+  )
+
+  $trimCharacters = [char[]]@(
+    [System.IO.Path]::DirectorySeparatorChar,
+    [System.IO.Path]::AltDirectorySeparatorChar
+  )
+  $normalizedRoot = [System.IO.Path]::GetFullPath($Root).TrimEnd($trimCharacters)
+  $normalizedCandidate = [System.IO.Path]::GetFullPath($Candidate).TrimEnd($trimCharacters)
+  $prefix = $normalizedRoot + [System.IO.Path]::DirectorySeparatorChar
+  return $normalizedCandidate -eq $normalizedRoot -or $normalizedCandidate.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Assert-RunnerExtractionTree {
+  param([Parameter(Mandatory = $true)][string]$Root)
+
+  $rootItem = Get-Item -LiteralPath $Root -Force -ErrorAction Stop
+  if (-not $rootItem.PSIsContainer -or (($rootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
+    throw 'Runner extraction root is not a regular protected directory.'
+  }
+  $canonicalRoot = (Resolve-Path -LiteralPath $Root -ErrorAction Stop).ProviderPath
+  $pending = [System.Collections.Generic.Queue[string]]::new()
+  $pending.Enqueue($canonicalRoot)
+  while ($pending.Count -gt 0) {
+    $directory = $pending.Dequeue()
+    foreach ($path in [System.IO.Directory]::GetFileSystemEntries($directory)) {
+      $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+      if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'Runner extraction contains a Windows reparse point.'
+      }
+      $canonical = (Resolve-Path -LiteralPath $path -ErrorAction Stop).ProviderPath
+      if (-not (Test-RunnerPathWithinRoot $canonicalRoot $canonical)) {
+        throw 'Runner canonical descendant escapes the candidate root.'
+      }
+      if ($item.PSIsContainer) {
+        $pending.Enqueue($canonical)
+      }
+      elseif (-not ($item -is [System.IO.FileInfo])) {
+        throw 'Runner extraction contains a non-regular filesystem entry.'
+      }
+    }
   }
 }
 
@@ -618,6 +834,7 @@ function New-RunnerRelease {
     Assert-RunnerArtifact (Join-Path $candidateRoot $Manifest.runnerArtifact) $Manifest
     Assert-RunnerOuterArchiveEntries (Join-Path $candidateRoot $Manifest.runnerArtifact)
     Expand-Archive -LiteralPath (Join-Path $candidateRoot $Manifest.runnerArtifact) -DestinationPath $candidateRoot
+    Assert-RunnerExtractionTree $candidateRoot
     $expectedOuterFiles = @('agent-runner.tgz', 'KidItem.JobRunner.exe', 'runner-runtime-contract.json')
     foreach ($name in $expectedOuterFiles) {
       if (-not (Test-Path -LiteralPath (Join-Path $candidateRoot $name) -PathType Leaf)) {
@@ -626,6 +843,7 @@ function New-RunnerRelease {
     }
     Assert-RunnerArchiveEntries (Join-Path $candidateRoot 'agent-runner.tgz')
     Invoke-Checked tar.exe -xf (Join-Path $candidateRoot 'agent-runner.tgz') -C $candidateRoot
+    Assert-RunnerExtractionTree $candidateRoot
     New-Item -ItemType Directory -Path (Join-Path $candidateRoot 'package\\windows') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $candidateRoot 'KidItem.JobRunner.exe') -Destination (Join-Path $candidateRoot 'package\\windows\\KidItem.JobRunner.exe') -Force
     Assert-RunnerPackageContents $candidateRoot $Manifest
@@ -712,7 +930,8 @@ function Switch-RunnerCurrentRelease {
 function Register-RunnerScheduledTask {
   param([Parameter(Mandatory = $true)][string]$ReleaseRoot)
 
-  Assert-RunnerServiceAccount
+  $runnerPrincipal = Assert-RunnerServiceAccount
+  Assert-RunnerExtractionTree $ReleaseRoot
   $entryPoint = Join-Path $ReleaseRoot 'package\\dist\\main.cjs'
   $configPath = Join-Path $ReleaseRoot $script:RunnerConfigName
   if (-not (Test-Path -LiteralPath $entryPoint -PathType Leaf) -or -not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
@@ -722,14 +941,66 @@ function Register-RunnerScheduledTask {
   if (-not (Test-Path -LiteralPath $nodeExecutable -PathType Leaf)) {
     throw "Host Node 22 executable is missing: $nodeExecutable"
   }
-  $action = New-ScheduledTaskAction -Execute $nodeExecutable -Argument ('"{0}" --config "{1}"' -f $entryPoint, $configPath)
-  $principal = New-ScheduledTaskPrincipal -UserId $script:RunnerServiceAccount -LogonType S4U -RunLevel Limited
+  $runtimeRoot = Join-Path $ReleaseRoot 'package'
+  $arguments = '"{0}" --config "{1}"' -f $entryPoint, $configPath
+  $action = New-ScheduledTaskAction -Execute $nodeExecutable -Argument $arguments -WorkingDirectory $runtimeRoot
+  $principal = New-ScheduledTaskPrincipal -UserId $runnerPrincipal.AccountName -LogonType S4U -RunLevel Limited
   $trigger = New-ScheduledTaskTrigger -AtStartup
   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
   Register-ScheduledTask -TaskName $script:RunnerTaskName -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Force | Out-Null
   $registered = Get-ScheduledTask -TaskName $script:RunnerTaskName
-  if ($registered.Principal.LogonType.ToString() -ne 'S4U') {
+  Assert-RunnerScheduledTaskContract -Task $registered -ReleaseRoot $ReleaseRoot -Principal $runnerPrincipal
+}
+
+function Assert-RunnerScheduledTaskContract {
+  param(
+    [Parameter(Mandatory = $true)][object]$Task,
+    [Parameter(Mandatory = $true)][string]$ReleaseRoot,
+    [Parameter(Mandatory = $true)][object]$Principal
+  )
+
+  $entryPoint = Join-Path $ReleaseRoot 'package\\dist\\main.cjs'
+  $configPath = Join-Path $ReleaseRoot $script:RunnerConfigName
+  $nodeExecutable = Join-Path $env:ProgramFiles 'nodejs\\node.exe'
+  $runtimeRoot = Join-Path $ReleaseRoot 'package'
+  $expectedArguments = '"{0}" --config "{1}"' -f $entryPoint, $configPath
+  $actions = @($Task.Actions)
+  if ($actions.Count -ne 1) {
+    throw 'Host Runner task must have exactly one constrained action.'
+  }
+  $action = $actions[0]
+  if (
+    ([System.IO.Path]::GetFullPath([string]$action.Execute) -ne [System.IO.Path]::GetFullPath($nodeExecutable)) -or
+    ([string]$action.Arguments -ne $expectedArguments) -or
+    ([System.IO.Path]::GetFullPath([string]$action.WorkingDirectory) -ne [System.IO.Path]::GetFullPath($runtimeRoot))
+  ) {
+    throw 'Host Runner task action does not bind the exact versioned Runner entrypoint.'
+  }
+  try {
+    $registeredSid = ([System.Security.Principal.NTAccount]::new([string]$Task.Principal.UserId)).Translate([System.Security.Principal.SecurityIdentifier])
+  }
+  catch {
+    throw 'Host Runner task principal cannot be resolved to an exact SID.'
+  }
+  if ($registeredSid.Value -ne $Principal.Sid.Value) {
+    throw 'Host Runner task principal does not match the configured dedicated principal SID.'
+  }
+  if ($Task.Principal.LogonType.ToString() -ne 'S4U') {
     throw 'Host Runner task must use S4U logon.'
+  }
+  if ($Task.Principal.RunLevel.ToString() -ne 'Limited') {
+    throw 'Host Runner task must run at limited privilege.'
+  }
+  if (@($Task.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskBootTrigger' }).Count -ne 1) {
+    throw 'Host Runner task must have exactly one boot trigger.'
+  }
+  if (
+    -not $Task.Settings.StartWhenAvailable -or
+    [int]$Task.Settings.RestartCount -ne 3 -or
+    [string]$Task.Settings.RestartInterval -ne 'PT1M' -or
+    [string]$Task.Settings.ExecutionTimeLimit -ne 'PT0S'
+  ) {
+    throw 'Host Runner task settings do not match the constrained restart policy.'
   }
 }
 
@@ -737,7 +1008,15 @@ function Stop-RunnerScheduledTask {
   $task = Get-ScheduledTask -TaskName $script:RunnerTaskName -ErrorAction SilentlyContinue
   if ($null -eq $task) { return }
   try { Stop-ScheduledTask -TaskName $script:RunnerTaskName -ErrorAction Stop }
-  catch { }
+  catch {
+    # ScheduledTasks can fail transiently during a service restart.  The native
+    # schtasks fallback still targets only the known constrained task.
+    try {
+      & schtasks.exe /End /TN $script:RunnerTaskName *> $null
+      if ($LASTEXITCODE -ne 0) { throw 'schtasks.exe failed' }
+    }
+    catch { throw 'Host Runner task could not be stopped.' }
+  }
   $deadline = (Get-Date).AddSeconds(30)
   do {
     $task = Get-ScheduledTask -TaskName $script:RunnerTaskName -ErrorAction SilentlyContinue
@@ -783,6 +1062,53 @@ function Wait-ForAgentRuntimeReadiness {
     Start-Sleep -Seconds 3
   } while ((Get-Date) -lt $deadline)
   throw "Host Runner did not reach full KID-25 readiness within $HealthTimeoutSeconds seconds."
+}
+
+function Stop-OfficeRuntimeFailClosed {
+  param([Parameter(Mandatory = $true)][string]$Reason)
+
+  # Do not allow a failed restore to leave any public/API writer or native
+  # Runner process alive under a mixed token/config/release identity.  Every
+  # stop is attempted independently; errors are intentionally reduced to
+  # component labels so neither bearer material nor provider output is logged.
+  $failures = [System.Collections.Generic.List[string]]::new()
+  try { Stop-RunnerScheduledTask }
+  catch { $failures.Add('runner') }
+  try {
+    Set-ComposeArguments
+    Invoke-Checked docker @script:ComposeArgs stop api worker web nginx
+  }
+  catch {
+    $failures.Add('compose')
+    foreach ($container in @('kiditem-api', 'kiditem-worker', 'kiditem-web', 'kiditem-nginx')) {
+      try {
+        & docker stop $container *> $null
+        if ($LASTEXITCODE -ne 0) { $failures.Add($container) }
+      }
+      catch { $failures.Add($container) }
+    }
+  }
+  $suffix = if ($failures.Count -eq 0) { 'all application surfaces stopped' } else { "stop-errors=$(($failures | Select-Object -Unique) -join ',')" }
+  Write-Warning "Office runtime fail-closed after $Reason; $suffix. PostgreSQL and MinIO were left unchanged."
+}
+
+function Assert-CurrentOfficeReleaseIdentity {
+  if (-not (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf)) {
+    throw 'No prior Office manifest exists to prove rollback release identity.'
+  }
+  $manifest = (Read-DeploymentManifest $script:CurrentManifestPath).Manifest
+  Set-ComposeArguments
+  Invoke-Checked docker @script:ComposeArgs config --quiet
+  Assert-RenderedManifestDeployment $manifest
+  $runner = Get-RunnerCurrentRelease
+  if ($null -eq $runner -or $runner.GitSha -ne $manifest.gitSha) {
+    throw 'Host Runner does not match the current Office manifest release identity.'
+  }
+  Assert-RunnerArtifact (Join-Path $runner.ReleaseRoot $manifest.runnerArtifact) $manifest
+  Assert-RunnerPackageContents $runner.ReleaseRoot $manifest
+  Wait-ForRuntime
+  Wait-ForAgentRuntimeReadiness
+  Assert-SmokeTests
 }
 
 function New-RunnerInstallationToken {
@@ -842,7 +1168,7 @@ function Rotate-RunnerToken {
     Register-RunnerScheduledTask $currentRunner.ReleaseRoot
     Start-RunnerScheduledTask
     Wait-ForAgentRuntimeReadiness
-    Assert-SmokeTests
+    Assert-CurrentOfficeReleaseIdentity
   }
   catch {
     $rotationError = $_
@@ -858,9 +1184,11 @@ function Rotate-RunnerToken {
       Register-RunnerScheduledTask $currentRunner.ReleaseRoot
       Start-RunnerScheduledTask
       Wait-ForAgentRuntimeReadiness
+      Assert-CurrentOfficeReleaseIdentity
     }
     catch {
-      Write-Warning 'Runner token rotation rollback also failed; keep the Office runtime blocked for operator recovery.'
+      Stop-OfficeRuntimeFailClosed 'Runner token rotation rollback also failed'
+      throw [System.InvalidOperationException]::new('Runner token rotation failed and rollback could not restore one coherent release identity; runtime was fail-closed.', $rotationError.Exception)
     }
     throw $rotationError
   }
@@ -876,7 +1204,7 @@ function Restore-Transaction {
   $restored = $false
   foreach ($name in @('compose.office.yml', 'nginx.conf', '.env.office.deploy')) {
     $backup = Join-Path $BackupRoot $name
-    $target = Join-Path $OfficeRoot $name
+    $target = Join-Path $script:OfficeRoot $name
     if (Test-Path -LiteralPath $backup -PathType Leaf) {
       Copy-Item -LiteralPath $backup -Destination $target -Force
       $restored = $true
@@ -900,19 +1228,21 @@ function Restore-Transaction {
   elseif (Test-Path -LiteralPath $script:RunnerCurrentPointerPath -PathType Leaf) {
     Remove-Item -LiteralPath $script:RunnerCurrentPointerPath -Force
   }
-  if ($restored) {
-    Set-ComposeArguments
-    Invoke-Checked docker @script:ComposeArgs up --detach --no-build api worker web nginx
-    Wait-ForRuntime
-    $previousRunner = Get-RunnerCurrentRelease
-    if ($null -ne $previousRunner) {
-      Register-RunnerScheduledTask $previousRunner.ReleaseRoot
-      Start-RunnerScheduledTask
-      Wait-ForAgentRuntimeReadiness
-    }
-    Assert-SmokeTests
-    Write-Warning 'Previous office runtime files were restored after deployment failure.'
+  if (-not $restored) {
+    throw 'No prior Office deployment files exist for a coherent rollback.'
   }
+  Set-ComposeArguments
+  Invoke-Checked docker @script:ComposeArgs up --detach --no-build api worker web nginx
+  Wait-ForRuntime
+  $previousRunner = Get-RunnerCurrentRelease
+  if ($null -eq $previousRunner) {
+    throw 'No prior Host Runner release exists for a coherent rollback.'
+  }
+  Register-RunnerScheduledTask $previousRunner.ReleaseRoot
+  Start-RunnerScheduledTask
+  Wait-ForAgentRuntimeReadiness
+  Assert-CurrentOfficeReleaseIdentity
+  Write-Warning 'Previous office runtime files were restored after deployment failure.'
 }
 
 function Install-Deployment {
@@ -921,7 +1251,8 @@ function Install-Deployment {
     [Parameter(Mandatory = $true)][string]$ExpectedHead,
     [switch]$AllowAncestor,
     [switch]$ApplySchema,
-    [switch]$AcceptDataLoss
+    [switch]$AcceptDataLoss,
+    [ValidateSet('Normal', 'Cutover')][string]$DeploymentMode = 'Normal'
   )
 
   $bundle = Read-DeploymentManifest $TargetManifestPath
@@ -968,7 +1299,7 @@ function Install-Deployment {
   Assert-RunnerArtifact $sourceRunnerArtifact $manifest
   $runnerReleaseRoot = New-RunnerRelease $sourceRunnerArtifact $manifest
 
-  New-Item -ItemType Directory -Path $OfficeRoot -Force | Out-Null
+  New-Item -ItemType Directory -Path $script:OfficeRoot -Force | Out-Null
   New-Item -ItemType Directory -Path $script:DeploymentsRoot -Force | Out-Null
   $backupRoot = Join-Path $script:DeploymentsRoot 'transaction-backup'
   New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
@@ -977,7 +1308,7 @@ function Install-Deployment {
     if (Test-Path -LiteralPath $backup -PathType Leaf) {
       Remove-Item -LiteralPath $backup -Force
     }
-    $existing = Join-Path $OfficeRoot $name
+    $existing = Join-Path $script:OfficeRoot $name
     if (Test-Path -LiteralPath $existing -PathType Leaf) {
       Copy-Item -LiteralPath $existing -Destination $backup -Force
     }
@@ -988,11 +1319,11 @@ function Install-Deployment {
     Copy-Item -LiteralPath $script:RunnerCurrentPointerPath -Destination $runnerPointerBackup -Force
   }
 
-  $candidateDeployEnv = Join-Path $OfficeRoot '.env.office.deploy.candidate'
+  $candidateDeployEnv = Join-Path $script:OfficeRoot '.env.office.deploy.candidate'
   try {
     Write-DeployEnv $candidateDeployEnv $manifest
     Copy-Item -LiteralPath $sourceCompose -Destination $script:ComposePath -Force
-    Copy-Item -LiteralPath $sourceNginx -Destination (Join-Path $OfficeRoot 'nginx.conf') -Force
+    Copy-Item -LiteralPath $sourceNginx -Destination (Join-Path $script:OfficeRoot 'nginx.conf') -Force
     Move-Item -LiteralPath $candidateDeployEnv -Destination $script:DeployEnvPath -Force
     Set-ComposeArguments
     Invoke-Checked docker @script:ComposeArgs config --quiet
@@ -1019,11 +1350,16 @@ function Install-Deployment {
   }
   catch {
     $deploymentError = $_
+    if ($DeploymentMode -eq 'Cutover') {
+      Stop-OfficeRuntimeFailClosed 'CutoverDeploy candidate failed after contracted schema'
+      throw [System.InvalidOperationException]::new('CutoverDeploy failed after schema contraction; application surfaces are stopped. Restore the approved pre-cutover database backup manually and use the retained transaction backup before retrying.', $deploymentError.Exception)
+    }
     try {
       Restore-Transaction $backupRoot
     }
     catch {
-      Write-Warning "Automatic runtime restore also failed: $($_.Exception.Message)"
+      Stop-OfficeRuntimeFailClosed 'Automatic runtime restore also failed'
+      throw [System.InvalidOperationException]::new('Office deployment failed and rollback could not restore one coherent release identity; runtime was fail-closed.', $deploymentError.Exception)
     }
     throw $deploymentError
   }
@@ -1059,7 +1395,7 @@ function Show-OfficeStatus {
   param([Parameter(Mandatory = $true)][string]$Head)
 
   Write-Host "release/office HEAD: $Head"
-  Write-Host "Office root disk free: $(Get-FreeSpaceGb $OfficeRoot) GB"
+  Write-Host "Office root disk free: $(Get-FreeSpaceGb $script:OfficeRoot) GB"
   $dockerDataGuardPath = Get-DockerDataGuardPath
   Write-Host "Docker data disk free: $(Get-FreeSpaceGb $dockerDataGuardPath) GB ($dockerDataGuardPath)"
   foreach ($name in @('kiditem-postgres', 'kiditem-minio', 'kiditem-api', 'kiditem-worker', 'kiditem-web', 'kiditem-nginx')) {
@@ -1088,7 +1424,14 @@ if ($ApplySchema -and $Operation -ne 'Deploy') {
 if ($AcceptDataLoss -and (-not $ApplySchema -or $Operation -ne 'Deploy')) {
   throw '-AcceptDataLoss is valid only with -Operation Deploy -ApplySchema.'
 }
+if ($Operation -eq 'CutoverDeploy' -and -not $ConfirmCutoverDeploy) {
+  throw '-Operation CutoverDeploy requires -ConfirmCutoverDeploy after the contracted schema has been applied.'
+}
+if ($ConfirmCutoverDeploy -and $Operation -ne 'CutoverDeploy') {
+  throw '-ConfirmCutoverDeploy is valid only with -Operation CutoverDeploy.'
+}
 
+Assert-OfficeRootAnchor
 $head = Assert-LiveCheckout
 
 switch ($Operation) {
@@ -1100,6 +1443,12 @@ switch ($Operation) {
       throw '-ManifestPath is required for Deploy.'
     }
     Install-Deployment $ManifestPath $head -ApplySchema:$ApplySchema -AcceptDataLoss:$AcceptDataLoss
+  }
+  'CutoverDeploy' {
+    if (-not $ManifestPath) {
+      throw '-ManifestPath is required for CutoverDeploy.'
+    }
+    Install-Deployment $ManifestPath $head -DeploymentMode Cutover
   }
   'Rollback' {
     if (-not (Test-Path -LiteralPath $script:PreviousManifestPath -PathType Leaf)) {

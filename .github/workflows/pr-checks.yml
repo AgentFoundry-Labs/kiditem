@@ -54,9 +54,20 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          node --test scripts/__tests__/office-deployment-contract.test.mjs
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile('deploy/office/apply-deployment.ps1', [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count -ne 0) { throw 'apply-deployment.ps1 failed PowerShell parser validation.' }
           npm ci
           npm run build --workspace=packages/shared
           npm run build --workspace=apps/agent-runner
           npm exec --workspace=apps/agent-runner vitest -- run
-          dotnet publish apps/agent-runner/windows/KidItem.JobRunner/KidItem.JobRunner.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+          dotnet publish apps/agent-runner/windows/KidItem.JobRunner/KidItem.JobRunner.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP\\kiditem-job-runner"
+          dotnet publish apps/agent-runner/windows/KidItem.JobRunner.Fixture/KidItem.JobRunner.Fixture.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP\\kiditem-job-runner-fixture"
+          & pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/__tests__/office-windows-native-runtime.fixture.ps1 `
+            -JobRunnerPath (Join-Path $env:RUNNER_TEMP 'kiditem-job-runner\\KidItem.JobRunner.exe') `
+            -FixturePath (Join-Path $env:RUNNER_TEMP 'kiditem-job-runner-fixture\\KidItem.JobRunner.Fixture.exe') `
+            -RunnerEntrypoint (Resolve-Path 'apps/agent-runner/dist/main.cjs') `
+            -DeploymentScript (Resolve-Path 'deploy/office/apply-deployment.ps1')
           npm pack --workspace=apps/agent-runner --dry-run

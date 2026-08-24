@@ -126,8 +126,19 @@ jobs:
           npm ci
           npm run build --workspace=packages/shared
           npm run build --workspace=apps/agent-runner
-          npm exec --workspace=apps/agent-runner vitest -- run src/platform/windows
+          npm exec --workspace=apps/agent-runner vitest -- run src/platform/windows src/config/runner-config.windows.integration.spec.ts
           dotnet publish apps/agent-runner/windows/KidItem.JobRunner/KidItem.JobRunner.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP\\kiditem-job-runner"
+          dotnet publish apps/agent-runner/windows/KidItem.JobRunner.Fixture/KidItem.JobRunner.Fixture.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP\\kiditem-job-runner-fixture"
+
+      - name: Run Windows-native Runner deployment fixtures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/__tests__/office-windows-native-runtime.fixture.ps1 `
+            -JobRunnerPath (Join-Path $env:RUNNER_TEMP 'kiditem-job-runner\\KidItem.JobRunner.exe') `
+            -FixturePath (Join-Path $env:RUNNER_TEMP 'kiditem-job-runner-fixture\\KidItem.JobRunner.Fixture.exe') `
+            -RunnerEntrypoint (Resolve-Path 'apps/agent-runner/dist/main.cjs') `
+            -DeploymentScript (Resolve-Path 'deploy/office/apply-deployment.ps1')
 
       - name: Build and verify the immutable Windows Runner archive
         id: bundle
@@ -156,15 +167,36 @@ jobs:
           tar -xf (Join-Path $verifyRoot 'agent-runner.tgz') -C $verifyRoot
           $runtimeContract = Get-Content -LiteralPath (Join-Path $verifyRoot 'runner-runtime-contract.json') -Raw | ConvertFrom-Json
           if ($runtimeContract.platform -ne 'windows' -or $runtimeContract.nodeMajor -ne 22 -or $runtimeContract.codexVersion -ne '0.149.1' -or $runtimeContract.claudeVersion -ne '2.1.241' -or $runtimeContract.mcpProtocolRevision -ne '2026-07-28') { throw 'Runner runtime contract is invalid.' }
-          node (Join-Path $verifyPackage 'node_modules\\@openai\\codex\\bin\\codex.js') --version
-          & (Join-Path $verifyPackage 'node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe') --version
+          function Assert-BundledCliVersion {
+            param(
+              [Parameter(Mandatory = $true)][string]$Name,
+              [Parameter(Mandatory = $true)][string]$Executable,
+              [Parameter(Mandatory = $true)][string[]]$Arguments,
+              [Parameter(Mandatory = $true)][string]$ExpectedVersion
+            )
+            $output = & $Executable @Arguments 2>&1 | Out-String
+            $exitCode = $LASTEXITCODE
+            $boundedOutput = $output.Trim()
+            if ($boundedOutput.Length -gt 256) { $boundedOutput = $boundedOutput.Substring(0, 256) }
+            if ($exitCode -ne 0) { throw "$Name version command failed." }
+            $accepted = if ($Name -eq 'Codex') {
+              @($ExpectedVersion, "codex $ExpectedVersion", "codex-cli $ExpectedVersion")
+            } else {
+              @($ExpectedVersion, "claude $ExpectedVersion", "$ExpectedVersion (Claude Code)", "Claude Code $ExpectedVersion")
+            }
+            if ($accepted -notcontains $boundedOutput) { throw "$Name version does not match the immutable Runner runtime contract." }
+          }
+          Assert-BundledCliVersion -Name Codex -Executable node -Arguments @((Join-Path $verifyPackage 'node_modules\\@openai\\codex\\bin\\codex.js'), '--version') -ExpectedVersion '0.149.1'
+          Assert-BundledCliVersion -Name Claude -Executable (Join-Path $verifyPackage 'node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe') -Arguments @('--version') -ExpectedVersion '2.1.241'
           # Run the unpacked Windows Job Object fixture: malformed structured
           # input must be rejected without ever creating a listener or shell.
           '{"unexpected":true}' | & (Join-Path $verifyRoot 'KidItem.JobRunner.exe')
           if ($LASTEXITCODE -ne 64) { throw 'unpacked Windows Job Object helper rejected malformed input incorrectly.' }
+          $global:LASTEXITCODE = 0
 
           $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           "sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
+          exit 0
 
       - name: Upload immutable Windows Runner archive
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

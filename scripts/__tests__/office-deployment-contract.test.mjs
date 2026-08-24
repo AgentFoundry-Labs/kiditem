@@ -118,8 +118,8 @@ test('office operator guards identity, disk, revision, health, and rollback', ()
 test('office deployment renders a manifest-derived candidate env and rejects stale images before writers stop', () => {
   const script = read('deploy/office/apply-deployment.ps1');
   const candidate = script.indexOf('Write-DeployEnv $candidateDeployEnv $manifest');
-  const render = script.indexOf('Assert-RenderedManifestDeployment $manifest');
-  const stop = script.indexOf('Invoke-Checked docker @script:ComposeArgs stop api worker web nginx');
+  const render = script.indexOf('Assert-RenderedManifestDeployment $manifest', candidate);
+  const stop = script.indexOf('Invoke-Checked docker @script:ComposeArgs stop api worker web nginx', candidate);
 
   assert.ok(candidate >= 0, 'candidate deploy env must be derived from the signed manifest');
   assert.ok(render > candidate && render < stop, 'rendered images/SHA/version must be checked before stopping writers');
@@ -271,14 +271,18 @@ test('PR validation exercises the Windows Runner packaging boundary without a ho
     /dotnet publish apps\/agent-runner\/windows\/KidItem\.JobRunner\/KidItem\.JobRunner\.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true/,
   );
   assert.match(workflow, /npm pack --workspace=apps\/agent-runner --dry-run/);
+  assert.match(workflow, /node --test scripts\/__tests__\/office-deployment-contract\.test\.mjs/);
+  assert.match(workflow, /\[System\.Management\.Automation\.Language\.Parser\]::ParseFile\('deploy\/office\/apply-deployment\.ps1'/);
+  assert.match(workflow, /office-windows-native-runtime\.fixture\.ps1/);
+  assert.match(workflow, /KidItem\.JobRunner\.Fixture\.csproj/);
 });
 
 test('Office operator binds API, Runner package, scheduler, token rotation, and rollback to one release identity', () => {
   const script = read('deploy/office/apply-deployment.ps1');
   const compose = read('deploy/office/compose.office.yml');
 
-  assert.match(script, /ValidateSet\('Deploy', 'Status', 'Rollback', 'RotateRunnerToken'\)/);
-  assert.match(script, /\$OfficeRoot = 'C:\\ProgramData\\KidItem'/);
+  assert.match(script, /ValidateSet\('Deploy', 'CutoverDeploy', 'Status', 'Rollback', 'RotateRunnerToken'\)/);
+  assert.match(script, /\$script:OfficeRoot = 'C:\\ProgramData\\KidItem'/);
   assert.match(script, /schemaVersion -ne 2/);
   assert.match(script, /runnerArtifact/);
   assert.match(script, /runnerArtifactSha256/);
@@ -321,6 +325,10 @@ test('Office operator binds API, Runner package, scheduler, token rotation, and 
 
 test('Office deployment validates a closed manifest/archive shape and bootstraps only the protected Runner bearer', () => {
   const script = read('deploy/office/apply-deployment.ps1');
+  const packageContents = script.slice(
+    script.indexOf('function Assert-RunnerPackageContents'),
+    script.indexOf('function Assert-RunnerArchiveEntryName'),
+  );
   const archiveCheck = script.indexOf('Assert-RunnerOuterArchiveEntries (Join-Path $candidateRoot $Manifest.runnerArtifact)');
   const expand = script.indexOf('Expand-Archive -LiteralPath (Join-Path $candidateRoot $Manifest.runnerArtifact)');
 
@@ -328,8 +336,121 @@ test('Office deployment validates a closed manifest/archive shape and bootstraps
   assert.match(script, /Compare-Object/);
   assert.match(script, /function Assert-RunnerOuterArchiveEntries/);
   assert.match(script, /\[System\.IO\.Compression\.ZipFile\]::OpenRead/);
+  assert.match(script, /function Assert-RunnerArchiveEntryName/);
+  assert.match(script, /\$Entry\.IndexOf\(\[char\]92\) -ge 0/);
+  assert.match(script, /\$name\.IndexOf\(\[char\]92\) -ge 0/);
+  assert.match(script, /tar\.exe -tvf/);
+  assert.match(script, /Runner package archive contains a non-regular entry/);
+  assert.match(script, /Runner archive contains a non-regular entry/);
+  assert.match(script, /function Assert-RunnerExtractionTree/);
+  assert.match(script, /ReparsePoint/);
+  assert.match(script, /canonical descendant escapes the candidate root/);
+  assert.match(packageContents, /Join-Path \$ReleaseRoot 'package\\\\windows\\\\KidItem\.JobRunner\.exe'/);
   assert.ok(archiveCheck >= 0 && archiveCheck < expand, 'outer archive entries must be admitted before extraction');
   assert.match(script, /if \(-not \(Test-Path -LiteralPath \$script:RunnerTokenPath -PathType Leaf\)\) \{[\s\S]*Replace-RunnerInstallationToken/);
+});
+
+test('Office deployment fails closed when rollback cannot re-establish one coherent API, web, worker, and Runner identity', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+
+  assert.match(script, /function Stop-OfficeRuntimeFailClosed/);
+  assert.match(script, /Stop-RunnerScheduledTask/);
+  assert.match(script, /stop api worker web nginx/);
+  assert.match(script, /'kiditem-api', 'kiditem-worker', 'kiditem-web', 'kiditem-nginx'/);
+  assert.match(script, /function Assert-CurrentOfficeReleaseIdentity/);
+  assert.match(script, /Restore-Transaction[\s\S]*Assert-CurrentOfficeReleaseIdentity/);
+  assert.match(script, /Stop-OfficeRuntimeFailClosed 'Automatic runtime restore also failed'/);
+  assert.match(script, /Stop-OfficeRuntimeFailClosed 'Runner token rotation rollback also failed'/);
+  assert.doesNotMatch(script, /try\s*\{\s*try\s*\{/);
+  assert.doesNotMatch(script, /Write-Warning "Automatic runtime restore also failed: \$\(_\.Exception\.Message\)"/);
+});
+
+test('Office deployment protects the derived ProgramData KidItem anchor before it creates Runner descendants', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const initialization = script.slice(
+    script.indexOf('function Initialize-RunnerStorage'),
+    script.indexOf('function Set-ComposeArguments'),
+  );
+  const officeRoot = initialization.indexOf('New-Item -ItemType Directory -Path $script:OfficeRoot -Force');
+  const protectOfficeRoot = initialization.indexOf('Set-RunnerProtectedAcl -Path $script:OfficeRoot -Mode ReadExecute -Anchor');
+  const runnerRoot = initialization.indexOf('New-Item -ItemType Directory -Path $script:RunnerRoot -Force');
+
+  assert.ok(officeRoot >= 0 && protectOfficeRoot > officeRoot && runnerRoot > protectOfficeRoot,
+    'the fixed C:\\ProgramData\\KidItem ACL anchor must be protected before Runner children inherit it');
+  assert.match(script, /function Set-RunnerProtectedAcl[\s\S]*\[switch\]\$Anchor/);
+});
+
+test('Office deployment owns one canonical ProgramData anchor instead of accepting an operator-selected root', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const runnerConfig = read('apps/agent-runner/src/config/runner-config.ts');
+  const parameters = script.slice(0, script.indexOf('Set-StrictMode'));
+
+  assert.doesNotMatch(parameters, /\[string\]\$OfficeRoot/);
+  assert.match(script, /\$script:OfficeRoot = 'C:\\ProgramData\\KidItem'/);
+  assert.match(script, /function Assert-OfficeRootAnchor/);
+  assert.match(script, /GetFullPath\('C:\\ProgramData\\KidItem'\)/);
+  assert.match(script, /Office root anchor is a reparse point/);
+  assert.match(script, /Assert-OfficeRootAnchor\s*\n\s*\$head = Assert-LiveCheckout/);
+  assert.match(runnerConfig, /function defaultWindowsProtectedPathAnchor\(\)[\s\S]*return 'C:\\\\ProgramData\\\\KidItem'/);
+  assert.doesNotMatch(runnerConfig, /defaultWindowsProtectedPathAnchor[\s\S]*process\.env\.ProgramData/);
+  assert.match(runnerConfig, /function isWindowsDeviceOrNetworkPath/);
+  assert.match(runnerConfig, /platform === 'windows' && isWindowsDeviceOrNetworkPath\(value\)/);
+  assert.match(runnerConfig, /toLocaleLowerCase\('en-US'\)/);
+});
+
+test('CutoverDeploy never restarts a prior runtime after a contracted-schema candidate failure', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const cutoverCatch = script.indexOf("if ($DeploymentMode -eq 'Cutover')");
+  const restore = script.indexOf('Restore-Transaction $backupRoot', cutoverCatch);
+
+  assert.match(script, /ValidateSet\('Deploy', 'CutoverDeploy', 'Status', 'Rollback', 'RotateRunnerToken'\)/);
+  assert.match(script, /\[switch\]\$ConfirmCutoverDeploy/);
+  assert.match(script, /CutoverDeploy requires -ConfirmCutoverDeploy/);
+  assert.match(script, /-ApplySchema is valid only with -Operation Deploy/);
+  assert.match(script, /Install-Deployment \$ManifestPath \$head -DeploymentMode Cutover/);
+  assert.ok(cutoverCatch >= 0, 'CutoverDeploy must have a dedicated fail-closed catch branch');
+  assert.ok(restore > cutoverCatch, 'normal rollback may remain only after the CutoverDeploy fail-closed branch');
+  const cutoverBranch = script.slice(cutoverCatch, restore);
+  assert.match(cutoverBranch, /Stop-OfficeRuntimeFailClosed/);
+  assert.doesNotMatch(cutoverBranch, /Restore-Transaction|up --detach --no-build api worker web nginx/);
+  assert.match(cutoverBranch, /Restore the approved pre-cutover database backup manually/);
+});
+
+test('Office Runner principal and scheduled task are read back as an exact least-privilege identity', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+
+  assert.match(script, /function Resolve-RunnerServicePrincipal/);
+  assert.match(script, /SecurityIdentifier/);
+  assert.ok(
+    script.includes('"$env:COMPUTERNAME\\$RunnerServiceAccount"'),
+    'a bare local account must be normalized to one valid NTAccount separator',
+  );
+  assert.equal(script.includes('"$env:COMPUTERNAME\\\\$RunnerServiceAccount"'), false);
+  assert.match(script, /Assert-RunnerPrincipalIsLeastPrivilege/);
+  assert.match(script, /SeBatchLogonRight/);
+  assert.match(script, /ProfileList/);
+  assert.match(script, /function Assert-RunnerScheduledTaskContract/);
+  assert.match(script, /Task\.Principal\.LogonType\.ToString\(\) -ne 'S4U'/);
+  assert.match(script, /Task\.Principal\.RunLevel\.ToString\(\) -ne 'Limited'/);
+  assert.match(script, /BootTrigger/);
+  assert.match(script, /WorkingDirectory/);
+  assert.match(script, /RestartCount/);
+});
+
+test('Office artifact verification checks each bundled CLI result before the helper fixture and clears its expected native exit', () => {
+  const workflow = read('.github/workflows/office-images.yml');
+
+  assert.match(workflow, /function Assert-BundledCliVersion/);
+  assert.match(workflow, /Codex.*0\.149\.1/);
+  assert.match(workflow, /Claude.*2\.1\.241/);
+  assert.match(workflow, /\$exitCode = \$LASTEXITCODE/);
+  assert.match(workflow, /if \(\$exitCode -ne 0\)/);
+  assert.match(workflow, /unpacked Windows Job Object helper rejected malformed input incorrectly/);
+  assert.match(workflow, /\$global:LASTEXITCODE = 0/);
+  assert.ok(
+    workflow.indexOf('Assert-BundledCliVersion') < workflow.indexOf('unpacked Windows Job Object helper'),
+    'both CLI versions must be verified before the expected helper exit is handled',
+  );
 });
 
 test('Office Runner config binds the post-promotion version root, not its temporary extraction directory', () => {

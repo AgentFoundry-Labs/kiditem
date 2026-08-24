@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 
@@ -69,6 +69,8 @@ export type RunnerProtectedPathOptions = Readonly<{
   protectedPathInspector?: RunnerProtectedPathInspector;
   /** Injected only for deterministic protected-path race tests. */
   protectedPathFilesystem?: RunnerProtectedPathFilesystem;
+  /** Test-only override. Production derives the fixed Office-owned ProgramData\\KidItem anchor. */
+  windowsProtectedPathAnchor?: string;
 }>;
 
 export type RunnerConfig = Readonly<{
@@ -91,7 +93,7 @@ export async function loadRunnerConfig(argv: readonly string[], options: RunnerC
     throw new Error('runner_arguments_invalid');
   }
   const protection = protectedPathOptions(options);
-  const configPath = await snapshotProtectedPath(argv[1]!, 'runner_config', 'file', protection.inspector, 'read');
+  const configPath = await snapshotProtectedPath(argv[1]!, 'runner_config', 'file', protection.inspector, 'read', protection.windowsProtectedPathAnchor);
   let parsed: unknown;
   try {
     parsed = JSON.parse(await readProtectedText(configPath, protection.filesystem));
@@ -102,7 +104,7 @@ export async function loadRunnerConfig(argv: readonly string[], options: RunnerC
   const config = ConfigSchema.safeParse(parsed);
   if (!config.success) throw new Error('runner_config_invalid');
   const origin = normalizeControlOrigin(config.data.controlOrigin);
-  const tokenPath = await snapshotProtectedPath(config.data.tokenFile, 'runner_token', 'file', protection.inspector, 'read');
+  const tokenPath = await snapshotProtectedPath(config.data.tokenFile, 'runner_token', 'file', protection.inspector, 'read', protection.windowsProtectedPathAnchor);
   const attemptRootGuard = await createProtectedAttemptRootGuardFromProtection(config.data.attemptRoot, protection);
   const entrypoint = options.entrypoint ?? __filename;
   const realEntrypoint = await realpath(entrypoint).catch(() => resolve(entrypoint));
@@ -113,6 +115,7 @@ export async function loadRunnerConfig(argv: readonly string[], options: RunnerC
     'directory',
     protection.inspector,
     'read_execute',
+    protection.windowsProtectedPathAnchor,
   );
   const canonicalRuntimeRoot = await realpath(runtimeRoot.path).catch(() => runtimeRoot.path);
   if (!sameRuntimeRoot(canonicalRuntimeRoot, expectedRuntimeRoot, protection.inspector.platform)) {
@@ -130,7 +133,7 @@ export async function loadRunnerConfig(argv: readonly string[], options: RunnerC
 
 export async function readInstallationToken(tokenFile: string, options: RunnerProtectedPathOptions = {}): Promise<string> {
   const protection = protectedPathOptions(options);
-  const tokenPath = await snapshotProtectedPath(tokenFile, 'runner_token', 'file', protection.inspector, 'read');
+  const tokenPath = await snapshotProtectedPath(tokenFile, 'runner_token', 'file', protection.inspector, 'read', protection.windowsProtectedPathAnchor);
   const token = (await readProtectedText(tokenPath, protection.filesystem)).trim();
   if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new Error('runner_installation_token_invalid');
   return token;
@@ -138,9 +141,11 @@ export async function readInstallationToken(tokenFile: string, options: RunnerPr
 
 /**
  * Node does not expose an openat-style API to bind an operation to already-open
- * ancestor directory descriptors. We therefore require a non-symlink, private
- * chain from filesystem root and compare snapshots around every descriptor read.
- * The Runner service identity and root/SYSTEM remain the explicit trusted writers.
+ * ancestor directory descriptors. We therefore require a non-symlink chain
+ * from filesystem root and compare snapshots around every descriptor read.
+ * Windows ACL writer enforcement begins only at the fixed Office-owned
+ * ProgramData\\KidItem anchor; the default ProgramData parent remains identity
+ * and reparse checked without treating its normal Users create grant as trust.
  */
 export async function createProtectedAttemptRootGuard(
   value: string,
@@ -152,9 +157,13 @@ export async function createProtectedAttemptRootGuard(
 
 async function createProtectedAttemptRootGuardFromProtection(
   value: string,
-  protection: Readonly<{ inspector: RunnerProtectedPathInspector; filesystem: RunnerProtectedPathFilesystem }>,
+  protection: Readonly<{
+    inspector: RunnerProtectedPathInspector;
+    filesystem: RunnerProtectedPathFilesystem;
+    windowsProtectedPathAnchor?: string;
+  }>,
 ): Promise<RunnerProtectedAttemptRootGuard> {
-  const snapshot = await snapshotProtectedPath(value, 'runner_attempt_root', 'directory', protection.inspector, 'write');
+  const snapshot = await snapshotProtectedPath(value, 'runner_attempt_root', 'directory', protection.inspector, 'write', protection.windowsProtectedPathAnchor);
   return Object.freeze({
     canonicalPath: snapshot.path,
     revalidate: async () => {
@@ -178,6 +187,8 @@ type ProtectedPathComponent = Readonly<{
   path: string;
   kind: ProtectedPathKind;
   identity: RunnerProtectedPathIdentity;
+  /** Windows ACL writer checks begin at the deployment-owned anchor, never at an arbitrary parent. */
+  enforceAclPolicy: boolean;
 }>;
 
 type ProtectedPathSnapshot = Readonly<{
@@ -191,10 +202,12 @@ type ProtectedPathSnapshot = Readonly<{
 function protectedPathOptions(options: RunnerProtectedPathOptions): Readonly<{
   inspector: RunnerProtectedPathInspector;
   filesystem: RunnerProtectedPathFilesystem;
+  windowsProtectedPathAnchor?: string;
 }> {
   return Object.freeze({
     inspector: options.protectedPathInspector ?? defaultProtectedPathInspector(),
     filesystem: options.protectedPathFilesystem ?? defaultProtectedPathFilesystem(),
+    ...(options.windowsProtectedPathAnchor ? { windowsProtectedPathAnchor: options.windowsProtectedPathAnchor } : {}),
   });
 }
 
@@ -204,10 +217,17 @@ async function snapshotProtectedPath(
   expectedKind: 'file' | 'directory',
   inspector: RunnerProtectedPathInspector,
   targetAccess: RunnerProtectedPathAccess,
+  windowsProtectedPathAnchor?: string,
 ): Promise<ProtectedPathSnapshot> {
   if (!isAbsolute(value)) throw new Error(`${label}_path_invalid`);
   const path = resolve(value);
   const policy = await protectedPathPolicy(inspector);
+  const aclAnchor = inspector.platform === 'windows'
+    ? resolve(windowsProtectedPathAnchor ?? defaultWindowsProtectedPathAnchor())
+    : null;
+  if (aclAnchor && !isPathAtOrBelow(value, aclAnchor, inspector.platform)) {
+    throw new Error('runner_protected_path_anchor_invalid');
+  }
   const components: ProtectedPathComponent[] = [];
   for (const componentPath of protectedPathComponents(path)) {
     const inspection = await inspectProtectedPath(inspector, componentPath);
@@ -220,12 +240,17 @@ async function snapshotProtectedPath(
       if (inspection.kind !== expectedKind) throw new Error(`${label}_missing`);
       assertProtectedPathPolicy(inspection, policy, targetAccess);
     } else {
-      assertProtectedAncestorPolicy(inspection, policy);
+      if (!aclAnchor || isPathAtOrBelow(componentPath, aclAnchor, inspector.platform)) {
+        assertProtectedAncestorPolicy(inspection, policy);
+      } else if (inspection.kind !== 'directory') {
+        throw new Error('runner_protected_path_ancestor_invalid');
+      }
     }
     components.push(Object.freeze({
       path: componentPath,
       kind: inspection.kind,
       identity: protectedPathIdentity(inspection),
+      enforceAclPolicy: target || !aclAnchor || isPathAtOrBelow(componentPath, aclAnchor, inspector.platform),
     }));
   }
   return Object.freeze({ path, policy, inspector, targetAccess, components: Object.freeze(components) });
@@ -243,6 +268,43 @@ function protectedPathComponents(value: string): readonly string[] {
   return components;
 }
 
+function defaultWindowsProtectedPathAnchor(): string {
+  // This is a deployment-owned contract, not a config field or environment
+  // override. C:\\ProgramData intentionally remains an identity/reparse-checked
+  // ancestor only because Windows grants ordinary Users container-create there
+  // by default; the first writer-enforced boundary is KidItem itself.
+  return 'C:\\ProgramData\\KidItem';
+}
+
+function isPathAtOrBelow(
+  value: string,
+  anchor: string,
+  platform: RunnerProtectedPathInspector['platform'] = 'macos',
+): boolean {
+  if (platform === 'windows' && isWindowsDeviceOrNetworkPath(value)) return false;
+  const candidate = resolve(value);
+  const root = resolve(anchor);
+  if (platform === 'windows') {
+    const normalizedCandidate = normalizeWindowsPath(candidate);
+    const normalizedRoot = normalizeWindowsPath(root);
+    return normalizedCandidate === normalizedRoot || normalizedCandidate.startsWith(`${normalizedRoot}\\`);
+  }
+  const relation = relative(root, candidate);
+  const contained = relation === '' || (!relation.startsWith('..') && !isAbsolute(relation));
+  return contained;
+}
+
+function isWindowsDeviceOrNetworkPath(value: string): boolean {
+  return value.startsWith('\\\\') || value.startsWith('//');
+}
+
+function normalizeWindowsPath(value: string): string {
+  return resolve(value)
+    .replaceAll('/', '\\')
+    .replace(/\\+$/, '')
+    .toLocaleLowerCase('en-US');
+}
+
 async function assertProtectedPathSnapshotIntact(snapshot: ProtectedPathSnapshot): Promise<void> {
   for (const component of snapshot.components) {
     let inspection: RunnerProtectedPathInspection | null;
@@ -253,7 +315,7 @@ async function assertProtectedPathSnapshotIntact(snapshot: ProtectedPathSnapshot
     }
     try {
       if (component.path === snapshot.path) assertProtectedPathPolicy(inspection, snapshot.policy, snapshot.targetAccess);
-      else assertProtectedAncestorPolicy(inspection, snapshot.policy);
+      else if (component.enforceAclPolicy) assertProtectedAncestorPolicy(inspection, snapshot.policy);
     } catch {
       throw new Error('runner_protected_path_changed');
     }
