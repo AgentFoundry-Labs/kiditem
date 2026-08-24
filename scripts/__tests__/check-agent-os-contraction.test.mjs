@@ -181,6 +181,7 @@ test("rejects current launch ingress execution, authority, and active-secret fie
     "runnerApiToken",
     "runnerApiKey",
     "runnerPrivateKey",
+    "refreshToken",
     "connectionString",
     "connectionUrl",
     "connectionDsn",
@@ -237,8 +238,15 @@ test("rejects ephemeral Runner state and active secrets only in scoped Prisma su
     "eventAcknowledgement",
     "pollPayload",
     "controlState",
+    "runnerProcessId",
+    "processHandle",
+    "processIdentity",
+    "attemptTokenDigest",
+    "acknowledgedAt",
+    "leaseOwner",
     "signingSecret",
     "runnerCredential",
+    "refreshToken",
   ];
 
   for (const field of controlFields) {
@@ -274,6 +282,10 @@ test("rejects ephemeral Runner state and active secrets only in scoped Prisma su
       path: "prisma/models/agent-work.prisma",
       source: "model AgentAttempt { claudeSessionId String }",
     },
+    {
+      path: "prisma/models/agent-work.prisma",
+      source: "model RunnerProcess { id String @id }",
+    },
   ]);
   for (const category of [
     "Runner control-plane persistence",
@@ -285,12 +297,32 @@ test("rejects ephemeral Runner state and active secrets only in scoped Prisma su
   assert.deepEqual(
     collectAgentOsContractionFindings([
       {
+        path: "prisma/models/runner-control.prisma",
+        source: "model RunnerProcess { id String @id }",
+      },
+    ]),
+    ["prisma/models/runner-control.prisma: Runner control-plane persistence"],
+    "a dedicated Runner process model is always ephemeral control state",
+  );
+
+  assert.deepEqual(
+    collectAgentOsContractionFindings([
+      {
         path: "prisma/models/system.prisma",
         source: "model OperationLease { leaseExpiresAt DateTime? eventHash String }",
       },
       {
         path: "prisma/models/product.prisma",
         source: "model Product { signingSecret String }",
+      },
+      {
+        path: "prisma/models/agent-work.prisma",
+        source:
+          "model AgentCapabilityInvocation { leaseOwner String? leaseExpiresAt DateTime? }",
+      },
+      {
+        path: "prisma/models/operations.prisma",
+        source: "model Operation { leaseOwner String? leaseExpiresAt DateTime? }",
       },
     ]),
     [],
@@ -351,6 +383,151 @@ test("accepts only canonical internal Runner controller prefixes", () => {
   }
 });
 
+test("composes static Nest controller and method paths for Runner routes", () => {
+  const accepted = [
+    [
+      "source-relative",
+      "@Controller('internal/agent-runtime') export class RunnerController { @Post('runner/events') post() {} }",
+    ],
+    [
+      "fully-qualified",
+      "@Controller('/api/internal/agent-runtime') export class RunnerController { @Post('runner/events') post() {} }",
+    ],
+  ];
+
+  for (const [name, source] of accepted) {
+    assert.deepEqual(
+      collectAgentOsContractionFindings([
+        {
+          path: "apps/server/src/agent-os/adapter/in/http/control/runner.controller.ts",
+          source,
+        },
+      ]),
+      [],
+      name,
+    );
+  }
+
+  assert.deepEqual(
+    collectAgentOsContractionFindings([
+      {
+        path: "apps/server/src/readiness/readiness.controller.ts",
+        source:
+          "@Controller('readiness') export class ReadinessController { @Get('agent-runtime') status() {} }",
+      },
+      {
+        path: "apps/server/src/agent-os/adapter/in/http/interaction/copilotkit.controller.ts",
+        source:
+          "@Controller('copilotkit') export class AgentWorkCopilotKitController { @All('*path') handle() {} } class FutureOnlyRunner {}",
+      },
+      {
+        path: "apps/server/src/ai/adapter/out/wing/wing-automation-runner.ts",
+        source: "export class WingAutomationRunner { run() {} }",
+      },
+    ]),
+    [],
+    "unrelated readiness, CopilotKit, and business runner names are not Runner control routes",
+  );
+
+  for (const [name, source] of [
+    [
+      "public controller with an internal method path",
+      "@Controller('public') export class RunnerController { @Post('internal/agent-runtime/poll') poll() {} }",
+    ],
+    [
+      "dynamic method path",
+      "@Controller('internal/agent-runtime') export class RunnerController { @Post(path) poll() {} }",
+    ],
+    [
+      "dynamic controller path",
+      "@Controller(prefix) export class RunnerController { @Post('runner/events') post() {} }",
+    ],
+  ]) {
+    const findings = collectAgentOsContractionFindings([
+      {
+        path: "apps/server/src/agent-os/adapter/in/http/control/runner.controller.ts",
+        source,
+      },
+    ]);
+    assert.ok(
+      findings.includes(
+        "apps/server/src/agent-os/adapter/in/http/control/runner.controller.ts: Agent runtime route outside internal prefix",
+      ),
+      name,
+    );
+  }
+});
+
+test("rejects duplicate Runner ingress contracts but permits runner-owned command builders", () => {
+  const findings = collectAgentOsContractionFindings([
+    {
+      path: "apps/server/src/agent-os/adapter/in/http/control/runner.dto.ts",
+      source: "export interface AttemptLaunchSpec { command: string; refreshToken: string; }",
+    },
+    {
+      path: "apps/agent-runner/src/control/runner-control-client.ts",
+      source: "export const RunnerPollRequestSchema = z.object({ env: z.record(z.string()) });",
+    },
+    {
+      path: "apps/agent-runner/src/runtime/provider-command-builder.ts",
+      source: "const launch = { executable: 'codex', args: [], env: {} };",
+    },
+  ]);
+
+  assert.ok(
+    findings.includes(
+      "apps/server/src/agent-os/adapter/in/http/control/runner.dto.ts: duplicate Runner control ingress contract",
+    ),
+  );
+  assert.ok(
+    findings.includes(
+      "apps/agent-runner/src/control/runner-control-client.ts: duplicate Runner control ingress contract",
+    ),
+  );
+  assert.ok(
+    !findings.some((finding) => finding.startsWith("apps/agent-runner/src/runtime/provider-command-builder.ts:")),
+  );
+});
+
+test("enforces API-wide relay, proc, and dynamic child-process ownership", () => {
+  const findings = collectAgentOsContractionFindings([
+    {
+      path: "apps/server/src/ai/adapter/out/provider/relay.ts",
+      source: "JSON.stringify({ tool: request.tool, arguments: request.arguments });",
+    },
+    {
+      path: "apps/server/src/ai/adapter/out/provider/peer-inspection.ts",
+      source: "path.join('/proc', String(process.pid), 'status');",
+    },
+    {
+      path: "apps/server/src/ai/adapter/out/provider/dynamic-process.ts",
+      source: "const childProcess = await import('node:child_process');",
+    },
+    {
+      path: "apps/server/src/ai/adapter/out/provider/required-process.ts",
+      source: "const childProcess = require('node:child_process');",
+    },
+  ]);
+
+  for (const [filePath, category] of [
+    ["apps/server/src/ai/adapter/out/provider/relay.ts", "API-owned MCP relay"],
+    [
+      "apps/server/src/ai/adapter/out/provider/peer-inspection.ts",
+      "API runtime Linux peer-process inspection",
+    ],
+    [
+      "apps/server/src/ai/adapter/out/provider/dynamic-process.ts",
+      "API-owned CLI process supervision",
+    ],
+    [
+      "apps/server/src/ai/adapter/out/provider/required-process.ts",
+      "API-owned CLI process supervision",
+    ],
+  ]) {
+    assert.ok(findings.includes(`${filePath}: ${category}`), filePath);
+  }
+});
+
 test("requires an nginx deny boundary for internal Runner routes", () => {
   assert.deepEqual(
     collectAgentOsContractionFindings([
@@ -368,5 +545,15 @@ test("requires an nginx deny boundary for internal Runner routes", () => {
         source: "location /api/internal/agent-runtime/ { proxy_pass http://kiditem_api; }",
       },
     ]).includes("deploy/office/nginx.conf: nginx internal Agent runtime deny boundary"),
+  );
+  assert.ok(
+    collectAgentOsContractionFindings([
+      {
+        path: "deploy/office/nginx.conf",
+        source:
+          "location ^~ /api/internal/agent-runtime/ { proxy_pass http://kiditem_api; }\nlocation / { return 404; }",
+      },
+    ]).includes("deploy/office/nginx.conf: nginx internal Agent runtime deny boundary"),
+    "a return in a later nginx location must not satisfy the internal route deny",
   );
 });

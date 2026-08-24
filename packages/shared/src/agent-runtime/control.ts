@@ -70,6 +70,7 @@ const ACTIVE_SECRET_COMPOSITES = [
   'apitoken',
   'apikey',
   'privatekey',
+  'refreshtoken',
   'connectionstring',
   'connectionurl',
   'connectiondsn',

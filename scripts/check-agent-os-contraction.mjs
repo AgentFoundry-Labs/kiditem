@@ -66,6 +66,7 @@ const ACTIVE_SECRET_COMPOSITES = [
   "apitoken",
   "apikey",
   "privatekey",
+  "refreshtoken",
   "connectionstring",
   "connectionurl",
   "connectiondsn",
@@ -78,10 +79,40 @@ const EPHEMERAL_RUNNER_CONTROL_PREFIXES = [
   "poll",
   "token",
   "ack",
+  "acknowledged",
   "control",
   "state",
+  "process",
 ];
-const EPHEMERAL_RUNNER_CONTROL_SUFFIX = /^(?:id|seq|payload|batch|ack(?:nowledg(?:e)?ment)?|token|expires(?:at)?|expiry|deadline|ttl(?:ms)?|state|lease|command|event|poll|control)?$/;
+const EPHEMERAL_RUNNER_CONTROL_SUFFIXES = new Set([
+  "id",
+  "pid",
+  "seq",
+  "payload",
+  "batch",
+  "ack",
+  "acknowledgement",
+  "acknowledgedat",
+  "acknowledgementat",
+  "token",
+  "tokendigest",
+  "expires",
+  "expiresat",
+  "expiry",
+  "deadline",
+  "ttl",
+  "ttlms",
+  "state",
+  "lease",
+  "command",
+  "event",
+  "poll",
+  "control",
+  "owner",
+  "handle",
+  "identity",
+  "at",
+]);
 
 function sourceFile(filePath, source) {
   return ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true);
@@ -186,7 +217,7 @@ function isRunnerControlModel(name) {
 }
 
 function isDedicatedRunnerControlModel(name) {
-  return /^(?:runner|agentruntime)(?:lease|command|event|poll|token|ack|control|state)/.test(
+  return /^(?:runner|agentruntime)(?:process|lease|command|event|poll|token|ack|control|state)/.test(
     normalizedName(name),
   );
 }
@@ -194,7 +225,7 @@ function isDedicatedRunnerControlModel(name) {
 function isEphemeralRunnerControlName(normalized) {
   return EPHEMERAL_RUNNER_CONTROL_PREFIXES.some((prefix) => {
     if (!normalized.startsWith(prefix)) return false;
-    return EPHEMERAL_RUNNER_CONTROL_SUFFIX.test(normalized.slice(prefix.length));
+    return EPHEMERAL_RUNNER_CONTROL_SUFFIXES.has(normalized.slice(prefix.length));
   });
 }
 
@@ -358,29 +389,177 @@ function hasRawLaunchField(filePath, source) {
   return found;
 }
 
-function routeEntries(source) {
-  const decorators = [
-    ...source.matchAll(
-      /@(?:All|Controller|Delete|Get|Patch|Post|Put)\s*\(\s*['"`]([^'"`]*)['"`]/g,
-    ),
-  ].map((match) => ({
-    decorator: match[0].match(/@([A-Za-z]+)/)?.[1] ?? "",
-    route: match[1],
-  }));
-  const basePaths = [...source.matchAll(/basePath\s*:\s*['"`]([^'"`]*)['"`]/g)].map(
-    (match) => ({ decorator: "basePath", route: match[1] }),
+function isServerRunnerHttpIngressSurface(filePath) {
+  return /^apps\/server\/src\/agent-os\/(?:[^/]+\/)*adapter\/in\/http\//.test(filePath);
+}
+
+function isRunnerControlClientIngressSurface(filePath) {
+  if (!filePath.startsWith("apps/agent-runner/src/")) return false;
+  const runnerRelativePath = filePath.slice("apps/agent-runner/src/".length);
+  return (
+    /(?:^|\/)(?:control(?:-client)?|http-client|transport)(?:\/|$)/.test(
+      runnerRelativePath,
+    ) || /(?:^|\/)runner-control-client\.[^.]+$/.test(runnerRelativePath)
   );
-  return [...decorators, ...basePaths];
+}
+
+function isRunnerIngressSurface(filePath) {
+  return (
+    isServerRunnerHttpIngressSurface(filePath) ||
+    isRunnerControlClientIngressSurface(filePath)
+  );
+}
+
+function isRunnerIngressDeclarationName(name) {
+  return /^(?:attemptlaunchspec|runner(?:hello|poll|command|event|lease|control))(?:schema|dto|request|response|batch|ack(?:nowledgement)?|payload|body|input|output|ingress)*$/.test(
+    normalizedName(name),
+  );
+}
+
+function declarationName(node) {
+  if (
+    (ts.isClassDeclaration(node) ||
+      ts.isInterfaceDeclaration(node) ||
+      ts.isTypeAliasDeclaration(node) ||
+      ts.isFunctionDeclaration(node)) &&
+    node.name
+  ) {
+    return node.name.text;
+  }
+  if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) return node.name.text;
+  return null;
+}
+
+function hasForbiddenIngressFieldInDeclaration(node) {
+  let found = false;
+  const visit = (child) => {
+    if (ts.isPropertySignature(child) || ts.isPropertyDeclaration(child)) {
+      const name = propertyName(child.name);
+      if (name && isRawLaunchFieldName(name)) found = true;
+    }
+    if (ts.isPropertyAssignment(child)) {
+      const name = propertyName(child.name);
+      if (name && isRawLaunchFieldName(name)) found = true;
+    }
+    ts.forEachChild(child, visit);
+  };
+  visit(node);
+  return found;
+}
+
+function hasDuplicateRunnerIngressContract(filePath, source) {
+  if (!isRunnerIngressSurface(filePath)) return false;
+  let found = false;
+  const visit = (node) => {
+    const name = declarationName(node);
+    if (
+      name &&
+      isRunnerIngressDeclarationName(name) &&
+      hasForbiddenIngressFieldInDeclaration(node)
+    ) {
+      found = true;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile(filePath, source));
+  return found;
+}
+
+function decoratorsFor(node) {
+  return node.modifiers?.filter(ts.isDecorator) ?? [];
+}
+
+function decoratorName(decorator) {
+  const expression = decorator.expression;
+  if (!ts.isCallExpression(expression)) return null;
+  if (ts.isIdentifier(expression.expression)) return expression.expression.text;
+  if (ts.isPropertyAccessExpression(expression.expression)) return expression.expression.name.text;
+  return null;
+}
+
+function staticDecoratorRoute(decorator) {
+  const expression = decorator.expression;
+  if (!ts.isCallExpression(expression)) return { dynamic: true, route: null };
+  if (expression.arguments.length === 0) return { dynamic: false, route: "" };
+  const [argument] = expression.arguments;
+  if (ts.isStringLiteral(argument) || ts.isNoSubstitutionTemplateLiteral(argument)) {
+    return { dynamic: false, route: argument.text };
+  }
+  return { dynamic: true, route: null };
+}
+
+function hasInternalAgentRuntimeRouteHint(value) {
+  return /(?:^|\/)internal\/agent-runtime(?:\/|$)/i.test(value);
+}
+
+function isRunnerControlControllerName(value) {
+  return /(?:runner|agentruntime)controller$/i.test(value);
+}
+
+function isCanonicalRunnerBasePath(value) {
+  return /^\/?(?:api\/)?internal\/agent-runtime(?:\/|$)/.test(value);
+}
+
+function effectiveNestRoute(base, method) {
+  const normalizedBase = base.replace(/^\/+|\/+$/g, "");
+  const normalizedMethod = method.replace(/^\/+|\/+$/g, "");
+  const prefixedBase = normalizedBase.startsWith("api/")
+    ? normalizedBase
+    : `api/${normalizedBase}`;
+  return `/${[prefixedBase, normalizedMethod].filter(Boolean).join("/")}`;
 }
 
 function hasInternalAgentRuntimeRouteOutsidePrefix(source) {
-  return routeEntries(source).some(
-    ({ decorator, route }) =>
-      ((decorator === "Controller" || decorator === "basePath")
-        ? /(?:runner|agent-runtime)/i.test(route)
-        : /(?:runner|(?:^|\/)internal\/agent-runtime)/i.test(route)) &&
-      !/^\/?(?:api\/)?internal\/agent-runtime(?:\/|$)/.test(route),
-  );
+  let found = false;
+  const visit = (node) => {
+    if (!ts.isClassDeclaration(node)) {
+      ts.forEachChild(node, visit);
+      return;
+    }
+
+    const controller = decoratorsFor(node).find(
+      (decorator) => decoratorName(decorator) === "Controller",
+    );
+    if (!controller) {
+      ts.forEachChild(node, visit);
+      return;
+    }
+    const methods = node.members.flatMap((member) =>
+      decoratorsFor(member)
+        .filter((decorator) => /^(?:All|Delete|Get|Patch|Post|Put)$/.test(decoratorName(decorator) ?? ""))
+        .map(staticDecoratorRoute),
+    );
+    const controllerRoute = controller ? staticDecoratorRoute(controller) : null;
+    const className = node.name?.text ?? "";
+    const hasStaticRunnerRoute = [controllerRoute, ...methods].some(
+      (route) =>
+        route &&
+        !route.dynamic &&
+        hasInternalAgentRuntimeRouteHint(route.route),
+    );
+    const isRunnerRouteContext =
+      isRunnerControlControllerName(className) || hasStaticRunnerRoute;
+
+    if (isRunnerRouteContext) {
+      if (
+        !controllerRoute ||
+        controllerRoute.dynamic ||
+        methods.some((route) => route.dynamic) ||
+        !isCanonicalRunnerBasePath(controllerRoute.route)
+      ) {
+        found = true;
+      } else {
+        found ||= methods.some(
+          (method) => !/^\/api\/internal\/agent-runtime(?:\/|$)/.test(
+            effectiveNestRoute(controllerRoute.route, method.route),
+          ),
+        );
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile("runner-route.ts", source));
+  return found;
 }
 
 function hasCustomMcpRelay(filePath, source) {
@@ -466,11 +645,11 @@ function hasChildProcessBinding(filePath, source) {
   const visit = (node) => {
     if (
       ts.isCallExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "require" &&
       node.arguments.length === 1 &&
       ts.isStringLiteral(node.arguments[0]) &&
-      /^(?:node:)?child_process$/.test(node.arguments[0].text)
+      /^(?:node:)?child_process$/.test(node.arguments[0].text) &&
+      ((ts.isIdentifier(node.expression) && node.expression.text === "require") ||
+        node.expression.kind === ts.SyntaxKind.ImportKeyword)
     ) {
       found = true;
     }
@@ -487,9 +666,21 @@ function hasProviderCliProcessApi(source) {
 }
 
 function hasNginxInternalAgentRuntimeDenyBoundary(source) {
-  return /location\s+\^~\s+\/api\/internal\/(?:agent-runtime\/)?\s*\{[\s\S]*?return\s+404\s*;/m.test(
-    source,
-  );
+  const location = /location\s+\^~\s+\/api\/internal\/(?:agent-runtime\/)?\s*\{/g;
+  let match;
+  while ((match = location.exec(source))) {
+    const openBrace = source.indexOf("{", match.index);
+    let depth = 0;
+    for (let index = openBrace; index < source.length; index += 1) {
+      if (source[index] === "{") depth += 1;
+      if (source[index] === "}") depth -= 1;
+      if (depth === 0) {
+        if (/\breturn\s+404\s*;/.test(source.slice(openBrace, index + 1))) return true;
+        break;
+      }
+    }
+  }
+  return false;
 }
 
 function findingsFor({ path: filePath, source }) {
@@ -509,7 +700,7 @@ function findingsFor({ path: filePath, source }) {
   if (isServerSource && hasUdsOrStdioRelay(source)) {
     findings.push("API-owned UDS/stdio relay");
   }
-  if (isAgentOsSource && hasCustomMcpRelay(filePath, source)) {
+  if (isServerSource && hasCustomMcpRelay(filePath, source)) {
     findings.push("API-owned MCP relay");
   }
   if (
@@ -537,7 +728,7 @@ function findingsFor({ path: filePath, source }) {
   ) {
     findings.push("API-owned CLI process supervision");
   }
-  if (isAgentOsSource && hasProcInspection(filePath, source)) {
+  if (isServerSource && hasProcInspection(filePath, source)) {
     findings.push("API runtime Linux peer-process inspection");
   }
   if (
@@ -566,6 +757,9 @@ function findingsFor({ path: filePath, source }) {
   }
   if (hasDuplicateRuntimeContract(filePath, source)) {
     findings.push("duplicate runtime train/platform contract");
+  }
+  if (hasDuplicateRunnerIngressContract(filePath, source)) {
+    findings.push("duplicate Runner control ingress contract");
   }
   if (isServerSource && hasInternalAgentRuntimeRouteOutsidePrefix(source)) {
     findings.push("Agent runtime route outside internal prefix");

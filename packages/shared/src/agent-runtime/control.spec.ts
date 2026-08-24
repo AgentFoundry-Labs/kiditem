@@ -43,6 +43,7 @@ const FORBIDDEN_CONTROL_PROPERTY_NAMES = [
   'runnerApiToken',
   'runnerApiKey',
   'runnerPrivateKey',
+  'refreshToken',
   'connectionString',
   'connectionUrl',
   'connectionDsn',
