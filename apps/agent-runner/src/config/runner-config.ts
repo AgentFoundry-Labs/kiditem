@@ -1,7 +1,8 @@
-import { homedir } from 'node:os';
-import { lstat, readFile, realpath } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { constants } from 'node:fs';
+import { lstat, open, realpath } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 
@@ -13,11 +14,17 @@ const ConfigSchema = z.object({
 
 type ProtectedPathKind = 'file' | 'directory' | 'other';
 
+export type RunnerProtectedPathIdentity = Readonly<{
+  device: string;
+  inode: string;
+}>;
+
 export type RunnerProtectedPathInspection = Readonly<{
   kind: ProtectedPathKind;
   isSymbolicLink: boolean;
   uid?: number;
   mode?: number;
+  identity?: RunnerProtectedPathIdentity;
   windowsAcl?: Readonly<{
     owner: string;
     entries: readonly Readonly<{
@@ -35,23 +42,43 @@ export type RunnerProtectedPathInspector = Readonly<{
   currentServiceIdentity?: () => Promise<string>;
 }>;
 
+export type RunnerProtectedPathFilesystem = Readonly<{
+  openReadOnly: (path: string) => Promise<Readonly<{
+    readFile: () => Promise<string | Buffer>;
+    stat: () => Promise<Readonly<{ dev?: number | bigint; ino?: number | bigint }>>;
+    close: () => Promise<void>;
+  }>>;
+}>;
+
 export type RunnerProtectedPathPolicy =
   | Readonly<{ platform: 'macos'; currentUid: number }>
   | Readonly<{ platform: 'windows'; currentServiceIdentity: string }>;
+
+export type RunnerProtectedAttemptRootGuard = Readonly<{
+  canonicalPath: string;
+  /** Rechecks the original ancestor/object snapshot immediately before workspace mutation. */
+  revalidate: () => Promise<string>;
+}>;
+
+export type RunnerProtectedPathOptions = Readonly<{
+  /** Injected only for platform verification; production uses the native fail-closed inspector. */
+  protectedPathInspector?: RunnerProtectedPathInspector;
+  /** Injected only for deterministic protected-path race tests. */
+  protectedPathFilesystem?: RunnerProtectedPathFilesystem;
+}>;
 
 export type RunnerConfig = Readonly<{
   controlOrigin: string;
   tokenFile: string;
   attemptRoot: string;
+  attemptRootGuard: RunnerProtectedAttemptRootGuard;
   runtimeRoot: string;
   loginRoot: string;
 }>;
 
-export type RunnerConfigOptions = Readonly<{
+export type RunnerConfigOptions = RunnerProtectedPathOptions & Readonly<{
   entrypoint?: string;
   loginRoot?: string;
-  /** Injected only for platform verification; production uses the native fail-closed inspector. */
-  protectedPathInspector?: RunnerProtectedPathInspector;
 }>;
 
 /** Parses the only Runner ingress: `--config <absolute protected JSON path>`. */
@@ -59,31 +86,67 @@ export async function loadRunnerConfig(argv: readonly string[], options: RunnerC
   if (argv.length !== 2 || argv[0] !== '--config' || !isAbsolute(argv[1]!)) {
     throw new Error('runner_arguments_invalid');
   }
-  const protectedPaths = options.protectedPathInspector ?? defaultProtectedPathInspector();
-  const configPath = await safeRealFile(argv[1]!, 'runner_config', protectedPaths);
+  const protection = protectedPathOptions(options);
+  const configPath = await snapshotProtectedPath(argv[1]!, 'runner_config', 'file', protection.inspector);
   let parsed: unknown;
-  try { parsed = JSON.parse(await readFile(configPath, 'utf8')); } catch { throw new Error('runner_config_invalid'); }
+  try {
+    parsed = JSON.parse(await readProtectedText(configPath, protection.filesystem));
+  } catch (error) {
+    if (isProtectedPathError(error)) throw error;
+    throw new Error('runner_config_invalid');
+  }
   const config = ConfigSchema.safeParse(parsed);
   if (!config.success) throw new Error('runner_config_invalid');
   const origin = normalizeControlOrigin(config.data.controlOrigin);
-  const tokenFile = await safeRealFile(config.data.tokenFile, 'runner_token', protectedPaths);
-  const attemptRoot = await safeRealDirectory(config.data.attemptRoot, 'runner_attempt_root', protectedPaths);
+  const tokenPath = await snapshotProtectedPath(config.data.tokenFile, 'runner_token', 'file', protection.inspector);
+  const attemptRootGuard = await createProtectedAttemptRootGuardFromProtection(config.data.attemptRoot, protection);
   const entrypoint = options.entrypoint ?? __filename;
   const realEntrypoint = await realpath(entrypoint).catch(() => resolve(entrypoint));
   const runtimeRoot = dirname(dirname(realEntrypoint));
   return Object.freeze({
     controlOrigin: origin,
-    tokenFile,
-    attemptRoot,
+    tokenFile: tokenPath.path,
+    attemptRoot: attemptRootGuard.canonicalPath,
+    attemptRootGuard,
     runtimeRoot,
     loginRoot: options.loginRoot ?? homedir(),
   });
 }
 
-export async function readInstallationToken(tokenFile: string): Promise<string> {
-  const token = (await readFile(tokenFile, 'utf8')).trim();
+export async function readInstallationToken(tokenFile: string, options: RunnerProtectedPathOptions = {}): Promise<string> {
+  const protection = protectedPathOptions(options);
+  const tokenPath = await snapshotProtectedPath(tokenFile, 'runner_token', 'file', protection.inspector);
+  const token = (await readProtectedText(tokenPath, protection.filesystem)).trim();
   if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new Error('runner_installation_token_invalid');
   return token;
+}
+
+/**
+ * Node does not expose an openat-style API to bind an operation to already-open
+ * ancestor directory descriptors. We therefore require a non-symlink, private
+ * chain from filesystem root and compare snapshots around every descriptor read.
+ * The Runner service identity and root/SYSTEM remain the explicit trusted writers.
+ */
+export async function createProtectedAttemptRootGuard(
+  value: string,
+  options: RunnerProtectedPathOptions = {},
+): Promise<RunnerProtectedAttemptRootGuard> {
+  const protection = protectedPathOptions(options);
+  return createProtectedAttemptRootGuardFromProtection(value, protection);
+}
+
+async function createProtectedAttemptRootGuardFromProtection(
+  value: string,
+  protection: Readonly<{ inspector: RunnerProtectedPathInspector; filesystem: RunnerProtectedPathFilesystem }>,
+): Promise<RunnerProtectedAttemptRootGuard> {
+  const snapshot = await snapshotProtectedPath(value, 'runner_attempt_root', 'directory', protection.inspector);
+  return Object.freeze({
+    canonicalPath: snapshot.path,
+    revalidate: async () => {
+      await assertProtectedPathSnapshotIntact(snapshot);
+      return snapshot.path;
+    },
+  });
 }
 
 function normalizeControlOrigin(value: string): string {
@@ -96,49 +159,146 @@ function normalizeControlOrigin(value: string): string {
   return url.origin;
 }
 
-async function safeRealFile(value: string, label: string, inspector: RunnerProtectedPathInspector): Promise<string> {
-  return safeRealProtectedPath(value, label, 'file', inspector);
+type ProtectedPathComponent = Readonly<{
+  path: string;
+  kind: ProtectedPathKind;
+  identity: RunnerProtectedPathIdentity;
+}>;
+
+type ProtectedPathSnapshot = Readonly<{
+  path: string;
+  policy: RunnerProtectedPathPolicy;
+  inspector: RunnerProtectedPathInspector;
+  components: readonly ProtectedPathComponent[];
+}>;
+
+function protectedPathOptions(options: RunnerProtectedPathOptions): Readonly<{
+  inspector: RunnerProtectedPathInspector;
+  filesystem: RunnerProtectedPathFilesystem;
+}> {
+  return Object.freeze({
+    inspector: options.protectedPathInspector ?? defaultProtectedPathInspector(),
+    filesystem: options.protectedPathFilesystem ?? defaultProtectedPathFilesystem(),
+  });
 }
 
-async function safeRealDirectory(value: string, label: string, inspector: RunnerProtectedPathInspector): Promise<string> {
-  return safeRealProtectedPath(value, label, 'directory', inspector);
-}
-
-async function safeRealProtectedPath(
+async function snapshotProtectedPath(
   value: string,
   label: string,
   expectedKind: 'file' | 'directory',
   inspector: RunnerProtectedPathInspector,
-): Promise<string> {
+): Promise<ProtectedPathSnapshot> {
   if (!isAbsolute(value)) throw new Error(`${label}_path_invalid`);
-  const inspection = await inspectProtectedPath(inspector, value);
-  if (!inspection) throw new Error(`${label}_missing`);
-  if (inspection.isSymbolicLink) throw new Error(`${label}_symlink_rejected`);
-  if (inspection.kind !== expectedKind) throw new Error(`${label}_missing`);
-  await assertProtectedPathPolicyForInspector(inspection, inspector);
-  return realpath(value).catch(() => { throw new Error(`${label}_missing`); });
+  const path = resolve(value);
+  const policy = await protectedPathPolicy(inspector);
+  const components: ProtectedPathComponent[] = [];
+  for (const componentPath of protectedPathComponents(path)) {
+    const inspection = await inspectProtectedPath(inspector, componentPath);
+    if (!inspection) throw new Error(`${label}_missing`);
+    const target = componentPath === path;
+    if (inspection.isSymbolicLink) {
+      throw new Error(target ? `${label}_symlink_rejected` : 'runner_protected_path_ancestor_symlink_rejected');
+    }
+    if (target) {
+      if (inspection.kind !== expectedKind) throw new Error(`${label}_missing`);
+      assertProtectedPathPolicy(inspection, policy);
+    } else {
+      assertProtectedAncestorPolicy(inspection, policy);
+    }
+    components.push(Object.freeze({
+      path: componentPath,
+      kind: inspection.kind,
+      identity: protectedPathIdentity(inspection),
+    }));
+  }
+  return Object.freeze({ path, policy, inspector, components: Object.freeze(components) });
 }
 
-async function inspectProtectedPath(inspector: RunnerProtectedPathInspector, value: string): Promise<RunnerProtectedPathInspection | null> {
-  try { return await inspector.inspect(value); }
-  catch { throw new Error('runner_protected_path_inspection_failed'); }
+function protectedPathComponents(value: string): readonly string[] {
+  const root = parse(value).root;
+  const parts = value.slice(root.length).split(sep).filter(Boolean);
+  const components = [root];
+  let current = root;
+  for (const part of parts) {
+    current = join(current, part);
+    components.push(current);
+  }
+  return components;
 }
 
-async function assertProtectedPathPolicyForInspector(
-  inspection: RunnerProtectedPathInspection,
-  inspector: RunnerProtectedPathInspector,
+async function assertProtectedPathSnapshotIntact(snapshot: ProtectedPathSnapshot): Promise<void> {
+  for (const component of snapshot.components) {
+    let inspection: RunnerProtectedPathInspection | null;
+    try { inspection = await snapshot.inspector.inspect(component.path); }
+    catch { throw new Error('runner_protected_path_changed'); }
+    if (!inspection || inspection.isSymbolicLink || inspection.kind !== component.kind || !sameIdentity(protectedPathIdentityOrNull(inspection), component.identity)) {
+      throw new Error('runner_protected_path_changed');
+    }
+    try {
+      if (component.path === snapshot.path) assertProtectedPathPolicy(inspection, snapshot.policy);
+      else assertProtectedAncestorPolicy(inspection, snapshot.policy);
+    } catch {
+      throw new Error('runner_protected_path_changed');
+    }
+  }
+}
+
+async function readProtectedText(snapshot: ProtectedPathSnapshot, filesystem: RunnerProtectedPathFilesystem): Promise<string> {
+  const handle = await filesystem.openReadOnly(snapshot.path).catch(() => { throw new Error('runner_protected_path_changed'); });
+  try {
+    await assertProtectedFileHandleMatches(handle, snapshot);
+    await assertProtectedPathSnapshotIntact(snapshot);
+    const content = await handle.readFile();
+    await assertProtectedFileHandleMatches(handle, snapshot);
+    await assertProtectedPathSnapshotIntact(snapshot);
+    return typeof content === 'string' ? content : content.toString('utf8');
+  } catch (error) {
+    if (isProtectedPathError(error)) throw error;
+    throw new Error('runner_protected_path_changed');
+  } finally {
+    try { await handle.close(); }
+    catch { throw new Error('runner_protected_path_io_failed'); }
+  }
+}
+
+async function assertProtectedFileHandleMatches(
+  handle: Awaited<ReturnType<RunnerProtectedPathFilesystem['openReadOnly']>>,
+  snapshot: ProtectedPathSnapshot,
 ): Promise<void> {
+  const identity = protectedPathIdentity(await handle.stat());
+  const target = snapshot.components[snapshot.components.length - 1]!;
+  if (!sameIdentity(identity, target.identity)) throw new Error('runner_protected_path_changed');
+}
+
+function inspectProtectedPath(inspector: RunnerProtectedPathInspector, value: string): Promise<RunnerProtectedPathInspection | null> {
+  return inspector.inspect(value).catch(() => { throw new Error('runner_protected_path_inspection_failed'); });
+}
+
+async function protectedPathPolicy(inspector: RunnerProtectedPathInspector): Promise<RunnerProtectedPathPolicy> {
   if (inspector.platform === 'macos') {
     const uid = inspector.currentUid?.();
     if (uid === undefined) throw new Error('runner_protected_path_owner_invalid');
-    assertProtectedPathPolicy(inspection, { platform: 'macos', currentUid: uid });
-    return;
+    return Object.freeze({ platform: 'macos', currentUid: uid });
   }
   let identity: string | undefined;
   try { identity = await inspector.currentServiceIdentity?.(); }
   catch { throw new Error('runner_protected_path_acl_invalid'); }
   if (!identity) throw new Error('runner_protected_path_acl_invalid');
-  assertProtectedPathPolicy(inspection, { platform: 'windows', currentServiceIdentity: identity });
+  return Object.freeze({ platform: 'windows', currentServiceIdentity: identity });
+}
+
+function assertProtectedAncestorPolicy(inspection: RunnerProtectedPathInspection, policy: RunnerProtectedPathPolicy): void {
+  if (inspection.kind !== 'directory') throw new Error('runner_protected_path_ancestor_invalid');
+  if (policy.platform === 'windows') {
+    assertProtectedPathPolicy(inspection, policy);
+    return;
+  }
+  if (inspection.uid === undefined || (inspection.uid !== policy.currentUid && inspection.uid !== 0)) {
+    throw new Error('runner_protected_path_owner_invalid');
+  }
+  if (inspection.mode === undefined || (inspection.mode & 0o022) !== 0) {
+    throw new Error('runner_protected_path_permissions_invalid');
+  }
 }
 
 /** Pure protected-path policy so Windows ACL behavior is unit-testable from macOS. */
@@ -167,25 +327,78 @@ export function assertProtectedPathPolicy(inspection: RunnerProtectedPathInspect
   }
 }
 
+function protectedPathIdentity(inspection: Readonly<{
+  identity?: Readonly<{ device: string | number | bigint; inode: string | number | bigint }>;
+  dev?: number | bigint;
+  ino?: number | bigint;
+}>): RunnerProtectedPathIdentity {
+  const identity = inspection.identity ?? (inspection.dev === undefined || inspection.ino === undefined
+    ? undefined
+    : { device: filesystemIdentityPart(inspection.dev), inode: filesystemIdentityPart(inspection.ino) });
+  if (!identity || identity.device === null || identity.inode === null) {
+    throw new Error('runner_protected_path_identity_unavailable');
+  }
+  const device = filesystemIdentityPart(identity.device);
+  const inode = filesystemIdentityPart(identity.inode);
+  if (!device || !inode) {
+    throw new Error('runner_protected_path_identity_unavailable');
+  }
+  return Object.freeze({ device, inode });
+}
+
+function filesystemIdentityPart(value: string | number | bigint): string | null {
+  if (typeof value === 'string') return /^\d+$/.test(value) ? value : null;
+  if (typeof value === 'bigint') return value < 0n ? null : value.toString();
+  return Number.isInteger(value) && value >= 0 ? String(value) : null;
+}
+
+function protectedPathIdentityOrNull(inspection: RunnerProtectedPathInspection): RunnerProtectedPathIdentity | null {
+  try { return protectedPathIdentity(inspection); }
+  catch { return null; }
+}
+
+function sameIdentity(left: RunnerProtectedPathIdentity | null, right: RunnerProtectedPathIdentity): boolean {
+  return !!left && left.device === right.device && left.inode === right.inode;
+}
+
+function isProtectedPathError(error: unknown): error is Error {
+  return error instanceof Error && error.message.startsWith('runner_protected_path_');
+}
+
 function defaultProtectedPathInspector(): RunnerProtectedPathInspector {
   const platform = runnerConfigPlatform();
   let serviceIdentity: Promise<string> | undefined;
   return Object.freeze({
     platform,
     inspect: async (value: string): Promise<RunnerProtectedPathInspection | null> => {
-      const info = await lstat(value).catch(() => null);
+      const info = await lstat(value, { bigint: true }).catch(() => null);
       if (!info) return null;
       const common = Object.freeze({
         kind: info.isFile() ? 'file' as const : info.isDirectory() ? 'directory' as const : 'other' as const,
         isSymbolicLink: info.isSymbolicLink(),
+        identity: protectedPathIdentity({ dev: info.dev, ino: info.ino }),
       });
       if (common.isSymbolicLink) return common;
-      if (platform === 'macos') return Object.freeze({ ...common, uid: info.uid, mode: info.mode });
+      if (platform === 'macos') return Object.freeze({ ...common, uid: Number(info.uid), mode: Number(info.mode) });
       return Object.freeze({ ...common, windowsAcl: await readWindowsAcl(value) });
     },
     ...(platform === 'macos'
       ? { currentUid: () => process.getuid?.() }
       : { currentServiceIdentity: () => serviceIdentity ??= currentWindowsServiceIdentity() }),
+  });
+}
+
+function defaultProtectedPathFilesystem(): RunnerProtectedPathFilesystem {
+  const noFollow = process.platform === 'win32' ? 0 : (constants.O_NOFOLLOW ?? 0);
+  return Object.freeze({
+    openReadOnly: async (value: string) => {
+      const handle = await open(value, constants.O_RDONLY | noFollow);
+      return Object.freeze({
+        readFile: () => handle.readFile({ encoding: 'utf8' }),
+        stat: () => handle.stat({ bigint: true }),
+        close: () => handle.close(),
+      });
+    },
   });
 }
 

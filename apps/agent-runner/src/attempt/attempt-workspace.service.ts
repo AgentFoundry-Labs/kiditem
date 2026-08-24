@@ -2,6 +2,7 @@ import { lstat, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import type { AttemptLaunchSpec, AgentCliRuntime, RunnerPlatform } from '@kiditem/shared/agent-runtime';
 import { AttemptLaunchSpecSchema } from '@kiditem/shared/agent-runtime';
+import { createProtectedAttemptRootGuard, type RunnerProtectedAttemptRootGuard } from '../config/runner-config';
 import { ProviderAuthReferenceService } from '../provider/provider-auth-reference';
 
 export type AttemptWorkspacePaths = Readonly<{
@@ -17,14 +18,21 @@ export type AttemptWorkspacePaths = Readonly<{
 /** Runner-owned private workspace lifecycle; no provider home or credential bytes are copied. */
 export class AttemptWorkspaceService {
   private readonly auth: ProviderAuthReferenceService;
+  private readonly attemptRootGuard: Promise<RunnerProtectedAttemptRootGuard>;
 
-  constructor(private readonly options: Readonly<{ attemptRoot: string; loginRoot: string; platform: RunnerPlatform }>) {
+  constructor(private readonly options: Readonly<{
+    attemptRoot: string;
+    loginRoot: string;
+    platform: RunnerPlatform;
+    attemptRootGuard?: RunnerProtectedAttemptRootGuard;
+  }>) {
     this.auth = new ProviderAuthReferenceService({ loginRoot: options.loginRoot, platform: options.platform });
+    this.attemptRootGuard = Promise.resolve(options.attemptRootGuard ?? createProtectedAttemptRootGuard(options.attemptRoot));
   }
 
   async create(input: AttemptLaunchSpec): Promise<AttemptWorkspacePaths> {
     const launch = AttemptLaunchSpecSchema.parse(input);
-    const root = await checkedAttemptRoot(this.options.attemptRoot);
+    const root = await this.checkedAttemptRoot();
     const attemptRoot = await mkdtemp(join(root, `${launch.attemptId}-`));
     const paths: AttemptWorkspacePaths = Object.freeze({
       root: attemptRoot,
@@ -51,7 +59,7 @@ export class AttemptWorkspaceService {
   }
 
   async remove(paths: AttemptWorkspacePaths): Promise<void> {
-    const configured = resolve(this.options.attemptRoot);
+    const configured = await this.checkedAttemptRoot();
     const target = resolve(paths.root);
     const rel = relative(configured, target);
     if (!rel || rel.startsWith('..') || rel.includes('/..') || rel.includes('\\..')) throw new Error('runner_attempt_workspace_scope_invalid');
@@ -60,15 +68,14 @@ export class AttemptWorkspaceService {
     if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('runner_attempt_workspace_symlink_rejected');
     await rm(target, { recursive: true, force: true, maxRetries: 2 });
   }
-}
 
-async function checkedAttemptRoot(value: string): Promise<string> {
-  const root = resolve(value);
-  const info = await lstat(root).catch(() => null);
-  if (!info) throw new Error('runner_attempt_root_missing');
-  if (info.isSymbolicLink()) throw new Error('runner_attempt_root_symlink_rejected');
-  if (!info.isDirectory()) throw new Error('runner_attempt_root_missing');
-  return root;
+  private async checkedAttemptRoot(): Promise<string> {
+    const guard = await this.attemptRootGuard;
+    if (resolve(guard.canonicalPath) !== resolve(this.options.attemptRoot)) {
+      throw new Error('runner_attempt_workspace_scope_invalid');
+    }
+    return guard.revalidate();
+  }
 }
 
 function claudeMcpConfig(url: string): object {

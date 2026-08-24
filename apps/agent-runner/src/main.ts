@@ -31,7 +31,12 @@ export async function runNativeAgentRunner(argv: readonly string[]): Promise<nev
   let beginExit: (code: number) => void = () => undefined;
   const executor = new AttemptExecutor({
     runtimeRoot: config.runtimeRoot,
-    workspaces: new AttemptWorkspaceService({ attemptRoot: config.attemptRoot, loginRoot: config.loginRoot, platform }),
+    workspaces: new AttemptWorkspaceService({
+      attemptRoot: config.attemptRoot,
+      attemptRootGuard: config.attemptRootGuard,
+      loginRoot: config.loginRoot,
+      platform,
+    }),
     supervisor,
     emit: (event) => {
       if (event.kind === 'attempt.terminal') dispatcher.markTerminal(event.attemptId);

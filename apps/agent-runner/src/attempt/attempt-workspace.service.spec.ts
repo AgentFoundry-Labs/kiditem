@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { lstat, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { AttemptWorkspaceService } from './attempt-workspace.service';
 
@@ -13,7 +13,12 @@ describe('AttemptWorkspaceService', () => {
     const attemptRoot = await tmp('kiditem-runner-attempts-');
     const loginRoot = await tmp('kiditem-runner-login-');
     await mkdir(join(loginRoot, '.codex')); await writeFile(join(loginRoot, '.codex', 'auth.json'), 'credential-bytes-must-survive');
-    const service = new AttemptWorkspaceService({ attemptRoot, loginRoot, platform: 'macos' });
+    const service = new AttemptWorkspaceService({
+      attemptRoot,
+      attemptRootGuard: fixtureAttemptRootGuard(attemptRoot),
+      loginRoot,
+      platform: 'macos',
+    });
     const paths = await service.create(launch());
 
     const config = await readFile(paths.mcpConfigPath, 'utf8');
@@ -41,8 +46,38 @@ describe('AttemptWorkspaceService', () => {
     const outside = await tmp('kiditem-runner-outside-');
     const root = join(parent, 'attempts');
     await (await import('node:fs/promises')).symlink(outside, root);
-    const service = new AttemptWorkspaceService({ attemptRoot: root, loginRoot: await tmp('kiditem-runner-login-'), platform: 'macos' });
+    const service = new AttemptWorkspaceService({
+      attemptRoot: root,
+      attemptRootGuard: fixtureAttemptRootGuard(root),
+      loginRoot: await tmp('kiditem-runner-login-'),
+      platform: 'macos',
+    });
     await expect(service.create(launch())).rejects.toThrow('runner_attempt_root_symlink_rejected');
+  });
+
+  it('does not create a workspace after its protected attempt-root guard detects replacement', async () => {
+    const parent = await tmp('kiditem-runner-parent-');
+    const attemptRoot = join(parent, 'attempts');
+    const outside = await tmp('kiditem-runner-outside-');
+    await mkdir(attemptRoot, { mode: 0o700 });
+    let revalidated = false;
+    const service = new AttemptWorkspaceService({
+      attemptRoot,
+      loginRoot: await tmp('kiditem-runner-login-'),
+      platform: 'macos',
+      attemptRootGuard: {
+        canonicalPath: attemptRoot,
+        revalidate: async () => {
+          revalidated = true;
+          await rm(attemptRoot, { recursive: true });
+          await symlink(outside, attemptRoot);
+          throw new Error('runner_protected_path_changed');
+        },
+      },
+    } as unknown as ConstructorParameters<typeof AttemptWorkspaceService>[0]);
+
+    await expect(service.create(launch())).rejects.toThrow('runner_protected_path_changed');
+    expect(revalidated).toBe(true);
   });
 });
 
@@ -53,5 +88,19 @@ function launch() {
     workspacePolicy: 'empty_ephemeral_v1' as const,
     mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${attemptId}/mcp`, attemptToken: 'A'.repeat(43),
     mcpProtocolRevision: '2026-07-28' as const, cliContractIdentity: 'office-cli-contract-v2' as const,
+  };
+}
+
+function fixtureAttemptRootGuard(attemptRoot: string) {
+  const canonicalPath = resolve(attemptRoot);
+  return {
+    canonicalPath,
+    revalidate: async () => {
+      const info = await lstat(canonicalPath).catch(() => null);
+      if (!info) throw new Error('runner_attempt_root_missing');
+      if (info.isSymbolicLink()) throw new Error('runner_attempt_root_symlink_rejected');
+      if (!info.isDirectory()) throw new Error('runner_attempt_root_missing');
+      return canonicalPath;
+    },
   };
 }
