@@ -13,6 +13,11 @@ type DecodedEvent = CodexAppServerEvent & Readonly<{ threadId: string }>;
 const MAX_PENDING_TURN_EVENTS = 64;
 const READINESS_MCP_SERVER = 'kiditem_attempt';
 const READINESS_MCP_TOOL = 'readiness_probe';
+const TOOL_FREE_READINESS_PROVIDER_CONFIG = Object.freeze({
+  mcp_servers: Object.freeze({
+    [READINESS_MCP_SERVER]: Object.freeze({ enabled: false }),
+  }),
+});
 
 /** Memory-only JSON-RPC steering for one ephemeral Codex app-server Attempt. */
 export class CodexAppServerSession {
@@ -35,15 +40,13 @@ export class CodexAppServerSession {
   async start(input: { model: string; cwd: string; prompt: string; readinessProbeNonce?: string }): Promise<void> {
     await this.request('initialize', { clientInfo: { name: 'kiditem', version: '1' }, capabilities: null });
     await this.send(`${JSON.stringify({ jsonrpc: '2.0', method: 'initialized', params: {} })}\n`);
-    const thread = await this.request('thread/start', {
-      ephemeral: true,
-      model: input.model,
-      cwd: input.cwd,
-      approvalPolicy: 'never',
-    });
-    this.threadId = requiredNestedId(thread, 'thread');
-    if (requiredNestedId(thread, 'activePermissionProfile') !== ':workspace') throw new Error('codex_app_server_permission_profile_mismatch');
-    if (input.readinessProbeNonce) await this.probeReadiness(input.readinessProbeNonce);
+    if (input.readinessProbeNonce) {
+      const probeThreadId = await this.startThread(input);
+      await this.probeReadiness(probeThreadId, input.readinessProbeNonce);
+      this.threadId = await this.startThread(input, TOOL_FREE_READINESS_PROVIDER_CONFIG);
+    } else {
+      this.threadId = await this.startThread(input);
+    }
     this.waitingForTurnStart = true;
     const earlyCompletion = new Promise<void>((resolve) => { this.resolveEarlyTurnCompletion = resolve; });
     const turnRequest = this.request('turn/start', {
@@ -148,10 +151,25 @@ export class CodexAppServerSession {
    * validated ephemeral nonce, so it cannot choose a server, tool, or argument
    * shape for an app-server control-plane invocation.
    */
-  private async probeReadiness(nonce: string): Promise<void> {
-    if (!this.threadId) throw new Error('codex_readiness_thread_missing');
+  private async startThread(
+    input: Readonly<{ model: string; cwd: string }>,
+    config?: Readonly<Record<string, unknown>>,
+  ): Promise<string> {
+    const thread = await this.request('thread/start', {
+      ephemeral: true,
+      model: input.model,
+      cwd: input.cwd,
+      approvalPolicy: 'never',
+      ...(config ? { config } : {}),
+    });
+    const threadId = requiredNestedId(thread, 'thread');
+    if (requiredNestedId(thread, 'activePermissionProfile') !== ':workspace') throw new Error('codex_app_server_permission_profile_mismatch');
+    return threadId;
+  }
+
+  private async probeReadiness(threadId: string, nonce: string): Promise<void> {
     const result = await this.request('mcpServer/tool/call', {
-      threadId: this.threadId,
+      threadId,
       server: READINESS_MCP_SERVER,
       tool: READINESS_MCP_TOOL,
       arguments: { nonce },

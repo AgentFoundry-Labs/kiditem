@@ -45,6 +45,64 @@ describe('CodexAppServerSession', () => {
     expect(lines.map((line) => JSON.parse(line).method)).not.toContain('turn/start');
   });
 
+  it('starts the provider turn on a fresh tool-free ephemeral thread after the direct readiness probe', async () => {
+    const lines: string[] = []; const events: unknown[] = [];
+    const session = new CodexAppServerSession((line) => { lines.push(line); }, undefined, (event) => events.push(event));
+    const start = session.start({
+      model: 'gpt-5.6',
+      cwd: '/attempt/workspace',
+      prompt: 'work',
+      readinessProbeNonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505',
+    });
+    answer(session, lines, 'initialize', {}); await advance();
+    answer(session, lines, 'thread/start', { thread: { id: 'probe-thread' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    expect(request(lines, 'mcpServer/tool/call').params).toMatchObject({ threadId: 'probe-thread' });
+    answer(session, lines, 'mcpServer/tool/call', { content: [{}], structuredContent: { nonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' } }); await advance();
+
+    const threadStarts = requests(lines, 'thread/start');
+    expect(threadStarts).toHaveLength(2);
+    expect(threadStarts[1]!.params).toEqual({
+      ephemeral: true,
+      model: 'gpt-5.6',
+      cwd: '/attempt/workspace',
+      approvalPolicy: 'never',
+      config: { mcp_servers: { kiditem_attempt: { enabled: false } } },
+    });
+    answerAt(session, threadStarts, 1, { thread: { id: 'provider-thread' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    expect(request(lines, 'turn/start').params).toMatchObject({ threadId: 'provider-thread' });
+    answer(session, lines, 'turn/start', { turn: { id: 'provider-turn' } }); await start;
+
+    const steer = session.steer('continue');
+    expect(request(lines, 'turn/steer').params).toMatchObject({ threadId: 'provider-thread', expectedTurnId: 'provider-turn' });
+    answer(session, lines, 'turn/steer', {}); await steer;
+    session.receive(`${JSON.stringify({ jsonrpc: '2.0', method: 'turn/completed', params: { threadId: 'probe-thread', turn: { id: 'probe-turn', status: 'failed' } } })}\n`);
+    expect(events).toEqual([]);
+    session.receive(`${JSON.stringify({ jsonrpc: '2.0', method: 'turn/completed', params: { threadId: 'provider-thread', turn: { id: 'provider-turn', status: 'completed', items: [{ type: 'agentMessage', text: JSON.stringify({ outcome: 'completed', summary: 'done', resourceRefs: [], operationRefs: [] }) }] } } })}\n`);
+    expect(events).toEqual([
+      { kind: 'turn_completed', turnId: 'provider-turn', status: 'completed', result: { outcome: 'completed', summary: 'done', resourceRefs: [], operationRefs: [] } },
+    ]);
+  });
+
+  it('fails closed when the fresh provider thread does not return the workspace permission profile', async () => {
+    const lines: string[] = []; const session = new CodexAppServerSession((line) => { lines.push(line); });
+    const start = session.start({
+      model: 'gpt-5.6',
+      cwd: '/attempt/workspace',
+      prompt: 'work',
+      readinessProbeNonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505',
+    });
+    answer(session, lines, 'initialize', {}); await advance();
+    answer(session, lines, 'thread/start', { thread: { id: 'probe-thread' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    answer(session, lines, 'mcpServer/tool/call', { content: [{}], structuredContent: { nonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' } }); await advance();
+
+    const threadStarts = requests(lines, 'thread/start');
+    expect(threadStarts).toHaveLength(2);
+    answerAt(session, threadStarts, 1, { thread: { id: 'provider-thread' }, activePermissionProfile: { id: ':danger-full-access' } });
+
+    await expect(start).rejects.toThrow('codex_app_server_permission_profile_mismatch');
+    expect(lines.map((line) => JSON.parse(line).method)).not.toContain('turn/start');
+  });
+
   it('decodes exact 0.149.1 delta and completion notifications, then closes the live turn', async () => {
     const lines: string[] = []; const events: unknown[] = [];
     const session = new CodexAppServerSession((line) => { lines.push(line); }, undefined, (event) => events.push(event));
@@ -90,6 +148,8 @@ describe('CodexAppServerSession', () => {
     await expect(start).rejects.toThrow('codex_app_server_closed');
   });
 });
-function request(lines: string[], method: string): { id: string; params: Record<string, unknown> } { const value = lines.map((line) => JSON.parse(line)).find((line) => line.method === method); if (!value) throw new Error(`missing ${method}`); return value; }
+function requests(lines: string[], method: string): { id: string; params: Record<string, unknown> }[] { return lines.map((line) => JSON.parse(line)).filter((line) => line.method === method); }
+function request(lines: string[], method: string): { id: string; params: Record<string, unknown> } { const value = requests(lines, method)[0]; if (!value) throw new Error(`missing ${method}`); return value; }
 function answer(session: CodexAppServerSession, lines: string[], method: string, result: unknown): void { const message = request(lines, method); session.receive(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result })}\n`); }
+function answerAt(session: CodexAppServerSession, messages: { id: string; params: Record<string, unknown> }[], index: number, result: unknown): void { const message = messages[index]; if (!message) throw new Error(`missing response ${index}`); session.receive(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result })}\n`); }
 async function advance(): Promise<void> { await Promise.resolve(); await Promise.resolve(); }

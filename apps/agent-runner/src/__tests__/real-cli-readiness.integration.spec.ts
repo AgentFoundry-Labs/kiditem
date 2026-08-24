@@ -158,6 +158,11 @@ describe('logged-in real CLI readiness canary', () => {
         return terminal !== undefined;
       }, CANARY_TIMEOUT_MS);
 
+      const runtimeErrorReport = diagnostic.terminalRuntimeErrorReport({ terminal, observations: endpoint.observations });
+      if (runtimeErrorReport) {
+        throw new Error(`real_cli_canary_terminal_runtime_error runtime=${runtime} phase=${phase} ${runtimeErrorReport}`);
+      }
+
       expect(terminal).toMatchObject({
         attemptId: canaryId,
         terminalReason: expect.stringMatching(/^(success|protocol_success)$/),
@@ -417,6 +422,31 @@ describe('SafeProviderDiagnostic', () => {
     expect(diagnostic.externalBlocker(input)).toBeNull();
     expect(diagnostic.contractFailure(input)).toBe('mcp_tool_call_failed');
   });
+
+  it('reports a runtime-error terminal with only bounded app-server and MCP metadata', () => {
+    const diagnostic = new SafeProviderDiagnostic();
+    diagnostic.observeStdout(`${JSON.stringify({
+      jsonrpc: '2.0', method: 'turn/completed',
+      params: { turn: { status: 'failed', error: 'provider detail that must not escape' } },
+    })}\n`);
+    const diagnosticWithTerminalReport = diagnostic as unknown as {
+      terminalRuntimeErrorReport?: (input: Readonly<{
+        terminal: Extract<RunnerEventBatch['events'][number], { kind: 'attempt.terminal' }> | undefined;
+        observations: readonly McpObservation[];
+      }>) => string | null;
+    };
+
+    const report = diagnosticWithTerminalReport.terminalRuntimeErrorReport?.({
+      terminal: { kind: 'attempt.terminal', attemptId: '118f4eb1-9078-7a1e-9514-b19b5732f5de', terminalReason: 'runtime_error' },
+      observations: [
+        { method: 'tools/list', status: 200, protocolVersion: '2026-07-28' },
+        { method: 'tools/call', status: 200, protocolVersion: '2026-07-28' },
+      ],
+    });
+
+    expect(report).toBe('app_server=turn_completed_failed observations=tools/list:200,tools/call:200');
+    expect(JSON.stringify({ report, diagnostic })).not.toContain('provider detail');
+  });
 });
 
 function explicitModel(key: 'KIDITEM_RUNNER_CODEX_CANARY_MODEL' | 'KIDITEM_RUNNER_CLAUDE_CANARY_MODEL'): string | null {
@@ -607,6 +637,15 @@ class SafeProviderDiagnostic {
 
   appServerSummary(): string {
     return [...this.appServerSignals].sort().join(',') || 'none';
+  }
+
+  terminalRuntimeErrorReport(input: Readonly<{
+    terminal: Extract<RunnerEventBatch['events'][number], { kind: 'attempt.terminal' }> | undefined;
+    observations: readonly McpObservation[];
+  }>): string | null {
+    if (input.terminal?.terminalReason !== 'runtime_error') return null;
+    const observations = input.observations.map((value) => `${value.method}:${value.status}`).join(',') || 'none';
+    return `app_server=${this.appServerSummary()} observations=${observations}`;
   }
 
   externalBlocker(input: Readonly<{

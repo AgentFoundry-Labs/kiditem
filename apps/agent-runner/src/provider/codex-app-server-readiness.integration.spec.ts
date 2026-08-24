@@ -13,6 +13,11 @@ import { CodexAppServerSession } from './codex-app-server-session';
 const ATTEMPT_ID = '33333333-3333-4333-8333-333333333333';
 const ATTEMPT_TOKEN = 'A'.repeat(43);
 const NONCE = '51e975ef-c0a7-4ab1-8007-47c0fd563505';
+const PROVIDER_INPUT_MESSAGES = [
+  { type: 'message', callIdPresent: false },
+  { type: 'message', callIdPresent: false },
+  { type: 'message', callIdPresent: false },
+] as const;
 
 /**
  * These use the bundled 0.149.1 app-server, never a real model endpoint.
@@ -55,6 +60,67 @@ describe('Codex app-server readiness boundary', () => {
     }
   }, 20_000);
 
+  it('uses a fresh tool-free provider thread after the direct readiness probe', async () => {
+    const provider = await localResponsesProvider();
+    const mcp = await modernReadinessMcp();
+    const generated = await workspace(mcp.url);
+    let child: ReturnType<typeof spawn> | undefined;
+    try {
+      await appendFile(generated.paths.codexConfigPath, localProviderConfig(provider.url));
+      child = strictAppServer(generated.paths);
+      const rpc = new Rpc(child);
+      await rpc.request('initialize', { clientInfo: { name: 'kiditem-local-readiness', version: '1' }, capabilities: null });
+      rpc.notify('initialized', {});
+      const probeThread = await rpc.request('thread/start', {
+        model: 'local-fake-model', modelProvider: 'local_fake', cwd: generated.paths.workspace, approvalPolicy: 'never', ephemeral: true,
+      }) as { thread?: { id?: string }; activePermissionProfile?: { id?: string } };
+      const probeThreadId = probeThread.thread?.id;
+      if (!probeThreadId) throw new Error('local_readiness_probe_thread_id_missing');
+      expect(probeThread.activePermissionProfile?.id).toBe(':workspace');
+      await rpc.request('mcpServer/tool/call', {
+        threadId: probeThreadId,
+        server: 'kiditem_attempt',
+        tool: 'readiness_probe',
+        arguments: { nonce: NONCE },
+      });
+      const providerThread = await rpc.request('thread/start', {
+        model: 'local-fake-model', modelProvider: 'local_fake', cwd: generated.paths.workspace, approvalPolicy: 'never', ephemeral: true,
+        config: { mcp_servers: { kiditem_attempt: { enabled: false } } },
+      }) as { thread?: { id?: string }; activePermissionProfile?: { id?: string } };
+      const providerThreadId = providerThread.thread?.id;
+      if (!providerThreadId) throw new Error('local_readiness_provider_thread_id_missing');
+      expect(providerThreadId).not.toBe(probeThreadId);
+      expect(providerThread.activePermissionProfile?.id).toBe(':workspace');
+      const turn = rpc.request('turn/start', {
+        threadId: providerThreadId,
+        input: [{ type: 'text', text: 'local bounded tool-free provider metadata', text_elements: [] }],
+      });
+      void turn.catch(() => undefined);
+
+      const metadata = await provider.next();
+
+      expect(metadata.input).toEqual(PROVIDER_INPUT_MESSAGES);
+      expect(rpc.calls).toEqual(expect.arrayContaining([
+        { method: 'mcpServer/tool/call', threadId: probeThreadId },
+        { method: 'turn/start', threadId: providerThreadId },
+      ]));
+      expect(mcp.methods).toEqual(expect.arrayContaining(['tools/list', 'tools/call']));
+      expect(mcp.probes).toEqual([NONCE]);
+      expect(metadata.tools).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: 'namespace',
+          name: 'mcp__kiditem_attempt',
+          children: [expect.objectContaining({ type: 'function', name: 'readiness_probe' })],
+        }),
+      ]));
+    } finally {
+      if (child) await stop(child);
+      await mcp.close();
+      await provider.close();
+      await rm(generated.root, { recursive: true, force: true });
+    }
+  }, 20_000);
+
   it('exposes the readiness child to the model as an auto-choice namespace without requiring a model-selected call', async () => {
     const provider = await localResponsesProvider();
     const mcp = await modernReadinessMcp();
@@ -79,6 +145,7 @@ describe('Codex app-server readiness boundary', () => {
 
       const metadata = await provider.next();
 
+      expect(metadata.input).toEqual(PROVIDER_INPUT_MESSAGES);
       expect(metadata.request).toEqual({ method: 'POST', path: '/v1/responses' });
       expect(metadata.stream).toBe(true);
       expect(metadata.toolChoice).toEqual({ type: 'auto' });
@@ -207,6 +274,7 @@ type Metadata = Readonly<{
   stream: boolean;
   toolChoice: Record<string, string> | null;
   tools: readonly Record<string, unknown>[];
+  input: readonly Record<string, unknown>[];
 }>;
 
 async function localResponsesProvider(): Promise<{ url: string; next(): Promise<Metadata>; close(): Promise<void> }> {
@@ -219,6 +287,7 @@ async function localResponsesProvider(): Promise<{ url: string; next(): Promise<
         stream: body.stream === true,
         toolChoice: safeChoice(body.tool_choice),
         tools: Array.isArray(body.tools) ? body.tools.map(safeTool).filter((value): value is Record<string, unknown> => value !== null) : [],
+        input: Array.isArray(body.input) ? body.input.map(safeInput).filter((value): value is Record<string, unknown> => value !== null) : [],
       });
       sendSse(response, completedResponseEvents());
     } catch {
@@ -284,6 +353,17 @@ function safeChoice(value: unknown): Record<string, string> | null {
   return defined({ type: text(choice.type), name: text(choice.name) }) as Record<string, string>;
 }
 
+function safeInput(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const input = value as Record<string, unknown>;
+  return defined({
+    type: text(input.type),
+    name: text(input.name),
+    namespace: text(input.namespace),
+    callIdPresent: Object.hasOwn(input, 'call_id') || Object.hasOwn(input, 'callId'),
+  });
+}
+
 function defined<T extends Record<string, unknown>>(value: T): Record<string, Exclude<T[keyof T], undefined>> {
   return Object.fromEntries(Object.entries(value).filter(([, current]) => current !== undefined)) as Record<string, Exclude<T[keyof T], undefined>>;
 }
@@ -306,6 +386,7 @@ class Rpc {
   private buffer = '';
   private nextId = 0;
   private readonly pending = new Map<string, { resolve(value: unknown): void; reject(error: Error): void }>();
+  readonly calls: { method: string; threadId?: string }[] = [];
 
   constructor(private readonly child: ReturnType<typeof spawn>) {
     child.stdout!.setEncoding('utf8');
@@ -317,6 +398,8 @@ class Rpc {
   }
 
   request(method: string, params: unknown): Promise<unknown> {
+    const threadId = object(params)?.threadId;
+    this.calls.push({ method, ...(typeof threadId === 'string' ? { threadId } : {}) });
     const id = `local-${++this.nextId}`;
     this.child.stdin!.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
     return new Promise((resolve, reject) => {
@@ -343,6 +426,10 @@ class Rpc {
       else pending.resolve(message.result);
     }
   }
+}
+
+function object(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
 function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {

@@ -684,25 +684,32 @@ Codex does not make readiness depend on stochastic model tool selection. For a
 `readiness_canary` launch, the shared launch contract carries only an ephemeral
 UUID nonce (required if and only if that scope is selected); it cannot carry a
 server name, tool name, or arbitrary arguments. After exact app-server
-`thread/start`, Runner calls the supported `mcpServer/tool/call` control-plane
-RPC with the fixed `kiditem_attempt` / `readiness_probe` coordinate and exact
-nonce, validates its strict structured result, and only then starts the model
-turn. Its prompt says the probe has already completed and requires an immediate
-strict `AgentResultEnvelope`; it never synthesizes a live input command. Claude
-retains its model-selected scoped readiness probe and live second input during
-the live turn.
+`thread/start`, Runner creates an ephemeral MCP-enabled probe thread and calls
+the supported `mcpServer/tool/call` control-plane RPC with the fixed
+`kiditem_attempt` / `readiness_probe` coordinate and exact nonce. It validates
+the strict structured result, then creates a second fresh ephemeral provider
+thread in the same app-server process and Attempt configuration. The only
+thread override is Runner-owned
+`mcp_servers.kiditem_attempt.enabled=false`; both thread responses must return
+the `:workspace` permission profile. Runner assigns only the second thread as
+live, so there is no resume, history, or persistence bridge from probe to
+provider turn. The provider readiness turn is intentionally tool-free; its
+prompt requires an immediate strict `AgentResultEnvelope` and it never
+synthesizes a live input command. Claude retains its model-selected scoped
+readiness probe and live second input during the live turn.
 
 The readiness contract is therefore four correlated proofs: a real provider
 structured result (Codex immediate after its direct probe; Claude after its
 live input); a local exact bundled app-server control-plane regression proving
-modern `tools/list` plus `tools/call`; a deterministic local fake
-Responses-provider regression proving Codex exposes the
-`mcp__kiditem_attempt` namespace child with `tool_choice: auto`; and a
-deterministic session-level Codex `turn/start` / `turn/steer` / completion-decode
-gate. The local gates do not substitute for provider-turn coverage, the
-model-visible metadata proof does not claim a live model selected the tool, and
-the session-level gate does not claim a fake provider completed a full live
-turn.
+modern `tools/list` plus `tools/call` on the probe thread; a deterministic
+local fake Responses-provider regression proving an MCP-enabled Codex thread
+exposes the `mcp__kiditem_attempt` namespace child with `tool_choice: auto`
+while the fresh readiness provider thread omits that namespace; and a
+deterministic session-level Codex `turn/start` / `turn/steer` /
+completion-decode gate. The local gates do not substitute for provider-turn
+coverage, the model-visible metadata proof does not claim a live model selected
+the tool, and the session-level gate does not claim a fake provider completed a
+full live turn.
 
 ## 8. Basic Restart Recovery
 

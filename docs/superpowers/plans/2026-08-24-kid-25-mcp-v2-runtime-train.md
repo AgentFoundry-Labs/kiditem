@@ -801,10 +801,15 @@ Readiness is a process-memory projection with two phases:
    readiness token binding. The request-scoped canary MCP server exposes only
    its one canary tool. A `readiness_canary` launch carries only an ephemeral
    nonce, required if and only if that scope is selected. For Codex, Runner
-   fixes the server/tool/argument shape and, after app-server `thread/start`,
-   invokes `mcpServer/tool/call` for `kiditem_attempt` / `readiness_probe`
-   before `turn/start`; the strict result must contain the exact nonce. Codex
-   then returns its strict result immediately and receives no synthetic input
+   fixes the server/tool/argument shape and starts an ephemeral MCP-enabled
+   probe thread. It invokes `mcpServer/tool/call` for `kiditem_attempt` /
+   `readiness_probe` on that thread before starting a second fresh ephemeral
+   provider thread in the same app-server process/configuration. The only
+   provider-thread override is Runner-owned
+   `mcp_servers.kiditem_attempt.enabled=false`; both thread responses must
+   return the `:workspace` profile. The strict direct result must contain the
+   exact nonce. Codex then returns its strict result immediately from the
+   intentionally tool-free provider thread and receives no synthetic input
    command. Claude retains its model-selected scoped probe and is the only
    runtime that receives a live second input. Successful discovery/list/call,
    runtime-specific terminal parse, token revocation, complete-tree kill, and
@@ -822,10 +827,12 @@ Tests prove:
   discovers all 18 CapabilityDefinitions/all ten Sourcing definitions;
 - MCP responses contain strict bounded structured output;
 - the exact bundled Codex app-server performs its fixed control-plane
-  `mcpServer/tool/call` against the real request-scoped modern handler and
-  observes `tools/list` then `tools/call`; a local fake Responses provider
-  separately proves the model-visible `mcp__kiditem_attempt` namespace child
-  and `tool_choice: auto` without asserting model-selected invocation;
+  `mcpServer/tool/call` against the real request-scoped modern handler on its
+  probe thread and observes `tools/list` then `tools/call`; a local fake
+  Responses provider separately proves the model-visible
+  `mcp__kiditem_attempt` namespace child and `tool_choice: auto` on an
+  MCP-enabled thread, while the fresh readiness provider thread omits that
+  namespace without asserting model-selected invocation;
 - the deterministic Codex session gate exercises `turn/start`, live
   `turn/steer`, and exact completion decoding without claiming that a fake
   provider completed a full live turn;
@@ -890,14 +897,15 @@ rtk git commit -m "test: prove Host Runner readiness and recovery"
 ```
 
 The real canary runs on the implementation Mac using its logged-in Codex and
-Claude accounts. Codex uses the supported fixed app-server control-plane call
-before its provider turn and returns an immediate structured result without a
-synthetic live input; Claude uses its scoped model-selected call and retains
-the live second input. Both must exercise their applicable strict modern MCP
-discovery/call, result parsing, and cleanup. The separate local fake-provider
-gate proves model-visible Codex tool metadata, not a stochastic real-model
-decision or a fake-provider full-turn completion. Never print login artifacts
-or Attempt tokens.
+Claude accounts. Codex uses a supported fixed app-server control-plane call on
+an ephemeral probe thread, then returns an immediate structured result from a
+fresh tool-free ephemeral provider thread without a synthetic live input;
+there is no resume/history bridge between those threads. Claude uses its scoped
+model-selected call and retains the live second input. Both must exercise their
+applicable strict modern MCP discovery/call, result parsing, and cleanup. The
+separate local fake-provider gate proves model-visible Codex tool metadata, not
+a stochastic real-model decision or a fake-provider full-turn completion.
+Never print login artifacts or Attempt tokens.
 
 ## Task 5: Package and deploy the native Windows Runner through the Office release
 
