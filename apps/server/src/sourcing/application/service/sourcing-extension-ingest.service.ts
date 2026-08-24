@@ -11,6 +11,7 @@ import type {
   SourcingCollectionPermit,
 } from '../port/out/repository/sourcing-collection.repository.port';
 import { parseAllowedSupplierUrl, extractSupplierOfferId } from '../../domain/supplier-source-url-policy';
+import { stableSourcingCandidateIdentity } from '../../domain/sourcing-candidate-identity';
 import { SourcingCollectionCoordinator } from './sourcing-collection-coordinator.service';
 import {
   hashCollectionRequest,
@@ -373,11 +374,11 @@ function extensionCandidateProjection(
     sourcePlatform: candidatePlatform(command.sourcePlatform),
     externalOfferId: command.externalOfferId,
     variantKeyNormalized: command.variantKeyNormalized,
-    sourceIdentityHash: hashCollectionRequest({
-      sourcePlatform: candidatePlatform(command.sourcePlatform),
-      externalOfferId: command.externalOfferId,
-      variantKey: command.variantKeyNormalized,
-    }),
+    sourceIdentityHash: stableSourcingCandidateIdentity(
+      candidatePlatform(command.sourcePlatform),
+      command.externalOfferId,
+      command.variantKeyNormalized,
+    ),
     rawData: command.payload,
     name: command.title,
     description: stringValue(

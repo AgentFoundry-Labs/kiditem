@@ -129,6 +129,42 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort, Agent
     };
   }
 
+  async assertAttemptMcpBinding(input: {
+    organizationId: string;
+    sessionId: string;
+    taskId: string;
+    attemptId: string;
+    agentVersionId: string;
+    requestedByUserId: string;
+    capabilityKeys: readonly string[];
+  }): Promise<boolean> {
+    const [membership, attempt] = await Promise.all([
+      this.prisma.organizationMembership.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          userId: input.requestedByUserId,
+          status: 'active',
+        },
+        select: { id: true },
+      }),
+      this.prisma.agentAttempt.findFirst({
+        where: {
+          id: input.attemptId,
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          taskId: input.taskId,
+          agentVersionId: input.agentVersionId,
+          status: { in: ['starting', 'running'] },
+          session: { createdByUserId: input.requestedByUserId },
+          task: { assignedAgentVersionId: input.agentVersionId },
+        },
+        select: { agentVersion: { select: { capabilityKeys: true } } },
+      }),
+    ]);
+    if (!membership || !attempt) return false;
+    return sameCapabilityKeys(attempt.agentVersion.capabilityKeys, input.capabilityKeys);
+  }
+
   async loadAttemptMcpDelegationContext(input: {
     organizationId: string;
     sessionId: string;
@@ -259,4 +295,14 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort, Agent
       inputHash: approval.inputHash,
     }));
   }
+}
+
+function sameCapabilityKeys(
+  persisted: unknown,
+  bound: readonly string[],
+): boolean {
+  return Array.isArray(persisted)
+    && persisted.every((key): key is string => typeof key === 'string')
+    && persisted.length === bound.length
+    && persisted.every((key, index) => key === bound[index]);
 }

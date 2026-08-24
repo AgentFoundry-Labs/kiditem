@@ -27,6 +27,22 @@ test("rejects concrete application imports from incoming adapters", () => {
   );
 });
 
+test("rejects direct runtime adapter imports from incoming adapters", () => {
+  const violations = analyzeAgentOsHexagonalSources([
+    {
+      path: "apps/server/src/agent-os/adapter/in/http/interaction/entry.controller.ts",
+      source:
+        "import { AttemptExecutor } from '../../../../adapter/out/runtime/attempt/attempt-executor.service';",
+      lines: 12,
+    },
+  ]);
+
+  assert.match(
+    violations.join("\n"),
+    /incoming adapter must not import adapter\/out at runtime/,
+  );
+});
+
 test("follows local named, star, side-effect, and alias re-exports to concrete application services", () => {
   const violations = analyzeAgentOsHexagonalSources([
     {

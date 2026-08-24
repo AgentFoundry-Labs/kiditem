@@ -44,6 +44,15 @@ export function analyzeAgentOsHexagonalSources(files) {
       );
     }
 
+    if (
+      normalizedPath.includes(INCOMING_ADAPTER) &&
+      hasDirectOutgoingAdapterRuntimeImport(file)
+    ) {
+      violations.push(
+        `${normalizedPath.slice(1)}: incoming adapter must not import adapter/out at runtime`,
+      );
+    }
+
     if (normalizedPath.includes(DIRECT_INPUT_PORT)) {
       const inputPortPath = normalizedPath.split(DIRECT_INPUT_PORT)[1];
       if (
@@ -60,6 +69,22 @@ export function analyzeAgentOsHexagonalSources(files) {
   }
 
   return violations;
+}
+
+function hasDirectOutgoingAdapterRuntimeImport(file) {
+  const sourceFile = ts.createSourceFile(
+    file.path,
+    file.source,
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  return sourceFile.statements.some(
+    (statement) =>
+      ts.isImportDeclaration(statement) &&
+      !isTypeOnlyDependency(statement) &&
+      ts.isStringLiteral(statement.moduleSpecifier) &&
+      statement.moduleSpecifier.text.includes('adapter/out/'),
+  );
 }
 
 function reachesConcreteApplicationService(entryPath, sources) {

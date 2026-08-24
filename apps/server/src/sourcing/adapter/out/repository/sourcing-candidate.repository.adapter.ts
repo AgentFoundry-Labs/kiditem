@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { sourcingCandidateIdentityLockKey } from '../../../domain/sourcing-candidate-identity';
 import type {
   CandidateImageRow,
   CandidateRow,
@@ -418,13 +419,7 @@ async function sourceIdentityLock(
   tx: Prisma.TransactionClient,
   input: Pick<UpsertCandidateInput, 'organizationId' | 'sourcePlatform' | 'sourceIdentityHash' | 'sourceUrl'>,
 ): Promise<void> {
-  // sourceUrl is normalized by the ingest boundary before it reaches the repository.
-  // The same lock fences both hash-backed and URL-backed identity reads/creates.
-  const identity = input.sourceIdentityHash || input.sourceUrl;
-  await advisoryLock(
-    tx,
-    `sourcing-source-identity:${input.organizationId}:${input.sourcePlatform}:${identity}`,
-  );
+  await advisoryLock(tx, sourcingCandidateIdentityLockKey(input));
 }
 
 function receiptCandidateResult(value: Prisma.JsonValue): { candidateId: string } {

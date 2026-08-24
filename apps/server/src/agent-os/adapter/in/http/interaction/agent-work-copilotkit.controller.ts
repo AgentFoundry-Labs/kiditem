@@ -10,15 +10,28 @@ import { CurrentUser } from '../../../../../auth/decorators/current-user.decorat
 import type { AuthUser } from '../../../../../auth/auth.types';
 import { AGENT_WORK_QUERY_PORT, type AgentWorkQueryPort } from '../../../../application/port/in/work/agent-work-query.port';
 import { AGENT_WORK_COMMAND_PORT, type AgentWorkCommandPort } from '../../../../application/port/in/work/agent-work-command.port';
-import { AgentAttemptExecutorService } from '../../../../adapter/out/runtime/attempt/agent-attempt-executor.service';
-import { AttemptFutureOutputChannel } from '../../../../adapter/out/runtime/attempt/attempt-future-output-channel';
+import {
+  LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT,
+  type LiveAttemptExecutionCapabilityPort,
+} from '../../../../application/port/in/capability/live-attempt-execution.capability.port';
+import {
+  LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT,
+  type LiveAttemptFutureOutputCapabilityPort,
+} from '../../../../application/port/in/capability/live-attempt-future-output.capability.port';
 import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
 import { CopilotAgentRunner, CopilotSseRuntime, createCopilotRuntimeHandler } from './copilotkit-v2-runtime';
 
 /** Incoming CopilotKit OSS adapter. It has no durable transcript store. */
 @Controller('copilotkit')
 export class AgentWorkCopilotKitController {
-  constructor(@Inject(AGENT_WORK_QUERY_PORT) private readonly queries: AgentWorkQueryPort, @Inject(AGENT_WORK_COMMAND_PORT) private readonly commands: AgentWorkCommandPort, private readonly executor: AgentAttemptExecutorService, private readonly live: AttemptFutureOutputChannel) {}
+  constructor(
+    @Inject(AGENT_WORK_QUERY_PORT) private readonly queries: AgentWorkQueryPort,
+    @Inject(AGENT_WORK_COMMAND_PORT) private readonly commands: AgentWorkCommandPort,
+    @Inject(LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT)
+    private readonly executor: LiveAttemptExecutionCapabilityPort,
+    @Inject(LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT)
+    private readonly live: LiveAttemptFutureOutputCapabilityPort,
+  ) {}
 
   @All(['', '*path'])
   async handle(@CurrentUser() user: AuthUser, @CurrentOrganization() organizationId: string, @Req() request: ExpressRequest, @Res() response: ExpressResponse): Promise<void> {
@@ -38,7 +51,7 @@ export class AgentWorkCopilotKitController {
 }
 
 class DurableWorkAgent extends AbstractAgent {
-  constructor(private readonly principal: { organizationId: string; userId: string }, private readonly queries: AgentWorkQueryPort, private readonly commands: AgentWorkCommandPort, private readonly executor: AgentAttemptExecutorService, private readonly admitted: (input: { attemptId: string; threadId: string; runId: string }) => void) { super({ agentId: 'operator', description: 'KidItem Operator' }); this.run = this.run.bind(this); }
+  constructor(private readonly principal: { organizationId: string; userId: string }, private readonly queries: AgentWorkQueryPort, private readonly commands: AgentWorkCommandPort, private readonly executor: LiveAttemptExecutionCapabilityPort, private readonly admitted: (input: { attemptId: string; threadId: string; runId: string }) => void) { super({ agentId: 'operator', description: 'KidItem Operator' }); this.run = this.run.bind(this); }
   override run(input: RunAgentInput): Observable<BaseEvent> {
     return defer(async () => {
       if (!isUuid(input.threadId)) throw new BadRequestException('copilotkit_thread_id_invalid');
@@ -70,7 +83,7 @@ class DurableWorkAgent extends AbstractAgent {
 }
 
 class FutureOnlyRunner extends CopilotAgentRunner {
-  constructor(private readonly executor: AgentAttemptExecutorService, private readonly live: AttemptFutureOutputChannel) { super(); }
+  constructor(private readonly executor: LiveAttemptExecutionCapabilityPort, private readonly live: LiveAttemptFutureOutputCapabilityPort) { super(); }
   bind(input: { attemptId: string; threadId: string; runId: string }): void { this.live.bind(input); }
   run(request: { threadId: string; agent: { run(input: unknown): Observable<BaseEvent> }; input: unknown }): Observable<BaseEvent> {
     const runId = (request.input as { runId?: unknown }).runId;

@@ -8,8 +8,10 @@ describe('Agent Work HTTP boundary', () => {
       const source = readFileSync(resolve(__dirname, '..', file), 'utf8');
       expect(source).not.toContain('PrismaService');
       expect(source).not.toContain("application/service/work/agent-work-query.service");
+      expect(source).not.toContain('adapter/out/runtime/');
       expect(source).toContain('AGENT_WORK_QUERY_PORT');
       expect(source).toContain('AgentWorkQueryPort');
+      expect(source).toContain('LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT');
     }
   });
 
@@ -38,5 +40,9 @@ describe('Agent Work HTTP boundary', () => {
     expect(workModule).toContain('AGENT_WORK_QUERY_REPOSITORY_PORT');
     expect(runtimeModule).toContain('AttemptMcpBrokerService');
     expect(runtimeModule).toContain('AgentAttemptExecutorService');
+    expect(runtimeModule).toContain('provide: LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT');
+    expect(runtimeModule).toContain('useExisting: AgentAttemptExecutorService');
+    expect(runtimeModule).toContain('provide: LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT');
+    expect(runtimeModule).toContain('useExisting: AttemptFutureOutputChannel');
   });
 });

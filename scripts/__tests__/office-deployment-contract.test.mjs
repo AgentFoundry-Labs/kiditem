@@ -296,3 +296,16 @@ test('Agent OS clean cutover is Windows/Docker-only, stops writers before quiesc
   assert.match(cutover, /docker cp \$dump kiditem-postgres:/);
   assert.doesNotMatch(cutover, /codex\.exe|claude\.exe|Start-Process\s+(?:codex|claude)/i);
 });
+
+test('KID-25 clean-cutover plan stops and confirms writers before mutation quiescence', () => {
+  const plan = read('docs/superpowers/plans/2026-08-23-kid-25-agent-os-clean-contraction.md');
+  const stopWriters = plan.indexOf('stop API and worker writers');
+  const confirmStopped = plan.indexOf('confirm worker shutdown/drain and writers stopped');
+  const quiescence = plan.indexOf('verify no ready/executing Agent mutation');
+
+  assert.ok(stopWriters >= 0, 'plan must stop API and worker writers');
+  assert.ok(confirmStopped >= 0, 'plan must confirm the worker drain and writer stop');
+  assert.ok(quiescence >= 0, 'plan must check Agent mutation quiescence');
+  assert.ok(stopWriters < confirmStopped);
+  assert.ok(confirmStopped < quiescence);
+});

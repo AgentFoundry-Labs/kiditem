@@ -37,6 +37,16 @@ export interface AgentWorkRepositoryPort {
     attemptId: string;
     requestedByUserId: string;
   }): Promise<{ taskStatus: AgentTaskStatus; live: boolean } | null>;
+  /** Revalidates every private MCP call against its exact durable Attempt coordinate. */
+  assertAttemptMcpBinding(input: {
+    organizationId: string;
+    sessionId: string;
+    taskId: string;
+    attemptId: string;
+    agentVersionId: string;
+    requestedByUserId: string;
+    capabilityKeys: readonly string[];
+  }): Promise<boolean>;
   loadAttemptMcpDelegationContext(input: {
     organizationId: string;
     sessionId: string;

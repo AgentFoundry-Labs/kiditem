@@ -4,7 +4,10 @@ import { CurrentUser } from '../../../../../auth/decorators/current-user.decorat
 import type { AuthUser } from '../../../../../auth/auth.types';
 import { AGENT_WORK_QUERY_PORT, type AgentWorkQueryPort } from '../../../../application/port/in/work/agent-work-query.port';
 import { AGENT_WORK_COMMAND_PORT, type AgentWorkCommandPort } from '../../../../application/port/in/work/agent-work-command.port';
-import { AgentAttemptExecutorService } from '../../../../adapter/out/runtime/attempt/agent-attempt-executor.service';
+import {
+  LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT,
+  type LiveAttemptExecutionCapabilityPort,
+} from '../../../../application/port/in/capability/live-attempt-execution.capability.port';
 import { z } from 'zod';
 
 const StartInput = z.object({ objective: z.string().trim().min(1).max(8_000), completionCriteria: z.string().trim().min(1).max(4_000).optional(), input: z.unknown().optional() }).strict();
@@ -17,7 +20,8 @@ export class AgentWorkController {
   constructor(
     @Inject(AGENT_WORK_QUERY_PORT) private readonly queries: AgentWorkQueryPort,
     @Inject(AGENT_WORK_COMMAND_PORT) private readonly commands: AgentWorkCommandPort,
-    private readonly executor: AgentAttemptExecutorService,
+    @Inject(LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT)
+    private readonly executor: LiveAttemptExecutionCapabilityPort,
   ) {}
 
   @Get('sessions/:sessionId')

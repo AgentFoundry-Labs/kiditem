@@ -24,7 +24,10 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
     private readonly delegation: Pick<AgentTaskDelegationService, 'delegate'>,
     private readonly work: Pick<
       AgentWorkRepositoryPort,
-      'loadAttemptMcpDelegationContext' | 'loadAttemptMcpChild' | 'loadAttemptMcpInvocation'
+      | 'assertAttemptMcpBinding'
+      | 'loadAttemptMcpDelegationContext'
+      | 'loadAttemptMcpChild'
+      | 'loadAttemptMcpInvocation'
     >,
     private readonly controls: AttemptRuntimeControlPort,
     private readonly starter?: Pick<AgentDelegatedAttemptStarterService, 'start'>,
@@ -32,6 +35,7 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
   ) {}
 
   async catalog(input: Parameters<AttemptMcpActionsPort['catalog']>[0]) {
+    await this.assertBinding(input.binding);
     const query = input.query?.trim().toLowerCase() ?? '';
     const definitions = this.capabilities?.listDefinitions() ?? [];
     return definitions.filter((definition) => definition.key.toLowerCase().includes(query))
@@ -47,6 +51,7 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
   async invoke(
     input: Parameters<AttemptMcpActionsPort['invoke']>[0],
   ): Promise<unknown> {
+    await this.assertBinding(input.binding);
     const definition = this.capabilities?.resolveDefinition(input.capabilityKey);
     if (!definition) throw new AgentOsRuntimeError('capability_not_found', 'capability_not_found');
     const parsedInput = definition.inputSchema.parse(input.input);
@@ -78,6 +83,7 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
   async delegate(
     input: Parameters<AttemptMcpActionsPort['delegate']>[0],
   ): Promise<unknown> {
+    await this.assertBinding(input.binding);
     const context = await this.work.loadAttemptMcpDelegationContext({
       organizationId: input.binding.organizationId,
       sessionId: input.binding.sessionId,
@@ -131,6 +137,7 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
   }
 
   async invocation(input: Parameters<AttemptMcpActionsPort['invocation']>[0]): Promise<unknown> {
+    await this.assertBinding(input.binding);
     const load = () => this.work.loadAttemptMcpInvocation({
       organizationId: input.binding.organizationId, sessionId: input.binding.sessionId,
       taskId: input.binding.taskId, attemptId: input.binding.attemptId,
@@ -153,6 +160,7 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
   async child(
     input: Parameters<AttemptMcpActionsPort['child']>[0],
   ): Promise<unknown> {
+    await this.assertBinding(input.binding);
     const child = await this.work.loadAttemptMcpChild({
       organizationId: input.binding.organizationId,
       sessionId: input.binding.sessionId,
@@ -194,6 +202,24 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
       parentTaskId: input.binding.taskId, childTaskId: input.childTaskId,
       requestedByUserId: input.binding.userId,
     });
+  }
+
+  private async assertBinding(input: Parameters<AttemptMcpActionsPort['catalog']>[0]['binding']): Promise<void> {
+    const valid = await this.work.assertAttemptMcpBinding({
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      taskId: input.taskId,
+      attemptId: input.attemptId,
+      agentVersionId: input.agentVersionId,
+      requestedByUserId: input.userId,
+      capabilityKeys: input.capabilityKeys,
+    });
+    if (!valid) {
+      throw new AgentOsRuntimeError(
+        'attempt_mcp_binding_invalid',
+        'attempt_mcp_binding_invalid',
+      );
+    }
   }
 }
 

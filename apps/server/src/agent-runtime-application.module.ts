@@ -15,6 +15,8 @@ import { AgentLiveMessageService } from './agent-os/application/service/work/age
 import { AttemptMcpActionsService } from './agent-os/application/service/work/attempt-mcp-actions.service';
 import { AgentDelegatedAttemptStarterService } from './agent-os/application/service/work/agent-delegated-attempt-starter.service';
 import { ATTEMPT_MCP_ACTIONS_PORT, type AttemptMcpActionsPort } from './agent-os/application/port/in/mcp/attempt-mcp-actions.port';
+import { LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT } from './agent-os/application/port/in/capability/live-attempt-execution.capability.port';
+import { LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT } from './agent-os/application/port/in/capability/live-attempt-future-output.capability.port';
 import { ATTEMPT_RUNTIME_CONTROL_PORT, type AttemptRuntimeControlPort } from './agent-os/application/port/out/runtime/attempt-runtime-control.port';
 import { AgentCapabilityInvocationService } from './agent-os/application/service/work/agent-capability-invocation.service';
 import { AgentTaskDelegationService } from './agent-os/application/service/work/agent-task-delegation.service';
@@ -30,6 +32,7 @@ import { AgentOsSessionModule } from './agent-os/agent-os-session.module';
   imports: [AgentWorkCapabilityApplicationModule, AgentOsSessionModule],
   providers: [
     AgentAttemptProcessRegistry, AttemptFilesystemService, AttemptLiveControlRegistry, AttemptFutureOutputChannel,
+    { provide: LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT, useExisting: AttemptFutureOutputChannel },
     { provide: AgentAttemptReadinessService, useFactory: () => new AgentAttemptReadinessService() },
     { provide: ATTEMPT_RUNTIME_CONTROL_PORT, useExisting: AttemptLiveControlRegistry },
     { provide: AgentAttemptRuntimeAdmissionService, inject: [PrismaService, AgentAttemptReadinessService], useFactory: (prisma: PrismaService, readiness: AgentAttemptReadinessService) => new AgentAttemptRuntimeAdmissionService(prisma, readiness) },
@@ -41,8 +44,9 @@ import { AgentOsSessionModule } from './agent-os/agent-os-session.module';
     { provide: ATTEMPT_MCP_ACTIONS_PORT, inject: [AgentCapabilityInvocationService, AgentTaskDelegationService, PrismaAgentWorkRepository, ATTEMPT_RUNTIME_CONTROL_PORT, AgentDelegatedAttemptStarterService, AgentCapabilityRegistry], useFactory: (invocations: AgentCapabilityInvocationService, delegation: AgentTaskDelegationService, work: PrismaAgentWorkRepository, controls: AttemptRuntimeControlPort, starter: AgentDelegatedAttemptStarterService, capabilities: AgentCapabilityRegistry) => new AttemptMcpActionsService(invocations, delegation, work, controls, starter, capabilities) },
     { provide: AttemptMcpBrokerService, inject: [ATTEMPT_MCP_ACTIONS_PORT], useFactory: (actions: AttemptMcpActionsPort) => new AttemptMcpBrokerService(actions) },
     { provide: AgentAttemptExecutorService, inject: [AttemptFilesystemService, AgentAttemptProcessRegistry, AttemptLiveControlRegistry, AttemptMcpBrokerService, AgentAttemptRuntimeAdmissionService, PrismaAgentWorkTransaction, AgentAttemptAdmissionService, AttemptFutureOutputChannel], useFactory: (files: AttemptFilesystemService, processes: AgentAttemptProcessRegistry, controls: AttemptLiveControlRegistry, broker: AttemptMcpBrokerService, admission: AgentAttemptRuntimeAdmissionService, work: PrismaAgentWorkTransaction, attempts: AgentAttemptAdmissionService, live: AttemptFutureOutputChannel) => new AgentAttemptExecutorService(files, processes, controls, broker, undefined, undefined, admission, { running: async (attemptId) => { await work.transitionAttempt({ attemptId, from: 'starting', to: 'running', at: new Date() }); }, terminal: async (attemptId, status, error, result) => { const data = { attemptId, to: status, at: new Date(), ...(error ? { error } : {}), ...(result ? { result } : {}) }; const transitioned = await work.transitionAttempt({ ...data, from: 'running' }); if (!transitioned.transitioned) await work.transitionAttempt({ ...data, from: 'starting' }); await work.finalizeTaskFromAttempt({ attemptId, at: new Date() }); live.finish({ attemptId, outcome: status === 'succeeded' ? 'completed' : 'failed', ...(result?.summary ? { summary: result.summary } : {}) }); }, release: (attemptId) => attempts.releaseAttempt(attemptId) }) },
+    { provide: LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT, useExisting: AgentAttemptExecutorService },
   ],
-  exports: [AgentAttemptExecutorService, AttemptMcpBrokerService, AgentAttemptReconciler, AgentLiveMessageService, AttemptFutureOutputChannel],
+  exports: [AgentAttemptExecutorService, AttemptMcpBrokerService, AgentAttemptReconciler, AgentLiveMessageService, AttemptFutureOutputChannel, LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT, LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT],
 })
 export class AgentRuntimeApplicationModule {}
 

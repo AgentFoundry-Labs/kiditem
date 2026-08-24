@@ -24,3 +24,18 @@ export function stableSourcingCandidateIdentity(
     )
     .digest('hex');
 }
+
+/** Shared transaction-lock coordinate for every canonical candidate writer. */
+export function sourcingCandidateIdentityLockKey(input: {
+  organizationId: string;
+  sourcePlatform: string;
+  sourceIdentityHash?: string | null;
+  sourceUrl: string;
+}): string {
+  return [
+    'sourcing-source-identity',
+    input.organizationId,
+    input.sourcePlatform,
+    input.sourceIdentityHash ?? input.sourceUrl,
+  ].join(':');
+}

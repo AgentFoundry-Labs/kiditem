@@ -877,15 +877,16 @@ surface. GitHub Actions remains the only supported release entrypoint.
 The workflow/operator runbook performs:
 
 ```text
-1. verify no ready/executing Agent mutation;
-2. stop API and worker writers;
-3. pg_dump --format=custom to protected local backup;
-4. pg_restore --list the archive;
-5. compute SHA-256 and record database/VERSION/Git SHA;
-6. record content-free unrelated business/Operation row checks;
-7. run db:push -- --accept-data-loss and generate;
-8. seed AgentVersions, boot API/worker, smoke, compare row checks;
-9. keep service stopped and manually restore full backup if verification fails.
+1. stop API and worker writers;
+2. confirm worker shutdown/drain and writers stopped;
+3. verify no ready/executing Agent mutation;
+4. pg_dump --format=custom to protected local backup;
+5. pg_restore --list the archive;
+6. compute SHA-256 and record database/VERSION/Git SHA;
+7. record content-free unrelated business/Operation row checks;
+8. run db:push -- --accept-data-loss and generate;
+9. seed AgentVersions, boot API/worker, smoke, compare row checks;
+10. keep service stopped and manually restore full backup if verification fails.
 ```
 
 Do not automate restore rehearsal, archive retention policy, RPO/RTO, or release

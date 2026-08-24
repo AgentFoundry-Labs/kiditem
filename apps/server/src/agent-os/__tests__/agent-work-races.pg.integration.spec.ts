@@ -797,4 +797,48 @@ describe("replacement Agent work transaction races", () => {
       ).rejects.toMatchObject({ code: "session_busy" });
     }
   });
+
+  it("matrix 14: MCP calls revalidate the exact active durable binding", async () => {
+    const version = await createVersion({
+      capabilityKeys: ["sourcing.retrieveWorkspaceEvidence"],
+    });
+    const root = await liveRoot(version);
+    const binding = {
+      organizationId,
+      sessionId: root.session.id,
+      taskId: root.task.id,
+      attemptId: root.attempt.id,
+      agentVersionId: version.id,
+      requestedByUserId: userId,
+      capabilityKeys: ["sourcing.retrieveWorkspaceEvidence"],
+    };
+
+    await expect(repository.assertAttemptMcpBinding(binding)).resolves.toBe(true);
+
+    await prisma.organizationMembership.updateMany({
+      where: { organizationId, userId },
+      data: { status: "inactive" },
+    });
+    await expect(repository.assertAttemptMcpBinding(binding)).resolves.toBe(false);
+
+    await prisma.organizationMembership.updateMany({
+      where: { organizationId, userId },
+      data: { status: "active" },
+    });
+    await prisma.agentAttempt.update({
+      where: { id: root.attempt.id },
+      data: { status: "succeeded", finishedAt: new Date() },
+    });
+    await expect(repository.assertAttemptMcpBinding(binding)).resolves.toBe(false);
+
+    await prisma.agentAttempt.update({
+      where: { id: root.attempt.id },
+      data: { status: "running", finishedAt: null },
+    });
+    await prisma.agentVersion.update({
+      where: { id: version.id },
+      data: { capabilityKeys: ["sourcing.scrapeProductUrl"] },
+    });
+    await expect(repository.assertAttemptMcpBinding(binding)).resolves.toBe(false);
+  });
 });

@@ -14,6 +14,7 @@ function setup() {
   const invocations = { invoke: vi.fn(async (value) => value) };
   const delegation = { delegate: vi.fn() };
   const work = {
+    assertAttemptMcpBinding: vi.fn().mockResolvedValue(true),
     loadAttemptMcpDelegationContext: vi.fn(),
     loadAttemptMcpChild: vi.fn(),
     loadAttemptMcpInvocation: vi.fn(),
@@ -45,6 +46,83 @@ function setup() {
 }
 
 describe('AttemptMcpActionsService', () => {
+  it('rejects a revoked membership before catalog reaches the capability registry', async () => {
+    const { service, work, capabilities } = setup();
+    work.assertAttemptMcpBinding.mockResolvedValueOnce(false);
+
+    await expect(service.catalog({ binding, query: 'evidence' }))
+      .rejects.toMatchObject({ code: 'attempt_mcp_binding_invalid' });
+    expect(capabilities.listDefinitions).not.toHaveBeenCalled();
+  });
+
+  it('rejects a terminal Attempt before reading an invocation result', async () => {
+    const { service, work } = setup();
+    work.assertAttemptMcpBinding.mockResolvedValueOnce(false);
+
+    await expect(service.invocation({
+      binding,
+      action: 'result',
+      invocationId: '11111111-1111-4111-8111-111111111111',
+    })).rejects.toMatchObject({ code: 'attempt_mcp_binding_invalid' });
+    expect(work.loadAttemptMcpInvocation).not.toHaveBeenCalled();
+  });
+
+  it('rejects a persisted capability snapshot drift before resolving a capability', async () => {
+    const { service, work, capabilities, invocations } = setup();
+    work.assertAttemptMcpBinding.mockResolvedValueOnce(false);
+
+    await expect(service.invoke({
+      invocationId: 'snapshot-drift',
+      binding: { ...binding, capabilityKeys: ['sourcing.retrieveWorkspaceEvidence'] },
+      capabilityKey: 'sourcing.retrieveWorkspaceEvidence',
+      input: { query: 'source' },
+    })).rejects.toMatchObject({ code: 'attempt_mcp_binding_invalid' });
+    expect(capabilities.resolveDefinition).not.toHaveBeenCalled();
+    expect(invocations.invoke).not.toHaveBeenCalled();
+  });
+
+  it('revalidates a valid binding before every public MCP action', async () => {
+    const { service, work, delegation } = setup();
+    work.loadAttemptMcpDelegationContext.mockResolvedValue({
+      input: {}, applicationVersion: '1', authorizingGitSha: 'a'.repeat(40), cliVersion: '1',
+      reportedModel: null, targetModel: 'target-model', targetAgentVersionId: 'target-version',
+      targetAgentKey: 'supply', targetRuntimeType: 'codex_cli', targetCapabilityKeys: [],
+      targetInstructionProfileRef: 'agent-config/prompts/agents/supply.md',
+    });
+    delegation.delegate.mockResolvedValue({ childTaskId: 'child', firstAttemptId: 'child-attempt', replayed: true });
+    work.loadAttemptMcpInvocation.mockResolvedValue({
+      invocationId: '11111111-1111-4111-8111-111111111111', status: 'succeeded',
+      result: null, error: null, attemptStartedAt: new Date(),
+    });
+    work.loadAttemptMcpChild.mockResolvedValue({
+      childTaskId: 'child', taskStatus: 'open', attemptId: 'child-attempt',
+      attemptStatus: 'running', live: true, result: null, error: null,
+    });
+
+    await service.catalog({ binding });
+    await service.invoke({
+      invocationId: 'valid-action', binding,
+      capabilityKey: 'supply.create_purchase_order_draft',
+      input: { productName: 'Kid', amount: 1 },
+    });
+    await service.delegate({ binding, targetAgentKey: 'supply', objective: 'delegate' });
+    await service.invocation({
+      binding, action: 'status', invocationId: '11111111-1111-4111-8111-111111111111',
+    });
+    await service.child({ binding, action: 'status', childTaskId: 'child' });
+
+    expect(work.assertAttemptMcpBinding).toHaveBeenCalledTimes(5);
+    expect(work.assertAttemptMcpBinding).toHaveBeenLastCalledWith({
+      organizationId: 'org',
+      sessionId: 'session',
+      taskId: 'task',
+      attemptId: 'attempt',
+      agentVersionId: 'version',
+      requestedByUserId: 'user',
+      capabilityKeys: ['supply.create_purchase_order_draft'],
+    });
+  });
+
   it('uses a stable server-owned mutation idempotency key for an exact retry', async () => {
     const { service, invocations } = setup();
     const input = {
