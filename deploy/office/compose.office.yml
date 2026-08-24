@@ -81,6 +81,8 @@ services:
       - ${OFFICE_API_ENV_FILE:-C:/workspace/kiditem/apps/server/.env}
     image: ${KIDITEM_API_IMAGE:?KIDITEM_API_IMAGE must be an immutable GHCR digest reference}
     container_name: kiditem-api
+    deploy:
+      replicas: 1
     environment:
       <<: *server-environment
       KIDITEM_AGENT_RUNNER_TOKEN_FILE: /run/secrets/agent_runner_token
@@ -159,7 +161,7 @@ services:
     ports:
       - "0.0.0.0:80:80"
     volumes:
-      - C:/ProgramData/Kiditem/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - C:/ProgramData/KidItem/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/login >/dev/null"]

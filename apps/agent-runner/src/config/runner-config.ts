@@ -10,9 +10,12 @@ const ConfigSchema = z.object({
   controlOrigin: z.string().min(1),
   tokenFile: z.string().min(1),
   attemptRoot: z.string().min(1),
+  runtimeRoot: z.string().min(1),
 }).strict();
 
 type ProtectedPathKind = 'file' | 'directory' | 'other';
+export type RunnerProtectedPathAccess = 'read' | 'read_execute' | 'write';
+type WindowsAclRight = 'full' | 'read' | 'read_execute' | 'write' | 'other';
 
 export type RunnerProtectedPathIdentity = Readonly<{
   device: string;
@@ -30,7 +33,8 @@ export type RunnerProtectedPathInspection = Readonly<{
     entries: readonly Readonly<{
       identity: string;
       access: 'allow' | 'deny' | 'other';
-      rights: 'full' | 'other';
+      rights: WindowsAclRight;
+      inheritOnly?: boolean;
     }>[];
   }>;
 }>;
@@ -87,7 +91,7 @@ export async function loadRunnerConfig(argv: readonly string[], options: RunnerC
     throw new Error('runner_arguments_invalid');
   }
   const protection = protectedPathOptions(options);
-  const configPath = await snapshotProtectedPath(argv[1]!, 'runner_config', 'file', protection.inspector);
+  const configPath = await snapshotProtectedPath(argv[1]!, 'runner_config', 'file', protection.inspector, 'read');
   let parsed: unknown;
   try {
     parsed = JSON.parse(await readProtectedText(configPath, protection.filesystem));
@@ -98,24 +102,35 @@ export async function loadRunnerConfig(argv: readonly string[], options: RunnerC
   const config = ConfigSchema.safeParse(parsed);
   if (!config.success) throw new Error('runner_config_invalid');
   const origin = normalizeControlOrigin(config.data.controlOrigin);
-  const tokenPath = await snapshotProtectedPath(config.data.tokenFile, 'runner_token', 'file', protection.inspector);
+  const tokenPath = await snapshotProtectedPath(config.data.tokenFile, 'runner_token', 'file', protection.inspector, 'read');
   const attemptRootGuard = await createProtectedAttemptRootGuardFromProtection(config.data.attemptRoot, protection);
   const entrypoint = options.entrypoint ?? __filename;
   const realEntrypoint = await realpath(entrypoint).catch(() => resolve(entrypoint));
-  const runtimeRoot = dirname(dirname(realEntrypoint));
+  const expectedRuntimeRoot = resolve(dirname(dirname(realEntrypoint)));
+  const runtimeRoot = await snapshotProtectedPath(
+    config.data.runtimeRoot,
+    'runner_runtime_root',
+    'directory',
+    protection.inspector,
+    'read_execute',
+  );
+  const canonicalRuntimeRoot = await realpath(runtimeRoot.path).catch(() => runtimeRoot.path);
+  if (!sameRuntimeRoot(canonicalRuntimeRoot, expectedRuntimeRoot, protection.inspector.platform)) {
+    throw new Error('runner_runtime_root_mismatch');
+  }
   return Object.freeze({
     controlOrigin: origin,
     tokenFile: tokenPath.path,
     attemptRoot: attemptRootGuard.canonicalPath,
     attemptRootGuard,
-    runtimeRoot,
+    runtimeRoot: canonicalRuntimeRoot,
     loginRoot: options.loginRoot ?? homedir(),
   });
 }
 
 export async function readInstallationToken(tokenFile: string, options: RunnerProtectedPathOptions = {}): Promise<string> {
   const protection = protectedPathOptions(options);
-  const tokenPath = await snapshotProtectedPath(tokenFile, 'runner_token', 'file', protection.inspector);
+  const tokenPath = await snapshotProtectedPath(tokenFile, 'runner_token', 'file', protection.inspector, 'read');
   const token = (await readProtectedText(tokenPath, protection.filesystem)).trim();
   if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new Error('runner_installation_token_invalid');
   return token;
@@ -139,7 +154,7 @@ async function createProtectedAttemptRootGuardFromProtection(
   value: string,
   protection: Readonly<{ inspector: RunnerProtectedPathInspector; filesystem: RunnerProtectedPathFilesystem }>,
 ): Promise<RunnerProtectedAttemptRootGuard> {
-  const snapshot = await snapshotProtectedPath(value, 'runner_attempt_root', 'directory', protection.inspector);
+  const snapshot = await snapshotProtectedPath(value, 'runner_attempt_root', 'directory', protection.inspector, 'write');
   return Object.freeze({
     canonicalPath: snapshot.path,
     revalidate: async () => {
@@ -169,6 +184,7 @@ type ProtectedPathSnapshot = Readonly<{
   path: string;
   policy: RunnerProtectedPathPolicy;
   inspector: RunnerProtectedPathInspector;
+  targetAccess: RunnerProtectedPathAccess;
   components: readonly ProtectedPathComponent[];
 }>;
 
@@ -187,6 +203,7 @@ async function snapshotProtectedPath(
   label: string,
   expectedKind: 'file' | 'directory',
   inspector: RunnerProtectedPathInspector,
+  targetAccess: RunnerProtectedPathAccess,
 ): Promise<ProtectedPathSnapshot> {
   if (!isAbsolute(value)) throw new Error(`${label}_path_invalid`);
   const path = resolve(value);
@@ -201,7 +218,7 @@ async function snapshotProtectedPath(
     }
     if (target) {
       if (inspection.kind !== expectedKind) throw new Error(`${label}_missing`);
-      assertProtectedPathPolicy(inspection, policy);
+      assertProtectedPathPolicy(inspection, policy, targetAccess);
     } else {
       assertProtectedAncestorPolicy(inspection, policy);
     }
@@ -211,7 +228,7 @@ async function snapshotProtectedPath(
       identity: protectedPathIdentity(inspection),
     }));
   }
-  return Object.freeze({ path, policy, inspector, components: Object.freeze(components) });
+  return Object.freeze({ path, policy, inspector, targetAccess, components: Object.freeze(components) });
 }
 
 function protectedPathComponents(value: string): readonly string[] {
@@ -235,7 +252,7 @@ async function assertProtectedPathSnapshotIntact(snapshot: ProtectedPathSnapshot
       throw new Error('runner_protected_path_changed');
     }
     try {
-      if (component.path === snapshot.path) assertProtectedPathPolicy(inspection, snapshot.policy);
+      if (component.path === snapshot.path) assertProtectedPathPolicy(inspection, snapshot.policy, snapshot.targetAccess);
       else assertProtectedAncestorPolicy(inspection, snapshot.policy);
     } catch {
       throw new Error('runner_protected_path_changed');
@@ -290,7 +307,19 @@ async function protectedPathPolicy(inspector: RunnerProtectedPathInspector): Pro
 function assertProtectedAncestorPolicy(inspection: RunnerProtectedPathInspection, policy: RunnerProtectedPathPolicy): void {
   if (inspection.kind !== 'directory') throw new Error('runner_protected_path_ancestor_invalid');
   if (policy.platform === 'windows') {
-    assertProtectedPathPolicy(inspection, policy);
+    const acl = inspection.windowsAcl;
+    if (!acl) throw new Error('runner_protected_path_acl_invalid');
+    const permitted = new Set([normalizeWindowsIdentity(policy.currentServiceIdentity), 'BA', 'SY']);
+    for (const entry of acl.entries) {
+      if (entry.inheritOnly || entry.access === 'deny') continue;
+      const identity = normalizeWindowsIdentity(entry.identity);
+      if (
+        !permitted.has(identity) &&
+        (entry.access !== 'allow' || (entry.rights !== 'read' && entry.rights !== 'read_execute'))
+      ) {
+        throw new Error('runner_protected_path_acl_invalid');
+      }
+    }
     return;
   }
   if (inspection.uid === undefined || (inspection.uid !== policy.currentUid && inspection.uid !== 0)) {
@@ -302,7 +331,11 @@ function assertProtectedAncestorPolicy(inspection: RunnerProtectedPathInspection
 }
 
 /** Pure protected-path policy so Windows ACL behavior is unit-testable from macOS. */
-export function assertProtectedPathPolicy(inspection: RunnerProtectedPathInspection, policy: RunnerProtectedPathPolicy): void {
+export function assertProtectedPathPolicy(
+  inspection: RunnerProtectedPathInspection,
+  policy: RunnerProtectedPathPolicy,
+  requiredAccess: RunnerProtectedPathAccess = 'write',
+): void {
   if (inspection.isSymbolicLink) throw new Error('runner_protected_path_symlink_rejected');
   if (policy.platform === 'macos') {
     if (inspection.uid === undefined || inspection.uid !== policy.currentUid) throw new Error('runner_protected_path_owner_invalid');
@@ -312,17 +345,24 @@ export function assertProtectedPathPolicy(inspection: RunnerProtectedPathInspect
   const acl = inspection.windowsAcl;
   const serviceIdentity = normalizeWindowsIdentity(policy.currentServiceIdentity);
   if (!acl || !serviceIdentity) throw new Error('runner_protected_path_acl_invalid');
-  const permitted = new Set([serviceIdentity, 'BA', 'SY']);
+  const expectedRights = requiredAccess === 'read' ? 'read' : requiredAccess === 'read_execute' ? 'read_execute' : 'full';
+  const permitted = new Map<string, WindowsAclRight>([
+    [serviceIdentity, expectedRights],
+    ['BA', 'full'],
+    ['SY', expectedRights],
+  ]);
   if (!permitted.has(normalizeWindowsIdentity(acl.owner))) throw new Error('runner_protected_path_owner_invalid');
   const granted = new Set<string>();
   for (const entry of acl.entries) {
     const identity = normalizeWindowsIdentity(entry.identity);
-    if (!permitted.has(identity) || entry.access !== 'allow' || entry.rights !== 'full') {
+    const expected = permitted.get(identity);
+    if (entry.inheritOnly) continue;
+    if (!expected || entry.access !== 'allow' || entry.rights !== expected || granted.has(identity)) {
       throw new Error('runner_protected_path_acl_invalid');
     }
     granted.add(identity);
   }
-  for (const identity of permitted) {
+  for (const identity of permitted.keys()) {
     if (!granted.has(identity)) throw new Error('runner_protected_path_acl_invalid');
   }
 }
@@ -359,6 +399,12 @@ function protectedPathIdentityOrNull(inspection: RunnerProtectedPathInspection):
 
 function sameIdentity(left: RunnerProtectedPathIdentity | null, right: RunnerProtectedPathIdentity): boolean {
   return !!left && left.device === right.device && left.inode === right.inode;
+}
+
+function sameRuntimeRoot(left: string, right: string, platform: RunnerProtectedPathInspector['platform']): boolean {
+  return platform === 'windows'
+    ? left.toLocaleLowerCase('en-US') === right.toLocaleLowerCase('en-US')
+    : left === right;
 }
 
 function isProtectedPathError(error: unknown): error is Error {
@@ -445,11 +491,21 @@ function parseWindowsAclSddl(value: string): NonNullable<RunnerProtectedPathInsp
     return Object.freeze({
       identity: fields[5]!,
       access: fields[0] === 'A' ? 'allow' as const : fields[0] === 'D' ? 'deny' as const : 'other' as const,
-      rights: fields[2] === 'FA' ? 'full' as const : 'other' as const,
+      rights: parseWindowsAclRights(fields[2]! as string),
+      ...(fields[1]!.includes('IO') ? { inheritOnly: true } : {}),
     });
   });
   if (!entries.length) throw new Error('windows_acl_sddl_invalid');
   return Object.freeze({ owner, entries });
+}
+
+function parseWindowsAclRights(value: string): WindowsAclRight {
+  const rights = value.trim().toUpperCase();
+  if (rights === 'FA' || rights === 'GA' || rights === '0X1F01FF') return 'full';
+  if (rights === 'FR' || rights === 'GR' || rights === '0X120089') return 'read';
+  if (rights === 'FRFX' || rights === 'GRGX' || rights === '0X1200A9') return 'read_execute';
+  if (rights === 'FW' || rights === 'GW' || rights === '0X120116' || rights === '0X1301BF') return 'write';
+  return 'other';
 }
 
 function sddlSection(value: string, marker: 'O' | 'D'): string | null {

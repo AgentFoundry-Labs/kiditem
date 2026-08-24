@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AgentRuntimeApplicationModule } from '../agent-runtime-application.module';
+import { ReadinessStateModule } from '../readiness/readiness-state.module';
 import {
   AttemptMcpHttpController,
   ATTEMPT_MCP_HANDLER_FACTORY,
@@ -12,7 +13,7 @@ import { RunnerControlController } from './adapter/in/http/runtime/runner-contro
 
 /** Internal loopback-only HTTP surface consumed by the native Host Runner. */
 @Module({
-  imports: [AgentRuntimeApplicationModule],
+  imports: [AgentRuntimeApplicationModule, ReadinessStateModule],
   controllers: [RunnerControlController, AttemptMcpHttpController],
   providers: [
     { provide: McpHttpResponseAdapter, useFactory: () => new McpHttpResponseAdapter() },

@@ -49,17 +49,28 @@ describe('integration test runtime contract', () => {
     expect(packageJson.devDependencies).toHaveProperty('@testcontainers/postgresql');
   });
 
-  it('keeps PR checks lightweight and reserves full validation for manual develop runs', () => {
+  it('keeps PR checks to hygiene plus the required native Windows Runner package boundary', () => {
     const prWorkflowSource = readRepoFile('.github/workflows/pr-checks.yml');
     const prJobSource = readWorkflowJobSource(prWorkflowSource, 'pr-hygiene');
+    const runnerPackageJob = readWorkflowJobSource(prWorkflowSource, 'windows_runner_package');
 
-    expect(readWorkflowJobNames(prWorkflowSource)).toEqual(['pr-hygiene']);
+    expect(readWorkflowJobNames(prWorkflowSource)).toEqual([
+      'pr-hygiene',
+      'windows_runner_package',
+    ]);
     expect(prJobSource).toContain('runs-on: ubuntu-latest');
     expect(prJobSource).toContain('run: git diff --check "${BASE_SHA}...HEAD"');
     expect(prWorkflowSource).toContain('      - release/office');
-    expect(prWorkflowSource).not.toContain('actions/setup-node');
-    expect(prWorkflowSource).not.toContain('npm ci');
-    expect(prWorkflowSource).not.toContain('npm run build');
+    expect(prJobSource).not.toContain('actions/setup-node');
+    expect(prJobSource).not.toContain('npm ci');
+    expect(prJobSource).not.toContain('npm run build');
+    expect(runnerPackageJob).toContain('runs-on: windows-latest');
+    expect(runnerPackageJob).toContain('node-version: 22');
+    expect(runnerPackageJob).toContain('npm ci');
+    expect(runnerPackageJob).toContain('npm run build --workspace=packages/shared');
+    expect(runnerPackageJob).toContain('npm run build --workspace=apps/agent-runner');
+    expect(runnerPackageJob).toContain('dotnet publish apps/agent-runner/windows/KidItem.JobRunner/KidItem.JobRunner.csproj');
+    expect(runnerPackageJob).toContain('npm pack --workspace=apps/agent-runner --dry-run');
     expect(prWorkflowSource).not.toContain('test:integration');
 
     const developWorkflowSource = readRepoFile(

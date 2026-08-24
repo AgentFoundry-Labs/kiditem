@@ -55,7 +55,12 @@ describe('Runner ↔ Nest loopback readiness', () => {
       readFile: async () => INSTALLATION_TOKEN,
     });
     await installation.initialize();
-    const controller = new RunnerControlController(installation, leases, events);
+    const controller = new RunnerControlController(
+      installation,
+      leases,
+      events,
+      { getAgentAttemptRuntimeReadiness: vi.fn(async () => ({ status: 'probing', agents: [] })) } as never,
+    );
     const client = new RunnerControlClient({
       controlOrigin: 'http://127.0.0.1:4000',
       token: INSTALLATION_TOKEN,

@@ -201,6 +201,8 @@ test('office API exposes only the loopback Host Runner boundary and contains no 
   );
   assert.match(compose, /- "127\.0\.0\.1:4000:4000"/);
   assert.match(compose, /KIDITEM_AGENT_RUNNER_TOKEN_FILE: \/run\/secrets\/agent_runner_token/);
+  const apiService = compose.slice(compose.indexOf('  api:'), compose.indexOf('  worker:'));
+  assert.match(apiService, /deploy:\s*\n\s+replicas: 1/);
   assert.doesNotMatch(compose, /KIDITEM_AGENT_RUNTIME_LOOPBACK_ORIGIN|:4401/);
   assert.match(compose, /agent_runner_token:/);
   assert.match(compose, /AGENT_CLI_MAX_CONCURRENCY: \$\{AGENT_CLI_MAX_CONCURRENCY:-4\}/);
@@ -215,6 +217,133 @@ test('office API exposes only the loopback Host Runner boundary and contains no 
   const runbook = read('docs/runbooks/office-deploy.md');
   assert.doesNotMatch(runbook, /docker compose run --rm --no-deps cli-login/);
   assert.doesNotMatch(runbook, /docker exec[^\n]*(codex|claude)/i);
+});
+
+test('Office release builds one immutable Windows Host Runner artifact alongside the exact image release', () => {
+  const workflow = read('.github/workflows/office-images.yml');
+
+  assert.match(workflow, /build_runner_windows:/);
+  assert.match(workflow, /runs-on: windows-latest/);
+  assert.match(workflow, /ref: \$\{\{ needs\.identity_guard\.outputs\.git_sha \}\}/);
+  assert.match(workflow, /node-version:\s*22/);
+  assert.match(workflow, /npm ci/);
+  assert.match(workflow, /npm run build --workspace=packages\/shared/);
+  assert.match(workflow, /npm run build --workspace=apps\/agent-runner/);
+  assert.match(
+    workflow,
+    /dotnet publish apps\/agent-runner\/windows\/KidItem\.JobRunner\/KidItem\.JobRunner\.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true/,
+  );
+  assert.match(workflow, /npm pack --workspace=apps\/agent-runner/);
+  assert.match(workflow, /kiditem-agent-runner-windows-x64\.zip/);
+  assert.match(workflow, /KidItem\.JobRunner\.exe/);
+  assert.match(workflow, /runner-runtime-contract\.json/);
+  assert.match(workflow, /Get-FileHash .* -Algorithm SHA256/);
+  assert.match(workflow, /Expand-Archive/);
+  assert.match(workflow, /codex(?:\.cmd|\.js)?[^\r\n]*--version/);
+  assert.match(workflow, /claude(?:\.cmd|\.exe)?[^\r\n]*--version/);
+  assert.match(workflow, /Run the unpacked Windows Job Object fixture/);
+  assert.match(workflow, /unpacked Windows Job Object helper rejected malformed input/);
+  assert.match(workflow, /npm exec --workspace=apps\/agent-runner vitest -- run/);
+  assert.match(workflow, /needs:\s*[\s\S]*build_runner_windows/);
+  assert.match(workflow, /actions\/download-artifact@/);
+  assert.match(workflow, /schemaVersion: 2/);
+  assert.match(workflow, /runnerArtifact/);
+  assert.match(workflow, /runnerArtifactSha256/);
+  assert.match(workflow, /(?:platform:\s*'windows'|\.platform == "windows")/);
+  assert.match(workflow, /mcpProtocolRevision/);
+  assert.match(workflow, /cliContractIdentity/);
+  assert.match(workflow, /codexVersion/);
+  assert.match(workflow, /claudeVersion/);
+});
+
+test('PR validation exercises the Windows Runner packaging boundary without a host install', () => {
+  const workflow = read('.github/workflows/pr-checks.yml');
+
+  assert.match(workflow, /windows_runner_package:/);
+  assert.match(workflow, /runs-on: windows-latest/);
+  assert.match(workflow, /node-version:\s*22/);
+  assert.match(workflow, /npm ci/);
+  assert.match(workflow, /npm run build --workspace=packages\/shared/);
+  assert.match(workflow, /npm run build --workspace=apps\/agent-runner/);
+  assert.match(workflow, /npm exec --workspace=apps\/agent-runner vitest -- run/);
+  assert.match(
+    workflow,
+    /dotnet publish apps\/agent-runner\/windows\/KidItem\.JobRunner\/KidItem\.JobRunner\.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true/,
+  );
+  assert.match(workflow, /npm pack --workspace=apps\/agent-runner --dry-run/);
+});
+
+test('Office operator binds API, Runner package, scheduler, token rotation, and rollback to one release identity', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const compose = read('deploy/office/compose.office.yml');
+
+  assert.match(script, /ValidateSet\('Deploy', 'Status', 'Rollback', 'RotateRunnerToken'\)/);
+  assert.match(script, /\$OfficeRoot = 'C:\\ProgramData\\KidItem'/);
+  assert.match(script, /schemaVersion -ne 2/);
+  assert.match(script, /runnerArtifact/);
+  assert.match(script, /runnerArtifactSha256/);
+  assert.match(script, /runnerRuntime/);
+  assert.match(script, /RunnerReleasesRoot/);
+  assert.match(script, /RunnerRoot/);
+  assert.match(script, /RunnerReleasesRoot = Join-Path \$script:RunnerRoot 'releases'/);
+  assert.match(script, /KidItem Agent Runner/);
+  assert.match(script, /New-ScheduledTaskPrincipal/);
+  assert.match(script, /-LogonType S4U/);
+  assert.match(script, /New-ScheduledTaskTrigger -AtStartup/);
+  assert.match(script, /RestartCount/);
+  assert.match(script, /Set-RunnerProtectedAcl/);
+  assert.match(script, /\/setowner', 'Administrators'/);
+  assert.match(script, /\$systemRights = \$serviceRights/);
+  assert.match(script, /Set-RunnerProtectedAcl -Path \(Join-Path \$candidateRoot 'package'\) -Mode ReadExecute/);
+  assert.match(script, /Get-FileHash -LiteralPath .* -Algorithm SHA256/);
+  assert.match(script, /Expand-Archive/);
+  assert.match(script, /Start-ScheduledTask/);
+  assert.match(script, /Stop-ScheduledTask/);
+  assert.match(script, /Wait-ForAgentRuntimeReadiness/);
+  assert.match(script, /internal\/agent-runtime\/runner\/readiness/);
+  assert.match(script, /Switch-RunnerCurrentRelease/);
+  assert.match(script, /Restore-Transaction/);
+  assert.match(script, /Move-RunnerProtectedFile -Candidate \$restorePointer -Target \$script:RunnerCurrentPointerPath/);
+  assert.match(script, /RotateRunnerToken/);
+  assert.match(script, /RandomNumberGenerator/);
+  assert.match(script, /ToBase64String/);
+  assert.match(script, /TrimEnd\('\='/);
+  assert.match(script, /Move-RunnerProtectedFile -Candidate \$candidate -Target \$script:RunnerTokenPath/);
+  assert.match(script, /\[System\.IO\.File\]::Replace/);
+  assert.doesNotMatch(script, /New-NetFirewallRule|netsh\s+advfirewall|TcpListener|HttpListener/i);
+  assert.doesNotMatch(script, /(?:codex|claude).*credential|credential.*(?:codex|claude)/i);
+  assert.match(compose, /- "127\.0\.0\.1:4000:4000"/);
+  assert.match(compose, /C:\/ProgramData\/KidItem\/nginx\.conf/);
+  assert.doesNotMatch(compose, /:4401/);
+  assert.match(compose, /KIDITEM_AGENT_RUNNER_TOKEN_FILE: \/run\/secrets\/agent_runner_token/);
+  assert.match(compose, /agent_runner_token:/);
+});
+
+test('Office deployment validates a closed manifest/archive shape and bootstraps only the protected Runner bearer', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const archiveCheck = script.indexOf('Assert-RunnerOuterArchiveEntries (Join-Path $candidateRoot $Manifest.runnerArtifact)');
+  const expand = script.indexOf('Expand-Archive -LiteralPath (Join-Path $candidateRoot $Manifest.runnerArtifact)');
+
+  assert.match(script, /function Assert-ManifestShape/);
+  assert.match(script, /Compare-Object/);
+  assert.match(script, /function Assert-RunnerOuterArchiveEntries/);
+  assert.match(script, /\[System\.IO\.Compression\.ZipFile\]::OpenRead/);
+  assert.ok(archiveCheck >= 0 && archiveCheck < expand, 'outer archive entries must be admitted before extraction');
+  assert.match(script, /if \(-not \(Test-Path -LiteralPath \$script:RunnerTokenPath -PathType Leaf\)\) \{[\s\S]*Replace-RunnerInstallationToken/);
+});
+
+test('Office Runner config binds the post-promotion version root, not its temporary extraction directory', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+
+  assert.match(script, /\$runtimeRoot = Join-Path \$releaseRoot 'package'/);
+  assert.doesNotMatch(script, /\$runtimeRoot = Join-Path \$candidateRoot 'package'/);
+});
+
+test('Office Runner config is written as UTF-8 without a BOM for Node strict JSON parsing', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+
+  assert.match(script, /System\.Text\.UTF8Encoding.*\$false/);
+  assert.match(script, /\[System\.IO\.File\]::WriteAllText\(\$runnerConfigPath/);
 });
 
 test('office MCP v2 ownership is package-local and Compose cannot select a provider protocol mode', () => {

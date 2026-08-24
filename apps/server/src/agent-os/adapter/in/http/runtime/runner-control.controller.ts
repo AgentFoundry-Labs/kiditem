@@ -1,4 +1,4 @@
-import { Body, ConflictException, Controller, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
+import { Body, ConflictException, Controller, Get, Inject, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import {
@@ -11,6 +11,7 @@ import { SkipAuth } from '../../../../../auth/decorators/skip-auth.decorator';
 import { RunnerEventHandlerService } from '../../../out/runtime/runner/runner-event-handler.service';
 import { RunnerInstallationTokenService } from '../../../out/runtime/runner/runner-installation-token.service';
 import { RunnerLeaseRegistry } from '../../../out/runtime/runner/runner-lease.registry';
+import { ReadinessService } from '../../../../../readiness/readiness.service';
 
 /** Dedicated loopback control ingress; it never uses a browser session. */
 @SkipAuth()
@@ -21,7 +22,16 @@ export class RunnerControlController {
     private readonly installation: RunnerInstallationTokenService,
     private readonly leases: RunnerLeaseRegistry,
     private readonly eventsHandler: RunnerEventHandlerService,
+    @Inject(ReadinessService)
+    private readonly readinessState: Pick<ReadinessService, 'getAgentAttemptRuntimeReadiness'>,
   ) {}
+
+  /** Deployment-only bounded admission facts; this reuses the existing exact model/canary projection. */
+  @Get('readiness')
+  async readiness(@Req() request: Request) {
+    this.requireInstallationBearer(request);
+    return this.readinessState.getAgentAttemptRuntimeReadiness();
+  }
 
   @Post('commands:poll')
   async poll(@Body() body: unknown, @Req() request: Request, @Res() response: Response): Promise<void> {

@@ -97,6 +97,83 @@ jobs:
         NEXT_PUBLIC_API_URL=
       extra_tags: ghcr.io/agentfoundry-labs/kiditem-web:office-candidate
 
+  build_runner_windows:
+    name: Build immutable Windows Host Runner
+    needs:
+      - identity_guard
+      - prepare
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    outputs:
+      runner_artifact_sha256: ${{ steps.bundle.outputs.sha256 }}
+    steps:
+      - name: Checkout exact release
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.identity_guard.outputs.git_sha }}
+
+      - name: Use Node 22
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install, build, and test the pinned Runner train
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm ci
+          npm run build --workspace=packages/shared
+          npm run build --workspace=apps/agent-runner
+          npm exec --workspace=apps/agent-runner vitest -- run src/platform/windows
+          dotnet publish apps/agent-runner/windows/KidItem.JobRunner/KidItem.JobRunner.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP\\kiditem-job-runner"
+
+      - name: Build and verify the immutable Windows Runner archive
+        id: bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archiveRoot = Join-Path $env:RUNNER_TEMP 'kiditem-agent-runner-package'
+          $verifyRoot = Join-Path $env:RUNNER_TEMP 'kiditem-agent-runner-verify'
+          $zip = Join-Path $env:RUNNER_TEMP 'kiditem-agent-runner-windows-x64.zip'
+          Remove-Item -LiteralPath $archiveRoot, $verifyRoot, $zip -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $archiveRoot | Out-Null
+
+          npm pack --workspace=apps/agent-runner
+          $runnerTgz = Get-ChildItem -LiteralPath . -Filter 'kiditem-agent-runner-*.tgz' | Select-Object -First 1
+          if ($null -eq $runnerTgz) { throw 'Runner package was not produced.' }
+          Copy-Item -LiteralPath $runnerTgz.FullName -Destination (Join-Path $archiveRoot 'agent-runner.tgz')
+          Remove-Item -LiteralPath $runnerTgz.FullName -Force
+          Copy-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'kiditem-job-runner\\KidItem.JobRunner.exe') -Destination (Join-Path $archiveRoot 'KidItem.JobRunner.exe')
+
+          node --input-type=module -e "import { writeFileSync } from 'node:fs'; import { ATTEMPT_RUNTIME_TRAIN } from './packages/shared/dist/agent-runtime/index.js'; writeFileSync(process.argv[1], JSON.stringify({ schemaVersion: 1, platform: 'windows', ...ATTEMPT_RUNTIME_TRAIN }, null, 2) + '\\n');" (Join-Path $archiveRoot 'runner-runtime-contract.json')
+          Compress-Archive -Path (Join-Path $archiveRoot '*') -DestinationPath $zip -CompressionLevel Optimal
+
+          Expand-Archive -LiteralPath $zip -DestinationPath $verifyRoot
+          $verifyPackage = Join-Path $verifyRoot 'package'
+          New-Item -ItemType Directory -Path $verifyPackage | Out-Null
+          tar -xf (Join-Path $verifyRoot 'agent-runner.tgz') -C $verifyRoot
+          $runtimeContract = Get-Content -LiteralPath (Join-Path $verifyRoot 'runner-runtime-contract.json') -Raw | ConvertFrom-Json
+          if ($runtimeContract.platform -ne 'windows' -or $runtimeContract.nodeMajor -ne 22 -or $runtimeContract.codexVersion -ne '0.149.1' -or $runtimeContract.claudeVersion -ne '2.1.241' -or $runtimeContract.mcpProtocolRevision -ne '2026-07-28') { throw 'Runner runtime contract is invalid.' }
+          node (Join-Path $verifyPackage 'node_modules\\@openai\\codex\\bin\\codex.js') --version
+          & (Join-Path $verifyPackage 'node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe') --version
+          # Run the unpacked Windows Job Object fixture: malformed structured
+          # input must be rejected without ever creating a listener or shell.
+          '{"unexpected":true}' | & (Join-Path $verifyRoot 'KidItem.JobRunner.exe')
+          if ($LASTEXITCODE -ne 64) { throw 'unpacked Windows Job Object helper rejected malformed input incorrectly.' }
+
+          $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
+
+      - name: Upload immutable Windows Runner archive
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: office-runner-windows-${{ needs.identity_guard.outputs.git_sha }}
+          path: ${{ runner.temp }}/kiditem-agent-runner-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 30
+
   publish_manifest:
     name: Publish immutable office bundle
     needs:
@@ -104,6 +181,7 @@ jobs:
       - prepare
       - build_api
       - build_web
+      - build_runner_windows
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -113,6 +191,12 @@ jobs:
         with:
           ref: ${{ needs.identity_guard.outputs.git_sha }}
 
+      - name: Download exact Windows Runner archive
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v5.0.0
+        with:
+          name: office-runner-windows-${{ needs.identity_guard.outputs.git_sha }}
+          path: runner-artifact
+
       - name: Create deployment manifest and operator bundle
         env:
           GIT_SHA: ${{ needs.identity_guard.outputs.git_sha }}
@@ -121,9 +205,24 @@ jobs:
           API_DIGEST: ${{ needs.build_api.outputs.digest }}
           WEB_IMAGE: ${{ needs.build_web.outputs.image_ref }}
           WEB_DIGEST: ${{ needs.build_web.outputs.digest }}
+          RUNNER_ARTIFACT_SHA256: ${{ needs.build_runner_windows.outputs.runner_artifact_sha256 }}
         run: |
           set -euo pipefail
           mkdir -p office-bundle
+          runner_artifact='kiditem-agent-runner-windows-x64.zip'
+          test -f "runner-artifact/$runner_artifact"
+          test "$RUNNER_ARTIFACT_SHA256" = "$(sha256sum "runner-artifact/$runner_artifact" | awk '{print $1}')"
+          unzip -p "runner-artifact/$runner_artifact" runner-runtime-contract.json > office-bundle/runner-runtime-contract.json
+          jq -e '
+            .schemaVersion == 1 and
+            .platform == "windows" and
+            .nodeMajor == 22 and
+            .controlRevision == "kiditem-runner-control-v1" and
+            .cliContractIdentity == "office-cli-contract-v2" and
+            .mcpProtocolRevision == "2026-07-28" and
+            .codexVersion == "0.149.1" and
+            .claudeVersion == "2.1.241"
+          ' office-bundle/runner-runtime-contract.json >/dev/null
           jq -n \
             --arg gitSha "$GIT_SHA" \
             --arg appVersion "$APP_VERSION" \
@@ -131,10 +230,13 @@ jobs:
             --arg apiDigest "$API_DIGEST" \
             --arg webImage "$WEB_IMAGE" \
             --arg webDigest "$WEB_DIGEST" \
+            --arg runnerArtifact "$runner_artifact" \
+            --arg runnerArtifactSha256 "$RUNNER_ARTIFACT_SHA256" \
+            --slurpfile runnerRuntime office-bundle/runner-runtime-contract.json \
             --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg runUrl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             '{
-              schemaVersion: 1,
+              schemaVersion: 2,
               environment: "office",
               sourceRef: "refs/heads/release/office",
               gitSha: $gitSha,
@@ -143,12 +245,16 @@ jobs:
               apiDigest: $apiDigest,
               webImage: $webImage,
               webDigest: $webDigest,
+              runnerArtifact: $runnerArtifact,
+              runnerArtifactSha256: $runnerArtifactSha256,
+              runnerRuntime: $runnerRuntime[0],
               createdAt: $createdAt,
               workflowRunUrl: $runUrl
             }' > office-bundle/office-deployment.json
           cp deploy/office/compose.office.yml office-bundle/
           cp deploy/office/nginx.conf office-bundle/
           cp deploy/office/apply-deployment.ps1 office-bundle/
+          cp "runner-artifact/$runner_artifact" office-bundle/
 
       - name: Upload office deployment bundle
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

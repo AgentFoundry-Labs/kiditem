@@ -8,6 +8,7 @@ import { HostRunnerAttemptExecutorService } from './adapter/out/runtime/runner/h
 import { AgentAttemptLaunchService } from './application/service/work/agent-attempt-launch.service';
 import { AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT } from './application/port/in/capability/agent-attempt-launch.capability.port';
 import { AgentOsRuntimeHttpModule } from './agent-os-runtime-http.module';
+import { ReadinessStateModule } from '../readiness/readiness-state.module';
 
 describe('AgentOsRuntimeHttpModule', () => {
   it('wires internal HTTP controllers to the Host Runner boundary without a legacy broker or executor', async () => {
@@ -22,6 +23,7 @@ describe('AgentOsRuntimeHttpModule', () => {
       expect(module.get(AttemptMcpHttpController)).toBeInstanceOf(AttemptMcpHttpController);
       expect(module.get(HostRunnerAttemptExecutorService)).toBeInstanceOf(HostRunnerAttemptExecutorService);
       expect(module.get(AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT)).toBeInstanceOf(AgentAttemptLaunchService);
+      expect(Reflect.getMetadata('imports', AgentOsRuntimeHttpModule)).toContain(ReadinessStateModule);
     } finally {
       await module.close();
       restoreRuntimeEnvironment(previous);
