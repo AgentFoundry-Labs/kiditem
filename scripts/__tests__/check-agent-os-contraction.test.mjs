@@ -244,6 +244,10 @@ test("rejects ephemeral Runner state and active secrets only in scoped Prisma su
     "attemptTokenDigest",
     "acknowledgedAt",
     "leaseOwner",
+    "commandHash",
+    "eventBodyHash",
+    "processExitCode",
+    "leaseRenewedAt",
     "signingSecret",
     "runnerCredential",
     "refreshToken",
@@ -458,34 +462,52 @@ test("composes static Nest controller and method paths for Runner routes", () =>
   }
 });
 
-test("rejects duplicate Runner ingress contracts but permits runner-owned command builders", () => {
-  const findings = collectAgentOsContractionFindings([
+test("rejects raw fields in every concrete Runner control ingress declaration", () => {
+  const ingressFixtures = [
     {
-      path: "apps/server/src/agent-os/adapter/in/http/control/runner.dto.ts",
-      source: "export interface AttemptLaunchSpec { command: string; refreshToken: string; }",
+      path: "apps/server/src/agent-os/adapter/in/http/runtime/start-attempt.dto.ts",
+      source: "export class StartAttemptDto { command!: string; }",
     },
     {
-      path: "apps/agent-runner/src/control/runner-control-client.ts",
-      source: "export const RunnerPollRequestSchema = z.object({ env: z.record(z.string()) });",
+      path: "apps/server/src/agent-os/adapter/in/http/runtime/poll-input.ts",
+      source: "export interface PollInput { refreshToken: string; }",
     },
     {
-      path: "apps/agent-runner/src/runtime/provider-command-builder.ts",
-      source: "const launch = { executable: 'codex', args: [], env: {} };",
+      path: "apps/server/src/agent-os/adapter/in/http/runtime/event-input.ts",
+      source: "export type EventInput = { executable: string };",
     },
-  ]);
+    {
+      path: "apps/agent-runner/src/control/runner-control.client.ts",
+      source: "export const StartAttemptDto = z.object({ env: z.string() }).strict();",
+    },
+  ];
 
-  assert.ok(
-    findings.includes(
-      "apps/server/src/agent-os/adapter/in/http/control/runner.dto.ts: duplicate Runner control ingress contract",
-    ),
-  );
-  assert.ok(
-    findings.includes(
-      "apps/agent-runner/src/control/runner-control-client.ts: duplicate Runner control ingress contract",
-    ),
-  );
-  assert.ok(
-    !findings.some((finding) => finding.startsWith("apps/agent-runner/src/runtime/provider-command-builder.ts:")),
+  for (const fixture of ingressFixtures) {
+    assert.ok(
+      collectAgentOsContractionFindings([fixture]).includes(
+        `${fixture.path}: duplicate Runner control ingress contract`,
+      ),
+      fixture.path,
+    );
+  }
+
+  assert.deepEqual(
+    collectAgentOsContractionFindings([
+      {
+        path: "apps/server/src/agent-os/adapter/in/http/interaction/legacy.dto.ts",
+        source: "export interface StartAttemptDto { command: string; }",
+      },
+      {
+        path: "apps/agent-runner/src/control/runner-command-dispatcher.ts",
+        source: "const launch = { executable: 'codex', args: [], env: {} };",
+      },
+      {
+        path: "apps/agent-runner/src/provider/provider-command.ts",
+        source: "const launch = { executable: 'codex', args: [], env: {} };",
+      },
+    ]),
+    [],
+    "only concrete Runner control ingress paths define the shared boundary",
   );
 });
 
@@ -526,6 +548,42 @@ test("enforces API-wide relay, proc, and dynamic child-process ownership", () =>
   ]) {
     assert.ok(findings.includes(`${filePath}: ${category}`), filePath);
   }
+});
+
+test("rejects provider CLI launches and process kills even in child-process allowlists", () => {
+  const allowlistedPath = "apps/server/src/ai/adapter/out/wing/playwriter-cli.ts";
+  const providerProcessFixtures = [
+    "import { spawn } from 'node:child_process'; spawn('codex', []);",
+    "import { execFile as launch } from 'node:child_process'; launch('claude.exe', []);",
+    "import * as childProcess from 'node:child_process'; childProcess.exec('codex');",
+    "const { fork: launch } = require('node:child_process'); launch('claude');",
+    "Bun.spawn(['codex']);",
+    "process.kill(1234);",
+  ];
+
+  for (const source of providerProcessFixtures) {
+    assert.ok(
+      collectAgentOsContractionFindings([{ path: allowlistedPath, source }]).includes(
+        `${allowlistedPath}: API-owned CLI process supervision`,
+      ),
+      source,
+    );
+  }
+
+  assert.deepEqual(
+    collectAgentOsContractionFindings([
+      {
+        path: allowlistedPath,
+        source: "import { execFile } from 'node:child_process'; execFile('python3', []);",
+      },
+      {
+        path: "apps/server/src/ai/adapter/out/provider/matcher.ts",
+        source: "const match = /provider/.exec('codex');",
+      },
+    ]),
+    [],
+    "unrelated executable calls and regular-expression exec are not provider process ownership",
+  );
 });
 
 test("requires an nginx deny boundary for internal Runner routes", () => {

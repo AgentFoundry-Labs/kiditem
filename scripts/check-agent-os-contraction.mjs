@@ -71,48 +71,8 @@ const ACTIVE_SECRET_COMPOSITES = [
   "connectionurl",
   "connectiondsn",
 ];
-const EPHEMERAL_RUNNER_CONTROL_PREFIXES = [
-  "attempt",
-  "lease",
-  "command",
-  "event",
-  "poll",
-  "token",
-  "ack",
-  "acknowledged",
-  "control",
-  "state",
-  "process",
-];
-const EPHEMERAL_RUNNER_CONTROL_SUFFIXES = new Set([
-  "id",
-  "pid",
-  "seq",
-  "payload",
-  "batch",
-  "ack",
-  "acknowledgement",
-  "acknowledgedat",
-  "acknowledgementat",
-  "token",
-  "tokendigest",
-  "expires",
-  "expiresat",
-  "expiry",
-  "deadline",
-  "ttl",
-  "ttlms",
-  "state",
-  "lease",
-  "command",
-  "event",
-  "poll",
-  "control",
-  "owner",
-  "handle",
-  "identity",
-  "at",
-]);
+const EPHEMERAL_RUNNER_CONTROL_FIELD_PREFIX =
+  /^(?:runner|lease|command|event|process|poll|ack(?:nowledg)?|control|attempttoken)/;
 
 function sourceFile(filePath, source) {
   return ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true);
@@ -217,28 +177,19 @@ function isRunnerControlModel(name) {
 }
 
 function isDedicatedRunnerControlModel(name) {
-  return /^(?:runner|agentruntime)(?:process|lease|command|event|poll|token|ack|control|state)/.test(
-    normalizedName(name),
-  );
+  return normalizedName(name).startsWith("runner");
 }
 
 function isEphemeralRunnerControlName(normalized) {
-  return EPHEMERAL_RUNNER_CONTROL_PREFIXES.some((prefix) => {
-    if (!normalized.startsWith(prefix)) return false;
-    return EPHEMERAL_RUNNER_CONTROL_SUFFIXES.has(normalized.slice(prefix.length));
-  });
+  return EPHEMERAL_RUNNER_CONTROL_FIELD_PREFIX.test(normalized);
 }
 
 function isRunnerControlFieldName(modelName, fieldName) {
   if (!isRunnerControlModel(modelName)) return false;
   const normalized = normalizedName(fieldName);
-  const runnerSpecificName = normalized.startsWith("runner")
-    ? normalized.slice("runner".length)
-    : null;
   return (
     isActiveSecretOrCredentialName(fieldName) ||
-    isEphemeralRunnerControlName(normalized) ||
-    Boolean(runnerSpecificName && isEphemeralRunnerControlName(runnerSpecificName))
+    isEphemeralRunnerControlName(normalized)
   );
 }
 
@@ -390,17 +341,13 @@ function hasRawLaunchField(filePath, source) {
 }
 
 function isServerRunnerHttpIngressSurface(filePath) {
-  return /^apps\/server\/src\/agent-os\/(?:[^/]+\/)*adapter\/in\/http\//.test(filePath);
+  return filePath.startsWith(
+    "apps/server/src/agent-os/adapter/in/http/runtime/",
+  );
 }
 
 function isRunnerControlClientIngressSurface(filePath) {
-  if (!filePath.startsWith("apps/agent-runner/src/")) return false;
-  const runnerRelativePath = filePath.slice("apps/agent-runner/src/".length);
-  return (
-    /(?:^|\/)(?:control(?:-client)?|http-client|transport)(?:\/|$)/.test(
-      runnerRelativePath,
-    ) || /(?:^|\/)runner-control-client\.[^.]+$/.test(runnerRelativePath)
-  );
+  return filePath === "apps/agent-runner/src/control/runner-control.client.ts";
 }
 
 function isRunnerIngressSurface(filePath) {
@@ -410,24 +357,32 @@ function isRunnerIngressSurface(filePath) {
   );
 }
 
-function isRunnerIngressDeclarationName(name) {
-  return /^(?:attemptlaunchspec|runner(?:hello|poll|command|event|lease|control))(?:schema|dto|request|response|batch|ack(?:nowledgement)?|payload|body|input|output|ingress)*$/.test(
-    normalizedName(name),
-  );
+function isZodObjectDeclaration(node) {
+  if (!ts.isVariableDeclaration(node) || !node.initializer) return false;
+  let found = false;
+  const visit = (child) => {
+    if (
+      ts.isCallExpression(child) &&
+      ts.isPropertyAccessExpression(child.expression) &&
+      ts.isIdentifier(child.expression.expression) &&
+      child.expression.expression.text === "z" &&
+      child.expression.name.text === "object"
+    ) {
+      found = true;
+    }
+    ts.forEachChild(child, visit);
+  };
+  visit(node.initializer);
+  return found;
 }
 
-function declarationName(node) {
-  if (
-    (ts.isClassDeclaration(node) ||
-      ts.isInterfaceDeclaration(node) ||
-      ts.isTypeAliasDeclaration(node) ||
-      ts.isFunctionDeclaration(node)) &&
-    node.name
-  ) {
-    return node.name.text;
-  }
-  if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) return node.name.text;
-  return null;
+function isRunnerIngressDeclaration(node) {
+  return (
+    ts.isClassDeclaration(node) ||
+    ts.isInterfaceDeclaration(node) ||
+    ts.isTypeAliasDeclaration(node) ||
+    isZodObjectDeclaration(node)
+  );
 }
 
 function hasForbiddenIngressFieldInDeclaration(node) {
@@ -451,12 +406,7 @@ function hasDuplicateRunnerIngressContract(filePath, source) {
   if (!isRunnerIngressSurface(filePath)) return false;
   let found = false;
   const visit = (node) => {
-    const name = declarationName(node);
-    if (
-      name &&
-      isRunnerIngressDeclarationName(name) &&
-      hasForbiddenIngressFieldInDeclaration(node)
-    ) {
+    if (isRunnerIngressDeclaration(node) && hasForbiddenIngressFieldInDeclaration(node)) {
       found = true;
     }
     ts.forEachChild(node, visit);
@@ -659,10 +609,146 @@ function hasChildProcessBinding(filePath, source) {
   return found;
 }
 
-function hasProviderCliProcessApi(source) {
-  return /\b(?:spawn|exec|execFile|execSync|fork)\s*\(\s*['"](?:codex|claude)(?:\.exe)?['"]|\bBun\.spawn\s*\(\s*\[\s*['"](?:codex|claude)(?:\.exe)?['"]/i.test(
-    source,
+const CHILD_PROCESS_PROVIDER_METHODS = new Set([
+  "spawn",
+  "exec",
+  "execFile",
+  "execSync",
+  "fork",
+]);
+
+function isChildProcessModuleSpecifier(node) {
+  return (
+    ts.isStringLiteral(node) &&
+    /^(?:node:)?child_process$/.test(node.text)
   );
+}
+
+function isChildProcessLoaderCall(node) {
+  return (
+    ts.isCallExpression(node) &&
+    node.arguments.length === 1 &&
+    isChildProcessModuleSpecifier(node.arguments[0]) &&
+    ((ts.isIdentifier(node.expression) && node.expression.text === "require") ||
+      node.expression.kind === ts.SyntaxKind.ImportKeyword)
+  );
+}
+
+function unwrapAwaitExpression(node) {
+  return ts.isAwaitExpression(node) ? node.expression : node;
+}
+
+function collectChildProcessBindings(parsed) {
+  const functions = new Set();
+  const namespaces = new Set();
+  const bindVariable = (name, initializer) => {
+    if (!isChildProcessLoaderCall(unwrapAwaitExpression(initializer))) return;
+    if (ts.isIdentifier(name)) {
+      namespaces.add(name.text);
+      return;
+    }
+    if (!ts.isObjectBindingPattern(name)) return;
+    for (const element of name.elements) {
+      if (!ts.isIdentifier(element.name)) continue;
+      const importedName = propertyName(element.propertyName ?? element.name);
+      if (importedName && CHILD_PROCESS_PROVIDER_METHODS.has(importedName)) {
+        functions.add(element.name.text);
+      }
+    }
+  };
+  const visit = (node) => {
+    if (
+      ts.isImportDeclaration(node) &&
+      isChildProcessModuleSpecifier(node.moduleSpecifier) &&
+      node.importClause &&
+      !node.importClause.isTypeOnly
+    ) {
+      const clause = node.importClause;
+      if (clause.name) namespaces.add(clause.name.text);
+      if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+        namespaces.add(clause.namedBindings.name.text);
+      }
+      if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+        for (const element of clause.namedBindings.elements) {
+          if (element.isTypeOnly) continue;
+          const importedName = propertyName(element.propertyName ?? element.name);
+          if (importedName && CHILD_PROCESS_PROVIDER_METHODS.has(importedName)) {
+            functions.add(element.name.text);
+          }
+        }
+      }
+    }
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      bindVariable(node.name, node.initializer);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  return { functions, namespaces };
+}
+
+function isProviderCliLiteral(node) {
+  return (
+    (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
+    /^(?:codex|claude)(?:\.exe)?$/i.test(node.text)
+  );
+}
+
+function isChildProcessProviderCall(node, bindings) {
+  const expression = node.expression;
+  if (ts.isIdentifier(expression)) return bindings.functions.has(expression.text);
+  if (!ts.isPropertyAccessExpression(expression)) return false;
+  if (!CHILD_PROCESS_PROVIDER_METHODS.has(expression.name.text)) return false;
+  return (
+    (ts.isIdentifier(expression.expression) &&
+      bindings.namespaces.has(expression.expression.text)) ||
+    isChildProcessLoaderCall(expression.expression)
+  );
+}
+
+function isBunProviderSpawn(node) {
+  if (
+    !ts.isPropertyAccessExpression(node.expression) ||
+    !ts.isIdentifier(node.expression.expression) ||
+    node.expression.expression.text !== "Bun" ||
+    node.expression.name.text !== "spawn"
+  ) {
+    return false;
+  }
+  const [command] = node.arguments;
+  return (
+    ts.isArrayLiteralExpression(command) &&
+    command.elements.length > 0 &&
+    isProviderCliLiteral(command.elements[0])
+  );
+}
+
+function isProcessKillCall(node) {
+  return (
+    ts.isPropertyAccessExpression(node.expression) &&
+    ts.isIdentifier(node.expression.expression) &&
+    node.expression.expression.text === "process" &&
+    node.expression.name.text === "kill"
+  );
+}
+
+function hasProviderCliProcessOrKill(source) {
+  const parsed = sourceFile("provider-process.ts", source);
+  const bindings = collectChildProcessBindings(parsed);
+  let found = false;
+  const visit = (node) => {
+    if (ts.isCallExpression(node)) {
+      found ||=
+        isProcessKillCall(node) ||
+        (isChildProcessProviderCall(node, bindings) &&
+          node.arguments.length > 0 &&
+          isProviderCliLiteral(node.arguments[0])) ||
+        isBunProviderSpawn(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  return found;
 }
 
 function hasNginxInternalAgentRuntimeDenyBoundary(source) {
@@ -719,14 +805,15 @@ function findingsFor({ path: filePath, source }) {
   ) {
     findings.push("API image provider CLI assertion");
   }
-  if (
-    isServerSource &&
-    !SERVER_CHILD_PROCESS_ALLOWLIST.has(filePath) &&
-    (hasChildProcessBinding(filePath, source) ||
-      hasProviderCliProcessApi(source) ||
-      /\bprocess\.kill\s*\(/.test(source))
-  ) {
-    findings.push("API-owned CLI process supervision");
+  if (isServerSource) {
+    const hasProviderCliProcess = hasProviderCliProcessOrKill(source);
+    if (
+      hasProviderCliProcess ||
+      (!SERVER_CHILD_PROCESS_ALLOWLIST.has(filePath) &&
+        hasChildProcessBinding(filePath, source))
+    ) {
+      findings.push("API-owned CLI process supervision");
+    }
   }
   if (isServerSource && hasProcInspection(filePath, source)) {
     findings.push("API runtime Linux peer-process inspection");
