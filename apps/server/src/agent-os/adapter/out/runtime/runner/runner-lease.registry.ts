@@ -53,6 +53,8 @@ export class RunnerLeaseRegistry {
   private readonly unsubscribe: () => void;
   private eventTail: Promise<void> = Promise.resolve();
   private nextLeaseGeneration = 0;
+  private pendingLossCleanups = 0;
+  private lossCleanupFailed = false;
   private active: ActiveLease | null = null;
   private pending: PendingPoll | null = null;
 
@@ -95,6 +97,7 @@ export class RunnerLeaseRegistry {
 
   markReady(input: { runnerInstanceId: string; leaseId: string }): RunnerLeaseResponse {
     const lease = this.require(input);
+    this.assertLossCleanupComplete();
     lease.status = 'ready';
     return this.response(lease);
   }
@@ -140,6 +143,7 @@ export class RunnerLeaseRegistry {
   requireReady(): { runnerInstanceId: string; leaseId: string } {
     const lease = this.active;
     if (!lease || lease.status !== 'ready' || !this.isValid(lease)) throw new Error('runner_not_ready');
+    this.assertLossCleanupComplete();
     return { runnerInstanceId: lease.runnerInstanceId, leaseId: lease.leaseId };
   }
 
@@ -237,12 +241,7 @@ export class RunnerLeaseRegistry {
     if (this.active?.leaseId === lease.leaseId) this.active = null;
     if (this.pending?.leaseId === lease.leaseId) this.settlePending({ commands: [] });
     this.revokeLease(lease.leaseId);
-    if (this.reconcileLeaseLoss) {
-      void this.reconcileLeaseLoss({ leaseId: lease.leaseId, attemptIds })
-        .catch(() => this.interruptLostAttempts(attemptIds));
-      return;
-    }
-    this.interruptLostAttempts(attemptIds);
+    this.beginLossCleanup({ leaseId: lease.leaseId, attemptIds });
   }
 
   private resolvePendingFromQueue(): void {
@@ -263,7 +262,9 @@ export class RunnerLeaseRegistry {
     const batch = this.commands.takeForLease({
       leaseKey: this.deliveryLeaseKey(lease),
       leaseGeneration: lease.generation,
-      ...(lease.status === 'probing' ? { allowedMcpToolScope: 'readiness_canary' as const } : {}),
+      ...(lease.status !== 'ready' || this.lossCleanupPending()
+        ? { allowedMcpToolScope: 'readiness_canary' as const }
+        : {}),
     });
     for (const command of batch.commands) {
       if (command.kind === 'attempt.start') lease.attempts.add(command.attemptId);
@@ -275,8 +276,48 @@ export class RunnerLeaseRegistry {
     return `${lease.runnerInstanceId}\u0000${lease.leaseId}`;
   }
 
-  private interruptLostAttempts(attemptIds: readonly string[]): void {
-    for (const attemptId of attemptIds) void this.interruptAttempt(attemptId).catch(() => undefined);
+  /**
+   * A global durable reconciliation has no local lease predicate. Keep every
+   * successor probing until the preceding loss has either reconciled or its
+   * exact local fallback terminalization has completed.
+   */
+  private beginLossCleanup(input: { leaseId: string; attemptIds: readonly string[] }): void {
+    this.pendingLossCleanups += 1;
+    void this.completeLossCleanup(input).then(
+      () => { this.pendingLossCleanups -= 1; },
+      () => {
+        this.pendingLossCleanups -= 1;
+        // A failed fallback cannot safely admit fresh business work into an
+        // unknown global recovery window. Keep this API-local lease blocked.
+        this.lossCleanupFailed = true;
+      },
+    );
+  }
+
+  private async completeLossCleanup(input: { leaseId: string; attemptIds: readonly string[] }): Promise<void> {
+    if (this.reconcileLeaseLoss) {
+      try {
+        await this.reconcileLeaseLoss(input);
+        return;
+      } catch {
+        await this.interruptLostAttempts(input.attemptIds);
+        return;
+      }
+    }
+    await this.interruptLostAttempts(input.attemptIds);
+  }
+
+  private async interruptLostAttempts(attemptIds: readonly string[]): Promise<void> {
+    const results = await Promise.allSettled(attemptIds.map((attemptId) => this.interruptAttempt(attemptId)));
+    if (results.some((result) => result.status === 'rejected')) throw new Error('runner_loss_cleanup_failed');
+  }
+
+  private lossCleanupPending(): boolean {
+    return this.pendingLossCleanups > 0 || this.lossCleanupFailed;
+  }
+
+  private assertLossCleanupComplete(): void {
+    if (this.lossCleanupPending()) throw new Error('runner_not_ready');
   }
 
   private assertEventOwnership(lease: ActiveLease, batch: RunnerEventBatch): void {

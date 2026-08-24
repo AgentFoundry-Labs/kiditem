@@ -120,6 +120,10 @@ describe('RunnerLeaseRegistry', () => {
     await expect(registry.poll({ runnerInstanceId: replacementInstanceId, leaseId: replacement.leaseId }))
       .resolves.toEqual({ commands: [canary] });
     commands.acknowledge({ commandId: canary.commandId, attemptId: canary.attemptId, commandHash: canary.commandHash });
+    expect(() => registry.markReady({ runnerInstanceId: replacementInstanceId, leaseId: replacement.leaseId }))
+      .toThrow('runner_not_ready');
+    releaseReconciliation();
+    await settleAsync();
     registry.markReady({ runnerInstanceId: replacementInstanceId, leaseId: replacement.leaseId });
     const next = commands.enqueueStart({
       launch: launchSpec(replacementAttemptId),
@@ -132,7 +136,6 @@ describe('RunnerLeaseRegistry', () => {
     expect(commands.take().commands).not.toContainEqual(oldStart);
     expect(reconciliation).toHaveBeenCalledWith({ leaseId: prior.leaseId, attemptIds: [attemptId] });
 
-    releaseReconciliation();
     registry.dispose();
   });
 
@@ -158,9 +161,11 @@ describe('RunnerLeaseRegistry', () => {
     });
 
     const replacement = registry.hello(hello({ runnerInstanceId: replacementInstanceId }));
+    expect(() => registry.markReady({ runnerInstanceId: replacementInstanceId, leaseId: replacement.leaseId }))
+      .toThrow('runner_not_ready');
+    await settleAsync();
+    await settleAsync();
     registry.markReady({ runnerInstanceId: replacementInstanceId, leaseId: replacement.leaseId });
-    await settleAsync();
-    await settleAsync();
 
     expect(reconciliation).toHaveBeenCalledTimes(1);
     expect(reconciliation).toHaveBeenCalledWith({ leaseId: prior.leaseId, attemptIds: [attemptId] });
