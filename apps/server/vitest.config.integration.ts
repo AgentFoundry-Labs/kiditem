@@ -26,6 +26,7 @@ export default defineConfig({
       { find: /^@kiditem\/shared\/sourcing$/, replacement: path.resolve(sharedSrc, 'sourcing/index.ts') },
       { find: /^@kiditem\/shared\/identifiers$/, replacement: path.resolve(sharedSrc, 'identifiers/index.ts') },
       { find: /^@kiditem\/shared\/agent-interaction$/, replacement: path.resolve(sharedSrc, 'agent-interaction/index.ts') },
+      { find: /^@kiditem\/shared\/agent-runtime$/, replacement: path.resolve(sharedSrc, 'agent-runtime/index.ts') },
       { find: /^@kiditem\/shared\/([^/]+)$/, replacement: path.resolve(sharedSrc, '$1.ts') },
     ],
   },
