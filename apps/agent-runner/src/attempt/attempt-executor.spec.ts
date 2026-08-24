@@ -121,6 +121,93 @@ describe('AttemptExecutor', () => {
     expect(writes.map((line) => JSON.parse(line).method)).not.toContain('turn/steer');
   });
 
+  it('holds Codex readiness success until its deferred enabled-thread probe succeeds after a strict completion', async () => {
+    const events: unknown[] = []; let callbacks: ProcessCallbacks | undefined; let completionPublished = false; let directBeforeCompletion = false;
+    let turnThreadId = ''; const calls: { method: string; threadId?: string; config?: unknown }[] = []; let threadStarts = 0;
+    const process = processHandle({
+      input: async (line) => {
+        const request = JSON.parse(line) as { id?: string; method?: string; params?: { threadId?: string; config?: unknown } };
+        if (!request.id || !request.method) return;
+        calls.push({ method: request.method, ...(request.params?.threadId ? { threadId: request.params.threadId } : {}), ...(request.method === 'thread/start' ? { config: request.params?.config } : {}) });
+        if (request.method === 'initialize') callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: {} })}\n`);
+        if (request.method === 'thread/start') {
+          threadStarts += 1;
+          const threadId = threadStarts === 1 ? 'provider-thread' : 'probe-thread';
+          callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { thread: { id: threadId }, activePermissionProfile: { id: ':workspace' } } })}\n`);
+        }
+        if (request.method === 'turn/start') {
+          turnThreadId = request.params?.threadId ?? '';
+          callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { turn: { id: 'provider-turn' } } })}\n`);
+        }
+        if (request.method === 'mcpServer/tool/call') {
+          directBeforeCompletion ||= !completionPublished;
+          callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { content: [{}], structuredContent: { nonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' } } })}\n`);
+        }
+      },
+      terminate: async () => undefined,
+    });
+    const executor = new AttemptExecutor({
+      runtimeRoot: '/opt/kiditem-runner',
+      workspaces: { create: async () => paths, linkProviderAuth: async () => undefined, remove: async () => undefined },
+      supervisor: { launch: async (_command, received) => { callbacks = received; return process; }, shutdown: async () => undefined },
+      emit: (event) => events.push(event),
+    });
+
+    await executor.start({ ...launch, runtime: 'codex_cli', model: 'gpt-5.6', mcpToolScope: 'readiness_canary', readinessProbeNonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' });
+
+    expect(directBeforeCompletion).toBe(false);
+    expect(calls.filter((call) => call.method === 'thread/start')).toEqual([
+      { method: 'thread/start', config: { mcp_servers: { kiditem_attempt: { disabled_tools: ['readiness_probe'] } } } },
+      { method: 'thread/start', config: undefined },
+    ]);
+    expect(calls.filter((call) => call.method === 'turn/start')).toEqual([{ method: 'turn/start', threadId: 'provider-thread' }]);
+
+    completionPublished = true;
+    callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', method: 'turn/completed', params: { threadId: turnThreadId, turn: { id: 'provider-turn', status: 'completed', items: [{ type: 'agentMessage', text: JSON.stringify({ outcome: 'completed', summary: 'done', resourceRefs: [], operationRefs: [] }) }] } } })}\n`);
+    await settle(); await settle();
+
+    expect(calls.filter((call) => call.method === 'mcpServer/tool/call')).toEqual([{ method: 'mcpServer/tool/call', threadId: 'probe-thread' }]);
+    expect(events).toEqual([{ kind: 'attempt.terminal', attemptId: launch.attemptId, terminalReason: 'protocol_success', result: { outcome: 'completed', summary: 'done', resourceRefs: [], operationRefs: [] } }]);
+  });
+
+  it('terminalizes Codex readiness with runtime_error when its deferred probe rejects the completed result', async () => {
+    const events: unknown[] = []; let callbacks: ProcessCallbacks | undefined; let completionPublished = false; let turnThreadId = ''; let threadStarts = 0;
+    const process = processHandle({
+      input: async (line) => {
+        const request = JSON.parse(line) as { id?: string; method?: string; params?: { threadId?: string } };
+        if (!request.id || !request.method) return;
+        if (request.method === 'initialize') callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: {} })}\n`);
+        if (request.method === 'thread/start') {
+          threadStarts += 1;
+          const threadId = threadStarts === 1 ? 'provider-thread' : 'probe-thread';
+          callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { thread: { id: threadId }, activePermissionProfile: { id: ':workspace' } } })}\n`);
+        }
+        if (request.method === 'turn/start') {
+          turnThreadId = request.params?.threadId ?? '';
+          callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { turn: { id: 'provider-turn' } } })}\n`);
+        }
+        if (request.method === 'mcpServer/tool/call') {
+          const nonce = completionPublished ? '0b2327bb-cd8b-4f4c-8fa5-142760734c30' : '51e975ef-c0a7-4ab1-8007-47c0fd563505';
+          callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { content: [{}], structuredContent: { nonce } } })}\n`);
+        }
+      },
+      terminate: async () => undefined,
+    });
+    const executor = new AttemptExecutor({
+      runtimeRoot: '/opt/kiditem-runner',
+      workspaces: { create: async () => paths, linkProviderAuth: async () => undefined, remove: async () => undefined },
+      supervisor: { launch: async (_command, received) => { callbacks = received; return process; }, shutdown: async () => undefined },
+      emit: (event) => events.push(event),
+    });
+
+    await executor.start({ ...launch, runtime: 'codex_cli', model: 'gpt-5.6', mcpToolScope: 'readiness_canary', readinessProbeNonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' });
+    completionPublished = true;
+    callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', method: 'turn/completed', params: { threadId: turnThreadId, turn: { id: 'provider-turn', status: 'completed', items: [{ type: 'agentMessage', text: JSON.stringify({ outcome: 'completed', summary: 'done', resourceRefs: [], operationRefs: [] }) }] } } })}\n`);
+    await settle(); await settle();
+
+    expect(events).toEqual([{ kind: 'attempt.terminal', attemptId: launch.attemptId, terminalReason: 'runtime_error' }]);
+  });
+
   it('terminalizes one provider-defined Claude stream error without forwarding its payload', async () => {
     const events: unknown[] = []; let callbacks: ProcessCallbacks | undefined; let removals = 0; let terminations = 0;
     const executor = new AttemptExecutor({

@@ -8,7 +8,6 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createRequestScopedReadinessMcpHandler } from '../../../server/src/agent-os/adapter/in/http/runtime/attempt-mcp-http.controller';
 import { AttemptWorkspaceService, type AttemptWorkspacePaths } from '../attempt/attempt-workspace.service';
-import { CodexAppServerSession } from './codex-app-server-session';
 
 const ATTEMPT_ID = '33333333-3333-4333-8333-333333333333';
 const ATTEMPT_TOKEN = 'A'.repeat(43);
@@ -25,42 +24,7 @@ const PROVIDER_INPUT_MESSAGES = [
  * prompt, token, authorization header, and provider payload immediately.
  */
 describe('Codex app-server readiness boundary', () => {
-  it('uses mcpServer/tool/call to complete the modern readiness probe before starting the model turn', async () => {
-    const provider = await localResponsesProvider();
-    const mcp = await modernReadinessMcp();
-    const generated = await workspace(mcp.url);
-    let child: ReturnType<typeof spawn> | undefined;
-    try {
-      await appendFile(generated.paths.codexConfigPath, localProviderConfig(provider.url));
-      child = strictAppServer(generated.paths);
-      const session = appServerSession(child);
-      const start = session.start({
-        model: 'local-fake-model',
-        cwd: generated.paths.workspace,
-        prompt: 'local deterministic readiness turn',
-        readinessProbeNonce: NONCE,
-      });
-      void start.catch(() => undefined);
-
-      const probeReached = await Promise.race([
-        mcp.probe.then(() => true),
-        wait(5_000).then(() => false),
-      ]);
-
-      expect(probeReached).toBe(true);
-      expect(mcp.methods).toEqual(expect.arrayContaining(['tools/list', 'tools/call']));
-      expect(mcp.methods.indexOf('tools/list')).toBeLessThan(mcp.methods.indexOf('tools/call'));
-      expect(mcp.probes).toEqual([NONCE]);
-      await start;
-    } finally {
-      if (child) await stop(child);
-      await mcp.close();
-      await provider.close();
-      await rm(generated.root, { recursive: true, force: true });
-    }
-  }, 20_000);
-
-  it('uses a fresh tool-free provider thread after the direct readiness probe', async () => {
+  it('uses mcpServer/tool/call to complete the modern readiness probe with its exact nonce', async () => {
     const provider = await localResponsesProvider();
     const mcp = await modernReadinessMcp();
     const generated = await workspace(mcp.url);
@@ -71,41 +35,57 @@ describe('Codex app-server readiness boundary', () => {
       const rpc = new Rpc(child);
       await rpc.request('initialize', { clientInfo: { name: 'kiditem-local-readiness', version: '1' }, capabilities: null });
       rpc.notify('initialized', {});
-      const probeThread = await rpc.request('thread/start', {
+      const thread = await rpc.request('thread/start', {
         model: 'local-fake-model', modelProvider: 'local_fake', cwd: generated.paths.workspace, approvalPolicy: 'never', ephemeral: true,
       }) as { thread?: { id?: string }; activePermissionProfile?: { id?: string } };
-      const probeThreadId = probeThread.thread?.id;
-      if (!probeThreadId) throw new Error('local_readiness_probe_thread_id_missing');
-      expect(probeThread.activePermissionProfile?.id).toBe(':workspace');
+      const threadId = thread.thread?.id;
+      if (!threadId) throw new Error('local_readiness_direct_probe_thread_id_missing');
+      expect(thread.activePermissionProfile?.id).toBe(':workspace');
       await rpc.request('mcpServer/tool/call', {
-        threadId: probeThreadId,
+        threadId,
         server: 'kiditem_attempt',
         tool: 'readiness_probe',
         arguments: { nonce: NONCE },
       });
+
+      expect(mcp.methods).toEqual(expect.arrayContaining(['tools/list', 'tools/call']));
+      expect(mcp.methods.indexOf('tools/list')).toBeLessThan(mcp.methods.indexOf('tools/call'));
+      expect(mcp.probes).toEqual([NONCE]);
+    } finally {
+      if (child) await stop(child);
+      await mcp.close();
+      await provider.close();
+      await rm(generated.root, { recursive: true, force: true });
+    }
+  }, 20_000);
+
+  it('hides the provider tool before a separate enabled probe thread performs the direct call', async () => {
+    const provider = await localResponsesProvider();
+    const mcp = await modernReadinessMcp();
+    const generated = await workspace(mcp.url);
+    let child: ReturnType<typeof spawn> | undefined;
+    try {
+      await appendFile(generated.paths.codexConfigPath, localProviderConfig(provider.url));
+      child = strictAppServer(generated.paths);
+      const rpc = new Rpc(child);
+      await rpc.request('initialize', { clientInfo: { name: 'kiditem-local-readiness', version: '1' }, capabilities: null });
+      rpc.notify('initialized', {});
       const providerThread = await rpc.request('thread/start', {
         model: 'local-fake-model', modelProvider: 'local_fake', cwd: generated.paths.workspace, approvalPolicy: 'never', ephemeral: true,
-        config: { mcp_servers: { kiditem_attempt: { enabled: false } } },
+        config: { mcp_servers: { kiditem_attempt: { disabled_tools: ['readiness_probe'] } } },
       }) as { thread?: { id?: string }; activePermissionProfile?: { id?: string } };
       const providerThreadId = providerThread.thread?.id;
-      if (!providerThreadId) throw new Error('local_readiness_provider_thread_id_missing');
-      expect(providerThreadId).not.toBe(probeThreadId);
+      if (!providerThreadId) throw new Error('local_readiness_hidden_provider_thread_id_missing');
       expect(providerThread.activePermissionProfile?.id).toBe(':workspace');
       const turn = rpc.request('turn/start', {
         threadId: providerThreadId,
-        input: [{ type: 'text', text: 'local bounded tool-free provider metadata', text_elements: [] }],
+        input: [{ type: 'text', text: 'local bounded disabled-tool provider metadata', text_elements: [] }],
       });
       void turn.catch(() => undefined);
 
       const metadata = await provider.next();
 
       expect(metadata.input).toEqual(PROVIDER_INPUT_MESSAGES);
-      expect(rpc.calls).toEqual(expect.arrayContaining([
-        { method: 'mcpServer/tool/call', threadId: probeThreadId },
-        { method: 'turn/start', threadId: providerThreadId },
-      ]));
-      expect(mcp.methods).toEqual(expect.arrayContaining(['tools/list', 'tools/call']));
-      expect(mcp.probes).toEqual([NONCE]);
       expect(metadata.tools).not.toEqual(expect.arrayContaining([
         expect.objectContaining({
           type: 'namespace',
@@ -113,6 +93,26 @@ describe('Codex app-server readiness boundary', () => {
           children: [expect.objectContaining({ type: 'function', name: 'readiness_probe' })],
         }),
       ]));
+      const probeThread = await rpc.request('thread/start', {
+        model: 'local-fake-model', modelProvider: 'local_fake', cwd: generated.paths.workspace, approvalPolicy: 'never', ephemeral: true,
+      }) as { thread?: { id?: string }; activePermissionProfile?: { id?: string } };
+      const probeThreadId = probeThread.thread?.id;
+      if (!probeThreadId) throw new Error('local_readiness_enabled_probe_thread_id_missing');
+      expect(probeThreadId).not.toBe(providerThreadId);
+      expect(probeThread.activePermissionProfile?.id).toBe(':workspace');
+      await rpc.request('mcpServer/tool/call', {
+        threadId: probeThreadId,
+        server: 'kiditem_attempt',
+        tool: 'readiness_probe',
+        arguments: { nonce: NONCE },
+      });
+
+      expect(rpc.calls).toEqual(expect.arrayContaining([
+        { method: 'turn/start', threadId: providerThreadId },
+        { method: 'mcpServer/tool/call', threadId: probeThreadId },
+      ]));
+      expect(mcp.methods).toEqual(expect.arrayContaining(['tools/list', 'tools/call']));
+      expect(mcp.probes).toEqual([NONCE]);
     } finally {
       if (child) await stop(child);
       await mcp.close();
@@ -212,16 +212,6 @@ function strictAppServer(paths: AttemptWorkspacePaths): ReturnType<typeof spawn>
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
-}
-
-function appServerSession(child: ReturnType<typeof spawn>): CodexAppServerSession {
-  const session = new CodexAppServerSession((line) => new Promise<void>((resolve, reject) => {
-    child.stdin!.write(line, (error) => error ? reject(error) : resolve());
-  }));
-  child.stdout!.setEncoding('utf8');
-  child.stdout!.on('data', (chunk: string) => session.receive(chunk));
-  child.once('exit', () => session.close());
-  return session;
 }
 
 async function modernReadinessMcp(): Promise<{
@@ -438,7 +428,6 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
   return { promise, resolve };
 }
 
-function wait(ms: number): Promise<void> { return new Promise((resolve) => setTimeout(resolve, ms)); }
 function closeServer(server: Server): Promise<void> { return new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
 async function stop(child: ReturnType<typeof spawn>): Promise<void> { child.kill('SIGTERM'); await onceExit(child); }
 async function onceExit(child: ReturnType<typeof spawn>): Promise<void> { if (child.exitCode === null && child.signalCode === null) await once(child, 'exit'); }

@@ -801,22 +801,24 @@ Readiness is a process-memory projection with two phases:
    readiness token binding. The request-scoped canary MCP server exposes only
    its one canary tool. A `readiness_canary` launch carries only an ephemeral
    nonce, required if and only if that scope is selected. For Codex, Runner
-   fixes the server/tool/argument shape and starts an ephemeral MCP-enabled
-   probe thread. It invokes `mcpServer/tool/call` for `kiditem_attempt` /
-   `readiness_probe` on that thread before starting a second fresh ephemeral
-   provider thread in the same app-server process/configuration. The only
-   provider-thread override is Runner-owned
-   `mcp_servers.kiditem_attempt.enabled=false`; both thread responses must
-   return the `:workspace` profile. The strict direct result must contain the
-   exact nonce. Codex then returns its strict result immediately from the
-   intentionally tool-free provider thread with the minimal structured
-   reachability prompt, `Return only a valid AgentResultEnvelope JSON object.
-   Do not call any MCP tool.` The direct probe carries the readiness semantics
-   separately; Codex receives no synthetic input command. Claude retains its
-   model-selected scoped probe and is the only runtime that receives a live
-   second input. Successful discovery/list/call, runtime-specific terminal
-   parse, token revocation, complete-tree kill, and workspace cleanup promote
-   the lease to `ready`.
+   first starts an ephemeral provider thread with the configured required MCP
+   server still enabled, but with the Runner-owned
+   `mcp_servers.kiditem_attempt.disabled_tools=["readiness_probe"]` override.
+   It starts a separate normal MCP-enabled ephemeral probe thread in the same
+   app-server process/configuration and retains only that thread ID plus the
+   nonce in memory. Both thread responses must return the `:workspace` profile.
+   Codex returns its strict result immediately from the tool-hidden provider
+   thread with the minimal structured reachability prompt, `Return only a
+   valid AgentResultEnvelope JSON object. Do not call any MCP tool.` After a
+   completed strict result, Runner fixes the server/tool/argument shape and
+   invokes `mcpServer/tool/call` for `kiditem_attempt` / `readiness_probe` on
+   the enabled probe thread. Only its exact-nonce result permits terminal
+   success; a failed or invalid direct result terminalizes `runtime_error`.
+   The direct probe carries readiness semantics separately; Codex receives no
+   synthetic input command. Claude retains its model-selected scoped probe and
+   is the only runtime that receives a live second input. Successful
+   discovery/list/call, runtime-specific terminal parse, token revocation,
+   complete-tree kill, and workspace cleanup promote the lease to `ready`.
 
 This adds no command kind, Attempt row, status, Prisma model, or durable
 canary. Business Attempt admission requires a `ready` lease for the exact
@@ -831,14 +833,15 @@ Tests prove:
 - MCP responses contain strict bounded structured output;
 - the exact bundled Codex app-server performs its fixed control-plane
   `mcpServer/tool/call` against the real request-scoped modern handler on its
-  probe thread and observes `tools/list` then `tools/call`; a local fake
-  Responses provider separately proves the model-visible
-  `mcp__kiditem_attempt` namespace child and `tool_choice: auto` on an
-  MCP-enabled thread, while the fresh readiness provider thread omits that
-  namespace without asserting model-selected invocation;
-- the deterministic Codex session gate exercises `turn/start`, live
-  `turn/steer`, and exact completion decoding without claiming that a fake
-  provider completed a full live turn;
+  enabled probe thread and observes `tools/list` then `tools/call`; a local
+  fake Responses provider proves the tool-hidden provider thread omits
+  `mcp__kiditem_attempt.readiness_probe` before the separate enabled probe
+  thread calls it, while the separate model-visible gate proves the namespace
+  child and `tool_choice: auto` without asserting model-selected invocation;
+- the deterministic Codex session gate exercises tool-hidden `turn/start`,
+  live `turn/steer`, exact completion decoding, and direct-probe failure after
+  a strict completion without claiming that a fake provider completed a full
+  live turn;
 - the token cannot call a different Attempt or survive terminalization;
 - readiness failure removes `ready` and blocks row admission;
 - lease loss after 30 seconds kills the Runner process tree, invalidates
@@ -900,17 +903,19 @@ rtk git commit -m "test: prove Host Runner readiness and recovery"
 ```
 
 The real canary runs on the implementation Mac using its logged-in Codex and
-Claude accounts. Codex uses a supported fixed app-server control-plane call on
-an ephemeral probe thread, then returns an immediate structured result from a
-fresh tool-free ephemeral provider thread without a synthetic live input;
-its minimal structured reachability prompt does not narrate readiness or MCP
-state because the direct probe carries that semantics separately. There is no
-resume/history bridge between those threads. Claude uses its scoped
-model-selected call and retains the live second input. Both must exercise their
-applicable strict modern MCP discovery/call, result parsing, and cleanup. The
-separate local fake-provider gate proves model-visible Codex tool metadata, not
-a stochastic real-model decision or a fake-provider full-turn completion.
-Never print login artifacts or Attempt tokens.
+Claude accounts. Codex starts a tool-hidden ephemeral provider thread and a
+separate enabled ephemeral probe thread in the same app-server process, with
+no resume/history bridge or synthetic live input. It returns the immediate
+structured provider result first; Runner then makes the supported fixed
+app-server control-plane call on the enabled probe thread, and emits success
+only after its exact direct result. Its minimal structured reachability prompt
+does not narrate readiness or MCP state because the direct probe carries that
+semantics separately. Claude uses its scoped model-selected call and retains
+the live second input. Both must exercise their applicable strict modern MCP
+discovery/call, result parsing, and cleanup. The separate local fake-provider
+gate proves bounded Codex tool metadata, not a stochastic real-model decision
+or a fake-provider full-turn completion. Never print login artifacts or
+Attempt tokens.
 
 ## Task 5: Package and deploy the native Windows Runner through the Office release
 

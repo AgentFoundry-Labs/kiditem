@@ -109,10 +109,11 @@ describe('logged-in real CLI readiness canary', () => {
       leaseId: lease.leaseId,
       onProbe: async () => {
         probeReached.resolve();
-        // Codex runs this through the Runner-owned control plane before its
-        // model turn starts, so blocking here would deadlock startup. Claude
-        // still model-selects the probe during its live turn and therefore
-        // keeps the release barrier that proves subsequent steering works.
+        // Codex defers its Runner-owned direct probe until the strict provider
+        // result completes, so this must stay non-blocking before terminal
+        // success can be emitted. Claude still model-selects the probe during
+        // its live turn and therefore keeps the release barrier that proves
+        // subsequent steering works.
         if (runtime === 'claude_cli') await releaseProbe.promise;
       },
     });

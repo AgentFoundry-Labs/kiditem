@@ -22,7 +22,7 @@ describe('CodexAppServerSession', () => {
     expect(JSON.stringify(request(lines, 'turn/start').params)).not.toContain('resume');
   });
 
-  it('fails closed when the Runner-owned readiness probe does not return its exact nonce before turn/start', async () => {
+  it('fails closed when the deferred Runner-owned readiness probe does not return its exact nonce', async () => {
     const lines: string[] = []; const session = new CodexAppServerSession((line) => { lines.push(line); });
     const start = session.start({
       model: 'gpt-5.6',
@@ -31,21 +31,34 @@ describe('CodexAppServerSession', () => {
       readinessProbeNonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505',
     });
     answer(session, lines, 'initialize', {}); await advance();
-    answer(session, lines, 'thread/start', { thread: { id: 'thread-1' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    const threadStarts = requests(lines, 'thread/start');
+    expect(threadStarts).toHaveLength(1);
+    expect(threadStarts[0]!.params).toEqual({
+      ephemeral: true,
+      model: 'gpt-5.6',
+      cwd: '/attempt/workspace',
+      approvalPolicy: 'never',
+      config: { mcp_servers: { kiditem_attempt: { disabled_tools: ['readiness_probe'] } } },
+    });
+    answerAt(session, threadStarts, 0, { thread: { id: 'provider-thread' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    const probeThreadStart = requests(lines, 'thread/start')[1]!;
+    expect(probeThreadStart.params).toEqual({ ephemeral: true, model: 'gpt-5.6', cwd: '/attempt/workspace', approvalPolicy: 'never' });
+    answerAt(session, [probeThreadStart], 0, { thread: { id: 'probe-thread' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    answer(session, lines, 'turn/start', { turn: { id: 'provider-turn' } }); await start;
 
+    const probe = session.completeReadinessProbe();
     expect(request(lines, 'mcpServer/tool/call').params).toEqual({
-      threadId: 'thread-1',
+      threadId: 'probe-thread',
       server: 'kiditem_attempt',
       tool: 'readiness_probe',
       arguments: { nonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' },
     });
     answer(session, lines, 'mcpServer/tool/call', { content: [], structuredContent: { nonce: '0b2327bb-cd8b-4f4c-8fa5-142760734c30' } });
 
-    await expect(start).rejects.toThrow('codex_readiness_probe_invalid');
-    expect(lines.map((line) => JSON.parse(line).method)).not.toContain('turn/start');
+    await expect(probe).rejects.toThrow('codex_readiness_probe_invalid');
   });
 
-  it('starts the provider turn on a fresh tool-free ephemeral thread after the direct readiness probe', async () => {
+  it('starts the provider turn with its readiness tool hidden and defers the direct probe to the enabled thread', async () => {
     const lines: string[] = []; const events: unknown[] = [];
     const session = new CodexAppServerSession((line) => { lines.push(line); }, undefined, (event) => events.push(event));
     const start = session.start({
@@ -55,20 +68,20 @@ describe('CodexAppServerSession', () => {
       readinessProbeNonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505',
     });
     answer(session, lines, 'initialize', {}); await advance();
-    answer(session, lines, 'thread/start', { thread: { id: 'probe-thread' }, activePermissionProfile: { id: ':workspace' } }); await advance();
-    expect(request(lines, 'mcpServer/tool/call').params).toMatchObject({ threadId: 'probe-thread' });
-    answer(session, lines, 'mcpServer/tool/call', { content: [{}], structuredContent: { nonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' } }); await advance();
-
     const threadStarts = requests(lines, 'thread/start');
-    expect(threadStarts).toHaveLength(2);
-    expect(threadStarts[1]!.params).toEqual({
+    expect(threadStarts).toHaveLength(1);
+    expect(threadStarts[0]!.params).toEqual({
       ephemeral: true,
       model: 'gpt-5.6',
       cwd: '/attempt/workspace',
       approvalPolicy: 'never',
-      config: { mcp_servers: { kiditem_attempt: { enabled: false } } },
+      config: { mcp_servers: { kiditem_attempt: { disabled_tools: ['readiness_probe'] } } },
     });
-    answerAt(session, threadStarts, 1, { thread: { id: 'provider-thread' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    answerAt(session, threadStarts, 0, { thread: { id: 'provider-thread' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    const probeThreadStart = requests(lines, 'thread/start')[1]!;
+    expect(probeThreadStart.params).toEqual({ ephemeral: true, model: 'gpt-5.6', cwd: '/attempt/workspace', approvalPolicy: 'never' });
+    answerAt(session, [probeThreadStart], 0, { thread: { id: 'probe-thread' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    expect(lines.map((line) => JSON.parse(line).method)).not.toContain('mcpServer/tool/call');
     expect(request(lines, 'turn/start').params).toMatchObject({ threadId: 'provider-thread' });
     answer(session, lines, 'turn/start', { turn: { id: 'provider-turn' } }); await start;
 
@@ -81,9 +94,13 @@ describe('CodexAppServerSession', () => {
     expect(events).toEqual([
       { kind: 'turn_completed', turnId: 'provider-turn', status: 'completed', result: { outcome: 'completed', summary: 'done', resourceRefs: [], operationRefs: [] } },
     ]);
+    const probe = session.completeReadinessProbe();
+    expect(request(lines, 'mcpServer/tool/call').params).toMatchObject({ threadId: 'probe-thread' });
+    answer(session, lines, 'mcpServer/tool/call', { content: [{}], structuredContent: { nonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' } });
+    await probe;
   });
 
-  it('fails closed when the fresh provider thread does not return the workspace permission profile', async () => {
+  it('fails closed when the enabled deferred probe thread does not return the workspace permission profile', async () => {
     const lines: string[] = []; const session = new CodexAppServerSession((line) => { lines.push(line); });
     const start = session.start({
       model: 'gpt-5.6',
@@ -92,12 +109,11 @@ describe('CodexAppServerSession', () => {
       readinessProbeNonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505',
     });
     answer(session, lines, 'initialize', {}); await advance();
-    answer(session, lines, 'thread/start', { thread: { id: 'probe-thread' }, activePermissionProfile: { id: ':workspace' } }); await advance();
-    answer(session, lines, 'mcpServer/tool/call', { content: [{}], structuredContent: { nonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' } }); await advance();
-
     const threadStarts = requests(lines, 'thread/start');
-    expect(threadStarts).toHaveLength(2);
-    answerAt(session, threadStarts, 1, { thread: { id: 'provider-thread' }, activePermissionProfile: { id: ':danger-full-access' } });
+    expect(threadStarts[0]!.params).toMatchObject({ config: { mcp_servers: { kiditem_attempt: { disabled_tools: ['readiness_probe'] } } } });
+    answerAt(session, threadStarts, 0, { thread: { id: 'provider-thread' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    const probeThreadStart = requests(lines, 'thread/start')[1]!;
+    answerAt(session, [probeThreadStart], 0, { thread: { id: 'probe-thread' }, activePermissionProfile: { id: ':danger-full-access' } });
 
     await expect(start).rejects.toThrow('codex_app_server_permission_profile_mismatch');
     expect(lines.map((line) => JSON.parse(line).method)).not.toContain('turn/start');

@@ -196,8 +196,16 @@ export class AttemptExecutor {
     if (!active) return;
     if (event.status === 'completed') {
       if (!event.result) { await this.finish(attemptId, 'runtime_error', true); return; }
-      active.result = event.result;
-      await this.finish(attemptId, 'protocol_success', true);
+      try {
+        if (active.launch.readinessProbeNonce) {
+          if (!active.codex) throw new Error('codex_readiness_session_missing');
+          await active.codex.completeReadinessProbe();
+        }
+        active.result = event.result;
+        await this.finish(attemptId, 'protocol_success', true);
+      } catch {
+        await this.finish(attemptId, 'runtime_error', true);
+      }
       return;
     }
     await this.finish(attemptId, 'runtime_error', true);

@@ -13,9 +13,9 @@ type DecodedEvent = CodexAppServerEvent & Readonly<{ threadId: string }>;
 const MAX_PENDING_TURN_EVENTS = 64;
 const READINESS_MCP_SERVER = 'kiditem_attempt';
 const READINESS_MCP_TOOL = 'readiness_probe';
-const TOOL_FREE_READINESS_PROVIDER_CONFIG = Object.freeze({
+const TOOL_HIDDEN_READINESS_PROVIDER_CONFIG = Object.freeze({
   mcp_servers: Object.freeze({
-    [READINESS_MCP_SERVER]: Object.freeze({ enabled: false }),
+    [READINESS_MCP_SERVER]: Object.freeze({ disabled_tools: Object.freeze([READINESS_MCP_TOOL]) }),
   }),
 });
 
@@ -29,6 +29,7 @@ export class CodexAppServerSession {
   private resolveEarlyTurnCompletion: (() => void) | null = null;
   private earlyTurnCompletionDelivered = false;
   private readonly pendingTurnEvents: DecodedEvent[] = [];
+  private readinessProbe: Readonly<{ threadId: string; nonce: string }> | null = null;
   private closed = false;
 
   constructor(
@@ -41,9 +42,8 @@ export class CodexAppServerSession {
     await this.request('initialize', { clientInfo: { name: 'kiditem', version: '1' }, capabilities: null });
     await this.send(`${JSON.stringify({ jsonrpc: '2.0', method: 'initialized', params: {} })}\n`);
     if (input.readinessProbeNonce) {
-      const probeThreadId = await this.startThread(input);
-      await this.probeReadiness(probeThreadId, input.readinessProbeNonce);
-      this.threadId = await this.startThread(input, TOOL_FREE_READINESS_PROVIDER_CONFIG);
+      this.threadId = await this.startThread(input, TOOL_HIDDEN_READINESS_PROVIDER_CONFIG);
+      this.readinessProbe = Object.freeze({ threadId: await this.startThread(input), nonce: input.readinessProbeNonce });
     } else {
       this.threadId = await this.startThread(input);
     }
@@ -88,6 +88,17 @@ export class CodexAppServerSession {
     if (this.threadId && this.turnId) await this.request('turn/interrupt', { threadId: this.threadId, turnId: this.turnId });
   }
 
+  /**
+   * The readiness provider turn is intentionally tool-hidden. Runner invokes
+   * this fixed control-plane proof only after its strict result is complete.
+   */
+  async completeReadinessProbe(): Promise<void> {
+    const probe = this.readinessProbe;
+    if (!probe) throw new Error('codex_readiness_probe_not_pending');
+    await this.probeReadiness(probe.threadId, probe.nonce);
+    this.readinessProbe = null;
+  }
+
   /** Called by the supervised process boundary so no RPC can hang after app-server exits. */
   close(): void {
     if (this.closed) return;
@@ -95,6 +106,7 @@ export class CodexAppServerSession {
     this.buffer = '';
     this.threadId = null;
     this.turnId = null;
+    this.readinessProbe = null;
     this.waitingForTurnStart = false;
     this.resolveEarlyTurnCompletion = null;
     this.pendingTurnEvents.length = 0;
