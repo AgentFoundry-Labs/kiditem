@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { parseAllowedSupplierUrl } from './supplier-source-url-policy';
 
 export function normalizeSourcingVariantKey(value: unknown): string {
   if (typeof value !== 'string') return '';
@@ -23,8 +24,7 @@ export function canonicalSourcingCandidateIdentity(input: {
   variantKeyNormalized: string;
 }): string {
   const sourcePlatform = input.sourcePlatform.trim().toLocaleUpperCase('en-US');
-  const sourceUrl = input.sourceUrl.trim();
-  if (!sourceUrl) throw new TypeError('sourcing_candidate_identity_source_url_required');
+  const sourceUrl = canonicalSupplierIdentityUrl(input.sourceUrl);
   const externalOfferId = input.validatedExternalOfferId?.trim() || null;
   const identity = sourcePlatform === 'ALIBABA'
     ? `supplier-url:${sourceUrl}`
@@ -40,6 +40,12 @@ export function canonicalSourcingCandidateIdentity(input: {
       ].join('\u001f'),
     )
     .digest('hex');
+}
+
+/** Canonical supplier URL used only for a durable candidate identity/lock. */
+export function canonicalSupplierIdentityUrl(sourceUrl: string): string {
+  if (!sourceUrl.trim()) throw new TypeError('sourcing_candidate_identity_source_url_required');
+  return parseAllowedSupplierUrl(sourceUrl).normalizedUrl;
 }
 
 /** Shared transaction-lock coordinate for every canonical candidate writer. */

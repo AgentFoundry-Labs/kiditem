@@ -12,7 +12,10 @@ import {
   type SourcingBrowserScrapePort,
 } from '../../../application/port/out/runtime/sourcing-browser-scrape.port';
 import { extractSupplierOfferId, parseAllowedSupplierUrl } from '../../../domain/supplier-source-url-policy';
-import { canonicalSourcingCandidateIdentity } from '../../../domain/sourcing-candidate-identity';
+import {
+  canonicalSourcingCandidateIdentity,
+  normalizeSourcingVariantKey,
+} from '../../../domain/sourcing-candidate-identity';
 import type { SourcingSourceSnapshot } from '../../../application/port/in/capability/sourcing-final-capability.port';
 
 /** Owner bridge for final discovery capabilities; raw browser records never cross this boundary. */
@@ -49,6 +52,7 @@ export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDis
       title: boundedText(raw.title ?? raw.product_name, 1_000),
       price: numberOrNull(raw.price ?? raw.cost_cny),
       currency: boundedText(raw.currency, 12) ?? 'CNY',
+      variantKeyNormalized: normalizeSourcingVariantKey(raw.variant_key),
       images,
     } satisfies Omit<SourcingSourceSnapshot, 'contentHash'>;
     return { ...snapshot, contentHash: contentHash(snapshot) };
@@ -67,6 +71,9 @@ export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDis
     }
     const externalOfferId = extractSupplierOfferId(supplier);
     const platform = supplier.platform === '1688' ? 'ALIBABA_1688' : 'ALIBABA';
+    const variantKeyNormalized = normalizeSourcingVariantKey(
+      input.snapshot.variantKeyNormalized,
+    );
     return this.candidates.upsertSourcedWithIdempotencyReceipt({
       capabilityKey: 'sourcing.ingestCandidate',
       requestHash: input.snapshot.contentHash,
@@ -74,12 +81,12 @@ export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDis
       sourceUrl: supplier.normalizedUrl,
       sourcePlatform: platform,
       externalOfferId,
-      variantKeyNormalized: '',
+      variantKeyNormalized,
       sourceIdentityHash: canonicalSourcingCandidateIdentity({
         sourcePlatform: platform,
         sourceUrl: supplier.normalizedUrl,
         validatedExternalOfferId: externalOfferId,
-        variantKeyNormalized: '',
+        variantKeyNormalized,
       }),
       idempotencyKey: input.idempotencyKey,
       rawData: {

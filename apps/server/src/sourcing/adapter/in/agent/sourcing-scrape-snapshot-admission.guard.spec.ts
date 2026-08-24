@@ -12,6 +12,7 @@ const snapshot = {
   title: 'Toy',
   price: 1,
   currency: 'CNY',
+  variantKeyNormalized: '',
   images: [],
   contentHash: 'a'.repeat(64),
 };

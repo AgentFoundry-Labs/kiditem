@@ -384,6 +384,10 @@ erDiagram
     String organizationId FK
     String generationId FK
     String status
+    String ownerIdempotencyKey
+    String requestHash
+    String providerOutcome
+    Json resultJson
     String errorMessage
     String screenshotUrl
     String externalId

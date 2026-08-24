@@ -172,8 +172,10 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort, Agent
     attemptId: string;
     requestedByUserId: string;
     targetAgentKey: string;
+    capabilityKey?: string;
+    ownerDomain?: string;
   }) {
-    const [attempt, target] = await Promise.all([
+    const [attempt, target, root] = await Promise.all([
       this.prisma.agentAttempt.findFirst({
         where: {
           id: input.attemptId,
@@ -196,10 +198,28 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort, Agent
           activatedAt: { not: null },
           retiredAt: null,
         },
-        select: { id: true, agentDefinitionKey: true, runtimeType: true, capabilityKeys: true, instructionProfileRef: true },
+        select: { id: true, agentDefinitionKey: true, runtimeType: true, capabilityKeys: true, assignedDomains: true, instructionProfileRef: true },
+      }),
+      this.prisma.agentTask.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          parentTaskId: null,
+        },
+        select: { id: true },
       }),
     ]);
-    if (!attempt || !target) return null;
+    if (!attempt || !target || !root) return null;
+    const targetCapabilityKeys = Array.isArray(target.capabilityKeys)
+      ? target.capabilityKeys.filter((key): key is string => typeof key === 'string')
+      : [];
+    const targetAssignedDomains = Array.isArray(target.assignedDomains)
+      ? target.assignedDomains.filter((domain): domain is string => typeof domain === 'string')
+      : [];
+    // An explicit execution grant is the narrow, persisted authority for one
+    // cross-domain mutation.  The target owns its domain, but need not carry
+    // that mutation in its default capability snapshot.
+    if (input.ownerDomain && !targetAssignedDomains.includes(input.ownerDomain)) return null;
     return {
       input: attempt.input,
       applicationVersion: attempt.applicationVersion,
@@ -207,11 +227,11 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort, Agent
       cliVersion: attempt.cliVersion,
       reportedModel: attempt.reportedModel,
       targetAgentVersionId: target.id,
+      rootTaskId: root.id,
       targetAgentKey: target.agentDefinitionKey,
       targetRuntimeType: target.runtimeType,
-      targetCapabilityKeys: Array.isArray(target.capabilityKeys)
-        ? target.capabilityKeys.filter((key): key is string => typeof key === 'string')
-        : [],
+      targetCapabilityKeys,
+      targetAssignedDomains,
       targetInstructionProfileRef: target.instructionProfileRef,
     };
   }

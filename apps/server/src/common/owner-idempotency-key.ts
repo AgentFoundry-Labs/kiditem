@@ -17,6 +17,11 @@ export function deriveOwnerIdempotencyKey(input: {
   })).digest('hex');
 }
 
+/** Stable owner-input receipt hash, deliberately independent of an Attempt. */
+export function canonicalOwnerInputHash(input: unknown): string {
+  return createHash('sha256').update(JSON.stringify(canonicalizeOwnerInput(input))).digest('hex');
+}
+
 export function canonicalizeOwnerInput(input: unknown): unknown {
   const seen = new WeakSet<object>();
   return canonicalize(input, seen);

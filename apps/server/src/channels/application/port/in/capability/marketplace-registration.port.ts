@@ -21,6 +21,8 @@ export interface ProductRegistrationSubmissionCapabilityInput {
   submissionPayloadJson: unknown;
   providerSubmissionId: string | null;
   registrationResult: unknown;
+  /** Agent OS owner receipt key; the provider boundary receives it unchanged. */
+  ownerIdempotencyKey?: string;
   isRetry?: boolean;
   providerOutcome?: string;
   providerCreateAllowed?: boolean;

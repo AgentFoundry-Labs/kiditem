@@ -17,7 +17,9 @@ export function buildCodexAttemptCommand(input: { workspace: string; socketPath:
     args: [
       'app-server', '--stdio', '--strict-config', '--config', `mcp_servers.${serverName}.command=${JSON.stringify(process.execPath)}`,
       '--config', `mcp_servers.${serverName}.args=[${JSON.stringify(executable)}]`,
-      '--config', 'approval_policy="never"', '--config', 'tools.web_search=false', '--config', 'history.persistence="none"',
+      '--config', 'approval_policy="never"',
+      '--config', 'tools.web_search=false',
+      '--config', 'history.persistence="none"',
     ],
     cwd: input.workspace,
     env: { PATH: process.env.PATH ?? '', HOME: input.profile.home, CODEX_HOME: input.profile.codexHome, ...mcpEnv },

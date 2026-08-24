@@ -19,7 +19,10 @@ describe('ephemeral AgentAttempt CLI runtime', () => {
     const profile = { model: 'test-model', loginHome: '/provider-login', home: '/attempt/home', codexHome: '/attempt/codex', claudeConfigDir: '/attempt/claude' };
     const codex = buildCodexAttemptCommand({ workspace: '/tmp/work', socketPath: '/tmp/broker.sock', mcpConfigPath: '/tmp/mcp.json', profile });
     const claude = buildClaudeAttemptCommand({ workspace: '/tmp/work', socketPath: '/tmp/broker.sock', mcpConfigPath: '/tmp/mcp.json', profile });
-    expect(codex.args).toEqual(expect.arrayContaining(['app-server', '--stdio', '--strict-config', 'history.persistence="none"']));
+    expect(codex.args).toEqual(expect.arrayContaining([
+      'app-server', '--stdio', '--strict-config', 'history.persistence="none"',
+      'tools.web_search=false',
+    ]));
     expect(claude.args).toEqual(expect.arrayContaining(['--input-format', 'stream-json', '--output-format', 'stream-json', '--no-session-persistence', '--mcp-config', '/tmp/mcp.json', '--strict-mcp-config', '--tools', 'Agent']));
     expect([...codex.args, ...claude.args]).not.toContain('--max-budget-usd');
     expect(codex.env).toEqual({ PATH: expect.any(String), HOME: '/attempt/home', CODEX_HOME: '/attempt/codex', ATTEMPT_MCP_SOCKET_PATH: '/tmp/broker.sock' });
@@ -69,7 +72,9 @@ describe('ephemeral AgentAttempt CLI runtime', () => {
     expect(spawner).toHaveBeenCalledWith(expect.any(String), expect.any(Array), expect.objectContaining({ detached: true, shell: false }));
     expect(broker.listen).toHaveBeenCalledWith(expect.objectContaining({ socketPath: paths.socketPath, processGroupId: 7444, attemptId: 'attempt-1' }));
     expect(controls.get('attempt-1')).not.toBeNull();
+    child.once('exit', () => { Object.assign(child, { exitCode: 0 }); });
     child.emit('exit', 0);
+    child.stdout.emit('close');
     await vi.waitFor(() => expect(files.remove).toHaveBeenCalledWith(paths));
     expect(broker.close).toHaveBeenCalledWith(paths.socketPath);
     expect(controls.get('attempt-1')).toBeNull();
@@ -102,7 +107,9 @@ describe('ephemeral AgentAttempt CLI runtime', () => {
     await executor.start(attemptInput());
     expect(codex.stdin.write).toHaveBeenCalledWith(expect.stringContaining('"method":"initialize"'));
     expect(codex.stdin.end).not.toHaveBeenCalled();
+    codex.once('exit', () => { Object.assign(codex, { exitCode: 7 }); });
     codex.emit('exit', 7);
+    codex.stdout.emit('close');
     await vi.waitFor(() => expect(terminal).toHaveBeenCalledWith('attempt-1', 'failed', expect.objectContaining({ code: 'attempt_exit_nonzero' }), undefined));
 
     const claude = fakeChild(7667);
@@ -125,6 +132,32 @@ describe('ephemeral AgentAttempt CLI runtime', () => {
     await vi.waitFor(() => expect(terminal).toHaveBeenCalledWith('attempt-1', 'succeeded', undefined, expect.objectContaining({ summary: 'durable answer' })));
     expect(processKill).toHaveBeenCalledWith(-7677, 'SIGTERM');
     processKill.mockRestore();
+  });
+
+  it('drains stdout that arrives after exit before terminalizing exactly once', async () => {
+    const paths: AttemptFilesystemPaths = { root: '/tmp/attempt-drain', workspace: '/tmp/attempt-drain/workspace', broker: '/tmp/attempt-drain/broker', socketPath: '/tmp/attempt-drain/broker/attempt.sock', mcpConfigPath: '/tmp/attempt-drain/broker/mcp.json' };
+    const child = fakeChild(76771);
+    child.once('exit', () => { Object.assign(child, { exitCode: 0 }); });
+    const terminal = vi.fn(async () => undefined);
+    const executor = new AgentAttemptExecutorService(
+      { create: vi.fn(async () => paths), remove: vi.fn(async () => undefined), linkProviderAuth: vi.fn(async () => undefined) } as never,
+      new AgentAttemptProcessRegistry(), new AttemptLiveControlRegistry(), undefined, (() => child) as never,
+      60_000, undefined, { running: vi.fn(async () => undefined), terminal, release: vi.fn() },
+    );
+
+    await executor.start(attemptInput());
+    child.emit('exit', 0);
+    await Promise.resolve();
+    expect(terminal).not.toHaveBeenCalled();
+    child.stdout.emit('data', Buffer.from(JSON.stringify({ jsonrpc: '2.0', method: 'turn/completed', params: { turn: { status: 'completed', items: [{ type: 'agentMessage', text: JSON.stringify(durableResult('drained result')) }] } } }) + '\n'));
+    await Promise.resolve();
+    expect(terminal).not.toHaveBeenCalled();
+    child.stdout.emit('close');
+
+    await vi.waitFor(() => expect(terminal).toHaveBeenCalledWith(
+      'attempt-1', 'succeeded', undefined, expect.objectContaining({ summary: 'drained result' }),
+    ));
+    expect(terminal).toHaveBeenCalledTimes(1);
   });
 
   it('fails boundedly when a provider completes without a strict durable result envelope', async () => {

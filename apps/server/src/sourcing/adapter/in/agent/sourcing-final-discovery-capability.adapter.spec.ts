@@ -38,6 +38,7 @@ describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
           title: 'Toy',
           price: -1,
           currency: 'CNY',
+          variant_key: '  Blue   Set ',
           image_urls: [
             'https://images.example.com/a.png',
             'https://images.example.com/a.png',
@@ -54,6 +55,7 @@ describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
     await expect(adapter.scrapeProductUrl({ sourceUrl: 'https://detail.1688.com/offer/1.html' })).resolves.toMatchObject({
       sourceUrl: 'https://www.alibaba.com/product-detail/toy_123.html',
       platform: 'alibaba',
+      variantKeyNormalized: 'blue set',
       price: null,
       images: ['https://images.example.com/a.png'],
       contentHash: expect.stringMatching(/^[a-f0-9]{64}$/),

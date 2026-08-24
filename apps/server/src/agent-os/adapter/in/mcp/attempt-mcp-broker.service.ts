@@ -141,8 +141,8 @@ export class AttemptMcpBrokerService {
     return this.actions.invocation({ binding: this.authorize(input.socketPath, input.peerPid), action: input.action, invocationId: input.invocationId });
   }
 
-  delegate(input: { socketPath: string; peerPid: number; targetAgentKey: string; objective: string }): Promise<unknown> {
-    return this.actions.delegate({ binding: this.authorize(input.socketPath, input.peerPid), targetAgentKey: input.targetAgentKey, objective: input.objective });
+  delegate(input: { socketPath: string; peerPid: number; targetAgentKey: string; objective: string; capabilityKey?: string; arguments?: Record<string, unknown> }): Promise<unknown> {
+    return this.actions.delegate({ binding: this.authorize(input.socketPath, input.peerPid), targetAgentKey: input.targetAgentKey, objective: input.objective, ...(input.capabilityKey ? { capabilityKey: input.capabilityKey, input: input.arguments ?? {} } : {}) });
   }
 
   child(input: { socketPath: string; peerPid: number; action: 'status' | 'wait' | 'result' | 'message' | 'interrupt'; childTaskId: string; message?: string }): Promise<unknown> {
@@ -193,7 +193,7 @@ export class AttemptMcpBrokerService {
       case 'capability_invoke': return this.invoke({ socketPath, peerPid, capabilityKey: String(arguments_.capabilityKey), arguments: asRecord(arguments_.input) });
       case 'invocation_status': case 'invocation_wait': case 'invocation_result':
         return this.invocation({ socketPath, peerPid, action: tool.slice('invocation_'.length) as 'status' | 'wait' | 'result', invocationId: String(arguments_.invocationId) });
-      case 'delegate_to_agent': return this.delegate({ socketPath, peerPid, targetAgentKey: String(arguments_.targetAgentKey), objective: String(arguments_.objective) });
+      case 'delegate_to_agent': return this.delegate({ socketPath, peerPid, targetAgentKey: String(arguments_.targetAgentKey), objective: String(arguments_.objective), ...(typeof arguments_.capabilityKey === 'string' ? { capabilityKey: arguments_.capabilityKey, arguments: asRecord(arguments_.input) } : {}) });
       case 'child_status': case 'child_wait': case 'child_result': case 'child_message': case 'child_interrupt':
         return this.child({ socketPath, peerPid, action: tool.slice('child_'.length) as 'status' | 'wait' | 'result' | 'message' | 'interrupt', childTaskId: String(arguments_.childTaskId), ...(typeof arguments_.message === 'string' ? { message: arguments_.message } : {}) });
       default: throw new Error('attempt_mcp_tool_not_found');

@@ -140,8 +140,9 @@ New extension writers first obtain a permit from
 external offer identity, collection session UUID, captured timestamp, extractor
 version, and payload hash. V1 and v2 both use the collection coordinator;
 an unknown or disabled source must leave zero candidate and evidence rows.
-Candidate identity is platform + external offer + normalized variant, never
-title, tracking URL, or search-result array index.
+Identity includes variant. Alibaba uses canonical URL (aliases/tracking/fragments
+removed); 1688 uses validated offer ID, then URL. All ingress uses it, never
+title/extractor ID.
 
 Entry assistant: server-only runtime/model; client never selects. Claude:
 `--tools ""` (not `--allowed-tools`). Codex: ephemeral read-only/no tools.

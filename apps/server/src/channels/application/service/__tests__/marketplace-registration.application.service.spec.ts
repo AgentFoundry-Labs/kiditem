@@ -332,7 +332,7 @@ describe('MarketplaceRegistrationService application orchestration', () => {
     );
   });
 
-  it('reconciles an uncertain create timeout by the durable submission key', async () => {
+  it('reconciles a possibly completed provider write by the durable submission key before a lease replay can create again', async () => {
     const repository = {
       assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
     };
@@ -358,7 +358,9 @@ describe('MarketplaceRegistrationService application orchestration', () => {
       submissionPayloadJson: {},
       providerSubmissionId: null,
       registrationResult: null,
-      isRetry: true,
+      // A worker lease retry does not rewrite the frozen input to set this
+      // flag. The provider key must therefore be checked on every dispatch.
+      isRetry: false,
       providerOutcome: 'uncertain',
       providerCreateAllowed: false,
     })).resolves.toMatchObject({

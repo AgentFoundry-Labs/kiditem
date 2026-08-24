@@ -20,7 +20,7 @@ import { AgentResultEnvelopeSchema } from '@kiditem/shared/agent-interaction';
  */
 export class AttemptMcpActionsService implements AttemptMcpActionsPort {
   constructor(
-    private readonly invocations: Pick<AgentCapabilityInvocationService, 'invoke'>,
+    private readonly invocations: Pick<AgentCapabilityInvocationService, 'invoke' | 'authorize'>,
     private readonly delegation: Pick<AgentTaskDelegationService, 'delegate'>,
     private readonly work: Pick<
       AgentWorkRepositoryPort,
@@ -30,7 +30,7 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
       | 'loadAttemptMcpInvocation'
     >,
     private readonly controls: AttemptRuntimeControlPort,
-    private readonly starter?: Pick<AgentDelegatedAttemptStarterService, 'start'>,
+    private readonly starter?: Pick<AgentDelegatedAttemptStarterService, 'start' | 'failBeforeStart'>,
     private readonly capabilities?: Pick<AgentCapabilityRegistry, 'resolveDefinition' | 'listDefinitions'>,
   ) {}
 
@@ -84,6 +84,7 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
     input: Parameters<AttemptMcpActionsPort['delegate']>[0],
   ): Promise<unknown> {
     await this.assertBinding(input.binding);
+    const explicit = explicitMutationGrant(input, this.capabilities);
     const context = await this.work.loadAttemptMcpDelegationContext({
       organizationId: input.binding.organizationId,
       sessionId: input.binding.sessionId,
@@ -91,6 +92,8 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
       attemptId: input.binding.attemptId,
       requestedByUserId: input.binding.userId,
       targetAgentKey: input.targetAgentKey,
+      capabilityKey: explicit?.capabilityKey,
+      ownerDomain: explicit?.ownerDomain,
     });
     if (!context) throw new Error('attempt_mcp_delegation_target_unavailable');
     const delegated = await this.delegation.delegate({
@@ -108,14 +111,50 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
       idempotencyKey: deriveOwnerIdempotencyKey({
         attemptId: input.binding.attemptId,
         capabilityKey: `delegation.${input.targetAgentKey}`,
-        input: { objective: input.objective },
+        input: { objective: input.objective, ...(explicit ? { capabilityKey: explicit.capabilityKey, input: explicit.input } : {}) },
       }),
-      input: context.input,
+      input: explicit ? {
+        explicitExecutionGrant: {
+          ...explicit,
+          parentTaskId: input.binding.taskId,
+          rootTaskId: context.rootTaskId,
+          delegatingAttemptId: input.binding.attemptId,
+        },
+      } : context.input,
       applicationVersion: context.applicationVersion,
       authorizingGitSha: context.authorizingGitSha,
       cliVersion: context.cliVersion,
       reportedModel: targetModel(context),
     });
+    let authorization: Awaited<ReturnType<AgentCapabilityInvocationService['authorize']>> | undefined;
+    if (explicit) {
+      try {
+        authorization = await this.invocations.authorize({
+          organizationId: input.binding.organizationId,
+          sessionId: input.binding.sessionId,
+          taskId: delegated.childTaskId,
+          attemptId: delegated.firstAttemptId,
+          agentVersionId: context.targetAgentVersionId,
+          initiatingUserId: input.binding.userId,
+          capabilityKey: explicit.capabilityKey,
+          authorizationKind: 'explicit_execution_grant',
+          authorizationExpiresAt: new Date(Date.now() + 30 * 60 * 1_000),
+          ownerIdempotencyKey: deriveOwnerIdempotencyKey({
+            attemptId: delegated.firstAttemptId,
+            capabilityKey: explicit.capabilityKey,
+            input: explicit.input,
+          }),
+          input: explicit.input,
+        });
+      } catch (error) {
+        if (!delegated.replayed) await this.starter?.failBeforeStart({
+          attemptId: delegated.firstAttemptId,
+          code: 'explicit_execution_grant_failed',
+          message: 'Explicit execution grant admission failed.',
+        });
+        throw error;
+      }
+    }
     if (!delegated.replayed) {
       if (!this.starter) throw new Error('delegated_attempt_starter_unavailable');
       await this.starter.start({
@@ -133,7 +172,12 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
         instructionProfileRef: context.targetInstructionProfileRef,
       });
     }
-    return delegated;
+    return authorization ? {
+      ...delegated,
+      invocationId: authorization.invocationId,
+      invocationStatus: authorization.invocationStatus,
+      approvalId: authorization.approvalId,
+    } : delegated;
   }
 
   async invocation(input: Parameters<AttemptMcpActionsPort['invocation']>[0]): Promise<unknown> {
@@ -220,6 +264,30 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
         'attempt_mcp_binding_invalid',
       );
     }
+  }
+}
+
+function explicitMutationGrant(
+  input: Parameters<AttemptMcpActionsPort['delegate']>[0],
+  capabilities: Pick<AgentCapabilityRegistry, 'resolveDefinition'> | undefined,
+): { capabilityKey: string; ownerDomain: string; input: Record<string, unknown> } | undefined {
+  if (!input.capabilityKey && input.input === undefined) return undefined;
+  if (!input.capabilityKey || input.input === undefined) {
+    throw new AgentOsRuntimeError('capability_input_invalid', 'capability_input_invalid');
+  }
+  const definition = capabilities?.resolveDefinition(input.capabilityKey);
+  if (!definition) throw new AgentOsRuntimeError('capability_not_found', 'capability_not_found');
+  if (!definition.effects.some((effect) => MUTATION_EFFECTS.has(effect))) {
+    throw new AgentOsRuntimeError('capability_delegation_required', 'capability_delegation_required');
+  }
+  try {
+    return {
+      capabilityKey: input.capabilityKey,
+      ownerDomain: definition.ownerDomain,
+      input: definition.inputSchema.parse(input.input) as Record<string, unknown>,
+    };
+  } catch {
+    throw new AgentOsRuntimeError('capability_input_invalid', 'capability_input_invalid');
   }
 }
 

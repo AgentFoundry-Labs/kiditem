@@ -20,6 +20,9 @@ export class AiWingRegistrationCapabilityAdapter
     const result = await this.wing.registerToWing(
       input.generationId,
       input.organizationId,
+      input.ownerIdempotencyKey && input.requestHash
+        ? { ownerIdempotencyKey: input.ownerIdempotencyKey, requestHash: input.requestHash }
+        : undefined,
     );
     if (!result.success) {
       throw new Error(result.error ?? 'Wing upload failed');

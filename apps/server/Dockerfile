@@ -89,10 +89,12 @@ RUN apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update -y \
     && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
         python3 \
         python3-venv \
+        procps \
     && python3 -m venv /opt/kiditem-python \
     && "$PYTHON_BIN" -m pip install --no-cache-dir --upgrade pip \
     && "$PYTHON_BIN" -m pip install --no-cache-dir -r ./apps/server/coupang-directship-requirements.txt \
     && "$PYTHON_BIN" -c "import xlrd, xlutils, xlwt" \
+    && command -v ps \
     && rm -rf /var/lib/apt/lists/*
 
 # npm workspaces can hoist runtime packages to /app/node_modules while leaving

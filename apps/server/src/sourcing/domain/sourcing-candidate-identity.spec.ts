@@ -40,4 +40,27 @@ describe('canonicalSourcingCandidateIdentity', () => {
       variantKeyNormalized: 'pink set',
     })).not.toBe(base);
   });
+
+  it('uses the same Alibaba identity for equivalent tracking and host spellings while retaining the normalized variant', () => {
+    const tracked = canonicalSourcingCandidateIdentity({
+      sourcePlatform: 'ALIBABA',
+      sourceUrl: 'https://ALIBABA.com/product-detail/kid-toy_123.html?spm=feed&utm_source=ad',
+      validatedExternalOfferId: null,
+      variantKeyNormalized: '  Blue   Set ',
+    });
+    const direct = canonicalSourcingCandidateIdentity({
+      sourcePlatform: 'ALIBABA',
+      sourceUrl: 'https://www.alibaba.com/product-detail/kid-toy_123.html',
+      validatedExternalOfferId: 'untrusted-product-id',
+      variantKeyNormalized: 'blue set',
+    });
+
+    expect(tracked).toBe(direct);
+    expect(canonicalSourcingCandidateIdentity({
+      sourcePlatform: 'ALIBABA',
+      sourceUrl: 'https://www.alibaba.com/product-detail/kid-toy_123.html',
+      validatedExternalOfferId: null,
+      variantKeyNormalized: 'pink set',
+    })).not.toBe(direct);
+  });
 });

@@ -34,6 +34,13 @@ export interface AttemptMcpActionsPort {
     binding: AttemptMcpBinding;
     targetAgentKey: string;
     objective: string;
+    /**
+     * A cross-domain mutation is never an implicit delegation. The caller
+     * selects both the owning capability and its exact strict input so the
+     * child admission and durable invocation fence the same canonical work.
+     */
+    capabilityKey?: string;
+    input?: Record<string, unknown>;
   }): Promise<unknown>;
   child(input: {
     binding: AttemptMcpBinding;

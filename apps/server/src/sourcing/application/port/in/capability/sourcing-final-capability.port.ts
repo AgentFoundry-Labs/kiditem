@@ -18,6 +18,8 @@ export interface SourcingSourceSnapshot {
   title: string | null;
   price: number | null;
   currency: string | null;
+  /** Sourcing-normalized supplier variant; part of durable candidate identity. */
+  variantKeyNormalized: string;
   images: string[];
   contentHash: string;
 }

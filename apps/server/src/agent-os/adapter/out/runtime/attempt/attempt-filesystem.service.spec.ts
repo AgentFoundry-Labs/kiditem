@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdir, mkdtemp, symlink, writeFile, rm, stat, readlink, lstat } from 'node:fs/promises';
+import { mkdir, mkdtemp, symlink, writeFile, rm, stat, readlink, lstat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { AttemptFilesystemService } from './attempt-filesystem.service';
@@ -16,6 +16,11 @@ describe('AttemptFilesystemService.cleanAttempt', () => {
     await writeFile(join(login, '.claude', '.credentials.json'), 'credential-not-read');
     const files = new AttemptFilesystemService(root);
     const paths = await files.create('11111111-1111-4111-8111-111111111111');
+    const codexConfig = await readFile(join(paths.codexHome, 'config.toml'), 'utf8');
+    expect(codexConfig).toContain('default_permissions = "kiditem_attempt"');
+    expect(codexConfig).toContain('":root" = "deny"');
+    expect(codexConfig).toContain('":minimal" = "read"');
+    expect(codexConfig).toContain('enabled = false');
     await files.linkProviderAuth(paths, 'codex_cli', login);
     await files.linkProviderAuth(paths, 'claude_cli', login);
     expect((await lstat(join(paths.codexHome, 'auth.json'))).isSymbolicLink()).toBe(true);

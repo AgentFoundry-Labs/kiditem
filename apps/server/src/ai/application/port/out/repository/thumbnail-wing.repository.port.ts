@@ -34,6 +34,11 @@ export interface ThumbnailWingRegistrationAttemptPatch {
   finishedAt?: Date;
 }
 
+export type AgentWingRegistrationClaim =
+  | { mode: 'create'; attemptId: string }
+  | { mode: 'replay'; success: boolean; screenshotPath: string | null }
+  | { mode: 'reconcile'; attemptId: string };
+
 export interface ThumbnailWingRepositoryPort {
   findGenerationWithCandidates(
     generationId: string,
@@ -49,6 +54,28 @@ export interface ThumbnailWingRepositoryPort {
   ): Promise<ThumbnailWingGenerationForVerification | null>;
   ensureGenerationExists(id: string, organizationId: string): Promise<void>;
   createRegistrationAttempt(generationId: string, organizationId: string): Promise<{ id: string }>;
+  claimAgentRegistrationAttempt(input: {
+    generationId: string;
+    organizationId: string;
+    ownerIdempotencyKey: string;
+    requestHash: string;
+  }): Promise<AgentWingRegistrationClaim>;
+  finalizeAgentRegistrationAttempt(input: {
+    id: string;
+    organizationId: string;
+    ownerIdempotencyKey: string;
+    requestHash: string;
+    success: boolean;
+    screenshotPath: string | null;
+    errorMessage?: string | null;
+  }): Promise<void>;
+  markAgentRegistrationAttemptUncertain(input: {
+    id: string;
+    organizationId: string;
+    ownerIdempotencyKey: string;
+    requestHash: string;
+    message: string;
+  }): Promise<void>;
   updateRegistrationAttemptOrThrow(
     id: string,
     organizationId: string,

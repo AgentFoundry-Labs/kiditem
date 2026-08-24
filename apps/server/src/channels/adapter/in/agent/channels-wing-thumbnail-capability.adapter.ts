@@ -19,6 +19,8 @@ export class ChannelsWingThumbnailCapabilityAdapter
     organizationId: string;
     generationId: string;
     triggeredByUserId?: string | null;
+    ownerIdempotencyKey: string;
+    requestHash: string;
   }): Promise<{ success: boolean; screenshotPath: string | null }> {
     return this.wing.submitWingThumbnail(input);
   }

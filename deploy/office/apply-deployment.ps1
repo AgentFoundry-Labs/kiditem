@@ -303,6 +303,32 @@ function Write-DeployEnv {
   ) | Set-Content -LiteralPath $Path -Encoding Ascii
 }
 
+function Assert-RenderedManifestDeployment {
+  param([Parameter(Mandatory = $true)][object]$Manifest)
+
+  # Compose interpolation is itself an admission boundary. Render the exact
+  # candidate env before any writer is stopped so a missing/stale deploy file
+  # cannot turn a destructive maintenance action into a mixed-SHA restart.
+  $renderedJson = Get-CheckedOutput docker @script:ComposeArgs config --format json
+  $rendered = $renderedJson | ConvertFrom-Json
+  foreach ($name in @('api', 'worker')) {
+    $service = $rendered.services.$name
+    if ($null -eq $service) { throw "Rendered Compose is missing required $name service." }
+    if ($service.image -ne $Manifest.apiImage) {
+      throw "Rendered $name image does not match manifest API image."
+    }
+    if ($service.environment.KIDITEM_APPLICATION_VERSION -ne $Manifest.appVersion) {
+      throw "Rendered $name KIDITEM_APPLICATION_VERSION does not match manifest app version."
+    }
+    if ($service.environment.KIDITEM_GIT_SHA -ne $Manifest.gitSha) {
+      throw "Rendered $name KIDITEM_GIT_SHA does not match manifest git SHA."
+    }
+  }
+  if ($rendered.services.web.image -ne $Manifest.webImage) {
+    throw 'Rendered web image does not match manifest web image.'
+  }
+}
+
 function Restore-Transaction {
   param([Parameter(Mandatory = $true)][string]$BackupRoot)
 
@@ -391,6 +417,7 @@ function Install-Deployment {
     Move-Item -LiteralPath $candidateDeployEnv -Destination $script:DeployEnvPath -Force
     Set-ComposeArguments
     Invoke-Checked docker @script:ComposeArgs config --quiet
+    Assert-RenderedManifestDeployment $manifest
     if ($ApplySchema) {
       Write-Warning 'Stopping application containers before the approved Prisma schema push. Runtime rollback cannot undo schema changes.'
       Invoke-Checked docker @script:ComposeArgs stop api worker web nginx

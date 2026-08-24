@@ -23,7 +23,7 @@ function mutationContext(capabilityKey: string, input: unknown) {
 function setup(admissions = { recordScrapeSnapshot: vi.fn() }) {
   const reads = { retrieveWorkspaceEvidence: vi.fn(), inspectRecommendationRun: vi.fn() };
   const mutations = { refreshValidation: vi.fn().mockResolvedValue({ recommendationRunId: '00000000-0000-4000-8000-000000000007', validationEpisodeIds: [], missingEvidence: [] }), createReviewBatch: vi.fn() };
-  const discovery = { duplicateCheck: vi.fn().mockResolvedValue({ duplicate: false, candidateId: null }), scrapeProductUrl: vi.fn().mockResolvedValue({ sourceUrl: 'https://detail.1688.com/offer/1.html', platform: '1688', title: 'Toy', price: 1, currency: 'CNY', images: [], contentHash: 'a'.repeat(64) }), ingestCandidate: vi.fn().mockResolvedValue({ candidateId: '00000000-0000-4000-8000-000000000010' }) };
+  const discovery = { duplicateCheck: vi.fn().mockResolvedValue({ duplicate: false, candidateId: null }), scrapeProductUrl: vi.fn().mockResolvedValue({ sourceUrl: 'https://detail.1688.com/offer/1.html', platform: '1688', title: 'Toy', price: 1, currency: 'CNY', variantKeyNormalized: '', images: [], contentHash: 'a'.repeat(64) }), ingestCandidate: vi.fn().mockResolvedValue({ candidateId: '00000000-0000-4000-8000-000000000010' }) };
   const shadow = { collectShadowSignals: vi.fn().mockResolvedValue({ operationRunId: '00000000-0000-4000-8000-000000000009', status: 'queued' }) };
   const operations = {
     findByIdempotency: vi.fn().mockResolvedValue(null),
@@ -37,7 +37,7 @@ describe('SourcingFinalCapabilityAdapter', () => {
     const { adapter, mutations, discovery, operations } = setup();
     const withoutKey = { ...baseContext, ownerIdempotencyKey: undefined };
     await expect(adapter.ingestCandidate({ context: withoutKey as never, input: { snapshot: {
-      sourceUrl: 'https://detail.1688.com/offer/1.html', platform: '1688', title: 'Toy', price: 1, currency: 'CNY', images: [], contentHash: 'a'.repeat(64),
+      sourceUrl: 'https://detail.1688.com/offer/1.html', platform: '1688', title: 'Toy', price: 1, currency: 'CNY', variantKeyNormalized: '', images: [], contentHash: 'a'.repeat(64),
     } } })).rejects.toThrow('owner_idempotency_key_required');
     await expect(adapter.refreshValidation({ context: withoutKey as never, input: { recommendationRunId: '00000000-0000-4000-8000-000000000007' } })).rejects.toThrow('owner_idempotency_key_required');
     await expect(adapter.scrapeUrlWorkflow({ context: withoutKey as never, input: { sourceUrl: 'https://detail.1688.com/offer/1.html' } })).rejects.toThrow('owner_idempotency_key_required');
@@ -51,7 +51,7 @@ describe('SourcingFinalCapabilityAdapter', () => {
     const first = setup();
     const second = setup();
     const snapshot = {
-      sourceUrl: 'https://detail.1688.com/offer/1.html', platform: '1688' as const, title: 'Toy', price: 1, currency: 'CNY', images: [], contentHash: 'a'.repeat(64),
+      sourceUrl: 'https://detail.1688.com/offer/1.html', platform: '1688' as const, title: 'Toy', price: 1, currency: 'CNY', variantKeyNormalized: '', images: [], contentHash: 'a'.repeat(64),
     };
     const context = mutationContext('sourcing.ingestCandidate', { snapshot });
     await first.adapter.ingestCandidate({ context, input: { snapshot } });
@@ -83,7 +83,7 @@ describe('SourcingFinalCapabilityAdapter', () => {
   it('does not accept an arbitrary owner key for an exact ingest input', async () => {
     const { adapter, discovery } = setup();
     const snapshot = {
-      sourceUrl: 'https://detail.1688.com/offer/1.html', platform: '1688' as const, title: 'Toy', price: 1, currency: 'CNY', images: [], contentHash: 'a'.repeat(64),
+      sourceUrl: 'https://detail.1688.com/offer/1.html', platform: '1688' as const, title: 'Toy', price: 1, currency: 'CNY', variantKeyNormalized: '', images: [], contentHash: 'a'.repeat(64),
     };
     await expect(adapter.ingestCandidate({
       context: { ...baseContext, ownerIdempotencyKey: 'fabricated-key' },
@@ -96,7 +96,7 @@ describe('SourcingFinalCapabilityAdapter', () => {
     const admission = new SourcingScrapeSnapshotAdmissionGuard();
     const { adapter, discovery } = setup();
     const snapshot = {
-      sourceUrl: 'https://detail.1688.com/offer/1.html', platform: '1688' as const, title: 'Toy', price: 1, currency: 'CNY', images: [], contentHash: 'a'.repeat(64),
+      sourceUrl: 'https://detail.1688.com/offer/1.html', platform: '1688' as const, title: 'Toy', price: 1, currency: 'CNY', variantKeyNormalized: '', images: [], contentHash: 'a'.repeat(64),
     };
     const context = mutationContext('sourcing.ingestCandidate', { snapshot });
     admission.recordScrapeSnapshot({ ...context, snapshot });
@@ -111,7 +111,7 @@ describe('SourcingFinalCapabilityAdapter', () => {
   it('does not retain ingest replay state in an adapter instance', async () => {
     const { adapter, discovery } = setup();
     const snapshot = {
-      sourceUrl: 'https://detail.1688.com/offer/1.html', platform: '1688' as const, title: 'Toy', price: 1, currency: 'CNY', images: [], contentHash: 'a'.repeat(64),
+      sourceUrl: 'https://detail.1688.com/offer/1.html', platform: '1688' as const, title: 'Toy', price: 1, currency: 'CNY', variantKeyNormalized: '', images: [], contentHash: 'a'.repeat(64),
     };
     const context = mutationContext('sourcing.ingestCandidate', { snapshot });
 

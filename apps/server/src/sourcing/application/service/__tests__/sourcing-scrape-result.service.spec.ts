@@ -32,13 +32,13 @@ describe('SourcingScrapeResultService', () => {
     expect(candidates.upsertSourced).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: 'org-1',
-        sourceUrl: 'https://detail.1688.com/offer/123.html?spm=a261y',
+        sourceUrl: 'https://detail.1688.com/offer/123.html',
         sourcePlatform: 'ALIBABA_1688',
         externalOfferId: '123',
         variantKeyNormalized: 'blue set',
         sourceIdentityHash: canonicalSourcingCandidateIdentity({
           sourcePlatform: 'ALIBABA_1688',
-          sourceUrl: 'https://detail.1688.com/offer/123.html?spm=a261y',
+          sourceUrl: 'https://detail.1688.com/offer/123.html',
           validatedExternalOfferId: '123',
           variantKeyNormalized: 'blue set',
         }),

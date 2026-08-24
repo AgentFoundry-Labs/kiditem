@@ -17,10 +17,13 @@ export class CodexAppServerSession {
     this.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'initialized', params: {} })}\n`);
     const thread = await this.request('thread/start', {
       ephemeral: true, model: input.model, cwd: input.cwd,
-      sandbox: 'workspace-write',
       runtimeWorkspaceRoots: [input.cwd], environments: [], selectedCapabilityRoots: [],
+      permissions: 'kiditem_attempt',
     });
     this.threadId = requiredNestedId(thread, 'thread');
+    if (requiredNestedId(thread, 'activePermissionProfile') !== 'kiditem_attempt') {
+      throw new Error('codex_app_server_permission_profile_mismatch');
+    }
     const turn = await this.request('turn/start', { threadId: this.threadId, input: [{ type: 'text', text: input.prompt }], outputSchema: terminalOutputSchema() });
     this.turnId = requiredNestedId(turn, 'turn');
   }
@@ -68,7 +71,7 @@ export class CodexAppServerSession {
 
 function terminalOutputSchema() { return agentResultOutputSchema(); }
 
-function requiredNestedId(value: unknown, key: 'thread' | 'turn'): string {
+function requiredNestedId(value: unknown, key: 'thread' | 'turn' | 'activePermissionProfile'): string {
   const id = ((value as Record<string, unknown> | null)?.[key] as Record<string, unknown> | undefined)?.id;
   if (typeof id !== 'string' || !id) throw new Error(`codex_app_server_${key}_id_missing`);
   return id;

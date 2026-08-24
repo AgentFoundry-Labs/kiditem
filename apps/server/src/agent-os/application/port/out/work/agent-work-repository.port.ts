@@ -54,6 +54,8 @@ export interface AgentWorkRepositoryPort {
     attemptId: string;
     requestedByUserId: string;
     targetAgentKey: string;
+    capabilityKey?: string;
+    ownerDomain?: string;
   }): Promise<{
     input: unknown;
     applicationVersion: string;
@@ -63,9 +65,11 @@ export interface AgentWorkRepositoryPort {
     /** Resolved from the server-owned target runtime profile, never its parent. */
     targetModel?: string | null;
     targetAgentVersionId: string;
+    rootTaskId: string;
     targetAgentKey: string;
     targetRuntimeType: string;
     targetCapabilityKeys: readonly string[];
+    targetAssignedDomains: readonly string[];
     targetInstructionProfileRef: string;
   } | null>;
   loadAttemptMcpChild(input: {

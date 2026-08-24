@@ -1012,6 +1012,7 @@ model ProductRegistrationExecution {
   expectedProviderAccountId String? @map("expected_provider_account_id")
   idempotencyKey            String  @map("idempotency_key")
   requestHash               String  @map("request_hash")
+  ownerIdempotencyKey       String? @map("owner_idempotency_key")
 
   submissionPayloadJson Json?   @map("submission_payload_json") @db.JsonB
   submissionPayloadHash String? @map("submission_payload_hash")

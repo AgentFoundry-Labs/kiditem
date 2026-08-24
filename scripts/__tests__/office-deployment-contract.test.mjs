@@ -115,6 +115,34 @@ test('office operator guards identity, disk, revision, health, and rollback', ()
   assert.doesNotMatch(script, /docker volume prune/);
 });
 
+test('office deployment renders a manifest-derived candidate env and rejects stale images before writers stop', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const candidate = script.indexOf('Write-DeployEnv $candidateDeployEnv $manifest');
+  const render = script.indexOf('Assert-RenderedManifestDeployment $manifest');
+  const stop = script.indexOf('Invoke-Checked docker @script:ComposeArgs stop api worker web nginx');
+
+  assert.ok(candidate >= 0, 'candidate deploy env must be derived from the signed manifest');
+  assert.ok(render > candidate && render < stop, 'rendered images/SHA/version must be checked before stopping writers');
+  assert.match(script, /Rendered \$name image does not match manifest API image/);
+  assert.match(script, /Rendered web image does not match manifest web image/);
+  assert.match(script, /KIDITEM_APPLICATION_VERSION does not match manifest app version/);
+  assert.match(script, /KIDITEM_GIT_SHA does not match manifest git SHA/);
+});
+
+test('clean cutover renders its own manifest-derived deploy env before the documented writer stop', () => {
+  const runbook = read('docs/runbooks/agent-os-clean-cutover.md');
+  const candidate = runbook.indexOf("$deployEnv = Join-Path $officeRoot '.env.office.deploy'");
+  const compose = runbook.indexOf("$compose = @('compose','--project-name','kiditem-office','--env-file',\"$officeRoot\\.env.office\",'--env-file',$deployEnv");
+  const render = runbook.indexOf('config --format json');
+  const stop = runbook.indexOf('& docker @compose stop api worker web nginx');
+
+  assert.ok(candidate >= 0, 'cutover must create a protected deploy env from its reviewed manifest');
+  assert.ok(compose > candidate && render > compose && render < stop,
+    'cutover must render and verify the candidate image/SHA/version before writers stop');
+  assert.match(runbook, /Rendered \$name image does not match manifest API image/);
+  assert.match(runbook, /Rendered \$name KIDITEM_GIT_SHA does not match manifest git SHA/);
+});
+
 test('office API runtime includes the Prisma CLI used by explicit schema apply', () => {
   const serverPackage = JSON.parse(read('apps/server/package.json'));
   assert.equal(typeof serverPackage.dependencies.prisma, 'string');
@@ -127,6 +155,13 @@ test('office API image validates the current API and worker application roots', 
   assert.match(dockerfile, /require\('\.\/apps\/server\/dist\/api-application\.module\.js'\)/);
   assert.match(dockerfile, /require\('\.\/apps\/server\/dist\/agent-worker-application\.module\.js'\)/);
   assert.doesNotMatch(dockerfile, /require\('\.\/apps\/server\/dist\/app\.module\.js'\)/);
+});
+
+test('office API image ships ps for the private MCP peer verifier and readiness canary', () => {
+  const dockerfile = read('apps/server/Dockerfile');
+
+  assert.match(dockerfile, /install -y --no-install-recommends[\s\S]*\bprocps\b/);
+  assert.match(dockerfile, /command -v ps/);
 });
 
 test('office API image context resolves every published Agent instruction profile exactly', () => {
@@ -295,6 +330,19 @@ test('Agent OS clean cutover is Windows/Docker-only, stops writers before quiesc
   assert.match(cutover, /\$cutoverError = \$_\.Exception\.Message/);
   assert.match(cutover, /docker cp \$dump kiditem-postgres:/);
   assert.doesNotMatch(cutover, /codex\.exe|claude\.exe|Start-Process\s+(?:codex|claude)/i);
+});
+
+test('Agent OS clean cutover inventories and backs up a legacy schema before it queries new Agent OS relations', () => {
+  const cutover = read('docs/runbooks/agent-os-clean-cutover.md');
+  const schemaPush = cutover.indexOf('npx prisma db push --accept-data-loss');
+  const legacyCounts = cutover.indexOf("foreach ($table in 'organizations','users','master_products','operation_runs','channel_listings')");
+  const backup = cutover.indexOf('pg_dump -U kiditem -d kiditem --format=custom');
+  const pendingMutations = cutover.indexOf('$pendingMutations =');
+
+  assert.ok(schemaPush >= 0, 'cutover must apply the contracted schema');
+  assert.ok(legacyCounts >= 0 && legacyCounts < schemaPush, 'legacy-safe inventory must run before schema push');
+  assert.ok(backup >= 0 && backup < schemaPush, 'backup must run before schema push');
+  assert.ok(pendingMutations > schemaPush, 'new Agent OS relation may be queried only after schema push');
 });
 
 test('KID-25 clean-cutover plan stops and confirms writers before mutation quiescence', () => {

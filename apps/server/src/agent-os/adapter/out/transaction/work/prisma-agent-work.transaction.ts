@@ -1,4 +1,6 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
+import { createHash } from 'node:crypto';
+import { canonicalizeOwnerInput, deriveOwnerIdempotencyKey } from '../../../../../common/owner-idempotency-key';
 import type {
   AdmitRootAttemptInput,
   AdmitRootAttemptResult,
@@ -412,7 +414,7 @@ export class PrismaAgentWorkTransaction implements Pick<
         (input.authorizationKind === "cross_domain_read_grant" &&
           (mutation || ownDomain)) ||
         (input.authorizationKind === "explicit_execution_grant" &&
-          (!mutation || !delegatedChild)) ||
+          (!mutation || !delegatedChild || !ownDomain)) ||
         ![
           "agent_default_scope",
           "cross_domain_read_grant",
@@ -1102,7 +1104,9 @@ async function mutationContextStatus(
     initiatingUserId: string;
     capabilityKey: string;
     ownerDomain: string;
+    authorizationKind: string;
     authorizationExpiresAt: Date;
+    inputHash: string;
     canonicalInput: unknown;
     ownerIdempotencyKey: string | null;
   },
@@ -1121,25 +1125,108 @@ async function mutationContextStatus(
     }),
     tx.agentTask.findFirst({
       where: { id: invocation.taskId, organizationId: invocation.organizationId, sessionId: invocation.sessionId },
-      select: { id: true },
+      select: { id: true, parentTaskId: true, delegatedFromAttemptId: true },
     }),
     tx.agentAttempt.findFirst({
       where: { id: invocation.attemptId, organizationId: invocation.organizationId, sessionId: invocation.sessionId, taskId: invocation.taskId, agentVersionId: invocation.agentVersionId },
-      select: { id: true },
+      select: { id: true, input: true },
     }),
     tx.agentVersion.findFirst({
       where: { id: invocation.agentVersionId },
       select: { capabilityKeys: true, assignedDomains: true },
     }),
   ]);
-  if (!version || !Array.isArray(version.capabilityKeys) ||
-    !version.capabilityKeys.includes(invocation.capabilityKey) ||
-    !Array.isArray(version.assignedDomains) ||
-    !version.assignedDomains.includes(invocation.ownerDomain)) {
+  const explicitGrant = invocation.authorizationKind === 'explicit_execution_grant';
+  const ownsDomain = Boolean(version && Array.isArray(version.assignedDomains)
+    && version.assignedDomains.includes(invocation.ownerDomain));
+  const ownsDefaultCapability = Boolean(version && Array.isArray(version.capabilityKeys)
+    && version.capabilityKeys.includes(invocation.capabilityKey));
+  if (!version || !ownsDomain || (!explicitGrant && !ownsDefaultCapability)) {
     return { valid: false, error: { code: 'stale_capability_version', message: 'Capability version is no longer current.' } };
   }
   if (!membership || !session || !task || !attempt) {
     return { valid: false, error: { code: 'stale_resource', message: 'Capability context is no longer current.' } };
   }
+  if (!matchesCanonicalInputHash(invocation.canonicalInput, invocation.inputHash)) {
+    return { valid: false, error: { code: 'stale_resource', message: 'Capability input is no longer current.' } };
+  }
+  if (explicitGrant) {
+    if (!task.parentTaskId || !task.delegatedFromAttemptId) {
+      return { valid: false, error: { code: 'stale_resource', message: 'Explicit capability grant is not delegated.' } };
+    }
+    const [parent, delegatedFrom, root] = await Promise.all([
+      tx.agentTask.findFirst({
+        where: { id: task.parentTaskId, organizationId: invocation.organizationId, sessionId: invocation.sessionId },
+        select: { id: true },
+      }),
+      tx.agentAttempt.findFirst({
+        where: {
+          id: task.delegatedFromAttemptId,
+          organizationId: invocation.organizationId,
+          sessionId: invocation.sessionId,
+          taskId: task.parentTaskId,
+        },
+        select: { id: true },
+      }),
+      tx.agentTask.findFirst({
+        where: { organizationId: invocation.organizationId, sessionId: invocation.sessionId, parentTaskId: null },
+        select: { id: true },
+      }),
+    ]);
+    if (!parent || !delegatedFrom || !root || !matchesExplicitGrant({
+      grantSource: attempt.input,
+      capabilityKey: invocation.capabilityKey,
+      ownerDomain: invocation.ownerDomain,
+      canonicalInput: invocation.canonicalInput,
+      ownerIdempotencyKey: invocation.ownerIdempotencyKey,
+      childAttemptId: invocation.attemptId,
+      parentTaskId: task.parentTaskId,
+      rootTaskId: root.id,
+      delegatingAttemptId: task.delegatedFromAttemptId,
+    })) {
+      return { valid: false, error: { code: 'stale_resource', message: 'Explicit capability grant lineage is no longer current.' } };
+    }
+  }
   return { valid: true };
+}
+
+function matchesCanonicalInputHash(input: unknown, expectedHash: string): boolean {
+  try {
+    const canonical = canonicalizeOwnerInput(input);
+    return createHash('sha256').update(JSON.stringify(canonical)).digest('hex') === expectedHash;
+  } catch {
+    return false;
+  }
+}
+
+function matchesExplicitGrant(input: {
+  grantSource: unknown;
+  capabilityKey: string;
+  ownerDomain: string;
+  canonicalInput: unknown;
+  ownerIdempotencyKey: string;
+  childAttemptId: string;
+  parentTaskId: string;
+  rootTaskId: string;
+  delegatingAttemptId: string;
+}): boolean {
+  if (!input.grantSource || typeof input.grantSource !== 'object' || Array.isArray(input.grantSource)) return false;
+  const grant = (input.grantSource as Record<string, unknown>).explicitExecutionGrant;
+  if (!grant || typeof grant !== 'object' || Array.isArray(grant)) return false;
+  const value = grant as Record<string, unknown>;
+  if (value.capabilityKey !== input.capabilityKey || value.ownerDomain !== input.ownerDomain ||
+    value.parentTaskId !== input.parentTaskId || value.rootTaskId !== input.rootTaskId ||
+    value.delegatingAttemptId !== input.delegatingAttemptId) return false;
+  try {
+    const canonicalGrantInput = canonicalizeOwnerInput(value.input);
+    const canonicalInvocationInput = canonicalizeOwnerInput(input.canonicalInput);
+    return JSON.stringify(canonicalGrantInput) === JSON.stringify(canonicalInvocationInput)
+      && deriveOwnerIdempotencyKey({
+        attemptId: input.childAttemptId,
+        capabilityKey: input.capabilityKey,
+        input: canonicalGrantInput,
+      }) === input.ownerIdempotencyKey;
+  } catch {
+    return false;
+  }
 }

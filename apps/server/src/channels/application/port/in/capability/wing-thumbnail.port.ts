@@ -7,5 +7,7 @@ export interface ChannelsWingThumbnailCapabilityPort {
     organizationId: string;
     generationId: string;
     triggeredByUserId?: string | null;
+    ownerIdempotencyKey: string;
+    requestHash: string;
   }): Promise<{ success: boolean; screenshotPath: string | null }>;
 }

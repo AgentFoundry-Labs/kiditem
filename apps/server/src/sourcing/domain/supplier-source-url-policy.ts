@@ -35,13 +35,29 @@ export function parseAllowedSupplierUrl(value: string): AllowedSupplierUrl {
   );
   if (!matched) throw new TypeError('supplier_url_host_forbidden');
 
-  parsed.hostname = hostname;
+  parsed.hostname = canonicalSupplierHostname(hostname, matched.platform);
+  // Supplier query parameters are browser/navigation metadata. Variant is a
+  // separately validated Sourcing identity coordinate, so a tracking query
+  // cannot create a second candidate identity.
+  parsed.search = '';
   parsed.hash = '';
   return {
     normalizedUrl: parsed.toString(),
-    hostname,
+    hostname: parsed.hostname,
     platform: matched.platform,
   };
+}
+
+function canonicalSupplierHostname(
+  hostname: string,
+  platform: AllowedSupplierUrl['platform'],
+): string {
+  // Alibaba accepts both public spellings for one product origin. Keep the
+  // canonical browser host so every ingestion path stores/locks the same URL.
+  if (platform === 'alibaba' && (hostname === 'alibaba.com' || hostname === 'www.alibaba.com')) {
+    return 'www.alibaba.com';
+  }
+  return hostname;
 }
 
 export function isAllowedSupplierUrl(value: string): boolean {

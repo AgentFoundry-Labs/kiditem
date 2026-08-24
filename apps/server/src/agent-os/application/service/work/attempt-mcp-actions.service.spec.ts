@@ -11,7 +11,14 @@ const binding = {
 };
 
 function setup() {
-  const invocations = { invoke: vi.fn(async (value) => value) };
+  const invocations = {
+    invoke: vi.fn(async (value) => value),
+    authorize: vi.fn(async (value) => ({
+      invocationId: 'explicit-invocation', approvalId: null, invocationStatus: 'ready',
+      approvalStatus: null, applicationVersion: '1', authorizingGitSha: 'a'.repeat(40), runtimeType: 'codex_cli',
+      ...value,
+    })),
+  };
   const delegation = { delegate: vi.fn() };
   const work = {
     assertAttemptMcpBinding: vi.fn().mockResolvedValue(true),
@@ -164,13 +171,56 @@ describe('AttemptMcpActionsService', () => {
     await expect(service.invoke({ invocationId: 'mutate', binding, capabilityKey: 'channels.publish', input: {} })).rejects.toMatchObject({ code: 'capability_delegation_required' });
   });
 
+  it('admits an exact cross-domain mutation grant on the explicitly selected owner child', async () => {
+    const { service, work, delegation, invocations, starter } = setup();
+    work.loadAttemptMcpDelegationContext.mockResolvedValue({
+      input: { parent: 'input' }, applicationVersion: '1.0.0', authorizingGitSha: 'a'.repeat(40), cliVersion: '1.0.0',
+      reportedModel: 'model-1', targetModel: 'target-model', targetAgentVersionId: 'target-version',
+      targetAgentKey: 'supply', targetRuntimeType: 'codex_cli', targetCapabilityKeys: [], rootTaskId: 'root-task',
+      targetInstructionProfileRef: 'agent-config/prompts/agents/supply.md',
+    });
+    delegation.delegate.mockResolvedValue({ childTaskId: 'child', firstAttemptId: 'child-attempt', replayed: false });
+
+    await expect(service.delegate({
+      binding,
+      targetAgentKey: 'supply',
+      objective: 'Create the approved purchase-order draft.',
+      capabilityKey: 'supply.create_purchase_order_draft',
+      input: { amount: 1, productName: 'Kid' },
+    } as never)).resolves.toMatchObject({
+      childTaskId: 'child', invocationId: 'explicit-invocation', invocationStatus: 'ready',
+    });
+
+    expect(delegation.delegate).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({
+        explicitExecutionGrant: expect.objectContaining({
+          capabilityKey: 'supply.create_purchase_order_draft',
+          input: { amount: 1, productName: 'Kid' },
+          parentTaskId: binding.taskId,
+          rootTaskId: 'root-task',
+          delegatingAttemptId: binding.attemptId,
+        }),
+      }),
+    }));
+    expect(invocations.authorize).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: 'child', attemptId: 'child-attempt', agentVersionId: 'target-version',
+      capabilityKey: 'supply.create_purchase_order_draft', authorizationKind: 'explicit_execution_grant',
+      input: { amount: 1, productName: 'Kid' },
+      ownerIdempotencyKey: deriveOwnerIdempotencyKey({
+        attemptId: 'child-attempt', capabilityKey: 'supply.create_purchase_order_draft',
+        input: { amount: 1, productName: 'Kid' },
+      }),
+    }));
+    expect(starter.start).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'child-attempt' }));
+  });
+
   it('delegates from a repository-owned attempt snapshot without Prisma in the MCP adapter', async () => {
     const { service, work, delegation, starter } = setup();
     work.loadAttemptMcpDelegationContext.mockResolvedValue({
       input: { objective: 'source' }, applicationVersion: '1.0.0',
       authorizingGitSha: 'a'.repeat(40), cliVersion: '1.0.0',
       reportedModel: 'model-1', targetModel: 'target-model', targetAgentVersionId: 'target-version',
-      targetAgentKey: 'supply', targetRuntimeType: 'codex_cli', targetCapabilityKeys: ['supply.create_purchase_order_draft'],
+      targetAgentKey: 'supply', targetRuntimeType: 'codex_cli', targetCapabilityKeys: ['supply.create_purchase_order_draft'], rootTaskId: 'root-task',
     });
     delegation.delegate.mockResolvedValue({ childTaskId: 'child', firstAttemptId: 'child-attempt', replayed: false });
 

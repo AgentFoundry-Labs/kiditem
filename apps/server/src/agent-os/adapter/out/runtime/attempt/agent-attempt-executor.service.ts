@@ -14,6 +14,13 @@ import type { AgentAttemptRuntimeAdmissionService } from './agent-attempt-runtim
 type TerminalStatus = 'succeeded' | 'failed' | 'process_interrupted' | 'cancelled';
 type TerminalError = { code: string; message: string };
 type Lifecycle = { running(attemptId: string): Promise<void>; terminal(attemptId: string, status: TerminalStatus, error?: TerminalError, result?: AgentResultEnvelope): Promise<void>; release(attemptId: string): void };
+type ExitTerminalReason = 'success' | 'nonzero_exit';
+type TerminalReason = ExitTerminalReason | 'protocol_success' | 'runtime_error' | 'timeout' | 'interrupted';
+type ExitDrain = {
+  exitReason: ExitTerminalReason | null;
+  stdoutClosed: boolean;
+  deferred?: { reason: TerminalReason; providerResult?: AgentResultEnvelope | null };
+};
 
 /** One nonpersistent CLI process per Attempt. Provider output never becomes chat history. */
 export class AgentAttemptExecutorService {
@@ -22,6 +29,8 @@ export class AgentAttemptExecutorService {
   private readonly terminalized = new Set<string>();
   private readonly timeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly paths = new Map<string, AttemptFilesystemPaths>();
+  /** Exit precedes the final stdout chunk on some Node/CLI interleavings. */
+  private readonly exitDrains = new Map<string, ExitDrain>();
 
   constructor(
     private readonly files: AttemptFilesystemService,
@@ -59,8 +68,18 @@ export class AgentAttemptExecutorService {
       if (typeof child.stderr.resume === 'function') child.stderr.resume();
       // Install terminal listeners before any awaited lifecycle/broker work: a
       // fast child must not become an orphaned starting Attempt.
+      const exitDrain: ExitDrain = { exitReason: null, stdoutClosed: false };
+      this.exitDrains.set(input.attemptId, exitDrain);
+      child.stdout.once('close', () => {
+        exitDrain.stdoutClosed = true;
+        const deferred = exitDrain.deferred ?? (exitDrain.exitReason ? { reason: exitDrain.exitReason } : undefined);
+        if (deferred) void this.complete(input.attemptId, deferred.reason, deferred.providerResult);
+      });
       child.once('error', () => { void this.complete(input.attemptId, 'runtime_error'); });
-      child.once('exit', (code) => { void this.complete(input.attemptId, code === 0 ? 'success' : 'nonzero_exit'); });
+      child.once('exit', (code) => {
+        exitDrain.exitReason = code === 0 ? 'success' : 'nonzero_exit';
+        if (exitDrain.stdoutClosed) void this.complete(input.attemptId, exitDrain.exitReason);
+      });
       // The marker is written after terminal listeners are installed: a child
       // that exits while `/proc` identity is captured still has exactly one
       // durable finalizer. A marker failure enters the catch/finalizer path.
@@ -117,9 +136,17 @@ export class AgentAttemptExecutorService {
     child.stdin.write(claudeUserEnvelope(input.prompt));
   }
 
-  private complete(attemptId: string, reason: 'success' | 'protocol_success' | 'nonzero_exit' | 'runtime_error' | 'timeout' | 'interrupted', providerResult?: AgentResultEnvelope | null): Promise<void> {
+  private complete(attemptId: string, reason: TerminalReason, providerResult?: AgentResultEnvelope | null): Promise<void> {
     const existing = this.finalizers.get(attemptId); if (existing) return existing;
     if (this.terminalized.has(attemptId)) return Promise.resolve();
+    const exitDrain = this.exitDrains.get(attemptId);
+    if (exitDrain?.exitReason && !exitDrain.stdoutClosed && waitsForExitedStdout(reason)) {
+      exitDrain.deferred = preferredExitTerminal(
+        exitDrain.deferred ?? { reason: exitDrain.exitReason },
+        { reason, providerResult },
+      );
+      return Promise.resolve();
+    }
     this.terminalized.add(attemptId);
     if (this.terminalized.size > 1_024) this.terminalized.delete(this.terminalized.values().next().value as string);
     const finalizer = (async () => {
@@ -133,6 +160,7 @@ export class AgentAttemptExecutorService {
       this.controls.remove(attemptId);
       if (paths) { await this.broker?.close(paths.socketPath); await this.files.remove(paths); }
       this.paths.delete(attemptId);
+      this.exitDrains.delete(attemptId);
       const terminal = terminalOutcome(reason, providerResult);
       try {
         await this.lifecycle?.terminal(attemptId, terminal.status, terminal.error, terminal.result);
@@ -182,6 +210,23 @@ function terminalOutcome(reason: 'success' | 'protocol_success' | 'nonzero_exit'
   const error: TerminalError = reason === 'nonzero_exit' ? { code: 'attempt_exit_nonzero', message: 'Local CLI exited with a non-zero status.' } : reason === 'timeout' ? { code: 'attempt_timeout', message: 'Local CLI Attempt exceeded its time limit.' } : reason === 'interrupted' ? { code: 'attempt_interrupted', message: 'Local CLI Attempt was interrupted.' } : { code: 'attempt_runtime_error', message: 'Local CLI Attempt failed before producing a durable result.' };
   return { status: reason === 'nonzero_exit' || reason === 'runtime_error' ? 'failed' : 'process_interrupted', error };
 }
+
+function waitsForExitedStdout(reason: TerminalReason): boolean {
+  return reason === 'success' || reason === 'nonzero_exit' || reason === 'protocol_success' || reason === 'runtime_error';
+}
+
+function preferredExitTerminal(
+  current: { reason: TerminalReason; providerResult?: AgentResultEnvelope | null },
+  candidate: { reason: TerminalReason; providerResult?: AgentResultEnvelope | null },
+): { reason: TerminalReason; providerResult?: AgentResultEnvelope | null } {
+  // A non-zero process exit stays authoritative. A successful exit may still
+  // be upgraded to the provider's durable terminal envelope while stdout
+  // drains.
+  if (current.reason === 'nonzero_exit') return current;
+  if (candidate.reason === 'protocol_success' || candidate.reason === 'runtime_error') return candidate;
+  return current;
+}
+
 function claudeUserEnvelope(message: string): string { return `${JSON.stringify({ type: 'user', message: { role: 'user', content: message } })}\n`; }
 function claudeTerminal(line: string): { reason: 'protocol_success' | 'runtime_error'; result?: AgentResultEnvelope | null } | null {
   try {

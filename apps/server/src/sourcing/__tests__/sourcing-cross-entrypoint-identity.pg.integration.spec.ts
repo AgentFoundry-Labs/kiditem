@@ -119,7 +119,9 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
   });
 
   it('converges concurrent Agent and extension ingest on one canonical Alibaba candidate', async () => {
-    const sourceUrl = 'https://www.alibaba.com/product-detail/kid-toy_123.html';
+    const agentSourceUrl = 'https://ALIBABA.com/product-detail/kid-toy_123.html?spm=agent-feed&utm_source=agent';
+    const extensionSourceUrl = 'https://www.alibaba.com/product-detail/kid-toy_123.html?spm=extension-feed&utm_source=extension';
+    const canonicalSourceUrl = 'https://www.alibaba.com/product-detail/kid-toy_123.html';
     const waitForPeerCandidateRead = candidateReadBarrier();
     const agentCandidates = new SourcingCandidateRepositoryAdapter(
       prismaWithCandidateReadBarrier(agentPrisma, waitForPeerCandidateRead) as unknown as PrismaService,
@@ -130,14 +132,14 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
     const agent = new SourcingFinalDiscoveryCapabilityAdapter(agentCandidates, {
       scrapeProductUrl: async () => ({
         ok: true,
-        source_url: sourceUrl,
-        scraped_data: { title: 'Agent Alibaba candidate', images: [] },
+        source_url: agentSourceUrl,
+        scraped_data: { title: 'Agent Alibaba candidate', variant_key: '  Blue   Set ', images: [] },
       }),
     } as never);
     const extension = new SourcingExtensionIngestService(
       new SourcingCollectionCoordinator(extensionCollections),
     );
-    const snapshot = await agent.scrapeProductUrl({ sourceUrl });
+    const snapshot = await agent.scrapeProductUrl({ sourceUrl: agentSourceUrl });
 
     const [agentResult, extensionResult] = await Promise.all([
       agent.ingestCandidate({
@@ -150,9 +152,10 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
         { organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID },
         {
           page_type: 'detail',
-          source_url: sourceUrl,
+          source_url: extensionSourceUrl,
           source_platform: 'alibaba',
           product_id: 'supplier-product-id-123',
+          variant_key: 'blue set',
           title: 'Extension Alibaba candidate',
           images: ['https://www.alibaba.com/images/kid-toy.jpg'],
         },
@@ -166,7 +169,7 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
     const canonical = await agentPrisma.sourcingCandidate.findFirstOrThrow({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
-        sourceUrl,
+        sourceUrl: canonicalSourceUrl,
         isDeleted: false,
         status: 'sourced',
       },

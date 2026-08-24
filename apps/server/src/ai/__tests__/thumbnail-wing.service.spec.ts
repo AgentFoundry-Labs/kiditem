@@ -122,7 +122,7 @@ function makeService() {
     checkPlaywriterStatus: vi.fn(async () => ({ connected: true })),
   };
   const service = new ThumbnailWingService(repository, imageFetcher as never, automationRunner as never);
-  return { service, prisma, imageFetcher, automationRunner };
+  return { service, repository, prisma, imageFetcher, automationRunner };
 }
 
 describe('ThumbnailWingService', () => {
@@ -274,6 +274,52 @@ describe('ThumbnailWingService', () => {
         screenshotUrl: `/tmp/wing-upload-${GENERATION_ID}.png`,
       }),
     });
+  });
+
+  it('replays the same Agent owner receipt without another Wing provider write', async () => {
+    const { service, repository, automationRunner } = makeService();
+    const claim = vi.fn()
+      .mockResolvedValueOnce({ mode: 'create', attemptId: 'attempt-1' })
+      .mockResolvedValueOnce({
+        mode: 'replay',
+        success: true,
+        screenshotPath: `/tmp/wing-upload-${GENERATION_ID}.png`,
+      });
+    Object.assign(repository as object, {
+      claimAgentRegistrationAttempt: claim,
+      finalizeAgentRegistrationAttempt: vi.fn(),
+      markAgentRegistrationAttemptUncertain: vi.fn(),
+    });
+    const owner = { ownerIdempotencyKey: 'owner-key', requestHash: 'a'.repeat(64) };
+
+    await service.registerToWing(GENERATION_ID, ORGANIZATION_ID, owner);
+    await expect(service.registerToWing(GENERATION_ID, ORGANIZATION_ID, owner))
+      .resolves.toEqual({ success: true, screenshotPath: `/tmp/wing-upload-${GENERATION_ID}.png` });
+
+    expect(claim).toHaveBeenCalledTimes(2);
+    expect(automationRunner.runWingUpload).toHaveBeenCalledTimes(1);
+  });
+
+  it('never repeats Wing automation after provider success crashes before durable finalization', async () => {
+    const { service, repository, automationRunner } = makeService();
+    const claim = vi.fn()
+      .mockResolvedValueOnce({ mode: 'create', attemptId: 'attempt-1' })
+      .mockResolvedValueOnce({ mode: 'reconcile', attemptId: 'attempt-1' });
+    const finalize = vi.fn().mockRejectedValue(new Error('durable finalize crashed'));
+    Object.assign(repository as object, {
+      claimAgentRegistrationAttempt: claim,
+      finalizeAgentRegistrationAttempt: finalize,
+      markAgentRegistrationAttemptUncertain: vi.fn().mockResolvedValue(undefined),
+    });
+    const owner = { ownerIdempotencyKey: 'owner-key', requestHash: 'a'.repeat(64) };
+
+    await expect(service.registerToWing(GENERATION_ID, ORGANIZATION_ID, owner))
+      .rejects.toThrow('durable finalize crashed');
+    await expect(service.registerToWing(GENERATION_ID, ORGANIZATION_ID, owner))
+      .rejects.toThrow('wing_registration_reconciliation_pending');
+
+    expect(automationRunner.runWingUpload).toHaveBeenCalledTimes(1);
+    expect(claim).toHaveBeenCalledTimes(2);
   });
 
   it('decodes URL-encoded Coupang product names before Wing automation', async () => {

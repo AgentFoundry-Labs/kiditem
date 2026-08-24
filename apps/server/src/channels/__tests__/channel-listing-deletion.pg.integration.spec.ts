@@ -59,6 +59,74 @@ describe('ChannelListingDeletionOperation (PG integration)', () => {
     await expect(prisma.channelListingDeletionOperation.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).resolves.toBe(1);
   });
 
+  it('fences Coupang provider creation with the Channels-owned execution receipt', async () => {
+    const registration = new MarketplaceRegistrationRepositoryAdapter(prisma as unknown as PrismaService);
+    const workspace = await prisma.contentWorkspace.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        ownerType: 'sourcing_candidate',
+        sourceCandidateId: candidateId,
+        displayName: 'Provider receipt workspace',
+        normalizedTitle: `providerreceipt${randomUUID().replaceAll('-', '')}`,
+      },
+    });
+    const preparation = await prisma.productPreparation.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceCandidateId: candidateId,
+        channelAccountId: ACCOUNT,
+        sourceContentWorkspaceId: workspace.id,
+        displayName: 'Provider receipt product',
+        submissionKey: randomUUID(),
+        registrationInput: {},
+      },
+    });
+    const execution = await prisma.productRegistrationExecution.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        productPreparationId: preparation.id,
+        channelAccountId: ACCOUNT,
+        idempotencyKey: preparation.submissionKey,
+        requestHash: 'a'.repeat(64),
+        status: 'prepared',
+        providerOutcome: 'not_attempted',
+      },
+    });
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: execution.id,
+      preparationId: preparation.id,
+      channelAccountId: ACCOUNT,
+      sourceCandidateId: candidateId,
+      idempotencyKey: preparation.submissionKey,
+      requestHash: 'a'.repeat(64),
+      ownerIdempotencyKey: randomUUID(),
+    };
+
+    const claims = await Promise.all([
+      registration.claimProviderWrite(input),
+      registration.claimProviderWrite(input),
+    ]);
+
+    expect(claims.map((claim) => claim.mode).sort()).toEqual(['create', 'reconcile']);
+    const create = claims.find((claim) => claim.mode === 'create');
+    if (!create || create.mode !== 'create') throw new Error('missing provider creator');
+    await registration.finalizeProviderWrite({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: execution.id,
+      leaseToken: create.leaseToken,
+      providerSubmissionId: 'provider-submission',
+      externalListingId: 'provider-listing',
+      result: { externalListingId: 'provider-listing' },
+    });
+
+    await expect(registration.claimProviderWrite(input)).resolves.toMatchObject({
+      mode: 'replay', providerSubmissionId: 'provider-submission', externalListingId: 'provider-listing',
+    });
+    await expect(registration.claimProviderWrite({ ...input, ownerIdempotencyKey: randomUUID() }))
+      .rejects.toThrow('owner idempotency key conflicted');
+  });
+
   it('rejects idempotency hash drift and another actor before any extension claim', async () => {
     const idempotencyKey = randomUUID();
     const operation = await repository.authorizeDeletion({

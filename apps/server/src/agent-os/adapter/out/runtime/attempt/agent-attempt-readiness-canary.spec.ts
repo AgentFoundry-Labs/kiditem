@@ -19,7 +19,7 @@ describe('AgentAttemptReadinessCanary', () => {
     child.stdin.write.mockImplementation((line: string) => {
       const request = JSON.parse(line) as { id?: string; method?: string; params?: any };
       if (request.method === 'initialize') stdout.emit('data', `${JSON.stringify({ id: request.id, result: {} })}\n`);
-      if (request.method === 'thread/start') stdout.emit('data', `${JSON.stringify({ id: request.id, result: { thread: { id: 'thread' } } })}\n`);
+      if (request.method === 'thread/start') stdout.emit('data', `${JSON.stringify({ id: request.id, result: { thread: { id: 'thread' }, activePermissionProfile: { id: 'kiditem_attempt' } } })}\n`);
       if (request.method === 'turn/start') {
         const nonce = /nonce ([0-9a-f-]{36})/.exec(request.params.input[0].text)![1];
         writeFileSync(join(root, 'canary-called'), nonce);

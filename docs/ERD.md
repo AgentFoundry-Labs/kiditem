@@ -1574,6 +1574,7 @@ erDiagram
     String expectedProviderAccountId
     String idempotencyKey
     String requestHash
+    String ownerIdempotencyKey
     Json submissionPayloadJson
     String submissionPayloadHash
     String status
@@ -2649,6 +2650,10 @@ erDiagram
     String organizationId FK
     String generationId FK
     String status
+    String ownerIdempotencyKey
+    String requestHash
+    String providerOutcome
+    Json resultJson
     String errorMessage
     String screenshotUrl
     String externalId

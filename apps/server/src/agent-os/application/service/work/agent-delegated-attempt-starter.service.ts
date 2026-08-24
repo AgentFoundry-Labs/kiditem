@@ -46,16 +46,25 @@ export class AgentDelegatedAttemptStarterService {
       // Config failures happen before AgentAttemptExecutorService owns the
       // Attempt, so terminalize/release here rather than leaking a `starting`
       // row and its admission slot.
-      const work = this.modules.get(PrismaAgentWorkTransaction, { strict: false });
-      const admissions = this.modules.get(AgentAttemptAdmissionService, { strict: false });
-      try {
-        await work.transitionAttempt({
-          attemptId: input.attemptId, from: 'starting', to: 'failed', at: new Date(),
-          error: { code: 'attempt_start_failed', message: error instanceof Error ? error.message.slice(0, 1_000) : 'Attempt failed to start.' },
-        });
-      } finally { admissions.releaseAttempt(input.attemptId); }
+      await this.failBeforeStart({
+        attemptId: input.attemptId,
+        code: 'attempt_start_failed',
+        message: error instanceof Error ? error.message.slice(0, 1_000) : 'Attempt failed to start.',
+      });
       throw error;
     }
+  }
+
+  /** Releases a child that could not obtain its durable grant before launch. */
+  async failBeforeStart(input: { attemptId: string; code: string; message: string }): Promise<void> {
+    const work = this.modules.get(PrismaAgentWorkTransaction, { strict: false });
+    const admissions = this.modules.get(AgentAttemptAdmissionService, { strict: false });
+    try {
+      await work.transitionAttempt({
+        attemptId: input.attemptId, from: 'starting', to: 'failed', at: new Date(),
+        error: { code: input.code, message: input.message.slice(0, 1_000) },
+      });
+    } finally { admissions.releaseAttempt(input.attemptId); }
   }
 }
 

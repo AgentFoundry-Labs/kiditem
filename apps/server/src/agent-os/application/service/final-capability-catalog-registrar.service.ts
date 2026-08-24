@@ -1,6 +1,7 @@
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
 import type { AgentResultEnvelope } from '@kiditem/shared/agent-interaction';
 import type { CapabilityDefinition } from '../../../common/capability-definition';
+import { canonicalOwnerInputHash } from '../../../common/owner-idempotency-key';
 import {
   ANALYTICS_AGENT_OVERVIEW_CAPABILITY_PORT,
   type AnalyticsOverviewCapabilityPort,
@@ -204,6 +205,8 @@ export class FinalCapabilityCatalogRegistrar implements OnModuleInit {
           organizationId: input.organizationId,
           generationId: requiredText(input, 'generationId'),
           triggeredByUserId: input.initiatingUserId,
+          ownerIdempotencyKey: requiredIdempotency(input),
+          requestHash: canonicalOwnerInputHash({ generationId: requiredText(input, 'generationId') }),
         }),
       },
       {

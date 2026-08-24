@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { randomUUID } from 'node:crypto';
 import { z } from "zod";
 import { PrismaAgentWorkTransaction } from "../adapter/out/transaction/work/prisma-agent-work.transaction";
 import { PrismaAgentWorkRepository } from "../adapter/out/repository/work/prisma-agent-work.repository";
@@ -9,6 +10,7 @@ import { AgentAttemptAdmissionService } from "../application/service/work/agent-
 import { AgentTaskDelegationService } from "../application/service/work/agent-task-delegation.service";
 import { AgentLiveMessageService } from "../application/service/work/agent-live-message.service";
 import { AgentCapabilityInvocationService } from "../application/service/work/agent-capability-invocation.service";
+import { deriveOwnerIdempotencyKey } from '../../common/owner-idempotency-key';
 
 const organizationId = "b1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
 const userId = "e1234567-89ab-4cde-8f01-23456789abc1";
@@ -508,7 +510,21 @@ describe("replacement Agent work transaction races", () => {
         expect.objectContaining({ id: crossRead.invocationId, canonicalInput: null, status: "authorized", inputHash: expect.stringMatching(/^[a-f0-9]{64}$/) }),
       ]));
 
+    // An explicit execution grant is a one-shot routing authority. The
+    // delegated owner's version owns the domain but intentionally has no
+    // default capability snapshot for this mutation.
     const target = await createVersion({ assignedDomains: ["products"], capabilityKeys: [] });
+    const explicitInput = { a: 1, b: 2 };
+    const childGrantInput = {
+      explicitExecutionGrant: {
+        capabilityKey: 'products.write',
+        ownerDomain: 'products',
+        input: explicitInput,
+        parentTaskId: root.task.id,
+        rootTaskId: root.task.id,
+        delegatingAttemptId: root.attempt.id,
+      },
+    };
     const child = await work.delegateTask({
       organizationId,
       sessionId: root.session.id,
@@ -522,16 +538,58 @@ describe("replacement Agent work transaction races", () => {
       idempotencyKey: "routing-child",
       requestHash: "r".repeat(64),
       ...snapshot,
+      input: childGrantInput,
     });
-    await expect(service.authorize({
+    const explicit = await service.authorize({
       ...base,
       taskId: child.childTaskId,
       attemptId: child.firstAttemptId,
       agentVersionId: target.id,
       capabilityKey: "products.write",
       authorizationKind: "explicit_execution_grant",
-      ownerIdempotencyKey: "child-cross-write",
-    })).resolves.toMatchObject({ invocationStatus: "ready" });
+      ownerIdempotencyKey: deriveOwnerIdempotencyKey({
+        attemptId: child.firstAttemptId,
+        capabilityKey: 'products.write',
+        input: explicitInput,
+      }),
+    });
+    expect(explicit).toMatchObject({ invocationStatus: "ready" });
+    await expect(work.claimMutation({
+      workerId: 'routing-worker',
+      claimedAt: new Date(),
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+    })).resolves.toMatchObject({
+      invocationId: explicit.invocationId,
+      authorizationKind: 'explicit_execution_grant',
+      capabilityKey: 'products.write',
+      canonicalInput: { a: 1, b: 2 },
+    });
+    // These values are immutable grant coordinates, not the target's default
+    // capability snapshot. Any drift must fail before owner dispatch.
+    for (const driftedGrant of [
+      { ...childGrantInput.explicitExecutionGrant, capabilityKey: 'products.other' },
+      { ...childGrantInput.explicitExecutionGrant, input: { a: 99, b: 2 } },
+      { ...childGrantInput.explicitExecutionGrant, parentTaskId: randomUUID() },
+      { ...childGrantInput.explicitExecutionGrant, rootTaskId: randomUUID() },
+    ]) {
+      await prisma.agentCapabilityInvocation.update({
+        where: { id: explicit.invocationId },
+        data: { status: 'ready', leaseOwner: null, leaseExpiresAt: null, error: null, finishedAt: null },
+      });
+      await prisma.agentAttempt.update({
+        where: { id: child.firstAttemptId },
+        data: { input: { explicitExecutionGrant: driftedGrant } },
+      });
+      await expect(work.claimMutation({
+        workerId: 'routing-worker', claimedAt: new Date(), leaseExpiresAt: new Date(Date.now() + 60_000),
+      })).resolves.toBeNull();
+      await expect(prisma.agentCapabilityInvocation.findUniqueOrThrow({ where: { id: explicit.invocationId } }))
+        .resolves.toMatchObject({ status: 'failed', error: { code: 'stale_resource' } });
+    }
+    await prisma.agentAttempt.update({
+      where: { id: child.firstAttemptId },
+      data: { input: childGrantInput },
+    });
     const pending = await Promise.all(["agent.medium", "agent.high"].map((capabilityKey) => service.authorize({
       ...base,
       capabilityKey,

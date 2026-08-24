@@ -110,7 +110,6 @@ export class MarketplaceRegistrationService {
       throw new Error('COUPANG_PROVIDER_PORT is required to reconcile Coupang listings.');
     }
     if (!input.providerSubmissionId) {
-      if (!input.isRetry) return null;
       const response = await this.coupang.getSellerProductsByExternalVendorSku(
         input.organizationId,
         input.submissionKey,

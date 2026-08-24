@@ -44,4 +44,24 @@ describe('AgentWorkQueryService continuation context', () => {
 
     expect(projection.tasks[0]).toMatchObject({ presentation: 'awaiting_operation', operationRefs: [{ status: 'running' }] });
   });
+
+  it('keeps an owner status read failure recoverable instead of misclassifying the task as needs_continue', async () => {
+    const repository = {
+      loadOwnedProjection: async () => ({ id: 'session-1', createdAt: new Date(), updatedAt: new Date(), tasks: [{
+        id: 'task-1', parentTaskId: null, objective: 'Refresh', completionCriteria: 'Done', status: 'open',
+        attempts: [{ id: 'attempt-1', ordinal: 1, status: 'succeeded', result: { summary: 'Queued', operationRefs: [{ kind: 'operation', id: 'run-1', status: 'succeeded' }] } }], invocations: [],
+      }] }),
+    };
+    const operations = { get: async () => { throw new Error('operations_read_failed'); } };
+    const service = new AgentWorkQueryService(repository as never, operations as never);
+
+    const projection = await service.projection({ organizationId: 'org-1', userId: 'user-1', sessionId: 'session-1' }) as {
+      tasks: Array<{ presentation: string; operationRefs: Array<{ status: string; error: { code: string } }> }>;
+    };
+
+    expect(projection.tasks[0]).toMatchObject({
+      presentation: 'awaiting_operation',
+      operationRefs: [{ status: 'unavailable', error: { code: 'operation_status_unavailable' } }],
+    });
+  });
 });

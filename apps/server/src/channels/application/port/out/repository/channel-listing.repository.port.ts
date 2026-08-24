@@ -168,6 +168,50 @@ export interface ChannelListingDeletionTarget {
 }
 
 export interface MarketplaceRegistrationRepositoryPort {
+  /**
+   * Channels owns the provider-write fence over the existing immutable
+   * registration execution.  Sourcing may freeze provenance, but it cannot
+   * transition this external side effect.
+   */
+  claimProviderWrite(input: {
+    organizationId: string;
+    executionId: string;
+    preparationId: string;
+    channelAccountId: string;
+    sourceCandidateId: string;
+    idempotencyKey: string;
+    requestHash: string;
+    ownerIdempotencyKey: string;
+  }): Promise<
+    | { mode: 'create'; leaseToken: string }
+    | { mode: 'reconcile'; leaseToken: string | null }
+    | {
+      mode: 'replay';
+      leaseToken: null;
+      providerSubmissionId: string;
+      externalListingId: string;
+    }
+  >;
+  finalizeProviderWrite(input: {
+    organizationId: string;
+    executionId: string;
+    leaseToken: string;
+    providerSubmissionId: string | null;
+    externalListingId: string;
+    result: unknown;
+  }): Promise<void>;
+  markProviderWriteUncertain(input: {
+    organizationId: string;
+    executionId: string;
+    leaseToken: string;
+    message: string;
+  }): Promise<void>;
+  markProviderWriteDefinitiveFailure(input: {
+    organizationId: string;
+    executionId: string;
+    leaseToken: string;
+    message: string;
+  }): Promise<void>;
   assertActiveRegistrationAccount(input: {
     organizationId: string;
     channelAccountId: string;

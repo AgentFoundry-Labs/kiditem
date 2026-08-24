@@ -143,6 +143,7 @@ erDiagram
     String expectedProviderAccountId
     String idempotencyKey
     String requestHash
+    String ownerIdempotencyKey
     Json submissionPayloadJson
     String submissionPayloadHash
     String status

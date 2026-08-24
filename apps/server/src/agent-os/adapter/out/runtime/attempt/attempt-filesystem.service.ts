@@ -43,6 +43,27 @@ export class AttemptFilesystemService {
         },
       },
     }), { mode: 0o600 });
+    // Codex 0.149 permission profiles fence commands, not the app-server
+    // process itself.  This lets the process authenticate through its
+    // symlinked service-account artifact while every model-requested command
+    // can read/write only the Attempt workspace and cannot use the network.
+    await writeFile(join(codexHome, 'config.toml'), [
+      'default_permissions = "kiditem_attempt"',
+      '',
+      '[permissions.kiditem_attempt]',
+      'description = "KidItem isolated Agent Attempt"',
+      '',
+      '[permissions.kiditem_attempt.filesystem]',
+      '":root" = "deny"',
+      '":minimal" = "read"',
+      '',
+      '[permissions.kiditem_attempt.filesystem.":workspace_roots"]',
+      '"." = "write"',
+      '',
+      '[permissions.kiditem_attempt.network]',
+      'enabled = false',
+      '',
+    ].join('\n'), { mode: 0o600 });
     return { root, workspace, broker, socketPath, mcpConfigPath, home, codexHome, claudeConfigDir };
   }
 

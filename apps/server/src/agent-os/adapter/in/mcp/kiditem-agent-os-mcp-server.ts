@@ -27,7 +27,7 @@ export async function createKidItemAgentOsMcpServer(): Promise<McpServer> {
   for (const action of ['status', 'wait', 'result'] as const) {
     server.registerTool(`invocation_${action}`, { description: 'Read or bounded-wait for this Attempt’s exact durable mutation result.', inputSchema: z.object({ invocationId: z.string().uuid() }).strict() }, (args) => call(`invocation_${action}`, args));
   }
-  server.registerTool('delegate_to_agent', { description: 'Delegate a state-changing cross-domain objective to its target Agent.', inputSchema: z.object({ targetAgentKey: z.string().min(1).max(64), objective: z.string().min(1).max(8_000) }).strict() }, (args) => call('delegate_to_agent', args));
+  server.registerTool('delegate_to_agent', { description: 'Delegate a state-changing cross-domain capability and exact strict input to its selected owning Agent.', inputSchema: z.object({ targetAgentKey: z.string().min(1).max(64), objective: z.string().min(1).max(8_000), capabilityKey: z.string().min(1).max(160).optional(), input: z.record(z.unknown()).optional() }).strict().superRefine((value, ctx) => { if (Boolean(value.capabilityKey) !== Boolean(value.input)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'capabilityKey and input must be supplied together' }); }) }, (args) => call('delegate_to_agent', args));
   for (const action of ['status', 'wait', 'result', 'message', 'interrupt'] as const) {
     server.registerTool(`child_${action}`, { description: 'Inspect, wait for, or control an exact delegated child Task.', inputSchema: z.object({ childTaskId: z.string().uuid(), message: z.string().min(1).max(4_000).optional() }).strict() }, (args) => call(`child_${action}`, args));
   }

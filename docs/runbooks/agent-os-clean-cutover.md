@@ -41,7 +41,27 @@ $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $dump = Join-Path $backupRoot "kiditem-agent-os-$stamp.dump"
 $record = Join-Path $backupRoot "kiditem-agent-os-$stamp.json"
 
-$compose = @('compose','--project-name','kiditem-office','--env-file',"$officeRoot\.env.office",'--file',"$bundle\compose.office.yml")
+# The candidate deploy env is derived from the reviewed immutable manifest,
+# not from a prior deploy. Render it before the first writer stop so missing
+# interpolation or a stale image/SHA fails without touching live writers.
+$deployEnv = Join-Path $officeRoot '.env.office.deploy'
+@(
+  "KIDITEM_API_IMAGE=$($manifest.apiImage)"
+  "KIDITEM_WEB_IMAGE=$($manifest.webImage)"
+  "KIDITEM_APPLICATION_VERSION=$($manifest.appVersion)"
+  "KIDITEM_GIT_SHA=$($manifest.gitSha)"
+) | Set-Content -LiteralPath $deployEnv -Encoding Ascii
+$compose = @('compose','--project-name','kiditem-office','--env-file',"$officeRoot\.env.office",'--env-file',$deployEnv,'--file',"$bundle\compose.office.yml")
+$rendered = (& docker @compose config --format json | ConvertFrom-Json)
+if ($LASTEXITCODE -ne 0) { throw 'Could not render the manifest-selected Office Compose configuration.' }
+foreach ($name in @('api','worker')) {
+  $service = $rendered.services.$name
+  if ($null -eq $service) { throw "Rendered Compose is missing required $name service." }
+  if ($service.image -ne $manifest.apiImage) { throw "Rendered $name image does not match manifest API image." }
+  if ($service.environment.KIDITEM_APPLICATION_VERSION -ne $manifest.appVersion) { throw "Rendered $name KIDITEM_APPLICATION_VERSION does not match manifest app version." }
+  if ($service.environment.KIDITEM_GIT_SHA -ne $manifest.gitSha) { throw "Rendered $name KIDITEM_GIT_SHA does not match manifest git SHA." }
+}
+if ($rendered.services.web.image -ne $manifest.webImage) { throw 'Rendered web image does not match manifest web image.' }
 # Stop every application writer. Keep PostgreSQL and MinIO running.
 & docker @compose stop api worker web nginx
 if ($LASTEXITCODE -ne 0) { throw 'Could not stop Office writers.' }
@@ -52,9 +72,9 @@ $runningServices = @(& docker @compose ps --status running --services)
 if ($LASTEXITCODE -ne 0 -or @($runningServices | Where-Object { $_ -in @('api','worker','web','nginx') }).Count -ne 0) {
   throw 'Office writers did not fully stop.'
 }
-$pendingMutations = (& docker @compose exec -T postgres psql -U kiditem -d kiditem -Atc "SELECT count(*) FROM agent_capability_invocations WHERE status IN ('ready','executing');").Trim()
-if ($LASTEXITCODE -ne 0 -or $pendingMutations -ne '0') { throw 'Ready/executing Agent mutations exist after writer shutdown; cutover is blocked.' }
-
+# This inventory and backup must remain safe against the pre-cutover (legacy)
+# schema. Do not query Agent OS tables here: the contracted relation may not
+# exist until the authorized schema operation below succeeds.
 # Content-free unrelated counts are a guard, not a data export.
 $counts = [ordered]@{}
 foreach ($table in 'organizations','users','master_products','operation_runs','channel_listings') {
@@ -77,6 +97,11 @@ $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $dump).Hash.ToLowerInvari
 try {
   & docker @compose run --rm --no-deps api sh -lc 'cd /app && npx prisma db push --accept-data-loss && npx prisma generate && node apps/server/dist/agent-os/adapter/in/cli/seed-agent-versions.cli.js'
   if ($LASTEXITCODE -ne 0) { throw 'Schema/seed failed.' }
+
+  # The new relation now exists. Writers are still stopped, so any durable
+  # Agent mutation would be a cutover invariant failure rather than live work.
+  $pendingMutations = (& docker @compose exec -T postgres psql -U kiditem -d kiditem -Atc "SELECT count(*) FROM agent_capability_invocations WHERE status IN ('ready','executing');").Trim()
+  if ($LASTEXITCODE -ne 0 -or $pendingMutations -ne '0') { throw 'Ready/executing Agent mutations exist after schema cutover; writers remain stopped.' }
 
   & docker @compose up --detach --no-build api worker web nginx
   if ($LASTEXITCODE -ne 0) { throw 'Runtime start failed.' }

@@ -114,7 +114,19 @@ async function currentOperationRefs(
     try {
       const current = await operations.get(organizationId, id);
       return { ...reference, status: current.status };
-    } catch { return reference; }
+    } catch {
+      // The Operations owner remains authoritative. Treat an unavailable
+      // owner read as a recoverable operation blocker, rather than silently
+      // trusting a stale terminal ref and inviting unrelated continuation.
+      return {
+        ...reference,
+        status: 'unavailable',
+        error: {
+          code: 'operation_status_unavailable',
+          message: 'Operations status is temporarily unavailable.',
+        },
+      };
+    }
   }));
 }
 

@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { AgentAttemptReadinessCanary } from './agent-attempt-readiness-canary';
+import { CodexAttemptIsolationCanary } from './codex-attempt-isolation-canary';
 
 const execFileAsync = promisify(execFile);
 
@@ -26,7 +27,10 @@ export class AgentAttemptReadinessService {
     try { await probe; } catch (error) { AgentAttemptReadinessService.cache.delete(key); throw error; }
   }
 
-  constructor(private readonly canary = new AgentAttemptReadinessCanary()) {}
+  constructor(
+    private readonly canary = new AgentAttemptReadinessCanary(),
+    private readonly codexIsolation = new CodexAttemptIsolationCanary(),
+  ) {}
 
   private async probe(runtime: keyof typeof EXPECTED_VERSIONS, model: string, loginHome: string): Promise<void> {
     await this.assertPeerCredentialHelper();
@@ -51,6 +55,7 @@ export class AgentAttemptReadinessService {
       : ['--no-session-persistence', '--strict-mcp-config', '--setting-sources'];
     if (required.some((flag) => !usage.includes(flag))) throw new Error(`attempt_runtime_nonpersistent_contract_missing:${runtime}`);
     if (model && model.length > 256) throw new Error('attempt_runtime_model_invalid');
+    if (runtime === 'codex_cli') await this.codexIsolation.run({ loginHome });
     await this.canary.run({ runtime, model, loginHome });
   }
 

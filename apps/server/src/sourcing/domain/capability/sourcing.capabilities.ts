@@ -20,6 +20,7 @@ const SourceSnapshot = z.object({
   title: z.string().trim().min(1).max(1_000).nullable(),
   price: z.number().nonnegative().nullable(),
   currency: z.string().trim().min(1).max(12).nullable(),
+  variantKeyNormalized: z.string().trim().max(200),
   images: z.array(z.string().url().max(2_000)).max(40),
   contentHash: z.string().regex(/^[a-f0-9]{64}$/),
 }).strict();

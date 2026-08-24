@@ -259,6 +259,7 @@ function sanitizeV1(
     source_url: sourceUrl,
     source_platform: sourcePlatform,
     product_id: product.product_id,
+    variant_key: product.variant_key,
     title: product.title,
     description: product.description,
     description_text: product.description_text,
