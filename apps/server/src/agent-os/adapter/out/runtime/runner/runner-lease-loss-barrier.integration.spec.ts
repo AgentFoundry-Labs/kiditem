@@ -39,7 +39,7 @@ describe('Runner lease-loss cleanup barrier', () => {
     await settle();
     await settle();
 
-    await expect(fixture.handler.handle(terminal)).resolves.toEqual({ eventSeq: 4, accepted: true });
+    await expect(fixture.handler.handle(terminal)).resolves.toEqual({ eventSeq: 3, accepted: true });
     await fixture.executor.start(liveAttempt(newAttemptId));
     const delivered = await fixture.leases.poll({ runnerInstanceId: secondRunnerId, leaseId: replacement.leaseId });
 
@@ -206,14 +206,7 @@ async function completeCanaryUntilTerminal(
   }]));
   fixture.readiness.canaryMcpBinding({ canaryId: expectedCanaryId, leaseId: lease.leaseId })
     .onProbe({ nonce: '618f4eb1-9078-7a1e-9514-b19b5732f5de' });
-  const input = (await fixture.leases.poll({ runnerInstanceId, leaseId: lease.leaseId })).commands[0]!;
-  await fixture.handler.handle(batch(runnerInstanceId, lease.leaseId, 3, [{
-    kind: 'command_ack',
-    commandId: input.commandId,
-    attemptId: expectedCanaryId,
-    commandHash: input.commandHash,
-  }]));
-  return batch(runnerInstanceId, lease.leaseId, 4, [{
+  return batch(runnerInstanceId, lease.leaseId, 3, [{
     kind: 'attempt.terminal',
     attemptId: expectedCanaryId,
     terminalReason: 'protocol_success',

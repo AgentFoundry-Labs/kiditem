@@ -674,10 +674,11 @@ than reconnecting to its provider process.
 Readiness requires one authenticated Runner lease, supported platform, exact
 control contract, compatible Codex/Claude and MCP train, both provider login
 checks, enforced non-persistent settings, strict modern MCP discovery/list/call,
-live second input, terminal-result parsing, token redaction/revocation, and
-process-tree/workspace cleanup. Readiness is an in-memory projection, not a
-new database state. Admission checks it and the Task-pinned runtime for every
-new Attempt.
+runtime-specific terminal-result parsing, token redaction/revocation, and
+process-tree/workspace cleanup. Only Claude requires a live second input;
+Codex returns its strict envelope immediately after its direct probe. Readiness
+is an in-memory projection, not a new database state. Admission checks it and
+the Task-pinned runtime for every new Attempt.
 
 Codex does not make readiness depend on stochastic model tool selection. For a
 `readiness_canary` launch, the shared launch contract carries only an ephemeral
@@ -686,18 +687,22 @@ server name, tool name, or arbitrary arguments. After exact app-server
 `thread/start`, Runner calls the supported `mcpServer/tool/call` control-plane
 RPC with the fixed `kiditem_attempt` / `readiness_probe` coordinate and exact
 nonce, validates its strict structured result, and only then starts the model
-turn. Its prompt says the probe has already completed and waits for a live
-second input. Claude retains its model-selected scoped readiness probe during
+turn. Its prompt says the probe has already completed and requires an immediate
+strict `AgentResultEnvelope`; it never synthesizes a live input command. Claude
+retains its model-selected scoped readiness probe and live second input during
 the live turn.
 
-The readiness contract is therefore three correlated proofs: a real provider
-structured turn and live steer/result envelope; a deterministic local fake
-Responses-provider regression proving Codex exposes the `mcp__kiditem_attempt`
-namespace child with `tool_choice: auto`; and a local exact bundled
-app-server control-plane regression proving modern `tools/list` plus
-`tools/call`. The latter two do not substitute for provider-turn coverage, and
-the model-visible metadata proof does not claim that a live model selected the
-tool.
+The readiness contract is therefore four correlated proofs: a real provider
+structured result (Codex immediate after its direct probe; Claude after its
+live input); a local exact bundled app-server control-plane regression proving
+modern `tools/list` plus `tools/call`; a deterministic local fake
+Responses-provider regression proving Codex exposes the
+`mcp__kiditem_attempt` namespace child with `tool_choice: auto`; and a
+deterministic session-level Codex `turn/start` / `turn/steer` / completion-decode
+gate. The local gates do not substitute for provider-turn coverage, the
+model-visible metadata proof does not claim a live model selected the tool, and
+the session-level gate does not claim a fake provider completed a full live
+turn.
 
 ## 8. Basic Restart Recovery
 

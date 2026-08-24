@@ -8,7 +8,51 @@ const runnerInstanceId = '018f4eb1-9078-7a1e-9514-b19b5732f5de';
 const canaryId = '218f4eb1-9078-7a1e-9514-b19b5732f5de';
 
 describe('RunnerReadinessService', () => {
-  it('promotes only after the live second input is acknowledged, the terminal result is strict, and its readiness token is revoked', async () => {
+  it('promotes Claude only after the live second input is acknowledged, the terminal result is strict, and its readiness token is revoked', async () => {
+    const commands = new RunnerCommandQueue({ commandId: sequenceIds() });
+    const tokens = new AttemptTokenRegistry({ now: () => new Date('2026-08-24T00:00:00.000Z') });
+    const leases = new RunnerLeaseRegistry({
+      commands,
+      interruptAttempt: async () => undefined,
+      leaseId: () => '118f4eb1-9078-7a1e-9514-b19b5732f5de',
+    });
+    const readiness = new RunnerReadinessService({
+      leases,
+      commands,
+      tokens,
+      loopbackOrigin: 'http://127.0.0.1:4000',
+      canaryId: () => canaryId,
+      nonce: () => '51e975ef-c0a7-4ab1-8007-47c0fd563505',
+      now: () => new Date('2026-08-24T00:00:00.000Z'),
+    } as never);
+    const lease = leases.hello(hello());
+    readiness.beginCanary({ runtime: 'claude_cli', model: 'claude-4', deployIdentity: '3.4.5:abc123' });
+    const start = commands.take().commands[0] as { launch: { attemptToken: string } };
+
+    readiness.handleRunnerEvent({ kind: 'attempt.started', attemptId: canaryId });
+    readiness.canaryMcpBinding({ canaryId, leaseId: lease.leaseId }).onProbe({ nonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' });
+    const input = commands.take().commands.find((command) => command.kind === 'attempt.input')!;
+    readiness.handleRunnerEvent({
+      kind: 'command_ack',
+      commandId: input.commandId,
+      attemptId: canaryId,
+      commandHash: input.commandHash,
+    });
+    readiness.handleRunnerEvent({
+      kind: 'attempt.terminal',
+      attemptId: canaryId,
+      terminalReason: 'protocol_success',
+      result: { outcome: 'completed', summary: 'canary complete', resourceRefs: [], operationRefs: [] },
+    });
+
+    await expect(readiness.assertRuntime('claude_cli', 'claude-4', '3.4.5:abc123')).resolves.toBeUndefined();
+    expect(() => tokens.requireReadiness({ raw: start.launch.attemptToken, canaryId, leaseId: lease.leaseId }))
+      .toThrow('attempt_token_invalid');
+    expect(leases.requireReady()).toEqual({ runnerInstanceId, leaseId: lease.leaseId });
+    leases.dispose();
+  });
+
+  it('promotes Codex from the direct probe and immediate strict result without a live input command', async () => {
     const commands = new RunnerCommandQueue({ commandId: sequenceIds() });
     const tokens = new AttemptTokenRegistry({ now: () => new Date('2026-08-24T00:00:00.000Z') });
     const leases = new RunnerLeaseRegistry({
@@ -31,13 +75,10 @@ describe('RunnerReadinessService', () => {
 
     readiness.handleRunnerEvent({ kind: 'attempt.started', attemptId: canaryId });
     readiness.canaryMcpBinding({ canaryId, leaseId: lease.leaseId }).onProbe({ nonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' });
-    const input = commands.take().commands.find((command) => command.kind === 'attempt.input')!;
-    readiness.handleRunnerEvent({
-      kind: 'command_ack',
-      commandId: input.commandId,
-      attemptId: canaryId,
-      commandHash: input.commandHash,
-    });
+
+    expect(commands.take().commands).toEqual([
+      expect.objectContaining({ kind: 'attempt.start', attemptId: canaryId }),
+    ]);
     readiness.handleRunnerEvent({
       kind: 'attempt.terminal',
       attemptId: canaryId,
@@ -48,7 +89,42 @@ describe('RunnerReadinessService', () => {
     await expect(readiness.assertRuntime('codex_cli', 'gpt-5', '3.4.5:abc123')).resolves.toBeUndefined();
     expect(() => tokens.requireReadiness({ raw: start.launch.attemptToken, canaryId, leaseId: lease.leaseId }))
       .toThrow('attempt_token_invalid');
-    expect(leases.requireReady()).toEqual({ runnerInstanceId, leaseId: lease.leaseId });
+    leases.dispose();
+  });
+
+  it('rejects a Claude terminal before its live input acknowledgement', async () => {
+    const commands = new RunnerCommandQueue({ commandId: sequenceIds() });
+    const tokens = new AttemptTokenRegistry({ now: () => new Date('2026-08-24T00:00:00.000Z') });
+    const leases = new RunnerLeaseRegistry({
+      commands,
+      interruptAttempt: async () => undefined,
+      leaseId: () => '118f4eb1-9078-7a1e-9514-b19b5732f5de',
+    });
+    const readiness = new RunnerReadinessService({
+      leases,
+      commands,
+      tokens,
+      loopbackOrigin: 'http://127.0.0.1:4000',
+      canaryId: () => canaryId,
+      nonce: () => '51e975ef-c0a7-4ab1-8007-47c0fd563505',
+      now: () => new Date('2026-08-24T00:00:00.000Z'),
+    } as never);
+    const lease = leases.hello(hello());
+    readiness.beginCanary({ runtime: 'claude_cli', model: 'claude-4', deployIdentity: '3.4.5:abc123' });
+
+    readiness.handleRunnerEvent({ kind: 'attempt.started', attemptId: canaryId });
+    readiness.canaryMcpBinding({ canaryId, leaseId: lease.leaseId }).onProbe({ nonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' });
+    expect(commands.take().commands).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'attempt.input', attemptId: canaryId }),
+    ]));
+    readiness.handleRunnerEvent({
+      kind: 'attempt.terminal',
+      attemptId: canaryId,
+      terminalReason: 'protocol_success',
+      result: { outcome: 'completed', summary: 'too early', resourceRefs: [], operationRefs: [] },
+    });
+
+    await expect(readiness.assertRuntime('claude_cli', 'claude-4', '3.4.5:abc123')).rejects.toThrow('runner_not_ready');
     leases.dispose();
   });
 
@@ -76,13 +152,6 @@ describe('RunnerReadinessService', () => {
     const firstToken = ((commands.take().commands[0] as { launch: { attemptToken: string } }).launch.attemptToken);
     readiness.handleRunnerEvent({ kind: 'attempt.started', attemptId: canaryId });
     readiness.canaryMcpBinding({ canaryId, leaseId: lease.leaseId }).onProbe({ nonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' });
-    const input = commands.take().commands.find((command) => command.kind === 'attempt.input')!;
-    readiness.handleRunnerEvent({
-      kind: 'command_ack',
-      commandId: input.commandId,
-      attemptId: canaryId,
-      commandHash: input.commandHash,
-    });
     readiness.handleRunnerEvent({
       kind: 'attempt.terminal',
       attemptId: canaryId,
@@ -109,7 +178,7 @@ describe('RunnerReadinessService', () => {
     leases.dispose();
   });
 
-  it('binds only the matching readiness lease to its request-scoped MCP callback', () => {
+  it('binds Codex to its request-scoped MCP callback without queuing a live input', () => {
     const commands = new RunnerCommandQueue({ commandId: sequenceIds() });
     const tokens = new AttemptTokenRegistry({ now: () => new Date('2026-08-24T00:00:00.000Z') });
     const leases = new RunnerLeaseRegistry({
@@ -135,11 +204,11 @@ describe('RunnerReadinessService', () => {
     expect(() => readiness.canaryMcpBinding({ canaryId, leaseId: '318f4eb1-9078-7a1e-9514-b19b5732f5de' }))
       .toThrow('readiness_canary_invalid');
     binding.onProbe({ nonce: binding.nonce });
-    expect(commands.take().commands).toHaveLength(2);
+    expect(commands.take().commands).toHaveLength(1);
     leases.dispose();
   });
 
-  it('queues the live second input only after the scoped canary tool proves its exact nonce', () => {
+  it('queues the live second input only for Claude after the scoped canary tool proves its exact nonce', () => {
     const commands = new RunnerCommandQueue({ commandId: sequenceIds() });
     const tokens = new AttemptTokenRegistry({ now: () => new Date('2026-08-24T00:00:00.000Z') });
     const leases = new RunnerLeaseRegistry({
@@ -157,7 +226,7 @@ describe('RunnerReadinessService', () => {
       now: () => new Date('2026-08-24T00:00:00.000Z'),
     } as never);
     leases.hello(hello());
-    readiness.beginCanary({ runtime: 'codex_cli', model: 'gpt-5', deployIdentity: '3.4.5:abc123' });
+    readiness.beginCanary({ runtime: 'claude_cli', model: 'claude-4', deployIdentity: '3.4.5:abc123' });
 
     expect(commands.take().commands).toHaveLength(1);
     expect(() => readiness.acceptCanaryProbe({ canaryId, nonce: '0b2327bb-cd8b-4f4c-8fa5-142760734c30' }))
@@ -202,6 +271,8 @@ describe('RunnerReadinessService', () => {
 
     expect(codex.launch.prompt).toContain('already completed');
     expect(codex.launch.prompt).not.toContain('readiness_probe');
+    expect(codex.launch.prompt).toContain('immediately');
+    expect(codex.launch.prompt).not.toContain('Wait for one subsequent live user input');
     expect(claude.launch.prompt).toContain('Use the readiness_probe MCP tool exactly once');
     leases.dispose();
   });

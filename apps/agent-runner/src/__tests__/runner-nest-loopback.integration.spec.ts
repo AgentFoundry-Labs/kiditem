@@ -101,11 +101,16 @@ describe('Runner ↔ Nest loopback readiness', () => {
       await mcpHandler.close();
     }
 
-    const input = (await client.poll({ kind: 'poll', runnerInstanceId: RUNNER_INSTANCE_ID, leaseId: lease.leaseId }))!.commands
-      .find((command: RunnerCommand) => command.kind === 'attempt.input')!;
-    await dispatcher.dispatch(input);
-    await outbox.flush((body) => client.postEventBody(body));
-    expect(executor.input).toHaveBeenCalledWith(canaryId, expect.stringContaining('AgentResultEnvelope'));
+    if (runtime === 'claude_cli') {
+      const input = (await client.poll({ kind: 'poll', runnerInstanceId: RUNNER_INSTANCE_ID, leaseId: lease.leaseId }))!.commands
+        .find((command: RunnerCommand) => command.kind === 'attempt.input')!;
+      await dispatcher.dispatch(input);
+      await outbox.flush((body) => client.postEventBody(body));
+      expect(executor.input).toHaveBeenCalledWith(canaryId, expect.stringContaining('AgentResultEnvelope'));
+    } else {
+      expect(commands.take().commands.find((command) => command.kind === 'attempt.input')).toBeUndefined();
+      expect(executor.input).not.toHaveBeenCalled();
+    }
 
     outbox.enqueue({
       kind: 'attempt.terminal',

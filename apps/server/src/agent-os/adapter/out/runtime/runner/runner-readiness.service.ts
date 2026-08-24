@@ -31,6 +31,8 @@ type ActiveCanary = {
   deadlineAt: Date;
   started: boolean;
   probeAccepted: boolean;
+  /** Only Claude's model-selected probe keeps a live post-probe input barrier. */
+  liveInputRequired: boolean;
   inputCommandId?: string;
   inputCommandHash?: string;
   inputAcknowledged: boolean;
@@ -153,6 +155,7 @@ export class RunnerReadinessService {
       deadlineAt,
       started: false,
       probeAccepted: false,
+      liveInputRequired: runtime === 'claude_cli',
       inputAcknowledged: false,
     };
     this.activeCanaries.set(canaryId, state);
@@ -172,6 +175,10 @@ export class RunnerReadinessService {
       throw new Error('readiness_canary_invalid');
     }
     if (state.probeAccepted) return;
+    if (!state.liveInputRequired) {
+      state.probeAccepted = true;
+      return;
+    }
     if (!this.commands) throw new Error('runner_readiness_canary_unavailable');
     const command = this.commands.enqueueInput({
       attemptId: state.canaryId,
@@ -221,7 +228,7 @@ export class RunnerReadinessService {
         return true;
       case 'attempt.terminal':
         if (
-          state.started && state.probeAccepted && state.inputAcknowledged &&
+          state.started && state.probeAccepted && (!state.liveInputRequired || state.inputAcknowledged) &&
           (event.terminalReason === 'success' || event.terminalReason === 'protocol_success') &&
           AgentResultEnvelopeSchema.safeParse(event.result).success && event.result?.outcome === 'completed'
         ) {
@@ -362,8 +369,7 @@ function readinessPrompt(runtime: AttemptRuntimeType, nonce: string): string {
     return [
       'This is a Host Runner readiness canary.',
       'A Runner-owned modern MCP readiness exchange has already completed.',
-      'Wait for one subsequent live user input before completing.',
-      'On that input, respond only with a valid AgentResultEnvelope JSON object.',
+      'Respond immediately with only a valid AgentResultEnvelope JSON object.',
     ].join(' ');
   }
   return [

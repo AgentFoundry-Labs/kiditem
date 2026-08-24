@@ -797,17 +797,18 @@ Readiness is a process-memory projection with two phases:
 
 1. A strict hello creates a `probing` control lease after local
    platform/Node/version/login/non-persistence facts validate.
-2. Nest sends an ordinary synthetic `attempt.start` plus `attempt.input` using
-   an in-memory readiness token binding. The request-scoped canary MCP server
-   exposes only its one canary tool. A `readiness_canary` launch carries only an
-   ephemeral nonce, required if and only if that scope is selected. For Codex,
-   Runner fixes the server/tool/argument shape and, after app-server
-   `thread/start`, invokes `mcpServer/tool/call` for
-   `kiditem_attempt` / `readiness_probe` before `turn/start`; the strict result
-   must contain the exact nonce. Claude retains its model-selected scoped
-   probe. Successful discovery/list/call, live second input, terminal parse,
-   token revocation, complete-tree kill, and workspace cleanup promote the
-   lease to `ready`.
+2. Nest sends an ordinary synthetic `attempt.start` using an in-memory
+   readiness token binding. The request-scoped canary MCP server exposes only
+   its one canary tool. A `readiness_canary` launch carries only an ephemeral
+   nonce, required if and only if that scope is selected. For Codex, Runner
+   fixes the server/tool/argument shape and, after app-server `thread/start`,
+   invokes `mcpServer/tool/call` for `kiditem_attempt` / `readiness_probe`
+   before `turn/start`; the strict result must contain the exact nonce. Codex
+   then returns its strict result immediately and receives no synthetic input
+   command. Claude retains its model-selected scoped probe and is the only
+   runtime that receives a live second input. Successful discovery/list/call,
+   runtime-specific terminal parse, token revocation, complete-tree kill, and
+   workspace cleanup promote the lease to `ready`.
 
 This adds no command kind, Attempt row, status, Prisma model, or durable
 canary. Business Attempt admission requires a `ready` lease for the exact
@@ -825,6 +826,9 @@ Tests prove:
   observes `tools/list` then `tools/call`; a local fake Responses provider
   separately proves the model-visible `mcp__kiditem_attempt` namespace child
   and `tool_choice: auto` without asserting model-selected invocation;
+- the deterministic Codex session gate exercises `turn/start`, live
+  `turn/steer`, and exact completion decoding without claiming that a fake
+  provider completed a full live turn;
 - the token cannot call a different Attempt or survive terminalization;
 - readiness failure removes `ready` and blocks row admission;
 - lease loss after 30 seconds kills the Runner process tree, invalidates
@@ -887,11 +891,13 @@ rtk git commit -m "test: prove Host Runner readiness and recovery"
 
 The real canary runs on the implementation Mac using its logged-in Codex and
 Claude accounts. Codex uses the supported fixed app-server control-plane call
-before its provider turn; Claude uses its scoped model-selected call. Both must
-exercise strict modern MCP discovery/call, live second input, result parsing,
-and cleanup. The separate local fake-provider gate proves model-visible Codex
-tool metadata, not a stochastic real-model decision. Never print login
-artifacts or Attempt tokens.
+before its provider turn and returns an immediate structured result without a
+synthetic live input; Claude uses its scoped model-selected call and retains
+the live second input. Both must exercise their applicable strict modern MCP
+discovery/call, result parsing, and cleanup. The separate local fake-provider
+gate proves model-visible Codex tool metadata, not a stochastic real-model
+decision or a fake-provider full-turn completion. Never print login artifacts
+or Attempt tokens.
 
 ## Task 5: Package and deploy the native Windows Runner through the Office release
 

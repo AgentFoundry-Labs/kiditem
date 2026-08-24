@@ -142,12 +142,16 @@ describe('logged-in real CLI readiness canary', () => {
       if (endpoint.legacyNegotiationObserved) {
         throw new Error(`real_canary_legacy_mcp_protocol observed=${endpoint.mcpMethods.join(',')}`);
       }
-      const input = (await leases.poll({ runnerInstanceId: RUNNER_INSTANCE_ID, leaseId: lease.leaseId }))
-        .commands.find((command: RunnerCommand) => command.kind === 'attempt.input');
-      if (!input || input.kind !== 'attempt.input') throw new Error('real_canary_live_input_missing');
-      await dispatcher.dispatch(input);
-      await flush();
-      releaseProbe.resolve();
+      if (runtime === 'claude_cli') {
+        const input = (await leases.poll({ runnerInstanceId: RUNNER_INSTANCE_ID, leaseId: lease.leaseId }))
+          .commands.find((command: RunnerCommand) => command.kind === 'attempt.input');
+        if (!input || input.kind !== 'attempt.input') throw new Error('real_canary_live_input_missing');
+        await dispatcher.dispatch(input);
+        await flush();
+        releaseProbe.resolve();
+      } else {
+        expect(commands.take().commands.find((command) => command.kind === 'attempt.input')).toBeUndefined();
+      }
       phase = 'terminal_result';
       await waitFor(async () => {
         await flush();
