@@ -269,6 +269,7 @@ function launchSpec(attemptId: string, mcpToolScope: 'business' | 'readiness_can
     mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${attemptId}/mcp`,
     attemptToken: 'A'.repeat(43),
     mcpToolScope,
+    ...(mcpToolScope === 'readiness_canary' ? { readinessProbeNonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' } : {}),
     mcpProtocolRevision: '2026-07-28',
     cliContractIdentity: 'office-cli-contract-v2',
   };

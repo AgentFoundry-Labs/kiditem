@@ -22,6 +22,29 @@ describe('CodexAppServerSession', () => {
     expect(JSON.stringify(request(lines, 'turn/start').params)).not.toContain('resume');
   });
 
+  it('fails closed when the Runner-owned readiness probe does not return its exact nonce before turn/start', async () => {
+    const lines: string[] = []; const session = new CodexAppServerSession((line) => { lines.push(line); });
+    const start = session.start({
+      model: 'gpt-5.6',
+      cwd: '/attempt/workspace',
+      prompt: 'work',
+      readinessProbeNonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505',
+    });
+    answer(session, lines, 'initialize', {}); await advance();
+    answer(session, lines, 'thread/start', { thread: { id: 'thread-1' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+
+    expect(request(lines, 'mcpServer/tool/call').params).toEqual({
+      threadId: 'thread-1',
+      server: 'kiditem_attempt',
+      tool: 'readiness_probe',
+      arguments: { nonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' },
+    });
+    answer(session, lines, 'mcpServer/tool/call', { content: [], structuredContent: { nonce: '0b2327bb-cd8b-4f4c-8fa5-142760734c30' } });
+
+    await expect(start).rejects.toThrow('codex_readiness_probe_invalid');
+    expect(lines.map((line) => JSON.parse(line).method)).not.toContain('turn/start');
+  });
+
   it('decodes exact 0.149.1 delta and completion notifications, then closes the live turn', async () => {
     const lines: string[] = []; const events: unknown[] = [];
     const session = new CodexAppServerSession((line) => { lines.push(line); }, undefined, (event) => events.push(event));

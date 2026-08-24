@@ -123,12 +123,13 @@ export class RunnerReadinessService {
         attemptId: canaryId,
         runtime,
         model: input.model.trim(),
-        prompt: readinessPrompt(nonce),
+        prompt: readinessPrompt(runtime, nonce),
         workspacePolicy: 'empty_ephemeral_v1',
         timeoutMs: READINESS_CANARY_TIMEOUT_MS,
         mcpUrl: new URL(`/internal/agent-runtime/attempts/${canaryId}/mcp`, origin).toString(),
         attemptToken: raw,
         mcpToolScope: 'readiness_canary',
+        readinessProbeNonce: nonce,
         mcpProtocolRevision: ATTEMPT_RUNTIME_TRAIN.mcpProtocolRevision,
         cliContractIdentity: ATTEMPT_RUNTIME_TRAIN.cliContractIdentity,
       });
@@ -356,7 +357,15 @@ function requiredLoopbackOrigin(value: string): URL {
   return origin;
 }
 
-function readinessPrompt(nonce: string): string {
+function readinessPrompt(runtime: AttemptRuntimeType, nonce: string): string {
+  if (runtime === 'codex_cli') {
+    return [
+      'This is a Host Runner readiness canary.',
+      'A Runner-owned modern MCP readiness exchange has already completed.',
+      'Wait for one subsequent live user input before completing.',
+      'On that input, respond only with a valid AgentResultEnvelope JSON object.',
+    ].join(' ');
+  }
   return [
     'This is a Host Runner readiness canary.',
     `Use the readiness_probe MCP tool exactly once with nonce ${nonce}.`,

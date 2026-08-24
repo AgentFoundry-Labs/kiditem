@@ -249,10 +249,20 @@ describe('native Runner control protocol', () => {
 
   it('requires an explicit business or readiness-only MCP tool scope on every launch', () => {
     expect(AttemptLaunchSpecSchema.safeParse({ ...validLaunch(), mcpToolScope: 'business' }).success).toBe(true);
-    expect(AttemptLaunchSpecSchema.safeParse({ ...validLaunch(), mcpToolScope: 'readiness_canary' }).success).toBe(true);
+    expect(AttemptLaunchSpecSchema.safeParse({ ...validLaunch(), mcpToolScope: 'readiness_canary', readinessProbeNonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' }).success).toBe(true);
     expect(AttemptLaunchSpecSchema.safeParse({ ...validLaunch(), mcpToolScope: 'all_tools' }).success).toBe(false);
     const { mcpToolScope: _scope, ...withoutScope } = validLaunch();
     expect(AttemptLaunchSpecSchema.safeParse(withoutScope).success).toBe(false);
+  });
+
+  it('admits the ephemeral readiness nonce if and only if the launch has readiness-only MCP scope', () => {
+    const nonce = '51e975ef-c0a7-4ab1-8007-47c0fd563505';
+
+    expect(AttemptLaunchSpecSchema.safeParse({ ...validLaunch(), mcpToolScope: 'business' }).success).toBe(true);
+    expect(AttemptLaunchSpecSchema.safeParse({ ...validLaunch(), mcpToolScope: 'business', readinessProbeNonce: nonce }).success).toBe(false);
+    expect(AttemptLaunchSpecSchema.safeParse({ ...validLaunch(), mcpToolScope: 'readiness_canary' }).success).toBe(false);
+    expect(AttemptLaunchSpecSchema.safeParse({ ...validLaunch(), mcpToolScope: 'readiness_canary', readinessProbeNonce: nonce }).success).toBe(true);
+    expect(AttemptLaunchSpecSchema.safeParse({ ...validLaunch(), mcpToolScope: 'readiness_canary', readinessProbeNonce: 'not-a-uuid' }).success).toBe(false);
   });
 
   it.each([

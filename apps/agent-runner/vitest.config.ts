@@ -12,5 +12,8 @@ export default defineConfig({
   },
   test: {
     include: ['src/**/*.spec.ts'],
+    // Several exact app-server fixtures deliberately bind the production
+    // loopback boundary at 127.0.0.1:4000; parallel files would race that port.
+    fileParallelism: false,
   },
 });

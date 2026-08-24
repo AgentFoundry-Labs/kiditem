@@ -33,7 +33,7 @@ describe('buildClaudeCommand', () => {
       attemptId: '33333333-3333-4333-8333-333333333333', runtime: 'claude_cli', model: 'claude-sonnet', prompt: 'readiness probe', timeoutMs: 10_000,
       workspacePolicy: 'empty_ephemeral_v1', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/attempts/33333333-3333-4333-8333-333333333333/mcp',
       attemptToken: 'A'.repeat(43), mcpProtocolRevision: '2026-07-28', cliContractIdentity: 'office-cli-contract-v2',
-      mcpToolScope: 'readiness_canary',
+      mcpToolScope: 'readiness_canary', readinessProbeNonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505',
     };
     const command = buildClaudeCommand(launch, { root: '/tmp/a', workspace: '/tmp/a/workspace', home: '/tmp/a/home', codexHome: '/tmp/a/codex', claudeConfigDir: '/tmp/a/claude', mcpConfigPath: '/tmp/a/mcp.json', codexConfigPath: '/tmp/a/codex.toml' }, '/opt/kiditem-runner');
     const tools = command.args[command.args.indexOf('--tools') + 1]!.split(',');

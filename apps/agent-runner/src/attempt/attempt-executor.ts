@@ -91,7 +91,14 @@ export class AttemptExecutor {
       this.active.set(launch.attemptId, active);
       this.registry.register(launch.attemptId, supervisedProcess);
       if (earlyExit) throw new Error('runner_provider_exited_during_start');
-      if (active.codex) await active.codex.start({ model: launch.model, cwd: paths.workspace, prompt: launch.prompt });
+      if (active.codex) {
+        await active.codex.start({
+          model: launch.model,
+          cwd: paths.workspace,
+          prompt: launch.prompt,
+          readinessProbeNonce: launch.readinessProbeNonce,
+        });
+      }
       else await supervisedProcess.input(`${JSON.stringify({ type: 'user', message: { role: 'user', content: launch.prompt } })}\n`);
       if (earlyExit) throw new Error('runner_provider_exited_during_start');
       active.initializing = false;

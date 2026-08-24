@@ -112,7 +112,7 @@ describe('RunnerLeaseRegistry', () => {
 
     const replacement = registry.hello(hello({ runnerInstanceId: replacementInstanceId }));
     const canary = commands.enqueueStart({
-      launch: { ...launchSpec('418f4eb1-9078-7a1e-9514-b19b5732f5de'), mcpToolScope: 'readiness_canary' },
+      launch: { ...launchSpec('418f4eb1-9078-7a1e-9514-b19b5732f5de'), mcpToolScope: 'readiness_canary', readinessProbeNonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' },
       deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
       leaseGeneration: registry.generationForLease({ runnerInstanceId: replacementInstanceId, leaseId: replacement.leaseId }),
     });
@@ -192,7 +192,7 @@ describe('RunnerLeaseRegistry', () => {
     const registry = registryFor({ commands });
     const lease = registry.hello(hello());
     const start = commands.enqueueStart({
-      launch: { ...launchSpec(), mcpToolScope: 'readiness_canary' },
+      launch: { ...launchSpec(), mcpToolScope: 'readiness_canary', readinessProbeNonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' },
       deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
       leaseGeneration: registry.generationForLease({ runnerInstanceId: instanceId, leaseId: lease.leaseId }),
     });

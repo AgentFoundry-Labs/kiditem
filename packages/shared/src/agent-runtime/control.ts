@@ -213,12 +213,39 @@ const AttemptLaunchSpecObjectSchema = z
     // This is an ephemeral CLI allowlist policy, not a durable Attempt status
     // or a new Runner command kind. The API binds it into the command hash.
     mcpToolScope: z.enum(['business', 'readiness_canary']),
+    // Only the synthetic readiness canary carries this short-lived coordinate.
+    // It is never a business capability argument or a configurable tool call.
+    readinessProbeNonce: UuidSchema.optional(),
     mcpProtocolRevision: z.literal(ATTEMPT_RUNTIME_TRAIN.mcpProtocolRevision),
     cliContractIdentity: z.literal(ATTEMPT_RUNTIME_TRAIN.cliContractIdentity),
   })
   .strict();
 
-export const AttemptLaunchSpecSchema = guardControlPayload(AttemptLaunchSpecObjectSchema);
+function rejectInvalidReadinessProbeNonce(
+  launch: z.infer<typeof AttemptLaunchSpecObjectSchema>,
+  context: z.RefinementCtx,
+  path: Array<string | number> = [],
+): void {
+  const hasNonce = launch.readinessProbeNonce !== undefined;
+  if (launch.mcpToolScope === 'readiness_canary' && !hasNonce) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [...path, 'readinessProbeNonce'],
+      message: 'readiness_probe_nonce_required',
+    });
+  }
+  if (launch.mcpToolScope === 'business' && hasNonce) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [...path, 'readinessProbeNonce'],
+      message: 'readiness_probe_nonce_forbidden',
+    });
+  }
+}
+
+export const AttemptLaunchSpecSchema = guardControlPayload(
+  AttemptLaunchSpecObjectSchema.superRefine(rejectInvalidReadinessProbeNonce),
+);
 export type AttemptLaunchSpec = z.infer<typeof AttemptLaunchSpecSchema>;
 
 const RunnerCommandBaseSchema = z
@@ -258,7 +285,10 @@ const RunnerInterruptCommandObjectSchema = RunnerCommandBaseSchema.extend({
 }).strict();
 
 export const RunnerStartCommandSchema = guardControlPayload(
-  RunnerStartCommandObjectSchema.superRefine(rejectMismatchedStartAttemptId),
+  RunnerStartCommandObjectSchema.superRefine((command, context) => {
+    rejectMismatchedStartAttemptId(command, context);
+    rejectInvalidReadinessProbeNonce(command.launch, context, ['launch']);
+  }),
 );
 export type RunnerStartCommand = z.infer<typeof RunnerStartCommandSchema>;
 
@@ -278,6 +308,7 @@ export const RunnerCommandSchema = guardControlPayload(
   RunnerCommandObjectSchema.superRefine((command, context) => {
     if (command.kind === 'attempt.start') {
       rejectMismatchedStartAttemptId(command, context);
+      rejectInvalidReadinessProbeNonce(command.launch, context, ['launch']);
     }
   }),
 );
@@ -290,12 +321,15 @@ const RunnerCommandBatchObjectSchema = z
   .strict()
   .superRefine((batch, context) => {
     batch.commands.forEach((command, index) => {
-      if (command.kind === 'attempt.start' && command.launch.attemptId !== command.attemptId) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['commands', index, 'launch', 'attemptId'],
-          message: 'command_attempt_id_mismatch',
-        });
+      if (command.kind === 'attempt.start') {
+        if (command.launch.attemptId !== command.attemptId) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['commands', index, 'launch', 'attemptId'],
+            message: 'command_attempt_id_mismatch',
+          });
+        }
+        rejectInvalidReadinessProbeNonce(command.launch, context, ['commands', index, 'launch']);
       }
     });
   });

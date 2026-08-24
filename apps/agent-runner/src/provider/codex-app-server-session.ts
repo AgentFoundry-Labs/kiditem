@@ -11,6 +11,8 @@ export type CodexAppServerEvent =
 
 type DecodedEvent = CodexAppServerEvent & Readonly<{ threadId: string }>;
 const MAX_PENDING_TURN_EVENTS = 64;
+const READINESS_MCP_SERVER = 'kiditem_attempt';
+const READINESS_MCP_TOOL = 'readiness_probe';
 
 /** Memory-only JSON-RPC steering for one ephemeral Codex app-server Attempt. */
 export class CodexAppServerSession {
@@ -30,7 +32,7 @@ export class CodexAppServerSession {
     private readonly notification?: (event: CodexAppServerEvent) => void,
   ) {}
 
-  async start(input: { model: string; cwd: string; prompt: string }): Promise<void> {
+  async start(input: { model: string; cwd: string; prompt: string; readinessProbeNonce?: string }): Promise<void> {
     await this.request('initialize', { clientInfo: { name: 'kiditem', version: '1' }, capabilities: null });
     await this.send(`${JSON.stringify({ jsonrpc: '2.0', method: 'initialized', params: {} })}\n`);
     const thread = await this.request('thread/start', {
@@ -41,6 +43,7 @@ export class CodexAppServerSession {
     });
     this.threadId = requiredNestedId(thread, 'thread');
     if (requiredNestedId(thread, 'activePermissionProfile') !== ':workspace') throw new Error('codex_app_server_permission_profile_mismatch');
+    if (input.readinessProbeNonce) await this.probeReadiness(input.readinessProbeNonce);
     this.waitingForTurnStart = true;
     const earlyCompletion = new Promise<void>((resolve) => { this.resolveEarlyTurnCompletion = resolve; });
     const turnRequest = this.request('turn/start', {
@@ -140,6 +143,22 @@ export class CodexAppServerSession {
     await this.write(line);
   }
 
+  /**
+   * The canary's MCP authority is fixed in Runner code. Nest provides only a
+   * validated ephemeral nonce, so it cannot choose a server, tool, or argument
+   * shape for an app-server control-plane invocation.
+   */
+  private async probeReadiness(nonce: string): Promise<void> {
+    if (!this.threadId) throw new Error('codex_readiness_thread_missing');
+    const result = await this.request('mcpServer/tool/call', {
+      threadId: this.threadId,
+      server: READINESS_MCP_SERVER,
+      tool: READINESS_MCP_TOOL,
+      arguments: { nonce },
+    });
+    if (!isStrictReadinessProbeResult(result, nonce)) throw new Error('codex_readiness_probe_invalid');
+  }
+
   private rememberPendingTurnEvent(event: DecodedEvent): void {
     if (this.pendingTurnEvents.length >= MAX_PENDING_TURN_EVENTS) throw new Error('codex_app_server_pending_events_exceeded');
     this.pendingTurnEvents.push(event);
@@ -204,6 +223,13 @@ function parseCompletedResult(items: unknown): AgentResultEnvelope {
   const parsed = AgentResultEnvelopeSchema.safeParse(candidate);
   if (!parsed.success) throw new Error('codex_app_server_result_invalid');
   return parsed.data;
+}
+
+function isStrictReadinessProbeResult(value: unknown, nonce: string): boolean {
+  const result = object(value);
+  if (!result || result.isError === true || !Array.isArray(result.content) || result.content.length !== 1) return false;
+  const structured = object(result.structuredContent);
+  return !!structured && Object.keys(structured).length === 1 && structured.nonce === nonce;
 }
 
 function object(value: unknown): Record<string, unknown> | null {

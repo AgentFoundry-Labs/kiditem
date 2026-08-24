@@ -174,6 +174,38 @@ describe('RunnerReadinessService', () => {
     leases.dispose();
   });
 
+  it('uses a post-probe prompt for Codex but retains the model-selected readiness probe for Claude', () => {
+    const commands = new RunnerCommandQueue({ commandId: sequenceIds() });
+    const tokens = new AttemptTokenRegistry({ now: () => new Date('2026-08-24T00:00:00.000Z') });
+    const leases = new RunnerLeaseRegistry({
+      commands,
+      interruptAttempt: async () => undefined,
+      leaseId: () => '118f4eb1-9078-7a1e-9514-b19b5732f5de',
+    });
+    const ids = [canaryId, '318f4eb1-9078-7a1e-9514-b19b5732f5de'];
+    const readiness = new RunnerReadinessService({
+      leases,
+      commands,
+      tokens,
+      loopbackOrigin: 'http://127.0.0.1:4000',
+      canaryId: () => ids.shift()!,
+      nonce: () => '51e975ef-c0a7-4ab1-8007-47c0fd563505',
+      now: () => new Date('2026-08-24T00:00:00.000Z'),
+    } as never);
+    leases.hello(hello());
+
+    readiness.beginCanary({ runtime: 'codex_cli', model: 'gpt-5', deployIdentity: '3.4.5:abc123' });
+    readiness.beginCanary({ runtime: 'claude_cli', model: 'claude-4', deployIdentity: '3.4.5:abc123' });
+    const starts = commands.take().commands.filter((command) => command.kind === 'attempt.start');
+    const codex = starts.find((command) => command.launch.runtime === 'codex_cli')!;
+    const claude = starts.find((command) => command.launch.runtime === 'claude_cli')!;
+
+    expect(codex.launch.prompt).toContain('already completed');
+    expect(codex.launch.prompt).not.toContain('readiness_probe');
+    expect(claude.launch.prompt).toContain('Use the readiness_probe MCP tool exactly once');
+    leases.dispose();
+  });
+
   it('queues an ordinary synthetic start with a readiness-only token while its strict lease is probing', () => {
     const commands = new RunnerCommandQueue({ commandId: () => '318f4eb1-9078-7a1e-9514-b19b5732f5de' });
     const tokens = new AttemptTokenRegistry({ now: () => new Date('2026-08-24T00:00:00.000Z') });
@@ -188,6 +220,7 @@ describe('RunnerReadinessService', () => {
       tokens,
       loopbackOrigin: 'http://127.0.0.1:4000',
       canaryId: () => canaryId,
+      nonce: () => '51e975ef-c0a7-4ab1-8007-47c0fd563505',
       now: () => new Date('2026-08-24T00:00:00.000Z'),
     } as never);
     const lease = leases.hello(hello());
@@ -210,6 +243,7 @@ describe('RunnerReadinessService', () => {
         workspacePolicy: 'empty_ephemeral_v1',
         mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${canaryId}/mcp`,
         mcpToolScope: 'readiness_canary',
+        readinessProbeNonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505',
         mcpProtocolRevision: '2026-07-28',
         cliContractIdentity: 'office-cli-contract-v2',
       },

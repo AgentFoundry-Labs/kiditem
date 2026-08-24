@@ -56,7 +56,7 @@ describe('RunnerCommandQueue', () => {
     queue.enqueueStart({ launch, deadlineAt: new Date('2026-08-24T00:10:00.000Z'), leaseGeneration: 1 });
 
     expect(() => queue.enqueueStart({
-      launch: { ...launch, mcpToolScope: 'readiness_canary' },
+      launch: { ...launch, mcpToolScope: 'readiness_canary', readinessProbeNonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' },
       deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
       leaseGeneration: 1,
     })).toThrow('runner_start_command_conflict');
