@@ -56,7 +56,7 @@ integration/E2E/scanner 가 이미 보호하는 중복 테스트는 아래
 | `apps/web/src/lib`, `src/components` | shared owner 폴더의 `__tests__/` 선호 | `*.spec.ts` 또는 기존 파일군이 쓰는 `*.test.ts` |
 | `packages/shared/src/` | schema/entrypoint 옆 co-located | `*.spec.ts` |
 | `scripts/` | `scripts/__tests__/` | `*.spec.ts` |
-| Cross-process interaction acceptance | `apps/web/e2e/` + root `playwright.config.ts` | `*.spec.ts` |
+| Agent interaction cross-process acceptance | `scripts/smoke-interaction-os.mjs` + Agent OS PostgreSQL integration specs | smoke + `*.pg.integration.spec.ts` |
 
 새 파일은 주변 파일군의 관습을 따른다. 서버와 scripts 는 config 가 명시한
 `*.spec.ts` / `__tests__` 규칙에서 벗어나지 않는다. 웹은 Vitest 기본 include
@@ -177,17 +177,18 @@ npm run test:integration -- src/inventory/__tests__/inventory-flow.pg.integratio
 
 각 파일은 mock 시뮬레이션 대응 파일(`*.spec.ts`) 과 **공존**한다. Mock 은 fast smoke, real 은 동시성 정확성.
 
-### Agent interaction browser acceptance
+### Agent interaction cross-process acceptance
 
-`apps/web/e2e/agent-session-interaction.spec.ts` is the narrow cross-process
-exception: it starts disposable PostgreSQL 17, the real Nest CopilotKit incoming
-adapter, a production Next build, and a deterministic local CLI boundary before
-driving system Chrome. It verifies zero-write open/select, first-submit durable
-Session/Task/Attempt creation, future-only output, successor Attempts,
-capability grants, and cross-organization denial. It never depends on a gateway,
-replay transcript, provider-session resume, or browser-supplied identity. Each
-browser/DB stage is bounded to 10–15 seconds; do not hide readiness or locator
-failures by increasing the total timeout.
+The final six-model Agent OS has no replay transcript or browser-owned session
+graph, so the deleted legacy browser harness is not an acceptance authority.
+`npm run smoke:interaction-os` builds the production Nest and Next artifacts and
+locks the Attempt process boundary, admission, readiness, and restart-recovery
+contracts. Real PostgreSQL integration specs verify durable Task, Invocation,
+Approval, Operation, idempotency, and organization fences against their own
+isolated Testcontainers database. Release acceptance additionally boots the
+compiled Nest API and worker against an explicitly named disposable PostgreSQL
+17 database, verifies the authenticated same-origin `/api/copilotkit` boundary,
+and shuts both processes down cleanly.
 
 ### Tier 3 추가 시 체크리스트
 

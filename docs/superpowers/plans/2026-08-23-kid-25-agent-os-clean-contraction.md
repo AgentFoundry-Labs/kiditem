@@ -78,7 +78,7 @@ is a hard stop.
 - Create: `apps/server/src/agent-os/adapter/out/transaction/work/prisma-agent-work.transaction.ts`
 - Create: `apps/server/src/agent-os/__tests__/agent-work-repository.pg.integration.spec.ts`
 
-- [ ] **Step 1: Write failing domain, Agent, capability, and schema contract tests**
+- [x] **Step 1: Write failing domain, Agent, capability, and schema contract tests**
 
 Require the exact catalog and six Agent definitions:
 
@@ -127,7 +127,7 @@ rtk npm exec --workspace=apps/server vitest -- run \
 
 Expected: FAIL because the final registries and replacement graph do not exist.
 
-- [ ] **Step 2: Implement the final registry and policy source**
+- [x] **Step 2: Implement the final registry and policy source**
 
 Use this mutation policy:
 
@@ -165,7 +165,7 @@ Contract the implementation handler to `{ capabilityKey, invoke }`; it returns
 only concise summary, resource refs, operation refs, and typed output. It does
 not repeat schemas/effects/risk/idempotency and cannot return an artifact.
 
-- [ ] **Step 3: Add the physically separate replacement graph**
+- [x] **Step 3: Add the physically separate replacement graph**
 
 Use final logical Prisma symbols `AgentVersion`, `AgentSession`, and
 `AgentTask`, mapped to physical tables `agent_work_versions`,
@@ -215,7 +215,7 @@ Add partial unique constraints for one root Task, one live Attempt, delegated
 Task idempotency, and mutation owner idempotency; add unique Task ordinal and
 one Approval per Invocation. All relations are organization-fenced.
 
-- [ ] **Step 4: Implement shared work schemas and narrow persistence ports**
+- [x] **Step 4: Implement shared work schemas and narrow persistence ports**
 
 Use a common result envelope with no continuation/artifact/transcript fields:
 
@@ -237,7 +237,7 @@ projection load, reconciliation, and terminal-only Session deletion. They do
 not expose Prisma delegates or a general transaction callback. Every mutation
 takes `organizationId`; every single-resource read uses `{ id, organizationId }`.
 
-- [ ] **Step 5: Add report/enforce legacy scanning**
+- [x] **Step 5: Add report/enforce legacy scanning**
 
 `scripts/check-agent-os-contraction.mjs` supports `--report` during Tasks 1–4
 and `--enforce` after Task 5. It finds legacy AgentRun/Execution,
@@ -256,7 +256,7 @@ rtk node scripts/check-agent-os-contraction.mjs --report
 
 Expected: scanner tests PASS and report mode lists current legacy findings.
 
-- [ ] **Step 6: Verify additive persistence and commit**
+- [x] **Step 6: Verify additive persistence and commit**
 
 ```bash
 rtk node -e "if (!process.env.KID25_AGENT_TEST_DATABASE_URL) throw new Error('KID25_AGENT_TEST_DATABASE_URL is required')"
@@ -292,7 +292,7 @@ Expected: PASS; no destructive push or legacy data rewrite occurs in this task.
 - Replace internals under: `apps/server/src/agent-os/application/service/session-control/`
 - Replace internals under: `apps/server/src/agent-os/adapter/out/transaction/session-control/`
 
-- [ ] **Step 1: Write the failing admission and lifecycle matrix**
+- [x] **Step 1: Write the failing admission and lifecycle matrix**
 
 Cover these exact cases:
 
@@ -324,7 +324,7 @@ rtk npm run test:integration --workspace=apps/server -- \
 
 Expected: FAIL before the common boundary exists.
 
-- [ ] **Step 2: Implement immediate process-local capacity and common admission**
+- [x] **Step 2: Implement immediate process-local capacity and common admission**
 
 `AGENT_CLI_MAX_CONCURRENCY` defaults to `4`. `tryReserve()` returns a
 single-release lease or throws `agent_capacity_exhausted`; it never waits or
@@ -340,7 +340,7 @@ Every rejection/race releases its provisional lease.
 
 Do not acquire a PostgreSQL advisory lock and do not add background admission.
 
-- [ ] **Step 3: Implement exact Invocation authorization and Approval**
+- [x] **Step 3: Implement exact Invocation authorization and Approval**
 
 Canonicalize input before authorization and atomically create one Invocation:
 
@@ -360,7 +360,7 @@ and Approval, validates exact hash/current user/expiry, and atomically changes
 Approval plus Invocation. The expiry service uses the same fence and changes
 due pending Approval to `expired` and Invocation to `failed/approval_expired`.
 
-- [ ] **Step 4: Implement explicit Task transitions and derived projection**
+- [x] **Step 4: Implement explicit Task transitions and derived projection**
 
 Only the lifecycle service writes Task status. Process errors never directly
 write Task terminal state. Enforce:
@@ -377,7 +377,7 @@ The projection may return `running`, `awaiting_approval`,
 terminal/error UI values. None is persisted. `needs_continue` means an open
 Task with no live Attempt that permits a manual follow-up; it never starts work.
 
-- [ ] **Step 5: Implement terminal-only transactional Session deletion**
+- [x] **Step 5: Implement terminal-only transactional Session deletion**
 
 Lock the organization-fenced Session row, then inspect Tasks/Attempts/
 Invocations/Approvals. If any Attempt or Invocation is nonterminal or Approval
@@ -386,7 +386,7 @@ graph by cascade. Admission uses the same Session-before-Task lock order, so a
 delete/admission race cannot leave post-delete work or require a `deleting`
 state. Operations/business resources remain.
 
-- [ ] **Step 6: Run lifecycle/race gates and commit**
+- [x] **Step 6: Run lifecycle/race gates and commit**
 
 ```bash
 rtk npm exec --workspace=apps/server vitest -- run \
@@ -435,7 +435,7 @@ Expected: PASS with no continuation/deletion/capacity state columns.
 - Create: `apps/server/src/agent-os/adapter/out/runtime/attempt/agent-attempt-runtime.spec.ts`
 - Create: `apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-broker.spec.ts`
 
-- [ ] **Step 1: Write failing owner, publication, CLI, and broker tests**
+- [x] **Step 1: Write failing owner, publication, CLI, and broker tests**
 
 Require the current exact eighteen-key Agent-facing catalog:
 
@@ -492,7 +492,7 @@ rtk npm exec --workspace=apps/server vitest -- run \
 
 Expected: FAIL on misplaced capability keys and persistent-session runtime code.
 
-- [ ] **Step 2: Move capabilities to exact owner input ports and publish versions**
+- [x] **Step 2: Move capabilities to exact owner input ports and publish versions**
 
 Move generation-package work to Products and Wing submission to Channels.
 Keep shadow-signal collection as both a Sourcing-owned Operation and an Agent
@@ -518,7 +518,7 @@ runtime, and instruction-profile reference. It contains no model/policy/tool
 allowlist/credential. Later capability publication creates a new AgentVersion
 and never mutates an existing one.
 
-- [ ] **Step 3: Pin and implement ephemeral CLI process adapters**
+- [x] **Step 3: Pin and implement ephemeral CLI process adapters**
 
 Keep Codex `0.149.0`; change Claude from `2.1.240` to `2.1.122`. Exact runtime
 profile supplies model/settings; missing model fails.
@@ -540,7 +540,7 @@ the service account's ordinary settings, plugins, hooks, memories, or skills.
 `liveControlHandle` exists only in the process-memory registry for the same
 Attempt. It handles a second message/interrupt and is deleted at terminal state.
 
-- [ ] **Step 4: Implement the Attempt-bound Unix-socket MCP broker**
+- [x] **Step 4: Implement the Attempt-bound Unix-socket MCP broker**
 
 The stdio proxy receives only its private Unix-socket coordinate. API memory
 binds socket to Attempt/AgentVersion/user/organization/scope/process group,
@@ -553,7 +553,7 @@ target-Agent delegation, and child `status|wait|result|message|interrupt`.
 Native subagents use the same socket/scope/slot. Do not expose cancel/reopen/
 delete as MCP authority.
 
-- [ ] **Step 5: Implement focused readiness without enterprise gates**
+- [x] **Step 5: Implement focused readiness without enterprise gates**
 
 Readiness verifies the runtime selected by each current published AgentVersion:
 exact binary/version, login state, non-persistent flags, strict MCP config, one
@@ -561,7 +561,7 @@ bounded request, scoped MCP call, live second input, and cleanup. Admission also
 checks the Task-pinned runtime. Do not add scheduled compatibility workflows,
 dynamic retained-task deployment inventory, or an advisory singleton lock.
 
-- [ ] **Step 6: Verify runtime/owner behavior and commit**
+- [x] **Step 6: Verify runtime/owner behavior and commit**
 
 ```bash
 rtk npm install
@@ -595,7 +595,7 @@ Expected: PASS with no provider history, credentials, wrapper Agents, or remote 
 - Modify: `apps/server/src/agent-os/__tests__/agent-os-automation-boundary.spec.ts`
 - Create: `apps/server/src/agent-os/__tests__/agent-restart-recovery.pg.integration.spec.ts`
 
-- [ ] **Step 1: Write failing dispatch/restart tests**
+- [x] **Step 1: Write failing dispatch/restart tests**
 
 Cover:
 
@@ -625,7 +625,7 @@ rtk npm run test:integration --workspace=apps/server -- \
 
 Expected: FAIL while old generic worker/recovery paths remain.
 
-- [ ] **Step 2: Implement Invocation-row mutation dispatch**
+- [x] **Step 2: Implement Invocation-row mutation dispatch**
 
 Use the Invocation table as the only work source. Claim `ready` rows with
 bounded lease/`FOR UPDATE SKIP LOCKED`; on expired lease use the same canonical
@@ -638,7 +638,7 @@ Changed SHA/fingerprint returns `failed/stale_capability_version`; changed
 resource returns `failed/stale_resource`. A `job_enqueue` succeeds when its
 Operation is durably created. Worker never creates an Attempt.
 
-- [ ] **Step 3: Implement API boot reconciliation**
+- [x] **Step 3: Implement API boot reconciliation**
 
 On same-SHA boot:
 
@@ -655,7 +655,7 @@ path. Remove only non-symlink validated Attempt directories/sockets beneath the
 configured root and terminate only owned orphan process groups. Never recreate
 canonical read input or provider session.
 
-- [ ] **Step 4: Wire worker Approval expiry and restart-safe leases**
+- [x] **Step 4: Wire worker Approval expiry and restart-safe leases**
 
 Worker polling includes due pending Approval expiry and ready/expired-lease
 mutation dispatch. Approval expiry and a concurrent user decision use the same
@@ -665,14 +665,14 @@ identity/session; lease expiry plus owner idempotency is the recovery contract.
 Do not add release drain, background continuation polling, or Operation post-
 accepting Agent hooks.
 
-- [ ] **Step 5: Recompose API/worker dependency roots**
+- [x] **Step 5: Recompose API/worker dependency roots**
 
 API root owns live executor and boot reconciliation. Worker root owns mutation
 dispatch, Approval expiry, and Operations. Worker/MCP roots cannot import or
 resolve the CopilotKit HTTP adapter. Remove `AGENT_RUNTIME_WORKER_ENABLED`; the
 existing worker process is always the deterministic work boundary.
 
-- [ ] **Step 6: Run restart gates and commit**
+- [x] **Step 6: Run restart gates and commit**
 
 ```bash
 rtk npm exec --workspace=apps/server vitest -- run \
@@ -707,8 +707,10 @@ Expected: PASS for same-SHA API and worker restart with no duplicate mutation.
 - Modify: `apps/web/src/components/agent-interaction/useInteractionBootstrap.ts`
 - Modify: `apps/web/src/components/agent-interaction/interaction-store.ts`
 - Replace: `apps/web/src/app/agent-os/page.tsx`
-- Modify: `apps/web/e2e/agent-session-interaction.spec.ts`
-- Modify: `apps/web/e2e/interaction-os/durable-session.spec.ts`
+- Delete: `apps/web/e2e/agent-session-interaction.spec.ts`
+- Delete: `apps/web/e2e/interaction-os/durable-session.spec.ts`
+- Delete: `apps/web/e2e/fixtures/agent-interaction-harness.ts`
+- Delete: `playwright.config.ts`
 - Delete: `apps/web/src/app/(automation)/agents/`
 - Delete legacy files under: `apps/web/src/app/agent-os/lib/`
 - Modify AgentRun callers under: `apps/web/src/app/(product-pipeline)/`
@@ -730,7 +732,7 @@ Expected: PASS for same-SHA API and worker restart with no duplicate mutation.
 - Modify: `docs/erd/system.md`
 - Modify: `package.json`
 
-- [ ] **Step 1: Write failing HTTP/Web/no-replay tests**
+- [x] **Step 1: Write failing HTTP/Web/no-replay tests**
 
 Require authenticated same-origin `/api/copilotkit`, one root Task, future live
 AG-UI, disconnect without Attempt cancellation, durable projection on refresh,
@@ -748,7 +750,7 @@ rtk npm exec --workspace=apps/web vitest -- run src/components/agent-interaction
 
 Expected: FAIL on Copilot thread/replay/Execution assumptions.
 
-- [ ] **Step 2: Implement the focused Nest incoming adapter and Web projection**
+- [x] **Step 2: Implement the focused Nest incoming adapter and Web projection**
 
 Nest authenticates user/organization, calls application ports in process, and
 owns no replay/session/authority/active-process state. First prompt defaults to
@@ -761,7 +763,7 @@ memory and renders durable Task tree, Attempt, Approval, mutation/Operation,
 summary, refs, `needs_input`, and manual `needs_continue`. No transcript is
 rebuilt after refresh.
 
-- [ ] **Step 3: Switch retained product/domain callers before deletion**
+- [x] **Step 3: Switch retained product/domain callers before deletion**
 
 Replace every `AGENT_RUNNER_PORT`/legacy AgentRun caller with the correct owner
 capability, deterministic Operation endpoint, or explicit Agent OS entrypoint.
@@ -770,7 +772,7 @@ contracts rather than silently losing functionality. Worker and Web compile
 against replacement work contracts only. No live request writes the legacy
 graph.
 
-- [ ] **Step 4: Delete legacy code/shared exports and finalize Prisma symbols**
+- [x] **Step 4: Delete legacy code/shared exports and finalize Prisma symbols**
 
 Delete generic AgentRun/Instance, Execution/policy/authority/grant/outbox,
 conversation/replay, artifact/materialization, cost/usage, Hermes/OpenAI,
@@ -785,7 +787,7 @@ only the six fixed models and no lifecycle/continuation/deletion fields.
 Remove `@kiditem/shared/agent-os` exports/typesVersions/tsup entry and retain the
 focused `@kiditem/shared/agent-interaction` contract.
 
-- [ ] **Step 5: Enforce zero legacy findings and verify destructive schema on a disposable database**
+- [x] **Step 5: Enforce zero legacy findings and verify destructive schema on a disposable database**
 
 Wire `check-agent-os-contraction --enforce` into `check:conventions` and script
 inventory. Rewrite old deletion/hexagonal scanners for terminal-only deletion
@@ -809,7 +811,7 @@ rtk npm run check:conventions
 Expected: PASS; destructive output drops only approved legacy Agent OS objects,
 unrelated rows remain, and scanner reports zero findings.
 
-- [ ] **Step 6: Run HTTP/Web/cutover gates and commit**
+- [x] **Step 6: Run HTTP/Web/cutover gates and commit**
 
 ```bash
 rtk npm exec --workspace=apps/server vitest -- run src/agent-os src/operations
@@ -849,7 +851,7 @@ Expected: PASS with no compatibility route, worker, fallback, or old schema.
 - Modify: `apps/server/src/agent-os/AGENTS.md`
 - Modify: `prisma/AGENTS.md`
 
-- [ ] **Step 1: Make deployment exactly one Web/API/worker stack**
+- [x] **Step 1: Make deployment exactly one Web/API/worker stack**
 
 The Office/home host is Windows and runs the existing Linux containers through
 Docker Desktop. Compose declares one API replica. API owns CopilotKit/live CLI
@@ -870,7 +872,7 @@ AGENT_CLI_MAX_CONCURRENCY=4
 Update deployment contract tests to reject a second API replica or any removed
 surface. GitHub Actions remains the only supported release entrypoint.
 
-- [ ] **Step 2: Add the basic destructive-cutover safety sequence**
+- [x] **Step 2: Add the basic destructive-cutover safety sequence**
 
 The workflow/operator runbook performs:
 
@@ -890,7 +892,7 @@ Do not automate restore rehearsal, archive retention policy, RPO/RTO, or release
 drain. Never log the database URL, archive contents, credentials, prompts, or
 canonical mutation input.
 
-- [ ] **Step 3: Rewrite durable architecture/runbooks/instructions**
+- [x] **Step 3: Rewrite durable architecture/runbooks/instructions**
 
 `docs/ARCHITECTURE.md` and Agent OS `AGENTS.md` describe only the single-node
 six-model graph, process-local capacity, terminal deletion, manual Continue,
@@ -901,7 +903,7 @@ and code upgrade as stop/start after confirming no ready/executing mutation.
 PR release decision is: destructive unreleased Agent OS cutover, no backfill;
 basic custom backup/list/checksum; actual legacy Agent data discarded.
 
-- [ ] **Step 4: Run the full mandatory acceptance matrix**
+- [x] **Step 4: Run the full mandatory acceptance matrix**
 
 Use one explicit disposable acceptance database for schema/seed/boot/smoke:
 
@@ -924,13 +926,10 @@ rtk env DATABASE_URL="$KID25_ACCEPTANCE_DATABASE_URL" npm run dev:server
 ```
 
 Confirm Nest boot, selected CLI readiness, same-origin CopilotKit, and no legacy
-module resolution error; keep it running for Playwright and stop cleanly after:
-
-```bash
-rtk npm exec --workspace=apps/web playwright test \
-  e2e/agent-session-interaction.spec.ts \
-  e2e/interaction-os/durable-session.spec.ts
-```
+module resolution error. Verify an unauthenticated readiness, CopilotKit root,
+and CopilotKit run request are rejected before runtime execution, then stop the
+API cleanly. The legacy browser harness is deleted with the replay/session graph
+and is not recreated as a release gate.
 
 In a separate terminal, start the worker against the same acceptance database:
 
