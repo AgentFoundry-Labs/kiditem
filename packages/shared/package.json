@@ -394,6 +394,9 @@
       "agent-interaction": [
         "dist/agent-interaction/index.d.ts"
       ],
+      "agent-runtime": [
+        "dist/agent-runtime/index.d.ts"
+      ],
       "workflow": [
         "dist/workflow.d.ts"
       ],

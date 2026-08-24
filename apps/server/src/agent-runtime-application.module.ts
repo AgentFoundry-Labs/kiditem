@@ -1,21 +1,23 @@
 import { Module } from '@nestjs/common';
 import { AgentWorkCapabilityApplicationModule } from './agent-work-capability-application.module';
-import { AgentAttemptProcessRegistry } from './agent-os/adapter/out/runtime/attempt/agent-attempt-process-registry';
-import { AttemptFilesystemService } from './agent-os/adapter/out/runtime/attempt/attempt-filesystem.service';
-import { AttemptLiveControlRegistry } from './agent-os/adapter/out/runtime/attempt/attempt-live-control.registry';
-import { AgentAttemptExecutorService } from './agent-os/adapter/out/runtime/attempt/agent-attempt-executor.service';
 import { AttemptFutureOutputChannel } from './agent-os/adapter/out/runtime/attempt/attempt-future-output-channel';
 import { AgentAttemptRuntimeAdmissionService } from './agent-os/adapter/out/runtime/attempt/agent-attempt-runtime-admission.service';
-import { AgentAttemptReadinessService } from './agent-os/adapter/out/runtime/attempt/agent-attempt-readiness.service';
-import { AttemptMcpBrokerService } from './agent-os/adapter/in/mcp/attempt-mcp-broker.service';
+import { AttemptTokenRegistry } from './agent-os/adapter/out/runtime/runner/attempt-token.registry';
+import { HostRunnerAttemptExecutorService } from './agent-os/adapter/out/runtime/runner/host-runner-attempt-executor.service';
+import { RunnerAttemptPromptResolverService } from './agent-os/adapter/out/runtime/runner/runner-attempt-prompt-resolver.service';
+import { RunnerAttemptRuntimeControlService } from './agent-os/adapter/out/runtime/runner/runner-attempt-runtime-control.service';
+import { RunnerCommandQueue } from './agent-os/adapter/out/runtime/runner/runner-command.queue';
+import { RunnerEventHandlerService } from './agent-os/adapter/out/runtime/runner/runner-event-handler.service';
+import { RunnerInstallationTokenService } from './agent-os/adapter/out/runtime/runner/runner-installation-token.service';
+import { RunnerLeaseRegistry } from './agent-os/adapter/out/runtime/runner/runner-lease.registry';
+import { RunnerReadinessService } from './agent-os/adapter/out/runtime/runner/runner-readiness.service';
 import { AgentAttemptReconciler } from './agent-os/application/service/work/agent-attempt-reconciler.service';
 import { AgentApiStartupReconciler } from './agent-os/application/service/work/agent-api-startup-reconciler.service';
-import { AgentRuntimeDirectoryReconciler } from './agent-os/application/service/work/agent-runtime-directory-reconciler.service';
 import { AgentLiveMessageService } from './agent-os/application/service/work/agent-live-message.service';
 import { AttemptMcpActionsService } from './agent-os/application/service/work/attempt-mcp-actions.service';
 import { AgentDelegatedAttemptStarterService } from './agent-os/application/service/work/agent-delegated-attempt-starter.service';
 import { ATTEMPT_MCP_ACTIONS_PORT, type AttemptMcpActionsPort } from './agent-os/application/port/in/mcp/attempt-mcp-actions.port';
-import { LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT } from './agent-os/application/port/in/capability/live-attempt-execution.capability.port';
+import { LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT, type LiveAttemptExecutionCapabilityPort } from './agent-os/application/port/in/capability/live-attempt-execution.capability.port';
 import { LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT } from './agent-os/application/port/in/capability/live-attempt-future-output.capability.port';
 import { ATTEMPT_RUNTIME_CONTROL_PORT, type AttemptRuntimeControlPort } from './agent-os/application/port/out/runtime/attempt-runtime-control.port';
 import { AgentCapabilityInvocationService } from './agent-os/application/service/work/agent-capability-invocation.service';
@@ -25,28 +27,144 @@ import { PrismaAgentWorkRepository } from './agent-os/adapter/out/repository/wor
 import { AgentAttemptAdmissionService } from './agent-os/application/service/work/agent-attempt-admission.service';
 import { PrismaAgentWorkTransaction } from './agent-os/adapter/out/transaction/work/prisma-agent-work.transaction';
 import { PrismaService } from './prisma/prisma.service';
-import { AgentOsSessionModule } from './agent-os/agent-os-session.module';
 
-/** API-only local CLI/MCP execution and transient same-process recovery. */
+/**
+ * API-owned durable admission plus process-memory Host Runner control.
+ * Provider processes, homes, workspaces, and protocol streams stay outside Nest.
+ */
 @Module({
-  imports: [AgentWorkCapabilityApplicationModule, AgentOsSessionModule],
+  imports: [AgentWorkCapabilityApplicationModule],
   providers: [
-    AgentAttemptProcessRegistry, AttemptFilesystemService, AttemptLiveControlRegistry, AttemptFutureOutputChannel,
+    AttemptFutureOutputChannel,
     { provide: LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT, useExisting: AttemptFutureOutputChannel },
-    { provide: AgentAttemptReadinessService, useFactory: () => new AgentAttemptReadinessService() },
-    { provide: ATTEMPT_RUNTIME_CONTROL_PORT, useExisting: AttemptLiveControlRegistry },
-    { provide: AgentAttemptRuntimeAdmissionService, inject: [PrismaService, AgentAttemptReadinessService], useFactory: (prisma: PrismaService, readiness: AgentAttemptReadinessService) => new AgentAttemptRuntimeAdmissionService(prisma, readiness) },
-    { provide: AgentRuntimeDirectoryReconciler, inject: [AttemptFilesystemService], useFactory: (files: AttemptFilesystemService) => new AgentRuntimeDirectoryReconciler({ cleanAttempt: (attemptId) => files.cleanAttempt(attemptId), reapMarkedProcess: (attemptId) => files.reapMarkedProcess(attemptId) }) },
-    { provide: AgentAttemptReconciler, inject: [PrismaAgentWorkTransaction, AgentAttemptAdmissionService, AgentAttemptProcessRegistry, AgentRuntimeDirectoryReconciler], useFactory: (work: PrismaAgentWorkTransaction, admissions: AgentAttemptAdmissionService, processes: AgentAttemptProcessRegistry, directories: AgentRuntimeDirectoryReconciler) => new AgentAttemptReconciler(work, admissions, processes, directories, currentWorkRuntimeIdentity()) },
-    { provide: AgentApiStartupReconciler, inject: [AgentAttemptReconciler], useFactory: (attempts: AgentAttemptReconciler) => new AgentApiStartupReconciler(attempts) },
-    { provide: AgentLiveMessageService, inject: [AttemptLiveControlRegistry, PrismaAgentWorkRepository], useFactory: (controls: AttemptLiveControlRegistry, work: PrismaAgentWorkRepository) => new AgentLiveMessageService({ deliver: async (input) => controls.get(input.attemptId)?.send(input.content) }, work) },
-    AgentDelegatedAttemptStarterService,
-    { provide: ATTEMPT_MCP_ACTIONS_PORT, inject: [AgentCapabilityInvocationService, AgentTaskDelegationService, PrismaAgentWorkRepository, ATTEMPT_RUNTIME_CONTROL_PORT, AgentDelegatedAttemptStarterService, AgentCapabilityRegistry], useFactory: (invocations: AgentCapabilityInvocationService, delegation: AgentTaskDelegationService, work: PrismaAgentWorkRepository, controls: AttemptRuntimeControlPort, starter: AgentDelegatedAttemptStarterService, capabilities: AgentCapabilityRegistry) => new AttemptMcpActionsService(invocations, delegation, work, controls, starter, capabilities) },
-    { provide: AttemptMcpBrokerService, inject: [ATTEMPT_MCP_ACTIONS_PORT], useFactory: (actions: AttemptMcpActionsPort) => new AttemptMcpBrokerService(actions) },
-    { provide: AgentAttemptExecutorService, inject: [AttemptFilesystemService, AgentAttemptProcessRegistry, AttemptLiveControlRegistry, AttemptMcpBrokerService, AgentAttemptRuntimeAdmissionService, PrismaAgentWorkTransaction, AgentAttemptAdmissionService, AttemptFutureOutputChannel], useFactory: (files: AttemptFilesystemService, processes: AgentAttemptProcessRegistry, controls: AttemptLiveControlRegistry, broker: AttemptMcpBrokerService, admission: AgentAttemptRuntimeAdmissionService, work: PrismaAgentWorkTransaction, attempts: AgentAttemptAdmissionService, live: AttemptFutureOutputChannel) => new AgentAttemptExecutorService(files, processes, controls, broker, undefined, undefined, admission, { running: async (attemptId) => { await work.transitionAttempt({ attemptId, from: 'starting', to: 'running', at: new Date() }); }, terminal: async (attemptId, status, error, result) => { const data = { attemptId, to: status, at: new Date(), ...(error ? { error } : {}), ...(result ? { result } : {}) }; const transitioned = await work.transitionAttempt({ ...data, from: 'running' }); if (!transitioned.transitioned) await work.transitionAttempt({ ...data, from: 'starting' }); await work.finalizeTaskFromAttempt({ attemptId, at: new Date() }); live.finish({ attemptId, outcome: status === 'succeeded' ? 'completed' : 'failed', ...(result?.summary ? { summary: result.summary } : {}) }); }, release: (attemptId) => attempts.releaseAttempt(attemptId) }) },
-    { provide: LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT, useExisting: AgentAttemptExecutorService },
+    { provide: RunnerInstallationTokenService, useFactory: () => new RunnerInstallationTokenService() },
+    RunnerCommandQueue,
+    AttemptTokenRegistry,
+    {
+      provide: RunnerLeaseRegistry,
+      inject: [RunnerCommandQueue],
+      useFactory: (commands: RunnerCommandQueue) => new RunnerLeaseRegistry({
+        commands,
+        // The event handler replaces this process-memory hook during module
+        // composition, avoiding a durable control record or Nest ModuleRef.
+        interruptAttempt: async () => undefined,
+      }),
+    },
+    {
+      provide: RunnerReadinessService,
+      inject: [RunnerLeaseRegistry],
+      useFactory: (leases: RunnerLeaseRegistry) => new RunnerReadinessService(leases),
+    },
+    {
+      provide: AgentAttemptRuntimeAdmissionService,
+      inject: [PrismaService, RunnerReadinessService],
+      useFactory: (prisma: PrismaService, readiness: RunnerReadinessService) =>
+        new AgentAttemptRuntimeAdmissionService(prisma, readiness),
+    },
+    RunnerAttemptPromptResolverService,
+    {
+      provide: RunnerAttemptRuntimeControlService,
+      inject: [RunnerCommandQueue, AttemptTokenRegistry],
+      useFactory: (commands: RunnerCommandQueue, tokens: AttemptTokenRegistry) =>
+        new RunnerAttemptRuntimeControlService({ commands, tokens }),
+    },
+    { provide: ATTEMPT_RUNTIME_CONTROL_PORT, useExisting: RunnerAttemptRuntimeControlService },
+    {
+      provide: AgentAttemptReconciler,
+      inject: [PrismaAgentWorkTransaction, AgentAttemptAdmissionService],
+      useFactory: (work: PrismaAgentWorkTransaction, admissions: AgentAttemptAdmissionService) =>
+        new AgentAttemptReconciler(work, admissions, currentWorkRuntimeIdentity()),
+    },
+    {
+      provide: AgentApiStartupReconciler,
+      inject: [AgentAttemptReconciler],
+      useFactory: (attempts: AgentAttemptReconciler) => new AgentApiStartupReconciler(attempts),
+    },
+    {
+      provide: AgentLiveMessageService,
+      inject: [RunnerAttemptRuntimeControlService, PrismaAgentWorkRepository],
+      useFactory: (controls: RunnerAttemptRuntimeControlService, work: PrismaAgentWorkRepository) =>
+        new AgentLiveMessageService({
+          deliver: async (input) => controls.send({ attemptId: input.attemptId, message: input.content }),
+        }, work),
+    },
+    {
+      provide: RunnerEventHandlerService,
+      inject: [RunnerLeaseRegistry, RunnerCommandQueue, AttemptTokenRegistry, PrismaAgentWorkTransaction, AgentAttemptAdmissionService, AttemptFutureOutputChannel],
+      useFactory: (
+        leases: RunnerLeaseRegistry,
+        commands: RunnerCommandQueue,
+        tokens: AttemptTokenRegistry,
+        work: PrismaAgentWorkTransaction,
+        admissions: AgentAttemptAdmissionService,
+        output: AttemptFutureOutputChannel,
+      ) => new RunnerEventHandlerService({
+        leases,
+        commands,
+        tokens,
+        work,
+        capacity: admissions,
+        output,
+      }),
+    },
+    {
+      provide: HostRunnerAttemptExecutorService,
+      inject: [AgentAttemptRuntimeAdmissionService, RunnerAttemptPromptResolverService, AttemptTokenRegistry, RunnerCommandQueue, RunnerLeaseRegistry],
+      useFactory: (
+        admission: AgentAttemptRuntimeAdmissionService,
+        prompts: RunnerAttemptPromptResolverService,
+        tokens: AttemptTokenRegistry,
+        commands: RunnerCommandQueue,
+        leases: RunnerLeaseRegistry,
+      ) => new HostRunnerAttemptExecutorService({
+        admission,
+        prompts,
+        tokens,
+        commands,
+        leases,
+        loopbackOrigin: hostRunnerLoopbackOrigin(),
+      }),
+    },
+    { provide: LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT, useExisting: HostRunnerAttemptExecutorService },
+    {
+      provide: AgentDelegatedAttemptStarterService,
+      inject: [LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT, PrismaAgentWorkTransaction, AgentAttemptAdmissionService],
+      useFactory: (
+        execution: LiveAttemptExecutionCapabilityPort,
+        work: PrismaAgentWorkTransaction,
+        admissions: AgentAttemptAdmissionService,
+      ) => new AgentDelegatedAttemptStarterService(execution, work, admissions),
+    },
+    {
+      provide: ATTEMPT_MCP_ACTIONS_PORT,
+      inject: [AgentCapabilityInvocationService, AgentTaskDelegationService, PrismaAgentWorkRepository, ATTEMPT_RUNTIME_CONTROL_PORT, AgentDelegatedAttemptStarterService, AgentCapabilityRegistry],
+      useFactory: (
+        invocations: AgentCapabilityInvocationService,
+        delegation: AgentTaskDelegationService,
+        work: PrismaAgentWorkRepository,
+        controls: AttemptRuntimeControlPort,
+        starter: AgentDelegatedAttemptStarterService,
+        capabilities: AgentCapabilityRegistry,
+      ): AttemptMcpActionsPort => new AttemptMcpActionsService(invocations, delegation, work, controls, starter, capabilities),
+    },
   ],
-  exports: [AgentAttemptExecutorService, AttemptMcpBrokerService, AgentAttemptReconciler, AgentLiveMessageService, AttemptFutureOutputChannel, LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT, LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT],
+  exports: [
+    ATTEMPT_MCP_ACTIONS_PORT,
+    ATTEMPT_RUNTIME_CONTROL_PORT,
+    AttemptFutureOutputChannel,
+    AttemptTokenRegistry,
+    AgentApiStartupReconciler,
+    AgentAttemptReconciler,
+    AgentLiveMessageService,
+    HostRunnerAttemptExecutorService,
+    LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT,
+    LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT,
+    RunnerCommandQueue,
+    RunnerEventHandlerService,
+    RunnerInstallationTokenService,
+    RunnerLeaseRegistry,
+    RunnerReadinessService,
+  ],
 })
 export class AgentRuntimeApplicationModule {}
 
@@ -55,4 +173,8 @@ function currentWorkRuntimeIdentity() {
   const gitSha = process.env.KIDITEM_GIT_SHA?.trim();
   if (!applicationVersion || !gitSha) throw new Error('missing_required_work_runtime_identity');
   return { applicationVersion, gitSha };
+}
+
+function hostRunnerLoopbackOrigin(): string {
+  return 'http://127.0.0.1:4000';
 }

@@ -57,7 +57,7 @@ function validLaunch() {
     prompt: 'Inspect the current task and return a concise result.',
     workspacePolicy: 'empty_ephemeral_v1',
     timeoutMs: 30_000,
-    mcpUrl: 'http://127.0.0.1:4401/api/internal/agent-runtime/attempts/111/mcp',
+    mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${ATTEMPT_ID}/mcp`,
     attemptToken: ATTEMPT_TOKEN,
     mcpProtocolRevision: '2026-07-28',
     cliContractIdentity: 'office-cli-contract-v2',
@@ -122,21 +122,23 @@ describe('native Runner control protocol', () => {
     expect(OpaqueBearerSchema.safeParse('a'.repeat(42)).success).toBe(false);
   });
 
-  it('accepts only unauthenticated HTTP loopback MCP URLs', () => {
+  it('accepts only the fixed unauthenticated sibling HTTP MCP endpoint', () => {
     for (const value of [
-      'http://127.0.0.1:4401/api/internal/agent-runtime/attempts/111/mcp',
-      'http://[::1]:4401/api/internal/agent-runtime/attempts/111/mcp',
+      `http://127.0.0.1:4000/internal/agent-runtime/attempts/${ATTEMPT_ID}/mcp`,
     ]) {
       expect(LoopbackHttpUrlSchema.safeParse(value).success).toBe(true);
     }
 
     for (const value of [
-      'https://127.0.0.1:4401/mcp',
-      'http://localhost:4401/mcp',
-      'http://192.168.1.10:4401/mcp',
-      'http://runner:secret@127.0.0.1:4401/mcp',
-      'http://127.0.0.1:4401/mcp?trace=1',
-      'http://127.0.0.1:4401/mcp#fragment',
+      `http://127.0.0.1:4401/api/internal/agent-runtime/attempts/${ATTEMPT_ID}/mcp`,
+      `http://127.0.0.1:4000/api/internal/agent-runtime/attempts/${ATTEMPT_ID}/mcp`,
+      `http://[::1]:4000/internal/agent-runtime/attempts/${ATTEMPT_ID}/mcp`,
+      `https://127.0.0.1:4000/internal/agent-runtime/attempts/${ATTEMPT_ID}/mcp`,
+      `http://localhost:4000/internal/agent-runtime/attempts/${ATTEMPT_ID}/mcp`,
+      `http://192.168.1.10:4000/internal/agent-runtime/attempts/${ATTEMPT_ID}/mcp`,
+      `http://runner:secret@127.0.0.1:4000/internal/agent-runtime/attempts/${ATTEMPT_ID}/mcp`,
+      `http://127.0.0.1:4000/internal/agent-runtime/attempts/${ATTEMPT_ID}/mcp?trace=1`,
+      `http://127.0.0.1:4000/internal/agent-runtime/attempts/${ATTEMPT_ID}/mcp#fragment`,
       '',
       'not a url',
     ]) {

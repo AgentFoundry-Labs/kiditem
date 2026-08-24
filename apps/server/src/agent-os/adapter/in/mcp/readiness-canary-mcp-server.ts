@@ -1,43 +1,49 @@
 import { access, writeFile } from 'node:fs/promises';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { z } from 'zod/v3';
+import { setTimeout as delay } from 'node:timers/promises';
+import { McpServer } from '@modelcontextprotocol/server';
+import { z as z4 } from 'zod-v4';
 
-const nonce = required('READINESS_CANARY_NONCE');
-const callFile = required('READINESS_CANARY_CALL_FILE');
-const releaseFile = required('READINESS_CANARY_RELEASE_FILE');
+export interface ReadinessCanaryMcpServerOptions {
+  nonce: string;
+  callFile: string;
+  releaseFile: string;
+  releaseTimeoutMs?: number;
+}
 
-export async function runReadinessCanaryMcpServer(): Promise<void> {
-  const server = new McpServer({ name: 'kiditem-readiness-canary', version: '1.0.0' });
+/**
+ * Nest owns transport admission; this factory owns only the authority-free
+ * readiness tool used to prove a provider can finish one modern MCP exchange.
+ */
+export function createReadinessCanaryMcpServer(options: ReadinessCanaryMcpServerOptions): McpServer {
+  const server = new McpServer({ name: 'kiditem-readiness-canary', version: '2.0.0' });
   server.registerTool('readiness_probe', {
     description: 'Readiness-only scoped probe. Call once with the supplied nonce, then wait for release.',
-    inputSchema: z.object({ nonce: z.string().uuid() }).strict(),
+    inputSchema: z4.object({ nonce: z4.string().uuid() }).strict(),
+    outputSchema: z4.object({ nonce: z4.string().uuid() }).strict(),
   }, async (input) => {
-    if (input.nonce !== nonce) return { isError: true, content: [{ type: 'text' as const, text: 'nonce_mismatch' }] };
-    await writeFile(callFile, nonce, { mode: 0o600, flag: 'wx' }).catch(() => undefined);
-    await waitForRelease();
-    return { content: [{ type: 'text' as const, text: JSON.stringify({ nonce }) }] };
+    if (input.nonce !== options.nonce) {
+      return { isError: true, content: [{ type: 'text' as const, text: 'nonce_mismatch' }] };
+    }
+    await writeFile(options.callFile, options.nonce, { mode: 0o600, flag: 'wx' }).catch(() => undefined);
+    await waitForRelease(options.releaseFile, options.releaseTimeoutMs ?? 25_000);
+    const result = { nonce: options.nonce };
+    return {
+      structuredContent: result,
+      content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+    };
   });
-  await server.connect(new StdioServerTransport());
+  return server;
 }
 
-async function waitForRelease(): Promise<void> {
-  const deadline = Date.now() + 25_000;
+async function waitForRelease(releaseFile: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    try { await access(releaseFile); return; } catch { await new Promise((resolve) => setTimeout(resolve, 100)); }
+    try {
+      await access(releaseFile);
+      return;
+    } catch {
+      await delay(100);
+    }
   }
   throw new Error('readiness_canary_release_timeout');
-}
-
-function required(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`missing_${name.toLowerCase()}`);
-  return value;
-}
-
-if (require.main === module) {
-  runReadinessCanaryMcpServer().catch((error) => {
-    console.error(error instanceof Error ? error.message : 'readiness_canary_mcp_failed');
-    process.exitCode = 1;
-  });
 }

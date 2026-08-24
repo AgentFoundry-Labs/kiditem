@@ -1,4 +1,4 @@
-import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -71,6 +71,8 @@ import { UploadsModule } from './uploads/uploads.module';
 })
 export class ApiApplicationModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(SessionAuthMiddleware).forRoutes('*');
+    consumer.apply(SessionAuthMiddleware)
+      .exclude({ path: 'internal/agent-runtime/*path', method: RequestMethod.ALL })
+      .forRoutes('*');
   }
 }

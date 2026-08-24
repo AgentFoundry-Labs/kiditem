@@ -7,6 +7,7 @@ export {
   AgentResultEnvelopeSchema,
   AgentTaskStatusSchema,
   AuthorizationKindSchema,
+  BoundedCanonicalJsonSchema,
   CapabilityIdempotencySchema,
   OperationRefSchema,
   ResourceRefSchema,

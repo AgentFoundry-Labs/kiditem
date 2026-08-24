@@ -14,7 +14,7 @@ describe('sourcing extension route security wiring', () => {
       resolve(__dirname, '../../../../../deploy/office/nginx.conf'),
       'utf8',
     );
-    const internalBoundary = nginx.indexOf('location ^~ /api/internal/');
+    const internalBoundary = nginx.indexOf('location ^~ /internal/');
     const apiProxy = nginx.indexOf('location /api/');
     expect(internalBoundary).toBeGreaterThanOrEqual(0);
     expect(nginx.slice(internalBoundary, apiProxy)).toContain('return 404;');
@@ -23,12 +23,17 @@ describe('sourcing extension route security wiring', () => {
 
   it('runs the global KidItem session middleware on extension routes', () => {
     const sessionForRoutes = vi.fn();
-    const apply = vi.fn().mockReturnValue({ forRoutes: sessionForRoutes });
+    const exclude = vi.fn().mockReturnValue({ forRoutes: sessionForRoutes });
+    const apply = vi.fn().mockReturnValue({ exclude });
 
     new ApiApplicationModule().configure({ apply } as never);
 
     expect(apply).toHaveBeenCalledTimes(1);
     expect(apply).toHaveBeenCalledWith(SessionAuthMiddleware);
+    expect(exclude).toHaveBeenCalledWith({
+      path: 'internal/agent-runtime/*path',
+      method: RequestMethod.ALL,
+    });
     expect(sessionForRoutes).toHaveBeenCalledWith('*');
   });
 

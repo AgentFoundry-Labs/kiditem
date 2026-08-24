@@ -157,11 +157,11 @@ test('office API image validates the current API and worker application roots', 
   assert.doesNotMatch(dockerfile, /require\('\.\/apps\/server\/dist\/app\.module\.js'\)/);
 });
 
-test('office API image ships ps for the private MCP peer verifier and readiness canary', () => {
+test('office API image has no process-inspection dependency after Host Runner cutover', () => {
   const dockerfile = read('apps/server/Dockerfile');
 
-  assert.match(dockerfile, /install -y --no-install-recommends[\s\S]*\bprocps\b/);
-  assert.match(dockerfile, /command -v ps/);
+  assert.doesNotMatch(dockerfile, /\bprocps\b/);
+  assert.doesNotMatch(dockerfile, /command -v ps/);
 });
 
 test('office API image context resolves every published Agent instruction profile exactly', () => {
@@ -182,16 +182,16 @@ test('office API image context resolves every published Agent instruction profil
   }
 });
 
-test('office API runtime alone owns installed local CLIs and a read-only service-account profile', () => {
+test('office API exposes only the loopback Host Runner boundary and contains no provider runtime', () => {
   const serverPackage = JSON.parse(read('apps/server/package.json'));
   const dockerfile = read('apps/server/Dockerfile');
   const compose = read('deploy/office/compose.office.yml');
 
-  assert.equal(typeof serverPackage.dependencies['@openai/codex'], 'string');
-  assert.equal(typeof serverPackage.dependencies['@anthropic-ai/claude-code'], 'string');
+  assert.equal(serverPackage.dependencies['@openai/codex'], undefined);
+  assert.equal(serverPackage.dependencies['@anthropic-ai/claude-code'], undefined);
   assert.match(dockerfile, /ENV PATH=\/app\/apps\/server\/node_modules\/\.bin:\/app\/node_modules\/\.bin:/);
-  assert.match(dockerfile, /codex --version/);
-  assert.match(dockerfile, /claude --version/);
+  assert.doesNotMatch(dockerfile, /(?:codex|claude)\s+--version/i);
+  assert.doesNotMatch(dockerfile, /agent-attempt-readiness-canary/);
   assert.match(dockerfile, /COPY agent-config \.\/agent-config/);
   assert.match(dockerfile, /readiness-canary-mcp-server\.js/);
   assert.match(dockerfile, /kiditem-agent-os-mcp-server\.js/);
@@ -199,59 +199,43 @@ test('office API runtime alone owns installed local CLIs and a read-only service
     dockerfile,
     /COPY agent-config\/prompts\/agents\/sourcing\.md/,
   );
-  assert.match(compose, /KIDITEM_ATTEMPT_LOGIN_HOME: \/var\/lib\/kiditem-cli/);
-  assert.match(compose, /kiditem-cli-home:\/var\/lib\/kiditem-cli:ro/);
+  assert.match(compose, /- "127\.0\.0\.1:4000:4000"/);
+  assert.match(compose, /KIDITEM_AGENT_RUNNER_TOKEN_FILE: \/run\/secrets\/agent_runner_token/);
+  assert.doesNotMatch(compose, /KIDITEM_AGENT_RUNTIME_LOOPBACK_ORIGIN|:4401/);
+  assert.match(compose, /agent_runner_token:/);
   assert.match(compose, /AGENT_CLI_MAX_CONCURRENCY: \$\{AGENT_CLI_MAX_CONCURRENCY:-4\}/);
   for (const key of ['OPERATOR', 'SOURCING', 'MERCHANDISING', 'SUPPLY', 'CHANNEL_OPERATIONS', 'ADVERTISING']) {
     assert.match(compose, new RegExp('AGENT_' + key + '_MODEL: \\$\\{AGENT_' + key + '_MODEL:\\?'));
   }
   assert.doesNotMatch(compose, /kiditem-agent-runs:\/var\/lib\/kiditem-agent-runs/);
-  assert.match(compose, /cli-login:/);
-  assert.match(compose, /profiles:\s*\["cli-login"\]/);
-  assert.match(compose, /command: \["codex", "login", "status"\]/);
+  assert.doesNotMatch(compose, /(?:KIDITEM_ATTEMPT_LOGIN_HOME|CODEX_HOME|CLAUDE_CONFIG_DIR|kiditem-cli-home|cli-login|\b(?:codex|claude)\b)/i);
   assert.doesNotMatch(compose, /OPENAI_API_KEY|ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN/);
   const worker = compose.slice(compose.indexOf('  worker:'), compose.indexOf('  web:'));
   assert.doesNotMatch(worker, /(?:HOME|CODEX_HOME|CLAUDE_CONFIG_DIR|KIDITEM_ATTEMPT_LOGIN_HOME|kiditem-cli-home)/);
   const runbook = read('docs/runbooks/office-deploy.md');
-  assert.match(runbook, /docker compose run --rm --no-deps cli-login codex login --device-auth/);
-  assert.match(runbook, /docker compose run --rm --no-deps cli-login claude auth login/);
+  assert.doesNotMatch(runbook, /docker compose run --rm --no-deps cli-login/);
   assert.doesNotMatch(runbook, /docker exec[^\n]*(codex|claude)/i);
 });
 
-test('office cli-login profile resolves with only its non-secret CLI-home environment', () => {
-  const result = spawnSync(
-    'docker',
-    [
-      'compose',
-      '--profile', 'cli-login',
-      '--env-file', 'deploy/office/office.env.example',
-      '--env-file', 'deploy/office/digest.env.example',
-      '-f', 'deploy/office/compose.office.yml',
-      'config', '--format', 'json',
-    ],
-    {
-      cwd: root,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        OFFICE_API_ENV_FILE: process.platform === 'win32' ? 'NUL' : '/dev/null',
-        KIDITEM_APPLICATION_VERSION: '0.0.0-test',
-        KIDITEM_GIT_SHA: 'a'.repeat(40),
-      },
-    },
+test('office MCP v2 ownership is package-local and Compose cannot select a provider protocol mode', () => {
+  const serverPackage = JSON.parse(read('apps/server/package.json'));
+  const compose = read('deploy/office/compose.office.yml');
+
+  assert.equal(serverPackage.dependencies['@modelcontextprotocol/server'], '2.0.0');
+  assert.equal(serverPackage.devDependencies['@modelcontextprotocol/client'], '2.0.0');
+  assert.equal(serverPackage.dependencies['@modelcontextprotocol/sdk'], undefined);
+  assert.equal(serverPackage.devDependencies['@modelcontextprotocol/sdk'], undefined);
+  assert.equal(serverPackage.dependencies['@modelcontextprotocol/core'], undefined);
+  assert.equal(serverPackage.devDependencies['@modelcontextprotocol/core'], undefined);
+  assert.equal(serverPackage.dependencies['@openai/codex'], undefined);
+  assert.equal(serverPackage.dependencies['@anthropic-ai/claude-code'], undefined);
+  assert.equal(serverPackage.dependencies['zod-v4'], 'npm:zod@4.4.3');
+  assert.equal(serverPackage.dependencies.zod, '^3.25.0');
+  assert.equal(serverPackage.dependencies['zod-to-json-schema'], '^3.25.2');
+  assert.doesNotMatch(
+    compose,
+    /^\s*(?:-\s*)?(?:ATTEMPT_MCP_PROTOCOL_MODE|OPERATOR_MCP_MODE|[A-Z0-9_]*MCP_(?:SDK|PROTOCOL|MODE)[A-Z0-9_]*)\s*:/m,
   );
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  const cliLogin = JSON.parse(result.stdout).services['cli-login'];
-  assert.deepEqual(Object.keys(cliLogin.environment).sort(), [
-    'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'DISABLE_AUTOUPDATER', 'HOME',
-  ]);
-  for (const key of [
-    'DATABASE_URL', 'DIRECT_URL', 'S3_ACCESS_KEY', 'S3_SECRET_KEY',
-    'SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'CHANNEL_CREDENTIALS_ENCRYPTION_KEY',
-  ]) assert.equal(cliLogin.environment[key], undefined, `cli-login leaked ${key}`);
-  assert.deepEqual(cliLogin.volumes, [
-    { type: 'volume', source: 'kiditem-cli-home', target: '/var/lib/kiditem-cli', volume: {} },
-  ]);
 });
 
 test(

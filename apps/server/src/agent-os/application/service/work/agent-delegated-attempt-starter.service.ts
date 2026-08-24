@@ -1,14 +1,16 @@
-import { ModuleRef } from '@nestjs/core';
-import { AgentAttemptExecutorService } from '../../../adapter/out/runtime/attempt/agent-attempt-executor.service';
-import { PrismaAgentWorkTransaction } from '../../../adapter/out/transaction/work/prisma-agent-work.transaction';
-import { AgentAttemptAdmissionService } from './agent-attempt-admission.service';
+import type { LiveAttemptExecutionCapabilityPort } from '../../port/in/capability/live-attempt-execution.capability.port';
+import type { AgentWorkTransactionPort } from '../../port/out/work/agent-work-transaction.port';
 
 /**
- * Starts a newly admitted delegated Attempt exactly once.  The lazy API-root
- * lookup avoids making the MCP broker and executor a construction-time cycle.
+ * Starts a newly admitted delegated Attempt through the capability boundary.
+ * It deliberately knows neither a concrete runtime adapter nor an API module.
  */
 export class AgentDelegatedAttemptStarterService {
-  constructor(private readonly modules: ModuleRef) {}
+  constructor(
+    private readonly execution: Pick<LiveAttemptExecutionCapabilityPort, 'start'>,
+    private readonly work: Pick<AgentWorkTransactionPort, 'transitionAttempt'>,
+    private readonly admissions: { releaseAttempt(attemptId: string): void },
+  ) {}
 
   async start(input: {
     attemptId: string;
@@ -27,13 +29,12 @@ export class AgentDelegatedAttemptStarterService {
   }): Promise<void> {
     try {
       if (input.runtime !== 'codex_cli' && input.runtime !== 'claude_cli') throw new Error('attempt_runtime_not_supported');
-      const executor = this.modules.get(AgentAttemptExecutorService, { strict: false });
       const model = input.model?.trim();
       if (!model) throw new Error(`missing_required_configuration:AGENT_${input.agentKey.toUpperCase()}_MODEL`);
-      await executor.start({
+      await this.execution.start({
         attemptId: input.attemptId,
         runtime: input.runtime,
-        profile: { model, loginHome: required('KIDITEM_ATTEMPT_LOGIN_HOME') },
+        profile: { model },
         prompt: input.prompt,
         instructionProfileRef: input.instructionProfileRef,
         mcp: {
@@ -43,7 +44,7 @@ export class AgentDelegatedAttemptStarterService {
         },
       });
     } catch (error) {
-      // Config failures happen before AgentAttemptExecutorService owns the
+      // Config failures happen before the Host Runner queue owns the
       // Attempt, so terminalize/release here rather than leaking a `starting`
       // row and its admission slot.
       await this.failBeforeStart({
@@ -57,19 +58,11 @@ export class AgentDelegatedAttemptStarterService {
 
   /** Releases a child that could not obtain its durable grant before launch. */
   async failBeforeStart(input: { attemptId: string; code: string; message: string }): Promise<void> {
-    const work = this.modules.get(PrismaAgentWorkTransaction, { strict: false });
-    const admissions = this.modules.get(AgentAttemptAdmissionService, { strict: false });
     try {
-      await work.transitionAttempt({
+      await this.work.transitionAttempt({
         attemptId: input.attemptId, from: 'starting', to: 'failed', at: new Date(),
         error: { code: input.code, message: input.message.slice(0, 1_000) },
       });
-    } finally { admissions.releaseAttempt(input.attemptId); }
+    } finally { this.admissions.releaseAttempt(input.attemptId); }
   }
-}
-
-function required(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`missing_required_configuration:${name}`);
-  return value;
 }

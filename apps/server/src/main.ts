@@ -8,7 +8,7 @@ config({ path: resolve(__dirname, '..', '.env') });
 config({ path: resolve(__dirname, '..', '..', '..', '.env') });
 
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const cookieParser = require('cookie-parser') as () => import('express').RequestHandler;
@@ -49,7 +49,11 @@ async function bootstrap() {
   });
   configureCopilotKitBodyParser(app);
   // SessionAuthMiddleware 가 KidItem HttpOnly 세션 쿠키를 읽기 위해 필요.
-  app.setGlobalPrefix('api');
+  // Native Host Runner control is a sibling loopback-only surface, not part
+  // of the public /api contract that nginx proxies to LAN clients.
+  app.setGlobalPrefix('api', {
+    exclude: [{ path: 'internal/agent-runtime/*path', method: RequestMethod.ALL }],
+  });
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
     transform: true,

@@ -1,17 +1,12 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
+import { AgentRuntimeApplicationModule } from '../agent-runtime-application.module';
 import { ReadinessService } from './readiness.service';
-import { AgentAttemptReadinessService } from '../agent-os/adapter/out/runtime/attempt/agent-attempt-readiness.service';
+import { RunnerReadinessService } from '../agent-os/adapter/out/runtime/runner/runner-readiness.service';
 
 @Module({
-  imports: [PrismaModule],
-  providers: [
-    ReadinessService,
-    {
-      provide: AgentAttemptReadinessService,
-      useFactory: () => new AgentAttemptReadinessService(),
-    },
-  ],
-  exports: [ReadinessService, AgentAttemptReadinessService],
+  imports: [PrismaModule, AgentRuntimeApplicationModule],
+  providers: [ReadinessService],
+  exports: [ReadinessService],
 })
 export class ReadinessStateModule {}

@@ -32,16 +32,18 @@ describe('Agent Work HTTP boundary', () => {
     }
   });
 
-  it('binds the final work input ports and the mandatory local MCP broker in module composition', () => {
+  it('binds final work input ports to Host Runner control and never API-local broker/process handlers', () => {
     const workModule = readFileSync(resolve(__dirname, '../../../../../../agent-work-capability-application.module.ts'), 'utf8');
     const runtimeModule = readFileSync(resolve(__dirname, '../../../../../../agent-runtime-application.module.ts'), 'utf8');
     expect(workModule).toContain('provide: AGENT_WORK_QUERY_PORT');
     expect(workModule).toContain('provide: AGENT_WORK_COMMAND_PORT');
     expect(workModule).toContain('AGENT_WORK_QUERY_REPOSITORY_PORT');
-    expect(runtimeModule).toContain('AttemptMcpBrokerService');
-    expect(runtimeModule).toContain('AgentAttemptExecutorService');
+    expect(runtimeModule).not.toContain('AttemptMcpBrokerService');
+    expect(runtimeModule).not.toContain('AgentAttemptExecutorService');
+    expect(runtimeModule).toContain('HostRunnerAttemptExecutorService');
+    expect(runtimeModule).toContain('RunnerLeaseRegistry');
     expect(runtimeModule).toContain('provide: LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT');
-    expect(runtimeModule).toContain('useExisting: AgentAttemptExecutorService');
+    expect(runtimeModule).toContain('useExisting: HostRunnerAttemptExecutorService');
     expect(runtimeModule).toContain('provide: LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT');
     expect(runtimeModule).toContain('useExisting: AttemptFutureOutputChannel');
   });

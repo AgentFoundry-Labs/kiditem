@@ -4,7 +4,6 @@ export const LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT = Symbol(
 
 export interface LiveAttemptRuntimeProfile {
   model: string;
-  loginHome: string;
 }
 
 export interface LiveAttemptMcpBinding {
@@ -24,6 +23,8 @@ export interface LiveAttemptExecutionCapabilityPort {
     profile: LiveAttemptRuntimeProfile;
     prompt: string;
     instructionProfileRef?: string;
+    /** Runtime deadline remains process-memory control state, never a schema field. */
+    deadlineAt?: Date;
     mcp: LiveAttemptMcpBinding;
   }): Promise<unknown>;
   interrupt(attemptId: string): Promise<void>;

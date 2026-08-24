@@ -148,7 +148,7 @@ test("does not confuse unrelated server code with native Runner ownership", () =
       },
       {
         path: "apps/agent-runner/src/runner-client.ts",
-        source: "await fetch('http://127.0.0.1:4401/api/internal/agent-runtime/poll');",
+        source: "await fetch('http://127.0.0.1:4000/internal/agent-runtime/runner/commands:poll');",
       },
     ]),
     [],
@@ -353,7 +353,7 @@ test("rejects duplicate runtime contracts outside the shared subpath", () => {
 test("accepts only canonical internal Runner controller prefixes", () => {
   for (const route of [
     "internal/agent-runtime/commands",
-    "/api/internal/agent-runtime/events",
+    "/internal/agent-runtime/events",
   ]) {
     assert.deepEqual(
       collectAgentOsContractionFindings([
@@ -370,7 +370,8 @@ test("accepts only canonical internal Runner controller prefixes", () => {
   for (const route of [
     "/api/agent-runtime/commands",
     "internal/agent-runtime-lan/events",
-    "/api/internal/agent-runtime-public/events",
+    "/api/internal/agent-runtime/events",
+    "/internal/agent-runtime-public/events",
   ]) {
     const findings = collectAgentOsContractionFindings([
       {
@@ -395,7 +396,7 @@ test("composes static Nest controller and method paths for Runner routes", () =>
     ],
     [
       "fully-qualified",
-      "@Controller('/api/internal/agent-runtime') export class RunnerController { @Post('runner/events') post() {} }",
+      "@Controller('/internal/agent-runtime') export class RunnerController { @Post('runner/events') post() {} }",
     ],
   ];
 
@@ -591,7 +592,7 @@ test("requires an nginx deny boundary for internal Runner routes", () => {
     collectAgentOsContractionFindings([
       {
         path: "deploy/office/nginx.conf",
-        source: "location ^~ /api/internal/agent-runtime/ { return 404; }",
+        source: "location ^~ /internal/ { return 404; }",
       },
     ]),
     [],
@@ -600,7 +601,7 @@ test("requires an nginx deny boundary for internal Runner routes", () => {
     collectAgentOsContractionFindings([
       {
         path: "deploy/office/nginx.conf",
-        source: "location /api/internal/agent-runtime/ { proxy_pass http://kiditem_api; }",
+        source: "location /internal/ { proxy_pass http://kiditem_api; }",
       },
     ]).includes("deploy/office/nginx.conf: nginx internal Agent runtime deny boundary"),
   );
@@ -609,7 +610,7 @@ test("requires an nginx deny boundary for internal Runner routes", () => {
       {
         path: "deploy/office/nginx.conf",
         source:
-          "location ^~ /api/internal/agent-runtime/ { proxy_pass http://kiditem_api; }\nlocation / { return 404; }",
+          "location ^~ /internal/ { proxy_pass http://kiditem_api; }\nlocation / { return 404; }",
       },
     ]).includes("deploy/office/nginx.conf: nginx internal Agent runtime deny boundary"),
     "a return in a later nginx location must not satisfy the internal route deny",

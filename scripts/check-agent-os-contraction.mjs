@@ -447,16 +447,13 @@ function isRunnerControlControllerName(value) {
 }
 
 function isCanonicalRunnerBasePath(value) {
-  return /^\/?(?:api\/)?internal\/agent-runtime(?:\/|$)/.test(value);
+  return /^\/?internal\/agent-runtime(?:\/|$)/.test(value);
 }
 
 function effectiveNestRoute(base, method) {
   const normalizedBase = base.replace(/^\/+|\/+$/g, "");
   const normalizedMethod = method.replace(/^\/+|\/+$/g, "");
-  const prefixedBase = normalizedBase.startsWith("api/")
-    ? normalizedBase
-    : `api/${normalizedBase}`;
-  return `/${[prefixedBase, normalizedMethod].filter(Boolean).join("/")}`;
+  return `/${[normalizedBase, normalizedMethod].filter(Boolean).join("/")}`;
 }
 
 function hasInternalAgentRuntimeRouteOutsidePrefix(source) {
@@ -500,7 +497,7 @@ function hasInternalAgentRuntimeRouteOutsidePrefix(source) {
         found = true;
       } else {
         found ||= methods.some(
-          (method) => !/^\/api\/internal\/agent-runtime(?:\/|$)/.test(
+          (method) => !/^\/internal\/agent-runtime(?:\/|$)/.test(
             effectiveNestRoute(controllerRoute.route, method.route),
           ),
         );
@@ -752,7 +749,7 @@ function hasProviderCliProcessOrKill(source) {
 }
 
 function hasNginxInternalAgentRuntimeDenyBoundary(source) {
-  const location = /location\s+\^~\s+\/api\/internal\/(?:agent-runtime\/)?\s*\{/g;
+  const location = /location\s+\^~\s+\/internal\/\s*\{/g;
   let match;
   while ((match = location.exec(source))) {
     const openBrace = source.indexOf("{", match.index);

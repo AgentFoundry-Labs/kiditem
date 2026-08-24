@@ -16,8 +16,8 @@ x-server-environment: &server-environment
   S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
   CHANNEL_CREDENTIALS_ENCRYPTION_KEY: ${CHANNEL_CREDENTIALS_ENCRYPTION_KEY}
   SOURCING_PLAYWRIGHT_CDP_ENDPOINT: ${SOURCING_PLAYWRIGHT_CDP_ENDPOINT}
-  # Both API admission and worker-owned durable mutation recovery fence work to
-  # the immutable bundle identity. Only API receives the CLI login source below.
+  # API admission and worker-owned durable mutation recovery fence work to the
+  # immutable bundle identity. Provider credentials stay with the native Runner.
   KIDITEM_APPLICATION_VERSION: ${KIDITEM_APPLICATION_VERSION:?KIDITEM_APPLICATION_VERSION must come from the immutable deployment manifest}
   KIDITEM_GIT_SHA: ${KIDITEM_GIT_SHA:?KIDITEM_GIT_SHA must come from the immutable deployment manifest}
 
@@ -83,10 +83,7 @@ services:
     container_name: kiditem-api
     environment:
       <<: *server-environment
-      # Only API owns the local CLI/MCP boundary. Every child receives an
-      # isolated attempt directory; this is the read-only service login source.
-      KIDITEM_ATTEMPT_LOGIN_HOME: /var/lib/kiditem-cli
-      KIDITEM_ATTEMPT_CLI_VERSION: ${KIDITEM_ATTEMPT_CLI_VERSION:?KIDITEM_ATTEMPT_CLI_VERSION is required}
+      KIDITEM_AGENT_RUNNER_TOKEN_FILE: /run/secrets/agent_runner_token
       AGENT_CLI_MAX_CONCURRENCY: ${AGENT_CLI_MAX_CONCURRENCY:-4}
       AGENT_OPERATOR_MODEL: ${AGENT_OPERATOR_MODEL:?AGENT_OPERATOR_MODEL is required}
       AGENT_SOURCING_MODEL: ${AGENT_SOURCING_MODEL:?AGENT_SOURCING_MODEL is required}
@@ -94,7 +91,6 @@ services:
       AGENT_SUPPLY_MODEL: ${AGENT_SUPPLY_MODEL:?AGENT_SUPPLY_MODEL is required}
       AGENT_CHANNEL_OPERATIONS_MODEL: ${AGENT_CHANNEL_OPERATIONS_MODEL:?AGENT_CHANNEL_OPERATIONS_MODEL is required}
       AGENT_ADVERTISING_MODEL: ${AGENT_ADVERTISING_MODEL:?AGENT_ADVERTISING_MODEL is required}
-      DISABLE_AUTOUPDATER: "1"
     extra_hosts:
       - "${OFFICE_HOST}:host-gateway"
     depends_on:
@@ -104,8 +100,10 @@ services:
         condition: service_completed_successfully
     expose:
       - "4000"
-    volumes:
-      - kiditem-cli-home:/var/lib/kiditem-cli:ro
+    ports:
+      - "127.0.0.1:4000:4000"
+    secrets:
+      - agent_runner_token
     stop_grace_period: 10s
     restart: unless-stopped
     healthcheck:
@@ -114,24 +112,6 @@ services:
       timeout: 5s
       retries: 12
       start_period: 60s
-
-  # An operator uses this one-off profile before API startup. It mounts only
-  # the non-secret local CLI login home; task records remain in PostgreSQL and
-  # runtime processes/state are intentionally current-container only.
-  cli-login:
-    profiles: ["cli-login"]
-    image: ${KIDITEM_API_IMAGE:?KIDITEM_API_IMAGE must be an immutable GHCR digest reference}
-    environment:
-      # This one-off login container intentionally receives no API env file or
-      # service environment. Provider login is the only capability it needs.
-      HOME: /var/lib/kiditem-cli
-      CODEX_HOME: /var/lib/kiditem-cli/.codex
-      CLAUDE_CONFIG_DIR: /var/lib/kiditem-cli/.claude
-      DISABLE_AUTOUPDATER: "1"
-    volumes:
-      - kiditem-cli-home:/var/lib/kiditem-cli
-    command: ["codex", "login", "status"]
-    restart: "no"
 
   worker:
     env_file:
@@ -195,4 +175,7 @@ volumes:
   minio-data:
     external: true
     name: kiditem_minio-data
-  kiditem-cli-home:
+
+secrets:
+  agent_runner_token:
+    file: ${KIDITEM_AGENT_RUNNER_TOKEN_FILE:?protected Runner token file required}

@@ -1,13 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import { AgentAttemptReadinessService } from './agent-attempt-readiness.service';
+import { RunnerReadinessService } from '../runner/runner-readiness.service';
 
 /** Fences every process launch to the active AgentVersion's Task-pinned CLI. */
 @Injectable()
 export class AgentAttemptRuntimeAdmissionService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly readiness = new AgentAttemptReadinessService(),
+    private readonly readiness: Pick<RunnerReadinessService, 'assertRuntime'>,
   ) {}
 
   async assert(binding: { attemptId: string; organizationId: string; sessionId: string; taskId: string; agentVersionId: string }, runtime: 'codex_cli' | 'claude_cli'): Promise<void> {

@@ -49,7 +49,6 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=4000
 ENV PATH=/app/apps/server/node_modules/.bin:/app/node_modules/.bin:$PATH
-ENV DISABLE_AUTOUPDATER=1
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
@@ -80,21 +79,16 @@ RUN npm ci \
     && npm cache clean --force \
     && rm -rf /root/.npm
 
-RUN codex --version \
-    && claude --version
-
 COPY apps/server/src/orders/coupang-directship/requirements.txt ./apps/server/coupang-directship-requirements.txt
 
 RUN apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update -y \
     && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
         python3 \
         python3-venv \
-        procps \
     && python3 -m venv /opt/kiditem-python \
     && "$PYTHON_BIN" -m pip install --no-cache-dir --upgrade pip \
     && "$PYTHON_BIN" -m pip install --no-cache-dir -r ./apps/server/coupang-directship-requirements.txt \
     && "$PYTHON_BIN" -c "import xlrd, xlutils, xlwt" \
-    && command -v ps \
     && rm -rf /var/lib/apt/lists/*
 
 # npm workspaces can hoist runtime packages to /app/node_modules while leaving
@@ -110,9 +104,9 @@ COPY --from=builder /app/packages/templates/dist ./packages/templates/dist
 COPY --from=builder /app/apps/server/dist ./apps/server/dist
 COPY agent-config ./agent-config
 
-# Fail the image build if the current private MCP and readiness canary entrypoints
-# are missing. Runtime login/model checks happen only with the operator profile.
-RUN node -e "const fs=require('fs'); for (const file of ['./apps/server/dist/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.js','./apps/server/dist/agent-os/adapter/in/mcp/readiness-canary-mcp-server.js','./apps/server/dist/agent-os/adapter/out/runtime/attempt/agent-attempt-readiness-canary.js','./apps/server/dist/agent-os/adapter/in/cli/seed-agent-versions.cli.js','./agent-config/prompts/agents/operator.md','./agent-config/prompts/agents/sourcing.md','./agent-config/prompts/agents/merchandising.md','./agent-config/prompts/agents/supply.md','./agent-config/prompts/agents/channel_operations.md','./agent-config/prompts/agents/advertising.md']) fs.accessSync(file);"
+# Fail the image build if its request-scoped MCP factories and immutable prompt
+# profiles are present. CLI readiness/provider execution is native Runner work.
+RUN node -e "const fs=require('fs'); for (const file of ['./apps/server/dist/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.js','./apps/server/dist/agent-os/adapter/in/mcp/readiness-canary-mcp-server.js','./apps/server/dist/agent-os/adapter/in/cli/seed-agent-versions.cli.js','./agent-config/prompts/agents/operator.md','./agent-config/prompts/agents/sourcing.md','./agent-config/prompts/agents/merchandising.md','./agent-config/prompts/agents/supply.md','./agent-config/prompts/agents/channel_operations.md','./agent-config/prompts/agents/advertising.md']) fs.accessSync(file);"
 
 RUN node -e "const fs=require('fs'); const css=fs.readFileSync(require.resolve('@kiditem/templates/styles.css'),'utf8'); if(!/tailwindcss\\s+v\\d/i.test(css)) process.exit(1)"
 

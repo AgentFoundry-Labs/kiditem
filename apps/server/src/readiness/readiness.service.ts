@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { kstDayStart } from '../common/kst';
 import { SELLPIA_SALES_COVERAGE_SELLER_ID } from '../analytics/sellpia-sales/domain/snapshot-coverage';
-import { AgentAttemptReadinessService } from '../agent-os/adapter/out/runtime/attempt/agent-attempt-readiness.service';
+import { RunnerReadinessService } from '../agent-os/adapter/out/runtime/runner/runner-readiness.service';
 import type {
   ReadinessCheck,
   ReadinessResponse,
@@ -25,8 +25,8 @@ import type {
 export class ReadinessService {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(AgentAttemptReadinessService)
-    private readonly attemptReadiness: AgentAttemptReadinessService,
+    @Inject(RunnerReadinessService)
+    private readonly attemptReadiness: RunnerReadinessService,
   ) {}
 
   /**

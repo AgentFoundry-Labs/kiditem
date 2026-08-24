@@ -25,7 +25,9 @@ export const LoopbackHttpUrlSchema = z
       const url = new URL(value);
       return (
         url.protocol === 'http:' &&
-        (url.hostname === '127.0.0.1' || url.hostname === '[::1]') &&
+        url.hostname === '127.0.0.1' &&
+        url.port === '4000' &&
+        /^\/internal\/agent-runtime\/attempts\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\/mcp$/i.test(url.pathname) &&
         !url.username &&
         !url.password &&
         !url.search &&

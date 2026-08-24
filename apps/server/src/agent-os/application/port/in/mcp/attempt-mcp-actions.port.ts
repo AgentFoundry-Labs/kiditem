@@ -2,18 +2,18 @@
 export const ATTEMPT_MCP_ACTIONS_PORT = Symbol('ATTEMPT_MCP_ACTIONS_PORT');
 
 export interface AttemptMcpBinding {
-  socketPath: string;
   attemptId: string;
   sessionId: string;
   taskId: string;
   agentVersionId: string;
   organizationId: string;
   userId: string;
-  processGroupId: number;
   capabilityKeys: readonly string[];
 }
 
 export interface AttemptMcpActionsPort {
+  /** Revalidates the exact durable Attempt coordinate before MCP server creation. */
+  assertBinding(binding: AttemptMcpBinding): Promise<void>;
   catalog(input: { binding: AttemptMcpBinding; query?: string }): Promise<Array<{
     key: string; ownerDomain: string; description: string; inputSchema: unknown;
     effects: readonly string[]; approvalRisk: string; idempotency: string;

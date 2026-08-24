@@ -35,4 +35,22 @@ describe('AttemptFutureOutputChannel', () => {
 
     expect(channel.attemptId({ threadId: 'thread-1', runId: 'run-1' })).toBe('attempt-1');
   });
+
+  it('emits bounded future-only live output before its terminal run event', async () => {
+    const channel = new AttemptFutureOutputChannel();
+    channel.bind({ attemptId: 'attempt-1', threadId: 'thread-1', runId: 'run-1' });
+    const received = firstValueFrom(channel.future({ threadId: 'thread-1', runId: 'run-1' }).pipe(toArray()));
+
+    channel.publish({ attemptId: 'attempt-1', output: 'live delta' });
+    channel.finish({ attemptId: 'attempt-1', outcome: 'completed' });
+
+    const events = await received;
+    expect(events.map((event) => event.type)).toEqual([
+      EventType.TEXT_MESSAGE_START,
+      EventType.TEXT_MESSAGE_CONTENT,
+      EventType.TEXT_MESSAGE_END,
+      EventType.RUN_FINISHED,
+    ]);
+    expect(events[1]).toMatchObject({ delta: 'live delta' });
+  });
 });

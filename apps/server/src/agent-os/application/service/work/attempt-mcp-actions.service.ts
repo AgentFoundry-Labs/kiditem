@@ -248,7 +248,7 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
     });
   }
 
-  private async assertBinding(input: Parameters<AttemptMcpActionsPort['catalog']>[0]['binding']): Promise<void> {
+  async assertBinding(input: Parameters<AttemptMcpActionsPort['catalog']>[0]['binding']): Promise<void> {
     const valid = await this.work.assertAttemptMcpBinding({
       organizationId: input.organizationId,
       sessionId: input.sessionId,

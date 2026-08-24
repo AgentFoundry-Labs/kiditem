@@ -265,33 +265,19 @@ the `Secure` flag and bearer tokens are not encrypted in transit. Do not expose
 port 80 outside the trusted office network. Moving Office to HTTPS is required
 before any untrusted-network or remote access.
 
-## Initialize Local Agent CLI Login
+## Host Runner Boundary
 
-The API image includes pinned Codex and Claude CLI binaries. Their provider
-authentication is owned entirely by the CLI profile in the
-`kiditem-cli-home` Docker volume; KidItem does not accept or inject
-`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, an OAuth token, or an Agent-runtime HMAC
-key for this path. PostgreSQL is the only durable Agent OS work record. Local
-CLI process state is deliberately current-container-only and is never resumed
-after an API restart.
+The API image contains no provider binary, provider login home, or local
+Attempt process control. It exposes the internal Agent runtime only on host
+loopback and accepts the Host Runner installation bearer from its mounted Docker
+secret file. Provider installation, interactive login, isolated homes and
+workspaces, and process cleanup are native Host Runner responsibilities; they
+are never Compose profile operations or API environment values.
 
-Before the first API startup on a host, authenticate interactively through the
-one-off `cli-login` Compose profile. It mounts the same CLI home volume the API
-will use, without starting or attaching to the API container:
-
-```powershell
-docker compose run --rm --no-deps cli-login codex login --device-auth
-docker compose run --rm --no-deps cli-login claude auth login
-docker compose run --rm --no-deps cli-login codex login status
-docker compose run --rm --no-deps cli-login claude auth status --json
-```
-
-Do not paste provider keys into the Office env file or command line. Do not
-print, copy, or back up the CLI profile volume; do not use post-start `docker
-exec` for Codex or Claude login/status. If the volume is lost or login
-is revoked, authenticate again. Until both exact login-status checks pass, the
-API remains available but a definition selecting that unavailable runtime is
-rejected before an AgentSession judgment graph is created.
+Do not place provider credentials, provider tokens, or the raw Runner bearer in
+the Office env file or command line. The deployment package provisions the
+native Runner separately and it reports strict readiness to Nest before business
+Attempt admission is allowed.
 
 ## Disk Pressure
 
