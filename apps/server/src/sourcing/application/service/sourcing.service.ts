@@ -39,7 +39,7 @@ import {
 import { sellpiaNameJoinKey } from '../../domain/sellpia-name-key';
 import {
   normalizeSourcingVariantKey,
-  stableSourcingCandidateIdentity,
+  canonicalSourcingCandidateIdentity,
 } from '../../domain/sourcing-candidate-identity';
 import { buildProductBasics } from './product-basics.presenter';
 import { SourcingAgentCommandService } from './sourcing-agent-command.service';
@@ -116,13 +116,12 @@ export class SourcingService {
         sourcePlatform: platform,
         externalOfferId,
         variantKeyNormalized,
-        sourceIdentityHash: externalOfferId
-          ? stableSourcingCandidateIdentity(
-              platform,
-              externalOfferId,
-              variantKeyNormalized,
-            )
-          : null,
+        sourceIdentityHash: canonicalSourcingCandidateIdentity({
+          sourcePlatform: platform,
+          sourceUrl,
+          validatedExternalOfferId: extractSupplierOfferId(parseAllowedSupplierUrl(sourceUrl)),
+          variantKeyNormalized,
+        }),
         rawData: data as Record<string, unknown>,
         name: data.title as string,
         description: (data.description as string) || '',

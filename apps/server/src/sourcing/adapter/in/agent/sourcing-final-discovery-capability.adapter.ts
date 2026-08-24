@@ -12,7 +12,7 @@ import {
   type SourcingBrowserScrapePort,
 } from '../../../application/port/out/runtime/sourcing-browser-scrape.port';
 import { extractSupplierOfferId, parseAllowedSupplierUrl } from '../../../domain/supplier-source-url-policy';
-import { stableSourcingCandidateIdentity } from '../../../domain/sourcing-candidate-identity';
+import { canonicalSourcingCandidateIdentity } from '../../../domain/sourcing-candidate-identity';
 import type { SourcingSourceSnapshot } from '../../../application/port/in/capability/sourcing-final-capability.port';
 
 /** Owner bridge for final discovery capabilities; raw browser records never cross this boundary. */
@@ -75,7 +75,12 @@ export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDis
       sourcePlatform: platform,
       externalOfferId,
       variantKeyNormalized: '',
-      sourceIdentityHash: externalOfferId ? stableSourcingCandidateIdentity(platform, externalOfferId, '') : null,
+      sourceIdentityHash: canonicalSourcingCandidateIdentity({
+        sourcePlatform: platform,
+        sourceUrl: supplier.normalizedUrl,
+        validatedExternalOfferId: externalOfferId,
+        variantKeyNormalized: '',
+      }),
       idempotencyKey: input.idempotencyKey,
       rawData: {
         source: 'agent_final_scrape',
