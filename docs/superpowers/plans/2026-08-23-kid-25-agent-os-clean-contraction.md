@@ -4,15 +4,15 @@
 
 **Goal:** Replace the unreleased Agent OS/Interaction OS graph with a six-model, single-home-server Agent OS that provides correct CLI admission, exact capability/HITL semantics, a clean destructive schema cutover, and basic same-SHA restart recovery.
 
-**Architecture:** One Nest API process owns same-origin CopilotKit, process-local Attempt admission, ephemeral Codex/Claude CLI processes, and an Attempt-bound Unix-socket MCP broker. The existing worker owns durable mutation Invocation dispatch, Approval expiry, and deterministic Operations. PostgreSQL stores work and exact mutation authorization only; reasoning restart is always a user-triggered immutable successor Attempt.
+**Architecture:** One Nest API process owns same-origin CopilotKit, process-local Attempt admission, direct loopback MCP v2 HTTP, and all durable Agent authority. One native macOS/Windows Host Runner owns only disposable Codex/Claude CLI processes through outbound command long-poll and idempotent event POST. The existing worker owns durable mutation Invocation dispatch, Approval expiry, and deterministic Operations. PostgreSQL stores work and exact mutation authorization only; reasoning restart is always a user-triggered immutable successor Attempt.
 
-**Tech Stack:** NestJS, TypeScript, Prisma/PostgreSQL, Zod, CopilotKit OSS/AG-UI `1.67.1`, Codex CLI `0.149.0`, Claude Code `2.1.122`, Next.js/React, Vitest, Playwright, Docker Compose, GitHub Actions.
+**Tech Stack:** NestJS, TypeScript, Prisma/PostgreSQL, Zod, CopilotKit OSS/AG-UI `1.67.1`, MCP SDK v2 `2.0.0`, MCP `2026-07-28`, Codex CLI `0.149.1`, Claude Code `2.1.241`, native macOS/Windows Host Runner, Next.js/React, Vitest, Playwright, Docker Compose, GitHub Actions.
 
 ---
 
 ## Execution Contract
 
-The authority is `docs/superpowers/specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md`. These six tasks are substantial integrated Terra work units; do not split them into file-sized subagent tasks. The parent verifies each task against its focused gates. One Sol reviewer performs a single integrated review over the complete implementation before final QA. Fix and re-review every concrete P1/P2 finding.
+The authority is `docs/superpowers/specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md`. The runtime/deployment implementation authority is `docs/superpowers/plans/2026-08-24-kid-25-mcp-v2-runtime-train.md`; it replaces every container CLI, stdio, UDS, or API-local process instruction that remains in an older plan revision. These six tasks are substantial integrated Terra work units; do not split them into file-sized subagent tasks. Every implementation subagent uses Terra with `max` reasoning. The parent verifies each task against its focused gates. One Sol reviewer with `max` reasoning performs a single integrated review over the complete implementation before final QA. Fix and re-review every concrete P1/P2 finding.
 
 Do not add any of the following while implementing:
 
@@ -400,7 +400,7 @@ rtk git commit -m "refactor: implement single-node Agent admission"
 
 Expected: PASS with no continuation/deletion/capacity state columns.
 
-## Task 3: Move Owner Capabilities and Run Ephemeral Codex/Claude Attempts through Local MCP
+## Task 3: Move Owner Capabilities and Integrate the Native Host Runner
 
 **Files:**
 
@@ -412,30 +412,35 @@ Expected: PASS with no continuation/deletion/capacity state columns.
 - Create: `apps/server/src/supply/domain/capability/supply.capabilities.ts`
 - Create: `apps/server/src/analytics/domain/capability/analytics.capabilities.ts`
 - Create: `apps/server/src/agent-os/domain/capability/agent-os.capabilities.ts`
-- Create or modify owner ports under: `apps/server/src/{products,channels,sourcing,supply,analytics,agent-os}/application/port/in/capability/`
-- Modify owner implementations under: `apps/server/src/{products,channels,sourcing,supply,analytics,agent-os}/adapter/in/agent/`
+- Modify: `apps/server/src/products/application/port/in/capability/listing-generation.port.ts`
+- Modify: `apps/server/src/products/adapter/in/agent/products-listing-generation-capability.adapter.ts`
+- Modify: `apps/server/src/channels/application/port/in/capability/channels-final-capability.port.ts`
+- Modify: `apps/server/src/channels/application/port/in/capability/marketplace-registration.port.ts`
+- Modify: `apps/server/src/channels/application/port/in/capability/wing-thumbnail.port.ts`
+- Modify: `apps/server/src/channels/adapter/in/agent/channels-final-capability.adapter.ts`
+- Modify: `apps/server/src/channels/adapter/in/agent/channel-registration-capability.adapter.ts`
+- Modify: `apps/server/src/channels/adapter/in/agent/channels-wing-thumbnail-capability.adapter.ts`
+- Modify: `apps/server/src/sourcing/application/port/in/capability/sourcing-final-capability.port.ts`
+- Modify: `apps/server/src/sourcing/application/port/in/capability/sourcing-final-discovery-capability.port.ts`
+- Modify: `apps/server/src/sourcing/application/port/in/capability/sourcing-frozen-registration-capability.port.ts`
+- Modify: `apps/server/src/sourcing/application/port/in/capability/market-shadow-capability.port.ts`
+- Modify: `apps/server/src/sourcing/adapter/in/agent/sourcing-final-capability.adapter.ts`
+- Modify: `apps/server/src/sourcing/adapter/in/agent/sourcing-final-discovery-capability.adapter.ts`
+- Modify: `apps/server/src/sourcing/adapter/in/agent/sourcing-frozen-registration-capability.adapter.ts`
+- Modify: `apps/server/src/sourcing/adapter/in/agent/market-shadow-signal-capability.adapter.ts`
+- Modify: `apps/server/src/supply/application/port/in/capability/purchase-order.port.ts`
+- Modify: `apps/server/src/supply/adapter/in/agent/supply-agent-capability.adapter.ts`
+- Modify: `apps/server/src/analytics/dashboard/application/port/in/analytics-overview-capability.port.ts`
+- Modify: `apps/server/src/analytics/adapter/in/agent/analytics-overview-capability.adapter.ts`
+- Modify: `apps/server/src/agent-os/application/port/in/capability/platform-probe.port.ts`
+- Modify: `apps/server/src/agent-os/adapter/in/agent/agent-os-platform-probe-capability.adapter.ts`
 - Modify: `apps/server/src/agent-os/seed-agent-os.ts`
 - Modify: `scripts/seed-agent-os.ts`
 - Modify: `apps/server/src/agent-os/__tests__/agent-version-publication.pg.integration.spec.ts`
 - Create: `apps/server/src/agent-os/__tests__/capability-owner-boundary.spec.ts`
-- Modify: `apps/server/package.json`
-- Modify: `package-lock.json`
-- Create: `apps/server/src/agent-os/adapter/out/runtime/attempt/agent-attempt-executor.service.ts`
-- Create: `apps/server/src/agent-os/adapter/out/runtime/attempt/agent-attempt-process-registry.ts`
-- Create: `apps/server/src/agent-os/adapter/out/runtime/attempt/attempt-live-control.registry.ts`
-- Create: `apps/server/src/agent-os/adapter/out/runtime/attempt/attempt-filesystem.service.ts`
-- Create: `apps/server/src/agent-os/adapter/out/runtime/attempt/codex-attempt.adapter.ts`
-- Create: `apps/server/src/agent-os/adapter/out/runtime/attempt/claude-attempt.adapter.ts`
-- Create: `apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-broker.service.ts`
-- Replace: `apps/server/src/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.ts`
-- Create: `apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-proxy.ts`
-- Modify: `apps/server/src/agent-mcp-application.module.ts`
-- Modify: `apps/server/src/agent-runtime-application.module.ts`
-- Modify: `apps/server/src/readiness/readiness.service.ts`
-- Create: `apps/server/src/agent-os/adapter/out/runtime/attempt/agent-attempt-runtime.spec.ts`
-- Create: `apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-broker.spec.ts`
+- Runtime/control/MCP/Runner/deployment files: execute the exact file manifest in `docs/superpowers/plans/2026-08-24-kid-25-mcp-v2-runtime-train.md`
 
-- [x] **Step 1: Write failing owner, publication, CLI, and broker tests**
+- [x] **Step 1: Write failing owner and publication tests**
 
 Require the current exact eighteen-key Agent-facing catalog:
 
@@ -466,31 +471,19 @@ above and require all ten in MCP discovery and exact-context invocation.
 Assert one definition/implementation, correct owner input port, immutable
 AgentVersion capability snapshot, and no wrapper Agent/AgentRun caller.
 
-Assert exact non-persistence controls:
-
-```typescript
-expect(codexThreadStart).toMatchObject({ ephemeral: true });
-expect(codexCliConfig).toContain('history.persistence="none"');
-expect(threadStart).toMatchObject({ ephemeral: true });
-expect(claudeArgs).toEqual(expect.arrayContaining([
-  '--no-session-persistence', '--strict-mcp-config',
-]));
-```
-
 Reject session/resume IDs, budget flags, user config import, serialized
 principal, HMAC, DB URL, Nest secret, business credential, provider-history
-path, and network MCP listener.
+path, and capability-owned provider policy. Runtime non-persistence and network
+listener assertions live in the native Host Runner plan.
 
 Run:
 
 ```bash
 rtk npm exec --workspace=apps/server vitest -- run \
-  src/agent-os/__tests__/capability-owner-boundary.spec.ts \
-  src/agent-os/adapter/out/runtime/attempt/agent-attempt-runtime.spec.ts \
-  src/agent-os/adapter/in/mcp/attempt-mcp-broker.spec.ts
+  src/agent-os/__tests__/capability-owner-boundary.spec.ts
 ```
 
-Expected: FAIL on misplaced capability keys and persistent-session runtime code.
+Expected: FAIL on misplaced capability keys and owner-boundary violations.
 
 - [x] **Step 2: Move capabilities to exact owner input ports and publish versions**
 
@@ -518,65 +511,19 @@ runtime, and instruction-profile reference. It contains no model/policy/tool
 allowlist/credential. Later capability publication creates a new AgentVersion
 and never mutates an existing one.
 
-- [x] **Step 3: Pin and implement ephemeral CLI process adapters**
+- [ ] **Step 3: Execute the native Host Runner/MCP v2 runtime train**
 
-Keep Codex `0.149.0`; change Claude from `2.1.240` to `2.1.122`. Exact runtime
-profile supplies model/settings; missing model fails.
+Execute every task in
+`docs/superpowers/plans/2026-08-24-kid-25-mcp-v2-runtime-train.md` against this
+same diff. The final topology is native `macos | windows` Runner execution,
+outbound HTTP long-poll/event POST, and direct loopback MCP v2 Streamable HTTP
+`2026-07-28`. API/worker containers neither install nor spawn provider CLIs.
 
-Each Attempt creates an empty workspace and private broker directory, starts
-CLI/MCP children in one non-detached process group, and owns bounded
-terminate/kill cleanup. Built-in arbitrary network/browser access is disabled;
-model tools and native subagents cannot read auth home, repository, broker,
-server files, or environment secrets. Provider login home remains outside the
-workspace and KidItem never reads credential values.
-
-Codex runs through app-server with a generated isolated `CODEX_HOME`,
-`history.persistence="none"`, and `thread/start.ephemeral=true`; those are the
-supported non-persistence controls because app-server has no `--ephemeral` or
-`--ignore-user-config` flag. Claude uses empty setting sources,
-`--no-session-persistence`, and `--strict-mcp-config`. Neither runtime may load
-the service account's ordinary settings, plugins, hooks, memories, or skills.
-
-`liveControlHandle` exists only in the process-memory registry for the same
-Attempt. It handles a second message/interrupt and is deleted at terminal state.
-
-- [x] **Step 4: Implement the Attempt-bound Unix-socket MCP broker**
-
-The stdio proxy receives only its private Unix-socket coordinate. API memory
-binds socket to Attempt/AgentVersion/user/organization/scope/process group,
-validates local peer/process ownership, ignores payload identity, and creates
-every Invocation server-side. It executes reads inline and admits mutations
-for worker dispatch.
-
-Expose typed default capabilities, catalog search, exact-input invoke, explicit
-target-Agent delegation, and child `status|wait|result|message|interrupt`.
-Native subagents use the same socket/scope/slot. Do not expose cancel/reopen/
-delete as MCP authority.
-
-- [x] **Step 5: Implement focused readiness without enterprise gates**
-
-Readiness verifies the runtime selected by each current published AgentVersion:
-exact binary/version, login state, non-persistent flags, strict MCP config, one
-bounded request, scoped MCP call, live second input, and cleanup. Admission also
-checks the Task-pinned runtime. Do not add scheduled compatibility workflows,
-dynamic retained-task deployment inventory, or an advisory singleton lock.
-
-- [x] **Step 6: Verify runtime/owner behavior and commit**
-
-```bash
-rtk npm install
-rtk npm exec --workspace=apps/server vitest -- run \
-  src/agent-os/__tests__/capability-owner-boundary.spec.ts \
-  src/agent-os/adapter/out/runtime/attempt \
-  src/agent-os/adapter/in/mcp/attempt-mcp-broker.spec.ts
-rtk npm run test:integration --workspace=apps/server -- \
-  src/agent-os/__tests__/agent-version-publication.pg.integration.spec.ts
-rtk npm run build --workspace=apps/server
-rtk git add apps/server package-lock.json scripts/seed-agent-os.ts
-rtk git commit -m "refactor: run owner capabilities through ephemeral CLIs"
-```
-
-Expected: PASS with no provider history, credentials, wrapper Agents, or remote MCP authority.
+The runtime train preserves the 18-capability catalog and all owner boundaries
+established above. It does not authorize any AgentVersion, capability, schema,
+status, or Web changes. Expected: exact logged-in Codex/Claude readiness,
+non-persistent Attempts, bounded live control, complete process-tree cleanup,
+and no provider credential/session/history persistence.
 
 ## Task 4: Dispatch Durable Mutations and Prove Basic Same-SHA Restart Recovery
 
@@ -851,17 +798,18 @@ Expected: PASS with no compatibility route, worker, fallback, or old schema.
 - Modify: `apps/server/src/agent-os/AGENTS.md`
 - Modify: `prisma/AGENTS.md`
 
-- [x] **Step 1: Make deployment exactly one Web/API/worker stack**
+- [ ] **Step 1: Make deployment exactly one Web/API/worker stack plus one native Host Runner**
 
 The Office/home host is Windows and runs the existing Linux containers through
-Docker Desktop. Compose declares one API replica. API owns CopilotKit/live CLI
-execution; Codex, Claude, the MCP stdio proxy, and each private Unix socket run
-inside that Linux API container. Do not add a native-Windows CLI path, named
-pipe broker, or host-side child process. Worker owns mutation/Approval/Operations.
-Keep separate persistent CLI auth home and ephemeral Attempt root. Remove gateway
-URLs, `AGENT_RUNTIME_WORKER_ENABLED`, old runtime concurrency/wait/budget values,
-HMAC/provider credentials, advisory lock, release drain, compatibility
-canary/image, and old run-root mounts.
+Docker Desktop. Compose declares one API replica. API owns CopilotKit, durable
+Agent authority, Runner admission, and direct MCP v2 HTTP. One Task
+Scheduler-managed native Windows `apps/agent-runner` owns Codex/Claude process
+trees; worker owns mutation/Approval/Operations. Runner control is outbound
+command long-poll plus idempotent event POST, and the CLI reaches Nest only
+through host-loopback MCP HTTP. Remove container CLI packages/login volume,
+stdio/UDS/private-socket glue, gateway URLs, `AGENT_RUNTIME_WORKER_ENABLED`,
+old runtime concurrency/wait/budget values, HMAC/provider credentials, advisory
+lock, release drain, compatibility canary/image, and old run-root mounts.
 
 The only adjustable capacity variable is:
 
@@ -869,8 +817,10 @@ The only adjustable capacity variable is:
 AGENT_CLI_MAX_CONCURRENCY=4
 ```
 
-Update deployment contract tests to reject a second API replica or any removed
-surface. GitHub Actions remains the only supported release entrypoint.
+Update deployment contract tests to reject a second API replica, Runner inbound
+listener, LAN-exposed internal route, or any removed surface. The immutable
+Office bundle includes the exact Windows Runner/CLI artifact; GitHub Actions
+remains the only supported release entrypoint.
 
 - [x] **Step 2: Add the basic destructive-cutover safety sequence**
 
@@ -893,18 +843,19 @@ Do not automate restore rehearsal, archive retention policy, RPO/RTO, or release
 drain. Never log the database URL, archive contents, credentials, prompts, or
 canonical mutation input.
 
-- [x] **Step 3: Rewrite durable architecture/runbooks/instructions**
+- [ ] **Step 3: Rewrite durable architecture/runbooks/instructions**
 
 `docs/ARCHITECTURE.md` and Agent OS `AGENTS.md` describe only the single-node
 six-model graph, process-local capacity, terminal deletion, manual Continue,
-ephemeral CLI/MCP boundary, and same-SHA restart recovery. Remove stale history
-instead of appending exceptions. Document CLI login as an operator prerequisite
-and code upgrade as stop/start after confirming no ready/executing mutation.
+native Host Runner/loopback MCP boundary, and same-SHA restart recovery. Remove
+stale history instead of appending exceptions. Document dedicated-account CLI
+login as an operator prerequisite and code upgrade as stop/start after
+confirming no ready/executing mutation.
 
 PR release decision is: destructive unreleased Agent OS cutover, no backfill;
 basic custom backup/list/checksum; actual legacy Agent data discarded.
 
-- [x] **Step 4: Run the full mandatory acceptance matrix**
+- [ ] **Step 4: Run the full mandatory acceptance matrix**
 
 Use one explicit disposable acceptance database for schema/seed/boot/smoke:
 
@@ -920,17 +871,19 @@ rtk npx prisma generate
 rtk npm run db:erd
 rtk env DATABASE_URL="$KID25_ACCEPTANCE_DATABASE_URL" npm run seed:agent-os
 rtk npm run build --workspace=packages/shared
+rtk npm run build --workspace=apps/agent-runner
 rtk npm run build --workspace=apps/server
 rtk npm run build --workspace=apps/web
 rtk env DATABASE_URL="$KID25_ACCEPTANCE_DATABASE_URL" npm run smoke:interaction-os
 rtk env DATABASE_URL="$KID25_ACCEPTANCE_DATABASE_URL" npm run dev:server
 ```
 
-Confirm Nest boot, selected CLI readiness, same-origin CopilotKit, and no legacy
-module resolution error. Verify an unauthenticated readiness, CopilotKit root,
-and CopilotKit run request are rejected before runtime execution, then stop the
-API cleanly. The legacy browser harness is deleted with the replay/session graph
-and is not recreated as a release gate.
+Confirm Nest boot, an authenticated native Runner lease, selected CLI
+readiness, direct modern-only MCP HTTP, same-origin CopilotKit, and no legacy
+module resolution error. Verify unauthenticated Runner/MCP, readiness,
+CopilotKit root, and CopilotKit run requests are rejected before runtime
+execution, then stop the API and Runner cleanly. The legacy browser harness is
+deleted with the replay/session graph and is not recreated as a release gate.
 
 In a separate terminal, start the worker against the same acceptance database:
 
@@ -942,8 +895,10 @@ rtk env DATABASE_URL="$KID25_ACCEPTANCE_DATABASE_URL" \
 Confirm mutation/Approval/Operation pollers boot, then stop it cleanly. The
 integration suite uses its own isolated test database and must not reuse the
 acceptance DB. The Office deployment contract additionally proves that the
-Windows PowerShell entrypoint starts Linux containers and never launches Codex,
-Claude, or the MCP broker as native host processes.
+Windows PowerShell entrypoint deploys one matching native Host Runner artifact
+under Task Scheduler, keeps the internal port loopback-only, and never launches
+Codex/Claude inside API or worker containers. The `windows-latest` Runner/Job
+Object/ACL/package job must pass before completion.
 
 Expected: all mandatory runtime/admission/cutover/restart gates PASS from one
 Git SHA. No scheduled compatibility or restore-rehearsal gate is required.

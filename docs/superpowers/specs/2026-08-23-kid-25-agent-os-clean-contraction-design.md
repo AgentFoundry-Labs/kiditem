@@ -602,9 +602,12 @@ each Attempt. It is bound to one immutable Attempt MCP coordinate, expires at
 the earlier of the Attempt deadline and 30 minutes, cannot be refreshed, and
 is invalidated immediately on terminalization, cancellation, interrupt,
 timeout, Runner loss, or API restart. Nest keeps only its SHA-256 digest and
-binding in process memory. The raw token is delivered once inside the strict
-start command and passed to the CLI through a generated environment reference;
-it is never logged or persisted.
+binding in the Attempt-token registry. The raw token exists only in the
+unacknowledged in-memory `attempt.start` command so at-least-once delivery can
+retry that exact command without minting a second identity; command
+acknowledgement immediately discards that raw command payload. The Runner
+passes the same token to the CLI through a generated environment reference. It
+is never reconstructed, logged, or persisted.
 
 ### 7.5 Strict launch and host process boundary
 
@@ -643,6 +646,12 @@ environment-expanded Authorization header. The configuration contains only
 KidItem's Attempt endpoint and the selected train's explicit non-persistent
 controls. The Attempt token is excluded from model-invoked shell environments
 and model-visible output.
+
+Codex also receives `features.mcp_2026_07_28=true` and
+`CODEX_MCP_PROTOCOL_VERSION=2026-07-28`. Claude receives
+`MCP_SDK_GENERATION=v2` and `MCP_PROTOCOL_NEGOTIATION=auto`. Claude's `auto`
+does not authorize legacy fallback: Nest rejects the legacy era and readiness
+must observe revision `2026-07-28`.
 
 The Nest HTTP adapter validates the bearer token, path Attempt ID, TTL,
 terminal state, and immutable in-memory binding before constructing the
@@ -868,6 +877,13 @@ Crash restart with the same SHA follows Section 8.
 Use substantial integrated Terra work units, not file-sized microtasks. Use one
 integrated Sol review over the complete implementation and fix every concrete
 P1/P2 finding before completion.
+
+The exact Host Runner/control/MCP/deployment file sequence and TDD gates are
+owned by
+`docs/superpowers/plans/2026-08-24-kid-25-mcp-v2-runtime-train.md`. That plan
+supersedes every earlier container CLI, stdio, UDS, or API-local provider
+process instruction without changing this design's capability/schema/Web
+scope.
 
 1. Add final registries, routing/HITL/idempotency validators, replacement
    physical schema/shared contracts, and fail-first legacy scanners.
