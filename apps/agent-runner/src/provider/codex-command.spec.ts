@@ -12,7 +12,8 @@ const paths = { root: '/tmp/attempt', workspace: '/tmp/attempt/workspace', home:
 describe('buildCodexCommand', () => {
   it('uses only a Runner-owned executable and explicit non-persistent direct-MCP configuration', () => {
     const command = buildCodexCommand(launch(), paths, '/opt/kiditem-runner');
-    expect(command.executable).toMatch(/^\/opt\/kiditem-runner\//);
+    expect(command.executable).toBe(process.execPath);
+    expect(command.args[0]).toMatch(/^\/opt\/kiditem-runner\//);
     expect(command.args).toEqual(expect.arrayContaining([
       'app-server', '--stdio', '--strict-config', '--disable', 'plugins',
       '--config', 'features.mcp_2026_07_28=true',

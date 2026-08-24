@@ -208,6 +208,14 @@ internal static class Program
         {
             throw new LaunchAdmissionException("launch_invalid");
         }
+        // JavaScript entrypoints must be argv[0] to the Runner's already
+        // executing, pinned Node 22 runtime. Passing one as lpApplicationName
+        // relies on shebang/file-association behavior and is not executable by
+        // CreateProcessW, so fail closed if a resolver ever regresses.
+        if (Path.GetExtension(launch.Executable).Equals(".js", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new LaunchAdmissionException("launch_js_entrypoint_invalid");
+        }
     }
 
     private static bool ContainsNul(string value) => value.IndexOf('\0') >= 0;

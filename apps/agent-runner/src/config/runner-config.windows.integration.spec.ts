@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { loadRunnerConfig } from './runner-config';
 
@@ -19,7 +19,7 @@ describe('Windows Office protected-path admission', () => {
       const configPath = join(release, 'runner-config.json');
       const tokenFile = join(anchor, 'secrets', 'agent-runner-token');
       const attemptRoot = join(anchor, 'agent-runner', 'attempts');
-      const account = execFileSync('whoami.exe', [], { encoding: 'utf8' }).trim();
+      const serviceSid = currentWindowsServiceSid();
       try {
         await mkdir(join(runtimeRoot, 'dist'), { recursive: true });
         await mkdir(attemptRoot, { recursive: true });
@@ -30,20 +30,25 @@ describe('Windows Office protected-path admission', () => {
           controlOrigin: 'http://127.0.0.1:4000', tokenFile, attemptRoot, runtimeRoot,
         }));
 
-        protect(anchor, account, 'RX', true, false);
+        // The fixture starts with an attacker-controlled anchor/file.  It then
+        // invokes the production deployment replacement helper, rather than a
+        // test-local icacls approximation, before production config admission.
+        seedUntrustedAcl(anchor);
+        seedUntrustedAcl(configPath);
+        await expect(loadRunnerConfig(['--config', configPath], { entrypoint }))
+          .rejects.toThrow('runner_protected_path_owner_invalid');
+        protectWithDeploymentScript(anchor, serviceSid, 'ReadExecute', true);
         for (const path of [
           join(anchor, 'agent-runner'),
           join(anchor, 'agent-runner', 'releases'),
           release,
           runtimeRoot,
           join(runtimeRoot, 'dist'),
-        ]) protect(path, account, 'RX', true);
-        protect(attemptRoot, account, 'F', true);
-        protect(join(anchor, 'secrets'), account, 'R', true);
-        protect(configPath, account, 'R', false);
-        protect(tokenFile, account, 'R', false);
-        protect(attemptRoot, account, 'F', true);
-        protect(runtimeRoot, account, 'RX', true);
+        ]) protectWithDeploymentScript(path, serviceSid, 'ReadExecute');
+        protectWithDeploymentScript(attemptRoot, serviceSid, 'Write');
+        protectWithDeploymentScript(join(anchor, 'secrets'), serviceSid, 'Read');
+        protectWithDeploymentScript(configPath, serviceSid, 'Read');
+        protectWithDeploymentScript(tokenFile, serviceSid, 'Read');
 
         await expect(loadRunnerConfig(['--config', configPath], { entrypoint })).resolves.toMatchObject({
           controlOrigin: 'http://127.0.0.1:4000',
@@ -51,6 +56,14 @@ describe('Windows Office protected-path admission', () => {
           attemptRoot,
           runtimeRoot,
         });
+
+        // A post-protection outsider read grant is still a hard admission
+        // failure. The running Runner must not wait for a later file read to
+        // notice that its bearer/config boundary has been weakened.
+        addUntrustedReadAcl(anchor);
+        await expect(loadRunnerConfig(['--config', configPath], { entrypoint }))
+          .rejects.toThrow('runner_protected_path_acl_invalid');
+        protectWithDeploymentScript(anchor, serviceSid, 'ReadExecute', true);
 
         // A junction has a canonical-looking descendant spelling but escapes
         // the protected root. It must be rejected before any Attempt workspace
@@ -87,23 +100,60 @@ describe('Windows Office protected-path admission', () => {
   );
 });
 
-function protect(
+const deploymentScript = resolve(__dirname, '../../../../deploy/office/apply-deployment.ps1');
+const untrustedSid = 'S-1-5-32-545';
+
+function currentWindowsServiceSid(): string {
+  const output = execFileSync('whoami.exe', ['/user', '/fo', 'csv', '/nh'], { encoding: 'utf8' });
+  const sid = /S-\d+(?:-\d+)+/i.exec(output)?.[0];
+  if (!sid) throw new Error('Windows ACL fixture could not resolve its current SID.');
+  return sid;
+}
+
+function protectWithDeploymentScript(
   path: string,
-  account: string,
-  rights: 'R' | 'RX' | 'F',
-  directory: boolean,
-  inheritAccount = true,
+  serviceSid: string,
+  mode: 'Read' | 'ReadExecute' | 'Write',
+  anchor = false,
 ): void {
-  const inherited = directory ? '(OI)(CI)' : '';
-  const accountInheritance = directory && inheritAccount ? '(OI)(CI)' : '';
-  execFileSync('icacls.exe', [path, '/setowner', 'Administrators'], { stdio: 'pipe' });
-  execFileSync('icacls.exe', [
-    path,
-    '/inheritance:r',
-    '/grant:r',
-    `${account}:${accountInheritance}${rights}`,
-    `SYSTEM:${inherited}${rights}`,
-    `Administrators:${directory ? '(OI)(CI)' : ''}F`,
-    '/remove:g', 'Users', 'Authenticated Users', 'Everyone',
+  const command = [
+    "$ErrorActionPreference = 'Stop'",
+    '. $args[0]',
+    "$principal = [pscustomobject]@{ Sid = [System.Security.Principal.SecurityIdentifier]::new($args[3]); AccountName = 'Windows CI fixture' }",
+    '$anchor = [System.Convert]::ToBoolean($args[4])',
+    'if ($anchor) { Set-RunnerProtectedAcl -Path $args[1] -Mode $args[2] -Anchor -Principal $principal } else { Set-RunnerProtectedAcl -Path $args[1] -Mode $args[2] -Principal $principal }',
+  ].join('; ');
+  execFileSync('powershell.exe', [
+    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command,
+    deploymentScript, path, mode, serviceSid, String(anchor),
+  ], { stdio: 'pipe' });
+}
+
+function seedUntrustedAcl(path: string): void {
+  const command = [
+    "$ErrorActionPreference = 'Stop'",
+    '$security = Get-Acl -LiteralPath $args[0]',
+    '$security.SetAccessRuleProtection($true, $false)',
+    'foreach ($rule in @($security.Access)) { [void]$security.RemoveAccessRuleSpecific($rule) }',
+    '$untrusted = [System.Security.Principal.SecurityIdentifier]::new($args[1])',
+    '$security.SetOwner($untrusted)',
+    '[void]$security.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($untrusted, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.InheritanceFlags]::None, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow))',
+    'Set-Acl -LiteralPath $args[0] -AclObject $security -ErrorAction Stop',
+  ].join('; ');
+  execFileSync('powershell.exe', [
+    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command, path, untrustedSid,
+  ], { stdio: 'pipe' });
+}
+
+function addUntrustedReadAcl(path: string): void {
+  const command = [
+    "$ErrorActionPreference = 'Stop'",
+    '$security = Get-Acl -LiteralPath $args[0]',
+    '$untrusted = [System.Security.Principal.SecurityIdentifier]::new($args[1])',
+    '[void]$security.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($untrusted, [System.Security.AccessControl.FileSystemRights]::Read, [System.Security.AccessControl.InheritanceFlags]::None, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow))',
+    'Set-Acl -LiteralPath $args[0] -AclObject $security -ErrorAction Stop',
+  ].join('; ');
+  execFileSync('powershell.exe', [
+    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command, path, untrustedSid,
   ], { stdio: 'pipe' });
 }

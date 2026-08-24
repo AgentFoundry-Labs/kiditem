@@ -199,6 +199,15 @@ function Read-DeploymentManifest {
     'apiImage', 'apiDigest', 'webImage', 'webDigest', 'runnerArtifact',
     'runnerArtifactSha256', 'runnerRuntime', 'createdAt', 'workflowRunUrl'
   ) -Label 'deployment manifest'
+  Assert-ManifestIntegerField -Value $manifest -Name 'schemaVersion'
+  foreach ($name in @(
+    'environment', 'sourceRef', 'gitSha', 'appVersion', 'apiImage', 'apiDigest',
+    'webImage', 'webDigest', 'runnerArtifact', 'runnerArtifactSha256', 'createdAt',
+    'workflowRunUrl'
+  )) {
+    Assert-ManifestStringField -Value $manifest -Name $name
+  }
+  Assert-ManifestObjectField -Value $manifest -Name 'runnerRuntime'
 
   if ($manifest.schemaVersion -ne 2 -or $manifest.environment -ne 'office') {
     throw 'Deployment manifest must use schemaVersion 2 and environment office.'
@@ -242,13 +251,49 @@ function Assert-ManifestShape {
     [Parameter(Mandatory = $true)][string]$Label
   )
 
-  if ($null -eq $Value) {
-    throw "$Label is missing."
+  if ($null -eq $Value -or $Value -isnot [System.Management.Automation.PSCustomObject]) {
+    throw "$Label must be a JSON object."
   }
   $actual = @($Value.PSObject.Properties.Name)
   $differences = @(Compare-Object -ReferenceObject $Expected -DifferenceObject $actual)
   if ($differences.Count -ne 0) {
     throw "$Label contains unsupported or missing fields."
+  }
+}
+
+function Assert-ManifestStringField {
+  param(
+    [Parameter(Mandatory = $true)][object]$Value,
+    [Parameter(Mandatory = $true)][string]$Name
+  )
+
+  $property = $Value.PSObject.Properties[$Name]
+  if ($null -eq $property -or $property.Value -isnot [string]) {
+    throw "Manifest field $Name must be a string."
+  }
+}
+
+function Assert-ManifestIntegerField {
+  param(
+    [Parameter(Mandatory = $true)][object]$Value,
+    [Parameter(Mandatory = $true)][string]$Name
+  )
+
+  $property = $Value.PSObject.Properties[$Name]
+  if ($null -eq $property -or ($property.Value -isnot [int] -and $property.Value -isnot [long])) {
+    throw "Manifest field $Name must be an integer."
+  }
+}
+
+function Assert-ManifestObjectField {
+  param(
+    [Parameter(Mandatory = $true)][object]$Value,
+    [Parameter(Mandatory = $true)][string]$Name
+  )
+
+  $property = $Value.PSObject.Properties[$Name]
+  if ($null -eq $property -or $property.Value -isnot [System.Management.Automation.PSCustomObject]) {
+    throw "Manifest field $Name must be a JSON object."
   }
 }
 
@@ -261,9 +306,7 @@ function Assert-RunnerManifest {
   if ($Manifest.runnerArtifactSha256 -notmatch '^[0-9a-f]{64}$') {
     throw 'Runner artifact SHA-256 must be lowercase 64-hex.'
   }
-  if ($null -eq $Manifest.runnerRuntime) {
-    throw 'Deployment manifest is missing the Runner runtime contract.'
-  }
+  Assert-ManifestObjectField -Value $Manifest -Name 'runnerRuntime'
   Assert-RunnerRuntimeContract $Manifest.runnerRuntime
 }
 
@@ -274,6 +317,12 @@ function Assert-RunnerRuntimeContract {
     'schemaVersion', 'platform', 'nodeMajor', 'controlRevision',
     'cliContractIdentity', 'mcpProtocolRevision', 'codexVersion', 'claudeVersion'
   ) -Label 'Runner runtime contract'
+  foreach ($name in @('schemaVersion', 'nodeMajor')) {
+    Assert-ManifestIntegerField -Value $Runtime -Name $name
+  }
+  foreach ($name in @('platform', 'controlRevision', 'cliContractIdentity', 'mcpProtocolRevision', 'codexVersion', 'claudeVersion')) {
+    Assert-ManifestStringField -Value $Runtime -Name $name
+  }
 
   if (
     $Runtime.schemaVersion -ne 1 -or
@@ -434,12 +483,92 @@ function Assert-RunnerServiceAccount {
   return $principal
 }
 
-function Invoke-Icacls {
-  param([Parameter(Mandatory = $true)][string[]]$Arguments)
+function Get-RunnerProtectionSpec {
+  param(
+    [Parameter(Mandatory = $true)][object]$Principal,
+    [Parameter(Mandatory = $true)][bool]$Directory,
+    [Parameter(Mandatory = $true)][string]$Mode,
+    [Parameter(Mandatory = $true)][bool]$Anchor
+  )
 
-  & icacls.exe @Arguments | Out-Null
-  if ($LASTEXITCODE -ne 0) {
-    throw "icacls.exe failed while protecting the Host Runner boundary."
+  try { $serviceSid = [System.Security.Principal.SecurityIdentifier]$Principal.Sid }
+  catch { throw 'Host Runner principal SID cannot be used to protect the runtime boundary.' }
+  $systemSid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+  $administratorsSid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+  $rights = switch ($Mode) {
+    'Read' { [System.Security.AccessControl.FileSystemRights]::Read }
+    'ReadExecute' { [System.Security.AccessControl.FileSystemRights]::ReadAndExecute }
+    'Write' { [System.Security.AccessControl.FileSystemRights]::FullControl }
+    default { throw 'Host Runner protection mode is invalid.' }
+  }
+  $none = [System.Security.AccessControl.InheritanceFlags]::None
+  $children = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+  $serviceInheritance = if ($Directory -and -not $Anchor) { $children } else { $none }
+  $systemInheritance = if ($Directory) { $children } else { $none }
+  return @(
+    [pscustomobject]@{ Sid = $serviceSid; Rights = $rights; Inheritance = $serviceInheritance },
+    [pscustomobject]@{ Sid = $systemSid; Rights = $rights; Inheritance = $systemInheritance },
+    [pscustomobject]@{ Sid = $administratorsSid; Rights = [System.Security.AccessControl.FileSystemRights]::FullControl; Inheritance = $systemInheritance }
+  )
+}
+
+function New-RunnerProtectionRule {
+  param([Parameter(Mandatory = $true)][object]$Spec)
+
+  return [System.Security.AccessControl.FileSystemAccessRule]::new(
+    [System.Security.Principal.SecurityIdentifier]$Spec.Sid,
+    [System.Security.AccessControl.FileSystemRights]$Spec.Rights,
+    [System.Security.AccessControl.InheritanceFlags]$Spec.Inheritance,
+    [System.Security.AccessControl.PropagationFlags]::None,
+    [System.Security.AccessControl.AccessControlType]::Allow
+  )
+}
+
+function Assert-RunnerProtectedAcl {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][object]$Principal,
+    [ValidateSet('Read', 'ReadExecute', 'Write')][string]$Mode = 'Read',
+    [switch]$Anchor
+  )
+
+  $directory = Test-Path -LiteralPath $Path -PathType Container
+  if (-not $directory -and -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "Host Runner protected path does not exist: $Path"
+  }
+  $expected = @(Get-RunnerProtectionSpec -Principal $Principal -Directory $directory -Mode $Mode -Anchor:$Anchor)
+  $administratorsSid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+  $security = Get-Acl -LiteralPath $Path -ErrorAction Stop
+  $owner = $security.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+  if ($owner -ne $administratorsSid.Value) {
+    throw 'Host Runner protected path owner does not match the required Administrators SID.'
+  }
+  $actual = @($security.Access)
+  if ($actual.Count -ne $expected.Count) {
+    throw 'Host Runner protected path has an unexpected DACL entry count.'
+  }
+  $seen = @{}
+  foreach ($rule in $actual) {
+    if ($rule.IsInherited -or $rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) {
+      throw 'Host Runner protected path contains an inherited, deny, or unknown ACL entry.'
+    }
+    $sid = $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
+    if ($seen.ContainsKey($sid)) {
+      throw 'Host Runner protected path contains a duplicate ACL identity.'
+    }
+    $match = @($expected | Where-Object { $_.Sid.Value -eq $sid })
+    if ($match.Count -ne 1 -or
+        [int64]$rule.FileSystemRights -ne [int64]$match[0].Rights -or
+        $rule.InheritanceFlags -ne $match[0].Inheritance -or
+        $rule.PropagationFlags -ne [System.Security.AccessControl.PropagationFlags]::None) {
+      throw 'Host Runner protected path DACL does not match the exact runtime policy.'
+    }
+    $seen[$sid] = $true
+  }
+  foreach ($spec in $expected) {
+    if (-not $seen.ContainsKey($spec.Sid.Value)) {
+      throw 'Host Runner protected path is missing a required DACL identity.'
+    }
   }
 }
 
@@ -450,37 +579,38 @@ function Set-RunnerProtectedAcl {
     # The fixed ProgramData\\KidItem anchor grants Runner traverse/read on the
     # anchor itself, but deliberately does not propagate that grant to unrelated
     # Office files such as the Docker environment file.
-    [switch]$Anchor
+    [switch]$Anchor,
+    # Fixture-only injection keeps the production path bound to the verified
+    # pre-provisioned principal while exercising the exact same DACL replacement.
+    [object]$Principal
   )
 
-  $principal = Assert-RunnerServiceAccount
+  if ($null -eq $Principal) { $Principal = Assert-RunnerServiceAccount }
   $directory = Test-Path -LiteralPath $Path -PathType Container
-  $serviceRights = switch ($Mode) {
-    'Read' { 'R' }
-    'ReadExecute' { 'RX' }
-    'Write' { 'F' }
+  if (-not $directory -and -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "Host Runner protected path does not exist: $Path"
   }
-  $systemRights = $serviceRights
-  if ($directory) {
-    if (-not $Anchor) {
-      $serviceRights = "(OI)(CI)$serviceRights"
-    }
-    $systemRights = "(OI)(CI)$systemRights"
-    $administratorRights = '(OI)(CI)F'
+  $expected = @(Get-RunnerProtectionSpec -Principal $Principal -Directory $directory -Mode $Mode -Anchor:$Anchor)
+  $security = Get-Acl -LiteralPath $Path -ErrorAction Stop
+  if ($security -isnot [System.Security.AccessControl.FileSystemSecurity]) {
+    throw 'Host Runner protected path does not expose a filesystem security descriptor.'
   }
-  else {
-    $administratorRights = 'F'
+  # Discard inherited entries first, then remove every surviving explicit
+  # entry by its exact rule. This is a replacement, never an additive grant.
+  $security.SetAccessRuleProtection($true, $false)
+  foreach ($rule in @($security.Access)) {
+    [void]$security.RemoveAccessRuleSpecific($rule)
   }
-  Invoke-Icacls -Arguments @($Path, '/setowner', 'Administrators')
-  Invoke-Icacls -Arguments @(
-    $Path,
-    '/inheritance:r',
-    '/grant:r',
-    "*$($principal.Sid.Value):$serviceRights",
-    "SYSTEM:$systemRights",
-    "Administrators:$administratorRights",
-    '/remove:g', 'Users', 'Authenticated Users', 'Everyone'
-  )
+  if (@($security.Access).Count -ne 0) {
+    throw 'Host Runner protected path retained an existing explicit ACL entry.'
+  }
+  $administratorsSid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+  $security.SetOwner($administratorsSid)
+  foreach ($spec in $expected) {
+    [void]$security.AddAccessRule((New-RunnerProtectionRule $spec))
+  }
+  Set-Acl -LiteralPath $Path -AclObject $security -ErrorAction Stop
+  Assert-RunnerProtectedAcl -Path $Path -Principal $Principal -Mode $Mode -Anchor:$Anchor
 }
 
 function Initialize-RunnerStorage {
@@ -991,7 +1121,8 @@ function Assert-RunnerScheduledTaskContract {
   if ($Task.Principal.RunLevel.ToString() -ne 'Limited') {
     throw 'Host Runner task must run at limited privilege.'
   }
-  if (@($Task.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskBootTrigger' }).Count -ne 1) {
+  $triggers = @($Task.Triggers)
+  if ($triggers.Count -ne 1 -or @($triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskBootTrigger' }).Count -ne 1) {
     throw 'Host Runner task must have exactly one boot trigger.'
   }
   if (

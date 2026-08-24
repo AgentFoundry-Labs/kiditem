@@ -277,6 +277,27 @@ test('PR validation exercises the Windows Runner packaging boundary without a ho
   assert.match(workflow, /KidItem\.JobRunner\.Fixture\.csproj/);
 });
 
+test('Windows CI drives the production JavaScript-provider resolver through the native Job helper', () => {
+  const releaseWorkflow = read('.github/workflows/office-images.yml');
+  const prWorkflow = read('.github/workflows/pr-checks.yml');
+  const helperSpec = read('apps/agent-runner/src/platform/windows/windows-job-supervisor.integration.spec.ts');
+  const providerCommand = read('apps/agent-runner/src/provider/provider-command.ts');
+
+  for (const workflow of [releaseWorkflow, prWorkflow]) {
+    const publish = workflow.indexOf('dotnet publish apps/agent-runner/windows/KidItem.JobRunner/KidItem.JobRunner.csproj');
+    const vitest = workflow.indexOf('npm exec --workspace=apps/agent-runner vitest -- run', publish);
+    assert.ok(publish >= 0 && vitest > publish,
+      'the Windows Job helper must be published before the mandatory Runner Vitest suite');
+    assert.match(workflow, /\$env:KIDITEM_WINDOWS_JOB_RUNNER_PATH\s*=\s*\(Join-Path \$env:RUNNER_TEMP 'kiditem-job-runner\\\\KidItem\.JobRunner\.exe'\)/);
+  }
+  assert.match(providerCommand, /function bundledProviderInvocation/);
+  assert.match(providerCommand, /process\.execPath/);
+  assert.match(providerCommand, /function bundledProviderVersionProbe/);
+  assert.match(helperSpec, /bundledProviderVersionProbe/);
+  assert.match(helperSpec, /runWithNativeJobHelper/);
+  assert.match(helperSpec, /command\.args\[0\]/);
+});
+
 test('Office operator binds API, Runner package, scheduler, token rotation, and rollback to one release identity', () => {
   const script = read('deploy/office/apply-deployment.ps1');
   const compose = read('deploy/office/compose.office.yml');
@@ -296,8 +317,9 @@ test('Office operator binds API, Runner package, scheduler, token rotation, and 
   assert.match(script, /New-ScheduledTaskTrigger -AtStartup/);
   assert.match(script, /RestartCount/);
   assert.match(script, /Set-RunnerProtectedAcl/);
-  assert.match(script, /\/setowner', 'Administrators'/);
-  assert.match(script, /\$systemRights = \$serviceRights/);
+  assert.match(script, /Get-RunnerProtectionSpec/);
+  assert.match(script, /\$security\.SetOwner\(\$administratorsSid\)/);
+  assert.match(script, /\[System\.Security\.Principal\.SecurityIdentifier\]::new\('S-1-5-32-544'\)/);
   assert.match(script, /Set-RunnerProtectedAcl -Path \(Join-Path \$candidateRoot 'package'\) -Mode ReadExecute/);
   assert.match(script, /Get-FileHash -LiteralPath .* -Algorithm SHA256/);
   assert.match(script, /Expand-Archive/);
@@ -367,6 +389,7 @@ test('Office deployment fails closed when rollback cannot re-establish one coher
 
 test('Office deployment protects the derived ProgramData KidItem anchor before it creates Runner descendants', () => {
   const script = read('deploy/office/apply-deployment.ps1');
+  const nativeFixture = read('scripts/__tests__/office-windows-native-runtime.fixture.ps1');
   const initialization = script.slice(
     script.indexOf('function Initialize-RunnerStorage'),
     script.indexOf('function Set-ComposeArguments'),
@@ -378,6 +401,29 @@ test('Office deployment protects the derived ProgramData KidItem anchor before i
   assert.ok(officeRoot >= 0 && protectOfficeRoot > officeRoot && runnerRoot > protectOfficeRoot,
     'the fixed C:\\ProgramData\\KidItem ACL anchor must be protected before Runner children inherit it');
   assert.match(script, /function Set-RunnerProtectedAcl[\s\S]*\[switch\]\$Anchor/);
+  assert.match(script, /System\.Security\.AccessControl\.FileSystemSecurity/);
+  assert.match(script, /SetAccessRuleProtection\(\$true, \$false\)/);
+  assert.match(script, /RemoveAccessRuleSpecific/);
+  assert.match(script, /function Assert-RunnerProtectedAcl/);
+  assert.match(script, /GetOwner\(\[System\.Security\.Principal\.SecurityIdentifier\]\)/);
+  assert.doesNotMatch(script, /function Invoke-Icacls/);
+  assert.match(nativeFixture, /Set-RunnerProtectedAcl[\s\S]*-Principal/);
+  assert.match(nativeFixture, /untrusted owner|arbitrary explicit SID/i);
+});
+
+test('Windows-native fixture invokes the production ACL, scheduler, and strict manifest admission functions', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const nativeFixture = read('scripts/__tests__/office-windows-native-runtime.fixture.ps1');
+
+  assert.match(nativeFixture, /Set-RunnerProtectedAcl/);
+  assert.match(nativeFixture, /Register-RunnerScheduledTask/);
+  assert.match(nativeFixture, /Assert-RunnerScheduledTaskContract/);
+  assert.match(nativeFixture, /Read-DeploymentManifest/);
+  assert.match(nativeFixture, /wrong scalar|unknown manifest field|manifest drift/i);
+  assert.match(script, /\$triggers\.Count -ne 1/);
+  assert.match(script, /function Assert-ManifestStringField/);
+  assert.match(script, /function Assert-ManifestIntegerField/);
+  assert.match(script, /Manifest field .* must be a string/);
 });
 
 test('Office deployment owns one canonical ProgramData anchor instead of accepting an operator-selected root', () => {

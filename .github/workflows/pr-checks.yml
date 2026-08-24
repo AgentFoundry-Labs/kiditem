@@ -62,9 +62,10 @@ jobs:
           npm ci
           npm run build --workspace=packages/shared
           npm run build --workspace=apps/agent-runner
-          npm exec --workspace=apps/agent-runner vitest -- run
           dotnet publish apps/agent-runner/windows/KidItem.JobRunner/KidItem.JobRunner.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP\\kiditem-job-runner"
           dotnet publish apps/agent-runner/windows/KidItem.JobRunner.Fixture/KidItem.JobRunner.Fixture.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP\\kiditem-job-runner-fixture"
+          $env:KIDITEM_WINDOWS_JOB_RUNNER_PATH = (Join-Path $env:RUNNER_TEMP 'kiditem-job-runner\\KidItem.JobRunner.exe')
+          npm exec --workspace=apps/agent-runner vitest -- run
           & pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/__tests__/office-windows-native-runtime.fixture.ps1 `
             -JobRunnerPath (Join-Path $env:RUNNER_TEMP 'kiditem-job-runner\\KidItem.JobRunner.exe') `
             -FixturePath (Join-Path $env:RUNNER_TEMP 'kiditem-job-runner-fixture\\KidItem.JobRunner.Fixture.exe') `

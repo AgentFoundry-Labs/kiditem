@@ -65,6 +65,23 @@ describe('loadRunnerConfig', () => {
     expect(() => assertProtectedPathPolicy(readTarget, policy, 'write')).toThrow('runner_protected_path_acl_invalid');
   });
 
+  it('rejects an inherit-only outsider ACE on a protected Windows target instead of silently skipping it', () => {
+    const serviceSid = 'S-1-5-80-12345';
+    expect(() => assertProtectedPathPolicy({
+      kind: 'file',
+      isSymbolicLink: false,
+      windowsAcl: {
+        owner: 'BA',
+        entries: [
+          { identity: serviceSid, access: 'allow', rights: 'read' },
+          { identity: 'SY', access: 'allow', rights: 'read' },
+          { identity: 'BA', access: 'allow', rights: 'full' },
+          { identity: 'WD', access: 'allow', rights: 'read', inheritOnly: true },
+        ],
+      },
+    }, { platform: 'windows', currentServiceIdentity: serviceSid }, 'read')).toThrow('runner_protected_path_acl_invalid');
+  });
+
   it('fails closed for extra arguments, non-loopback origin, unknown keys, and symlink paths', async () => {
     const root = await fixtureRoot();
     const target = join(root, 'target.json');
@@ -238,6 +255,64 @@ describe('loadRunnerConfig', () => {
     await expect(loadRunnerConfig(['--config', configPath], options)).rejects.toThrow('runner_protected_path_acl_invalid');
   });
 
+  it('rejects an untrusted owner on the protected KidItem anchor ancestor', async () => {
+    const root = await fixtureRoot();
+    const runtimeRoot = join(root, 'runtime');
+    const configPath = join(root, 'runner.json');
+    const tokenFile = join(root, 'token');
+    const attempts = join(root, 'attempts');
+    await mkdir(join(runtimeRoot, 'dist'), { recursive: true });
+    await writeFile(join(runtimeRoot, 'dist', 'main.cjs'), '');
+    await mkdir(attempts, { mode: 0o700 });
+    await writeFile(tokenFile, 'A'.repeat(43), { mode: 0o600 });
+    await writeFile(configPath, JSON.stringify({
+      controlOrigin: 'http://127.0.0.1:4000', tokenFile, attemptRoot: attempts, runtimeRoot,
+    }), { mode: 0o600 });
+    const serviceSid = 'S-1-5-80-12345';
+    const options = {
+      entrypoint: join(runtimeRoot, 'dist', 'main.cjs'),
+      windowsProtectedPathAnchor: root,
+      protectedPathInspector: fixtureWindowsInspector(serviceSid, {
+        readPaths: [configPath, tokenFile],
+        readExecutePaths: [runtimeRoot],
+        writePaths: [attempts],
+        ownerForPath: (path) => path === root ? 'WD' : serviceSid,
+      }),
+    } as unknown as Parameters<typeof loadRunnerConfig>[1];
+
+    await expect(loadRunnerConfig(['--config', configPath], options)).rejects.toThrow('runner_protected_path_owner_invalid');
+  });
+
+  it('rejects an untrusted read ACE on the protected KidItem anchor ancestor', async () => {
+    const root = await fixtureRoot();
+    const runtimeRoot = join(root, 'runtime');
+    const configPath = join(root, 'runner.json');
+    const tokenFile = join(root, 'token');
+    const attempts = join(root, 'attempts');
+    await mkdir(join(runtimeRoot, 'dist'), { recursive: true });
+    await writeFile(join(runtimeRoot, 'dist', 'main.cjs'), '');
+    await mkdir(attempts, { mode: 0o700 });
+    await writeFile(tokenFile, 'A'.repeat(43), { mode: 0o600 });
+    await writeFile(configPath, JSON.stringify({
+      controlOrigin: 'http://127.0.0.1:4000', tokenFile, attemptRoot: attempts, runtimeRoot,
+    }), { mode: 0o600 });
+    const serviceSid = 'S-1-5-80-12345';
+    const options = {
+      entrypoint: join(runtimeRoot, 'dist', 'main.cjs'),
+      windowsProtectedPathAnchor: root,
+      protectedPathInspector: fixtureWindowsInspector(serviceSid, {
+        readPaths: [configPath, tokenFile],
+        readExecutePaths: [runtimeRoot],
+        writePaths: [attempts],
+        extraEntries: (path) => path === root
+          ? [{ identity: 'WD', access: 'allow' as const, rights: 'read' as const }]
+          : [],
+      }),
+    } as unknown as Parameters<typeof loadRunnerConfig>[1];
+
+    await expect(loadRunnerConfig(['--config', configPath], options)).rejects.toThrow('runner_protected_path_acl_invalid');
+  });
+
   it('accepts a restricted injected Windows ACL without requiring Windows metadata from this macOS fixture', async () => {
     const root = await fixtureRoot();
     const configPath = join(root, 'runner.json');
@@ -352,6 +427,7 @@ function fixtureWindowsInspector(
     readExecutePaths?: readonly string[];
     writePaths?: readonly string[];
     extraEntries?: (path: string) => readonly { identity: string; access: 'allow'; rights: 'full' | 'read' | 'read_execute' | 'write' | 'other' }[];
+    ownerForPath?: (path: string) => string;
   }> = {},
 ) {
   const readPaths = new Set((options.readPaths ?? []).map((path) => resolve(path)));
@@ -376,7 +452,7 @@ function fixtureWindowsInspector(
         isSymbolicLink: false,
         identity: { device: String(info.dev), inode: String(info.ino) },
         windowsAcl: {
-          owner: serviceSid,
+          owner: options.ownerForPath?.(path) ?? serviceSid,
           entries: [
             { identity: serviceSid, access: 'allow' as const, rights },
             { identity: 'BA', access: 'allow' as const, rights: 'full' as const },

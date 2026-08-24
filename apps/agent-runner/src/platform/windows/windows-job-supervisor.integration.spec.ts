@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { ATTEMPT_RUNTIME_TRAIN } from '@kiditem/shared/agent-runtime';
+import { bundledProviderVersionProbe } from '../../provider/provider-command';
 import { WindowsJobSupervisor } from './windows-job-supervisor';
 
 describe('WindowsJobSupervisor', () => {
@@ -44,7 +47,57 @@ describe('WindowsJobSupervisor', () => {
     expect(normalExitBranch.indexOf('CloseJobOnce();')).toBeLessThan(source.indexOf('await Task.WhenAll(stdout, stderr)'));
   });
 
+  it('rejects a JavaScript file as CreateProcessW applicationName so resolver regressions fail closed', async () => {
+    const source = await readFile(resolve(__dirname, '../../../windows/KidItem.JobRunner/Program.cs'), 'utf8');
+
+    expect(source).toContain('Path.GetExtension(launch.Executable).Equals(".js", StringComparison.OrdinalIgnoreCase)');
+    expect(source).toContain('throw new LaunchAdmissionException("launch_js_entrypoint_invalid")');
+  });
+
   it.skipIf(process.platform !== 'win32')('launches only through the bundled local helper', () => {
     expect(new WindowsJobSupervisor({ helperPath: 'C:\\KidItem\\KidItem.JobRunner.exe' })).toBeDefined();
   });
+
+  it.skipIf(process.platform !== 'win32')('runs the production-resolved bundled Codex and Claude version commands through CreateProcessW', async () => {
+    const helperPath = process.env.KIDITEM_WINDOWS_JOB_RUNNER_PATH;
+    expect(helperPath).toBeTruthy();
+    expect(existsSync(helperPath!)).toBe(true);
+    const runtimeRoot = resolve(__dirname, '../../..');
+
+    for (const [provider, expectedVersion] of [
+      ['codex', ATTEMPT_RUNTIME_TRAIN.codexVersion],
+      ['claude', ATTEMPT_RUNTIME_TRAIN.claudeVersion],
+    ] as const) {
+      const command = bundledProviderVersionProbe(runtimeRoot, provider);
+      expect(command.executable.toLocaleLowerCase('en-US')).not.toMatch(/\.js$/);
+      if (provider === 'codex') expect(command.args[0]).toMatch(/[\\/]codex\.js$/);
+
+      const result = await runWithNativeJobHelper(helperPath!, command);
+      expect(result.exit).toEqual({ code: 0, signal: null });
+      expect(isExactBundledVersion(provider, result.stdout, expectedVersion)).toBe(true);
+    }
+  }, 30_000);
 });
+
+async function runWithNativeJobHelper(helperPath: string, command: ReturnType<typeof bundledProviderVersionProbe>): Promise<{
+  exit: { code: number | null; signal: NodeJS.Signals | null };
+  stdout: string;
+}> {
+  let stdout = '';
+  let resolveExit!: (exit: { code: number | null; signal: NodeJS.Signals | null }) => void;
+  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveExitValue) => { resolveExit = resolveExitValue; });
+  const supervisor = new WindowsJobSupervisor({ helperPath });
+  await supervisor.launch(command, {
+    onStdout: (value) => { stdout += value; },
+    onExit: resolveExit,
+  });
+  return { exit: await exited, stdout };
+}
+
+function isExactBundledVersion(provider: 'codex' | 'claude', output: string, expectedVersion: string): boolean {
+  const value = output.trim();
+  const accepted = provider === 'codex'
+    ? [expectedVersion, `codex ${expectedVersion}`, `codex-cli ${expectedVersion}`]
+    : [expectedVersion, `claude ${expectedVersion}`, `${expectedVersion} (Claude Code)`, `Claude Code ${expectedVersion}`];
+  return accepted.includes(value);
+}

@@ -1,7 +1,7 @@
 import type { AttemptLaunchSpec } from '@kiditem/shared/agent-runtime';
 import type { AttemptWorkspacePaths } from '../attempt/attempt-workspace.service';
 import { agentResultOutputSchema } from './agent-result-output-schema';
-import { bundledProviderEntrypoint, providerEnvironment, type ProviderCommand } from './provider-command';
+import { bundledProviderInvocation, providerEnvironment, type ProviderCommand } from './provider-command';
 
 const KIDITEM_BUSINESS_MCP_TOOLS = [
   'mcp__kiditem_attempt__capability_catalog_search', 'mcp__kiditem_attempt__capability_invoke',
@@ -16,9 +16,11 @@ const CLAUDE_READINESS_ALLOWED_TOOLS = 'mcp__kiditem_attempt__readiness_probe';
 export function buildClaudeCommand(launch: AttemptLaunchSpec, paths: AttemptWorkspacePaths, runtimeRoot: string): ProviderCommand {
   if (!launch.model.trim()) throw new Error('missing_runtime_model');
   const allowedTools = claudeAllowedTools(launch.mcpToolScope);
+  const invocation = bundledProviderInvocation(runtimeRoot, 'claude');
   return Object.freeze({
-    executable: bundledProviderEntrypoint(runtimeRoot, 'claude'),
+    executable: invocation.executable,
     args: Object.freeze([
+      ...invocation.argsPrefix,
       '--print', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--model', launch.model,
       '--setting-sources', '', '--tools', allowedTools, '--allowedTools', allowedTools,
       '--no-chrome', '--no-session-persistence', '--mcp-config', paths.mcpConfigPath,

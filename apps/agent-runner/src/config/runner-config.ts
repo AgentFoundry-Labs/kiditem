@@ -371,14 +371,34 @@ function assertProtectedAncestorPolicy(inspection: RunnerProtectedPathInspection
   if (policy.platform === 'windows') {
     const acl = inspection.windowsAcl;
     if (!acl) throw new Error('runner_protected_path_acl_invalid');
-    const permitted = new Set([normalizeWindowsIdentity(policy.currentServiceIdentity), 'BA', 'SY']);
+    const serviceIdentity = normalizeWindowsIdentity(policy.currentServiceIdentity);
+    const permitted = new Set([serviceIdentity, 'BA', 'SY']);
+    if (!permitted.has(normalizeWindowsIdentity(acl.owner))) {
+      throw new Error('runner_protected_path_owner_invalid');
+    }
+    // The deployment owns every component from the fixed KidItem anchor down.
+    // Each one must have the complete, closed three-principal DACL.  Ancestors
+    // legitimately use different safe access levels (read, RX, or full for
+    // the Attempt root), so this check validates the closed identity boundary
+    // while the target check below validates its exact required access.
+    const granted = new Set<string>();
     for (const entry of acl.entries) {
-      if (entry.inheritOnly || entry.access === 'deny') continue;
       const identity = normalizeWindowsIdentity(entry.identity);
       if (
-        !permitted.has(identity) &&
-        (entry.access !== 'allow' || (entry.rights !== 'read' && entry.rights !== 'read_execute'))
+        entry.inheritOnly ||
+        entry.access !== 'allow' ||
+        !permitted.has(identity) ||
+        granted.has(identity) ||
+        (identity === 'BA'
+          ? entry.rights !== 'full'
+          : entry.rights !== 'read' && entry.rights !== 'read_execute' && entry.rights !== 'full')
       ) {
+        throw new Error('runner_protected_path_acl_invalid');
+      }
+      granted.add(identity);
+    }
+    for (const identity of permitted) {
+      if (!granted.has(identity)) {
         throw new Error('runner_protected_path_acl_invalid');
       }
     }
@@ -418,8 +438,7 @@ export function assertProtectedPathPolicy(
   for (const entry of acl.entries) {
     const identity = normalizeWindowsIdentity(entry.identity);
     const expected = permitted.get(identity);
-    if (entry.inheritOnly) continue;
-    if (!expected || entry.access !== 'allow' || entry.rights !== expected || granted.has(identity)) {
+    if (entry.inheritOnly || !expected || entry.access !== 'allow' || entry.rights !== expected || granted.has(identity)) {
       throw new Error('runner_protected_path_acl_invalid');
     }
     granted.add(identity);
