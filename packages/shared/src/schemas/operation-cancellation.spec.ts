@@ -19,15 +19,6 @@ describe('operation cancellation schemas', () => {
         runId: 'run-1',
       },
       {
-        targetType: 'agent_session_task',
-        session:
-          'organizations/org-1/agentSessions/00000000-0000-4000-8000-000000000001',
-        task:
-          'organizations/org-1/agentSessions/00000000-0000-4000-8000-000000000001/tasks/00000000-0000-4000-8000-000000000002',
-        idempotencyKey: 'cancel:task-1',
-        expectedStatus: 'running',
-      },
-      {
         targetType: 'content_generation',
         generationId: 'generation-1',
       },
@@ -42,7 +33,7 @@ describe('operation cancellation schemas', () => {
     }
   });
 
-  it('rejects retired generic AgentRun targets, malformed session coordinates, empty target identifiers, and overlong operation keys', () => {
+  it('rejects retired Agent OS targets, empty target identifiers, and overlong operation keys', () => {
     const emptyIdentifierTargets = [
       {
         targetType: 'operation_key',
@@ -51,15 +42,6 @@ describe('operation cancellation schemas', () => {
       {
         targetType: 'workflow_run',
         runId: '',
-      },
-      {
-        targetType: 'agent_session_task',
-        session:
-          'organizations/org-1/agentSessions/00000000-0000-4000-8000-000000000001',
-        task:
-          'organizations/org-1/agentSessions/00000000-0000-4000-8000-000000000003/tasks/00000000-0000-4000-8000-000000000002',
-        idempotencyKey: 'cancel:task-1',
-        expectedStatus: 'running',
       },
       {
         targetType: 'content_generation',
@@ -78,6 +60,15 @@ describe('operation cancellation schemas', () => {
     for (const target of [
       { targetType: 'agent_run_request', requestId: 'request-1' },
       { targetType: 'agent_run', runId: 'agent-run-1' },
+      {
+        targetType: 'agent_session_task',
+        session:
+          'organizations/org-1/agentSessions/00000000-0000-4000-8000-000000000001',
+        task:
+          'organizations/org-1/agentSessions/00000000-0000-4000-8000-000000000001/tasks/00000000-0000-4000-8000-000000000002',
+        idempotencyKey: 'cancel:task-1',
+        expectedStatus: 'running',
+      },
     ]) {
       expect(() => CancelOperationTargetSchema.parse(target)).toThrow();
     }
@@ -109,7 +100,6 @@ describe('operation cancellation schemas', () => {
         operationKey: 'workflow:run-1',
         affected: {
           workflowRunIds: ['run-1'],
-          agentSessionTaskNames: [],
           contentGenerationIds: [],
           thumbnailGenerationIds: [],
           directAiJobIds: ['image-job-1'],
@@ -127,7 +117,6 @@ describe('operation cancellation schemas', () => {
       operationKey: 'workflow:run-1',
       affected: {
         workflowRunIds: ['run-1'],
-        agentSessionTaskNames: [],
         contentGenerationIds: [],
         thumbnailGenerationIds: [],
         directAiJobIds: ['image-job-1'],
@@ -146,7 +135,6 @@ describe('operation cancellation schemas', () => {
 
     expect(emptyCancelOperationAffected()).toEqual({
       workflowRunIds: [],
-      agentSessionTaskNames: [],
       contentGenerationIds: [],
       thumbnailGenerationIds: [],
       directAiJobIds: [],

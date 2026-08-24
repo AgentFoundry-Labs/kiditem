@@ -324,7 +324,7 @@ function hasDuplicateRuntimeContract(filePath, source) {
   const visit = (node) => {
     if (ts.isTypeAliasDeclaration(node)) {
       const values = new Set(literalUnionValues(node.type));
-      duplicate ||= 
+      duplicate ||=
         (values.has("macos") && values.has("windows")) ||
         (values.has("codex_cli") && values.has("claude_cli"));
     }

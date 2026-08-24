@@ -71,19 +71,14 @@ function makeService() {
       preserved: false,
     }),
   };
-  const sessionTasks = {
-    cancel: vi.fn().mockResolvedValue({ status: 'cancelled' }),
-  };
   return {
     operationAlerts,
     workflows,
     ai,
-    sessionTasks,
     service: new OperationCancellationService(
       operationAlerts as never,
       workflows as never,
       ai as never,
-      sessionTasks as never,
     ),
   };
 }

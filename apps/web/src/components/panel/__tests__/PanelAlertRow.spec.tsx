@@ -13,7 +13,6 @@ const mockCancelOperation = vi.hoisted(() => vi.fn(async () => ({
   operationKey: 'operation-key-1',
   affected: {
     workflowRunIds: [],
-    agentSessionTaskNames: [],
     contentGenerationIds: [],
     thumbnailGenerationIds: [],
     directAiJobIds: [],
