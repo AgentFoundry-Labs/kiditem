@@ -330,7 +330,7 @@ apps/server/src/{owner}/
   adapter/out/{lane}/     DB/provider/runtime/storage/event adapters
   application/port/in/    incoming use-case ports, when other domains consume them
   application/port/out/   outgoing DB/cross-domain/provider/runtime contracts
-  domain/capability/      resource/tool/workflow/sink manifests, when platform-visible
+  domain/capability/      owner-defined Agent capability contracts, when platform-visible
   application/service/    orchestration, transactions, organization context
   domain/                 pure policy/model/service code
   mapper/                 row/DTO/domain/shared contract mapping
@@ -342,26 +342,21 @@ Optional: `adapter/in/http/` when no HTTP entrypoint exists, `application/port/i
 when no other owner consumes the use case, `domain/` when no pure policy/model
 exists yet, and `mapper/` when mapping is trivial.
 
-Domain capability manifests use the shared vocabulary in
-`apps/server/src/common/capability-manifest.ts`. They describe owner-exposed
-`resource`, `tool`, `workflow`, and `sink` surfaces for Agent OS and
-automation, but they do not execute work. Canonical DB writes stay behind
-owner-domain sinks/incoming ports.
+Agent-facing capabilities use the neutral contract in
+`apps/server/src/common/capability-definition.ts`. Each owner domain owns its
+`CapabilityDefinition`, strict business input/output schemas, incoming port,
+and production implementation. Agent OS only aggregates those definitions and
+binds each exact `ownerInputPort`; it never defines or performs another
+domain's canonical mutation.
 
-Initial domain capability targets:
-
-| Owner | Resources | Tools | Workflows | Sinks |
-|---|---|---|---|---|
-| `sourcing` | Duplicate URL, source control, evidence run, LaunchCandidate, decision batch, candidate/preparation lookup and read context. | Product URL scrape, search result scrape, and deterministic evidence/decision evaluation. | Duplicate-check → fenced collection → immutable evidence → shadow decision → reviewed procurement intent or preparation → account registration. | Evidence append/finalize, immutable recommendation decision, candidate ingest/rejection, and preparation lifecycle/finalization. |
-| `ai` | Workspace/generation/detail-page read context. | OCR, image classification, image/text/detail generation, vision analysis. | Media generation jobs and candidate-to-listing content branching. | Generation output, asset usage, current-thumbnail, and workspace archive projections. |
-| `finance` | Live P&L, margin, commission, settlement, supplier-payment, and plan lookups. | Margin/category profitability calculations, pandas-style research adapters when needed. | Reconciliation and profitability analysis runs. | Sales-plan, settlement, and supplier-payment projections. |
-| `products` | Canonical inventory-product operations, direct channel-option inventory components, ABC explanation, and category compatibility reads. | Product validation and direct component-capacity projections. | MasterProduct lifecycle, ABC publication, complete option-component replacement, and listing-summary derivation. | MasterProduct and ChannelListingOptionInventoryComponent writes; never channel identity metadata or physical stock publication. |
-| `channels` | Channel account/listing/order/status, Wing/Rocket catalog identity, derived nullable MasterProduct summaries, and nullable SKU-availability reads. | Marketplace provider calls, listing validation, typed exact-evidence extraction, Wing/Coupang browser runtime steps, and direct option-component capacity calculation. | Product registration/listing sync, non-destructive catalog publication, and option-to-inventory correction flows. | Listing registration/update, option recipe matching, derived MasterProduct summary projection, and channel order/status ingestion; never physical stock publication. |
-| `rules` | Rule set and evaluation context reads. | Rule evaluation/suggestion tools that may invoke Agent OS from rules entrypoints. | Scheduled policy sweeps when deterministic. | Rule/action recommendation projection. |
-| `advertising` | Ad account/campaign/daily fact reads. | Scrape ingest normalization, strategy metrics calculations. | Daily fact ingest and deterministic alert workflows. | Ad fact/action/strategy projections. |
-| `supply` | Supplier, supplier-offer snapshot, procurement test intent, supplier-product, purchase-order, and submission-attempt reads. | Supplier matching, exact variant/tier/MOQ validation, deterministic Rocket capacity preview, and procurement calculation helpers. | Reviewed pre-purchase intent handoff, freshness-fenced purchase submission, and explicit provider reconciliation. | Immutable offer snapshot and proposed intent creation, supplier attach, purchase-order creation/update, and attempt terminal state; never recommendation scoring, freshness, or stock. |
-| `inventory` | Sellpia freshness/source binding/current basis/history, physical SellpiaInventorySku availability, warehouse, transfer, and return reads. | Workbook parsing, bounded quality evaluation, freshness/lease policy, snapshot normalization, and physical-capacity projection for matching and preview consumers. | Browser claim/heartbeat/failure/cancel, atomic full-snapshot publication, and record-only retained transfer/return flows. | A completed valid Sellpia publication is the only physical `SellpiaInventorySku.currentStock` writer; public `availableStock` equals it. |
-| `orders` | Order, return, review, return-transfer, and Sellpia transmission-intent reads. | Return classification helpers, channel-agnostic order calculations, and deterministic submission-fence decisions. | Return and audited Sellpia workbook submission workflows. | Order/return status and Sellpia transmission-intent projections through Orders-owned commands; never freshness or stock. |
+A capability represents an independently useful business intent, not every
+domain service method. Definitions retain precise effects, approval risk, and
+idempotency metadata. Cross-domain routing is intentionally simple: reads may
+run under an execution-scoped grant, while `db_write`, `external_write`, and
+`job_enqueue` work delegates to a selected Agent responsible for the owner
+domain. Mutation capabilities require owner-enforced idempotency. Do not
+reintroduce legacy `kind`, `visibility`, monetary `cost`, or
+resource/tool/workflow/sink categories.
 
 Flat owner capabilities use this shape:
 

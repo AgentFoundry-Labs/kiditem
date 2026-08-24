@@ -1,12 +1,9 @@
 # sourcing
 
-`src/sourcing/` owns Chinese new-product discovery: scraper ingest from
-Alibaba/1688, `SourcingCandidate` workspaces, manual product registration
-candidates, source/evidence governance, exact launch identity, immutable
-recommendation decisions, and the account-scoped product-registration state
-machine. Supplier registry, supplier-offer commercial terms, procurement test
-intents, and purchase orders live in `src/supply/`; supplier payments live in
-`src/finance/`.
+`src/sourcing/` owns Chinese-product discovery, `SourcingCandidate`,
+source/evidence governance, launch decisions, and account-scoped registration
+preparation. Suppliers, offers, procurement intents, and purchase orders belong
+to `src/supply/`; supplier payments belong to `src/finance/`.
 
 ## Folder Map
 
@@ -18,14 +15,15 @@ sourcing/
 │   ├── agent/              # sourcing Agent OS gateway adapter
 │   ├── ai/                 # AI archive/workspace and registration-content adapters
 │   ├── channels/           # account-scoped marketplace registration bridge
-│   ├── products/           # legacy products compatibility bridge
+│   ├── products/           # Products boundary adapter
 │   ├── supply/             # Supply incoming-port bridge; never direct model writes
 │   └── repository/         # candidate, evidence, launch, decision repositories
 ├── application/
+│   ├── port/in/            # Sourcing-owned Agent capability/use-case contracts
 │   ├── port/out/           # local outbound ports + transaction handle
 │   └── service/            # use-case orchestration
 ├── domain/
-│   └── capability/         # sourcing resource/tool/workflow/sink manifest
+│   └── capability/         # strict Sourcing-owned CapabilityDefinitions
 └── __tests__/              # architecture and behavior specs
 ```
 

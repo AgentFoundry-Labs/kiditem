@@ -404,7 +404,7 @@ Expected: PASS with no continuation/deletion/capacity state columns.
 
 **Files:**
 
-- Modify: `apps/server/src/common/capability-manifest.ts`
+- Modify: `apps/server/src/common/capability-definition.ts`
 - Modify: `apps/server/src/sourcing/domain/capability/sourcing.capabilities.ts`
 - Modify: `apps/server/src/channels/domain/capability/channels.capabilities.ts`
 - Modify: `apps/server/src/ai/domain/capability/ai.capabilities.ts`
