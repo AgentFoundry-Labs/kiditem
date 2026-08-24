@@ -90,6 +90,62 @@ describe('Sourcing final owner idempotency receipt (PG integration)', () => {
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).resolves.toBe(2);
   });
+
+  it('serializes a normalized Alibaba URL without a source identity hash across different owner keys', async () => {
+    const [first, second] = await Promise.all([
+      candidates.upsertSourcedWithIdempotencyReceipt({
+        ...receiptInput(),
+        idempotencyKey: 'owner:attempt:alibaba-url-one',
+        sourceUrl: 'https://www.alibaba.com/product-detail/toy_123.html',
+        sourcePlatform: 'ALIBABA',
+        externalOfferId: null,
+        sourceIdentityHash: null,
+      }),
+      candidates.upsertSourcedWithIdempotencyReceipt({
+        ...receiptInput(),
+        idempotencyKey: 'owner:attempt:alibaba-url-two',
+        requestHash: 'b'.repeat(64),
+        sourceUrl: 'https://www.alibaba.com/product-detail/toy_123.html',
+        sourcePlatform: 'ALIBABA',
+        externalOfferId: null,
+        sourceIdentityHash: null,
+      }),
+    ]);
+
+    expect(second.candidateId).toBe(first.candidateId);
+    await expect(prisma.sourcingCandidate.count({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceUrl: 'https://www.alibaba.com/product-detail/toy_123.html',
+      },
+    })).resolves.toBe(1);
+    await expect(prisma.sourcingOwnerIdempotencyReceipt.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(2);
+    await expect(prisma.sourcingOwnerIdempotencyReceipt.findMany({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        capabilityKey: 'sourcing.ingestCandidate',
+        idempotencyKey: {
+          in: [
+            'owner:attempt:alibaba-url-one',
+            'owner:attempt:alibaba-url-two',
+          ],
+        },
+      },
+      select: { idempotencyKey: true, result: true },
+      orderBy: { idempotencyKey: 'asc' },
+    })).resolves.toEqual([
+      {
+        idempotencyKey: 'owner:attempt:alibaba-url-one',
+        result: { candidateId: first.candidateId },
+      },
+      {
+        idempotencyKey: 'owner:attempt:alibaba-url-two',
+        result: { candidateId: first.candidateId },
+      },
+    ]);
+  });
 });
 
 function receiptInput() {

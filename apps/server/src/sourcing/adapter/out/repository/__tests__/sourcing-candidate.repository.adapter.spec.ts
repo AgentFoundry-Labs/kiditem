@@ -31,12 +31,14 @@ function candidateRow(overrides: Record<string, unknown> = {}) {
 describe('SourcingCandidateRepositoryAdapter', () => {
   it('retries sourced candidate create races by updating the concurrent candidate', async () => {
     const tx1 = {
+      $queryRaw: vi.fn().mockResolvedValue([{ lock: 'locked' }]),
       sourcingCandidate: {
         findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockRejectedValue({ code: 'P2002' }),
       },
     };
     const tx2 = {
+      $queryRaw: vi.fn().mockResolvedValue([{ lock: 'locked' }]),
       sourcingCandidate: {
         findFirst: vi.fn().mockResolvedValue({ id: 'candidate-1', rawData: { old: true } }),
         update: vi.fn().mockResolvedValue(candidateRow({
@@ -90,7 +92,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     expect(row).toMatchObject({ id: 'candidate-1', status: 'sourced' });
   });
 
-  it('returns the same canonical supplier identity without another candidate or image create', async () => {
+  it('serializes the shared source identity before returning the same candidate without another image create', async () => {
     let candidate: ReturnType<typeof candidateRow> | null = null;
     let imageCount = 0;
     const tx = {
@@ -154,7 +156,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     expect(replay.id).toBe(first.id);
     expect(tx.sourcingCandidate.create).toHaveBeenCalledOnce();
     expect(tx.candidateImage.createMany).toHaveBeenCalledOnce();
-    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(4);
     expect(imageCount).toBe(1);
   });
 

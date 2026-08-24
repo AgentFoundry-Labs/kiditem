@@ -77,6 +77,7 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
           }
 
           await advisoryLock(tx, `sourcing-candidate:${input.organizationId}:${input.idempotencyKey}`);
+          await sourceIdentityLock(tx, input);
           const candidate = await this.upsertSourcedIn(tx, input);
           const result = { candidateId: candidate.id };
           await tx.sourcingOwnerIdempotencyReceipt.create({
@@ -328,6 +329,7 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       if (input.idempotencyKey?.trim()) {
         await advisoryLock(tx, `sourcing-candidate:${input.organizationId}:${input.idempotencyKey}`);
       }
+      await sourceIdentityLock(tx, input);
       return this.upsertSourcedIn(tx, input);
     });
   }
@@ -409,6 +411,19 @@ async function advisoryLock(tx: Prisma.TransactionClient, key: string): Promise<
   await tx.$queryRaw(
     // queryraw-tenancy-exempt: exact owner key contains the organization boundary; reads no tenant data.
     Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))::text AS "lock"`,
+  );
+}
+
+async function sourceIdentityLock(
+  tx: Prisma.TransactionClient,
+  input: Pick<UpsertCandidateInput, 'organizationId' | 'sourcePlatform' | 'sourceIdentityHash' | 'sourceUrl'>,
+): Promise<void> {
+  // sourceUrl is normalized by the ingest boundary before it reaches the repository.
+  // The same lock fences both hash-backed and URL-backed identity reads/creates.
+  const identity = input.sourceIdentityHash || input.sourceUrl;
+  await advisoryLock(
+    tx,
+    `sourcing-source-identity:${input.organizationId}:${input.sourcePlatform}:${identity}`,
   );
 }
 
