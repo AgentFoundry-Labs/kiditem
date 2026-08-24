@@ -1,6 +1,7 @@
 import { MAX_RUNNER_OUTPUT_BYTES } from '@kiditem/shared/agent-runtime';
 import { AgentResultEnvelopeSchema, type AgentResultEnvelope } from '@kiditem/shared/agent-interaction';
 import { redactForRunnerEvent } from '../security/redaction';
+import { normalizeProviderWireAgentResult } from './agent-result-output-schema';
 
 export type ClaudeStreamUpdate = Readonly<{ output: readonly string[]; result?: AgentResultEnvelope; providerFailure?: true }>;
 
@@ -26,7 +27,7 @@ export class ClaudeStreamParser {
         // Claude may include a human-readable `result` beside the strict final schema.
         // The structured field is the only admissible canonical result contract.
         const candidate = record.structured_output ?? record.result;
-        const parsed = AgentResultEnvelopeSchema.safeParse(candidate);
+        const parsed = AgentResultEnvelopeSchema.safeParse(normalizeProviderWireAgentResult(candidate));
         if (!parsed.success) throw new Error('claude_stream_result_invalid');
         result = parsed.data;
       }

@@ -697,8 +697,12 @@ provider turn. The provider readiness turn is intentionally tool-free; its
 prompt is the minimal structured reachability contract: `Return only a valid
 AgentResultEnvelope JSON object. Do not call any MCP tool.` The direct probe
 carries readiness semantics separately, and Codex never synthesizes a live
-input command. Claude retains its model-selected scoped readiness probe and
-live second input during the live turn.
+input command. The provider wire schema makes every field required; optional
+shared `needsInput` and `error` values are strict object-or-null placeholders
+that Runner removes only when null before shared-envelope validation. Arbitrary
+`output` is intentionally outside the provider wire schema. Claude retains
+its model-selected scoped readiness probe and live second input during the live
+turn.
 
 The readiness contract is therefore four correlated proofs: a real provider
 structured result (Codex immediate after its direct probe; Claude after its

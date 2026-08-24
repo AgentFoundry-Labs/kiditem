@@ -149,6 +149,17 @@ describe('Codex app-server readiness boundary', () => {
       expect(metadata.tools).not.toEqual(expect.arrayContaining([
         expect.objectContaining({ name: 'mcp__kiditem_attempt' }),
       ]));
+      expect(metadata.textFormat).toMatchObject({
+        type: 'json_schema',
+        strict: true,
+        schema: {
+          rootType: 'object',
+          rootUsesAnyOf: false,
+          rootProperties: ['error', 'needsInput', 'operationRefs', 'outcome', 'resourceRefs', 'summary'],
+          rootRequired: ['error', 'needsInput', 'operationRefs', 'outcome', 'resourceRefs', 'summary'],
+          violations: [],
+        },
+      });
       const completion = await rpc.waitForTurnCompletion(providerThread.id);
       assertStrictCompletion(completion, providerThread.id);
       const probeThread = preCreatedProbe ?? await readinessThread(rpc, generated.paths);
@@ -359,6 +370,7 @@ type Metadata = Readonly<{
   toolChoice: Record<string, string> | null;
   tools: readonly Record<string, unknown>[];
   input: readonly Record<string, unknown>[];
+  textFormat: Record<string, unknown> | null;
 }>;
 
 async function localResponsesProvider(): Promise<{ url: string; next(): Promise<Metadata>; close(): Promise<void> }> {
@@ -372,6 +384,7 @@ async function localResponsesProvider(): Promise<{ url: string; next(): Promise<
         toolChoice: safeChoice(body.tool_choice),
         tools: Array.isArray(body.tools) ? body.tools.map(safeTool).filter((value): value is Record<string, unknown> => value !== null) : [],
         input: Array.isArray(body.input) ? body.input.map(safeInput).filter((value): value is Record<string, unknown> => value !== null) : [],
+        textFormat: safeTextFormat(body.text),
       });
       sendSse(response, completedResponseEvents());
     } catch {
@@ -413,7 +426,7 @@ function completedResponseEvents(): object[] {
         type: 'message',
         role: 'assistant',
         id: 'msg_local',
-        content: [{ type: 'output_text', text: JSON.stringify({ outcome: 'completed', summary: 'local', resourceRefs: [], operationRefs: [] }) }],
+        content: [{ type: 'output_text', text: JSON.stringify({ outcome: 'completed', summary: 'local', resourceRefs: [], operationRefs: [], needsInput: null, error: null }) }],
       },
     },
     {
@@ -453,6 +466,57 @@ function safeInput(value: unknown): Record<string, unknown> | null {
     namespace: text(input.namespace),
     callIdPresent: Object.hasOwn(input, 'call_id') || Object.hasOwn(input, 'callId'),
   });
+}
+
+function safeTextFormat(value: unknown): Record<string, unknown> | null {
+  const format = object(object(value)?.format);
+  if (!format) return null;
+  return defined({
+    type: text(format.type),
+    strict: boolean(format.strict),
+    schema: safeSchemaMetadata(format.schema) ?? undefined,
+  });
+}
+
+function safeSchemaMetadata(value: unknown): Record<string, unknown> | null {
+  const schema = object(value);
+  if (!schema) return null;
+  const properties = object(schema.properties);
+  return {
+    rootType: text(schema.type),
+    rootUsesAnyOf: schema.anyOf !== undefined,
+    rootProperties: properties ? Object.keys(properties).sort() : [],
+    rootRequired: Array.isArray(schema.required) ? schema.required.filter((field): field is string => typeof field === 'string').sort() : [],
+    violations: strictSchemaViolations(schema),
+  };
+}
+
+function strictSchemaViolations(value: unknown, path = '$'): string[] {
+  const schema = object(value);
+  if (!schema) return [`${path}: schema node must be an object`];
+  const violations: string[] = [];
+  if (Object.keys(schema).length === 0) violations.push(`${path}: schema node must not be empty`);
+  if (path === '$' && schema.anyOf !== undefined) violations.push('$: root schema must not use anyOf');
+  const properties = object(schema.properties);
+  const isObject = schema.type === 'object' || properties !== null;
+  if (isObject) {
+    if (schema.type !== 'object') violations.push(`${path}: object schema must declare type=object`);
+    if (schema.additionalProperties !== false) violations.push(`${path}: object schema must set additionalProperties=false`);
+    if (!properties) {
+      violations.push(`${path}: object schema must declare properties`);
+    } else {
+      const required = Array.isArray(schema.required) ? schema.required.filter((field): field is string => typeof field === 'string') : [];
+      for (const [name, child] of Object.entries(properties)) {
+        if (!required.includes(name)) violations.push(`${path}.${name}: property must be required`);
+        violations.push(...strictSchemaViolations(child, `${path}.${name}`));
+      }
+    }
+  }
+  if (Array.isArray(schema.anyOf)) {
+    schema.anyOf.forEach((child, index) => violations.push(...strictSchemaViolations(child, `${path}.anyOf[${index}]`)));
+  }
+  if (schema.items !== undefined) violations.push(...strictSchemaViolations(schema.items, `${path}.items`));
+  return violations;
 }
 
 function defined<T extends Record<string, unknown>>(value: T): Record<string, Exclude<T[keyof T], undefined>> {

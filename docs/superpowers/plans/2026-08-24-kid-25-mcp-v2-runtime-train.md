@@ -816,8 +816,12 @@ Readiness is a process-memory projection with two phases:
    success; a failed or invalid direct result terminalizes `runtime_error`.
    The direct probe carries readiness semantics separately; Codex receives no
    synthetic input command. Claude retains its model-selected scoped probe and
-   is the only runtime that receives a live second input. Successful
-   discovery/list/call, runtime-specific terminal parse, token revocation,
+   is the only runtime that receives a live second input. Provider wire
+   schemas make all fields required, representing optional
+   shared `needsInput` and `error` values as strict object-or-null placeholders
+   that Runner drops only when null; arbitrary `output` is not a provider-wire
+   field. Successful discovery/list/call, runtime-specific terminal parse,
+   token revocation,
    complete-tree kill, and workspace cleanup promote the lease to `ready`.
 
 This adds no command kind, Attempt row, status, Prisma model, or durable

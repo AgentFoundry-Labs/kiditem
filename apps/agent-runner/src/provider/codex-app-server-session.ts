@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { AgentResultEnvelopeSchema, type AgentResultEnvelope } from '@kiditem/shared/agent-interaction';
-import { agentResultOutputSchema } from './agent-result-output-schema';
+import { agentResultOutputSchema, normalizeProviderWireAgentResult } from './agent-result-output-schema';
 
 type RpcResponse = { id?: string; method?: string; params?: unknown; result?: unknown; error?: { message?: string } };
 type CodexTurnStatus = 'completed' | 'failed' | 'cancelled' | 'interrupted';
@@ -250,7 +250,7 @@ function parseCompletedResult(items: unknown): AgentResultEnvelope {
   if (typeof text !== 'string') throw new Error('codex_app_server_result_missing');
   let candidate: unknown;
   try { candidate = JSON.parse(text); } catch { throw new Error('codex_app_server_result_invalid'); }
-  const parsed = AgentResultEnvelopeSchema.safeParse(candidate);
+  const parsed = AgentResultEnvelopeSchema.safeParse(normalizeProviderWireAgentResult(candidate));
   if (!parsed.success) throw new Error('codex_app_server_result_invalid');
   return parsed.data;
 }

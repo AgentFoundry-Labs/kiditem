@@ -128,7 +128,7 @@ describe('CodexAppServerSession', () => {
     answer(session, lines, 'turn/start', { turn: { id: 'turn-1' } }); await start;
 
     session.receive(`${JSON.stringify({ jsonrpc: '2.0', method: 'item/agentMessage/delta', params: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'item-1', delta: 'bounded delta' } })}\n`);
-    session.receive(`${JSON.stringify({ jsonrpc: '2.0', method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed', items: [{ type: 'agentMessage', id: 'item-1', text: JSON.stringify({ outcome: 'completed', summary: 'done', resourceRefs: [], operationRefs: [] }) }] } } })}\n`);
+    session.receive(`${JSON.stringify({ jsonrpc: '2.0', method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed', items: [{ type: 'agentMessage', id: 'item-1', text: JSON.stringify({ outcome: 'completed', summary: 'done', resourceRefs: [], operationRefs: [], needsInput: null, error: null }) }] } } })}\n`);
 
     expect(events).toEqual([
       { kind: 'agent_message_delta', turnId: 'turn-1', delta: 'bounded delta' },
