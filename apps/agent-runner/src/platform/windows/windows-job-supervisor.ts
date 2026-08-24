@@ -17,7 +17,11 @@ export class WindowsJobSupervisor implements ProcessSupervisor {
     return running;
   }
 
-  async shutdown(): Promise<void> { await Promise.all([...this.live].map((running) => running.terminate())); }
+  async shutdown(): Promise<void> {
+    const results = await Promise.allSettled([...this.live].map((running) => running.terminate()));
+    const errors = results.flatMap((result) => result.status === 'rejected' ? [result.reason] : []);
+    if (errors.length) throw new AggregateError(errors, 'runner_windows_kill_all_failed');
+  }
 }
 
 class WindowsJobProcess implements SupervisedProcess {

@@ -19,7 +19,12 @@ export class MacosProcessSupervisor implements ProcessSupervisor {
     }) as ChildProcessWithoutNullStreams;
     if (!child.pid) { child.kill(); throw new Error('provider_process_pid_missing'); }
     const watchdog = startProcessTreeWatchdog(child.pid);
-    const running = new MacosSupervisedProcess(child, watchdog, () => this.live.delete(running));
+    const running = new MacosSupervisedProcess(
+      child,
+      watchdog,
+      () => this.live.delete(running),
+      (error) => callbacks.onFatal?.(error),
+    );
     this.live.add(running);
     child.stdout.on('data', (chunk: Buffer) => callbacks.onStdout?.(chunk.toString('utf8')));
     child.stderr.on('data', (chunk: Buffer) => callbacks.onStderr?.(chunk.toString('utf8')));
@@ -27,7 +32,11 @@ export class MacosProcessSupervisor implements ProcessSupervisor {
     return running;
   }
 
-  async shutdown(): Promise<void> { await Promise.all([...this.live].map((running) => running.terminate())); }
+  async shutdown(): Promise<void> {
+    const results = await Promise.allSettled([...this.live].map((running) => running.terminate()));
+    const errors = results.flatMap((result) => result.status === 'rejected' ? [result.reason] : []);
+    if (errors.length) throw new AggregateError(errors, 'runner_macos_kill_all_failed');
+  }
 }
 
 export class MacosSupervisedProcess implements SupervisedProcess {
@@ -40,6 +49,7 @@ export class MacosSupervisedProcess implements SupervisedProcess {
     private readonly child: ChildProcessWithoutNullStreams,
     private readonly watchdog: ProcessTreeWatchdog,
     private readonly removed: () => void,
+    private readonly onFatal: (error: Error) => void,
   ) {
     child.once('exit', (code, signal) => {
       const exit = { code, signal };
@@ -97,8 +107,9 @@ export class MacosSupervisedProcess implements SupervisedProcess {
       this.reportedExit = exit;
       for (const listener of this.listeners) listener(exit);
       this.listeners.clear();
-    } catch {
-      // No tree-safe exit callback is emitted if a group cannot be proven gone.
+    } catch (error) {
+      // Keep the process registered and fail the Runner closed; no workspace may be released.
+      this.onFatal(error instanceof Error ? error : new Error('provider_process_tree_termination_failed'));
     }
   }
 }

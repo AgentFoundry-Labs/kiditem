@@ -28,6 +28,7 @@ export async function runNativeAgentRunner(argv: readonly string[]): Promise<nev
   const outbox = new RunnerEventOutbox({ runnerInstanceId, leaseId: lease.leaseId });
   const supervisor = createSupervisor(platform, config.runtimeRoot);
   let dispatcher!: RunnerCommandDispatcher;
+  let beginExit: (code: number) => void = () => undefined;
   const executor = new AttemptExecutor({
     runtimeRoot: config.runtimeRoot,
     workspaces: new AttemptWorkspaceService({ attemptRoot: config.attemptRoot, loginRoot: config.loginRoot, platform }),
@@ -36,22 +37,42 @@ export async function runNativeAgentRunner(argv: readonly string[]): Promise<nev
       if (event.kind === 'attempt.terminal') dispatcher.markTerminal(event.attemptId);
       outbox.enqueue(event);
     },
+    onFatal: () => beginExit(1),
   });
   dispatcher = new RunnerCommandDispatcher({ executor, outbox });
   const flush = async () => outbox.flush((body) => client.postEventBody(body));
   const timer = setInterval(() => { void flush().catch(() => undefined); }, 250);
-  const shutdown = async () => { clearInterval(timer); await dispatcher.shutdown(); await flush().catch(() => undefined); };
-  const terminate = () => { void shutdown().finally(() => process.exit(0)); };
+  let shutdownTask: Promise<void> | null = null;
+  const shutdown = (): Promise<void> => {
+    if (shutdownTask) return shutdownTask;
+    shutdownTask = (async () => {
+      clearInterval(timer);
+      const results = await Promise.allSettled([dispatcher.shutdown(), executor.shutdown()]);
+      const errors = results.flatMap((result) => result.status === 'rejected' ? [result.reason] : []);
+      if (errors.length) throw new AggregateError(errors, 'runner_shutdown_kill_all_failed');
+    })();
+    return shutdownTask;
+  };
+  let exiting = false;
+  beginExit = (code: number): void => {
+    if (exiting) return;
+    exiting = true;
+    void shutdown().then(
+      () => process.exit(code),
+      () => process.exit(1),
+    );
+  };
+  const terminate = () => beginExit(0);
   process.once('SIGTERM', terminate); process.once('SIGINT', terminate);
   try {
     return await new RunnerControlLoop({ client }).run({
       runnerInstanceId, leaseId: lease.leaseId,
       onCommands: async (batch) => { for (const command of batch.commands) await dispatcher.dispatch(command); await flush(); },
-      stopAll: shutdown,
+      killAll: shutdown,
     });
   } finally {
     clearInterval(timer); process.off('SIGTERM', terminate); process.off('SIGINT', terminate);
-    await executor.shutdown();
+    await shutdown();
   }
 }
 

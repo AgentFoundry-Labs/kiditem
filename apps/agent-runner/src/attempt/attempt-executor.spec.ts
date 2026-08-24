@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AttemptExecutor } from './attempt-executor';
+import { AttemptProcessRegistry } from './attempt-process.registry';
 import type { ProcessCallbacks, SupervisedProcess } from '../platform/process-supervisor';
 
 const launch = { attemptId: '33333333-3333-4333-8333-333333333333', runtime: 'claude_cli' as const, model: 'claude-sonnet', prompt: 'prompt must not leak', timeoutMs: 10_000, workspacePolicy: 'empty_ephemeral_v1' as const, mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/attempts/33333333-3333-4333-8333-333333333333/mcp', attemptToken: 'A'.repeat(43), mcpProtocolRevision: '2026-07-28' as const, cliContractIdentity: 'office-cli-contract-v2' as const };
@@ -120,19 +121,98 @@ describe('AttemptExecutor', () => {
     expect(writes.map((line) => JSON.parse(line).method)).not.toContain('turn/steer');
   });
 
-  it('releases the process registry and removes the workspace even when tree termination and event delivery fail', async () => {
-    let removals = 0;
+  it('retains the workspace and reports no terminal state when complete-tree termination fails', async () => {
+    let removals = 0; const events: unknown[] = [];
+    const registry = new AttemptProcessRegistry();
     const executor = new AttemptExecutor({
       runtimeRoot: '/opt/kiditem-runner',
       workspaces: { create: async () => paths, linkProviderAuth: async () => undefined, remove: async () => { removals += 1; } },
       supervisor: { launch: async () => processHandle({ terminate: async () => { throw new Error('tree_termination_failed'); } }), shutdown: async () => undefined },
-      emit: () => { throw new Error('outbox_delivery_failed'); },
+      emit: (event) => events.push(event),
+      registry,
     });
     await executor.start(launch);
 
-    await expect(executor.interrupt(launch.attemptId)).resolves.toBeUndefined();
+    await expect(executor.interrupt(launch.attemptId)).rejects.toThrow('tree_termination_failed');
     await expect(executor.input(launch.attemptId, 'continue')).rejects.toThrow('runner_attempt_not_live');
+    expect(removals).toBe(0);
+    expect(events).toEqual([]);
+    expect(registry.get(launch.attemptId)).not.toBeNull();
+  });
+
+  it('fails closed instead of treating a failed-start descendant tree as an installed retry', async () => {
+    let removals = 0;
+    const registry = new AttemptProcessRegistry();
+    const executor = new AttemptExecutor({
+      runtimeRoot: '/opt/kiditem-runner',
+      workspaces: { create: async () => paths, linkProviderAuth: async () => undefined, remove: async () => { removals += 1; } },
+      supervisor: {
+        launch: async () => processHandle({
+          input: async () => { throw new Error('initial_provider_input_failed'); },
+          terminate: async () => { throw new Error('tree_termination_failed'); },
+        }),
+        shutdown: async () => undefined,
+      },
+      emit: () => undefined,
+      registry,
+    });
+
+    await expect(executor.start(launch)).rejects.toThrow('runner_attempt_start_cleanup_failed');
+    await expect(executor.start(launch)).rejects.toThrow('tree_termination_failed');
+    expect(removals).toBe(0);
+    expect(registry.get(launch.attemptId)).not.toBeNull();
+  });
+
+  it('waits for one terminalization before removing the workspace when interrupt races arrive together', async () => {
+    let terminated = 0; let removals = 0; const events: unknown[] = [];
+    let confirmTreeDeath!: () => void;
+    const treeDeath = new Promise<void>((resolve) => { confirmTreeDeath = resolve; });
+    const executor = new AttemptExecutor({
+      runtimeRoot: '/opt/kiditem-runner',
+      workspaces: { create: async () => paths, linkProviderAuth: async () => undefined, remove: async () => { removals += 1; } },
+      supervisor: { launch: async () => processHandle({ terminate: async () => { terminated += 1; await treeDeath; } }), shutdown: async () => undefined },
+      emit: (event) => events.push(event),
+    });
+    await executor.start(launch);
+
+    const first = executor.interrupt(launch.attemptId);
+    const second = executor.interrupt(launch.attemptId);
+    let secondSettled = false;
+    void second.then(() => { secondSettled = true; });
+    await Promise.resolve();
+
+    expect(terminated).toBe(1);
+    expect(secondSettled).toBe(false);
+    expect(removals).toBe(0);
+    expect(events).toEqual([]);
+
+    confirmTreeDeath();
+    await Promise.all([first, second]);
+
     expect(removals).toBe(1);
+    expect(events).toEqual([{ kind: 'attempt.terminal', attemptId: launch.attemptId, terminalReason: 'interrupted' }]);
+  });
+
+  it('attempts runner kill-all after a tree termination failure and surfaces the aggregate', async () => {
+    let removals = 0; let killAll = 0; let terminations = 0;
+    const executor = new AttemptExecutor({
+      runtimeRoot: '/opt/kiditem-runner',
+      workspaces: { create: async () => paths, linkProviderAuth: async () => undefined, remove: async () => { removals += 1; } },
+      supervisor: {
+        launch: async () => processHandle({ terminate: async () => { terminations += 1; throw new Error('tree_termination_failed'); } }),
+        shutdown: async () => { killAll += 1; throw new Error('runner_kill_all_failed'); },
+      },
+      emit: () => undefined,
+    });
+    await executor.start(launch);
+
+    await expect(executor.shutdown()).rejects.toSatisfy((error: unknown) => (
+      error instanceof AggregateError && error.errors.some((entry) => entry instanceof Error && entry.message === 'tree_termination_failed') &&
+      error.errors.some((entry) => entry instanceof Error && entry.message === 'runner_kill_all_failed')
+    ));
+    expect(terminations).toBeGreaterThanOrEqual(1);
+    expect(killAll).toBe(1);
+    expect(removals).toBe(0);
   });
 });
 const paths = { root: '/tmp/a', workspace: '/tmp/a/workspace', home: '/tmp/a/home', codexHome: '/tmp/a/codex', claudeConfigDir: '/tmp/a/claude', mcpConfigPath: '/tmp/a/mcp.json', codexConfigPath: '/tmp/a/codex.toml' };

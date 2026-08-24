@@ -52,11 +52,13 @@ export class RunnerCommandDispatcher {
   }
 
   async shutdown(): Promise<void> {
-    await Promise.all([...this.attempts.entries()].map(async ([attemptId, state]) => {
+    const results = await Promise.allSettled([...this.attempts.entries()].map(async ([attemptId, state]) => {
       await this.options.executor.interrupt(attemptId);
       this.attempts.delete(attemptId);
       this.rememberTerminal(attemptId, state.launchHash);
     }));
+    const errors = results.flatMap((result) => result.status === 'rejected' ? [result.reason] : []);
+    if (errors.length) throw new AggregateError(errors, 'runner_dispatcher_shutdown_failed');
   }
 
   private async start(command: Extract<RunnerCommand, { kind: 'attempt.start' }>, state: AttemptState | undefined): Promise<void> {

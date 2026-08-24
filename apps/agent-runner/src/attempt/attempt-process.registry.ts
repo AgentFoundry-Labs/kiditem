@@ -12,7 +12,11 @@ export class AttemptProcessRegistry {
 
   get(attemptId: string): SupervisedProcess | null { return this.processes.get(attemptId) ?? null; }
 
-  remove(attemptId: string): void { this.processes.delete(attemptId); }
+  /** Supervisors may report exit only after they have proved the full tree is gone. */
+  confirmExited(attemptId: string): void {
+    if (this.terminating.has(attemptId)) return;
+    this.processes.delete(attemptId);
+  }
 
   async input(attemptId: string, value: string): Promise<void> {
     const process = this.get(attemptId);
@@ -25,11 +29,23 @@ export class AttemptProcessRegistry {
     if (running) return running;
     const process = this.processes.get(attemptId);
     if (!process) return Promise.resolve();
-    this.processes.delete(attemptId);
-    const termination = process.terminate().finally(() => this.terminating.delete(attemptId));
-    this.terminating.set(attemptId, termination);
-    return termination;
+    let tracked!: Promise<void>;
+    const termination = Promise.resolve()
+      .then(() => process.terminate())
+      .then(() => {
+        // Keep the process handle if the supervisor cannot prove tree death.
+        if (this.processes.get(attemptId) === process) this.processes.delete(attemptId);
+      });
+    tracked = termination.finally(() => {
+      if (this.terminating.get(attemptId) === tracked) this.terminating.delete(attemptId);
+    });
+    this.terminating.set(attemptId, tracked);
+    return tracked;
   }
 
-  async interruptAll(): Promise<void> { await Promise.all([...this.processes.keys()].map((attemptId) => this.interrupt(attemptId))); }
+  async interruptAll(): Promise<void> {
+    const results = await Promise.allSettled([...this.processes.keys()].map((attemptId) => this.interrupt(attemptId)));
+    const errors = results.flatMap((result) => result.status === 'rejected' ? [result.reason] : []);
+    if (errors.length) throw new AggregateError(errors, 'runner_attempt_process_kill_all_failed');
+  }
 }

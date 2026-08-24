@@ -4,7 +4,7 @@ import { AttemptLaunchSpecSchema } from '@kiditem/shared/agent-runtime';
 import { buildProviderCommand } from '../provider/provider-command';
 import { ClaudeStreamParser } from '../provider/claude-stream-parser';
 import { CodexAppServerSession, type CodexAppServerEvent } from '../provider/codex-app-server-session';
-import { redactForRunnerEvent, safeDiagnostic } from '../security/redaction';
+import { redactForRunnerEvent } from '../security/redaction';
 import type { ProcessExit, ProcessSupervisor, SupervisedProcess } from '../platform/process-supervisor';
 import { AttemptProcessRegistry } from './attempt-process.registry';
 import type { AttemptWorkspacePaths } from './attempt-workspace.service';
@@ -31,7 +31,9 @@ type ActiveAttempt = {
 export class AttemptExecutor {
   private readonly registry: AttemptProcessRegistry;
   private readonly active = new Map<string, ActiveAttempt>();
-  private readonly terminalizing = new Set<string>();
+  private readonly terminalizing = new Map<string, Promise<void>>();
+  private readonly failedTerminalizations = new Set<string>();
+  private fatalError: Error | null = null;
 
   constructor(private readonly options: Readonly<{
     runtimeRoot: string;
@@ -39,12 +41,15 @@ export class AttemptExecutor {
     supervisor: ProcessSupervisor;
     emit: (event: RunnerEvent) => void;
     registry?: AttemptProcessRegistry;
+    /** The native Runner exits after this callback, allowing watchdog/job ownership to kill unresolved trees. */
+    onFatal?: (error: Error) => void;
   }>) {
     this.registry = options.registry ?? new AttemptProcessRegistry();
   }
 
   async start(input: AttemptLaunchSpec): Promise<void> {
     const launch = AttemptLaunchSpecSchema.parse(input);
+    if (this.fatalError) throw this.fatalError;
     if (this.active.has(launch.attemptId)) return;
     let paths: AttemptWorkspacePaths | undefined;
     let process: SupervisedProcess | undefined;
@@ -59,10 +64,11 @@ export class AttemptExecutor {
         onStdout: (chunk) => this.handleStdout(launch.attemptId, chunk),
         // Never upload/log raw provider stderr; terminal errors are classified only.
         onStderr: () => undefined,
+        onFatal: (error) => this.reportFatal(error),
         onExit: (exit) => {
           codex?.close();
           if (!installed) { earlyExit ??= exit; return; }
-          this.defer(() => { void this.finish(launch.attemptId, exit.code === 0 ? 'success' : 'nonzero_exit'); });
+          this.defer(() => this.finish(launch.attemptId, exit.code === 0 ? 'success' : 'nonzero_exit'));
         },
       });
       const supervisedProcess = process;
@@ -76,7 +82,7 @@ export class AttemptExecutor {
         ...(codex
           ? { codex }
           : { claude: new ClaudeStreamParser({ redactionTokens: [launch.attemptToken] }) }),
-        timeout: setTimeout(() => { void this.timeout(launch.attemptId); }, launch.timeoutMs),
+        timeout: setTimeout(() => { void this.timeout(launch.attemptId).catch((error) => this.reportFatal(error)); }, launch.timeoutMs),
         initializing: true,
       };
       // Install the registry and timeout before any provider protocol input can fail.
@@ -91,18 +97,24 @@ export class AttemptExecutor {
       if (active.pendingCodexCompletion) {
         const completion = active.pendingCodexCompletion;
         active.pendingCodexCompletion = undefined;
-        this.defer(() => { void this.completeCodexTurn(launch.attemptId, completion); });
+        this.defer(() => this.completeCodexTurn(launch.attemptId, completion));
       }
     } catch (error) {
-      installed = true;
-      await this.abortStart(launch.attemptId, paths, process);
+      try {
+        await this.abortStart(launch.attemptId, paths, process);
+      } catch (cleanupError) {
+        this.reportFatal(cleanupError);
+        throw new AggregateError([error, cleanupError], 'runner_attempt_start_cleanup_failed');
+      }
       throw error;
     }
   }
 
   async input(attemptId: string, input: string): Promise<void> {
     const active = this.active.get(attemptId);
-    if (!active || active.initializing) throw new Error('runner_attempt_not_live');
+    if (!active || active.initializing || this.terminalizing.has(attemptId) || this.failedTerminalizations.has(attemptId)) {
+      throw new Error('runner_attempt_not_live');
+    }
     if (active.codex) await active.codex.steer(input);
     else await this.registry.input(attemptId, `${JSON.stringify({ type: 'user', message: { role: 'user', content: input } })}\n`);
   }
@@ -110,13 +122,22 @@ export class AttemptExecutor {
   async interrupt(attemptId: string): Promise<void> {
     const active = this.active.get(attemptId);
     if (!active) return;
-    await active.codex?.interrupt().catch(() => undefined);
-    await this.finish(attemptId, 'interrupted', true);
+    const results = await Promise.allSettled([
+      ...(active.codex ? [active.codex.interrupt()] : []),
+      this.finish(attemptId, 'interrupted', true),
+    ]);
+    throwIfRejected(results, 'runner_attempt_interrupt_failed');
   }
 
   async shutdown(): Promise<void> {
-    await Promise.all([...this.active.keys()].map((attemptId) => this.interrupt(attemptId)));
-    await this.options.supervisor.shutdown();
+    const results = await Promise.allSettled([
+      ...[...this.active.keys()].map((attemptId) => this.interrupt(attemptId)),
+      this.registry.interruptAll(),
+      this.options.supervisor.shutdown(),
+    ]);
+    const errors = rejectedErrors(results);
+    if (this.fatalError) errors.push(this.fatalError);
+    if (errors.length) throw new AggregateError(errors, 'runner_attempt_kill_all_failed');
   }
 
   private handleStdout(attemptId: string, chunk: string): void {
@@ -130,7 +151,7 @@ export class AttemptExecutor {
         if (update.result) active.result = update.result;
       }
     } catch {
-      void this.finish(attemptId, 'runtime_error', true);
+      void this.finish(attemptId, 'runtime_error', true).catch((error) => this.reportFatal(error));
     }
   }
 
@@ -145,7 +166,7 @@ export class AttemptExecutor {
       active.pendingCodexCompletion = event;
       return;
     }
-    this.defer(() => { void this.completeCodexTurn(attemptId, event); });
+    this.defer(() => this.completeCodexTurn(attemptId, event));
   }
 
   private async completeCodexTurn(attemptId: string, event: Extract<CodexAppServerEvent, { kind: 'turn_completed' }>): Promise<void> {
@@ -173,45 +194,74 @@ export class AttemptExecutor {
     terminalReason: Extract<RunnerEvent, { kind: 'attempt.terminal' }>['terminalReason'],
     terminateProcess = false,
   ): Promise<void> {
-    if (this.terminalizing.has(attemptId)) return;
+    const running = this.terminalizing.get(attemptId);
+    if (running) return running;
     const active = this.active.get(attemptId); if (!active) return;
-    this.terminalizing.add(attemptId);
-    clearTimeout(active.timeout);
-    this.active.delete(attemptId);
+    const terminalization = this.finishActive(active, terminalReason, terminateProcess);
+    this.terminalizing.set(attemptId, terminalization);
     try {
-      if (terminateProcess) await this.registry.interrupt(attemptId);
-      else this.registry.remove(attemptId);
-    } catch {
-      // Process termination is best-effort, but all local lifecycle cleanup still runs.
-      safeDiagnostic(undefined);
-    }
-    try {
-      this.options.emit({
-        kind: 'attempt.terminal', attemptId, terminalReason,
-        ...(active.result ? { result: active.result } : {}),
-      });
-    } catch {
-      // The control outbox is memory-only. Never retain a provider tree/workspace on delivery failure.
-      safeDiagnostic(undefined);
+      await terminalization;
     } finally {
-      await this.options.workspaces.remove(active.paths).catch(() => undefined);
-      this.terminalizing.delete(attemptId);
+      if (this.terminalizing.get(attemptId) === terminalization) this.terminalizing.delete(attemptId);
     }
   }
 
   private async abortStart(attemptId: string, paths?: AttemptWorkspacePaths, process?: SupervisedProcess): Promise<void> {
     const active = this.active.get(attemptId);
+    if (active) clearTimeout(active.timeout);
+    if (this.registry.get(attemptId)) await this.registry.interrupt(attemptId);
+    else await process?.terminate();
+    // A failed start has no terminal event, but it still cannot release a live tree's workspace.
+    if (paths) await this.options.workspaces.remove(paths);
     if (active) {
-      clearTimeout(active.timeout);
       this.active.delete(attemptId);
-    }
-    try {
-      if (this.registry.get(attemptId)) await this.registry.interrupt(attemptId);
-      else await process?.terminate();
-    } finally {
-      if (paths) await this.options.workspaces.remove(paths).catch(() => undefined);
+      this.failedTerminalizations.delete(attemptId);
     }
   }
 
-  private defer(work: () => void): void { setTimeout(work, 0); }
+  private async finishActive(
+    active: ActiveAttempt,
+    terminalReason: Extract<RunnerEvent, { kind: 'attempt.terminal' }>['terminalReason'],
+    terminateProcess: boolean,
+  ): Promise<void> {
+    const attemptId = active.launch.attemptId;
+    clearTimeout(active.timeout);
+    try {
+      if (terminateProcess) await this.registry.interrupt(attemptId);
+      else this.registry.confirmExited(attemptId);
+      // Never release a workspace or report terminal state before the tree is known dead.
+      await this.options.workspaces.remove(active.paths);
+      this.options.emit({
+        kind: 'attempt.terminal', attemptId, terminalReason,
+        ...(active.result ? { result: active.result } : {}),
+      });
+      this.active.delete(attemptId);
+      this.failedTerminalizations.delete(attemptId);
+    } catch (error) {
+      this.failedTerminalizations.add(attemptId);
+      this.reportFatal(error);
+      throw error;
+    }
+  }
+
+  private reportFatal(error: unknown): void {
+    const normalized = error instanceof Error ? error : new Error('runner_attempt_terminalization_failed');
+    if (this.fatalError) return;
+    this.fatalError = normalized;
+    try { this.options.onFatal?.(normalized); } catch { /* no logging at the credential/process boundary */ }
+  }
+
+  private defer(work: () => Promise<void>): void {
+    setTimeout(() => { void work().catch((error) => this.reportFatal(error)); }, 0);
+  }
+}
+
+function rejectedErrors(results: readonly PromiseSettledResult<unknown>[]): unknown[] {
+  return results.flatMap((result) => result.status === 'rejected' ? [result.reason] : []);
+}
+
+function throwIfRejected(results: readonly PromiseSettledResult<unknown>[], message: string): void {
+  const errors = rejectedErrors(results);
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) throw new AggregateError(errors, message);
 }

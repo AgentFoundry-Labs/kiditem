@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RunnerControlClient, RunnerControlLoop } from './runner-control.client';
 
 const token = 'A'.repeat(43);
 const runnerInstanceId = '11111111-1111-4111-8111-111111111111';
 const leaseId = '22222222-2222-4222-8222-222222222222';
+
+afterEach(() => { vi.useRealTimers(); });
 
 describe('RunnerControlClient', () => {
   it('uses header-only installation authentication and never puts the token in URL or body', async () => {
@@ -28,7 +30,7 @@ describe('RunnerControlClient', () => {
     } });
     const loop = new RunnerControlLoop({ client, now: () => 0, sleep: async () => undefined });
 
-    await expect(loop.run({ runnerInstanceId, leaseId, onCommands: async () => undefined, stopAll: async () => { stopped += 1; } })).rejects.toThrow('runner_lease_lost');
+    await expect(loop.run({ runnerInstanceId, leaseId, onCommands: async () => undefined, killAll: async () => { stopped += 1; } })).rejects.toThrow('runner_lease_lost');
     expect(polls).toBe(2); expect(stopped).toBe(1);
   });
 
@@ -43,10 +45,124 @@ describe('RunnerControlClient', () => {
     } });
     const loop = new RunnerControlLoop({ client, now: () => now, sleep: async (milliseconds) => { sleeps.push(milliseconds); } });
 
-    await expect(loop.run({ runnerInstanceId, leaseId, onCommands: async () => undefined, stopAll: async () => { stopped += 1; } })).rejects.toThrow('runner_lease_lost');
+    await expect(loop.run({ runnerInstanceId, leaseId, onCommands: async () => undefined, killAll: async () => { stopped += 1; } })).rejects.toThrow('runner_lease_lost');
 
     expect(polls).toBe(4);
     expect(sleeps).toEqual([100]);
     expect(stopped).toBe(1);
   });
+
+  it('aborts a black-holed poll and kills every attempt at the absolute thirty-second control-loss deadline', async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    let killed = 0;
+    const deferred = deferredResponse();
+    const client = new RunnerControlClient({
+      controlOrigin: 'http://127.0.0.1:4000',
+      token,
+      pollTimeoutMs: 60_000,
+      fetch: async (_url, init) => {
+        signal = init?.signal as AbortSignal;
+        signal?.addEventListener('abort', () => deferred.reject(signal?.reason), { once: true });
+        return deferred.promise;
+      },
+    });
+    const loop = new RunnerControlLoop({ client });
+    const running = loop.run({
+      runnerInstanceId,
+      leaseId,
+      onCommands: async () => undefined,
+      killAll: async () => { killed += 1; },
+    });
+    const rejected = expect(running).rejects.toThrow('runner_lease_lost');
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(signal?.aborted).toBe(true);
+    await rejected;
+    expect(killed).toBe(1);
+  });
+
+  it('resets the control-loss deadline after a valid authenticated event response while the next poll is black-holed', async () => {
+    vi.useFakeTimers();
+    let polls = 0;
+    let signal: AbortSignal | undefined;
+    let killed = 0;
+    const deferred = deferredResponse();
+    const client = new RunnerControlClient({
+      controlOrigin: 'http://127.0.0.1:4000',
+      token,
+      pollTimeoutMs: 60_000,
+      fetch: async (url, init) => {
+        if (new URL(String(url)).pathname.endsWith('/events')) {
+          return new Response(JSON.stringify({ eventSeq: 1, accepted: true }), { status: 200 });
+        }
+        polls += 1;
+        if (polls === 1) return new Response(null, { status: 204 });
+        signal = init?.signal as AbortSignal;
+        signal?.addEventListener('abort', () => deferred.reject(signal?.reason), { once: true });
+        return deferred.promise;
+      },
+    });
+    const loop = new RunnerControlLoop({ client });
+    const running = loop.run({
+      runnerInstanceId,
+      leaseId,
+      onCommands: async () => undefined,
+      killAll: async () => { killed += 1; },
+    });
+    void running.catch(() => undefined);
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(29_000);
+    await client.postEventBody(JSON.stringify({ eventSeq: 1 }));
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(signal?.aborted).toBe(false);
+    expect(killed).toBe(0);
+
+    await vi.advanceTimersByTimeAsync(29_000);
+
+    expect(signal?.aborted).toBe(true);
+    await expect(running).rejects.toThrow('runner_lease_lost');
+    expect(killed).toBe(1);
+  });
+
+  it('aborts I/O once and exits without reconnecting when killAll itself fails at the deadline', async () => {
+    vi.useFakeTimers();
+    let calls = 0; let killed = 0; let signal: AbortSignal | undefined;
+    const deferred = deferredResponse();
+    const client = new RunnerControlClient({
+      controlOrigin: 'http://127.0.0.1:4000',
+      token,
+      pollTimeoutMs: 60_000,
+      fetch: async (_url, init) => {
+        calls += 1;
+        signal = init?.signal as AbortSignal;
+        signal?.addEventListener('abort', () => deferred.reject(signal?.reason), { once: true });
+        return deferred.promise;
+      },
+    });
+    const loop = new RunnerControlLoop({ client });
+    const running = loop.run({
+      runnerInstanceId,
+      leaseId,
+      onCommands: async () => undefined,
+      killAll: async () => { killed += 1; throw new Error('runner_kill_all_failed'); },
+    });
+    void running.catch(() => undefined);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(signal?.aborted).toBe(true);
+    expect(killed).toBe(1);
+    expect(calls).toBe(1);
+    await expect(running).rejects.toThrow('runner_control_kill_all_failed');
+  });
 });
+
+function deferredResponse(): { promise: Promise<Response>; reject: (reason?: unknown) => void } {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<Response>((_resolve, rejectPromise) => { reject = rejectPromise; });
+  return { promise, reject };
+}
