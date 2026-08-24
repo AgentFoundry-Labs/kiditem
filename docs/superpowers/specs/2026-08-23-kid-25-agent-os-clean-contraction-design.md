@@ -803,7 +803,8 @@ The final source/schema scanner reports zero production findings for:
 - usage/cost ledgers and monetary budgets;
 - Hermes/OpenAI Responses/provider credential/session/handle persistence;
 - full-Nest MCP child and `KIDITEM_MCP_EXECUTION_CONTEXT`;
-- HMAC credentials introduced for internal process boundaries;
+- active credentials or secrets introduced into Agent OS runtime persistence or
+  passed across the Runner launch/control boundary;
 - fixed playbooks, tool-wrapper Agents, capability `kind`, `visibility`, old
   approval metadata, or duplicate handler policy;
 - background continuation/coordinator/Operation-to-Agent hooks,
@@ -815,7 +816,13 @@ The final source/schema scanner reports zero production findings for:
 
 The scanner must allow the required process-memory-only Runner lease,
 command/event replay guards, Attempt-token digest bindings, and process handles,
-and must distinguish them from forbidden persistence/codec paths.
+and must distinguish them from forbidden persistence/codec paths. It enforces
+two final security invariants: active credential/secret material is never
+persisted or admitted as raw launch input, and ephemeral Runner control state
+never becomes durable. It does not maintain special predicates for retired
+HMAC names or fixtures that can no longer re-enter the final architecture; a
+value such as `signingSecret` is rejected by the generic secret rule, while a
+non-secret hash or digest remains valid protocol metadata.
 
 ## 13. Home-Server Deployment
 
@@ -834,8 +841,8 @@ AGENT_CLI_MAX_CONCURRENCY=4
 
 Attempt 30 minutes, live Approval wait 10 minutes, and Approval lifetime 24
 hours remain code constants. Remove generic Agent worker enablement, old
-runtime concurrency/wait/budget values, provider credential/HMAC settings, and
-gateway URLs.
+runtime concurrency/wait/budget values, retired internal credential/signing
+settings, and gateway URLs.
 
 The existing GitHub Actions Office release remains the only deployment
 entrypoint. Its immutable bundle includes a versioned Runner artifact and
@@ -884,6 +891,12 @@ owned by
 supersedes every earlier container CLI, stdio, UDS, or API-local provider
 process instruction without changing this design's capability/schema/Web
 scope.
+
+The numbered sequence is an execution and review aid, not a requirement to
+keep legacy code compatible between commits. Replacement wiring and legacy
+deletion may be combined or moved earlier when that produces a smaller,
+coherent cutover. The fixed final topology, state ownership, security
+invariants, and acceptance gates remain authoritative.
 
 1. Add final registries, routing/HITL/idempotency validators, replacement
    physical schema/shared contracts, and fail-first legacy scanners.

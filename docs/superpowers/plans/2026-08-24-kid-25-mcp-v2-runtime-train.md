@@ -29,21 +29,31 @@ replace its UDS, Linux peer-PID, stdio bridge, API-local provider process, and
 container-login assumptions. Do not reset, discard, or recreate the current
 worktree.
 
-The six tasks below are substantial integrated units. For every implementation
-task:
+The six tasks below are substantial integrated checkpoints, not compatibility
+boundaries. The locked final topology and contracts are authoritative; numbered
+task/file lists organize review and verification only. Move a replacement or
+deletion across task boundaries when that is the shortest coherent clean
+cutover. Never preserve a legacy entrypoint, adapter, fallback, or fixture only
+so an intermediate task remains backward compatible.
+
+For every substantial implementation unit:
 
 - use one `gpt-5.6-terra` subagent with reasoning effort `max`;
 - give that subagent the whole task, not file-sized fragments;
 - start by changing/adding failing tests, then implement, then rerun the
   focused gate;
-- preserve unrelated user changes and stage only the task's explicit files;
+- preserve unrelated user changes and stage only the explicitly integrated
+  files needed for the final architecture;
 - have the parent inspect the diff and verification transcript before moving
-  to the next task.
+  to the next integrated unit;
+- obtain an independent `gpt-5.6-sol` specification review and code-quality
+  review with reasoning effort `max`, then fix and re-review every concrete
+  P1/P2 finding.
 
-After all six tasks, use one `gpt-5.6-sol` reviewer with reasoning effort `max`
-for a single integrated correctness/security/operations review. Fix every
-concrete P1/P2 finding and obtain a clean re-review. Do not open another PR:
-push this existing branch and update PR 479 only after the final gates.
+After all implementation units, use a fresh `gpt-5.6-sol` reviewer with
+reasoning effort `max` for one final integrated
+correctness/security/operations review. Do not open another PR: push this
+existing branch and update PR 479 only after the final gates.
 
 This runtime follow-up is a declared platform-boundary reconstruction
 exception. It may touch Agent OS runtime adapters, the new Runner app, shared
@@ -247,7 +257,10 @@ export const AttemptLaunchSpecSchema = z.object({
 
 Tests must reject unknown keys and recursively reject `command`, `executable`,
 `shell`, `args`, `env`, `cwd`, `path`, `loginHome`, `organizationId`,
-`userId`, `sessionId`, database values, provider credential values, and HMACs.
+`userId`, `sessionId`, and active secret/credential material. This is a generic
+security boundary, not a vocabulary of retired implementations: a current
+`signingSecret` is rejected because it is a secret, while a non-secret hash or
+digest is not rejected merely because its historical name contains `hmac`.
 They also prove:
 
 - `process.platform === 'darwin'` maps to `macos`;
@@ -272,7 +285,7 @@ Move Codex/Claude packages out of `apps/server/package.json`. Keep
 dependencies and `@modelcontextprotocol/client` as an exact test dependency.
 The Runner package added in Task 3 becomes the only CLI package owner.
 
-- [ ] **Step 3: Expand scanners before deleting old runtime code**
+- [ ] **Step 3: Expand final-invariant scanners before or alongside deletion**
 
 The contraction/architecture gates must fail while any production code still
 contains:
@@ -290,6 +303,19 @@ The scanner explicitly allows `child_process` only under
 `apps/agent-runner` and unrelated existing domain adapters. It requires all
 internal Agent runtime routes to remain below
 `/api/internal/agent-runtime/` and requires nginx's deny boundary.
+
+Keep only invariants required by the final architecture:
+
+- active credentials/secrets cannot enter the Runner launch/control boundary
+  or Agent OS runtime persistence; and
+- Runner lease, poll, command, event, Attempt-token, acknowledgement, and
+  process state remain ephemeral rather than Prisma-owned.
+
+Do not special-case retired HMAC field names, credential readers, or other
+legacy vocabulary when no final code path can reintroduce them. Delete
+legacy-only fixtures together with the implementation they describe. The
+scanner may remain red while a replacement is being wired, but no legacy
+surface is kept alive merely until Task 6.
 
 - [ ] **Step 4: Run the focused red gate, implement, and commit**
 
@@ -986,6 +1012,11 @@ npm pack --workspace=apps/agent-runner --dry-run
 
 ## Task 6: Delete superseded runtime glue, align durable docs, and finish KID-25
 
+The delete list below is a final-state inventory, not a sequencing constraint.
+Files removed during an earlier coherent Runner/direct-MCP cutover stay
+removed; this task verifies that no listed production surface or compatibility
+shim remains.
+
 **Files:**
 
 - Delete: `apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-proxy.ts`
@@ -1060,8 +1091,9 @@ All durable docs must say:
 - restart means `process_interrupted` plus manual immutable successor, never
   provider resume;
 - exactly 11 MCP tools, 18 capabilities, and ten Sourcing capabilities remain;
-- no new schema, status, migration, Web state, gateway, HMAC, credential
-  broker, durable control queue, quota, or multi-instance protocol was added.
+- no new schema, status, migration, Web state, gateway, internal signing or
+  credential broker, durable control queue, quota, or multi-instance protocol
+  was added.
 
 Update stale architecture paragraphs that still call the API process the CLI
 owner or mention a private MCP socket. The top-level architecture map and
