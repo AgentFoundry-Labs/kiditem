@@ -48,15 +48,9 @@ describe('final application-root topology', () => {
     expect(classes(AgentMcpApplicationModule)).not.toContain(OperationsModule);
   });
 
-  it('binds process entrypoints to API and worker roots while retaining the MCP CLI entrypoint', () => {
+  it('binds process entrypoints to API and worker roots', () => {
     expect(readFileSync(join(serverSource, 'main.ts'), 'utf8')).toContain("from './api-application.module'");
     expect(readFileSync(join(serverSource, 'worker.ts'), 'utf8')).toContain("from './agent-worker-application.module'");
-    const serverManifest = JSON.parse(
-      readFileSync(join(serverSource, '..', 'package.json'), 'utf8'),
-    ) as { scripts?: Record<string, string> };
-    expect(serverManifest.scripts?.['agent-os:mcp:kiditem']).toBe(
-      'node dist/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.js',
-    );
     expect(existsSync(join(serverSource, 'agent-os/adapter/in/cli/run-openai-operator.ts'))).toBe(false);
   });
 

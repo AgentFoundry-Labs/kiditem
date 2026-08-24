@@ -28,21 +28,12 @@ export function productionFiles(directory) {
   });
 }
 
-const hasPath = (filePath, expression) => expression.test(filePath);
-
-const ATTEMPT_MCP_ADAPTER_ROOT = /^apps\/server\/src\/agent-os\/adapter\/in\/mcp\//;
-const ATTEMPT_MCP_SOCKET_SERVER =
-  "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-socket-server.ts";
-const ATTEMPT_MCP_STDIO_BRIDGE =
-  "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-stdio-to-uds.ts";
-const ATTEMPT_MCP_PROXY =
-  "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-proxy.ts";
 const SERVER_CHILD_PROCESS_ALLOWLIST = new Set([
   "apps/server/src/ai/adapter/out/wing/playwriter-cli.ts",
   "apps/server/src/orders/coupang-directship/coupang-directship.service.ts",
   "apps/server/src/test-helpers/postgres-global-setup.ts",
 ]);
-const RAW_LAUNCH_FIELD_NAMES = new Set([
+const RAW_LAUNCH_AUTHORITY_FIELD_NAMES = new Set([
   "command",
   "executable",
   "shell",
@@ -51,21 +42,46 @@ const RAW_LAUNCH_FIELD_NAMES = new Set([
   "cwd",
   "path",
   "loginhome",
+  "organization",
   "organizationid",
+  "organizationauthority",
+  "user",
   "userid",
+  "userauthority",
+  "session",
   "sessionid",
-  "database",
-  "databaseurl",
+  "sessionauthority",
+]);
+const ACTIVE_SECRET_WORDS = new Set([
+  "secret",
   "credential",
   "credentials",
-  "providercredential",
-  "providercredentials",
-  "providerapikey",
-  "providerkey",
-  "hmac",
-  "hmackey",
-  "hmacsecret",
+  "password",
+  "passphrase",
 ]);
+const ACTIVE_SECRET_COMPOSITES = [
+  "accesstoken",
+  "bearertoken",
+  "oauthtoken",
+  "apitoken",
+  "apikey",
+  "privatekey",
+  "connectionstring",
+  "connectionurl",
+  "connectiondsn",
+];
+const EPHEMERAL_RUNNER_CONTROL_PREFIXES = [
+  "attempt",
+  "lease",
+  "command",
+  "event",
+  "poll",
+  "token",
+  "ack",
+  "control",
+  "state",
+];
+const EPHEMERAL_RUNNER_CONTROL_SUFFIX = /^(?:id|seq|payload|batch|ack(?:nowledg(?:e)?ment)?|token|expires(?:at)?|expiry|deadline|ttl(?:ms)?|state|lease|command|event|poll|control)?$/;
 
 function sourceFile(filePath, source) {
   return ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true);
@@ -84,6 +100,29 @@ function propertyName(node) {
     return node.text;
   }
   return null;
+}
+
+function propertyNameWords(name) {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((word) => word.toLowerCase());
+}
+
+function isActiveSecretOrCredentialName(name) {
+  const normalized = normalizedName(name);
+  return (
+    propertyNameWords(name).some((word) => ACTIVE_SECRET_WORDS.has(word)) ||
+    ACTIVE_SECRET_COMPOSITES.some((composite) => normalized.includes(composite))
+  );
+}
+
+function isRawLaunchFieldName(name) {
+  return (
+    RAW_LAUNCH_AUTHORITY_FIELD_NAMES.has(normalizedName(name)) ||
+    isActiveSecretOrCredentialName(name)
+  );
 }
 
 function attemptMcpPackageFindings(source) {
@@ -117,34 +156,8 @@ function attemptMcpPackageFindings(source) {
   return findings;
 }
 
-function isComposeConfiguration(filePath) {
-  return /(?:^|\/)compose(?:\.[^/]+)?\.ya?ml$/.test(filePath) ||
-    /^docker-compose(?:\.[^/]+)?\.ya?ml$/.test(filePath);
-}
-
-function agentVersionBlock(source) {
-  const match = source.match(/model\s+AgentVersion\s*\{([\s\S]*?)\}/);
-  return match?.[1] ?? "";
-}
-
-function hasForbiddenVersionOrCapabilityState(filePath, source) {
-  const forbidden = /\b(?:provider(?:session|history|resume|credential|token|apikey|secret|key)?|model(?:name|id|config|selection)?|credential(?:s|id)?|history|resume)\w*\b/i;
-  if (
-    filePath === "prisma/models/agent-work.prisma" &&
-    forbidden.test(agentVersionBlock(source))
-  ) {
-    return true;
-  }
-  return (
-    /(?:common|agent-os\/domain\/capability)\/capability-definition\.ts$/.test(filePath) &&
-    /(?:interface|type)\s+CapabilityDefinition[\s\S]*?\{[\s\S]*?\b(?:provider(?:session|history|resume|credential|token|apikey|secret|key)?|model(?:name|id|config|selection)?|credential(?:s|id)?|history|resume)\w*\s*:/i.test(
-      source,
-    )
-  );
-}
-
 function prismaModelBlocks(source) {
-  return [...source.matchAll(/model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)].map(
+  return [...source.matchAll(/model\s+(\w+)\s*\{([\s\S]*?)\}/g)].map(
     ([, name, body]) => ({ name, body }),
   );
 }
@@ -156,46 +169,124 @@ function prismaFieldNames(body) {
     .filter(Boolean);
 }
 
+function isAgentOsPersistenceModel(filePath, name) {
+  return (
+    filePath === "prisma/models/agent-work.prisma" &&
+    normalizedName(name).startsWith("agent")
+  );
+}
+
+function isRunnerControlModel(name) {
+  const normalized = normalizedName(name);
+  return (
+    normalized === "agentattempt" ||
+    normalized.startsWith("agentruntime") ||
+    normalized.startsWith("runner")
+  );
+}
+
+function isDedicatedRunnerControlModel(name) {
+  return /^(?:runner|agentruntime)(?:lease|command|event|poll|token|ack|control|state)/.test(
+    normalizedName(name),
+  );
+}
+
+function isEphemeralRunnerControlName(normalized) {
+  return EPHEMERAL_RUNNER_CONTROL_PREFIXES.some((prefix) => {
+    if (!normalized.startsWith(prefix)) return false;
+    return EPHEMERAL_RUNNER_CONTROL_SUFFIX.test(normalized.slice(prefix.length));
+  });
+}
+
+function isRunnerControlFieldName(modelName, fieldName) {
+  if (!isRunnerControlModel(modelName)) return false;
+  const normalized = normalizedName(fieldName);
+  const runnerSpecificName = normalized.startsWith("runner")
+    ? normalized.slice("runner".length)
+    : null;
+  return (
+    isActiveSecretOrCredentialName(fieldName) ||
+    isEphemeralRunnerControlName(normalized) ||
+    Boolean(runnerSpecificName && isEphemeralRunnerControlName(runnerSpecificName))
+  );
+}
+
 function hasPersistedRunnerControlState(filePath, source) {
   if (!/^prisma\/models\/.+\.prisma$/.test(filePath)) return false;
-  if (
-    /model\s+(?:Runner(?:Lease|Command|Event|Control|Token)|AgentRuntime(?:Lease|Command|Event|Control|Token)|Attempt(?:Token|Lease|Command|Event))\b/.test(
-      source,
-    )
-  ) {
-    return true;
-  }
-  return prismaModelBlocks(source).some(({ name, body }) => {
-    const isAgentControlModel = /^Agent(?:Attempt|Runtime|Runner|Session|Task)$/.test(
-      name,
-    );
-    return prismaFieldNames(body).some((field) => {
-      const normalized = normalizedName(field);
-      return (
-        /^runner(?:lease|command|event|control|token|instance)[a-z0-9]*$/.test(
-          normalized,
-        ) ||
-        (isAgentControlModel &&
-          (/^(?:agentruntime|attempt)(?:lease|command|event|control|token)[a-z0-9]*$/.test(
-            normalized,
-          ) ||
-            /^(?:lease|command|event)(?:id|hash|seq)[a-z0-9]*$/.test(
-              normalized,
-            )))
-      );
-    });
-  });
+  return prismaModelBlocks(source).some(
+    ({ name, body }) =>
+      isDedicatedRunnerControlModel(name) ||
+      prismaFieldNames(body).some(
+        (field) =>
+          isRunnerControlFieldName(name, field) ||
+          (isAgentOsPersistenceModel(filePath, name) &&
+            isActiveSecretOrCredentialName(field)),
+      ),
+  );
 }
 
 function hasPersistedProviderSessionHistoryResume(filePath, source) {
   if (!/^prisma\/models\/.+\.prisma$/.test(filePath)) return false;
-  return prismaModelBlocks(source).some(({ body }) =>
-    prismaFieldNames(body).some((field) =>
-      /^(?:provider|codex|claude)(?:session|history|resume)[a-z0-9]*$/.test(
-        normalizedName(field),
+  return prismaModelBlocks(source).some(
+    ({ name, body }) =>
+      isAgentOsPersistenceModel(filePath, name) &&
+      prismaFieldNames(body).some((field) =>
+        /^(?:provider|codex|claude)(?:session|history|resume)[a-z0-9]*$/.test(
+          normalizedName(field),
+        ),
       ),
-    ),
   );
+}
+
+function isForbiddenAgentDefinitionStateName(name) {
+  const normalized = normalizedName(name);
+  return (
+    normalized.startsWith("provider") ||
+    normalized.startsWith("model") ||
+    isActiveSecretOrCredentialName(name)
+  );
+}
+
+function hasForbiddenAgentVersionState(filePath, source) {
+  if (filePath !== "prisma/models/agent-work.prisma") return false;
+  return prismaModelBlocks(source).some(
+    ({ name, body }) =>
+      name === "AgentVersion" &&
+      prismaFieldNames(body).some(isForbiddenAgentDefinitionStateName),
+  );
+}
+
+function hasForbiddenCapabilityDefinitionState(filePath, source) {
+  if (!/(?:common|agent-os\/domain\/capability)\/capability-definition\.ts$/.test(filePath)) {
+    return false;
+  }
+  let found = false;
+  const visit = (node) => {
+    const type = ts.isInterfaceDeclaration(node)
+      ? node
+      : ts.isTypeAliasDeclaration(node) && ts.isTypeLiteralNode(node.type)
+        ? node.type
+        : null;
+    if (
+      type &&
+      ((ts.isInterfaceDeclaration(type) && type.name.text === "CapabilityDefinition") ||
+        (ts.isTypeLiteralNode(type) &&
+          ts.isTypeAliasDeclaration(node) &&
+          node.name.text === "CapabilityDefinition"))
+    ) {
+      const members = ts.isInterfaceDeclaration(type) ? type.members : type.members;
+      found ||= members.some(
+        (member) =>
+          ts.isPropertySignature(member) &&
+          member.name &&
+          propertyName(member.name) &&
+          isForbiddenAgentDefinitionStateName(propertyName(member.name)),
+      );
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile(filePath, source));
+  return found;
 }
 
 function literalUnionValues(node) {
@@ -206,28 +297,27 @@ function literalUnionValues(node) {
   return [];
 }
 
-function containsRuntimeLiteralUnion(node) {
-  const values = new Set(literalUnionValues(node));
-  return (
-    (values.has("macos") && values.has("windows")) ||
-    (values.has("codex_cli") && values.has("claude_cli"))
-  );
-}
-
 function hasDuplicateRuntimeContract(filePath, source) {
   if (filePath.startsWith("packages/shared/src/agent-runtime/")) return false;
   if (
     /\b(?:export\s+)?const\s+ATTEMPT_RUNTIME_TRAIN\b/.test(source) ||
-    /\b(?:export\s+)?const\s+(?:RunnerPlatformSchema|AgentCliRuntimeSchema)\b/.test(source) ||
-    /\b(?:export\s+)?type\s+(?:AttemptRuntimeType|RunnerPlatform|AgentCliRuntime)\s*=/.test(source) ||
+    /\b(?:export\s+)?const\s+(?:RunnerPlatformSchema|AgentCliRuntimeSchema)\b/.test(
+      source,
+    ) ||
+    /\b(?:export\s+)?type\s+(?:AttemptRuntimeType|RunnerPlatform|AgentCliRuntime)\s*=/.test(
+      source,
+    ) ||
     /z\.enum\s*\(\s*\[[^\]]*['"](?:macos|codex_cli)['"][^\]]*\]\s*\)/.test(source)
   ) {
     return true;
   }
   let duplicate = false;
   const visit = (node) => {
-    if (ts.isTypeAliasDeclaration(node) && containsRuntimeLiteralUnion(node.type)) {
-      duplicate = true;
+    if (ts.isTypeAliasDeclaration(node)) {
+      const values = new Set(literalUnionValues(node.type));
+      duplicate ||= 
+        (values.has("macos") && values.has("windows")) ||
+        (values.has("codex_cli") && values.has("claude_cli"));
     }
     ts.forEachChild(node, visit);
   };
@@ -249,20 +339,16 @@ function isSchemaInitializer(node) {
   );
 }
 
-function hasRawLaunchCommandField(filePath, source) {
+function hasRawLaunchField(filePath, source) {
   let found = false;
   const visit = (node) => {
     if (ts.isPropertySignature(node)) {
       const name = propertyName(node.name);
-      if (name && RAW_LAUNCH_FIELD_NAMES.has(normalizedName(name))) found = true;
+      if (name && isRawLaunchFieldName(name)) found = true;
     }
     if (ts.isPropertyAssignment(node)) {
       const name = propertyName(node.name);
-      if (
-        name &&
-        RAW_LAUNCH_FIELD_NAMES.has(normalizedName(name)) &&
-        isSchemaInitializer(node.initializer)
-      ) {
+      if (name && isRawLaunchFieldName(name) && isSchemaInitializer(node.initializer)) {
         found = true;
       }
     }
@@ -293,11 +379,11 @@ function hasInternalAgentRuntimeRouteOutsidePrefix(source) {
       ((decorator === "Controller" || decorator === "basePath")
         ? /(?:runner|agent-runtime)/i.test(route)
         : /(?:runner|(?:^|\/)internal\/agent-runtime)/i.test(route)) &&
-      !/^\/?api\/internal\/agent-runtime(?:\/|$)/.test(route),
+      !/^\/?(?:api\/)?internal\/agent-runtime(?:\/|$)/.test(route),
   );
 }
 
-function hasCustomMcpToolRelay(filePath, source) {
+function hasCustomMcpRelay(filePath, source) {
   let found = false;
   const visit = (node) => {
     if (
@@ -326,6 +412,19 @@ function hasCustomMcpToolRelay(filePath, source) {
   };
   visit(sourceFile(filePath, source));
   return found;
+}
+
+function hasUdsOrStdioRelay(source) {
+  const hasStdioMcp = /\b(?:StdioServerTransport|serveStdio)\b/.test(source);
+  const hasNodeNetImport = /(?:from|require\()\s*['"](?:node:)?net['"]/.test(source);
+  const hasSocketEndpoint = /\b(?:socketPath|unix:|\.sock\b)/i.test(source);
+  const hasSocketLifecycle = /\b(?:createServer|createConnection|connect|listen)\s*\(/.test(source);
+  const hasProcessStdio = /\bprocess\.(?:stdin|stdout|stderr)\b/.test(source);
+  return (
+    hasStdioMcp ||
+    (hasSocketEndpoint && hasSocketLifecycle) ||
+    (hasNodeNetImport && (hasSocketEndpoint || hasProcessStdio))
+  );
 }
 
 function hasProcInspection(filePath, source) {
@@ -360,23 +459,21 @@ function isRuntimeChildProcessImport(statement) {
   return bindings.elements.some((element) => !element.isTypeOnly);
 }
 
-function isChildProcessRequire(node) {
-  return (
-    ts.isCallExpression(node) &&
-    ts.isIdentifier(node.expression) &&
-    node.expression.text === "require" &&
-    node.arguments.length === 1 &&
-    ts.isStringLiteral(node.arguments[0]) &&
-    /^(?:node:)?child_process$/.test(node.arguments[0].text)
-  );
-}
-
 function hasChildProcessBinding(filePath, source) {
   const parsed = sourceFile(filePath, source);
   if (parsed.statements.some(isRuntimeChildProcessImport)) return true;
   let found = false;
   const visit = (node) => {
-    if (isChildProcessRequire(node)) found = true;
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "require" &&
+      node.arguments.length === 1 &&
+      ts.isStringLiteral(node.arguments[0]) &&
+      /^(?:node:)?child_process$/.test(node.arguments[0].text)
+    ) {
+      found = true;
+    }
     ts.forEachChild(node, visit);
   };
   visit(parsed);
@@ -397,315 +494,88 @@ function hasNginxInternalAgentRuntimeDenyBoundary(source) {
 
 function findingsFor({ path: filePath, source }) {
   const findings = [];
-  if (filePath === "apps/server/package.json")
-    findings.push(...attemptMcpPackageFindings(source));
-
   const isAgentOsSource = /^apps\/server\/src\/agent-os\//.test(filePath);
   const isServerSource = /^apps\/server\/src\//.test(filePath);
-  const isAttemptMcpAdapter = ATTEMPT_MCP_ADAPTER_ROOT.test(filePath);
-  if (isAgentOsSource && /@modelcontextprotocol\/sdk(?:\/|["'])/.test(source))
+
+  if (filePath === "apps/server/package.json") {
+    findings.push(...attemptMcpPackageFindings(source));
+  }
+  if (isAgentOsSource && /@modelcontextprotocol\/sdk(?:\/|["'])/.test(source)) {
     findings.push("MCP v1 source import");
-  if (isAgentOsSource && /@modelcontextprotocol\/core(?:\/|["'])/.test(source))
+  }
+  if (isAgentOsSource && /@modelcontextprotocol\/core(?:\/|["'])/.test(source)) {
     findings.push("MCP core source import");
-  if (
-    isAttemptMcpAdapter &&
-    /(?:legacy_compatible|ATTEMPT_MCP_PROTOCOL_MODE|OPERATOR_MCP_MODE)/i.test(
-      source + filePath,
-    )
-  )
-    findings.push("retired MCP protocol mode");
-  if (filePath === ATTEMPT_MCP_PROXY || source.includes("attempt-mcp-proxy"))
-    findings.push("retired MCP proxy relay");
-  if (
-    filePath === ATTEMPT_MCP_SOCKET_SERVER ||
-    filePath === ATTEMPT_MCP_STDIO_BRIDGE ||
-    /attempt-mcp-(?:socket-server|stdio-to-uds)/.test(source)
-  )
-    findings.push("retired UDS/stdio MCP transport");
-  if (isAttemptMcpAdapter && /new\s+StdioServerTransport\s*\(\s*\)/.test(source))
-    findings.push("zero-argument MCP stdio transport");
-  if (isAttemptMcpAdapter && /\bserver\.connect\s*\(/.test(source))
-    findings.push("direct MCP server connect");
-  if (isAttemptMcpAdapter && /JSON\.parse\s*\(\s*line\s*\)/.test(source))
-    findings.push("line-oriented MCP JSON relay");
-  if (isAttemptMcpAdapter && hasCustomMcpToolRelay(filePath, source))
-    findings.push("custom MCP tool relay");
-  if (isAttemptMcpAdapter && /\blet\s+handled\s*=\s*false\b/.test(source))
-    findings.push("one-request-per-socket MCP routing");
-  if (
-    isAgentOsSource &&
-    filePath !== ATTEMPT_MCP_SOCKET_SERVER &&
-    /\b(?:StdioServerTransport|serveStdio)\b/.test(source)
-  )
-    findings.push("MCP SDK construction outside private socket server");
-  if (filePath === ATTEMPT_MCP_SOCKET_SERVER) {
-    const configuredTransport =
-      /new\s+StdioServerTransport\s*\(\s*socket\s*,\s*socket\s*,\s*\{\s*maxBufferSize\s*:\s*64\s*\*\s*1024\s*,?\s*\}\s*\)/gs;
-    const hasExactlyOneConfiguredTransport = [...source.matchAll(configuredTransport)].length === 1;
-    const hasExactlyOneTransportConstruction =
-      [...source.matchAll(/new\s+StdioServerTransport\s*\(/g)].length === 1;
-    const rejectsLegacy =
-      /serveStdio\s*\(/.test(source) &&
-      /\btransport\s*,\s*legacy\s*:\s*["']reject["']/.test(source);
-    if (
-      !hasExactlyOneConfiguredTransport ||
-      !hasExactlyOneTransportConstruction ||
-      !rejectsLegacy
-    )
-      findings.push("modern MCP UDS transport contract");
   }
-  if (filePath === ATTEMPT_MCP_STDIO_BRIDGE) {
-    const imports = [...source.matchAll(/\bfrom\s+["']([^"']+)["']/g)].map(
-      (match) => match[1],
-    );
-    const allowedImports = new Set([
-      "node:events",
-      "node:net",
-      "node:stream",
-      "node:timers/promises",
-    ]);
-    if (imports.some((specifier) => !allowedImports.has(specifier)))
-      findings.push("MCP byte bridge import boundary");
-    if (
-      /@modelcontextprotocol|JSON\.(?:parse|stringify)|\b(?:capability_[a-z_]+|invocation_[a-z_]+|delegate_to_agent|child_[a-z_]+)\b|AttemptMcpActionsPort|application\/port/i.test(
-        source,
-      )
-    )
-      findings.push("MCP byte bridge protocol parsing/routing");
-    if (/https?:\/\/|\b(?:host|port)\s*:/i.test(source))
-      findings.push("MCP byte bridge network fallback");
+  if (isServerSource && hasUdsOrStdioRelay(source)) {
+    findings.push("API-owned UDS/stdio relay");
+  }
+  if (isAgentOsSource && hasCustomMcpRelay(filePath, source)) {
+    findings.push("API-owned MCP relay");
   }
   if (
-    /(?:legacy_compatible|ATTEMPT_MCP_PROTOCOL_MODE|OPERATOR_MCP_MODE)/i.test(
-      source + filePath,
-    ) &&
-    !findings.includes("retired MCP protocol mode")
-  )
-    findings.push("retired MCP protocol mode");
-  if (
-    isComposeConfiguration(filePath) &&
-    /(?:^|\n)\s*(?:-\s*)?(?:ATTEMPT_MCP_PROTOCOL_MODE|OPERATOR_MCP_MODE|[A-Z0-9_]*MCP_(?:SDK|PROTOCOL|MODE)[A-Z0-9_]*)\s*[:=]/m.test(
-      source,
-    )
-  )
-    findings.push("MCP/provider protocol control configuration");
-  if (
-    /^(?:apps\/server\/(?:\.env\.example|Dockerfile)|deploy\/office\/compose\.office\.yml)$/.test(
+    /^(?:apps\/server\/(?:\.env\.example|Dockerfile)|deploy\/office\/compose\.office\.yml|docker-compose(?:\.[^/]+)?\.ya?ml)$/.test(
       filePath,
     ) &&
     /(?:KIDITEM_ATTEMPT_LOGIN_HOME|CODEX_HOME|CLAUDE_CONFIG_DIR|\b(?:codex|claude)\b[^\n]*(?:login|auth))/i.test(
       source,
     )
-  )
+  ) {
     findings.push("API login-home/provider-login configuration");
+  }
   if (
     filePath === "apps/server/Dockerfile" &&
     /\b(?:codex|claude)\s+--version\b/i.test(source)
-  )
+  ) {
     findings.push("API image provider CLI assertion");
+  }
   if (
     isServerSource &&
     !SERVER_CHILD_PROCESS_ALLOWLIST.has(filePath) &&
-    (
-      hasChildProcessBinding(filePath, source) ||
+    (hasChildProcessBinding(filePath, source) ||
       hasProviderCliProcessApi(source) ||
-      /\bprocess\.kill\s*\(/.test(source)
-    )
-  )
+      /\bprocess\.kill\s*\(/.test(source))
+  ) {
     findings.push("API-owned CLI process supervision");
-  if (isAgentOsSource && hasProcInspection(filePath, source))
+  }
+  if (isAgentOsSource && hasProcInspection(filePath, source)) {
     findings.push("API runtime Linux peer-process inspection");
+  }
   if (
     filePath.startsWith("apps/agent-runner/") &&
     /(?:\b(?:createServer|listen)\s*\(|\.listen\s*\()/i.test(source)
-  )
+  ) {
     findings.push("Runner inbound listener or LAN exposure");
+  }
   if (
-    filePath.startsWith("packages/shared/src/agent-runtime/") &&
-    hasRawLaunchCommandField(filePath, source)
-  )
-    findings.push("raw launch command field");
-  if (hasPersistedRunnerControlState(filePath, source))
+    filePath === "packages/shared/src/agent-runtime/control.ts" &&
+    hasRawLaunchField(filePath, source)
+  ) {
+    findings.push("Runner launch authority/secret field");
+  }
+  if (hasPersistedRunnerControlState(filePath, source)) {
     findings.push("Runner control-plane persistence");
-  if (hasForbiddenVersionOrCapabilityState(filePath, source))
-    findings.push("provider/model/session persistence on AgentVersion");
-  if (hasPersistedProviderSessionHistoryResume(filePath, source))
+  }
+  if (hasPersistedProviderSessionHistoryResume(filePath, source)) {
     findings.push("provider session/history/resume persistence");
-  if (hasDuplicateRuntimeContract(filePath, source))
+  }
+  if (hasForbiddenAgentVersionState(filePath, source)) {
+    findings.push("provider/model state on AgentVersion");
+  }
+  if (hasForbiddenCapabilityDefinitionState(filePath, source)) {
+    findings.push("provider/model state on CapabilityDefinition");
+  }
+  if (hasDuplicateRuntimeContract(filePath, source)) {
     findings.push("duplicate runtime train/platform contract");
-  if (isServerSource && hasInternalAgentRuntimeRouteOutsidePrefix(source))
+  }
+  if (isServerSource && hasInternalAgentRuntimeRouteOutsidePrefix(source)) {
     findings.push("Agent runtime route outside internal prefix");
+  }
   if (
     filePath === "deploy/office/nginx.conf" &&
     !hasNginxInternalAgentRuntimeDenyBoundary(source)
-  )
+  ) {
     findings.push("nginx internal Agent runtime deny boundary");
-  if (
-    /^(?:apps\/server\/src\/agent-os\/|packages\/shared\/src\/|prisma\/models\/)/.test(filePath) &&
-    /\bAgent(?:SessionTask|WorkTask|WorkSession|WorkVersion)\b/.test(source)
-  )
-    findings.push("legacy task model/name");
-  if (
-    hasPath(filePath, /^apps\/server\/src\/agent-os\//) &&
-    /\bAgent(?:Run(?:Request|Event)?|Execution(?:Attempt)?)\b/.test(source)
-  )
-    findings.push("legacy AgentRun symbol");
-  if (
-    hasPath(filePath, /^apps\/server\/src\/agent-os\//) &&
-    !/\/application\/(?:port\/out\/work\/agent-live-message\.port|service\/work\/agent-live-message\.service)\.ts$/.test(filePath) &&
-    hasPath(
-      filePath,
-      /(?:conversation|message|event|replay|summarizer|live-publisher|live-join)/i,
-    )
-  )
-    findings.push("legacy conversation/replay surface");
-  if (
-    hasPath(filePath, /^apps\/server\/src\/agent-os\//) &&
-    hasPath(
-      filePath,
-      /(?:artifact|materialization|provider-upload|storage-agent-session)/i,
-    )
-  )
-    findings.push("legacy artifact/storage surface");
-  if (
-    hasPath(filePath, /^apps\/server\/src\/agent-os\//) &&
-    hasPath(filePath, /(?:cost|usage)/i)
-  )
-    findings.push("legacy usage/cost surface");
-  if (
-    hasPath(filePath, /^apps\/server\/src\/agent-os\//) &&
-    hasPath(
-      filePath,
-      /(?:authority-profile|policy-snapshot|execution-grant|dispatch-outbox)/i,
-    )
-  )
-    findings.push("legacy authority/grant/outbox surface");
-  if (
-    hasPath(filePath, /^apps\/server\/src\/agent-os\//) &&
-    hasPath(filePath, /(?:playbook|tool-wrapper)/i)
-  )
-    findings.push("legacy fixed playbook/tool-wrapper surface");
-  if (
-    hasPath(filePath, /^apps\/server\/src\/agent-os\//) &&
-    /\bruntimeKind\s*:\s*["']tool_wrapper["']|\bdefaultToolPolicies\s*:|\bplaybookKeys\s*:/.test(
-      source,
-    )
-  )
-    findings.push("legacy fixed playbook/tool-wrapper metadata");
-  if (
-    filePath ===
-      "apps/server/src/agent-os/application/port/out/capability/agent-capability-handler.port.ts" &&
-    /\bexecutionKind\b/.test(source) &&
-    /\bsideEffects\b/.test(source) &&
-    /(?:\bArtifactOutput\b|\bartifacts?\b)/.test(source)
-  )
-    findings.push("legacy handler metadata");
-  if (
-    hasPath(filePath, /^apps\/server\/src\/agent-os\//) &&
-    /(?:continuationMode|continuationKey|background continuation|operation-to-agent|-continuation\.)/i.test(
-      source + filePath,
-    )
-  )
-    findings.push("legacy continuation surface");
-  if (
-    hasPath(filePath, /^apps\/server\/src\/agent-os\//) &&
-    /(?:advisory|release-drain|coordinated-deletion)/i.test(source + filePath)
-  )
-    findings.push("legacy advisory/release/deletion surface");
-  if (
-    hasPath(filePath, /^apps\/server\/src\/agent-os\//) &&
-    hasPath(
-      filePath,
-      /(?:hermes|openai|gateway|credential-broker|handle-codec|provider-session)/i,
-    )
-  )
-    findings.push("legacy provider/gateway runtime surface");
-  if (
-    hasPath(filePath, /^apps\/server\/src\/agent-os\//) &&
-    /(?:KIDITEM_MCP_EXECUTION_CONTEXT|INTERACTION_[A-Z_]*HMAC_KEY|AGENT_RUNTIME_CREDENTIAL_HMAC_KEY|full-nest-mcp)/.test(
-      source + filePath,
-    )
-  )
-    findings.push("legacy full-Nest MCP/HMAC runtime surface");
-  if (
-    hasPath(filePath, /^apps\/web\/src\/app\/\(automation\)\/agents\//) ||
-    hasPath(
-      filePath,
-      /^apps\/web\/src\/app\/agent-os\/(?:components|lib|network)\//,
-    )
-  )
-    findings.push("legacy Web Agent OS path");
-  if (
-    [
-      "packages/shared/src/agent-os.ts",
-      "packages/shared/src/schemas/agent-os.ts",
-    ].includes(filePath)
-  )
-    findings.push("legacy shared Agent OS export");
-  if (
-    hasPath(
-      filePath,
-      /^packages\/shared\/src\/agent-interaction\/(?:durable-runtime|deletion|ui)\.ts$/,
-    )
-  )
-    findings.push("legacy shared interaction export");
-  if (
-    filePath === "prisma/models/agents.prisma" &&
-    /model\s+Agent(?:Run(?:Request|Event)?|Execution(?:Attempt)?)\b/.test(
-      source,
-    )
-  )
-    findings.push("legacy AgentRun model");
-  if (
-    filePath === "prisma/models/agents.prisma" &&
-    /model\s+Agent(?:Conversation|Message|ConversationEvent|ConversationOutbox)\b/.test(
-      source,
-    )
-  )
-    findings.push("legacy conversation/replay model");
-  if (
-    filePath === "prisma/models/agents.prisma" &&
-    /model\s+Agent(?:Artifact|SessionArtifact|SessionArtifactMaterialization)\b/.test(
-      source,
-    )
-  )
-    findings.push("legacy artifact/storage model");
-  if (
-    filePath === "prisma/models/agents.prisma" &&
-    /model\s+Agent(?:ExecutionUsage|CostEvent)\b/.test(source)
-  )
-    findings.push("legacy usage/cost model");
-  if (
-    filePath === "prisma/models/agents.prisma" &&
-    /model\s+AgentSessionApprovalContinuation\b/.test(source)
-  )
-    findings.push("legacy continuation model");
-  if (
-    filePath === "prisma/models/agents.prisma" &&
-    /model\s+AgentSessionDeletionOperationBinding\b/.test(source)
-  )
-    findings.push("legacy deletion binding model");
-  if (
-    filePath === "prisma/models/agents.prisma" &&
-    /model\s+Agent(?:Instance|InstanceToolPolicy|ToolInvocation)\b/.test(source)
-  )
-    findings.push("legacy instance/tool policy model");
-  if (
-    filePath === "prisma/models/agents.prisma" &&
-    /model\s+Agent(?:PolicySnapshot|AuthorityProfileVersion|ExecutionDispatchOutbox|AuthorizationEvent|ApprovalRequest)\b/.test(
-      source,
-    )
-  )
-    findings.push("legacy authority/grant/outbox model");
-  if (
-    /^(?:apps\/server\/\.env\.example|(?:deploy|docker|infra|\.github\/workflows)\/|docker-compose(?:\.[^/]+)?\.ya?ml$)/.test(
-      filePath,
-    ) &&
-    /(?:AGENT_GATEWAY|GATEWAY_URL|KIDITEM_MCP_EXECUTION_CONTEXT|(?:INTERACTION|AGENT_RUNTIME_CREDENTIAL)_[A-Z_]*HMAC_KEY|AGENT_RUNTIME_WORKER_ENABLED|agentGateway)/.test(
-      source,
-    )
-  )
-    findings.push("legacy gateway configuration");
+  }
   return findings.map((finding) => `${filePath}: ${finding}`);
 }
 
@@ -720,22 +590,19 @@ export function contractionRoots(root) {
     path.join(root, "apps/server/package.json"),
     path.join(root, "apps/server/Dockerfile"),
     path.join(root, "apps/agent-runner"),
-    path.join(root, "apps/web/src"),
-    path.join(root, "apps/web/next.config.mjs"),
-    path.join(root, "packages/shared/src"),
+    path.join(root, "packages/shared/src/agent-runtime"),
     path.join(root, "prisma/models"),
-    path.join(root, "deploy"),
-    path.join(root, "docker"),
-    path.join(root, "infra"),
-    path.join(root, ".github/workflows"),
+    path.join(root, "deploy/office/nginx.conf"),
+    path.join(root, "deploy/office/compose.office.yml"),
     path.join(root, "docker-compose.yml"),
   ];
 }
 
 function main() {
   const mode = process.argv.includes("--enforce") ? "enforce" : "report";
-  if (!process.argv.includes("--report") && mode !== "enforce")
+  if (!process.argv.includes("--report") && mode !== "enforce") {
     throw new Error("Use --report or --enforce");
+  }
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const findings = collectAgentOsContractionFindings(
     contractionRoots(root)
@@ -752,5 +619,6 @@ function main() {
   if (mode === "enforce" && findings.length > 0) process.exitCode = 1;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1])
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main();
+}

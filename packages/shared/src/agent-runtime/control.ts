@@ -36,7 +36,7 @@ export const LoopbackHttpUrlSchema = z
     }
   }, 'loopback_http_url_required');
 
-const FORBIDDEN_CONTROL_PROPERTY_NAMES = new Set([
+const FORBIDDEN_RUNNER_INGRESS_PROPERTY_NAMES = new Set([
   'command',
   'executable',
   'shell',
@@ -54,35 +54,48 @@ const FORBIDDEN_CONTROL_PROPERTY_NAMES = new Set([
   'session',
   'sessionid',
   'sessionauthority',
-  'database',
-  'databaseurl',
-  'databaseauthority',
-  'db',
-  'dburl',
-  'dbauthority',
-  'provider',
-  'apitoken',
-  'accesstoken',
-  'refreshtoken',
-  'apikey',
-  'secret',
-  'password',
-  'hmac',
 ]);
 
-const CREDENTIAL_PROPERTY_NAME = /^credential[a-z0-9]*$/;
-const DATABASE_SECRET_PROPERTY_NAME = /^(?:database|db)(?:credential|password|(?:access|refresh|api)?token|apikey|secret|key)[a-z0-9]*$/;
-const PROVIDER_SECRET_PROPERTY_NAME = /^provider(?:credential|password|(?:access|refresh|api)?token|apikey|secret|key|session|history|resume)[a-z0-9]*$/;
-const HMAC_SECRET_PROPERTY_NAME = /^hmac(?:key|secret|algorithm|digest|token|signature|value)[a-z0-9]*$/;
+const ACTIVE_SECRET_WORDS = new Set([
+  'secret',
+  'credential',
+  'credentials',
+  'password',
+  'passphrase',
+]);
+const ACTIVE_SECRET_COMPOSITES = [
+  'accesstoken',
+  'bearertoken',
+  'oauthtoken',
+  'apitoken',
+  'apikey',
+  'privatekey',
+  'connectionstring',
+  'connectionurl',
+  'connectiondsn',
+];
+
+function propertyNameWords(propertyName: string): string[] {
+  return propertyName
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((word) => word.toLowerCase());
+}
+
+function isActiveSecretOrCredentialPropertyName(propertyName: string): boolean {
+  const normalized = propertyName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return (
+    propertyNameWords(propertyName).some((word) => ACTIVE_SECRET_WORDS.has(word)) ||
+    ACTIVE_SECRET_COMPOSITES.some((composite) => normalized.includes(composite))
+  );
+}
 
 function controlPropertyNameIsForbidden(propertyName: string): boolean {
   const normalized = propertyName.toLowerCase().replace(/[^a-z0-9]/g, '');
   return (
-    FORBIDDEN_CONTROL_PROPERTY_NAMES.has(normalized) ||
-    CREDENTIAL_PROPERTY_NAME.test(normalized) ||
-    DATABASE_SECRET_PROPERTY_NAME.test(normalized) ||
-    PROVIDER_SECRET_PROPERTY_NAME.test(normalized) ||
-    HMAC_SECRET_PROPERTY_NAME.test(normalized)
+    FORBIDDEN_RUNNER_INGRESS_PROPERTY_NAMES.has(normalized) ||
+    isActiveSecretOrCredentialPropertyName(propertyName)
   );
 }
 
