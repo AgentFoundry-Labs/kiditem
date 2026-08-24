@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { AgentOsApiExecutionModule } from '../agent-os/agent-os-api-execution.module';
 import { AiAgentRuntimeModule } from '../ai/ai-agent-runtime.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SourcingAgentGatewayAdapter } from './adapter/out/agent/sourcing-agent.gateway.adapter';
@@ -34,16 +33,18 @@ import { SourcingAgentReadCapabilityModule } from './sourcing-agent-read-capabil
 @Module({
   imports: [
     PrismaModule,
-    AgentOsApiExecutionModule,
     OperationsModule,
     AiAgentRuntimeModule,
     SourcingAgentReadCapabilityModule,
   ],
   providers: [
+    SourcingAgentCommandService,
     SourcingAgentWorkspaceMutationCapabilityService,
     SourcingReviewService,
     SourcingScrapeResultService,
     SourcingValidationService,
+    SourcingAgentGatewayAdapter,
+    SourcingCandidateRepositoryAdapter,
     SourcingInterestTargetRepositoryAdapter,
     SourcingRecommendationRepositoryAdapter,
     SourcingReviewRepositoryAdapter,
@@ -58,6 +59,8 @@ import { SourcingAgentReadCapabilityModule } from './sourcing-agent-read-capabil
       useExisting: SourcingAgentWorkspaceMutationCapabilityService,
     },
     { provide: SOURCING_SCRAPE_OPERATION_PORT, useExisting: SourcingScrapeOperationAdapter },
+    { provide: SOURCING_AGENT_GATEWAY_PORT, useExisting: SourcingAgentGatewayAdapter },
+    { provide: SOURCING_CANDIDATE_REPOSITORY_PORT, useExisting: SourcingCandidateRepositoryAdapter },
     {
       provide: SOURCING_INTEREST_TARGET_REPOSITORY_PORT,
       useExisting: SourcingInterestTargetRepositoryAdapter,
@@ -85,6 +88,9 @@ import { SourcingAgentReadCapabilityModule } from './sourcing-agent-read-capabil
   ],
   exports: [
     SourcingAgentReadCapabilityModule,
+    SourcingAgentCommandService,
+    SOURCING_AGENT_GATEWAY_PORT,
+    SOURCING_CANDIDATE_REPOSITORY_PORT,
     SourcingReviewService,
     SourcingValidationService,
     SOURCING_SCRAPE_OPERATION_PORT,

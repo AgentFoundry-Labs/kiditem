@@ -96,7 +96,6 @@ function makeService(operation: { id: string; organizationId: string; operationK
         return operation;
       }),
     } as never,
-    {} as never,
     { emit: vi.fn() } as never,
     { start: vi.fn(), succeed: vi.fn(), fail: vi.fn() } as never,
   );

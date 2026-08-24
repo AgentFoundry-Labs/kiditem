@@ -23,10 +23,6 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function unownedOperationRunOwnership() {
-  return { findFirst: vi.fn().mockResolvedValue(null) };
-}
-
 function sqlText(value: unknown): string {
   if (
     typeof value !== 'object' ||
@@ -287,7 +283,6 @@ describe('OperationRepositoryAdapter composite child fencing', () => {
     const transaction = {
       $queryRaw: vi.fn().mockResolvedValue([]),
       operationRun: { findFirst, create },
-      agentSessionOperationRunOwnership: unownedOperationRunOwnership(),
     };
     const repository = new OperationRepositoryAdapter({
       $transaction: vi.fn((callback) => callback(transaction)),
@@ -328,7 +323,6 @@ describe('OperationRepositoryAdapter composite child fencing', () => {
       $transaction: vi.fn((callback) => callback({
         $queryRaw: queryRaw,
         operationRun: { findFirst: findChild, create },
-        agentSessionOperationRunOwnership: unownedOperationRunOwnership(),
       })),
       operationRun: { findFirst: findRun },
     } as never);
@@ -381,7 +375,6 @@ describe('OperationRepositoryAdapter composite child fencing', () => {
           }),
           create,
         },
-        agentSessionOperationRunOwnership: unownedOperationRunOwnership(),
       })),
       operationRun: {
         findFirst: vi.fn().mockResolvedValue(makeRunRow({ id: CHILD_ID })),
@@ -412,7 +405,6 @@ describe('OperationRepositoryAdapter composite child fencing', () => {
             organizationId: ORG_ID,
           }),
         },
-        agentSessionOperationRunOwnership: unownedOperationRunOwnership(),
       })),
       operationRun: { findFirst: findRun },
     } as never);

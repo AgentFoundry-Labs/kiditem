@@ -5,7 +5,13 @@ import { AgentAttemptReadinessService } from '../agent-os/adapter/out/runtime/at
 
 @Module({
   imports: [PrismaModule],
-  providers: [ReadinessService, AgentAttemptReadinessService],
+  providers: [
+    ReadinessService,
+    {
+      provide: AgentAttemptReadinessService,
+      useFactory: () => new AgentAttemptReadinessService(),
+    },
+  ],
   exports: [ReadinessService, AgentAttemptReadinessService],
 })
 export class ReadinessStateModule {}

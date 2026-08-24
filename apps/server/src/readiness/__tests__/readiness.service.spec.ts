@@ -58,6 +58,7 @@ describe('ReadinessService', () => {
   it('rejects a published AgentVersion with no dedicated runtime model', async () => {
     const originalEnv = process.env;
     process.env = { ...originalEnv, KIDITEM_APPLICATION_VERSION: '3.4.5', KIDITEM_GIT_SHA: 'abc123' };
+    delete process.env.AGENT_SOURCING_MODEL;
     const prisma = { agentVersion: { findMany: vi.fn(async () => [{ agentDefinitionKey: 'sourcing', runtimeType: 'codex_cli' }]) } };
     try {
       await expect(new ReadinessService(prisma as never, { assertRuntime: vi.fn() } as never).getAgentAttemptRuntimeReadiness()).rejects.toThrow('missing_runtime_model:sourcing');

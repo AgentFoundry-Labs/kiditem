@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { kstDayStart } from '../common/kst';
@@ -25,7 +25,8 @@ import type {
 export class ReadinessService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly attemptReadiness = new AgentAttemptReadinessService(),
+    @Inject(AgentAttemptReadinessService)
+    private readonly attemptReadiness: AgentAttemptReadinessService,
   ) {}
 
   /**

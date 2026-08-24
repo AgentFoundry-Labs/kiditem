@@ -10,7 +10,7 @@ import {
   vi,
 } from 'vitest';
 import { ApiApplicationModule } from '../../../../api-application.module';
-import { seedAgentOs } from '../../../../agent-os/seed-agent-os';
+import { seedAgentVersions } from '../../../../agent-os/seed-agent-versions';
 import {
   makeTestPrisma,
   resetDb,
@@ -38,11 +38,11 @@ import type { PrismaService } from '../../../../prisma/prisma.service';
 
 const EXPECTED_CANONICAL_OPERATION_OWNER_DOMAINS = [
   'advertising',
-  'agent-os',
   'channels',
   'inventory',
   'orders',
   'products',
+  'rules',
   'sourcing',
 ] as const;
 const LIFECYCLE_ACTIVE_STATUSES = [
@@ -61,12 +61,14 @@ async function readRegisteredOperationOwnerDomains(
     AI_DIRECT_JOB_WORKER_ENABLED: '0',
     OPERATION_RUNTIME_WORKER_ENABLED: '0',
     OPERATION_SCHEDULER_ENABLED: '0',
-    INTERACTION_GATEWAY_SHARED_SECRET: 'x'.repeat(32),
-    INTERACTION_PRINCIPAL_HMAC_KEY: 'x'.repeat(32),
-    INTERACTION_RUN_INTENT_HMAC_KEY: 'x'.repeat(32),
-    INTERACTION_REPLAY_CURSOR_HMAC_KEY: 'x'.repeat(32),
-    INTERACTION_ANALYTICS_HMAC_KEY: 'x'.repeat(32),
-    AGENT_DEFAULT_MODEL: 'gpt-test',
+    KIDITEM_APPLICATION_VERSION: 'test-version',
+    KIDITEM_GIT_SHA: '0000000000000000000000000000000000000000',
+    AGENT_OPERATOR_MODEL: 'test-model',
+    AGENT_SOURCING_MODEL: 'test-model',
+    AGENT_MERCHANDISING_MODEL: 'test-model',
+    AGENT_SUPPLY_MODEL: 'test-model',
+    AGENT_CHANNEL_OPERATIONS_MODEL: 'test-model',
+    AGENT_ADVERTISING_MODEL: 'test-model',
   } as const;
   const priorEnvironment = Object.fromEntries(
     Object.keys(disabledRuntimeEnvironment).map((key) => [key, process.env[key]]),
@@ -75,10 +77,10 @@ async function readRegisteredOperationOwnerDomains(
 
   let context: INestApplicationContext | null = null;
   try {
-    await seedAgentOs(client);
+    await seedAgentVersions();
     context = await NestFactory.createApplicationContext(
       ApiApplicationModule,
-      { logger: false },
+      { logger: false, abortOnError: false },
     );
     const definitions = context
       .get(OperationHandlerRegistryService)
@@ -378,6 +380,7 @@ describe('operation server lifecycle PostgreSQL integration', () => {
         OperationServerLifecycleService,
         { provide: OPERATION_REPOSITORY_PORT, useValue: repository },
         { provide: OperationLifecycleGateService, useValue: gate },
+        OperationPostAcceptingHookRegistryService,
         { provide: OperationSchedulerService, useValue: runtimes.scheduler },
         { provide: OperationRunWorkerService, useValue: runtimes.worker },
         {

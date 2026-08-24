@@ -30,7 +30,7 @@ import { AgentOsSessionModule } from './agent-os/agent-os-session.module';
   imports: [AgentWorkCapabilityApplicationModule, AgentOsSessionModule],
   providers: [
     AgentAttemptProcessRegistry, AttemptFilesystemService, AttemptLiveControlRegistry, AttemptFutureOutputChannel,
-    AgentAttemptReadinessService,
+    { provide: AgentAttemptReadinessService, useFactory: () => new AgentAttemptReadinessService() },
     { provide: ATTEMPT_RUNTIME_CONTROL_PORT, useExisting: AttemptLiveControlRegistry },
     { provide: AgentAttemptRuntimeAdmissionService, inject: [PrismaService, AgentAttemptReadinessService], useFactory: (prisma: PrismaService, readiness: AgentAttemptReadinessService) => new AgentAttemptRuntimeAdmissionService(prisma, readiness) },
     { provide: AgentRuntimeDirectoryReconciler, inject: [AttemptFilesystemService], useFactory: (files: AttemptFilesystemService) => new AgentRuntimeDirectoryReconciler({ cleanAttempt: (attemptId) => files.cleanAttempt(attemptId), reapMarkedProcess: (attemptId) => files.reapMarkedProcess(attemptId) }) },
