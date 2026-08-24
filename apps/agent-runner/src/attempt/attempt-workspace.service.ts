@@ -95,6 +95,8 @@ function codexMcpConfig(url: string): string {
     '[mcp_servers.kiditem_attempt]',
     `url = ${JSON.stringify(url)}`,
     'bearer_token_env_var = "KIDITEM_ATTEMPT_MCP_TOKEN"',
+    'required = true',
+    'startup_timeout_sec = 5',
     '',
   ].join('\n');
 }

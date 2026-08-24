@@ -31,6 +31,8 @@ describe('AttemptWorkspaceService', () => {
     expect(codexConfig).toContain('approval_policy = "never"');
     expect(codexConfig).toContain('default_permissions = ":workspace"');
     expect(codexConfig).toContain('exclude = ["KIDITEM_ATTEMPT_MCP_TOKEN"]');
+    expect(codexConfig).toContain('required = true');
+    expect(codexConfig).toContain('startup_timeout_sec = 5');
     expect(codexConfig).not.toContain('thread/start.ephemeral');
     expect(codexConfig).not.toContain('plugins.enabled');
     await service.linkProviderAuth(paths, 'codex_cli');
