@@ -79,9 +79,8 @@ describe('Runner lease-loss cleanup barrier', () => {
     fixture.dispose();
   });
 
-  it('chains pending cleanup barriers across repeated replacements while still delivering probing canaries', async () => {
+  it('coalesces empty replacement losses behind one pending cleanup while still delivering probing canaries', async () => {
     const firstCleanup = deferred<void>();
-    const secondCleanup = deferred<void>();
     const commands = new RunnerCommandQueue({ commandId: sequenceIds() });
     const leases = new RunnerLeaseRegistry({
       commands,
@@ -89,10 +88,7 @@ describe('Runner lease-loss cleanup barrier', () => {
       leaseId: sequenceLeaseIds(),
       now: () => now,
     });
-    const reconcile = vi.fn(async ({ leaseId }: { leaseId: string }) => {
-      if (leaseId === '618f4eb1-9078-7a1e-9514-b19b5732f5de') return firstCleanup.promise;
-      return secondCleanup.promise;
-    });
+    const reconcile = vi.fn(async () => firstCleanup.promise);
     leases.setLossHandlers({
       interruptAttempt: async () => undefined,
       revokeLease: vi.fn(),
@@ -120,12 +116,8 @@ describe('Runner lease-loss cleanup barrier', () => {
 
     firstCleanup.resolve();
     await settle();
-    expect(() => leases.markReady({ runnerInstanceId: thirdRunnerId, leaseId: third.leaseId })).toThrow('runner_not_ready');
-
-    secondCleanup.resolve();
-    await settle();
     expect(leases.markReady({ runnerInstanceId: thirdRunnerId, leaseId: third.leaseId }).status).toBe('ready');
-    expect(reconcile).toHaveBeenCalledTimes(2);
+    expect(reconcile).toHaveBeenCalledTimes(1);
     leases.dispose();
   });
 });

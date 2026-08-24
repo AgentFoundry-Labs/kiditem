@@ -10,7 +10,7 @@ import {
   type RunnerStartCommand,
 } from '@kiditem/shared/agent-runtime';
 
-const DEFAULT_MAX_ENTRIES = 1_024;
+export const RUNNER_COMMAND_QUEUE_MAX_ENTRIES = 1_024;
 
 type CommandRecord = {
   command: RunnerCommand;
@@ -62,7 +62,7 @@ export class RunnerCommandQueue {
 
   constructor(options: RunnerCommandQueueOptions = {}) {
     this.createCommandId = options.commandId ?? randomUUID;
-    this.maxEntries = Math.max(1, options.maxEntries ?? DEFAULT_MAX_ENTRIES);
+    this.maxEntries = Math.max(1, options.maxEntries ?? RUNNER_COMMAND_QUEUE_MAX_ENTRIES);
   }
 
   enqueueStart(input: { launch: AttemptLaunchSpec; deadlineAt: Date; leaseGeneration: number }): RunnerStartCommand {

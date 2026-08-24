@@ -8,10 +8,14 @@ import {
   type RunnerHello,
   type RunnerLeaseResponse,
 } from '@kiditem/shared/agent-runtime';
-import { RunnerCommandQueue } from './runner-command.queue';
+import { RUNNER_COMMAND_QUEUE_MAX_ENTRIES, RunnerCommandQueue } from './runner-command.queue';
 
 export const RUNNER_EMPTY_POLL_MS = 20_000;
 export const RUNNER_LEASE_TTL_MS = 30_000;
+// The command queue uses the same default bound for retained start metadata.
+// Loss recovery must never turn rapid lease replacement into unbounded API
+// memory even if a durable reconciliation is unavailable.
+const MAX_LOSS_CLEANUP_ATTEMPTS = RUNNER_COMMAND_QUEUE_MAX_ENTRIES;
 
 type ActiveLease = {
   runnerInstanceId: string;
@@ -53,8 +57,11 @@ export class RunnerLeaseRegistry {
   private readonly unsubscribe: () => void;
   private eventTail: Promise<void> = Promise.resolve();
   private nextLeaseGeneration = 0;
-  private pendingLossCleanups = 0;
+  private readonly pendingLossAttemptIds = new Set<string>();
+  private pendingLossCleanupLeaseId: string | null = null;
+  private lossCleanupInFlight = false;
   private lossCleanupFailed = false;
+  private disposed = false;
   private active: ActiveLease | null = null;
   private pending: PendingPoll | null = null;
 
@@ -69,6 +76,7 @@ export class RunnerLeaseRegistry {
   }
 
   hello(input: RunnerHello): RunnerLeaseResponse {
+    this.assertNotDisposed();
     const hello = immutableHello(RunnerHelloSchema.parse(input));
     const helloHash = stableJson(hello);
     const active = this.active;
@@ -122,7 +130,8 @@ export class RunnerLeaseRegistry {
 
   isValid(input: { runnerInstanceId: string; leaseId: string }): boolean {
     const lease = this.active;
-    return !!lease
+    return !this.disposed
+      && !!lease
       && lease.runnerInstanceId === input.runnerInstanceId
       && lease.leaseId === input.leaseId
       && this.now().getTime() - lease.lastSeenAt < RUNNER_LEASE_TTL_MS;
@@ -200,11 +209,16 @@ export class RunnerLeaseRegistry {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.unsubscribe();
     if (this.active) clearTimeout(this.active.expiresTimer);
     if (this.pending) clearTimeout(this.pending.timeout);
     this.active = null;
     this.pending = null;
+    this.pendingLossAttemptIds.clear();
+    this.pendingLossCleanupLeaseId = null;
+    this.lossCleanupInFlight = false;
   }
 
   private require(input: { runnerInstanceId: string; leaseId: string }): ActiveLease {
@@ -277,21 +291,60 @@ export class RunnerLeaseRegistry {
   }
 
   /**
-   * A global durable reconciliation has no local lease predicate. Keep every
-   * successor probing until the preceding loss has either reconciled or its
-   * exact local fallback terminalization has completed.
+   * A global durable reconciliation has no local lease predicate. Coalesce
+   * replacement storms into one bounded drain: a successor remains probing
+   * until the active pass and any local IDs that arrived during it are safe.
    */
   private beginLossCleanup(input: { leaseId: string; attemptIds: readonly string[] }): void {
-    this.pendingLossCleanups += 1;
-    void this.completeLossCleanup(input).then(
-      () => { this.pendingLossCleanups -= 1; },
-      () => {
-        this.pendingLossCleanups -= 1;
-        // A failed fallback cannot safely admit fresh business work into an
-        // unknown global recovery window. Keep this API-local lease blocked.
+    if (this.disposed) return;
+    const added = this.collectLostAttempts(input.attemptIds);
+    if (this.lossCleanupInFlight) {
+      // Empty-loss hello churn is already covered by the active global pass.
+      // A newly fenced Attempt needs one subsequent snapshot after it settles.
+      if (added) this.pendingLossCleanupLeaseId = input.leaseId;
+      return;
+    }
+    this.pendingLossCleanupLeaseId = input.leaseId;
+    this.lossCleanupInFlight = true;
+    void this.drainLossCleanup();
+  }
+
+  private collectLostAttempts(attemptIds: readonly string[]): boolean {
+    let added = false;
+    for (const attemptId of attemptIds) {
+      if (this.pendingLossAttemptIds.has(attemptId)) continue;
+      if (this.pendingLossAttemptIds.size >= MAX_LOSS_CLEANUP_ATTEMPTS) {
+        // Queue fencing/revocation already removed the raw token. A local
+        // overflow cannot safely be represented, so durable admission remains
+        // closed even if the global recovery pass later resolves.
         this.lossCleanupFailed = true;
-      },
-    );
+        continue;
+      }
+      this.pendingLossAttemptIds.add(attemptId);
+      added = true;
+    }
+    return added;
+  }
+
+  private async drainLossCleanup(): Promise<void> {
+    try {
+      while (!this.disposed) {
+        const leaseId = this.pendingLossCleanupLeaseId;
+        if (!leaseId) return;
+        const attemptIds = [...this.pendingLossAttemptIds];
+        this.pendingLossAttemptIds.clear();
+        this.pendingLossCleanupLeaseId = null;
+        await this.completeLossCleanup({ leaseId, attemptIds });
+        // A replacement that loses no local Attempt cannot introduce new
+        // business work while this barrier is closed, so it needs no replay.
+        if (!this.pendingLossCleanupLeaseId) return;
+      }
+    } catch {
+      if (!this.disposed) this.lossCleanupFailed = true;
+    } finally {
+      if (this.disposed) return;
+      this.lossCleanupInFlight = false;
+    }
   }
 
   private async completeLossCleanup(input: { leaseId: string; attemptIds: readonly string[] }): Promise<void> {
@@ -300,11 +353,14 @@ export class RunnerLeaseRegistry {
         await this.reconcileLeaseLoss(input);
         return;
       } catch {
-        await this.interruptLostAttempts(input.attemptIds);
-        return;
+        if (this.disposed) return;
       }
     }
-    await this.interruptLostAttempts(input.attemptIds);
+    try {
+      await this.interruptLostAttempts(input.attemptIds);
+    } catch {
+      if (!this.disposed) this.lossCleanupFailed = true;
+    }
   }
 
   private async interruptLostAttempts(attemptIds: readonly string[]): Promise<void> {
@@ -313,11 +369,15 @@ export class RunnerLeaseRegistry {
   }
 
   private lossCleanupPending(): boolean {
-    return this.pendingLossCleanups > 0 || this.lossCleanupFailed;
+    return this.lossCleanupInFlight || this.lossCleanupFailed;
   }
 
   private assertLossCleanupComplete(): void {
     if (this.lossCleanupPending()) throw new Error('runner_not_ready');
+  }
+
+  private assertNotDisposed(): void {
+    if (this.disposed) throw new Error('runner_registry_disposed');
   }
 
   private assertEventOwnership(lease: ActiveLease, batch: RunnerEventBatch): void {
