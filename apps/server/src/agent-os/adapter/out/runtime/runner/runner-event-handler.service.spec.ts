@@ -102,6 +102,71 @@ describe('RunnerEventHandlerService', () => {
     expect(capacity.releaseAttempt).toHaveBeenCalledTimes(1);
   });
 
+  it('falls back to one retained business terminalization when durable lease reconciliation rejects', async () => {
+    const commands = new RunnerCommandQueue({ commandId: () => '528f4eb1-9078-7a1e-9514-b19b5732f5de' });
+    const leaseIds = [
+      '538f4eb1-9078-7a1e-9514-b19b5732f5de',
+      '538f4eb1-9078-7a1e-9514-b19b5732f5df',
+    ];
+    const leases = new RunnerLeaseRegistry({
+      commands,
+      interruptAttempt: async () => undefined,
+      leaseId: () => leaseIds.shift()!,
+    });
+    const tokens = new AttemptTokenRegistry();
+    const work = {
+      transitionAttempt: vi.fn(async () => ({ transitioned: true })),
+      finalizeTaskFromAttempt: vi.fn(async () => ({ finalized: true, status: 'completed' })),
+    };
+    const capacity = { releaseAttempt: vi.fn() };
+    const output = { publish: vi.fn(), finish: vi.fn() };
+    const reconciler = { reconcile: vi.fn(async () => { throw new Error('durable_reconciliation_unavailable'); }) };
+    new RunnerEventHandlerService({ leases, commands, tokens, work, capacity, output, reconciler });
+    const prior = leases.hello({
+      kind: 'hello', runnerInstanceId: instanceId, platform: 'macos', nodeMajor: 22,
+      controlRevision: 'kiditem-runner-control-v1', mcpProtocolRevision: '2026-07-28', cliContractIdentity: 'office-cli-contract-v2',
+      runtimes: {
+        codex_cli: { version: '0.149.1', loginVerified: true, nonPersistentSettingsVerified: true },
+        claude_cli: { version: '2.1.241', loginVerified: true, nonPersistentSettingsVerified: true },
+      },
+    });
+    const deadline = new Date(Date.now() + 60_000);
+    const issued = tokens.issueBusiness({
+      leaseId: prior.leaseId,
+      deadline,
+      binding: {
+        attemptId, organizationId: 'organization-id', sessionId: 'session-id', taskId: 'task-id',
+        agentVersionId: 'agent-version-id', userId: 'user-id', capabilityKeys: [],
+      },
+    });
+    const start = commands.enqueueStart({
+      launch: { ...launchSpec(), attemptToken: issued.raw },
+      deadlineAt: deadline,
+      leaseGeneration: leases.generationForLease({ runnerInstanceId: instanceId, leaseId: prior.leaseId }),
+    });
+
+    leases.hello({
+      kind: 'hello', runnerInstanceId: '618f4eb1-9078-7a1e-9514-b19b5732f5de', platform: 'macos', nodeMajor: 22,
+      controlRevision: 'kiditem-runner-control-v1', mcpProtocolRevision: '2026-07-28', cliContractIdentity: 'office-cli-contract-v2',
+      runtimes: {
+        codex_cli: { version: '0.149.1', loginVerified: true, nonPersistentSettingsVerified: true },
+        claude_cli: { version: '2.1.241', loginVerified: true, nonPersistentSettingsVerified: true },
+      },
+    });
+    await settleAsync();
+    await settleAsync();
+
+    expect(reconciler.reconcile).toHaveBeenCalledTimes(1);
+    expect(work.transitionAttempt).toHaveBeenCalledTimes(1);
+    expect(work.finalizeTaskFromAttempt).toHaveBeenCalledTimes(1);
+    expect(output.finish).toHaveBeenCalledWith({ attemptId, outcome: 'failed' });
+    expect(capacity.releaseAttempt).toHaveBeenCalledTimes(1);
+    expect(() => tokens.requireBusiness({ raw: issued.raw, attemptId, leaseId: prior.leaseId }))
+      .toThrow('attempt_token_invalid');
+    expect(commands.take().commands).not.toContainEqual(start);
+    leases.dispose();
+  });
+
   it('consumes a synthetic readiness event before durable business Attempt handling', async () => {
     const readiness = { handleRunnerEvent: vi.fn(() => true) };
     const leases = {
@@ -500,7 +565,11 @@ async function handlerFixture() {
     },
   }).leaseId;
   leases.markReady({ runnerInstanceId: instanceId, leaseId });
-  queue.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+  queue.enqueueStart({
+    launch: launchSpec(),
+    deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+    leaseGeneration: leases.generationForLease({ runnerInstanceId: instanceId, leaseId }),
+  });
   const delivered = await leases.poll({ runnerInstanceId: instanceId, leaseId });
   const tokens = new AttemptTokenRegistry();
   const work = {

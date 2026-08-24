@@ -15,7 +15,8 @@ export const SUPPLIER_URL_MAX_LENGTH = 2_000;
 const SUPPLIER_ALLOWED_HOST_PATTERN = `(?:[A-Za-z0-9-]+\\.)*(?:${SUPPLIER_HOSTS
   .map(({ suffix }) => suffix.split('.').map(asciiCaseInsensitive).join('\\.'))
   .join('|')})\\.?`;
-export const SUPPLIER_URL_CATALOG_PATTERN = `^https:\\/\\/${SUPPLIER_ALLOWED_HOST_PATTERN}(?::443)?(?:[/?#]|$)`;
+const SUPPLIER_HTTPS_SCHEME_PATTERN = asciiCaseInsensitive('https');
+export const SUPPLIER_URL_CATALOG_PATTERN = `^${SUPPLIER_HTTPS_SCHEME_PATTERN}:\\/\\/${SUPPLIER_ALLOWED_HOST_PATTERN}(?::443)?(?:[/?#]|$)`;
 export const SUPPLIER_URL_CATALOG_REGEXP = new RegExp(SUPPLIER_URL_CATALOG_PATTERN);
 
 export interface AllowedSupplierUrl {

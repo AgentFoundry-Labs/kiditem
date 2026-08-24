@@ -24,6 +24,7 @@ type StartState = {
   commandHash: string;
   deadlineAt: string;
   mcpToolScope: AttemptLaunchSpec['mcpToolScope'];
+  leaseGeneration: number;
 };
 
 type AcknowledgementTombstone = {
@@ -56,6 +57,7 @@ export class RunnerCommandQueue {
   private readonly idempotencyTombstones = new Map<string, RunnerInputCommand | RunnerInterruptCommand>();
   private readonly acknowledgements = new Map<string, AcknowledgementTombstone>();
   private readonly terminalAttempts = new Set<string>();
+  private readonly fencedAttempts = new Set<string>();
   private readonly listeners = new Set<() => void>();
 
   constructor(options: RunnerCommandQueueOptions = {}) {
@@ -63,9 +65,11 @@ export class RunnerCommandQueue {
     this.maxEntries = Math.max(1, options.maxEntries ?? DEFAULT_MAX_ENTRIES);
   }
 
-  enqueueStart(input: { launch: AttemptLaunchSpec; deadlineAt: Date }): RunnerStartCommand {
+  enqueueStart(input: { launch: AttemptLaunchSpec; deadlineAt: Date; leaseGeneration: number }): RunnerStartCommand {
     const attemptId = input.launch.attemptId;
     if (this.terminalAttempts.has(attemptId)) throw new Error('attempt_terminal');
+    if (this.fencedAttempts.has(attemptId)) throw new Error('attempt_generation_fenced');
+    assertLeaseGeneration(input.leaseGeneration);
     const fingerprint = hash(canonicalStartCommandInput(input));
     const existing = this.startStates.get(attemptId);
     if (existing) {
@@ -94,23 +98,25 @@ export class RunnerCommandQueue {
       commandHash: fingerprint,
       launch: immutableLaunch(input.launch),
     };
-    this.add(command);
     this.startStates.set(attemptId, {
       fingerprint,
       commandId: command.commandId,
       commandHash: command.commandHash,
       deadlineAt: command.deadlineAt,
       mcpToolScope: command.launch.mcpToolScope,
+      leaseGeneration: input.leaseGeneration,
     });
+    this.add(command);
     return command;
   }
 
   enqueueInput(input: { attemptId: string; input: string; deadlineAt: Date }): RunnerInputCommand {
     this.assertNotTerminal(input.attemptId);
+    const leaseGeneration = this.requireAttemptGeneration(input.attemptId);
     const key = `input\u0000${input.attemptId}\u0000${hash(input.input)}`;
     const existing = this.idempotentCommand(key);
     if (existing?.kind === 'attempt.input') return existing;
-    const fingerprint = hash({ kind: 'attempt.input', attemptId: input.attemptId, input: input.input, deadlineAt: input.deadlineAt.toISOString() });
+    const fingerprint = hash({ kind: 'attempt.input', attemptId: input.attemptId, input: input.input, deadlineAt: input.deadlineAt.toISOString(), leaseGeneration });
     const command: RunnerInputCommand = {
       kind: 'attempt.input', commandId: this.createCommandId(), attemptId: input.attemptId,
       deadlineAt: input.deadlineAt.toISOString(), commandHash: fingerprint, input: input.input,
@@ -121,10 +127,11 @@ export class RunnerCommandQueue {
 
   enqueueInterrupt(input: { attemptId: string; deadlineAt: Date }): RunnerInterruptCommand {
     this.assertNotTerminal(input.attemptId);
+    const leaseGeneration = this.requireAttemptGeneration(input.attemptId);
     const key = `interrupt\u0000${input.attemptId}`;
     const existing = this.idempotentCommand(key);
     if (existing?.kind === 'attempt.interrupt') return existing;
-    const fingerprint = hash({ kind: 'attempt.interrupt', attemptId: input.attemptId, deadlineAt: input.deadlineAt.toISOString() });
+    const fingerprint = hash({ kind: 'attempt.interrupt', attemptId: input.attemptId, deadlineAt: input.deadlineAt.toISOString(), leaseGeneration });
     const command: RunnerInterruptCommand = {
       kind: 'attempt.interrupt', commandId: this.createCommandId(), attemptId: input.attemptId,
       deadlineAt: input.deadlineAt.toISOString(), commandHash: fingerprint,
@@ -140,25 +147,31 @@ export class RunnerCommandQueue {
   }
 
   /**
-   * Redelivers a command only to the lease that first received it. A
-   * replacement Runner can receive newly queued work, never an unacknowledged
-   * command already exposed to the replaced Runner.
+   * Delivers only commands bound to this in-memory lease generation. A
+   * replacement Runner never receives a prior generation even if it completes
+   * readiness before asynchronous durable recovery settles.
    */
-  takeForLease(leaseKey: string, allowedMcpToolScope?: AttemptLaunchSpec['mcpToolScope']): RunnerCommandBatch {
+  takeForLease(input: Readonly<{
+    leaseKey: string;
+    leaseGeneration: number;
+    allowedMcpToolScope?: AttemptLaunchSpec['mcpToolScope'];
+  }>): RunnerCommandBatch {
+    assertLeaseGeneration(input.leaseGeneration);
     const records: CommandRecord[] = [];
     for (const record of this.records.values()) {
       if (records.length >= MAX_RUNNER_COMMANDS) break;
       const attemptId = record.command.attemptId;
-      if (allowedMcpToolScope && this.mcpToolScopeFor(record.command) !== allowedMcpToolScope) continue;
+      if (this.leaseGenerationFor(record.command) !== input.leaseGeneration) continue;
+      if (input.allowedMcpToolScope && this.mcpToolScopeFor(record.command) !== input.allowedMcpToolScope) continue;
       const attemptLeaseKey = this.attemptDeliveryLeases.get(attemptId);
-      if (record.deliveryLeaseKey && record.deliveryLeaseKey !== leaseKey) continue;
-      if (attemptLeaseKey && attemptLeaseKey !== leaseKey) continue;
+      if (record.deliveryLeaseKey && record.deliveryLeaseKey !== input.leaseKey) continue;
+      if (attemptLeaseKey && attemptLeaseKey !== input.leaseKey) continue;
       // An input or interrupt must follow its start onto the same lease. If
       // this batch also contains the pending start, iteration binds that start
       // first and the later command becomes eligible immediately.
       if (record.command.kind !== 'attempt.start' && this.startStates.has(attemptId) && !attemptLeaseKey) continue;
-      record.deliveryLeaseKey ??= leaseKey;
-      if (record.command.kind === 'attempt.start') this.attemptDeliveryLeases.set(attemptId, leaseKey);
+      record.deliveryLeaseKey ??= input.leaseKey;
+      if (record.command.kind === 'attempt.start') this.attemptDeliveryLeases.set(attemptId, input.leaseKey);
       records.push(record);
     }
     return RunnerCommandBatchSchema.parse({ commands: records.map((record) => record.command) });
@@ -189,8 +202,32 @@ export class RunnerCommandQueue {
 
   markTerminal(attemptId: string): void {
     this.remember(this.terminalAttempts, attemptId);
+    this.fencedAttempts.delete(attemptId);
     this.startStates.delete(attemptId);
     this.attemptDeliveryLeases.delete(attemptId);
+    this.dropAttemptRecords(attemptId);
+  }
+
+  /**
+   * Immediately removes raw command/token-bearing records from a lost local
+   * lease generation. Durable terminalization is intentionally left to the
+   * caller so the queue remains process-memory-only.
+   */
+  fenceLeaseGeneration(leaseGeneration: number): readonly string[] {
+    assertLeaseGeneration(leaseGeneration);
+    const businessAttemptIds: string[] = [];
+    for (const [attemptId, state] of [...this.startStates]) {
+      if (state.leaseGeneration !== leaseGeneration) continue;
+      if (state.mcpToolScope === 'business') businessAttemptIds.push(attemptId);
+      this.remember(this.fencedAttempts, attemptId);
+      this.startStates.delete(attemptId);
+      this.attemptDeliveryLeases.delete(attemptId);
+      this.dropAttemptRecords(attemptId);
+    }
+    return Object.freeze(businessAttemptIds);
+  }
+
+  private dropAttemptRecords(attemptId: string): void {
     for (const [commandId, record] of this.records) {
       if (record.command.attemptId !== attemptId) continue;
       // Preserve only the safe command coordinate/hash so an exact rejected
@@ -249,6 +286,16 @@ export class RunnerCommandQueue {
     return this.startStates.get(command.attemptId)?.mcpToolScope ?? null;
   }
 
+  private leaseGenerationFor(command: RunnerCommand): number | null {
+    return this.startStates.get(command.attemptId)?.leaseGeneration ?? null;
+  }
+
+  private requireAttemptGeneration(attemptId: string): number {
+    const generation = this.startStates.get(attemptId)?.leaseGeneration;
+    if (generation === undefined) throw new Error('attempt_generation_missing');
+    return generation;
+  }
+
   private add(command: RunnerCommand, idempotencyKey?: string): void {
     this.makeRoom();
     this.records.set(command.commandId, { command, ...(idempotencyKey ? { idempotencyKey } : {}) });
@@ -266,6 +313,7 @@ export class RunnerCommandQueue {
 
   private assertNotTerminal(attemptId: string): void {
     if (this.terminalAttempts.has(attemptId)) throw new Error('attempt_terminal');
+    if (this.fencedAttempts.has(attemptId)) throw new Error('attempt_generation_fenced');
   }
 
   private remember<T>(map: Map<string, T>, key: string, value: T): void;
@@ -289,8 +337,16 @@ export function canonicalStartInputForHash(launch: AttemptLaunchSpec): Canonical
   });
 }
 
-function canonicalStartCommandInput(input: { launch: AttemptLaunchSpec; deadlineAt: Date }): object {
-  return { launch: canonicalStartInputForHash(input.launch), deadlineAt: input.deadlineAt.toISOString() };
+function canonicalStartCommandInput(input: { launch: AttemptLaunchSpec; deadlineAt: Date; leaseGeneration: number }): object {
+  return {
+    launch: canonicalStartInputForHash(input.launch),
+    deadlineAt: input.deadlineAt.toISOString(),
+    leaseGeneration: input.leaseGeneration,
+  };
+}
+
+function assertLeaseGeneration(value: number): void {
+  if (!Number.isSafeInteger(value) || value < 1) throw new Error('runner_lease_generation_invalid');
 }
 
 function immutableLaunch(launch: AttemptLaunchSpec): AttemptLaunchSpec {

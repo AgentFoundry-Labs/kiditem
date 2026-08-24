@@ -358,6 +358,21 @@ describe('SafeProviderDiagnostic', () => {
     })).toBe('auth_materialization_failed');
   });
 
+  it.each([
+    ['login required', 'auth_materialization_failed'],
+    ['network connection timed out', 'network_service_unavailable'],
+  ] as const)('keeps explicit %s external even when modern discovery never reaches the canary call', (diagnosticText, expected) => {
+    const diagnostic = new SafeProviderDiagnostic();
+    diagnostic.observeStderr(diagnosticText);
+
+    expect(diagnostic.externalBlocker({
+      error: new Error('real_canary_timeout'),
+      terminal: undefined,
+      phase: 'mcp_probe',
+      observations: [{ method: 'tools/list', status: 200, protocolVersion: '2026-07-28' }],
+    })).toBe(expected);
+  });
+
   it('does not call a recognized CLI option error external', () => {
     const diagnostic = new SafeProviderDiagnostic();
     diagnostic.observeStdout(`${JSON.stringify({ type: 'error', error: { message: 'CommanderError: unknown option --not-real' } })}\n`);
@@ -593,9 +608,9 @@ class SafeProviderDiagnostic {
     observations: readonly McpObservation[];
     baselineFingerprint?: string | null;
   }>): 'unsupported_model' | 'auth_materialization_failed' | 'network_service_unavailable' | 'provider_baseline_correlated_failure' | null {
-    if (this.contractFailure(input)) return null;
     const explicit = this.explicitExternalBlocker();
     if (explicit) return explicit;
+    if (this.contractFailure(input)) return null;
     const fingerprint = this.opaqueFailureFingerprint(input.error, input.terminal);
     if (fingerprint && fingerprint === input.baselineFingerprint) return 'provider_baseline_correlated_failure';
     return null;
@@ -605,9 +620,9 @@ class SafeProviderDiagnostic {
     error: unknown;
     terminal: Extract<RunnerEventBatch['events'][number], { kind: 'attempt.terminal' }> | undefined;
   }>): 'unsupported_model' | 'auth_materialization_failed' | 'network_service_unavailable' | 'provider_reported_turn_failure' | 'provider_reported_stream_error' | 'model_service_timeout_without_mcp_requirement' | `provider_exit_${number | 'signal'}` | null {
-    if (this.contractFailure({ error: input.error, phase: 'provider_start', observations: [] })) return null;
     const explicit = this.explicitExternalBlocker();
     if (explicit) return explicit;
+    if (this.contractFailure({ error: input.error, phase: 'provider_start', observations: [] })) return null;
     if (this.appServerSignals.has('turn_completed_failed') || this.appServerSignals.has('turn_completed_cancelled') || this.appServerSignals.has('turn_completed_interrupted')) {
       return 'provider_reported_turn_failure';
     }

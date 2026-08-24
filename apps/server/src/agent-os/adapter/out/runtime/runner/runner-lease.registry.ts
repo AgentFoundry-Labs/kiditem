@@ -16,6 +16,7 @@ export const RUNNER_LEASE_TTL_MS = 30_000;
 type ActiveLease = {
   runnerInstanceId: string;
   leaseId: string;
+  generation: number;
   hello: RunnerHello;
   helloHash: string;
   status: 'probing' | 'ready';
@@ -51,6 +52,7 @@ export class RunnerLeaseRegistry {
   private readonly now: () => Date;
   private readonly unsubscribe: () => void;
   private eventTail: Promise<void> = Promise.resolve();
+  private nextLeaseGeneration = 0;
   private active: ActiveLease | null = null;
   private pending: PendingPoll | null = null;
 
@@ -77,6 +79,7 @@ export class RunnerLeaseRegistry {
     const lease: ActiveLease = {
       runnerInstanceId: hello.runnerInstanceId,
       leaseId: this.createLeaseId(),
+      generation: ++this.nextLeaseGeneration,
       hello,
       helloHash,
       status: 'probing',
@@ -138,6 +141,11 @@ export class RunnerLeaseRegistry {
     const lease = this.active;
     if (!lease || lease.status !== 'ready' || !this.isValid(lease)) throw new Error('runner_not_ready');
     return { runnerInstanceId: lease.runnerInstanceId, leaseId: lease.leaseId };
+  }
+
+  /** Local-only command generation; it is never included in the wire lease. */
+  generationForLease(input: { runnerInstanceId: string; leaseId: string }): number {
+    return this.require(input).generation;
   }
 
   async poll(input: { runnerInstanceId: string; leaseId: string }): Promise<RunnerCommandBatch> {
@@ -222,15 +230,19 @@ export class RunnerLeaseRegistry {
 
   private invalidate(lease: ActiveLease): void {
     clearTimeout(lease.expiresTimer);
+    // Fence queue records before a replacement can become ready. This removes
+    // raw start tokens synchronously while durable reconciliation remains
+    // asynchronous and idempotent.
+    const attemptIds = this.commands.fenceLeaseGeneration(lease.generation);
     if (this.active?.leaseId === lease.leaseId) this.active = null;
     if (this.pending?.leaseId === lease.leaseId) this.settlePending({ commands: [] });
     this.revokeLease(lease.leaseId);
-    const attemptIds = [...lease.attempts];
     if (this.reconcileLeaseLoss) {
-      void this.reconcileLeaseLoss({ leaseId: lease.leaseId, attemptIds }).catch(() => undefined);
+      void this.reconcileLeaseLoss({ leaseId: lease.leaseId, attemptIds })
+        .catch(() => this.interruptLostAttempts(attemptIds));
       return;
     }
-    for (const attemptId of attemptIds) void this.interruptAttempt(attemptId).catch(() => undefined);
+    this.interruptLostAttempts(attemptIds);
   }
 
   private resolvePendingFromQueue(): void {
@@ -248,10 +260,11 @@ export class RunnerLeaseRegistry {
   }
 
   private takeForLease(lease: ActiveLease): RunnerCommandBatch {
-    const batch = this.commands.takeForLease(
-      this.deliveryLeaseKey(lease),
-      lease.status === 'probing' ? 'readiness_canary' : undefined,
-    );
+    const batch = this.commands.takeForLease({
+      leaseKey: this.deliveryLeaseKey(lease),
+      leaseGeneration: lease.generation,
+      ...(lease.status === 'probing' ? { allowedMcpToolScope: 'readiness_canary' as const } : {}),
+    });
     for (const command of batch.commands) {
       if (command.kind === 'attempt.start') lease.attempts.add(command.attemptId);
     }
@@ -260,6 +273,10 @@ export class RunnerLeaseRegistry {
 
   private deliveryLeaseKey(lease: ActiveLease): string {
     return `${lease.runnerInstanceId}\u0000${lease.leaseId}`;
+  }
+
+  private interruptLostAttempts(attemptIds: readonly string[]): void {
+    for (const attemptId of attemptIds) void this.interruptAttempt(attemptId).catch(() => undefined);
   }
 
   private assertEventOwnership(lease: ActiveLease, batch: RunnerEventBatch): void {

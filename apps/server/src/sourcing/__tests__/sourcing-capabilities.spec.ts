@@ -59,6 +59,7 @@ describe('sourcing final capability definitions', () => {
     for (const key of ['sourcing.duplicateCheck', 'sourcing.scrapeProductUrl', 'sourcing.scrapeUrlWorkflow'] as const) {
       const definition = SOURCING_CAPABILITIES.find((item) => item.key === key)!;
       expect(definition.inputSchema.safeParse({ sourceUrl: 'https://detail.1688.com/offer/123.html#fragment' }).success).toBe(true);
+      expect(definition.inputSchema.safeParse({ sourceUrl: 'HTTPS://DETAIL.1688.COM/offer/123.html#fragment' }).success).toBe(true);
       expect(definition.inputSchema.safeParse({ sourceUrl: 'https://1688.com.evil.test/offer/123.html' }).success).toBe(false);
       expect(definition.inputSchema.safeParse({ sourceUrl: 'http://detail.1688.com/offer/123.html' }).success).toBe(false);
       expect(definition.inputSchema.safeParse({ sourceUrl: 'https://user:pass@detail.1688.com/offer/123.html' }).success).toBe(false);
@@ -81,6 +82,8 @@ describe('sourcing final capability definitions', () => {
     });
     const pattern = new RegExp(sourceUrl?.pattern as string);
     expect(pattern.test('https://detail.1688.com/offer/123.html')).toBe(true);
+    expect(pattern.test('HTTPS://DETAIL.1688.COM/offer/123.html')).toBe(true);
+    expect(pattern.test('hTtPs://WWW.AlIbAbA.CoM/product-detail/toy_123.html')).toBe(true);
     expect(pattern.test('https://www.alibaba.com/product-detail/toy_123.html')).toBe(true);
     for (const untrusted of [
       'https://detail.1688.com.evil.test/offer/123.html',

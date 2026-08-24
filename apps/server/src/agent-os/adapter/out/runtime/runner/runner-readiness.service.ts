@@ -13,7 +13,7 @@ import { RunnerLeaseRegistry } from './runner-lease.registry';
 const MAX_VERIFIED_CANARIES = 256;
 const READINESS_CANARY_TIMEOUT_MS = 5 * 60_000;
 
-type RunnerLeasePort = Pick<RunnerLeaseRegistry, 'markProbing' | 'markReady' | 'requireActive' | 'requireReady'>;
+type RunnerLeasePort = Pick<RunnerLeaseRegistry, 'markProbing' | 'markReady' | 'requireActive' | 'requireReady' | 'generationForLease'>;
 
 type VerifiedCanary = Readonly<{
   runnerInstanceId: string;
@@ -132,7 +132,11 @@ export class RunnerReadinessService {
         mcpProtocolRevision: ATTEMPT_RUNTIME_TRAIN.mcpProtocolRevision,
         cliContractIdentity: ATTEMPT_RUNTIME_TRAIN.cliContractIdentity,
       });
-      commands.enqueueStart({ launch, deadlineAt });
+      commands.enqueueStart({
+        launch,
+        deadlineAt,
+        leaseGeneration: this.leases.generationForLease(activeLease),
+      });
     } catch (error) {
       if (raw) tokens.revokeReadiness(canaryId);
       throw error;

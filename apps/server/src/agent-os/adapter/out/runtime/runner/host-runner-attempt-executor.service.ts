@@ -44,6 +44,7 @@ export class HostRunnerAttemptExecutorService implements LiveAttemptExecutionCap
     await this.options.admission.assert(input.mcp, input.runtime);
     const prompt = await this.options.prompts.resolve({ reference: input.instructionProfileRef, prompt: input.prompt });
     const lease = this.options.leases.requireReady();
+    const leaseGeneration = this.options.leases.generationForLease(lease);
     const existing = this.options.commands.startForAttempt(input.attemptId);
     if (!existing && this.options.commands.hasStartedAttempt(input.attemptId)) return;
     const deadlineAt = existing
@@ -63,7 +64,7 @@ export class HostRunnerAttemptExecutorService implements LiveAttemptExecutionCap
         mcpUrl: new URL(`/internal/agent-runtime/attempts/${input.attemptId}/mcp`, this.origin).toString(),
         attemptToken: raw,
       });
-      this.options.commands.enqueueStart({ launch, deadlineAt });
+      this.options.commands.enqueueStart({ launch, deadlineAt, leaseGeneration });
     } catch (error) {
       if (issued) this.options.tokens.revokeAttempt(input.attemptId);
       throw error;

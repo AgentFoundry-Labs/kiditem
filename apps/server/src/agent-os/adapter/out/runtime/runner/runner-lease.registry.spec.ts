@@ -7,6 +7,7 @@ import { RunnerLeaseRegistry } from './runner-lease.registry';
 const instanceId = '018f4eb1-9078-7a1e-9514-b19b5732f5de';
 const replacementInstanceId = '118f4eb1-9078-7a1e-9514-b19b5732f5de';
 const attemptId = '218f4eb1-9078-7a1e-9514-b19b5732f5de';
+const replacementAttemptId = '318f4eb1-9078-7a1e-9514-b19b5732f5de';
 
 describe('RunnerLeaseRegistry', () => {
   it('invokes one durable reconciliation for every Attempt assigned to a lost thirty-second lease', async () => {
@@ -52,7 +53,11 @@ describe('RunnerLeaseRegistry', () => {
         reconcileLeaseLoss: reconciliation,
       });
       const prior = registry.hello(hello());
-      const start = commands.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+      const start = commands.enqueueStart({
+        launch: launchSpec(),
+        deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+        leaseGeneration: registry.generationForLease({ runnerInstanceId: instanceId, leaseId: prior.leaseId }),
+      });
       const input = commands.enqueueInput({
         attemptId,
         input: 'live business follow-up',
@@ -65,14 +70,112 @@ describe('RunnerLeaseRegistry', () => {
 
       expect(replacement.status).toBe('probing');
       expect(reconciliation).toHaveBeenCalledTimes(1);
-      expect(reconciliation).toHaveBeenCalledWith({ leaseId: prior.leaseId, attemptIds: [] });
+      expect(reconciliation).toHaveBeenCalledWith({ leaseId: prior.leaseId, attemptIds: [attemptId] });
       expect(revokeLease).toHaveBeenCalledWith(prior.leaseId);
       await expect(replacementPoll).resolves.toEqual({ commands: [] });
-      expect(commands.take()).toEqual({ commands: [start, input] });
+      expect(commands.take()).toEqual({ commands: [] });
       registry.dispose();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('fences an old business generation before a replacement canary can mark the new lease ready', async () => {
+    let releaseReconciliation!: () => void;
+    const reconciliation = vi.fn(async () => new Promise<void>((resolve) => { releaseReconciliation = resolve; }));
+    const commands = new RunnerCommandQueue({ commandId: sequenceCommandIds() });
+    const leaseIds = [
+      '738f4eb1-9078-7a1e-9514-b19b5732f5de',
+      '738f4eb1-9078-7a1e-9514-b19b5732f5df',
+    ];
+    const registry = new RunnerLeaseRegistry({
+      commands,
+      interruptAttempt: async () => undefined,
+      leaseId: () => leaseIds.shift()!,
+    });
+    registry.setLossHandlers({
+      interruptAttempt: vi.fn(async () => undefined),
+      revokeLease: vi.fn(),
+      reconcileLeaseLoss: reconciliation,
+    });
+    const prior = registry.hello(hello());
+    const oldStart = commands.enqueueStart({
+      launch: launchSpec(),
+      deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+      leaseGeneration: registry.generationForLease({ runnerInstanceId: instanceId, leaseId: prior.leaseId }),
+    });
+    commands.enqueueInput({
+      attemptId,
+      input: 'must never cross the lost generation',
+      deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+    });
+
+    const replacement = registry.hello(hello({ runnerInstanceId: replacementInstanceId }));
+    const canary = commands.enqueueStart({
+      launch: { ...launchSpec('418f4eb1-9078-7a1e-9514-b19b5732f5de'), mcpToolScope: 'readiness_canary' },
+      deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+      leaseGeneration: registry.generationForLease({ runnerInstanceId: replacementInstanceId, leaseId: replacement.leaseId }),
+    });
+
+    await expect(registry.poll({ runnerInstanceId: replacementInstanceId, leaseId: replacement.leaseId }))
+      .resolves.toEqual({ commands: [canary] });
+    commands.acknowledge({ commandId: canary.commandId, attemptId: canary.attemptId, commandHash: canary.commandHash });
+    registry.markReady({ runnerInstanceId: replacementInstanceId, leaseId: replacement.leaseId });
+    const next = commands.enqueueStart({
+      launch: launchSpec(replacementAttemptId),
+      deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+      leaseGeneration: registry.generationForLease({ runnerInstanceId: replacementInstanceId, leaseId: replacement.leaseId }),
+    });
+
+    await expect(registry.poll({ runnerInstanceId: replacementInstanceId, leaseId: replacement.leaseId }))
+      .resolves.toEqual({ commands: [next] });
+    expect(commands.take().commands).not.toContainEqual(oldStart);
+    expect(reconciliation).toHaveBeenCalledWith({ leaseId: prior.leaseId, attemptIds: [attemptId] });
+
+    releaseReconciliation();
+    registry.dispose();
+  });
+
+  it('fails closed and falls back once when durable lease-loss reconciliation rejects', async () => {
+    const commands = new RunnerCommandQueue({ commandId: sequenceCommandIds() });
+    const interrupts = vi.fn(async () => undefined);
+    const reconciliation = vi.fn(async () => { throw new Error('durable_reconciliation_unavailable'); });
+    const leaseIds = [
+      '748f4eb1-9078-7a1e-9514-b19b5732f5de',
+      '748f4eb1-9078-7a1e-9514-b19b5732f5df',
+    ];
+    const registry = new RunnerLeaseRegistry({
+      commands,
+      interruptAttempt: interrupts,
+      leaseId: () => leaseIds.shift()!,
+    });
+    registry.setLossHandlers({ interruptAttempt: interrupts, revokeLease: vi.fn(), reconcileLeaseLoss: reconciliation });
+    const prior = registry.hello(hello());
+    const oldStart = commands.enqueueStart({
+      launch: launchSpec(),
+      deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+      leaseGeneration: registry.generationForLease({ runnerInstanceId: instanceId, leaseId: prior.leaseId }),
+    });
+
+    const replacement = registry.hello(hello({ runnerInstanceId: replacementInstanceId }));
+    registry.markReady({ runnerInstanceId: replacementInstanceId, leaseId: replacement.leaseId });
+    await settleAsync();
+    await settleAsync();
+
+    expect(reconciliation).toHaveBeenCalledTimes(1);
+    expect(reconciliation).toHaveBeenCalledWith({ leaseId: prior.leaseId, attemptIds: [attemptId] });
+    expect(interrupts).toHaveBeenCalledTimes(1);
+    expect(interrupts).toHaveBeenCalledWith(attemptId);
+    expect(commands.take().commands).not.toContainEqual(oldStart);
+
+    const next = commands.enqueueStart({
+      launch: launchSpec(replacementAttemptId),
+      deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+      leaseGeneration: registry.generationForLease({ runnerInstanceId: replacementInstanceId, leaseId: replacement.leaseId }),
+    });
+    await expect(registry.poll({ runnerInstanceId: replacementInstanceId, leaseId: replacement.leaseId }))
+      .resolves.toEqual({ commands: [next] });
+    registry.dispose();
   });
 
   it('delivers the scoped readiness start and its live input while a lease is still probing', async () => {
@@ -86,6 +189,7 @@ describe('RunnerLeaseRegistry', () => {
     const start = commands.enqueueStart({
       launch: { ...launchSpec(), mcpToolScope: 'readiness_canary' },
       deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+      leaseGeneration: registry.generationForLease({ runnerInstanceId: instanceId, leaseId: lease.leaseId }),
     });
 
     await expect(registry.poll({ runnerInstanceId: instanceId, leaseId: lease.leaseId }))
@@ -217,6 +321,14 @@ describe('RunnerLeaseRegistry', () => {
     const registry = registryFor({ commands });
     const lease = registry.hello(hello());
     registry.markReady({ runnerInstanceId: instanceId, leaseId: lease.leaseId });
+    const start = commands.enqueueStart({
+      launch: launchSpec(),
+      deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+      leaseGeneration: registry.generationForLease({ runnerInstanceId: instanceId, leaseId: lease.leaseId }),
+    });
+    await expect(registry.poll({ runnerInstanceId: instanceId, leaseId: lease.leaseId }))
+      .resolves.toEqual({ commands: [start] });
+    commands.acknowledge({ commandId: start.commandId, attemptId, commandHash: start.commandHash });
     const command = commands.enqueueInterrupt({ attemptId, deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
 
     await expect(registry.poll({ runnerInstanceId: instanceId, leaseId: lease.leaseId }))
@@ -232,7 +344,11 @@ describe('RunnerLeaseRegistry', () => {
     const registry = registryFor({ commands, interruptAttempt: interrupts });
     const lease = registry.hello(hello());
     registry.markReady({ runnerInstanceId: instanceId, leaseId: lease.leaseId });
-    commands.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    commands.enqueueStart({
+      launch: launchSpec(),
+      deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+      leaseGeneration: registry.generationForLease({ runnerInstanceId: instanceId, leaseId: lease.leaseId }),
+    });
 
     await registry.poll({ runnerInstanceId: instanceId, leaseId: lease.leaseId });
     registry.hello(hello({ runnerInstanceId: replacementInstanceId }));
@@ -246,7 +362,11 @@ describe('RunnerLeaseRegistry', () => {
     const registry = registryFor({ commands });
     const lease = registry.hello(hello());
     registry.markReady({ runnerInstanceId: instanceId, leaseId: lease.leaseId });
-    commands.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    commands.enqueueStart({
+      launch: launchSpec(),
+      deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+      leaseGeneration: registry.generationForLease({ runnerInstanceId: instanceId, leaseId: lease.leaseId }),
+    });
     await registry.poll({ runnerInstanceId: instanceId, leaseId: lease.leaseId });
 
     await expect(registry.acceptEventBatch({
@@ -308,9 +428,15 @@ describe('RunnerLeaseRegistry', () => {
       events: [{ kind: 'attempt.terminal', attemptId, terminalReason: 'runtime_error' }],
     };
 
-    await expect(registry.acceptEventBatch(terminal, async () => undefined))
+    await expect(registry.acceptEventBatch(terminal, async () => {
+      // The production event handler terminalizes both durable state and the
+      // local command state before the registry releases lease ownership.
+      commands.markTerminal(attemptId);
+    }))
       .resolves.toEqual({ eventSeq: 1, accepted: true });
-    await expect(registry.acceptEventBatch(terminal, async () => undefined))
+    await expect(registry.acceptEventBatch(terminal, async () => {
+      commands.markTerminal(attemptId);
+    }))
       .resolves.toEqual({ eventSeq: 1, accepted: true });
     registry.hello(hello({ runnerInstanceId: replacementInstanceId }));
 
@@ -356,15 +482,15 @@ function eventBatch(leaseId: string, eventSeq: number): RunnerEventBatch {
   };
 }
 
-function launchSpec(): AttemptLaunchSpec {
+function launchSpec(id = attemptId): AttemptLaunchSpec {
   return {
-    attemptId,
+    attemptId: id,
     runtime: 'codex_cli',
     model: 'gpt-5',
     prompt: 'durable work',
     workspacePolicy: 'empty_ephemeral_v1',
     timeoutMs: 60_000,
-    mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${attemptId}/mcp`,
+    mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${id}/mcp`,
     attemptToken: randomBytes(32).toString('base64url'),
     mcpToolScope: 'business',
     mcpProtocolRevision: '2026-07-28',
@@ -374,7 +500,20 @@ function launchSpec(): AttemptLaunchSpec {
 
 async function deliverAttempt(registry: RunnerLeaseRegistry, commands: RunnerCommandQueue, leaseId: string) {
   registry.markReady({ runnerInstanceId: instanceId, leaseId });
-  commands.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+  commands.enqueueStart({
+    launch: launchSpec(),
+    deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+    leaseGeneration: registry.generationForLease({ runnerInstanceId: instanceId, leaseId }),
+  });
   const batch = await registry.poll({ runnerInstanceId: instanceId, leaseId });
   return batch.commands[0] as import('@kiditem/shared/agent-runtime').RunnerStartCommand;
+}
+
+function sequenceCommandIds(): () => string {
+  let sequence = 0;
+  return () => `758f4eb1-9078-7a1e-9514-${String(sequence++).padStart(12, '0')}`;
+}
+
+async function settleAsync(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
 }

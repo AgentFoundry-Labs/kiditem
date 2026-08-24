@@ -42,4 +42,9 @@ describe('supplier source URL policy', () => {
     );
     expect(tracking.normalizedUrl).toBe(direct.normalizedUrl);
   });
+
+  it('accepts and canonicalizes an uppercase HTTPS scheme and host', () => {
+    expect(parseAllowedSupplierUrl('HTTPS://DETAIL.1688.COM/offer/607635921546.html').normalizedUrl)
+      .toBe('https://detail.1688.com/offer/607635921546.html');
+  });
 });

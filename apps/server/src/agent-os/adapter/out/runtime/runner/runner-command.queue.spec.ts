@@ -13,8 +13,8 @@ describe('RunnerCommandQueue', () => {
     const queue = new RunnerCommandQueue({ commandId: fixedCommandIds() });
     const launch = launchSpec();
 
-    const first = queue.enqueueStart({ launch, deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
-    const retry = queue.enqueueStart({ launch: { ...launch }, deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    const first = queue.enqueueStart({ launch, deadlineAt: new Date('2026-08-24T00:10:00.000Z'), leaseGeneration: 1 });
+    const retry = queue.enqueueStart({ launch: { ...launch }, deadlineAt: new Date('2026-08-24T00:10:00.000Z'), leaseGeneration: 1 });
 
     expect(retry).toEqual(first);
     expect(queue.take()).toEqual({ commands: [first] });
@@ -37,31 +37,34 @@ describe('RunnerCommandQueue', () => {
   it('rejects start drift and never relaunches a terminal Attempt', () => {
     const queue = new RunnerCommandQueue({ commandId: fixedCommandIds() });
     const launch = launchSpec();
-    queue.enqueueStart({ launch, deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    queue.enqueueStart({ launch, deadlineAt: new Date('2026-08-24T00:10:00.000Z'), leaseGeneration: 1 });
 
     expect(() => queue.enqueueStart({
       launch: { ...launch, prompt: 'changed durable work' },
       deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+      leaseGeneration: 1,
     })).toThrow('runner_start_command_conflict');
 
     queue.markTerminal(attemptId);
-    expect(() => queue.enqueueStart({ launch, deadlineAt: new Date('2026-08-24T00:10:00.000Z') }))
+    expect(() => queue.enqueueStart({ launch, deadlineAt: new Date('2026-08-24T00:10:00.000Z'), leaseGeneration: 1 }))
       .toThrow('attempt_terminal');
   });
 
   it('binds the MCP tool scope into the start hash so a business Attempt cannot become a canary', () => {
     const queue = new RunnerCommandQueue({ commandId: fixedCommandIds() });
     const launch = launchSpec();
-    queue.enqueueStart({ launch, deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    queue.enqueueStart({ launch, deadlineAt: new Date('2026-08-24T00:10:00.000Z'), leaseGeneration: 1 });
 
     expect(() => queue.enqueueStart({
       launch: { ...launch, mcpToolScope: 'readiness_canary' },
       deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+      leaseGeneration: 1,
     })).toThrow('runner_start_command_conflict');
   });
 
   it('keeps input and interrupt commands idempotent without coalescing different inputs', () => {
     const queue = new RunnerCommandQueue({ commandId: fixedCommandIds() });
+    queue.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z'), leaseGeneration: 1 });
     const firstInput = queue.enqueueInput({ attemptId, input: 'continue', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
     const retry = queue.enqueueInput({ attemptId, input: 'continue', deadlineAt: new Date('2026-08-24T00:11:00.000Z') });
     const nextInput = queue.enqueueInput({ attemptId, input: 'change focus', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
@@ -75,10 +78,10 @@ describe('RunnerCommandQueue', () => {
 
   it('keeps at most eight commands in one delivery batch and evicts terminal records under pressure', () => {
     const queue = new RunnerCommandQueue({ commandId: fixedCommandIds(), maxEntries: 2 });
-    const first = queue.enqueueInterrupt({ attemptId, deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    const first = queue.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z'), leaseGeneration: 1 });
     queue.markTerminal(attemptId);
-    queue.enqueueInterrupt({ attemptId: '118f4eb1-9078-7a1e-9514-b19b5732f5de', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
-    queue.enqueueInterrupt({ attemptId: '218f4eb1-9078-7a1e-9514-b19b5732f5de', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    queue.enqueueStart({ launch: launchSpec('118f4eb1-9078-7a1e-9514-b19b5732f5de'), deadlineAt: new Date('2026-08-24T00:10:00.000Z'), leaseGeneration: 1 });
+    queue.enqueueStart({ launch: launchSpec('218f4eb1-9078-7a1e-9514-b19b5732f5de'), deadlineAt: new Date('2026-08-24T00:10:00.000Z'), leaseGeneration: 1 });
 
     expect(queue.has(first.commandId)).toBe(false);
     expect(queue.take().commands).toHaveLength(2);
@@ -86,12 +89,12 @@ describe('RunnerCommandQueue', () => {
 
   it('applies backpressure before an all-active queue exceeds its hard bound', () => {
     const queue = new RunnerCommandQueue({ commandId: fixedCommandIds(), maxEntries: 2 });
+    queue.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z'), leaseGeneration: 1 });
     queue.enqueueInput({ attemptId, input: 'first', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
-    queue.enqueueInput({ attemptId, input: 'second', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
 
     expect(() => queue.enqueueInput({
       attemptId,
-      input: 'third',
+      input: 'second',
       deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
     })).toThrow('runner_command_backpressure');
     expect((queue as unknown as { records: Map<string, unknown> }).records.size).toBe(2);
@@ -100,6 +103,8 @@ describe('RunnerCommandQueue', () => {
 
   it('frees an acknowledged command slot while retaining a bounded same-input acknowledgement tombstone', () => {
     const queue = new RunnerCommandQueue({ commandId: fixedCommandIds(), maxEntries: 1 });
+    const start = queue.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z'), leaseGeneration: 1 });
+    queue.acknowledge({ commandId: start.commandId, attemptId, commandHash: start.commandHash });
     const first = queue.enqueueInput({ attemptId, input: 'first', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
     queue.acknowledge({ commandId: first.commandId, attemptId, commandHash: first.commandHash });
 
@@ -122,12 +127,13 @@ describe('RunnerCommandQueue', () => {
 
   it('backpressures instead of evicting an acknowledged live start state', () => {
     const queue = new RunnerCommandQueue({ commandId: fixedCommandIds(), maxEntries: 1 });
-    const first = queue.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    const first = queue.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z'), leaseGeneration: 1 });
     queue.acknowledge({ commandId: first.commandId, attemptId, commandHash: first.commandHash });
 
     expect(() => queue.enqueueStart({
       launch: launchSpec('218f4eb1-9078-7a1e-9514-b19b5732f5de'),
       deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+      leaseGeneration: 1,
     })).toThrow('runner_command_backpressure');
     expect(queue.hasStartedAttempt(attemptId)).toBe(true);
   });
@@ -135,13 +141,42 @@ describe('RunnerCommandQueue', () => {
   it('drops a raw start token when its command is acknowledged while retaining only launch identity metadata', () => {
     const queue = new RunnerCommandQueue({ commandId: fixedCommandIds(), maxEntries: 2 });
     const launch = launchSpec();
-    const command = queue.enqueueStart({ launch, deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    const command = queue.enqueueStart({ launch, deadlineAt: new Date('2026-08-24T00:10:00.000Z'), leaseGeneration: 1 });
 
     queue.acknowledge({ commandId: command.commandId, attemptId, commandHash: command.commandHash });
 
     expect(JSON.stringify(queue)).not.toContain(launch.attemptToken);
     expect(queue.hasStartedAttempt(attemptId)).toBe(true);
     expect(queue.startForAttempt(attemptId)).toBeNull();
+  });
+
+  it('atomically fences a lost lease generation so its start, input, and interrupt cannot reach a replacement', () => {
+    const queue = new RunnerCommandQueue({ commandId: fixedCommandIds() });
+    const start = queue.enqueueStart({
+      launch: launchSpec(),
+      deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+      leaseGeneration: 1,
+    });
+    const input = queue.enqueueInput({ attemptId, input: 'old live input', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    const interrupt = queue.enqueueInterrupt({ attemptId, deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+
+    expect(queue.fenceLeaseGeneration(1)).toEqual([attemptId]);
+    expect(queue.takeForLease({ leaseKey: 'replacement', leaseGeneration: 2 })).toEqual({ commands: [] });
+    expect(queue.take()).toEqual({ commands: [] });
+    expect(queue.has(start.commandId)).toBe(false);
+    expect(queue.has(input.commandId)).toBe(false);
+    expect(queue.has(interrupt.commandId)).toBe(false);
+    expect(() => queue.enqueueInput({ attemptId, input: 'stale input', deadlineAt: new Date('2026-08-24T00:10:00.000Z') }))
+      .toThrow('attempt_generation_fenced');
+    expect(() => queue.enqueueInterrupt({ attemptId, deadlineAt: new Date('2026-08-24T00:10:00.000Z') }))
+      .toThrow('attempt_generation_fenced');
+
+    const legitimate = queue.enqueueStart({
+      launch: launchSpec('318f4eb1-9078-7a1e-9514-b19b5732f5de'),
+      deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+      leaseGeneration: 2,
+    });
+    expect(queue.takeForLease({ leaseKey: 'replacement', leaseGeneration: 2 })).toEqual({ commands: [legitimate] });
   });
 });
 

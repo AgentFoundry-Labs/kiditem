@@ -1,4 +1,6 @@
+import { randomBytes } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
+import type { AttemptLaunchSpec } from '@kiditem/shared/agent-runtime';
 import { AttemptTokenRegistry } from './attempt-token.registry';
 import { HostRunnerAttemptExecutorService } from './host-runner-attempt-executor.service';
 import { RunnerCommandQueue } from './runner-command.queue';
@@ -80,7 +82,7 @@ describe('HostRunnerAttemptExecutorService', () => {
     leases.dispose();
   });
 
-  it('does not assign an Attempt to a lease until its start command is actually delivered', async () => {
+  it('recovers an undelivered Attempt when its bound ready lease is replaced', async () => {
     const commands = new RunnerCommandQueue({ commandId: () => '518f4eb1-9078-7a1e-9514-b19b5732f5de' });
     const interrupts = vi.fn(async () => undefined);
     const leases = new RunnerLeaseRegistry({
@@ -102,14 +104,21 @@ describe('HostRunnerAttemptExecutorService', () => {
     await executor.start({ attemptId, runtime: 'codex_cli', profile: { model: 'gpt-5' }, prompt: 'work', mcp: binding() });
     leases.hello(runnerHello({ runnerInstanceId: '718f4eb1-9078-7a1e-9514-b19b5732f5de' }));
 
-    expect(interrupts).not.toHaveBeenCalled();
+    expect(interrupts).toHaveBeenCalledTimes(1);
+    expect(interrupts).toHaveBeenCalledWith(attemptId);
+    expect(commands.take()).toEqual({ commands: [] });
     leases.dispose();
   });
 
   it('revokes a newly issued Attempt token when queue backpressure prevents command installation', async () => {
     const commands = new RunnerCommandQueue({ commandId: () => '818f4eb1-9078-7a1e-9514-b19b5732f5de', maxEntries: 1 });
-    commands.enqueueInput({ attemptId, input: 'occupy queue', deadlineAt: new Date(Date.now() + 60_000) });
     const leases = readyLease(commands);
+    const ready = leases.requireReady();
+    commands.enqueueStart({
+      launch: launchSpec('918f4eb1-9078-7a1e-9514-b19b5732f5de'),
+      deadlineAt: new Date(Date.now() + 60_000),
+      leaseGeneration: leases.generationForLease(ready),
+    });
     const tokens = new AttemptTokenRegistry();
     const issued = vi.spyOn(tokens, 'issueBusiness');
     const executor = new HostRunnerAttemptExecutorService({
@@ -171,5 +180,21 @@ function runnerHello(overrides: Record<string, unknown> = {}) {
       claude_cli: { version: '2.1.241' as const, loginVerified: true as const, nonPersistentSettingsVerified: true as const },
     },
     ...overrides,
+  };
+}
+
+function launchSpec(id: string): AttemptLaunchSpec {
+  return {
+    attemptId: id,
+    runtime: 'codex_cli',
+    model: 'gpt-5',
+    prompt: 'occupied command slot',
+    workspacePolicy: 'empty_ephemeral_v1',
+    timeoutMs: 60_000,
+    mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${id}/mcp`,
+    attemptToken: randomBytes(32).toString('base64url'),
+    mcpToolScope: 'business',
+    mcpProtocolRevision: '2026-07-28',
+    cliContractIdentity: 'office-cli-contract-v2',
   };
 }
