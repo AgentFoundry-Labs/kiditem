@@ -308,11 +308,11 @@ export class RunnerReadinessService {
   private failCanary(state: ActiveCanary): void {
     this.tokens.revokeReadiness(state.canaryId);
     this.removeCanary(state);
-    for (const [key, verified] of this.verified) {
-      if (verified.runnerInstanceId === state.runnerInstanceId && verified.leaseId === state.leaseId) {
-        this.verified.delete(key);
-      }
-    }
+    this.verified.delete(readinessKey(state.runtime, state.model, state.deployIdentity));
+    const leaseStillHasVerifiedRuntime = [...this.verified.values()].some((verified) =>
+      verified.runnerInstanceId === state.runnerInstanceId && verified.leaseId === state.leaseId,
+    );
+    if (leaseStillHasVerifiedRuntime) return;
     try {
       const active = this.leases.requireActive();
       if (active.runnerInstanceId === state.runnerInstanceId && active.leaseId === state.leaseId) {

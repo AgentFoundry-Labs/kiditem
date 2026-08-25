@@ -128,7 +128,7 @@ describe('RunnerReadinessService', () => {
     leases.dispose();
   });
 
-  it('removes a previously ready lease and every verified runtime when a later readiness canary fails', async () => {
+  it('keeps an unrelated verified runtime ready when another runtime canary fails', async () => {
     const failedCanaryId = '418f4eb1-9078-7a1e-9514-b19b5732f5de';
     const commands = new RunnerCommandQueue({ commandId: sequenceIds() });
     const tokens = new AttemptTokenRegistry({ now: () => new Date('2026-08-24T00:00:00.000Z') });
@@ -169,8 +169,9 @@ describe('RunnerReadinessService', () => {
       terminalReason: 'runtime_error',
     });
 
-    expect(() => leases.requireReady()).toThrow('runner_not_ready');
-    await expect(readiness.assertRuntime('codex_cli', 'gpt-5', '3.4.5:abc123')).rejects.toThrow('runner_not_ready');
+    expect(leases.requireReady()).toEqual({ runnerInstanceId, leaseId: lease.leaseId });
+    await expect(readiness.assertRuntime('codex_cli', 'gpt-5', '3.4.5:abc123')).resolves.toBeUndefined();
+    await expect(readiness.assertRuntime('claude_cli', 'claude-4', '3.4.5:abc123')).rejects.toThrow('runner_not_ready');
     expect(() => tokens.requireReadiness({ raw: failedStart.launch.attemptToken, canaryId: failedCanaryId, leaseId: lease.leaseId }))
       .toThrow('attempt_token_invalid');
     expect(() => tokens.requireReadiness({ raw: firstToken, canaryId, leaseId: lease.leaseId }))
