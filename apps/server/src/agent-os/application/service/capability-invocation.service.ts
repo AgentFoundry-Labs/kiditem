@@ -38,6 +38,20 @@ export class OwnerKnownFailureError extends Error {
 }
 
 /**
+ * The invocation was admitted, but an owner call may have committed before a
+ * timeout or invalid response. The caller must retry with the original key.
+ */
+export class OwnerResultAmbiguousError extends AgentOsError {
+  constructor(readonly invocationId: string) {
+    super(
+      'OWNER_RESULT_AMBIGUOUS',
+      'Owner result is ambiguous; retry with the original requestKey.',
+    );
+    this.name = 'OwnerResultAmbiguousError';
+  }
+}
+
+/**
  * Request-driven capability admission. Invocations are replay receipts, never
  * a queue: every execution is caused by this explicit method call.
  */
@@ -258,10 +272,7 @@ export class CapabilityInvocationService implements CapabilityInvocationPort {
       if (error instanceof AgentOsError) throw error;
       // A timeout, provider disconnect, output parse failure, or any unknown
       // exception may follow an owner commit. Keep the Invocation pending.
-      throw new AgentOsError(
-        'OWNER_RESULT_AMBIGUOUS',
-        'Owner result is ambiguous; retry with the original requestKey.',
-      );
+      throw new OwnerResultAmbiguousError(input.invocation.id);
     }
   }
 }
@@ -285,7 +296,7 @@ function completedFromRecord(
 ): CapabilityInvocationResult {
   const parsed = CapabilityResultEnvelopeSchema.safeParse(invocation.result);
   if (!parsed.success) {
-    throw new AgentOsError('OWNER_RESULT_AMBIGUOUS', 'Succeeded invocation has no valid owner result.');
+    throw new OwnerResultAmbiguousError(invocation.id);
   }
   return {
     kind: 'completed',
@@ -300,10 +311,7 @@ function terminalOrCompleted(
 ): CapabilityInvocationResult {
   if (invocation.status === 'succeeded') return completedFromRecord(invocation);
   if (invocation.status === 'failed') throw terminalInvocationError(invocation);
-  throw new AgentOsError(
-    'OWNER_RESULT_AMBIGUOUS',
-    'Invocation finalization did not produce a terminal result.',
-  );
+  throw new OwnerResultAmbiguousError(invocation.id);
 }
 
 function terminalInvocationError(invocation: CapabilityInvocationRecord): AgentOsError {

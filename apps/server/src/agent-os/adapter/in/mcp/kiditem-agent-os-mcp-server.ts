@@ -1,0 +1,347 @@
+import { Inject, Injectable } from '@nestjs/common';
+import {
+  createMcpHandler,
+  inputRequired,
+  McpServer,
+  type McpHttpHandler,
+} from '@modelcontextprotocol/server';
+import type { CapabilityResultEnvelope } from '@kiditem/shared/agent-interaction';
+import type { OperationRun } from '@kiditem/shared/operations';
+import { MUTATION_EFFECTS } from '../../../../common/capability-definition';
+import {
+  CAPABILITY_INVOCATION_PORT,
+  type CapabilityInvocationPort,
+} from '../../../application/port/in/capability-invocation.port';
+import { CapabilityInvocationRecordSchema } from '../../../application/port/out/capability-invocation.repository.port';
+import { AgentCapabilityRegistry } from '../../../application/service/agent-capability-registry.service';
+import { AgentOsError } from '../../../domain/agent-os.errors';
+import type { OperationRunnerPort } from '../../../../operations/application/port/in/operation-runner.port';
+import { OPERATION_RUNNER_PORT } from '../../../../operations/application/port/in/operation-runner.port';
+import type { ResolvedExecutionBinding } from '../../out/runtime/gateway/execution-binding.registry';
+import {
+  CAPABILITY_MCP_TOOL_NAMES,
+  CapabilityMcpWireInputSchemas,
+  CapabilityMcpWireOutputSchemas,
+  capabilityDefinitionToCatalogEntry,
+  MCP_PROTOCOL_VERSION,
+  type CapabilityCatalogEntry,
+} from './capability-mcp-wire-contract';
+import { McpRuntimeReadinessService } from './readiness-canary-mcp-server';
+
+export interface CapabilityMcpDependencies {
+  invocations: CapabilityInvocationPort;
+  capabilities: Pick<AgentCapabilityRegistry, 'listDefinitions' | 'resolveDefinition'>;
+  operations: Pick<OperationRunnerPort, 'get'>;
+  readiness: Pick<McpRuntimeReadinessService, 'probe'>;
+  webOrigin: string;
+}
+
+/**
+ * Creates one server for one HTTP request. The execution binding is already
+ * verified by the Nest ingress and is intentionally not retained between
+ * requests by any MCP transport state.
+ */
+export function createKidItemAgentOsMcpServer(
+  dependencies: CapabilityMcpDependencies,
+  binding: ResolvedExecutionBinding,
+): McpServer {
+  const server = new McpServer(
+    { name: 'kiditem-capability-mcp', version: '2.0.0' },
+    { supportedProtocolVersions: [MCP_PROTOCOL_VERSION] },
+  );
+
+  server.registerTool('capability_catalog_search', {
+    description: 'Search all currently discoverable KidItem capability contracts.',
+    inputSchema: CapabilityMcpWireInputSchemas.capability_catalog_search,
+    outputSchema: CapabilityMcpWireOutputSchemas.capability_catalog_search,
+  }, async ({ query }) => structuredResult({
+    capabilities: searchCatalog(dependencies.capabilities.listDefinitions(), query),
+  }));
+
+  server.registerTool('capability_invoke', {
+    description: 'Invoke one capability using its strict owner-domain input schema.',
+    inputSchema: CapabilityMcpWireInputSchemas.capability_invoke,
+    outputSchema: CapabilityMcpWireOutputSchemas.capability_invoke,
+  }, async (input) => invokeCapability(dependencies, binding, input));
+
+  server.registerTool('invocation_status', {
+    description: 'Read the durable receipt for one exact mutation admission.',
+    inputSchema: CapabilityMcpWireInputSchemas.invocation_status,
+    outputSchema: CapabilityMcpWireOutputSchemas.invocation_status,
+  }, async ({ invocationId }) => {
+    try {
+      const invocation = await getInvocation(dependencies.invocations, binding.organizationId, invocationId);
+      return structuredResult({ invocation: invocationStatus(invocation) });
+    } catch (error) {
+      return structuredError(error, 'INVOCATION_NOT_FOUND');
+    }
+  });
+
+  server.registerTool('operation_status', {
+    description: 'Read the current durable OperationRun without waiting or polling.',
+    inputSchema: CapabilityMcpWireInputSchemas.operation_status,
+    outputSchema: CapabilityMcpWireOutputSchemas.operation_status,
+  }, async ({ operationId }) => {
+    try {
+      const operation = await dependencies.operations.get(binding.organizationId, operationId);
+      return structuredResult({ operation: operationStatus(operation) });
+    } catch (error) {
+      return structuredError(error, 'OPERATION_NOT_FOUND');
+    }
+  });
+
+  server.registerTool('readiness_probe', {
+    description: 'Verify the exact stateless MCP v2 capability runtime contract.',
+    inputSchema: CapabilityMcpWireInputSchemas.readiness_probe,
+    outputSchema: CapabilityMcpWireOutputSchemas.readiness_probe,
+  }, async () => {
+    try {
+      return structuredResult(dependencies.readiness.probe());
+    } catch (error) {
+      return structuredError(error, 'MCP_RUNTIME_NOT_READY');
+    }
+  });
+
+  return server;
+}
+
+/** Nest-facing factory with application ports only; no owner service or Prisma import belongs here. */
+@Injectable()
+export class KidItemAgentOsMcpServer {
+  constructor(
+    @Inject(CAPABILITY_INVOCATION_PORT)
+    private readonly invocations: CapabilityInvocationPort,
+    private readonly capabilities: AgentCapabilityRegistry,
+    @Inject(OPERATION_RUNNER_PORT)
+    private readonly operations: OperationRunnerPort,
+    private readonly readiness: McpRuntimeReadinessService,
+  ) {}
+
+  createHandler(binding: ResolvedExecutionBinding, webOrigin: string): McpHttpHandler {
+    const dependencies: CapabilityMcpDependencies = {
+      invocations: this.invocations,
+      capabilities: this.capabilities,
+      operations: this.operations,
+      readiness: this.readiness,
+      webOrigin,
+    };
+    return createRequestScopedCapabilityMcpHandler(dependencies, binding);
+  }
+}
+
+/**
+ * Modern requests get a newly constructed server and no retained transport
+ * state. A 2025 request is rejected rather than silently receiving a fallback.
+ */
+export function createRequestScopedCapabilityMcpHandler(
+  dependencies: CapabilityMcpDependencies,
+  binding: ResolvedExecutionBinding,
+): McpHttpHandler {
+  return createMcpHandler((context) => {
+    if (context.era !== 'modern') {
+      throw new Error('capability_mcp_legacy_rejected');
+    }
+    return createKidItemAgentOsMcpServer(dependencies, binding);
+  }, { legacy: 'reject', responseMode: 'json' });
+}
+
+async function invokeCapability(
+  dependencies: CapabilityMcpDependencies,
+  binding: ResolvedExecutionBinding,
+  input: {
+    requestKey?: string;
+    actingAgentKey?: string;
+    capabilityKey: string;
+    input: unknown;
+  },
+) {
+  try {
+    const outcome = await dependencies.invocations.invoke({
+      organizationId: binding.organizationId,
+      initiatingUserId: binding.initiatingUserId,
+      executionId: binding.executionId,
+      capabilityKey: input.capabilityKey,
+      ...(input.requestKey === undefined ? {} : { requestKey: input.requestKey }),
+      ...(input.actingAgentKey === undefined ? {} : { actingAgentKey: input.actingAgentKey }),
+      input: input.input,
+    });
+    if (outcome.kind === 'input_required') {
+      return inputRequired({
+        inputRequests: {
+          approval: inputRequired.elicitUrl({
+            message: 'Open KidItem to review the exact capability input.',
+            url: approvalUrl(dependencies.webOrigin, outcome.invocationId),
+          }),
+        },
+      });
+    }
+
+    const invocation = outcome.invocationId
+      ? invocationReceipt(await getInvocation(
+        dependencies.invocations,
+        binding.organizationId,
+        outcome.invocationId,
+      ))
+      : null;
+    return structuredResult({
+      kind: 'completed' as const,
+      invocation,
+      result: outcome.result,
+    });
+  } catch (error) {
+    if (isOwnerResultAmbiguous(error)) {
+      try {
+        const invocation = await getInvocation(
+          dependencies.invocations,
+          binding.organizationId,
+          error.invocationId,
+        );
+        return structuredResult({
+          kind: 'pending' as const,
+          invocation: invocationReceipt(invocation),
+        });
+      } catch {
+        return structuredError(error, 'OWNER_RESULT_AMBIGUOUS');
+      }
+    }
+    return structuredError(error, 'CAPABILITY_RUNTIME_ERROR');
+  }
+}
+
+function searchCatalog(
+  definitions: ReturnType<AgentCapabilityRegistry['listDefinitions']>,
+  query: string | undefined,
+): CapabilityCatalogEntry[] {
+  const normalized = query?.trim().toLowerCase();
+  return definitions
+    .filter((definition) => !normalized || [
+      definition.key,
+      definition.ownerDomain,
+      definition.description,
+    ].some((value) => value.toLowerCase().includes(normalized)))
+    .map(capabilityDefinitionToCatalogEntry);
+}
+
+async function getInvocation(
+  invocations: Pick<CapabilityInvocationPort, 'get'>,
+  organizationId: string,
+  invocationId: string,
+) {
+  const parsed = CapabilityInvocationRecordSchema.safeParse(await invocations.get({
+    organizationId,
+    invocationId,
+  }));
+  if (!parsed.success) {
+    throw new AgentOsError('INVOCATION_STATUS_INVALID', 'Capability invocation status is invalid.');
+  }
+  return parsed.data;
+}
+
+function invocationReceipt(invocation: {
+  id: string;
+  status: 'pending' | 'succeeded' | 'failed';
+  approvalStatus: 'not_required' | 'pending' | 'approved' | 'rejected' | 'expired';
+}) {
+  return {
+    id: invocation.id,
+    status: invocation.status,
+    approvalStatus: invocation.approvalStatus,
+    retryWithSameRequestKey: invocation.status === 'pending',
+  };
+}
+
+function invocationStatus(invocation: {
+  id: string;
+  status: 'pending' | 'succeeded' | 'failed';
+  approvalStatus: 'not_required' | 'pending' | 'approved' | 'rejected' | 'expired';
+  result: CapabilityResultEnvelope | null;
+  error: { code: string; message: string } | null;
+  approvalExpiresAt: Date | null;
+}) {
+  return {
+    ...invocationReceipt(invocation),
+    result: invocation.result,
+    error: invocation.error,
+    approvalExpiresAt: invocation.approvalExpiresAt?.toISOString() ?? null,
+  };
+}
+
+function operationStatus(operation: OperationRun) {
+  return {
+    id: operation.id,
+    operationKey: operation.operationKey,
+    status: operation.status,
+    stage: operation.stage,
+    progress: operation.progress,
+    error: operation.error
+      ? {
+        code: boundedCode(operation.error.code, 'OPERATION_ERROR'),
+        message: boundedMessage(operation.error.message, 'Operation failed.'),
+      }
+      : null,
+  };
+}
+
+function structuredResult<T>(structuredContent: T) {
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify(structuredContent) }],
+    structuredContent,
+  };
+}
+
+function structuredError(error: unknown, fallbackCode: string) {
+  const structuredContent = {
+    kind: 'error' as const,
+    error: stableError(error, fallbackCode),
+  };
+  return {
+    ...structuredResult(structuredContent),
+    isError: true,
+  };
+}
+
+function stableError(error: unknown, fallbackCode: string): { code: string; message: string } {
+  if (error instanceof AgentOsError) {
+    return {
+      code: boundedCode(error.code, 'CAPABILITY_RUNTIME_ERROR'),
+      message: boundedMessage(error.message, error.code),
+    };
+  }
+  return {
+    code: fallbackCode,
+    message: fallbackCode === 'OPERATION_NOT_FOUND'
+      ? 'Operation was not found.'
+      : fallbackCode === 'INVOCATION_NOT_FOUND'
+        ? 'Capability invocation was not found.'
+        : 'Capability runtime request could not be completed.',
+  };
+}
+
+function isOwnerResultAmbiguous(
+  error: unknown,
+): error is AgentOsError & { invocationId: string } {
+  return error instanceof AgentOsError
+    && error.code === 'OWNER_RESULT_AMBIGUOUS'
+    && typeof (error as { invocationId?: unknown }).invocationId === 'string';
+}
+
+function boundedMessage(message: string, fallback: string): string {
+  const normalized = message.trim();
+  return normalized ? normalized.slice(0, 1_000) : fallback;
+}
+
+function boundedCode(code: string, fallback: string): string {
+  const normalized = code.trim();
+  return normalized ? normalized.slice(0, 128) : fallback;
+}
+
+function approvalUrl(webOrigin: string, invocationId: string): string {
+  return `${webOrigin.replace(/\/$/, '')}/agent-os?invocationId=${encodeURIComponent(invocationId)}`;
+}
+
+export function capabilityIsMutation(effects: readonly string[]): boolean {
+  return effects.some((effect) => MUTATION_EFFECTS.has(effect as never));
+}
+
+/** Kept exportable for canary tests to lock the exact public tool list. */
+export const KIDITEM_CAPABILITY_MCP_TOOL_NAMES = CAPABILITY_MCP_TOOL_NAMES;

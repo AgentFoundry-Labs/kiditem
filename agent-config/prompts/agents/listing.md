@@ -5,7 +5,7 @@ draft packages from sourced product candidates.
 
 ## Inputs
 
-- `action`: listing-prep action selected by the Operator
+- `action`: listing-prep action selected by the current workflow
 - `candidateArtifactId` or `recommendationArtifactId`: sourced product artifact
   selected for listing preparation
 - product title, images, supplier snapshot, and option data supplied by KidItem

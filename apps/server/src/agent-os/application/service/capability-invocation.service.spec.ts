@@ -4,6 +4,7 @@ import { canonicalOwnerInputHash } from '../../../common/owner-idempotency-key';
 import { AgentOsError } from '../../domain/agent-os.errors';
 import {
   CapabilityInvocationService,
+  OwnerResultAmbiguousError,
   OwnerKnownFailureError,
 } from './capability-invocation.service';
 
@@ -132,7 +133,10 @@ describe('CapabilityInvocationService', () => {
     const service = new CapabilityInvocationService(repository as never, registry(mutationDefinition, owner) as never);
 
     owner.invoke.mockRejectedValueOnce(new Error('timeout after submit'));
-    await expect(service.invoke(mutationRequest(input))).rejects.toMatchObject({ code: 'OWNER_RESULT_AMBIGUOUS' } satisfies Partial<AgentOsError>);
+    await expect(service.invoke(mutationRequest(input))).rejects.toMatchObject({
+      code: 'OWNER_RESULT_AMBIGUOUS',
+      invocationId: INVOCATION_ID,
+    } satisfies Partial<OwnerResultAmbiguousError>);
     expect(repository.recordKnownFailure).not.toHaveBeenCalled();
 
     owner.invoke.mockRejectedValueOnce(new OwnerKnownFailureError('validation rejected before commit'));

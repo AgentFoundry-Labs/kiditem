@@ -15,6 +15,8 @@ const cookieParser = require('cookie-parser') as () => import('express').Request
 import { ApiApplicationModule } from './api-application.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { requireWebOrigin } from './common/config/web-origin';
+import { configureAgentRuntimeBodyParsers } from './common/http/agent-runtime-body-parser';
+import { configureApiGlobalPrefix } from './common/http/agent-runtime-route';
 
 async function bootstrap() {
   requireWebOrigin();
@@ -24,6 +26,7 @@ async function bootstrap() {
   });
   app.enableShutdownHooks();
   app.use(cookieParser());
+  configureAgentRuntimeBodyParsers(app);
   // 프로덕션은 CORS_ORIGINS(쉼표 구분) 화이트리스트 필수. 미지정이면 전부 차단.
   const isProd = process.env.NODE_ENV === 'production';
   const prodOrigins = (process.env.CORS_ORIGINS ?? '')
@@ -47,7 +50,7 @@ async function bootstrap() {
     credentials: true,
   });
   // SessionAuthMiddleware 가 KidItem HttpOnly 세션 쿠키를 읽기 위해 필요.
-  app.setGlobalPrefix('api');
+  configureApiGlobalPrefix(app);
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
     transform: true,

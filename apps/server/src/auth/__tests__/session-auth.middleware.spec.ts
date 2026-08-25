@@ -32,6 +32,22 @@ describe('SessionAuthMiddleware', () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
+  it('never sends the private execution bearer to the browser-session database lookup', async () => {
+    const authenticateToken = vi.fn();
+    const middleware = new SessionAuthMiddleware(makeService(authenticateToken));
+    const next = vi.fn();
+    const req = {
+      originalUrl: '/internal/agent-runtime/mcp?trace=1',
+      headers: { authorization: `Bearer ${'execution-token'.repeat(8)}` },
+      cookies: {},
+    } as any;
+
+    await middleware.use(req, {} as any, next);
+
+    expect(authenticateToken).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledOnce();
+  });
+
   it('authenticates a bearer token and attaches the existing AuthUser contract', async () => {
     const authenticateToken = vi.fn().mockResolvedValue(AUTHENTICATED);
     const middleware = new SessionAuthMiddleware(makeService(authenticateToken));

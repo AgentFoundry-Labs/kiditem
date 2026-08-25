@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ActivityEventsModule } from './activity-events/activity-events.module';
 import { AdvertisingModule } from './advertising/advertising.module';
 import { AgentOsInteractionHttpModule } from './agent-os/agent-os-interaction-http.module';
+import { AgentOsRuntimeHttpModule } from './agent-os/agent-os-runtime-http.module';
 import { AiModule } from './ai/ai.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthModule } from './auth/auth.module';
@@ -53,6 +54,7 @@ import { UploadsModule } from './uploads/uploads.module';
     FinanceModule,
     RulesModule,
     AgentOsInteractionHttpModule,
+    AgentOsRuntimeHttpModule,
     AutomationModule,
     OperationCancellationModule,
     OperationsHttpModule,

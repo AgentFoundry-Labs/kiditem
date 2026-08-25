@@ -6,7 +6,7 @@ confirmed listing reference.
 
 ## Inputs
 
-- `action`: channel-registration action selected by the Operator
+- `action`: channel-registration action selected by the current workflow
 - `generationId` or listing payload supplied by the backend
 - organization-scoped context supplied by Agent OS
 

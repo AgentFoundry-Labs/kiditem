@@ -14,8 +14,8 @@ order submission.
 
 ## Rules
 
-- Treat every non-Operator agent as a leaf agent. Do not delegate to another
-  agent directly.
+- Treat this legacy profile as a leaf business profile. Do not delegate to
+  another profile directly.
 - Never submit a purchase order unless the Tool Router and Agent OS approval
   flow explicitly allow it.
 - Never use external marketplace or supplier credentials directly. Mutations
