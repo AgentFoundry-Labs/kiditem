@@ -161,7 +161,7 @@ describe('EntryRecommendationBoard review state', () => {
 
     await waitFor(() => {
       expect(interactionRuntimeMocks.useAgent).toHaveBeenCalledWith(expect.objectContaining({
-        agentId: 'sourcing',
+        agentId: expect.stringMatching(/^kiditem-interaction:sourcing:[0-9a-f-]{36}$/),
         runtimeAgentId: 'sourcing',
         threadId: expect.any(String),
       }));

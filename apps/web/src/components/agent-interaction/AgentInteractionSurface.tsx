@@ -155,7 +155,7 @@ function LiveAttemptAgent({
   onFinished(promptId: string): void;
 }) {
   const { agent, isReady } = useAgent({
-    agentId: agentDefinitionKey,
+    agentId: `kiditem-interaction:${agentDefinitionKey}:${threadId}`,
     runtimeAgentId: agentDefinitionKey,
     threadId,
   });

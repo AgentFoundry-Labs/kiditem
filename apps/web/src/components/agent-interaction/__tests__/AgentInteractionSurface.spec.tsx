@@ -511,9 +511,11 @@ describe('AgentInteractionSurface durable projection', () => {
     await user.type(screen.getByPlaceholderText('Ask Sourcing to begin work'), 'inspect supplier URL');
     await user.click(screen.getByRole('button', { name: 'Start' }));
 
+    const sessionId = new URLSearchParams(window.location.search).get('agentSessionId');
     await vi.waitFor(() => expect(useAgentMock).toHaveBeenCalledWith(expect.objectContaining({
-      agentId: 'sourcing',
+      agentId: `kiditem-interaction:sourcing:${sessionId}`,
       runtimeAgentId: 'sourcing',
+      threadId: sessionId,
     })));
     expect(addMessage).toHaveBeenCalledWith(expect.objectContaining({
       role: 'user',
@@ -586,7 +588,7 @@ describe('AgentInteractionSurface durable projection', () => {
     render(<AgentInteractionSurface />);
 
     await vi.waitFor(() => expect(useAgentMock).toHaveBeenCalledWith(expect.objectContaining({
-      agentId: 'supply',
+      agentId: `kiditem-interaction:supply:${sessionId}`,
       runtimeAgentId: 'supply',
       threadId: sessionId,
     })));
