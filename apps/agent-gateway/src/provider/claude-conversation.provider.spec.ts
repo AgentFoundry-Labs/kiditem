@@ -1,0 +1,148 @@
+import { describe, expect, it } from 'vitest';
+import { gatewayInstructionProfile } from '../profile/agent-profile.catalog';
+
+const GENERAL_PROFILE = gatewayInstructionProfile(null);
+const SOURCING_PROFILE = gatewayInstructionProfile('sourcing');
+
+describe('ClaudeConversationProvider', () => {
+  it('creates a random provider session, uses session-id once then resume, binds fresh MCP config per turn, and reads provider-native history only', async () => {
+    const { ClaudeConversationProvider } = await import('./claude-conversation.provider');
+    const launcher = new FakeClaudeLauncher();
+    const configs = new FakeClaudeConfigs();
+    const history = {
+      exists: async () => launcher.starts.length > 0,
+      read: async () => [{ id: 'provider-message-1', role: 'assistant' as const, content: 'Provider-owned history', createdAt: '2026-08-23T00:00:00.000Z' }],
+    };
+    const provider = new ClaudeConversationProvider({
+      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      configs, launcher, history, randomSessionId: () => '33333333-3333-4333-8333-333333333333',
+      readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium', 'high'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium', 'high'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
+    });
+    const created = await provider.create({ title: 'Claude research', instructionProfile: SOURCING_PROFILE });
+    const events: unknown[] = [];
+    await provider.startTurn({ providerConversationRef: created.providerConversationRef, turnId: 'turn-1', message: 'First message', model: 'claude-fable-5', reasoningEffort: 'high', executionBinding: 'A'.repeat(43), instructionProfile: SOURCING_PROFILE }, (event) => events.push(event));
+    launcher.emit(0, `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'First answer' }] } })}\n${JSON.stringify({ type: 'result', is_error: false })}\n`);
+    launcher.exit(0, 0);
+    await flush();
+    await provider.startTurn({ providerConversationRef: created.providerConversationRef, turnId: 'turn-2', message: 'Second message', model: 'claude-fable-5', reasoningEffort: 'medium', executionBinding: 'B'.repeat(43), instructionProfile: SOURCING_PROFILE }, (event) => events.push(event));
+
+    expect(created.providerConversationRef).toBe('33333333-3333-4333-8333-333333333333');
+    expect(launcher.starts.map(({ command }) => command.args)).toEqual([
+      expect.arrayContaining(['--session-id', '33333333-3333-4333-8333-333333333333']),
+      expect.arrayContaining(['--resume', '33333333-3333-4333-8333-333333333333']),
+    ]);
+    expect(launcher.starts.map(({ command }) => command.args.join(' ')).join('\n')).not.toContain('A'.repeat(43));
+    expect(configs.created.map(({ executionBinding }) => executionBinding)).toEqual(['A'.repeat(43), 'B'.repeat(43)]);
+    expect(await provider.history(created.providerConversationRef)).toEqual(await history.read());
+    expect(events).toEqual([
+      { kind: 'status', status: 'started' },
+      { kind: 'assistant.delta', delta: 'First answer' },
+      { kind: 'status', status: 'completed' },
+      { kind: 'status', status: 'started' },
+    ]);
+  });
+
+  it('has no Claude transcript cache and returns bounded provider errors for unsupported destructive session operations', async () => {
+    const { ClaudeConversationProvider } = await import('./claude-conversation.provider');
+    const provider = new ClaudeConversationProvider({
+      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      configs: new FakeClaudeConfigs(), launcher: new FakeClaudeLauncher(), history: { exists: async () => false, read: async () => [] },
+      randomSessionId: () => '33333333-3333-4333-8333-333333333333',
+      readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
+    });
+
+    expect(JSON.stringify(provider)).not.toContain('transcript');
+    await expect(provider.delete('33333333-3333-4333-8333-333333333333')).rejects.toThrow('claude_provider_delete_unsupported');
+  });
+
+  it('checks provider-owned session existence on every start, retains session-id after launch failure, and replays output that arrives before the handle', async () => {
+    const { ClaudeConversationProvider } = await import('./claude-conversation.provider');
+    const launcher = new FakeClaudeLauncher();
+    launcher.failNext = true;
+    const history = { exists: async () => false, read: async () => [] };
+    const provider = new ClaudeConversationProvider({
+      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      configs: new FakeClaudeConfigs(), launcher, history, randomSessionId: () => '33333333-3333-4333-8333-333333333333',
+      readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
+    });
+    const created = await provider.create({ instructionProfile: GENERAL_PROFILE });
+    const input = { providerConversationRef: created.providerConversationRef, turnId: 'turn-1', message: 'Work', model: 'claude-fable-5', reasoningEffort: 'medium', executionBinding: 'A'.repeat(43), instructionProfile: GENERAL_PROFILE };
+
+    await expect(provider.startTurn(input, () => undefined)).rejects.toThrow('claude_launch_failed');
+    const events: unknown[] = [];
+    launcher.outputBeforeReturn = `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Early answer' }] } })}\n`;
+    launcher.exitBeforeReturn = 0;
+    await provider.startTurn(input, (event) => events.push(event));
+
+    expect(launcher.starts.map(({ command }) => command.args.filter((value) => value === '--session-id'))).toEqual([['--session-id'], ['--session-id']]);
+    expect(events).toEqual([
+      { kind: 'status', status: 'started' },
+      { kind: 'assistant.delta', delta: 'Early answer' },
+      { kind: 'status', status: 'completed' },
+    ]);
+  });
+
+  it('interrupts and releases every active Claude turn exactly once on Gateway disconnect', async () => {
+    const { ClaudeConversationProvider } = await import('./claude-conversation.provider');
+    const launcher = new FakeClaudeLauncher();
+    const provider = new ClaudeConversationProvider({
+      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      configs: new FakeClaudeConfigs(), launcher, history: { exists: async () => false, read: async () => [] },
+      randomSessionId: () => '33333333-3333-4333-8333-333333333333',
+      readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
+    });
+    const created = await provider.create({ instructionProfile: GENERAL_PROFILE });
+    const events: unknown[] = [];
+    await provider.startTurn({ providerConversationRef: created.providerConversationRef, turnId: 'turn-1', message: 'Work', model: 'claude-fable-5', reasoningEffort: 'medium', executionBinding: 'A'.repeat(43), instructionProfile: GENERAL_PROFILE }, (event) => events.push(event));
+
+    await provider.close();
+    await provider.close();
+    expect(events).toEqual([{ kind: 'status', status: 'started' }, { kind: 'status', status: 'disconnected' }]);
+  });
+
+  it('drops late provider output after a terminal event so an already-released Gateway turn cannot stream again', async () => {
+    const { ClaudeConversationProvider } = await import('./claude-conversation.provider');
+    const launcher = new FakeClaudeLauncher();
+    const provider = new ClaudeConversationProvider({
+      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      configs: new FakeClaudeConfigs(), launcher, history: { exists: async () => false, read: async () => [] },
+      randomSessionId: () => '33333333-3333-4333-8333-333333333333',
+      readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
+    });
+    const created = await provider.create({ instructionProfile: GENERAL_PROFILE });
+    const events: unknown[] = [];
+    await provider.startTurn({ providerConversationRef: created.providerConversationRef, turnId: 'turn-1', message: 'Work', model: 'claude-fable-5', reasoningEffort: 'medium', executionBinding: 'A'.repeat(43), instructionProfile: GENERAL_PROFILE }, (event) => events.push(event));
+
+    launcher.emit(0, `${JSON.stringify({ type: 'result', is_error: false })}\n`);
+    launcher.emit(0, `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'late' }] } })}\n`);
+    launcher.exit(0, 0);
+    await flush();
+
+    expect(events).toEqual([{ kind: 'status', status: 'started' }, { kind: 'status', status: 'completed' }]);
+  });
+});
+
+class FakeClaudeConfigs {
+  created: Array<{ turnId: string; mcpUrl: string; executionBinding: string }> = [];
+  removed: string[] = [];
+  async create(input: { turnId: string; mcpUrl: string; executionBinding: string }) { this.created.push(input); return `/gateway/state/${this.created.length}.json`; }
+  async remove(path: string) { this.removed.push(path); }
+}
+
+class FakeClaudeLauncher {
+  starts: Array<{ command: { args: readonly string[] }; input: string; onOutput: (chunk: string) => void; onExit: (code: number | null) => void }> = [];
+  failNext = false;
+  outputBeforeReturn: string | undefined;
+  exitBeforeReturn: number | null | undefined;
+  async start(input: { command: { args: readonly string[] }; input: string; onOutput: (chunk: string) => void; onExit: (code: number | null) => void }) {
+    this.starts.push(input);
+    if (this.failNext) { this.failNext = false; throw new Error('claude_launch_failed'); }
+    if (this.outputBeforeReturn) input.onOutput(this.outputBeforeReturn);
+    if (this.exitBeforeReturn !== undefined) input.onExit(this.exitBeforeReturn);
+    return { sendInput: async () => undefined, interrupt: async () => undefined };
+  }
+  emit(index: number, chunk: string) { this.starts[index]?.onOutput(chunk); }
+  exit(index: number, code: number | null) { this.starts[index]?.onExit(code); }
+}
+
+async function flush(): Promise<void> { for (let index = 0; index < 4; index += 1) await Promise.resolve(); }

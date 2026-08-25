@@ -5,22 +5,14 @@ import { AgentMcpHttpController, MCP_WEB_ORIGIN } from './adapter/in/http/runtim
 import { McpHttpResponseAdapter } from './adapter/in/http/runtime/mcp-http-response.adapter';
 import { KidItemAgentOsMcpServer } from './adapter/in/mcp/kiditem-agent-os-mcp-server';
 import { McpRuntimeReadinessService } from './adapter/in/mcp/readiness-canary-mcp-server';
-import { ExecutionBindingRegistry } from './adapter/out/runtime/gateway/execution-binding.registry';
+import { GatewayControlSessionModule } from './adapter/out/runtime/gateway/gateway-control-session.module';
 import { AgentOsInvocationModule } from './agent-os-invocation.module';
 
 /** Private, stateless MCP v2 ingress composed only from current application ports. */
 @Module({
-  imports: [AgentOsInvocationModule, OperationsModule],
+  imports: [AgentOsInvocationModule, OperationsModule, GatewayControlSessionModule],
   controllers: [AgentMcpHttpController],
   providers: [
-    // These two classes intentionally accept deterministic collaborators when
-    // unit-tested. Instantiate their production process-local forms here so
-    // Nest never mistakes those function/default constructor parameters for
-    // injectable application dependencies.
-    {
-      provide: ExecutionBindingRegistry,
-      useFactory: () => new ExecutionBindingRegistry(),
-    },
     McpHttpResponseAdapter,
     {
       provide: McpRuntimeReadinessService,
@@ -32,6 +24,6 @@ import { AgentOsInvocationModule } from './agent-os-invocation.module';
       useFactory: () => requireWebOrigin(),
     },
   ],
-  exports: [ExecutionBindingRegistry, McpRuntimeReadinessService],
+  exports: [GatewayControlSessionModule, McpRuntimeReadinessService],
 })
 export class AgentOsRuntimeHttpModule {}

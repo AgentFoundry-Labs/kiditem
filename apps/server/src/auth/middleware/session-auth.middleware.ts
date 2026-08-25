@@ -2,7 +2,7 @@ import { Injectable, Logger, type NestMiddleware } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 import { AuthService, AUTH_SESSION_COOKIE } from '../application/auth.service';
 import { clearAuthSessionCookie } from './auth-session-cookie';
-import { isAgentRuntimeMcpRequest } from '../../common/http/agent-runtime-route';
+import { isAgentRuntimePrivateRequest } from '../../common/http/agent-runtime-route';
 
 @Injectable()
 export class SessionAuthMiddleware implements NestMiddleware {
@@ -13,7 +13,7 @@ export class SessionAuthMiddleware implements NestMiddleware {
   async use(request: Request, response: Response, next: NextFunction): Promise<void> {
     // This bearer belongs only to the process-memory execution binding registry.
     // It is never a browser session token and must not trigger a DB lookup.
-    if (isAgentRuntimeMcpRequest(request)) {
+    if (isAgentRuntimePrivateRequest(request)) {
       next();
       return;
     }

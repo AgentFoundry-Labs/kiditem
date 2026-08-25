@@ -32,7 +32,7 @@ describe('SessionAuthMiddleware', () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
-  it('never sends the private execution bearer to the browser-session database lookup', async () => {
+  it('never sends private MCP or exact Gateway installation bearers to the browser-session database lookup', async () => {
     const authenticateToken = vi.fn();
     const middleware = new SessionAuthMiddleware(makeService(authenticateToken));
     const next = vi.fn();
@@ -46,6 +46,14 @@ describe('SessionAuthMiddleware', () => {
 
     expect(authenticateToken).not.toHaveBeenCalled();
     expect(next).toHaveBeenCalledOnce();
+
+    const gatewayRequest = {
+      originalUrl: '/internal/agent-runtime/gateway/commands:poll',
+      headers: { authorization: `Bearer ${'gateway-token'.repeat(8)}` },
+      cookies: {},
+    } as any;
+    await middleware.use(gatewayRequest, {} as any, vi.fn());
+    expect(authenticateToken).not.toHaveBeenCalled();
   });
 
   it('authenticates a bearer token and attaches the existing AuthUser contract', async () => {

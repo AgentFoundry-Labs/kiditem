@@ -1,8 +1,15 @@
 import { json, type Request } from 'express';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { isAgentRuntimeMcpRequest } from './agent-runtime-route';
+import {
+  AGENT_RUNTIME_GATEWAY_COMMANDS_POLL_PATH,
+  AGENT_RUNTIME_GATEWAY_EVENTS_PATH,
+  isAgentRuntimeGatewayControlRequest,
+  isAgentRuntimeMcpRequest,
+  isAgentRuntimePrivateRequest,
+} from './agent-runtime-route';
 
 export const AGENT_RUNTIME_MCP_JSON_LIMIT = '512kb';
+export const AGENT_RUNTIME_GATEWAY_JSON_LIMIT = '64kb';
 export const API_JSON_LIMIT = '25mb';
 
 /**
@@ -18,6 +25,16 @@ export function configureAgentRuntimeBodyParsers(
     strict: true,
     type: isMcpJsonRequest,
   }));
+  app.use(AGENT_RUNTIME_GATEWAY_COMMANDS_POLL_PATH, json({
+    limit: AGENT_RUNTIME_GATEWAY_JSON_LIMIT,
+    strict: true,
+    type: isGatewayControlJsonRequest,
+  }));
+  app.use(AGENT_RUNTIME_GATEWAY_EVENTS_PATH, json({
+    limit: AGENT_RUNTIME_GATEWAY_JSON_LIMIT,
+    strict: true,
+    type: isGatewayControlJsonRequest,
+  }));
   app.use(json({
     limit: API_JSON_LIMIT,
     strict: true,
@@ -29,8 +46,12 @@ export function isMcpJsonRequest(request: Request): boolean {
   return isAgentRuntimeMcpRequest(request) && hasJsonContentType(request);
 }
 
+export function isGatewayControlJsonRequest(request: Request): boolean {
+  return isAgentRuntimeGatewayControlRequest(request) && hasJsonContentType(request);
+}
+
 export function isOrdinaryApiJsonRequest(request: Request): boolean {
-  return !isAgentRuntimeMcpRequest(request)
+  return !isAgentRuntimePrivateRequest(request)
     && request.path.startsWith('/api')
     && hasJsonContentType(request);
 }

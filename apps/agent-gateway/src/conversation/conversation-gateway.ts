@@ -1,0 +1,222 @@
+import {
+  ConversationIdSchema,
+  ConversationTitleSchema,
+  CreateConversationCommandSchema,
+  ProviderEventSchema,
+  ProviderMessageSchema,
+  type AgentKey,
+  type ConversationSummary,
+  type Model,
+  type ProviderEvent,
+  type ProviderMessage,
+  type ProviderReadiness,
+  type ProviderRuntime,
+  type ReasoningEffort,
+} from '@kiditem/shared/agent-runtime';
+import { ConversationDescriptorStore } from './conversation-descriptor.store';
+import type { ConversationDescriptor } from './conversation-descriptor';
+import type { ProviderConversationPort } from '../provider/provider-conversation.port';
+import { gatewayInstructionProfile } from '../profile/agent-profile.catalog';
+
+type ProviderMap = Readonly<Record<ProviderRuntime, ProviderConversationPort>>;
+
+export interface GatewayTurnStart {
+  conversationId: string;
+  turnId: string;
+  message: string;
+  model: Model;
+  reasoningEffort: ReasoningEffort;
+  executionBinding: string;
+  onEvent: (event: ProviderEvent) => void;
+}
+
+/**
+ * Maps opaque Gateway conversation IDs to provider-local references. No public
+ * method returns a provider reference, and runtime is set only at creation.
+ */
+export class ConversationGateway {
+  constructor(private readonly options: Readonly<{
+    descriptors: ConversationDescriptorStore;
+    providers: ProviderMap;
+    now?: () => Date;
+    randomId?: () => string;
+  }>) {}
+
+  async list(runtime?: ProviderRuntime): Promise<ConversationSummary[]> {
+    const descriptors = await this.options.descriptors.list();
+    return descriptors
+      .filter((descriptor) => runtime === undefined || descriptor.runtime === runtime)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .map(toPublicConversation);
+  }
+
+  async create(input: Readonly<{ runtime: ProviderRuntime; agentKey: AgentKey | null; title?: string }>): Promise<ConversationSummary> {
+    const command = CreateConversationCommandSchema.parse(input);
+    const provider = this.provider(command.runtime);
+    let created: Awaited<ReturnType<ProviderConversationPort['create']>>;
+    try {
+      created = await provider.create({
+        ...(command.title ? { title: command.title } : {}),
+        instructionProfile: gatewayInstructionProfile(command.agentKey),
+      });
+    } catch {
+      throw new Error('gateway_provider_create_failed');
+    }
+    const timestamp = this.now().toISOString();
+    const descriptor: ConversationDescriptor = {
+      id: this.randomId(),
+      runtime: command.runtime,
+      providerConversationRef: created.providerConversationRef,
+      agentKey: command.agentKey,
+      title: command.title ?? created.title,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    try {
+      await this.options.descriptors.create(descriptor);
+    } catch {
+      // The provider may have created a thread, but we deliberately do not
+      // leak its reference while reporting the bounded local-catalog failure.
+      throw new Error('gateway_descriptor_create_failed');
+    }
+    return toPublicConversation(descriptor);
+  }
+
+  async history(conversationId: string): Promise<ProviderMessage[]> {
+    const descriptor = await this.resolve(conversationId);
+    try {
+      const messages = await this.provider(descriptor.runtime).history(descriptor.providerConversationRef);
+      return ProviderMessageSchema.array().max(1_000).parse(messages);
+    } catch {
+      throw new Error('gateway_provider_history_failed');
+    }
+  }
+
+  async rename(conversationId: string, title: string): Promise<ConversationSummary> {
+    const descriptor = await this.resolve(conversationId);
+    const parsedTitle = ConversationTitleSchema.safeParse(title);
+    if (!parsedTitle.success) throw new Error('gateway_conversation_title_invalid');
+    try {
+      await this.provider(descriptor.runtime).rename(descriptor.providerConversationRef, parsedTitle.data);
+    } catch {
+      throw new Error('gateway_provider_rename_failed');
+    }
+    const next = { ...descriptor, title: parsedTitle.data, updatedAt: this.now().toISOString() };
+    await this.replaceDescriptor(next);
+    return toPublicConversation(next);
+  }
+
+  async delete(conversationId: string): Promise<void> {
+    const descriptor = await this.resolve(conversationId);
+    try {
+      await this.provider(descriptor.runtime).delete(descriptor.providerConversationRef);
+    } catch {
+      // Provider deletion/archive is the first half of this operation. Keeping
+      // the descriptor makes failure retryable and avoids a false UI success.
+      throw new Error('gateway_provider_delete_failed');
+    }
+    await this.options.descriptors.remove(descriptor.id);
+  }
+
+  async startTurn(input: GatewayTurnStart): Promise<void> {
+    const descriptor = await this.resolve(input.conversationId);
+    await this.assertSupportedTurn(descriptor.runtime, input.model, input.reasoningEffort);
+    try {
+      await this.provider(descriptor.runtime).startTurn({
+        providerConversationRef: descriptor.providerConversationRef,
+        turnId: input.turnId,
+        message: input.message,
+        model: input.model,
+        reasoningEffort: input.reasoningEffort,
+        executionBinding: input.executionBinding,
+        instructionProfile: gatewayInstructionProfile(descriptor.agentKey),
+      }, (event) => input.onEvent(ProviderEventSchema.parse(event)));
+    } catch {
+      throw new Error('gateway_provider_turn_failed');
+    }
+    await this.replaceDescriptor({
+      ...descriptor,
+      updatedAt: this.now().toISOString(),
+      lastModel: input.model,
+      lastReasoningEffort: input.reasoningEffort,
+    });
+  }
+
+  async sendInput(input: Readonly<{ conversationId: string; turnId: string; message: string }>): Promise<void> {
+    const descriptor = await this.resolve(input.conversationId);
+    try {
+      await this.provider(descriptor.runtime).sendInput({
+        providerConversationRef: descriptor.providerConversationRef,
+        turnId: input.turnId,
+        message: input.message,
+      });
+    } catch {
+      throw new Error('gateway_provider_input_failed');
+    }
+  }
+
+  async interrupt(input: Readonly<{ conversationId: string; turnId: string }>): Promise<void> {
+    const descriptor = await this.resolve(input.conversationId);
+    try {
+      await this.provider(descriptor.runtime).interrupt({
+        providerConversationRef: descriptor.providerConversationRef,
+        turnId: input.turnId,
+      });
+    } catch {
+      throw new Error('gateway_provider_interrupt_failed');
+    }
+  }
+
+  readiness(runtime: ProviderRuntime): Promise<ProviderReadiness> {
+    return this.provider(runtime).readiness();
+  }
+
+  private async resolve(conversationId: string): Promise<ConversationDescriptor> {
+    const id = ConversationIdSchema.safeParse(conversationId);
+    if (!id.success) throw new Error('gateway_conversation_not_found');
+    const descriptor = await this.options.descriptors.find(id.data);
+    if (!descriptor) throw new Error('gateway_conversation_not_found');
+    return descriptor;
+  }
+
+  private provider(runtime: ProviderRuntime): ProviderConversationPort {
+    const provider = this.options.providers[runtime];
+    if (!provider || provider.runtime !== runtime) throw new Error('gateway_provider_unavailable');
+    return provider;
+  }
+
+  private now(): Date {
+    return (this.options.now ?? (() => new Date()))();
+  }
+
+  private randomId(): string {
+    return (this.options.randomId ?? cryptoRandomId)();
+  }
+
+  private async assertSupportedTurn(runtime: ProviderRuntime, model: Model, reasoningEffort: ReasoningEffort): Promise<void> {
+    let readiness: ProviderReadiness;
+    try {
+      readiness = await this.provider(runtime).readiness();
+    } catch {
+      throw new Error('gateway_provider_readiness_failed');
+    }
+    if (readiness.runtime !== runtime) throw new Error('gateway_provider_readiness_invalid');
+    const modelCatalog = readiness.modelReasoningEfforts.find((entry) => entry.model === model);
+    if (!modelCatalog || !readiness.models.includes(model)) throw new Error('gateway_model_unsupported');
+    if (!modelCatalog.reasoningEfforts.includes(reasoningEffort)) throw new Error('gateway_reasoning_effort_unsupported');
+  }
+
+  private async replaceDescriptor(next: ConversationDescriptor): Promise<void> {
+    const descriptors = await this.options.descriptors.list();
+    await this.options.descriptors.replace(descriptors.map((descriptor) => descriptor.id === next.id ? next : descriptor));
+  }
+}
+
+function toPublicConversation(descriptor: ConversationDescriptor): ConversationSummary {
+  const { providerConversationRef: _providerConversationRef, ...conversation } = descriptor;
+  return conversation;
+}
+
+function cryptoRandomId(): string {
+  return globalThis.crypto.randomUUID();
+}
