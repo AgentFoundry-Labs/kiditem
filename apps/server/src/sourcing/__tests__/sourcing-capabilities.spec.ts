@@ -35,6 +35,15 @@ describe('sourcing final capability definitions', () => {
     }
   });
 
+  it('binds the scrape-to-ingest receipt to the same live provider turn, not a durable Attempt', () => {
+    const ingest = SOURCING_CAPABILITIES.find(
+      (capability) => capability.key === 'sourcing.ingestCandidate',
+    )!;
+
+    expect(ingest.description).toContain('same live provider turn');
+    expect(ingest.description).not.toContain('Agent attempt');
+  });
+
   it('keeps each capability on its exact bounded effect and approval surface', () => {
     expect(SOURCING_CAPABILITIES.map((capability) => ({
       key: capability.key,

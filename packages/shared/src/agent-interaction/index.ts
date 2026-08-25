@@ -1,25 +1,21 @@
 export { CanonicalResourceRefSchema } from './resource-ref';
 export type { CanonicalResourceRef } from './resource-ref';
 export {
-  AgentAttemptStatusSchema,
-  AgentCapabilityApprovalStatusSchema,
-  AgentCapabilityInvocationStatusSchema,
-  AgentResultEnvelopeSchema,
-  AgentTaskStatusSchema,
-  AuthorizationKindSchema,
   BoundedCanonicalJsonSchema,
+  CapabilityInvocationApprovalStatusSchema,
+  CapabilityInvocationErrorSchema,
+  CapabilityInvocationStatusSchema,
   CapabilityIdempotencySchema,
+  CapabilityResultEnvelopeSchema,
   OperationRefSchema,
   ResourceRefSchema,
 } from './work';
 export type {
-  AgentAttemptStatus,
-  AgentCapabilityApprovalStatus,
-  AgentCapabilityInvocationStatus,
-  AgentResultEnvelope,
-  AgentTaskStatus,
-  AuthorizationKind,
   CapabilityIdempotency,
+  CapabilityInvocationApprovalStatus,
+  CapabilityInvocationError,
+  CapabilityInvocationStatus,
+  CapabilityResultEnvelope,
   OperationRef,
   ResourceRef,
 } from './work';

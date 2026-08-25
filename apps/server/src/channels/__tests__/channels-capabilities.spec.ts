@@ -26,7 +26,7 @@ describe("Channels final capability definitions", () => {
       (item) => item.key === "channels.register_confirmed_listing",
     )!;
     const reference = {
-      executionId: "00000000-0000-4000-8000-000000000011",
+      registrationExecutionId: "00000000-0000-4000-8000-000000000011",
       preparationId: "00000000-0000-4000-8000-000000000012",
     };
 
@@ -37,6 +37,12 @@ describe("Channels final capability definitions", () => {
       }).success,
     ).toBe(false);
     expect(submission.inputSchema.safeParse(reference).success).toBe(true);
+    expect(
+      submission.inputSchema.safeParse({
+        ...reference,
+        executionId: "00000000-0000-4000-8000-000000000013",
+      }).success,
+    ).toBe(false);
     expect(
       confirmation.inputSchema.safeParse({
         ...reference,

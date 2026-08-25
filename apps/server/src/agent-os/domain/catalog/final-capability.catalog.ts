@@ -5,12 +5,10 @@ import { CHANNELS_CAPABILITIES } from '../../../channels/domain/capability/chann
 import { PRODUCTS_CAPABILITIES } from '../../../products/domain/capability/products.capabilities';
 import { SOURCING_CAPABILITIES } from '../../../sourcing/domain/capability/sourcing.capabilities';
 import { SUPPLY_CAPABILITIES } from '../../../supply/domain/capability/supply.capabilities';
-import { AGENT_OS_CAPABILITIES } from '../capability/agent-os.capabilities';
 
 /** Agent OS aggregates owner-domain definitions without redefining their contracts. */
 export const FINAL_CAPABILITY_DEFINITIONS: readonly CapabilityDefinition[] =
   Object.freeze([
-    ...AGENT_OS_CAPABILITIES,
     ...AI_CAPABILITIES,
     ...ANALYTICS_CAPABILITIES,
     ...CHANNELS_CAPABILITIES,

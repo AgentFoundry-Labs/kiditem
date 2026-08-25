@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AgentOsCapabilityCompositionAdapter } from '../../adapter/in/agent/agent-os-capability-composition.adapter';
 import { AnalyticsCapabilityCompositionAdapter } from '../../../analytics/adapter/in/agent/analytics-capability-composition.adapter';
 import { ChannelsCapabilityCompositionAdapter } from '../../../channels/adapter/in/agent/channels-capability-composition.adapter';
 import { ProductsCapabilityCompositionAdapter } from '../../../products/adapter/in/agent/products-capability-composition.adapter';
@@ -10,7 +9,6 @@ import {
   FINAL_CAPABILITY_DEFINITIONS,
   registerFinalCapabilityCatalog,
 } from './final-capability-catalog-registrar.service';
-import type { AgentOsPlatformProbeCapabilityPort } from '../port/in/capability/platform-probe.port';
 import type { AnalyticsAgentOverviewCapabilityPort } from '../../../analytics/dashboard/application/port/in/analytics-overview-capability.port';
 import type {
   ChannelsFinalCapabilityPort,
@@ -27,10 +25,6 @@ import type { SupplyPurchaseOrderCapabilityPort } from '../../../supply/applicat
 const identifiers = {
   organizationId: '00000000-0000-4000-8000-000000000001',
   userId: '00000000-0000-4000-8000-000000000002',
-  sessionId: '00000000-0000-4000-8000-000000000003',
-  taskId: '00000000-0000-4000-8000-000000000004',
-  attemptId: '00000000-0000-4000-8000-000000000005',
-  agentVersionId: '00000000-0000-4000-8000-000000000006',
   executionId: '00000000-0000-4000-8000-000000000007',
   preparationId: '00000000-0000-4000-8000-000000000008',
   candidateId: '00000000-0000-4000-8000-000000000009',
@@ -42,18 +36,12 @@ const identifiers = {
 const context = {
   organizationId: identifiers.organizationId,
   initiatingUserId: identifiers.userId,
-  sessionId: identifiers.sessionId,
-  taskId: identifiers.taskId,
-  attemptId: identifiers.attemptId,
-  agentVersionId: identifiers.agentVersionId,
+  executionId: identifiers.executionId,
   ownerIdempotencyKey: 'owner-idempotency-key',
-  applicationVersion: '0.25.0',
-  authorizingGitSha: 'a'.repeat(40),
-  runtimeType: 'codex_cli',
 };
 
 const registrationReference: ChannelsRegistrationReference = {
-  executionId: identifiers.executionId,
+  registrationExecutionId: identifiers.executionId,
   preparationId: identifiers.preparationId,
 };
 
@@ -69,9 +57,6 @@ const snapshot: SourcingSourceSnapshot = {
 };
 
 function ownerCompositions() {
-  const platform: AgentOsPlatformProbeCapabilityPort = {
-    platformProbe: vi.fn(async () => ({ status: 'available' as const })),
-  };
   const analytics: AnalyticsAgentOverviewCapabilityPort = {
     readOverview: vi.fn(async () => ({
       sales: { revenue: 1, orders: 2 },
@@ -155,9 +140,8 @@ function ownerCompositions() {
   };
 
   return {
-    ports: { platform, analytics, channels, wing, products, sourcing, supply },
+    ports: { analytics, channels, wing, products, sourcing, supply },
     providers: [
-      new AgentOsCapabilityCompositionAdapter(platform),
       new AnalyticsCapabilityCompositionAdapter(analytics),
       new ChannelsCapabilityCompositionAdapter(channels, wing),
       new ProductsCapabilityCompositionAdapter(products),
@@ -168,24 +152,20 @@ function ownerCompositions() {
 }
 
 describe('owner capability composition', () => {
-  it('registers the exact 18 owner-local units and invokes their actual typed owner ports', async () => {
+  it('registers the exact 17 owner-local units and invokes their actual typed owner ports', async () => {
     const { ports, providers } = ownerCompositions();
     const registry = new AgentCapabilityRegistry();
 
-    expect(providers.map((provider) => provider.compositions)).toHaveLength(6);
+    expect(providers.map((provider) => provider.compositions)).toHaveLength(5);
     expect(
       providers.flatMap((provider) => provider.compositions),
-    ).toHaveLength(18);
+    ).toHaveLength(17);
 
     registerFinalCapabilityCatalog(registry, providers);
     expect(registry.listDefinitions().map((definition) => definition.key)).toEqual(
       FINAL_CAPABILITY_DEFINITIONS.map((definition) => definition.key),
     );
 
-    await registry.resolveImplementation('agent_os.platform_probe')!.invoke({
-      context,
-      input: {},
-    });
     await registry.resolveImplementation('analytics.readOverview')!.invoke({
       context,
       input: { period: 'today' },
@@ -217,7 +197,6 @@ describe('owner capability composition', () => {
         },
       });
 
-    expect(ports.platform.platformProbe).toHaveBeenCalledOnce();
     expect(ports.analytics.readOverview).toHaveBeenCalledWith({
       organizationId: identifiers.organizationId,
       period: 'today',
@@ -250,7 +229,6 @@ describe('owner capability composition', () => {
       context: expect.objectContaining({
         organizationId: identifiers.organizationId,
         initiatingUserId: identifiers.userId,
-        attemptId: identifiers.attemptId,
         ownerIdempotencyKey: context.ownerIdempotencyKey,
       }),
       input: { snapshot },

@@ -5,38 +5,17 @@ export const ResourceRefSchema = CanonicalResourceRefSchema;
 export const OperationRefSchema = z
   .object({ kind: z.string().min(1).max(64), id: z.string().min(1).max(128) })
   .strict();
-export const AgentTaskStatusSchema = z.enum([
-  "open",
-  "completed",
-  "failed",
-  "cancelled",
-]);
-export const AgentAttemptStatusSchema = z.enum([
-  "starting",
-  "running",
-  "succeeded",
-  "failed",
-  "process_interrupted",
-  "cancelled",
-]);
-export const AgentCapabilityInvocationStatusSchema = z.enum([
-  "authorized",
-  "approval_pending",
-  "ready",
-  "executing",
+export const CapabilityInvocationStatusSchema = z.enum([
+  "pending",
   "succeeded",
   "failed",
 ]);
-export const AgentCapabilityApprovalStatusSchema = z.enum([
+export const CapabilityInvocationApprovalStatusSchema = z.enum([
+  "not_required",
   "pending",
   "approved",
   "rejected",
   "expired",
-]);
-export const AuthorizationKindSchema = z.enum([
-  "agent_default_scope",
-  "cross_domain_read_grant",
-  "explicit_execution_grant",
 ]);
 /** Bounded JSON only; raw provider/browser/tool payloads are never durable. */
 export const BoundedCanonicalJsonSchema = z.unknown().superRefine((value, context) => {
@@ -64,28 +43,33 @@ export const CapabilityIdempotencySchema = z.enum([
   "recommended",
   "required",
 ]);
-export const AgentResultEnvelopeSchema = z
+export const CapabilityResultEnvelopeSchema = z
   .object({
-    outcome: z.enum(["completed", "needs_input", "failed"]),
     summary: z.string().min(1).max(1_000),
     resourceRefs: z.array(ResourceRefSchema).max(50),
     operationRefs: z.array(OperationRefSchema).max(50),
-    needsInput: z.object({ code: z.string().min(1).max(128), prompt: z.string().min(1).max(1_000) }).strict().optional(),
-    error: z.object({ code: z.string().min(1).max(128), message: z.string().min(1).max(1_000) }).strict().optional(),
     output: BoundedCanonicalJsonSchema.optional(),
+  })
+  .strict();
+export const CapabilityInvocationErrorSchema = z
+  .object({
+    code: z.string().min(1).max(128),
+    message: z.string().min(1).max(1_000),
   })
   .strict();
 
 export type ResourceRef = z.infer<typeof ResourceRefSchema>;
 export type OperationRef = z.infer<typeof OperationRefSchema>;
-export type AgentResultEnvelope = z.infer<typeof AgentResultEnvelopeSchema>;
-export type AgentTaskStatus = z.infer<typeof AgentTaskStatusSchema>;
-export type AgentAttemptStatus = z.infer<typeof AgentAttemptStatusSchema>;
-export type AgentCapabilityInvocationStatus = z.infer<
-  typeof AgentCapabilityInvocationStatusSchema
+export type CapabilityResultEnvelope = z.infer<
+  typeof CapabilityResultEnvelopeSchema
 >;
-export type AgentCapabilityApprovalStatus = z.infer<
-  typeof AgentCapabilityApprovalStatusSchema
+export type CapabilityInvocationError = z.infer<
+  typeof CapabilityInvocationErrorSchema
 >;
-export type AuthorizationKind = z.infer<typeof AuthorizationKindSchema>;
+export type CapabilityInvocationStatus = z.infer<
+  typeof CapabilityInvocationStatusSchema
+>;
+export type CapabilityInvocationApprovalStatus = z.infer<
+  typeof CapabilityInvocationApprovalStatusSchema
+>;
 export type CapabilityIdempotency = z.infer<typeof CapabilityIdempotencySchema>;

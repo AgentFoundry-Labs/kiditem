@@ -19,7 +19,8 @@ export interface ChannelsOwnerExecutionContext {
 
 /** Minimal Agent-facing business reference; all provider state loads server-side. */
 export interface ChannelsRegistrationReference {
-  executionId: string;
+  /** Frozen ProductRegistrationExecution business coordinate, not the live execution binding. */
+  registrationExecutionId: string;
   preparationId: string;
 }
 

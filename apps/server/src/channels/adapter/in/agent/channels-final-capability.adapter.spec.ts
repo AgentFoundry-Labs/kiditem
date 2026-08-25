@@ -6,7 +6,7 @@ import {
 import { ChannelsFinalCapabilityAdapter } from "./channels-final-capability.adapter";
 
 const submissionInput = {
-  executionId: "00000000-0000-4000-8000-000000000004",
+  registrationExecutionId: "00000000-0000-4000-8000-000000000004",
   preparationId: "00000000-0000-4000-8000-000000000005",
 };
 
@@ -20,7 +20,8 @@ const confirmationInput = {
 };
 
 const frozen = {
-  ...submissionInput,
+  executionId: submissionInput.registrationExecutionId,
+  preparationId: submissionInput.preparationId,
   sourceCandidateId: "00000000-0000-4000-8000-000000000006",
   channelAccountId: "00000000-0000-4000-8000-000000000007",
   submissionKey: "frozen-submission",
@@ -116,7 +117,8 @@ describe("ChannelsFinalCapabilityAdapter", () => {
     expect(provenance.loadSubmission).toHaveBeenCalledWith({
       organizationId: executionContext.organizationId,
       initiatingUserId: executionContext.initiatingUserId,
-      ...submissionInput,
+      executionId: submissionInput.registrationExecutionId,
+      preparationId: submissionInput.preparationId,
     });
     expect(registrations.submitProductRegistration).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -308,7 +310,8 @@ describe("ChannelsFinalCapabilityAdapter", () => {
     expect(provenance.loadExternalConfirmation).toHaveBeenCalledWith({
       organizationId: executionContext.organizationId,
       initiatingUserId: executionContext.initiatingUserId,
-      ...submissionInput,
+      executionId: submissionInput.registrationExecutionId,
+      preparationId: submissionInput.preparationId,
     });
     expect(
       registrations.assertExternalProductRegistrationAccount,

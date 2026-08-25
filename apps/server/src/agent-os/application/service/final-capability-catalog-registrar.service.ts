@@ -20,10 +20,6 @@ import {
   type SupplyCapabilityCompositionPort,
 } from '../../../supply/application/port/in/capability/supply-capability-composition.port';
 import { FINAL_CAPABILITY_DEFINITIONS } from '../../domain/catalog/final-capability.catalog';
-import {
-  AGENT_OS_CAPABILITY_COMPOSITION_PORT,
-  type AgentOsCapabilityCompositionPort,
-} from '../port/in/capability/agent-os-capability-composition.port';
 import { AgentCapabilityRegistry } from './agent-capability-registry.service';
 import type { CapabilityCompositionProvider } from '../../../common/capability-composition';
 
@@ -49,8 +45,6 @@ export function registerFinalCapabilityCatalog(
 export class FinalCapabilityCatalogRegistrar implements OnModuleInit {
   constructor(
     private readonly registry: AgentCapabilityRegistry,
-    @Inject(AGENT_OS_CAPABILITY_COMPOSITION_PORT)
-    private readonly agentOs: AgentOsCapabilityCompositionPort,
     @Inject(ANALYTICS_CAPABILITY_COMPOSITION_PORT)
     private readonly analytics: AnalyticsCapabilityCompositionPort,
     @Inject(CHANNELS_CAPABILITY_COMPOSITION_PORT)
@@ -65,7 +59,6 @@ export class FinalCapabilityCatalogRegistrar implements OnModuleInit {
 
   onModuleInit(): void {
     registerFinalCapabilityCatalog(this.registry, [
-      this.agentOs,
       this.analytics,
       this.channels,
       this.products,

@@ -1,198 +1,37 @@
 /// @namespace AgentOS
-/// @describe Immutable code-owned agent definition version.
-model AgentVersion {
-  id String @id @default(uuid()) @db.Uuid
-  agentDefinitionKey String @map("agent_definition_key")
-  version Int
-  assignedDomains Json @map("assigned_domains") @db.JsonB
-  capabilityKeys Json @map("capability_keys") @db.JsonB
-  runtimeType String @map("runtime_type")
-  instructionProfileRef String @map("instruction_profile_ref")
-  manifestHash String @map("manifest_hash")
-  activatedAt DateTime? @map("activated_at") @db.Timestamptz
-  retiredAt DateTime? @map("retired_at") @db.Timestamptz
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  tasks AgentTask[]
-  attempts AgentAttempt[]
-  invocations AgentCapabilityInvocation[]
-  @@unique([agentDefinitionKey, version])
-  @@index([agentDefinitionKey, manifestHash])
-  @@unique([agentDefinitionKey], where: raw("activated_at IS NOT NULL AND retired_at IS NULL"), map: "agent_work_versions_one_current")
-  @@index([agentDefinitionKey, activatedAt])
-  @@map("agent_work_versions")
-}
+/// @describe Exact request-driven mutation admission and replay receipt.
+model CapabilityInvocation {
+  id                       String    @id @default(uuid()) @db.Uuid
+  organizationId           String    @map("organization_id") @db.Uuid
+  initiatingUserId         String    @map("initiating_user_id") @db.Uuid
+  capabilityKey            String    @map("capability_key")
+  actingAgentKey           String    @map("acting_agent_key")
+  requestKey               String    @map("request_key")
+  canonicalInput           Json      @map("canonical_input") @db.JsonB
+  inputHash                String    @map("input_hash")
+  status                   String    @default("pending")
+  approvalStatus           String    @default("not_required") @map("approval_status")
+  approvalInputHash        String?   @map("approval_input_hash")
+  approvalRequestedAt      DateTime? @map("approval_requested_at") @db.Timestamptz
+  approvalExpiresAt        DateTime? @map("approval_expires_at") @db.Timestamptz
+  approvalDecidedByUserId  String?   @map("approval_decided_by_user_id") @db.Uuid
+  approvalDecisionReason   String?   @map("approval_decision_reason") @db.Text
+  approvalDecidedAt        DateTime? @map("approval_decided_at") @db.Timestamptz
+  result                   Json?     @db.JsonB
+  error                    Json?     @db.JsonB
+  createdAt                DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  finishedAt               DateTime? @map("finished_at") @db.Timestamptz
 
-/// @namespace AgentOS
-/// @describe User-visible work grouping and terminal deletion boundary.
-model AgentSession {
-  id String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-  createdByUserId String @map("created_by_user_id") @db.Uuid
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-  organization Organization @relation("AgentSessionOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
-  creator User @relation("AgentSessionCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
-  tasks AgentTask[]
-  attempts AgentAttempt[]
-  invocations AgentCapabilityInvocation[]
-  approvals AgentCapabilityApproval[]
-  @@unique([id, organizationId])
-  @@index([organizationId, updatedAt])
-  @@index([createdByUserId])
-  @@map("agent_work_sessions")
-}
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  initiatingUser User @relation("CapabilityInvocationInitiator", fields: [initiatingUserId], references: [id], onDelete: Restrict)
+  approvalDecidedByUser User? @relation("CapabilityInvocationApprover", fields: [approvalDecidedByUserId], references: [id], onDelete: SetNull)
 
-/// @namespace AgentOS
-/// @describe Root or delegated durable work responsibility.
-model AgentTask {
-  id String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-  sessionId String @map("session_id") @db.Uuid
-  parentTaskId String? @map("parent_task_id") @db.Uuid
-  assignedAgentVersionId String @map("assigned_agent_version_id") @db.Uuid
-  objective String @db.Text
-  completionCriteria String @map("completion_criteria") @db.Text
-  inputResourceRefs Json @map("input_resource_refs") @db.JsonB
-  status String @default("open")
-  delegatedFromAttemptId String? @map("delegated_from_attempt_id") @db.Uuid
-  delegationIdempotencyKey String? @map("delegation_idempotency_key")
-  delegationRequestHash String? @map("delegation_request_hash")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-  finishedAt DateTime? @map("finished_at") @db.Timestamptz
-  session AgentSession @relation(fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  parent AgentTask? @relation("AgentTaskHierarchy", fields: [parentTaskId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Restrict)
-  children AgentTask[] @relation("AgentTaskHierarchy")
-  assignedAgentVersion AgentVersion @relation(fields: [assignedAgentVersionId], references: [id], onDelete: Restrict)
-  delegatedFromAttempt AgentAttempt? @relation("AgentTaskDelegatedFromAttempt", fields: [delegatedFromAttemptId, parentTaskId, sessionId, organizationId], references: [id, taskId, sessionId, organizationId], onDelete: Restrict)
-  attempts AgentAttempt[] @relation("AgentTaskAttempts")
-  invocations AgentCapabilityInvocation[]
   @@unique([id, organizationId])
-  @@unique([id, sessionId, organizationId])
-  @@unique([id, assignedAgentVersionId, sessionId, organizationId])
-  @@unique([sessionId], where: raw("parent_task_id IS NULL"))
-  @@unique([parentTaskId, delegationIdempotencyKey], where: raw("parent_task_id IS NOT NULL AND delegation_idempotency_key IS NOT NULL"))
-  @@index([organizationId, sessionId, status])
-  @@index([parentTaskId, sessionId, organizationId])
-  @@index([assignedAgentVersionId])
-  @@index([delegatedFromAttemptId, parentTaskId, sessionId, organizationId])
-  @@map("agent_work_tasks")
-}
-
-/// @namespace AgentOS
-/// @describe One immutable local CLI process attempt.
-model AgentAttempt {
-  id String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-  sessionId String @map("session_id") @db.Uuid
-  taskId String @map("task_id") @db.Uuid
-  agentVersionId String @map("agent_version_id") @db.Uuid
-  ordinal Int
-  predecessorAttemptId String? @map("predecessor_attempt_id") @db.Uuid
-  input Json @db.JsonB
-  runtimeType String @map("runtime_type")
-  instructionProfileRef String @map("instruction_profile_ref")
-  applicationVersion String @map("application_version")
-  authorizingGitSha String @map("authorizing_git_sha")
-  cliVersion String @map("cli_version")
-  reportedModel String? @map("reported_model")
-  status String @default("starting")
-  result Json? @db.JsonB
-  error Json? @db.JsonB
-  inputTokens Int? @map("input_tokens")
-  outputTokens Int? @map("output_tokens")
-  startedAt DateTime? @map("started_at") @db.Timestamptz
-  finishedAt DateTime? @map("finished_at") @db.Timestamptz
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  session AgentSession @relation(fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  task AgentTask @relation("AgentTaskAttempts", fields: [taskId, agentVersionId, sessionId, organizationId], references: [id, assignedAgentVersionId, sessionId, organizationId], onDelete: Cascade)
-  agentVersion AgentVersion @relation(fields: [agentVersionId], references: [id], onDelete: Restrict)
-  predecessor AgentAttempt? @relation("AgentAttemptPredecessor", fields: [predecessorAttemptId, agentVersionId, taskId, sessionId, organizationId], references: [id, agentVersionId, taskId, sessionId, organizationId], onDelete: Restrict)
-  successors AgentAttempt[] @relation("AgentAttemptPredecessor")
-  delegatedTasks AgentTask[] @relation("AgentTaskDelegatedFromAttempt")
-  invocations AgentCapabilityInvocation[]
-  @@unique([id, organizationId])
-  @@unique([id, taskId, sessionId, organizationId])
-  @@unique([id, agentVersionId, taskId, sessionId, organizationId])
-  @@unique([taskId, ordinal])
-  @@unique([taskId], where: raw("status IN ('starting', 'running')"))
-  @@index([organizationId, sessionId, taskId, status])
-  @@index([predecessorAttemptId, agentVersionId, taskId, sessionId, organizationId])
-  @@index([agentVersionId])
-  @@map("agent_attempts")
-}
-
-/// @namespace AgentOS
-/// @describe Exact capability authorization and mutation work item.
-model AgentCapabilityInvocation {
-  id String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-  sessionId String @map("session_id") @db.Uuid
-  taskId String @map("task_id") @db.Uuid
-  attemptId String @map("attempt_id") @db.Uuid
-  agentVersionId String @map("agent_version_id") @db.Uuid
-  initiatingUserId String @map("initiating_user_id") @db.Uuid
-  capabilityKey String @map("capability_key")
-  ownerDomain String @map("owner_domain")
-  authorizationKind String @map("authorization_kind")
-  authorizationExpiresAt DateTime @map("authorization_expires_at") @db.Timestamptz
-  inputHash String @map("input_hash")
-  canonicalInput Json? @map("canonical_input") @db.JsonB
-  effects Json @db.JsonB
-  approvalRisk String @map("approval_risk")
-  idempotencyRequirement String @map("idempotency_requirement")
-  ownerIdempotencyKey String? @map("owner_idempotency_key")
-  applicationVersion String @map("application_version")
-  authorizingGitSha String @map("authorizing_git_sha")
-  capabilityContractFingerprint String @map("capability_contract_fingerprint")
-  runtimeType String @map("runtime_type")
-  reportedModel String? @map("reported_model")
-  status String @default("authorized")
-  leaseOwner String? @map("lease_owner")
-  leaseExpiresAt DateTime? @map("lease_expires_at") @db.Timestamptz
-  attemptCount Int @default(0) @map("attempt_count")
-  result Json? @db.JsonB
-  error Json? @db.JsonB
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-  finishedAt DateTime? @map("finished_at") @db.Timestamptz
-  session AgentSession @relation(fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  task AgentTask @relation(fields: [taskId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Cascade)
-  attempt AgentAttempt @relation(fields: [attemptId, agentVersionId, taskId, sessionId, organizationId], references: [id, agentVersionId, taskId, sessionId, organizationId], onDelete: Cascade)
-  agentVersion AgentVersion @relation(fields: [agentVersionId], references: [id], onDelete: Restrict)
-  initiatingUser User @relation("AgentCapabilityInvocationInitiator", fields: [initiatingUserId], references: [id], onDelete: Restrict)
-  approval AgentCapabilityApproval?
-  @@unique([id, organizationId])
-  @@unique([id, sessionId, organizationId])
-  @@unique([organizationId, capabilityKey, ownerIdempotencyKey], where: raw("owner_idempotency_key IS NOT NULL AND idempotency_requirement = 'required'"))
-  @@index([organizationId, status, leaseExpiresAt])
-  @@index([taskId, sessionId, organizationId])
-  @@index([attemptId, agentVersionId, taskId, sessionId, organizationId])
-  @@index([agentVersionId])
+  @@unique([organizationId, requestKey])
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, approvalStatus, approvalExpiresAt])
   @@index([initiatingUserId])
-  @@map("agent_capability_invocations")
-}
-
-/// @namespace AgentOS
-/// @describe One immutable human decision for one mutation invocation.
-model AgentCapabilityApproval {
-  id String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-  sessionId String @map("session_id") @db.Uuid
-  invocationId String @map("invocation_id") @db.Uuid
-  inputHash String @map("input_hash")
-  status String @default("pending")
-  expiresAt DateTime @map("expires_at") @db.Timestamptz
-  decidedByUserId String? @map("decided_by_user_id") @db.Uuid
-  decisionReason String? @map("decision_reason") @db.Text
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  decidedAt DateTime? @map("decided_at") @db.Timestamptz
-  session AgentSession @relation(fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  invocation AgentCapabilityInvocation @relation(fields: [invocationId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Cascade)
-  decidedByUser User? @relation("AgentCapabilityApprovalDecider", fields: [decidedByUserId], references: [id], onDelete: SetNull)
-  @@unique([invocationId])
-  @@unique([invocationId, sessionId, organizationId])
-  @@index([organizationId, status, expiresAt])
-  @@index([decidedByUserId])
-  @@map("agent_capability_approvals")
+  @@index([approvalDecidedByUserId])
+  @@map("capability_invocations")
 }

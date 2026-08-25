@@ -5,7 +5,7 @@ const Uuid = z.string().uuid();
 const Identifier = z.string().trim().min(1).max(256);
 const RegistrationReferenceInput = z
   .object({
-    executionId: Uuid,
+    registrationExecutionId: Uuid,
     preparationId: Uuid,
   })
   .strict();

@@ -214,7 +214,7 @@ function toFrozenReference(
   return {
     organizationId: context.organizationId,
     initiatingUserId: context.initiatingUserId,
-    executionId: input.executionId,
+    executionId: input.registrationExecutionId,
     preparationId: input.preparationId,
   };
 }

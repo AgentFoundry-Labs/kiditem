@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
 import {
   defineCapabilityComposition,
@@ -10,7 +11,6 @@ import {
 } from './final-capability-catalog-registrar.service';
 
 const expectedKeys = [
-  'agent_os.platform_probe',
   'analytics.readOverview',
   'channels.register_confirmed_listing',
   'channels.submit_coupang_listing',
@@ -31,7 +31,6 @@ const expectedKeys = [
 ] as const;
 
 const expectedOwnerInputPorts = {
-  'agent_os.platform_probe': 'agent_os.platformProbe',
   'analytics.readOverview': 'analytics.readOverview',
   'channels.register_confirmed_listing': 'channels.registerConfirmedListing',
   'channels.submit_coupang_listing': 'channels.submitCoupangListing',
@@ -54,6 +53,22 @@ const expectedOwnerInputPorts = {
 
 const catalogPort: Record<string, () => void> = {};
 
+function expectStrictZodObjectOrUnion(schema: z.ZodTypeAny): void {
+  if (schema instanceof z.ZodObject) {
+    expect(schema._def.unknownKeys).toBe('strict');
+    return;
+  }
+
+  if (schema instanceof z.ZodDiscriminatedUnion) {
+    for (const option of schema.options) {
+      expect(option._def.unknownKeys).toBe('strict');
+    }
+    return;
+  }
+
+  throw new Error(`Expected a strict Zod object or discriminated union, got ${schema._def.typeName}`);
+}
+
 function compositionProvider(
   definitions = FINAL_CAPABILITY_DEFINITIONS,
 ): CapabilityCompositionProvider {
@@ -69,7 +84,7 @@ function compositionProvider(
 }
 
 describe('FinalCapabilityCatalogRegistrar', () => {
-  it('keeps the sorted 18-key catalog and its owner input ports exact', () => {
+  it('keeps the sorted 17-key catalog and its owner input ports exact', () => {
     expect(FINAL_CAPABILITY_DEFINITIONS.map((definition) => definition.key)).toEqual(
       expectedKeys,
     );
@@ -83,6 +98,42 @@ describe('FinalCapabilityCatalogRegistrar', () => {
     ).toEqual(expectedOwnerInputPorts);
   });
 
+  it('uses one strict owner-prefixed Zod definition per implementation without server authority inputs', () => {
+    for (const definition of FINAL_CAPABILITY_DEFINITIONS) {
+      expect(definition.key).toMatch(
+        new RegExp(`^${definition.ownerDomain}\\.`),
+      );
+      expect(definition.ownerInputPort).toMatch(
+        new RegExp(`^${definition.ownerDomain}\\.`),
+      );
+      expect(definition.inputSchema).toBeInstanceOf(z.ZodType);
+      expect(definition.outputSchema).toBeInstanceOf(z.ZodType);
+      expectStrictZodObjectOrUnion(definition.inputSchema);
+      expectStrictZodObjectOrUnion(definition.outputSchema);
+      expect(
+        definition.inputSchema.safeParse({
+          organizationId: 'forged-organization',
+          initiatingUserId: 'forged-user',
+          executionId: 'forged-execution',
+          sessionId: 'forged-session',
+          taskId: 'forged-task',
+          attemptId: 'forged-attempt',
+          agentVersionId: 'forged-version',
+          runtimeType: 'forged-runtime',
+          providerSessionId: 'forged-provider-session',
+        }).success,
+      ).toBe(false);
+      const mutation = definition.effects.some((effect) =>
+        ['db_write', 'external_write', 'job_enqueue'].includes(effect),
+      );
+      if (mutation) {
+        expect(definition.idempotency).toBe('required');
+      } else {
+        expect(['none', 'low']).toContain(definition.approvalRisk);
+      }
+    }
+  });
+
   it('aggregates owner-local composition units without a central capability-to-method map', () => {
     const registry = new AgentCapabilityRegistry();
 
@@ -90,6 +141,15 @@ describe('FinalCapabilityCatalogRegistrar', () => {
 
     expect(registry.listDefinitions().map((definition) => definition.key)).toEqual(
       expectedKeys,
+    );
+    expect(
+      registry
+        .listDefinitions()
+        .map((definition) => definition.key)
+        .sort(),
+    ).toEqual(
+      [...new Set(FINAL_CAPABILITY_DEFINITIONS.map((definition) => definition.key))]
+        .sort(),
     );
     for (const definition of FINAL_CAPABILITY_DEFINITIONS) {
       expect(registry.resolveImplementation(definition.key)).toMatchObject({

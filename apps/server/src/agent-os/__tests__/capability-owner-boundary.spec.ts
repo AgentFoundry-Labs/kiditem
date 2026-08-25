@@ -9,7 +9,6 @@ const requiredOwners = [
   ['sourcing.collect_shadow_signals', 'sourcing', 'sourcing.collectShadowSignals'],
   ['products.create_listing_generation_package', 'products', 'products.createListingGenerationPackage'],
   ['channels.submit_wing_thumbnail', 'channels', 'channels.submitWingThumbnail'],
-  ['agent_os.platform_probe', 'agent_os', 'agent_os.platformProbe'],
   ['analytics.readOverview', 'analytics', 'analytics.readOverview'],
   ['supply.create_purchase_order_draft', 'supply', 'supply.createPurchaseOrderDraft'],
   ['supply.submit_purchase_order', 'supply', 'supply.submitPurchaseOrder'],
@@ -19,7 +18,6 @@ const capabilityFiles = [
   'sourcing/domain/capability/sourcing.capabilities.ts',
   'products/domain/capability/products.capabilities.ts',
   'channels/domain/capability/channels.capabilities.ts',
-  'agent-os/domain/capability/agent-os.capabilities.ts',
   'analytics/domain/capability/analytics.capabilities.ts',
   'supply/domain/capability/supply.capabilities.ts',
 ];

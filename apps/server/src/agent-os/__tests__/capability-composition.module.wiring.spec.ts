@@ -1,9 +1,7 @@
 import 'reflect-metadata';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { AgentOsCapabilityCompositionAdapter } from '../adapter/in/agent/agent-os-capability-composition.adapter';
 import { AgentOsCapabilityModule } from '../agent-os-capability.module';
-import { AGENT_OS_CAPABILITY_COMPOSITION_PORT } from '../application/port/in/capability/agent-os-capability-composition.port';
 import { AnalyticsCapabilityCompositionAdapter } from '../../analytics/adapter/in/agent/analytics-capability-composition.adapter';
 import { AnalyticsModule } from '../../analytics/analytics.module';
 import { ANALYTICS_CAPABILITY_COMPOSITION_PORT } from '../../analytics/application/port/in/capability/analytics-capability-composition.port';
@@ -40,11 +38,6 @@ function expectCompositionBinding(
 
 describe('owner-local capability composition module wiring', () => {
   it('exports each owner definition-to-port Adapter from its own Module', () => {
-    expectCompositionBinding(
-      AgentOsCapabilityModule,
-      AGENT_OS_CAPABILITY_COMPOSITION_PORT,
-      AgentOsCapabilityCompositionAdapter,
-    );
     expectCompositionBinding(
       AnalyticsModule,
       ANALYTICS_CAPABILITY_COMPOSITION_PORT,
@@ -88,7 +81,6 @@ describe('owner-local capability composition module wiring', () => {
       'PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT',
       'SUPPLY_PURCHASE_ORDER_CAPABILITY_PORT',
       'ANALYTICS_AGENT_OVERVIEW_CAPABILITY_PORT',
-      'AGENT_OS_PLATFORM_PROBE_CAPABILITY_PORT',
       'OwnerInput',
       'as never',
       'as unknown',

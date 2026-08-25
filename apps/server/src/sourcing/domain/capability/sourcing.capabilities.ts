@@ -52,7 +52,7 @@ export const SOURCING_CAPABILITIES = [
   },
   {
     key: 'sourcing.ingestCandidate', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.ingestCandidate',
-    description: 'Persist the exact server-scraped source snapshot bound to this Agent attempt.',
+    description: 'Persist the exact server-scraped source snapshot bound to the same live provider turn.',
     inputSchema: z.object({ snapshot: SourceSnapshot }).strict(),
     outputSchema: z.object({ candidateId: Uuid }).strict(),
     effects: ['db_write'], approvalRisk: 'low', idempotency: 'required',

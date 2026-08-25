@@ -20,8 +20,6 @@ import { AgentCapabilityApprovalService } from './agent-os/application/service/w
 import { AgentSessionTerminalDeleteService } from './agent-os/application/service/work/agent-session-terminal-delete.service';
 import { AgentWorkQueryService } from './agent-os/application/service/work/agent-work-query.service';
 import { AGENT_WORK_QUERY_PORT } from './agent-os/application/port/in/work/agent-work-query.port';
-import { AgentVersionPublisher } from './agent-os/application/service/work/agent-work-version-publisher.service';
-import { AgentVersionPublicationBootstrap } from './agent-os/application/service/work/agent-version-publication-bootstrap.service';
 import { AgentCapabilityRegistry } from './agent-os/application/service/agent-capability-registry.service';
 import { FinalCapabilityCatalogRegistrar } from './agent-os/application/service/final-capability-catalog-registrar.service';
 import { SOURCING_CAPABILITY_ADMISSION_PORT, type SourcingCapabilityAdmissionPort } from './sourcing/application/port/in/capability/sourcing-capability-admission.port';
@@ -53,8 +51,6 @@ import {
     { provide: PrismaAgentWorkTransaction, inject: [PrismaService, OPERATION_RUNNER_PORT], useFactory: (prisma: PrismaService, operations: OperationRunnerPort) => new PrismaAgentWorkTransaction(prisma, operations) },
     ...AGENT_WORK_PERSISTENCE_PORT_PROVIDERS,
     { provide: PrismaAgentWorkRepository, inject: [PrismaService], useFactory: (prisma: PrismaService) => new PrismaAgentWorkRepository(prisma) },
-    { provide: AgentVersionPublisher, inject: [PrismaService], useFactory: (prisma: PrismaService) => new AgentVersionPublisher(prisma) },
-    { provide: AgentVersionPublicationBootstrap, inject: [AgentVersionPublisher], useFactory: (publisher: AgentVersionPublisher) => new AgentVersionPublicationBootstrap(publisher) },
     { provide: AGENT_WORK_REPOSITORY_PORT, useExisting: PrismaAgentWorkRepository },
     { provide: AGENT_WORK_QUERY_REPOSITORY_PORT, useExisting: PrismaAgentWorkRepository },
     { provide: AgentCapabilityInvocationService, inject: [AGENT_WORK_INVOCATION_APPROVAL_PORT, AgentCapabilityRegistry, SOURCING_CAPABILITY_ADMISSION_PORT], useFactory: (work: AgentWorkInvocationApprovalPort, capabilities: AgentCapabilityRegistry, sourcing: SourcingCapabilityAdmissionPort) => new AgentCapabilityInvocationService(work, capabilities, undefined, sourcing) },

@@ -35,10 +35,9 @@ describe('Agent Work HTTP boundary', () => {
     expect(copilot).not.toContain('agents: { operator:');
   });
 
-  it('exposes only the six code-owned Agent definitions and never turns terminal thread replay into reasoning', () => {
+  it('exposes only the five code-owned Agent definitions and never turns terminal thread replay into reasoning', () => {
     const source = readFileSync(resolve(__dirname, '../../../../../application/service/work/agent-work-intake.module.ts'), 'utf8');
     expect(AGENT_DEFINITIONS.map((definition) => definition.key)).toEqual([
-      'operator',
       'sourcing',
       'merchandising',
       'supply',
