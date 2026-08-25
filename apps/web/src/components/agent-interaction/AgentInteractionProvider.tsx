@@ -8,6 +8,7 @@ export function AgentInteractionProvider({ children }: { children: ReactNode }) 
     <CopilotKit
       runtimeUrl="/api/copilotkit"
       credentials="include"
+      useSingleEndpoint={false}
     >
       {children}
     </CopilotKit>
