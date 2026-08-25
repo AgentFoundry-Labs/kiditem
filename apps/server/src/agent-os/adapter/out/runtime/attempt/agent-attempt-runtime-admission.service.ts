@@ -35,7 +35,7 @@ export class AgentAttemptRuntimeAdmissionService implements AgentAttemptReadines
   }
 
   async assertRoot(input: AdmitRootAttemptInput): Promise<void> {
-    const runtime = await this.activeVersionRuntime(input.assignedAgentVersionId);
+    const runtime = await this.currentVersionRuntime(input.assignedAgentVersionId);
     await this.assertPreflight(runtime, input);
   }
 
@@ -54,18 +54,21 @@ export class AgentAttemptRuntimeAdmissionService implements AgentAttemptReadines
     });
     if (!task) throw agentWorkError('task_not_found');
     const version = task.assignedAgentVersion;
-    if (!version.activatedAt || version.retiredAt) {
+    // This is a Task-pinned immutable snapshot. Retirement only removes a
+    // version from new root/delegation selection; a successor must retain its
+    // original runtime contract.
+    if (!version.activatedAt) {
       throw agentWorkError('agent_version_not_active');
     }
     await this.assertPreflight(runtimeType(version.runtimeType), input);
   }
 
   async assertDelegation(input: DelegateTaskInput): Promise<void> {
-    const runtime = await this.activeVersionRuntime(input.targetAgentVersionId);
+    const runtime = await this.currentVersionRuntime(input.targetAgentVersionId);
     await this.assertPreflight(runtime, input);
   }
 
-  private async activeVersionRuntime(agentVersionId: string): Promise<'codex_cli' | 'claude_cli'> {
+  private async currentVersionRuntime(agentVersionId: string): Promise<'codex_cli' | 'claude_cli'> {
     const version = await this.prisma.agentVersion.findFirst({
       where: { id: agentVersionId, activatedAt: { not: null }, retiredAt: null },
       select: { runtimeType: true },

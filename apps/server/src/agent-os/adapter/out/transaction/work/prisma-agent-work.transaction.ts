@@ -1,6 +1,19 @@
-import { Prisma, type PrismaClient } from "@prisma/client";
 import { createHash } from 'node:crypto';
+import { Prisma, type PrismaClient } from "@prisma/client";
+import { AgentResultEnvelopeSchema } from '@kiditem/shared/agent-interaction';
 import { canonicalizeOwnerInput, deriveOwnerIdempotencyKey } from '../../../../../common/owner-idempotency-key';
+import {
+  currentAgentVersion,
+  activatedTaskVersion,
+  assertActiveMembership,
+  lockSession,
+  lockSessionOwner,
+  lockedOwnedSession,
+  lockTask,
+  rejectAgentWork as rejection,
+  type AgentWorkTransaction,
+} from "./internal/agent-work-transaction.guards";
+import type { OperationRunnerPort } from '../../../../../operations/application/port/in/operation-runner.port';
 import type {
   AdmitRootAttemptInput,
   AdmitRootAttemptResult,
@@ -28,18 +41,6 @@ import type { AgentWorkAdmissionPort } from "../../../../application/port/out/wo
 import type { AgentWorkInvocationApprovalPort } from "../../../../application/port/out/work/agent-work-invocation-approval.port";
 import type { AgentWorkLifecyclePort } from "../../../../application/port/out/work/agent-work-lifecycle.port";
 import type { AgentWorkMutationPort } from "../../../../application/port/out/work/agent-work-mutation.port";
-import { AgentResultEnvelopeSchema } from '@kiditem/shared/agent-interaction';
-import type { OperationRunnerPort } from '../../../../../operations/application/port/in/operation-runner.port';
-import {
-  activeVersion,
-  assertActiveMembership,
-  lockSession,
-  lockSessionOwner,
-  lockedOwnedSession,
-  lockTask,
-  rejectAgentWork as rejection,
-  type AgentWorkTransaction,
-} from "./internal/agent-work-transaction.guards";
 
 /**
  * One shared Prisma atomicity kernel for every Agent Work persistence seam.
@@ -76,7 +77,10 @@ export class PrismaAgentWorkTransaction
         where: { sessionId: session.id },
       });
       if (existing) throw rejection("root_task_already_exists");
-      const version = await activeVersion(tx, input.assignedAgentVersionId);
+      const version = await currentAgentVersion(
+        tx,
+        input.assignedAgentVersionId,
+      );
       const task = await tx.agentTask.create({
         data: {
           organizationId: input.organizationId,
@@ -154,7 +158,10 @@ export class PrismaAgentWorkTransaction
           data: { status: "open", finishedAt: null },
         });
       }
-      const version = await activeVersion(tx, task.assigned_agent_version_id);
+      const version = await activatedTaskVersion(
+        tx,
+        task.assigned_agent_version_id,
+      );
       const predecessor = await tx.agentAttempt.findFirst({
         where: {
           id: input.predecessorAttemptId,
@@ -317,7 +324,10 @@ export class PrismaAgentWorkTransaction
         },
       });
       if (!attempt) throw rejection("delegating_attempt_not_live");
-      const version = await activeVersion(tx, input.targetAgentVersionId);
+      const version = await currentAgentVersion(
+        tx,
+        input.targetAgentVersionId,
+      );
       const child = await tx.agentTask.create({
         data: {
           organizationId: input.organizationId,
@@ -395,7 +405,10 @@ export class PrismaAgentWorkTransaction
         input.agentVersionId !== task.assigned_agent_version_id
       )
         throw rejection("attempt_version_mismatch");
-      const version = await activeVersion(tx, task.assigned_agent_version_id);
+      const version = await activatedTaskVersion(
+        tx,
+        task.assigned_agent_version_id,
+      );
       const capabilityKeys = version.capabilityKeys as unknown[];
       const assignedDomains = version.assignedDomains as unknown[];
       const mutation = input.effects.some((effect) =>

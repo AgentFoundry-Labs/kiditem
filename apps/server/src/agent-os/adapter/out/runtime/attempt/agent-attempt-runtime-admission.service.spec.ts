@@ -11,6 +11,35 @@ describe('AgentAttemptRuntimeAdmissionService', () => {
     expect(readiness.assertRuntime).toHaveBeenCalledWith('codex_cli', 'gpt-5', `1.2.3:${'a'.repeat(40)}`);
   });
 
+  it('preflights a successor against an activated retired Task snapshot', async () => {
+    const taskFindFirst = vi.fn().mockResolvedValue({
+      assignedAgentVersion: {
+        runtimeType: 'codex_cli',
+        activatedAt: new Date(),
+        retiredAt: new Date(),
+      },
+    });
+    const readiness = { assertRuntime: vi.fn(async () => undefined) };
+    const service = new AgentAttemptRuntimeAdmissionService({
+      agentTask: { findFirst: taskFindFirst },
+    } as never, readiness as never);
+
+    await expect(service.assertFollowUp({
+      organizationId: 'org',
+      sessionId: 'session',
+      taskId: 'task',
+      applicationVersion: '1.2.3',
+      authorizingGitSha: 'a'.repeat(40),
+      reportedModel: 'exact-model',
+    } as never)).resolves.toBeUndefined();
+
+    expect(readiness.assertRuntime).toHaveBeenCalledWith(
+      'codex_cli',
+      'exact-model',
+      `1.2.3:${'a'.repeat(40)}`,
+    );
+  });
+
   it('preflights the exact active root, follow-up, and delegated AgentVersion tuples before durable admission', async () => {
     const versionFindFirst = vi
       .fn()

@@ -1,5 +1,5 @@
-import type { PrismaClient } from "@prisma/client";
 import { AgentOsRuntimeError } from "../../../../../domain/agent-os.errors";
+import type { PrismaClient } from "@prisma/client";
 
 export type AgentWorkTransaction = Parameters<
   PrismaClient["$transaction"]
@@ -62,9 +62,26 @@ export async function assertActiveMembership(
   if (!membership) throw rejectAgentWork("organization_membership_inactive");
 }
 
-export async function activeVersion(tx: AgentWorkTransaction, id: string) {
+/** New roots and delegation targets must select the current published version. */
+export async function currentAgentVersion(tx: AgentWorkTransaction, id: string) {
   const version = await tx.agentVersion.findFirst({
     where: { id, activatedAt: { not: null }, retiredAt: null },
+  });
+  if (!version) throw rejectAgentWork("agent_version_not_active");
+  return version;
+}
+
+/**
+ * A Task holds an immutable AgentVersion coordinate. Retiring a version only
+ * prevents selecting it for new root/delegation work; it cannot invalidate an
+ * already-admitted Task's successor Attempts or capability authorization.
+ */
+export async function activatedTaskVersion(
+  tx: AgentWorkTransaction,
+  id: string,
+) {
+  const version = await tx.agentVersion.findFirst({
+    where: { id, activatedAt: { not: null } },
   });
   if (!version) throw rejectAgentWork("agent_version_not_active");
   return version;
