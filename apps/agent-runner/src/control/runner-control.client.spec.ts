@@ -83,7 +83,7 @@ describe('RunnerControlClient', () => {
     expect(killed).toBe(1);
   });
 
-  it('resets the control-loss deadline after a valid authenticated event response while the next poll is black-holed', async () => {
+  it('does not let continuous valid event posts extend a black-holed command-poll lease', async () => {
     vi.useFakeTimers();
     let polls = 0;
     let signal: AbortSignal | undefined;
@@ -114,14 +114,11 @@ describe('RunnerControlClient', () => {
     void running.catch(() => undefined);
 
     await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(29_000);
-    await client.postEventBody(JSON.stringify({ eventSeq: 1 }));
-    await vi.advanceTimersByTimeAsync(1_000);
-
-    expect(signal?.aborted).toBe(false);
-    expect(killed).toBe(0);
-
-    await vi.advanceTimersByTimeAsync(29_000);
+    for (let eventSeq = 1; eventSeq <= 5; eventSeq += 1) {
+      await vi.advanceTimersByTimeAsync(5_000);
+      await client.postEventBody(JSON.stringify({ eventSeq }));
+    }
+    await vi.advanceTimersByTimeAsync(5_000);
 
     expect(signal?.aborted).toBe(true);
     await expect(running).rejects.toThrow('runner_lease_lost');

@@ -8,8 +8,17 @@ export type ProviderAuthReference = Readonly<{ runtime: AgentCliRuntime; source:
 export class ProviderAuthReferenceService {
   constructor(private readonly options: Readonly<{ loginRoot: string; platform: RunnerPlatform }>) {}
 
+  /** Validates the selected host account directory without touching any auth bytes. */
+  async loginRoot(): Promise<string> { return checkedDirectory(this.options.loginRoot); }
+
   async resolve(runtime: AgentCliRuntime): Promise<ProviderAuthReference> {
-    const loginRoot = await checkedDirectory(this.options.loginRoot);
+    // macOS Claude subscription credentials live in the signed-in account's
+    // Keychain.  A filesystem reference here would tempt callers to expose
+    // `.claude.json`, settings, history, or a Linux/Windows-only artifact.
+    if (runtime === 'claude_cli' && this.options.platform === 'macos') {
+      throw new Error('provider_auth_reference_not_applicable');
+    }
+    const loginRoot = await this.loginRoot();
     const relativeArtifact = runtime === 'codex_cli' ? join('.codex', 'auth.json') : join('.claude', '.credentials.json');
     const source = join(loginRoot, relativeArtifact);
     const info = await lstat(source).catch(() => null);

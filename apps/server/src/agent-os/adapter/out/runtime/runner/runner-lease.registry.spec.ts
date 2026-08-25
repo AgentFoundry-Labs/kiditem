@@ -221,6 +221,23 @@ describe('RunnerLeaseRegistry', () => {
     registry.dispose();
   });
 
+  it('does not let a duplicate hello extend a command-poll lease', async () => {
+    vi.useFakeTimers();
+    try {
+      const registry = registryFor();
+      const lease = registry.hello(hello());
+
+      await vi.advanceTimersByTimeAsync(29_000);
+      expect(registry.hello(hello())).toEqual(lease);
+      await vi.advanceTimersByTimeAsync(1_001);
+
+      expect(registry.isValid({ runnerInstanceId: instanceId, leaseId: lease.leaseId })).toBe(false);
+      registry.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('invalidates a former instance and interrupts assigned live Attempts when a new Runner arrives', async () => {
     const interrupts = vi.fn(async () => undefined);
     const commands = new RunnerCommandQueue({ commandId: () => '618f4eb1-9078-7a1e-9514-b19b5732f5de' });
@@ -319,6 +336,29 @@ describe('RunnerLeaseRegistry', () => {
     expect(interrupts).toHaveBeenCalledWith(attemptId);
     registry.dispose();
     vi.useRealTimers();
+  });
+
+  it('validates continuous event posts without extending the command-poll lease', async () => {
+    vi.useFakeTimers();
+    try {
+      const interrupts = vi.fn(async () => undefined);
+      const commands = new RunnerCommandQueue({ commandId: () => '828f4eb1-9078-7a1e-9514-b19b5732f5de' });
+      const registry = registryFor({ commands, interruptAttempt: interrupts });
+      const lease = registry.hello(hello());
+      await deliverAttempt(registry, commands, lease.leaseId);
+
+      for (let eventSeq = 1; eventSeq <= 5; eventSeq += 1) {
+        await vi.advanceTimersByTimeAsync(5_000);
+        await registry.acceptEventBatch(eventBatch(lease.leaseId, eventSeq), async () => undefined);
+      }
+      await vi.advanceTimersByTimeAsync(5_001);
+
+      expect(registry.isValid({ runnerInstanceId: instanceId, leaseId: lease.leaseId })).toBe(false);
+      expect(interrupts).toHaveBeenCalledWith(attemptId);
+      registry.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('returns queued commands promptly while retaining their stable unacknowledged identity', async () => {

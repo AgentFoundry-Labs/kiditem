@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { AttemptWorkspaceService } from './attempt-workspace.service';
@@ -80,6 +80,32 @@ describe('AttemptWorkspaceService', () => {
 
     await expect(service.create(launch())).rejects.toThrow('runner_protected_path_changed');
     expect(revalidated).toBe(true);
+  });
+
+  it('keeps macOS Claude auth in the same OS account without linking host settings or history into the attempt', async () => {
+    const attemptRoot = await tmp('kiditem-runner-attempts-');
+    const loginRoot = await tmp('kiditem-runner-login-');
+    await mkdir(join(loginRoot, '.claude', 'projects'), { recursive: true });
+    await mkdir(join(loginRoot, '.claude', 'plugins'), { recursive: true });
+    await writeFile(join(loginRoot, '.claude', '.credentials.json'), 'fixture-only');
+    await writeFile(join(loginRoot, '.claude.json'), 'host-global-config');
+    await writeFile(join(loginRoot, '.claude', 'settings.json'), 'host-settings');
+    const service = new AttemptWorkspaceService({
+      attemptRoot,
+      attemptRootGuard: fixtureAttemptRootGuard(attemptRoot),
+      loginRoot,
+      platform: 'macos',
+    });
+    const paths = await service.create({ ...launch(), runtime: 'claude_cli', model: 'claude-sonnet' });
+
+    await service.linkProviderAuth(paths, 'claude_cli');
+
+    expect(paths.claudeLoginHome).toBe(await realpath(loginRoot));
+    expect(await readdir(paths.claudeConfigDir)).toEqual(['settings.json']);
+    await expect(lstat(join(paths.home, '.claude.json'))).rejects.toThrow();
+    await expect(lstat(join(paths.claudeConfigDir, '.claude.json'))).rejects.toThrow();
+    await expect(lstat(join(paths.claudeConfigDir, 'projects'))).rejects.toThrow();
+    await expect(lstat(join(paths.claudeConfigDir, 'plugins'))).rejects.toThrow();
   });
 });
 

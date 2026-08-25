@@ -1,8 +1,10 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { buildProviderCommand } from './provider-command';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { buildProviderCommand, providerEnvironment } from './provider-command';
+
+afterEach(() => { vi.unstubAllEnvs(); });
 
 describe('buildProviderCommand', () => {
   it('selects the provider only from the typed runtime and rejects a mismatched workspace policy/train', () => {
@@ -42,6 +44,27 @@ describe('buildProviderCommand', () => {
     } finally {
       await Promise.all([rm(jsRoot, { recursive: true, force: true }), rm(nativeRoot, { recursive: true, force: true })]);
     }
+  });
+
+  it('fails closed when macOS Keychain identity is requested without a non-blank USER', () => {
+    vi.stubEnv('USER', '   ');
+
+    expect(() => providerEnvironment({
+      home: '/Users/runner-login', includeMacosUserIdentity: true, attemptToken: 'A'.repeat(43),
+    })).toThrow('provider_user_identity_required');
+  });
+
+  it('does not let an untyped legacy extra field override Runner-owned environment guards', () => {
+    const environment = (providerEnvironment as (...args: unknown[]) => Readonly<NodeJS.ProcessEnv>)({
+      home: '/Users/runner-login', attemptToken: 'A'.repeat(43),
+      extra: {
+        HOME: '/wrong-home', KIDITEM_ATTEMPT_MCP_TOKEN: 'wrong-token', CODEX_MCP_PROTOCOL_VERSION: 'old',
+      },
+    });
+
+    expect(environment.HOME).toBe('/Users/runner-login');
+    expect(environment.KIDITEM_ATTEMPT_MCP_TOKEN).toBe('A'.repeat(43));
+    expect(environment.CODEX_MCP_PROTOCOL_VERSION).toBe('2026-07-28');
   });
 });
 const paths = { root: '/tmp/a', workspace: '/tmp/a/workspace', home: '/tmp/a/home', codexHome: '/tmp/a/codex', claudeConfigDir: '/tmp/a/claude', mcpConfigPath: '/tmp/a/mcp.json', codexConfigPath: '/tmp/a/codex.toml' };

@@ -12,7 +12,7 @@ import { RunnerEventOutbox } from '../control/runner-event-outbox';
 import { MacosProcessSupervisor } from '../platform/macos/macos-process-supervisor';
 import type { ProcessCallbacks, ProcessExit, ProcessSupervisor, SupervisedProcess } from '../platform/process-supervisor';
 import type { ProviderCommand } from '../provider/provider-command';
-import { verifyRunnerReadiness } from '../main';
+import { verifyRunnerRuntimeReadiness } from '../main';
 import { createRequestScopedReadinessMcpHandler } from '../../../server/src/agent-os/adapter/in/http/runtime/attempt-mcp-http.controller';
 import { AttemptTokenRegistry } from '../../../server/src/agent-os/adapter/out/runtime/runner/attempt-token.registry';
 import { RunnerCommandQueue } from '../../../server/src/agent-os/adapter/out/runtime/runner/runner-command.queue';
@@ -20,6 +20,8 @@ import { RunnerEventHandlerService } from '../../../server/src/agent-os/adapter/
 import { RunnerLeaseRegistry } from '../../../server/src/agent-os/adapter/out/runtime/runner/runner-lease.registry';
 import { CODEX_READINESS_PROVIDER_PROMPT, RunnerReadinessService } from '../../../server/src/agent-os/adapter/out/runtime/runner/runner-readiness.service';
 
+type RealCanaryRuntime = 'codex_cli' | 'claude_cli';
+const ALL_REAL_CANARY_RUNTIMES: readonly RealCanaryRuntime[] = Object.freeze(['codex_cli', 'claude_cli']);
 const RUNNER_INSTANCE_ID = '818f4eb1-9078-7a1e-9514-b19b5732f5de';
 const LEASE_ID = '918f4eb1-9078-7a1e-9514-b19b5732f5de';
 const DEPLOY_IDENTITY = '3.4.5:real-cli-canary';
@@ -28,19 +30,48 @@ const PROVIDER_BASELINE_TIMEOUT_MS = 60_000;
 const enabled = process.env.KIDITEM_RUNNER_REAL_CLI_CANARY === '1' && process.platform === 'darwin';
 const codexModel = explicitModel('KIDITEM_RUNNER_CODEX_CANARY_MODEL');
 const claudeModel = explicitModel('KIDITEM_RUNNER_CLAUDE_CANARY_MODEL');
-const realCanary = enabled && codexModel && claudeModel ? it : it.skip;
-const realProviderBaseline = enabled && codexModel && claudeModel ? it : it.skip;
+const selectedCanaryRuntimes = realCliCanaryRuntimes(process.env.KIDITEM_RUNNER_REAL_CLI_CANARY_RUNTIMES);
+const realCanaryCases = realCliCanaryCases(selectedCanaryRuntimes ?? [], { codex_cli: codexModel, claude_cli: claudeModel });
+const requestedModelsPresent = selectedCanaryRuntimes !== null && realCanaryCases.length === selectedCanaryRuntimes.length;
+const realCanary = enabled && requestedModelsPresent ? it : it.skip;
+const realProviderBaseline = enabled && requestedModelsPresent ? it : it.skip;
 const roots: string[] = [];
 
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+
+describe('real CLI canary runtime selector', () => {
+  it.each([
+    [undefined, ['codex_cli', 'claude_cli']],
+    ['both', ['codex_cli', 'claude_cli']],
+    ['codex_cli', ['codex_cli']],
+    ['claude_cli', ['claude_cli']],
+    ['', null],
+    ['codex_cli,claude_cli', null],
+    ['unexpected', null],
+  ] as const)('maps %j to only the selected runtimes', (value, expected) => {
+    expect(realCliCanaryRuntimes(value)).toEqual(expected);
+  });
+
+  it('requires only the model for a codex-only selection', () => {
+    const selected = realCliCanaryRuntimes('codex_cli');
+    expect(selected).not.toBeNull();
+    expect(realCliCanaryCases(selected!, { codex_cli: 'gpt-5.6', claude_cli: null }))
+      .toEqual([['codex_cli', 'gpt-5.6']]);
+  });
+});
 
 describe('logged-in real CLI readiness canary', () => {
   const providerBaselineFingerprints = new Map<string, string>();
 
   it('requires explicit command-scoped model selections when enabled', () => {
     if (!enabled) return;
-    expect(codexModel, 'set KIDITEM_RUNNER_CODEX_CANARY_MODEL explicitly').toBeTruthy();
-    expect(claudeModel, 'set KIDITEM_RUNNER_CLAUDE_CANARY_MODEL explicitly').toBeTruthy();
+    if (selectedCanaryRuntimes === null) {
+      throw new Error('KIDITEM_RUNNER_REAL_CLI_CANARY_RUNTIMES must be codex_cli, claude_cli, or both');
+    }
+    for (const runtime of selectedCanaryRuntimes) {
+      expect(modelForRuntime(runtime), `set ${runtime === 'codex_cli' ? 'KIDITEM_RUNNER_CODEX_CANARY_MODEL' : 'KIDITEM_RUNNER_CLAUDE_CANARY_MODEL'} explicitly`)
+        .toBeTruthy();
+    }
   });
 
   it('uses the exact minimal Codex provider prompt for the provider-only baseline', () => {
@@ -49,20 +80,18 @@ describe('logged-in real CLI readiness canary', () => {
   });
 
   const registerRealCanaryTests = (): void => {
-    realCanary.each([
-    ['codex_cli', codexModel!],
-    ['claude_cli', claudeModel!],
-  ] as const)('runs the strict %s MCP canary through a real logged-in CLI', async (runtime, model) => {
+    realCanary.each(realCanaryCases)('runs the strict %s MCP canary through a real logged-in CLI', async (runtime, model) => {
     // `/tmp`, `/var`, and `/private/tmp` either traverse symlinks or are
     // group/world writable on macOS. The production protected-path contract
     // rightly rejects those chains, so keep this disposable root beneath the
     // private checked-out workspace and remove it in `afterEach`.
     const attemptRoot = await mkdtemp(join(process.cwd(), `.kiditem-real-${runtime}-`));
     roots.push(attemptRoot);
-    await expect(verifyRunnerReadiness({ runtimeRoot: resolve(process.cwd(), '../..'), loginRoot: homedir(), platform: 'macos' }))
+    await expect(verifyRunnerRuntimeReadiness({ runtimeRoot: resolve(process.cwd(), '../..'), loginRoot: homedir(), platform: 'macos', runtime }))
       .resolves.toMatchObject({
-        codex_cli: { version: '0.149.1', loginVerified: true, nonPersistentSettingsVerified: true },
-        claude_cli: { version: '2.1.241', loginVerified: true, nonPersistentSettingsVerified: true },
+        version: runtime === 'codex_cli' ? '0.149.1' : '2.1.241',
+        loginVerified: true,
+        nonPersistentSettingsVerified: true,
       });
 
     const commands = new RunnerCommandQueue({ commandId: commandIds() });
@@ -216,10 +245,7 @@ describe('logged-in real CLI readiness canary', () => {
     }, CANARY_TIMEOUT_MS + 20_000);
   };
 
-  realProviderBaseline.each([
-    ['codex_cli', codexModel!],
-    ['claude_cli', claudeModel!],
-  ] as const)('runs the bounded %s provider baseline without requiring an MCP tool call', async (runtime, model) => {
+  realProviderBaseline.each(realCanaryCases)('runs the bounded %s provider baseline without requiring an MCP tool call', async (runtime, model) => {
     const attemptRoot = await mkdtemp(join(process.cwd(), `.kiditem-real-baseline-${runtime}-`));
     roots.push(attemptRoot);
     const commands = new RunnerCommandQueue({ commandId: commandIds() });
@@ -526,6 +552,32 @@ describe('SafeProviderDiagnostic', () => {
     expect(JSON.stringify(diagnostic)).not.toContain(raw);
   });
 });
+
+/**
+ * Missing preserves the conservative default `both` behavior. Any supplied
+ * empty or unrecognized value fails closed so an operator cannot accidentally
+ * run an unscoped provider turn.
+ */
+export function realCliCanaryRuntimes(value: string | undefined): readonly RealCanaryRuntime[] | null {
+  if (value === undefined) return ALL_REAL_CANARY_RUNTIMES;
+  switch (value.trim()) {
+    case 'both': return ALL_REAL_CANARY_RUNTIMES;
+    case 'codex_cli': return Object.freeze(['codex_cli']);
+    case 'claude_cli': return Object.freeze(['claude_cli']);
+    default: return null;
+  }
+}
+
+function modelForRuntime(runtime: RealCanaryRuntime): string | null {
+  return runtime === 'codex_cli' ? codexModel : claudeModel;
+}
+
+function realCliCanaryCases(
+  runtimes: readonly RealCanaryRuntime[],
+  models: Readonly<Record<RealCanaryRuntime, string | null>>,
+): ReadonlyArray<readonly [RealCanaryRuntime, string]> {
+  return runtimes.flatMap((runtime) => models[runtime] ? [[runtime, models[runtime]!] as const] : []);
+}
 
 function explicitModel(key: 'KIDITEM_RUNNER_CODEX_CANARY_MODEL' | 'KIDITEM_RUNNER_CLAUDE_CANARY_MODEL'): string | null {
   const value = process.env[key]?.trim();

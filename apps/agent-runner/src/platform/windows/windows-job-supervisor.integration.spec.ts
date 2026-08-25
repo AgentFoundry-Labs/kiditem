@@ -77,7 +77,40 @@ describe('WindowsJobSupervisor', () => {
       expect(isExactBundledVersion(provider, result.stdout, expectedVersion)).toBe(true);
     }
   }, 30_000);
+
+  it.skipIf(process.platform !== 'win32')('settles terminate after the native helper has already exited naturally', async () => {
+    const helperPath = process.env.KIDITEM_WINDOWS_JOB_RUNNER_PATH;
+    expect(helperPath).toBeTruthy();
+    const supervisor = new WindowsJobSupervisor({ helperPath: helperPath! });
+    const running = await supervisor.launch(bundledProviderVersionProbe(resolve(__dirname, '../../..'), 'codex'));
+    const exited = awaitExit(running);
+
+    await exited;
+    await expect(running.terminate()).resolves.toBeUndefined();
+    await expect(supervisor.shutdown()).resolves.toBeUndefined();
+  }, 30_000);
+
+  it.skipIf(process.platform !== 'win32')('cleans an admission-time native helper exit out of shutdown state', async () => {
+    const helperPath = process.env.KIDITEM_WINDOWS_JOB_RUNNER_PATH;
+    expect(helperPath).toBeTruthy();
+    const supervisor = new WindowsJobSupervisor({ helperPath: helperPath! });
+    let resolveExit!: () => void;
+    const exited = new Promise<void>((resolveExitValue) => { resolveExit = resolveExitValue; });
+    const rejected = {
+      ...bundledProviderVersionProbe(resolve(__dirname, '../../..'), 'codex'),
+      executable: 'C:\\KidItem\\invalid-provider.js',
+      args: [],
+    };
+
+    await supervisor.launch(rejected, { onExit: () => resolveExit() }).catch(() => undefined);
+    await exited;
+    await expect(supervisor.shutdown()).resolves.toBeUndefined();
+  }, 30_000);
 });
+
+function awaitExit(running: Awaited<ReturnType<WindowsJobSupervisor['launch']>>): Promise<void> {
+  return new Promise((resolveExit) => { running.onExit(() => resolveExit()); });
+}
 
 async function runWithNativeJobHelper(helperPath: string, command: ReturnType<typeof bundledProviderVersionProbe>): Promise<{
   exit: { code: number | null; signal: NodeJS.Signals | null };

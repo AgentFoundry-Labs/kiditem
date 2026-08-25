@@ -76,17 +76,24 @@ export function bundledProviderVersionProbe(runtimeRoot: string, provider: 'code
   });
 }
 
-export function providerEnvironment(input: { home: string; providerHomeKey: 'CODEX_HOME' | 'CLAUDE_CONFIG_DIR'; providerHome: string; attemptToken: string; extra?: NodeJS.ProcessEnv }): Readonly<NodeJS.ProcessEnv> {
+export function providerEnvironment(input: {
+  home: string;
+  providerHome?: Readonly<{ key: 'CODEX_HOME' | 'CLAUDE_CONFIG_DIR'; path: string }>;
+  attemptToken?: string;
+  includeMacosUserIdentity?: boolean;
+}): Readonly<NodeJS.ProcessEnv> {
+  const macosUser = process.env.USER?.trim();
+  if (input.includeMacosUserIdentity && !macosUser) throw new Error('provider_user_identity_required');
   return Object.freeze({
     PATH: process.env.PATH ?? '',
     HOME: input.home,
-    [input.providerHomeKey]: input.providerHome,
-    KIDITEM_ATTEMPT_MCP_TOKEN: input.attemptToken,
+    ...(input.providerHome ? { [input.providerHome.key]: input.providerHome.path } : {}),
+    ...(input.includeMacosUserIdentity ? { USER: macosUser } : {}),
+    ...(input.attemptToken ? { KIDITEM_ATTEMPT_MCP_TOKEN: input.attemptToken } : {}),
     CODEX_MCP_PROTOCOL_VERSION: ATTEMPT_RUNTIME_TRAIN.mcpProtocolRevision,
     MCP_SDK_GENERATION: 'v2',
     MCP_PROTOCOL_NEGOTIATION: 'auto',
     CODEX_DISABLE_AUTO_UPDATE: '1',
     DISABLE_AUTOUPDATER: '1',
-    ...(input.extra ?? {}),
   });
 }

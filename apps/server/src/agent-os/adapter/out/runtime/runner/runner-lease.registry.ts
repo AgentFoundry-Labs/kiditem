@@ -82,7 +82,6 @@ export class RunnerLeaseRegistry {
     const active = this.active;
     if (active && active.runnerInstanceId === hello.runnerInstanceId) {
       if (active.helloHash !== helloHash) throw new Error('runner_hello_conflict');
-      this.touch(active);
       return this.response(active);
     }
     if (this.active) this.invalidate(this.active);
@@ -203,7 +202,6 @@ export class RunnerLeaseRegistry {
       lease.eventAcks.set(batch.eventSeq, { bodyHash, acknowledgement });
       if (lease.eventAcks.size > 256) lease.eventAcks.delete(lease.eventAcks.keys().next().value as number);
       lease.nextEventSeq += 1;
-      this.touch(lease);
       return acknowledgement;
     });
   }

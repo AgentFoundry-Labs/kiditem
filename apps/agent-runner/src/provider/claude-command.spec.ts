@@ -1,9 +1,11 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { buildClaudeCommand } from './claude-command';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { buildClaudeCommand, buildClaudeMacosAuthStatusCommand } from './claude-command';
 import { bundledProviderEntrypoint } from './provider-command';
+
+afterEach(() => { vi.unstubAllEnvs(); });
 
 describe('buildClaudeCommand', () => {
   it('builds pinned v2 stream-json invocation without prompt/token argv or persistent settings', () => {
@@ -13,6 +15,48 @@ describe('buildClaudeCommand', () => {
     expect(command.args).toEqual(expect.arrayContaining(['--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--strict-mcp-config']));
     expect(command.env.MCP_SDK_GENERATION).toBe('v2'); expect(command.env.MCP_PROTOCOL_NEGOTIATION).toBe('auto');
     expect(command.args.join(' ')).not.toContain(prompt); expect(command.args.join(' ')).not.toContain(token);
+  });
+
+  it('uses the same macOS account Keychain with no isolated Claude config directory', () => {
+    const loginRoot = '/Users/runner-login';
+    const paths = Object.assign({
+      root: '/tmp/a', workspace: '/tmp/a/workspace', home: '/tmp/a/home', codexHome: '/tmp/a/codex', claudeConfigDir: '/tmp/a/claude', mcpConfigPath: '/tmp/a/mcp.json', codexConfigPath: '/tmp/a/codex.toml',
+    }, { claudeLoginHome: loginRoot });
+    const command = buildClaudeCommand({
+      attemptId: '33333333-3333-4333-8333-333333333333', runtime: 'claude_cli', model: 'claude-sonnet', prompt: 'secret prompt', timeoutMs: 10_000,
+      workspacePolicy: 'empty_ephemeral_v1', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/attempts/33333333-3333-4333-8333-333333333333/mcp',
+      attemptToken: 'A'.repeat(43), mcpToolScope: 'business', mcpProtocolRevision: '2026-07-28', cliContractIdentity: 'office-cli-contract-v2',
+    }, paths, '/opt/kiditem-runner');
+
+    expect(command.env.HOME).toBe(loginRoot);
+    expect(command.env.USER).toBe(process.env.USER);
+    expect(command.env.CLAUDE_CONFIG_DIR).toBeUndefined();
+    expect(command.env.SHELL).toBeUndefined();
+    expect(command.env.TERM).toBeUndefined();
+    expect(command.args).toEqual(expect.arrayContaining(['--setting-sources', '', '--no-session-persistence', '--strict-mcp-config']));
+  });
+
+  it('builds its local macOS auth-status probe with the same Keychain environment and no attempt secret', () => {
+    vi.stubEnv('USER', 'runner-login');
+    const command = buildClaudeMacosAuthStatusCommand('/opt/kiditem-runner', '/Users/runner-login');
+
+    expect(command.args).toEqual(expect.arrayContaining(['auth', 'status', '--json']));
+    expect(command.env).toMatchObject({ HOME: '/Users/runner-login', USER: 'runner-login' });
+    expect(command.env.CLAUDE_CONFIG_DIR).toBeUndefined();
+    expect(command.env.KIDITEM_ATTEMPT_MCP_TOKEN).toBeUndefined();
+  });
+
+  it('fails closed instead of silently omitting macOS Keychain identity', () => {
+    vi.stubEnv('USER', '');
+    const paths = Object.assign({
+      root: '/tmp/a', workspace: '/tmp/a/workspace', home: '/tmp/a/home', codexHome: '/tmp/a/codex', claudeConfigDir: '/tmp/a/claude', mcpConfigPath: '/tmp/a/mcp.json', codexConfigPath: '/tmp/a/codex.toml',
+    }, { claudeLoginHome: '/Users/runner-login' });
+
+    expect(() => buildClaudeCommand({
+      attemptId: '33333333-3333-4333-8333-333333333333', runtime: 'claude_cli', model: 'claude-sonnet', prompt: 'secret prompt', timeoutMs: 10_000,
+      workspacePolicy: 'empty_ephemeral_v1', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/attempts/33333333-3333-4333-8333-333333333333/mcp',
+      attemptToken: 'A'.repeat(43), mcpToolScope: 'business', mcpProtocolRevision: '2026-07-28', cliContractIdentity: 'office-cli-contract-v2',
+    }, paths, '/opt/kiditem-runner')).toThrow('provider_user_identity_required');
   });
 
   it('allows native Agent subagents and exactly the scoped KidItem MCP tools, without shell or browser tools', () => {

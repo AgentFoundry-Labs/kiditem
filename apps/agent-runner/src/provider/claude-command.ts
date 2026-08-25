@@ -1,4 +1,5 @@
 import type { AttemptLaunchSpec } from '@kiditem/shared/agent-runtime';
+import { resolve } from 'node:path';
 import type { AttemptWorkspacePaths } from '../attempt/attempt-workspace.service';
 import { agentResultOutputSchema } from './agent-result-output-schema';
 import { bundledProviderInvocation, providerEnvironment, type ProviderCommand } from './provider-command';
@@ -17,6 +18,7 @@ export function buildClaudeCommand(launch: AttemptLaunchSpec, paths: AttemptWork
   if (!launch.model.trim()) throw new Error('missing_runtime_model');
   const allowedTools = claudeAllowedTools(launch.mcpToolScope);
   const invocation = bundledProviderInvocation(runtimeRoot, 'claude');
+  const macosKeychainHome = paths.claudeLoginHome;
   return Object.freeze({
     executable: invocation.executable,
     args: Object.freeze([
@@ -28,7 +30,28 @@ export function buildClaudeCommand(launch: AttemptLaunchSpec, paths: AttemptWork
       '--json-schema', JSON.stringify(agentResultOutputSchema()),
     ]),
     cwd: paths.workspace,
-    env: providerEnvironment({ home: paths.home, providerHomeKey: 'CLAUDE_CONFIG_DIR', providerHome: paths.claudeConfigDir, attemptToken: launch.attemptToken }),
+    env: providerEnvironment({
+      home: macosKeychainHome ?? paths.home,
+      ...(macosKeychainHome
+        ? { includeMacosUserIdentity: true }
+        : { providerHome: { key: 'CLAUDE_CONFIG_DIR' as const, path: paths.claudeConfigDir } }),
+      attemptToken: launch.attemptToken,
+    }),
+  });
+}
+
+/**
+ * Local, boolean-only login inspection.  It deliberately shares the macOS
+ * execution environment: same account HOME and USER, no CLAUDE_CONFIG_DIR,
+ * and no attempt token or host configuration materialization.
+ */
+export function buildClaudeMacosAuthStatusCommand(runtimeRoot: string, loginRoot: string): ProviderCommand {
+  const invocation = bundledProviderInvocation(runtimeRoot, 'claude');
+  return Object.freeze({
+    executable: invocation.executable,
+    args: Object.freeze([...invocation.argsPrefix, 'auth', 'status', '--json']),
+    cwd: resolve(runtimeRoot),
+    env: providerEnvironment({ home: loginRoot, includeMacosUserIdentity: true }),
   });
 }
 

@@ -29,11 +29,12 @@ describe('RunnerCommandDispatcher', () => {
     expect(dispatcher.outbox.peekBody()).toContain('conflict');
   });
 
-  it('does not duplicate input or interrupt actions and rejects a terminal start replay', async () => {
+  it('does not duplicate expired live input or cleanup interrupt actions and rejects a terminal start replay', async () => {
     let inputs = 0; let interrupts = 0;
     const dispatcher = new RunnerCommandDispatcher({
       executor: { start: async () => undefined, input: async () => { inputs += 1; }, interrupt: async () => { interrupts += 1; } },
       outbox: new RunnerEventOutbox({ runnerInstanceId, leaseId }),
+      now: () => new Date('2099-08-24T00:00:00.001Z'),
     });
     await dispatcher.dispatch(startCommand());
     const input = { kind: 'attempt.input' as const, commandId: '66666666-6666-4666-8666-666666666666', attemptId, deadlineAt: '2026-08-24T00:00:00.000Z', commandHash: 'c'.repeat(64), input: 'continue' };
@@ -44,7 +45,11 @@ describe('RunnerCommandDispatcher', () => {
     await dispatcher.dispatch(startCommand());
 
     expect(inputs).toBe(1); expect(interrupts).toBe(1);
-    expect(dispatcher.outbox.peekBody()).toContain('invalid_state');
+    const events = JSON.parse(dispatcher.outbox.peekBody()!).events;
+    expect(events.filter((event: { kind: string; commandId?: string }) =>
+      event.kind === 'attempt.rejected' && [input.commandId, interrupt.commandId].includes(event.commandId),
+    )).toEqual([]);
+    expect(events).toContainEqual({ kind: 'attempt.rejected', commandId, attemptId, code: 'invalid_state' });
   });
 
   it('bounds live dispatcher state, rejects excess starts, and releases capacity after a terminal attempt', async () => {
@@ -69,12 +74,73 @@ describe('RunnerCommandDispatcher', () => {
     expect(dispatcher.outbox.peekBody()).toContain('unsupported');
     expect(dispatcher.outbox.peekBody()).toContain('invalid_state');
   });
+
+  it('terminally rejects one permanent local start failure without letting it enter transport retry or starve later work', async () => {
+    const starts: AttemptLaunchSpec[] = []; const localDetail = 'provider-local-detail-must-not-leak';
+    const failed = startCommand({ attemptId, commandId, commandHash: 'a'.repeat(64) });
+    const later = startCommand({
+      attemptId: '88888888-8888-4888-8888-888888888888',
+      commandId: '99999999-9999-4999-8999-999999999999',
+      commandHash: 'b'.repeat(64),
+    });
+    const dispatcher = new RunnerCommandDispatcher({
+      executor: {
+        start: async (launch) => {
+          starts.push(launch);
+          if (launch.attemptId === failed.attemptId) throw new Error(localDetail);
+        },
+        input: async () => undefined,
+        interrupt: async () => undefined,
+      },
+      outbox: new RunnerEventOutbox({ runnerInstanceId, leaseId }),
+    });
+
+    await expect(dispatcher.dispatch(failed)).resolves.toBeUndefined();
+    await dispatcher.dispatch(later);
+    await dispatcher.dispatch(failed);
+    await dispatcher.dispatch({ ...failed, commandHash: 'c'.repeat(64) });
+
+    const events = JSON.parse(dispatcher.outbox.peekBody()!).events;
+    expect(starts.map((launch) => launch.attemptId)).toEqual([failed.attemptId, later.attemptId]);
+    expect(events.filter((event: { kind: string }) => event.kind === 'attempt.rejected')).toEqual([
+      { kind: 'attempt.rejected', commandId: failed.commandId, attemptId: failed.attemptId, code: 'unsupported' },
+      { kind: 'attempt.rejected', commandId: failed.commandId, attemptId: failed.attemptId, code: 'conflict' },
+    ]);
+    expect(events).toContainEqual({ kind: 'attempt.started', attemptId: later.attemptId });
+    expect(JSON.stringify(events)).not.toContain(localDetail);
+  });
+
+  it('rejects an expired start before local execution and leaves a later command dispatchable', async () => {
+    const starts: AttemptLaunchSpec[] = [];
+    const expired = { ...startCommand(), deadlineAt: '2099-08-24T00:00:00.000Z' };
+    const later = startCommand({
+      attemptId: '88888888-8888-4888-8888-888888888888',
+      commandId: '99999999-9999-4999-8999-999999999999',
+      commandHash: 'b'.repeat(64),
+    });
+    const options = Object.assign({
+      executor: { start: async (launch: AttemptLaunchSpec) => { starts.push(launch); }, input: async () => undefined, interrupt: async () => undefined },
+      outbox: new RunnerEventOutbox({ runnerInstanceId, leaseId }),
+    }, { now: () => new Date('2099-08-24T00:00:00.001Z') });
+    const dispatcher = new RunnerCommandDispatcher(options);
+
+    await expect(dispatcher.dispatch(expired)).resolves.toBeUndefined();
+    await dispatcher.dispatch(later);
+    await dispatcher.dispatch(expired);
+
+    const events = JSON.parse(dispatcher.outbox.peekBody()!).events;
+    expect(starts.map((launch) => launch.attemptId)).toEqual([later.attemptId]);
+    expect(events.filter((event: { kind: string }) => event.kind === 'attempt.rejected')).toEqual([
+      { kind: 'attempt.rejected', commandId: expired.commandId, attemptId: expired.attemptId, code: 'unsupported' },
+    ]);
+    expect(events).toContainEqual({ kind: 'attempt.started', attemptId: later.attemptId });
+  });
 });
 
 function startCommand(overrides: Partial<Pick<RunnerStartCommand, 'attemptId' | 'commandId' | 'commandHash'>> = {}): RunnerStartCommand {
   const selectedAttemptId = overrides.attemptId ?? attemptId;
   return {
-    kind: 'attempt.start', commandId: overrides.commandId ?? commandId, attemptId: selectedAttemptId, deadlineAt: '2026-08-24T00:00:00.000Z', commandHash: overrides.commandHash ?? 'a'.repeat(64),
+    kind: 'attempt.start', commandId: overrides.commandId ?? commandId, attemptId: selectedAttemptId, deadlineAt: '2099-08-24T00:01:00.000Z', commandHash: overrides.commandHash ?? 'a'.repeat(64),
     launch: {
       attemptId: selectedAttemptId, runtime: 'codex_cli', model: 'gpt-5.6', prompt: 'do not put this in an argument', timeoutMs: 10_000,
       workspacePolicy: 'empty_ephemeral_v1', mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${selectedAttemptId}/mcp`, attemptToken: 'A'.repeat(43),

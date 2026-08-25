@@ -15,6 +15,10 @@ export function buildCodexCommand(launch: AttemptLaunchSpec, paths: AttemptWorks
       '--config', `model=${JSON.stringify(launch.model)}`,
     ]),
     cwd: paths.workspace,
-    env: providerEnvironment({ home: paths.home, providerHomeKey: 'CODEX_HOME', providerHome: paths.codexHome, attemptToken: launch.attemptToken }),
+    env: providerEnvironment({
+      home: paths.home,
+      providerHome: { key: 'CODEX_HOME', path: paths.codexHome },
+      attemptToken: launch.attemptToken,
+    }),
   });
 }

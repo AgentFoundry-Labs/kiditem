@@ -18,7 +18,7 @@ export class RunnerControlClient {
   private readonly request: typeof fetch;
   private readonly pollTimeoutMs: number;
   private readonly inFlight = new Set<AbortController>();
-  private readonly successfulResponseListeners = new Set<() => void>();
+  private readonly successfulPollListeners = new Set<() => void>();
 
   constructor(private readonly options: Readonly<{ controlOrigin: string; token: string; fetch?: typeof fetch; pollTimeoutMs?: number }>) {
     this.origin = requiredOrigin(options.controlOrigin);
@@ -32,16 +32,15 @@ export class RunnerControlClient {
 
   async poll(poll: RunnerPoll): Promise<RunnerCommandBatch | null> {
     const response = await this.rawPost('/internal/agent-runtime/runner/commands:poll', poll, this.pollTimeoutMs);
-    if (response.status === 204) { this.noteSuccessfulAuthenticatedResponse(); return null; }
+    if (response.status === 204) { this.noteSuccessfulPollResponse(); return null; }
     if (!response.ok) throw new RunnerControlHttpError(response.status);
     const commands = RunnerCommandBatchSchema.parse(await response.json());
-    this.noteSuccessfulAuthenticatedResponse();
+    this.noteSuccessfulPollResponse();
     return commands;
   }
 
   async postEvents(batch: RunnerEventBatch): Promise<{ eventSeq: number; accepted: true }> {
     const acknowledgement = RunnerEventAcknowledgementSchema.parse(await this.post('/internal/agent-runtime/runner/events', batch, this.pollTimeoutMs));
-    this.noteSuccessfulAuthenticatedResponse();
     return acknowledgement;
   }
 
@@ -50,14 +49,13 @@ export class RunnerControlClient {
     const response = await this.rawPostBody('/internal/agent-runtime/runner/events', body, this.pollTimeoutMs);
     if (!response.ok) throw new RunnerControlHttpError(response.status);
     const acknowledgement = RunnerEventAcknowledgementSchema.parse(await response.json());
-    this.noteSuccessfulAuthenticatedResponse();
     return acknowledgement;
   }
 
-  /** Lets the lease owner reset its deadline only after a valid authenticated control response. */
-  onSuccessfulAuthenticatedResponse(listener: () => void): () => void {
-    this.successfulResponseListeners.add(listener);
-    return () => this.successfulResponseListeners.delete(listener);
+  /** Event delivery validates an existing lease; only command polling renews it. */
+  onSuccessfulCommandPoll(listener: () => void): () => void {
+    this.successfulPollListeners.add(listener);
+    return () => this.successfulPollListeners.delete(listener);
   }
 
   /** The lease deadline owns every control request, including an otherwise black-holed fetch. */
@@ -90,8 +88,8 @@ export class RunnerControlClient {
     });
   }
 
-  private noteSuccessfulAuthenticatedResponse(): void {
-    for (const listener of this.successfulResponseListeners) listener();
+  private noteSuccessfulPollResponse(): void {
+    for (const listener of this.successfulPollListeners) listener();
   }
 }
 
@@ -124,7 +122,7 @@ export class RunnerControlLoop {
       durationMs: this.controlLossDeadlineMs,
       killAll: input.killAll,
     });
-    const unsubscribe = this.options.client.onSuccessfulAuthenticatedResponse(() => deadline.reset());
+    const unsubscribe = this.options.client.onSuccessfulCommandPoll(() => deadline.reset());
     deadline.start();
     try {
       for (;;) {

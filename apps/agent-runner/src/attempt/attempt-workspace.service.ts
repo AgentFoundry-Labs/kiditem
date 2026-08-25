@@ -9,6 +9,8 @@ export type AttemptWorkspacePaths = Readonly<{
   root: string;
   workspace: string;
   home: string;
+  /** macOS Claude uses the host account's Keychain without exposing its config directory. */
+  claudeLoginHome?: string;
   codexHome: string;
   claudeConfigDir: string;
   mcpConfigPath: string;
@@ -34,10 +36,14 @@ export class AttemptWorkspaceService {
     const launch = AttemptLaunchSpecSchema.parse(input);
     const root = await this.checkedAttemptRoot();
     const attemptRoot = await mkdtemp(join(root, `${launch.attemptId}-`));
+    const claudeLoginHome = this.options.platform === 'macos' && launch.runtime === 'claude_cli'
+      ? await this.auth.loginRoot()
+      : undefined;
     const paths: AttemptWorkspacePaths = Object.freeze({
       root: attemptRoot,
       workspace: join(attemptRoot, 'workspace'),
       home: join(attemptRoot, 'home'),
+      ...(claudeLoginHome ? { claudeLoginHome } : {}),
       codexHome: join(attemptRoot, 'codex-home'),
       claudeConfigDir: join(attemptRoot, 'claude-config'),
       mcpConfigPath: join(attemptRoot, 'mcp.json'),
@@ -53,6 +59,7 @@ export class AttemptWorkspaceService {
   }
 
   async linkProviderAuth(paths: AttemptWorkspacePaths, runtime: AgentCliRuntime): Promise<void> {
+    if (runtime === 'claude_cli' && this.options.platform === 'macos') return;
     const reference = await this.auth.resolve(runtime);
     const target = join(runtime === 'codex_cli' ? paths.codexHome : paths.claudeConfigDir, reference.targetName);
     await this.auth.materialize(reference, target);
