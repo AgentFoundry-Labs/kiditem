@@ -416,8 +416,9 @@ test('serve-browser-qa keeps the verified container alive only until shutdown an
     databaseName: target.databaseName,
     mode: 'serve-browser-qa',
   });
-  assert.deepEqual(events.slice(-7), [
+  assert.deepEqual(events.slice(-8), [
     'browser-qa:seed',
+    'command:templates-build',
     'command:server-build',
     'browser-qa:start',
     'browser-qa:urls:http://127.0.0.1:3000,http://127.0.0.1:4000',

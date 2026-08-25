@@ -190,6 +190,12 @@ export async function runCleanCutover({ args = [], dependencies } = {}) {
       seedCommand: browserQaSeedCommand,
     });
     await runScopedCommand(dependencies, {
+      step: 'templates-build',
+      command: 'npm',
+      args: ['run', 'build', '--workspace=packages/templates'],
+      databaseUrl: target.databaseUrl,
+    });
+    await runScopedCommand(dependencies, {
       step: 'server-build',
       command: 'npm',
       args: ['run', 'build', '--workspace=apps/server'],
