@@ -173,7 +173,10 @@ describe('logged-in real CLI readiness canary', () => {
       await dispatcher.dispatch(start);
       await flush();
       phase = 'mcp_probe';
-      await waitFor(() => probeReached.settled || endpoint.legacyNegotiationObserved, CANARY_TIMEOUT_MS);
+      await waitFor(async () => {
+        await flush();
+        return probeReached.settled || terminal !== undefined || endpoint.legacyNegotiationObserved;
+      }, CANARY_TIMEOUT_MS);
       if (endpoint.legacyNegotiationObserved) {
         throw new Error(`real_canary_legacy_mcp_protocol observed=${endpoint.mcpMethods.join(',')}`);
       }
@@ -401,6 +404,19 @@ describe('SafeProviderDiagnostic', () => {
     expect(diagnostic.externalBlocker({
       error: new Error('irrelevant'), terminal: undefined, phase: 'provider_start', observations: [],
     })).toBe('auth_materialization_failed');
+  });
+
+  it('classifies current Codex unsupported-model phrasing without retaining the provider payload', () => {
+    const diagnostic = new SafeProviderDiagnostic();
+    const providerPayload = 'Invalid request: the selected model is not supported for this account.';
+    diagnostic.observeStdout(`${JSON.stringify({
+      jsonrpc: '2.0', method: 'turn/completed',
+      params: { turn: { status: 'failed', error: { message: providerPayload, codexErrorInfo: 'other' } } },
+    })}\n`);
+
+    expect(diagnostic.providerBaselineExternalBlocker({ error: new Error('irrelevant'), terminal: undefined }))
+      .toBe('unsupported_model');
+    expect(JSON.stringify(diagnostic)).not.toContain(providerPayload);
   });
 
   it.each([
@@ -901,7 +917,10 @@ class SafeProviderDiagnostic {
     if (matches(bounded, ['mcp protocol', 'mcp negotiation', 'tools/list', 'initialize request', 'protocol version'])) {
       this.failure ??= 'mcp_negotiation_failed'; return;
     }
-    if (matches(bounded, ['unsupported model', 'unknown model', 'model not found', 'invalid model'])) {
+    if (matches(bounded, [
+      'unsupported model', 'unknown model', 'model not found', 'invalid model',
+      'model is not supported', 'model is unsupported', 'model cannot be used',
+    ])) {
       this.failure ??= 'unsupported_model'; return;
     }
     if (matches(bounded, ['authentication', 'unauthorized', 'credentials', 'login required', 'not logged in'])) {
