@@ -1,5 +1,12 @@
 # KID-25 Native Host Runner and MCP v2 Runtime Train Implementation Plan
 
+> **Status (2026-08-25): Superseded.** Do not execute this plan. Its
+> per-Attempt non-persistent CLI lifecycle and Task/Attempt authority were
+> replaced by the provider-native conversation and Host Agent Gateway design in
+> `docs/superpowers/specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md`.
+> The replacement implementation sequence will live in the primary KID-25 plan;
+> this file is retained temporarily as historical context only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Move disposable Codex/Claude execution out of the Nest container into one native host Runner, connect it to Nest through authenticated outbound HTTP long-poll/event POST and direct MCP v2 Streamable HTTP, and preserve KidItem as the only durable work authority.

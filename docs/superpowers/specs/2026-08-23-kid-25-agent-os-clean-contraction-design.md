@@ -1,396 +1,355 @@
-# KID-25 Single-Node Agent OS Clean Contraction Design
+# KID-25 Provider-Native Conversation and Capability Runtime Design
 
-- Date: 2026-08-23
-- Runtime amendment: 2026-08-24
-- Status: Approved for implementation
+- Original date: 2026-08-23
+- Architecture replacement: 2026-08-25
+- Status: Conversation-approved; documented-design review pending
 - Tracking issue: KID-25
-- Implementation plan: `docs/superpowers/plans/2026-08-23-kid-25-agent-os-clean-contraction.md`
-- Operating target: one user on one home-server API instance
-- Source baseline: `82a58a1768f29e3517a62903c0203a81e47037ab`
-- Classification: Agent OS platform reconstruction across server, Web,
-  worker, schema, deployment, and durable documentation
-- Data decision: discard every legacy Agent OS row even when discovered; no
-  backfill, conversion, compatibility reader, or dual-write
-- Release decision: KID-25 proves runtime/admission correctness, one clean
-  schema cutover, and basic same-version interruption detection plus explicit
-  manual recovery. Multi-instance
-  coordination, automatic release drain, compatibility automation, isolated
-  restore rehearsal, and measured RPO/RTO are not required.
+- Operating target: one authenticated user on one home-server installation
+- Office production host: Windows
+- Development and primary local QA host: macOS
+- Data decision: discard every legacy Agent OS row; no backfill, conversion,
+  compatibility reader, dual-write, or provider-history import
+- Implementation plan: rewrite
+  docs/superpowers/plans/2026-08-23-kid-25-agent-os-clean-contraction.md
+  after this documented design is reviewed
 
-## 0. Decision Authority
+## 0. Decision authority
 
-This document is the single design authority for KID-25. It replaces the
-broader design previously committed at this same path, fixes the reduced
-single-node scope approved on 2026-08-23, and incorporates the approved
-2026-08-24 native host Runner amendment. There is no separate runtime design
-authority.
+This document is the single design authority for KID-25. It replaces every
+earlier revision at this path, including the six-model Session/Task/Attempt
+design and the disposable non-persistent CLI Attempt runtime.
 
-Implementation may select private helper names and local indexes that do not
-change the contracts below. It must stop for a design amendment before adding
-a durable aggregate, lifecycle state, provider-history dependency, deployable
-service, automatic background reasoning path, or multi-instance coordination
-mechanism not authorized here.
+The following older KID-25 assumptions are explicitly superseded:
 
-The following earlier documents are not implementation authority for KID-25:
+- KidItem-owned AgentSession, AgentTask, AgentAttempt, and AgentVersion;
+- one Task per conversation or one conversation per Task;
+- child AgentTask rows for cross-Agent delegation;
+- immutable successor Attempts and manual Continue state;
+- provider session/history suppression;
+- a per-Attempt disposable CLI as the durable reasoning boundary;
+- Task-derived waiting, needs_continue, or recovery projections;
+- the Operator Agent and agent_os.platform_probe Agent capability; and
+- the separate native Host Runner runtime plan as an implementation authority.
 
-- `specs/2026-08-13-ai-chat-interactive-response-design.md`;
-- `specs/2026-08-21-agent-session-deletion-design.md`;
-- `specs/2026-08-23-copilotkit-nest-incoming-adapter-design.md`;
-- every earlier `2026-08-13` or `2026-08-23` Interaction OS/Agent session
-  implementation plan already marked superseded;
-- the broader pre-reduction version of this design; and
-- generic AgentRun, provider-session, replay, artifact, cost, policy,
-  authority-profile, or gateway contracts found in code or documentation.
+Implementation may choose private helper names and local indexes that do not
+change the contracts below. It must stop for a design amendment before adding:
 
-The Sourcing capability and deterministic Operations designs remain reference
-material only for their owner-domain business behavior. Their AgentRun,
-conversation, artifact, cost, HMAC, or provider-runtime assumptions do not
-survive this design.
+- a new PostgreSQL conversation, transcript, Task, Attempt, AgentVersion, grant,
+  provider-session, artifact, cost, or runtime-control model;
+- automatic model reasoning without an explicit user message;
+- a standalone public interaction gateway or LAN-exposed runtime endpoint;
+- multi-user RBAC, role-separated approval, organization quotas, or distributed
+  runtime coordination; or
+- legacy compatibility, backfill, dual-write, or provider-history conversion.
 
-## 1. Selected Approach
+Owner-domain capability contracts and deterministic Operation contracts remain
+authoritative for their business behavior. Legacy AgentRun, conversation
+replay, HMAC control-plane, credential broker, generic workflow Agent, and
+provider-session database assumptions do not survive this design.
 
-### 1.1 Selected: single-node minimum
+## 1. Product model and selected topology
 
-KidItem runs one authenticated Agent OS inside the existing Nest API. Codex CLI
-and Claude CLI are disposable reasoning processes. PostgreSQL stores only work,
-exact mutation authorization, approval, and concise references. The existing
-worker dispatches durable mutations and deterministic Operations.
+### 1.1 Selected product model
 
-```text
+KidItem Agent OS is a ChatGPT Desktop-like conversation UI over locally logged
+in Codex and Claude runtimes.
+
+The user creates a top-level conversation, chooses Codex or Claude, chooses a
+model and reasoning effort, and sends messages. The selected provider runtime
+owns reasoning, provider-native conversation history, and provider-native
+subagent orchestration.
+
+KidItem owns only:
+
+- authenticated UI and organization context;
+- code-owned optional Agent profiles;
+- capability discovery, routing, exact mutation admission, and HITL;
+- owner-domain business entities;
+- durable Operation execution; and
+- a thin native Host Agent Gateway that adapts the Web/Nest control plane to
+  the installed provider runtimes.
+
+~~~text
 Browser
   -> same-origin Nest /api/copilotkit
-       -> AgentSession / root AgentTask
-       -> immutable AgentAttempt admission and authority
-            -> Host Runner command long-poll
-                 -> native Codex or Claude CLI
-                 -> ephemeral provider-native subagents
-                 -> Nest MCP v2 Streamable HTTP
-                      -> owner-domain capability input ports
-                      -> optional explicit child AgentTask delegation
+       -> authenticated conversation command
+       -> in-memory Host Agent Gateway control lane
+            -> provider-native top-level conversation
+                 -> provider-native subagents
+                 -> Nest MCP v2 capability endpoint
+                      -> CapabilityDefinition
+                      -> owner-domain incoming port
+                      -> owner implementation
+                           -> optional AI
+                           -> optional DB
+                           -> optional external provider/browser
+                           -> optional OperationRun
 
 Worker
-  -> ready AgentCapabilityInvocation mutations
-  -> deterministic Operations
-```
+  -> ready CapabilityInvocation mutations
+  -> pending CapabilityApproval expiry
+  -> deterministic OperationRun execution
+~~~
 
-### 1.2 Rejected: single node plus enterprise operations guards
+CopilotKit remains an incoming adapter inside Nest. The Host Agent Gateway is a
+native installation-local runtime adapter, not a third public Web application
+and not a second business authority.
 
-PostgreSQL executor locks, automated mutation release drain, compatibility
-images, scheduled upgrade PRs, and isolated restore rehearsals provide value
-for a multi-user or continuously deployed service. They are disproportionate
-for one user operating one home-server instance and are excluded.
+### 1.2 Always-on means Gateway availability, not durable model execution
 
-### 1.3 Rejected: retain the broad Interaction OS
+The Host Agent Gateway starts with the host and remains available. Provider
+processes may stay warm or be recreated by their adapter, but process survival
+is not a correctness boundary.
 
-Conversation replay, provider sessions, background continuation, coordinated
-deletion workflows, reusable grants, artifacts, cost ledgers, and generic
-AgentRun paths add state without advancing the required single-user workflow.
+Provider-native local conversation/session history is the continuity boundary.
+After a process or server restart, the next explicit user message may continue
+the same provider conversation. A restart never sends a message, resumes
+reasoning in the background, or synthesizes a follow-up turn.
 
-## 2. Required Outcomes and Non-Goals
+### 1.3 Rejected alternatives
 
-### 2.1 Required outcomes
+The following alternatives are rejected:
 
-- Correct root, follow-up, delegation, capability, Approval, and mutation
-  admission under concurrent requests.
-- One live CLI Attempt per Task and an immediate process-local global limit.
-- Ephemeral host-native Codex/Claude execution using the dedicated Runner
-  account's existing login.
-- Exact owner-domain capability authorization, mutation idempotency, and HITL.
-- Basic same-version API/worker restart reconciliation without provider resume
-  or automatic successor reasoning.
-- Same-origin CopilotKit live streaming and a durable work projection without
-  chat replay.
-- A final six-model Agent OS schema with all legacy code/schema removed.
-- A destructive cutover that discards legacy Agent OS data while checking that
-  unrelated business and Operation data remain.
-- One Web/API/worker container topology plus one native host Runner process.
+- KidItem-owned transcripts or provider session rows;
+- a generic AgentTask duplicating domain business state;
+- a child Task for every cross-domain responsibility handoff;
+- KidItem-owned immutable CLI Attempt chains;
+- an always-running model turn or automatic restart continuation;
+- a standalone interaction-gateway application;
+- container-installed provider CLIs or copied provider credentials; and
+- a generic Operator Agent used only as a routing wrapper.
 
-### 2.2 Non-goals
+## 2. State ownership
 
-- More than one Agent-executor API instance.
-- PostgreSQL advisory executor locks or distributed admission/signaling.
-- Automatic background Tasks or Operation-triggered successor Attempts.
-- Automatic successor Attempts caused by transport retry, root uniqueness
-  collision, delegation idempotency replay, CLI failure, timeout, Runner loss,
-  or API restart.
-- Stored `continuationMode`, `continuationKey`, queue, capacity-wait, or retry
-  eligibility state.
-- Automatic mutation drain across application-version upgrades.
-- Scheduled CopilotKit/CLI compatibility pipelines or automatic upgrade PRs.
-- Isolated full-database restore rehearsal, formal disaster-recovery evidence,
-  measured RPO/RTO, or a seven-day rollback archive process.
-- Organization quotas, Agent depth/fan-out/cycle rules, RBAC, role-separated
-  approvals, or multi-user ownership transfer.
-- Provider sessions/history/resume IDs, KidItem-managed provider credentials,
-  chat transcript/replay, artifacts, cost accounting, or vector memory.
-- Hermes, OpenAI Responses, a standalone gateway, another Agent service, a
-  message broker, a Runner inbound listener, or a LAN-exposed MCP endpoint.
+### 2.1 Final ownership table
 
-## 3. Final Durable Data Model
+| Concern | Source of truth |
+|---|---|
+| Top-level conversation and transcript | Codex or Claude local provider state |
+| Unified sidebar descriptor | Host Agent Gateway local metadata |
+| Reasoning and native subagents | Codex or Claude runtime |
+| Agent business responsibility and prompt | code-owned AgentDefinition |
+| Capability contract and routing metadata | owner-domain CapabilityDefinition |
+| Read result | live provider turn; no required durable Agent OS row |
+| Exact mutation input/hash/admission | CapabilityInvocation |
+| Human confirmation | CapabilityApproval |
+| Long-running deterministic execution | OperationRun |
+| Business lifecycle and result | owner-domain canonical entity |
+| Manual action board | existing ActionTask, when that product feature applies |
 
-### 3.1 Target graph
+AgentTask has no remaining unique responsibility and is removed.
 
-The final Agent OS persistence graph contains exactly six models:
+### 2.2 Conversation is not business work
 
-```text
-AgentVersion
-  <- AgentTask
+A conversation can inspect or modify many business resources. One business
+resource or Operation can be discussed in many conversations. Neither side
+owns the other.
 
-AgentSession
-  -> exactly one root AgentTask
-       -> zero or more child AgentTask rows
-       -> immutable AgentAttempt rows
-            -> AgentCapabilityInvocation rows
-                 -> optional AgentCapabilityApproval
-```
+~~~text
+Conversation A
+  -> reads Candidate X
+  -> creates Review Batch Y
+  -> inspects Operation Z
 
-`resource_ref` and `operation_ref` values are references in Task input and
-Attempt/Invocation results. Agent OS does not own the referenced business row
-or `OperationRun`.
+Conversation B
+  -> continues discussion of Candidate X
+  -> approves Invocation Q
+~~~
 
-### 3.2 AgentVersion
+Deleting or archiving a conversation never deletes a business entity,
+CapabilityInvocation, CapabilityApproval, or OperationRun.
 
-`AgentVersion` is immutable and stores:
+### 2.3 No generic AgentTask
 
-- code-owned Agent key and definition version;
-- assigned domain keys;
-- capability keys resolved from those domains at publication;
-- reasoning runtime `codex_cli | claude_cli`;
-- immutable instruction-profile reference;
-- deterministic manifest hash; and
-- activation, retirement, and creation timestamps.
+Open-ended investigation that ends in an answer remains only a provider
+conversation. Durable work is represented directly by the domain entity,
+CapabilityInvocation, CapabilityApproval, or OperationRun that owns it.
 
-It does not store a reasoning model, capability implementation version,
-per-tool policy, authority profile, provider credential, or runtime history.
-Runtime and owner-capability models come from explicit code/deployment profiles;
-missing model selection is an error.
+If a future requirement needs a user-managed generic follow-up that has no
+owner-domain entity, it must be designed as an explicit WorkItem product
+feature. KID-25 does not retain AgentTask in anticipation of that requirement
+and does not repurpose the existing automation ActionTask without a separate
+decision.
 
-### 3.3 AgentSession
+## 3. Provider-native conversation model
 
-`AgentSession` is only the user-visible work grouping and hard-delete boundary.
-It stores ID, organization ID, creating user ID, and timestamps.
+### 3.1 Top-level ConversationDescriptor
 
-It has no lifecycle column. In particular, it has no `deleting` state,
-deletion cutoff/generation, retention, legal hold, title/thread replay state,
-provider session, cost, or credential reference.
+The Host Agent Gateway owns a small installation-local conversation catalog so
+Nest can present one sidebar across Codex and Claude. It is not stored in
+PostgreSQL and is not a business authority.
 
-### 3.4 AgentTask
+A descriptor contains only:
 
-Task owns durable business responsibility and stores:
+- an opaque KidItem conversation ID;
+- provider runtime: codex_cli or claude_cli;
+- provider-native local session/thread reference;
+- optional Agent key;
+- user-visible title;
+- created and last-active timestamps; and
+- optional last-used model and reasoning-effort UI preference.
 
-- Session and optional parent Task;
-- selected immutable AgentVersion;
-- objective, completion criteria, and input resource references;
-- optional `delegatedFromAttemptId`;
-- optional delegation idempotency key and canonical request hash;
-- status and timestamps.
+It contains no transcript copy, canonical business input, credential, approval,
+Operation state, capability grant, chain of thought, subagent history, token
+ledger, cost ledger, or business lifecycle.
 
-Its only lifecycle values are:
+Where a provider can enumerate and title its sessions directly, the Gateway
+adapts that native index. A small local descriptor store may fill only the
+cross-provider fields the provider does not own. It must remain local to the
+dedicated runtime account and must never be treated as recoverable business
+data.
 
-```text
-open | completed | failed | cancelled
-```
+### 3.2 General and Agent-bound conversations
 
-Task has no Approval-wait, Operation-wait, child-wait, capacity, Continue, or
-background state. It has no `continuationMode`. Every Task is interactive. An
-explicit authenticated Continue/follow-up command creates a successor Attempt
-on the same Task. A transport retry or idempotency replay is not a Continue and
-cannot create a successor.
+A top-level conversation has one fixed optional Agent key:
 
-Task also has no derived presentation status. API and Web render the source
-facts directly: Task status, latest Attempt, Approval rows, Invocation/
-Operation references, child Tasks, and structured result content. **Continue**
-is an action, not a state. It is offered when the Task is not cancelled and has
-no live Attempt. Continuing a completed or failed Task atomically reopens it
-before creating the successor; a cancelled Task requires explicit Reopen.
+- agentKey absent: general conversation;
+- agentKey present: conversation bound to that code-owned Agent profile.
 
-Task status changes only from an explicit validated business outcome or current
-user command. Process interruption alone leaves Task `open`. Cancelling a Task
-interrupts live reasoning and blocks new Attempts/Invocations, expires pending
-Approvals, and preserves already-ready/executing mutations and Operations. A
-cancelled Task reopens only through an explicit current-user Reopen command.
+The general conversation is not an Operator AgentDefinition. It may answer
+without any KidItem write, invoke reads directly, and delegate mutations to an
+explicit responsible Agent.
 
-### 3.5 AgentAttempt
+Opening chat from a domain dashboard creates or opens a top-level conversation
+bound to that Agent. One Agent may have any number of top-level conversations.
+Changing the bound Agent creates a new conversation rather than mutating the
+meaning of existing history.
 
-Attempt represents exactly one Codex or Claude CLI process. It stores:
+### 3.3 Runtime, model, and reasoning effort
 
-- Task, AgentVersion, ordinal, and optional predecessor Attempt;
-- immutable objective/input/resource references;
-- runtime/profile, application `VERSION`, Git SHA, CLI version, and reported
-  model when available;
-- status, timestamps, concise result envelope, structured error, and optional
-  content-free token counts.
+The provider runtime is selected explicitly when a conversation is created and
+is fixed for that conversation. A different runtime requires a new top-level
+conversation because provider histories are not portable.
 
-Its only lifecycle values are:
+Model and reasoning effort are selected explicitly in the conversation UI for
+each next turn. The user may change either between turns when the provider
+supports it. Missing or unsupported selection is an explicit error; there is no
+silent fallback.
 
-```text
-starting | running | succeeded | failed | process_interrupted | cancelled
-```
+AgentDefinition, CapabilityDefinition, CapabilityInvocation, and KidItem
+PostgreSQL store no provider credential, provider session/history, selected
+conversation model, or reasoning effort. The Gateway may retain last-used
+values only as local UI preference.
 
-Attempt has no waiting, capacity, Approval, Operation, child, or Continue state
-and no `continuationKey`. A terminal Attempt is never mutated, resumed, or
-silently replaced by a successor.
+### 3.4 Native subagents
 
-When a capability needs HITL, Nest first stores the exact Invocation, canonical
-input/hash, and pending Approval, then returns that durable reference to the
-CLI. The CLI emits its bounded terminal result and exits; KidItem never keeps
-the process alive to await the decision. Approval may release the deterministic
-mutation or Operation, but it never sends input to the old process or starts
-reasoning. Any later reasoning is an explicit user Continue and a new immutable
-Attempt.
+Codex/Claude native subagents are internal execution contexts of the parent
+top-level conversation. They:
 
-Every terminal Agent result uses one concise envelope containing outcome,
-summary, `resource_ref` values, `operation_ref` values, optional structured
-`needs_input` or error data, and optional Agent-specific output validated by
-that Agent's schema. It contains no `continuationSources`, transcript,
-chain-of-thought, native-subagent history, or artifact payload.
+- do not appear in the KidItem sidebar;
+- do not create ConversationDescriptor, AgentTask, or AgentAttempt rows;
+- share the parent conversation's active execution boundary;
+- remain owned and orchestrated by Codex or Claude; and
+- return their result through the parent provider conversation.
 
-### 3.6 AgentCapabilityInvocation
+Research and same-responsibility delegation stay entirely provider-native.
+KidItem applies an Agent boundary only when a mutation responsibility moves to
+another Agent.
 
-Invocation is both the exact capability-authorization audit and, for a
-mutation, the durable worker work item. It stores:
-
-- Session, Task, Attempt, AgentVersion, initiating user, capability, and owner
-  domain;
-- `authorizationKind` of `agent_default_scope`,
-  `cross_domain_read_grant`, or `explicit_execution_grant`;
-- authorization expiry, exact input hash, and canonical mutation input only;
-- snapshotted effects, approval risk, and idempotency requirement;
-- required owner idempotency key for every mutation;
-- application version, authorizing Git SHA, capability-contract fingerprint,
-  runtime, and reported model when available;
-- lifecycle, bounded mutation lease/retry data, concise result references,
-  structured error, and timestamps.
-
-Its exact lifecycle values are:
-
-```text
-authorized | approval_pending | ready | executing | succeeded | failed
-```
-
-Reads use `authorized -> executing -> succeeded|failed`, store only the input
-hash, execute inline, and are never retried after process loss. Mutations store
-canonical input and use `ready` as the initial no-HITL state. The Invocation
-row is the only dispatch source; there is no mutation outbox or grant table.
-
-### 3.7 AgentCapabilityApproval
-
-Approval binds one exact mutation Invocation and input hash. Its only values
-are:
-
-```text
-pending | approved | rejected | expired
-```
-
-The decision is immutable and non-reusable. Medium/high mutations create a
-pending Approval before emitting UI/CLI notification. A decision and the
-Invocation transition occur in one transaction. Approval expires within 24
-hours; Task cancellation may expire it earlier. The worker performs a bounded
-due-Approval sweep without adding a queue/outbox model.
-
-Approval completion is not an Agent trigger. It may advance only the already
-admitted deterministic mutation/Operation. It never wakes an Attempt, creates
-a successor, or derives a Task waiting/Continue status.
-
-### 3.8 Database invariants
-
-Use string-backed statuses plus Zod/domain validation, not native PostgreSQL
-enums. Required constraints are:
-
-- one root Task per Session where `parent_task_id IS NULL`;
-- organization-fenced relations throughout;
-- unique `(parentTaskId, delegationIdempotencyKey)` for delegated Tasks;
-- one live `starting|running` Attempt per Task;
-- unique `(taskId, ordinal)`;
-- one Approval per Invocation;
-- mutation owner-idempotency uniqueness at its actual owner boundary; and
-- indexes for ready work and expired mutation leases.
-
-There is no Task continuation key, Session lifecycle, deletion operation
-binding, separate delegation row, grant, replay event, artifact, usage, cost,
-provider session, or generic AgentRun model.
-
-## 4. Code-Owned Agents, Domains, and Capabilities
+## 4. Code-owned Agents, domains, and capabilities
 
 ### 4.1 Domain catalog
 
-The code-owned catalog is:
+The code-owned domains remain:
 
-```text
+~~~text
 advertising  agent_os  ai  analytics  automation  channels
 finance      inventory orders operations products  rules
 sourcing     supply
-```
+~~~
 
-A domain may be assigned to multiple Agents. Assignment is default scope, not
-exclusive ownership. `finance`, `analytics`, and `rules` are initially
-unassigned but their capabilities remain discoverable.
+Domain assignment is many-to-many default scope, not exclusive ownership. A
+domain may be assigned to multiple Agents. A capability may exist in an
+unassigned domain and may execute only through a valid execution-scoped grant.
+There is no domain-to-unique-Agent auto-routing table.
 
-### 4.2 Persistent Agent definitions
+### 4.2 Final Agent definitions
 
-Keep exactly these code-owned Agents:
+Keep exactly five code-owned business Agents:
 
 | Agent | Assigned domains |
 |---|---|
-| Operator | `agent_os`, `automation`, `operations` |
-| Sourcing | `sourcing` |
-| Merchandising | `products`, `ai` |
-| Supply | `supply` |
-| Channel Operations | `channels`, `orders`, `inventory` |
-| Advertising | `advertising` |
+| Sourcing | sourcing |
+| Merchandising | products, ai |
+| Supply | supply |
+| Channel Operations | channels, orders, inventory |
+| Advertising | advertising |
 
-Remove chat/tool-wrapper Agents, fixed playbooks, default tool policy, runtime
-kind hierarchies, and domain-to-unique-Agent routing. Delegation always names a
-registered target Agent explicitly.
+Remove Operator. Domains previously attached only to Operator remain ordinary
+catalog domains and may be read or granted explicitly.
 
-### 4.3 Capability definition and ownership
+AgentDefinition contains only:
+
+- stable key, label, and business responsibility;
+- assignedDomains;
+- system instruction/profile content; and
+- optional presentation metadata.
+
+It contains no runtime, model, reasoning effort, provider credential, provider
+session, capability implementation, version row, or historical snapshot.
+Historical AgentVersion reproduction is not required.
+
+### 4.3 Capability ownership
 
 The only supported layering is:
 
-```text
+~~~text
 Agent
   -> CapabilityDefinition
-    -> owner input port
+    -> owner-domain incoming port
       -> owner implementation
            -> optional AI call
            -> optional DB/repository work
            -> optional external API/browser
-           -> optional Operation enqueue
-```
+           -> optional OperationRun
+~~~
 
-`CapabilityDefinition` is code-owned and contains stable owner-prefixed key,
-owner domain, description, real Zod input/output schemas, detailed effects,
-`approvalRisk: none|low|medium|high`, idempotency requirement, and owner input
-port identity. Remove `kind`, `visibility`, old manifest `approval`, monetary
-`cost` effect, and duplicate handler policy metadata. Do not add a new
-requirements taxonomy.
+Each owner domain co-locates:
 
-Only these effects classify a mutation:
+- the Agent-facing CapabilityDefinition;
+- strict Zod business input and output schemas;
+- its owner-domain incoming port; and
+- one production implementation adapter.
 
-```typescript
-const MUTATION_EFFECTS = new Set([
-  'db_write',
-  'external_write',
-  'job_enqueue',
-]);
-```
+Agent OS aggregates and validates definitions and implementations. It does not
+define owner business ports, write owner-domain rows, or maintain a central
+implementation switch.
 
-Every mutation requires idempotency. Query capabilities use `none|low`
-approval risk. AI behavior belongs to the owner capability and receives an
-explicit model; it does not create a wrapper Agent.
+CapabilityDefinition contains:
 
-Correct the known owner-prefix violations as follows:
+- owner-prefixed key;
+- owner domain;
+- description;
+- strict input and output Zod schemas;
+- detailed effects;
+- approvalRisk;
+- idempotency requirement; and
+- owner input-port identity.
 
-- `market.collect_shadow_signals` -> `sourcing.collect_shadow_signals`;
-- `product_listing.create_generation_package` ->
-  `products.create_listing_generation_package`;
-- `product_listing.submit_wing_thumbnail` ->
-  `channels.submit_wing_thumbnail`.
+Do not restore kind, visibility, old approval, cost effect, provider model,
+provider credential, or provider history fields.
 
-The current final Agent-facing catalog contains eighteen capabilities. Sourcing
-publishes all ten independently useful work intents:
+Mutation effects are exactly:
 
-```text
+~~~text
+db_write | external_write | job_enqueue
+~~~
+
+Descriptive non-mutation effects such as read, browser, external_io, and llm
+remain available. Every mutation requires owner idempotency. A query has
+approvalRisk none or low.
+
+AI used by a capability is an owner implementation detail with an explicit
+model selected by that implementation. It is unrelated to the user's
+conversation model and is not promoted to AgentDefinition or
+CapabilityDefinition.
+
+### 4.4 Final Agent-facing catalog
+
+The final catalog contains seventeen capabilities. The ten Sourcing
+capabilities remain:
+
+~~~text
 sourcing.duplicateCheck
 sourcing.scrapeProductUrl
 sourcing.ingestCandidate
@@ -401,787 +360,602 @@ sourcing.refreshCollection
 sourcing.refreshValidation
 sourcing.createReviewBatch
 sourcing.collect_shadow_signals
-```
+~~~
 
-`duplicateCheck` is a DB read; `scrapeProductUrl` returns bounded normalized
-supplier evidence without writing a candidate; and `ingestCandidate` accepts
-only the exact same-Attempt scrape result/hash admitted by the server.
-`scrapeUrlWorkflow` is the convenience path over the existing
-`sourcing.scrape_url` Operation. `retrieveWorkspaceEvidence` returns bounded
-document text and provenance rather than citation IDs alone. Daily trend
-collection and market-shadow collection remain distinct Operations and distinct
-Agent capabilities.
+The remaining capabilities are:
 
-Every Sourcing mutation carries the exact owner idempotency key through its
-incoming port to the final database or Operation owner. Same key and canonical
-input replay the same result; a changed input conflicts, and a missing key is
-rejected before owner execution. Bounded synchronous validation remains a DB
-mutation and is not converted to an Operation without evidence that it is
-long-running.
+~~~text
+analytics.readOverview
+channels.register_confirmed_listing
+channels.submit_coupang_listing
+channels.submit_wing_thumbnail
+products.create_listing_generation_package
+supply.create_purchase_order_draft
+supply.submit_purchase_order
+~~~
 
-The scanner and boot validation require `key.startsWith(ownerDomain + '.')`,
-one definition, and one implementation per key.
+Remove agent_os.platform_probe from the Agent-facing catalog. Runtime readiness
+is an internal health contract, not an independent business intent.
 
-## 5. Routing, Delegation, and Admission
+Sourcing contract details previously approved remain unchanged:
+
+- duplicateCheck is read-only and returns resource references without UI href;
+- scrapeProductUrl performs bounded allowlisted supplier investigation and
+  writes no candidate;
+- ingestCandidate admits only exact server-observed scrape output/hash from the
+  same live turn and is owner-idempotent;
+- scrapeUrlWorkflow uses sourcing.scrape_url and passes the exact owner key to
+  the Operation owner;
+- retrieveWorkspaceEvidence returns bounded document text and provenance;
+- refreshCollection and collect_shadow_signals remain separate Operations;
+- refreshValidation remains a bounded synchronous owner mutation; and
+- createReviewBatch retains exact item/version and request-hash fencing.
+
+If the live turn ends before ingestCandidate admission, a later turn must
+scrape again. Same-turn scrape evidence is an ephemeral server admission
+receipt, not a new persistence model, HMAC, or provider-session field.
+
+## 5. Routing and cross-Agent delegation
 
 ### 5.1 Routing rule
 
-Routing remains two-step:
-
-1. Cross-domain read: current Agent invokes directly through an exact
-   `cross_domain_read_grant` bound to this Attempt and input hash.
-2. Cross-domain mutation: caller explicitly selects a registered target Agent,
-   creating a child Task and `explicit_execution_grant` for the exact call.
-
-Own-domain reads and mutations use default scope. Approval is evaluated after
-routing, so delegation never bypasses HITL. An unassigned-domain read still
-uses an exact read grant. An unassigned-domain mutation requires an explicit
-target Agent and execution grant; no hidden owner Agent is inferred.
-
-### 5.2 Native subagents versus KidItem delegation
-
-Codex/Claude native subagents are ephemeral helpers inside one Attempt. They
-share its AgentVersion, workspace, MCP HTTP binding, authority, trusted
-full-access OS-account execution boundary, Runner-owned supervisor tree, and
-one global slot. They create no KidItem row.
-
-A KidItem child Task is created only when business responsibility moves to an
-explicitly selected Agent. It stores the parent Task, delegating live Attempt,
-target AgentVersion, objective, completion criteria, resource references,
-idempotency key, and canonical request hash.
-
-Repeating a delegation key with the same hash returns the existing child and
-its latest durable Attempt projection; another payload returns
-`delegation_idempotency_conflict`. Replay never relaunches a terminal Attempt
-or creates a successor, even when the child Task remains open. Same-type Agents
-may recur. There is no depth, fan-out, quota, or cycle policy.
-
-The parent may call child `status`, `wait`, `result`, `message`, and live
-`interrupt`. An explicit child `message`/Continue may reopen that same Task and
-create a successor Attempt; repeating `delegate_to_agent` cannot. Parent
-failure/cancellation never automatically changes the child business lifecycle,
-and child failure never automatically fails parent.
-
-### 5.3 Single-process admission
-
-One API process owns a nonblocking process-local semaphore with default limit
-`AGENT_CLI_MAX_CONCURRENCY=4`. There is no database admission lock, distributed
-signal, queue, or capacity-wait state. The home deployment runs exactly one API
-replica by configuration.
-
-Admission rules are:
-
-- reserve capacity before creating an Attempt;
-- on exhaustion return `agent_capacity_exhausted` with Retry-After and create
-  no row;
-- new Session/root Task/first Attempt are one transaction;
-- each logical root/live message carries a bounded caller-owned
-  `messageCommandKey`; same key plus the same canonical input is an exact replay
-  and changed input conflicts;
-- root exact replay returns/rebinds the existing root Attempt and never routes
-  the first prompt into live input or a successor;
-- a same-Session root collision with a different message key is not replay; it
-  fails as `root_task_already_exists` and never becomes live input or Continue;
-- follow-up/retry/Continue locks Session then Task, validates current user and
-  organization, Task status, pinned AgentVersion/runtime, terminal predecessor,
-  and no live Attempt, then inserts a successor;
-- delegation replay returns an existing same-key/same-hash child and latest
-  Attempt without a slot, relaunch, or successor; otherwise reserve capacity,
-  lock Session then the live parent Task, verify the exact delegating Attempt,
-  and atomically create child plus first Attempt;
-- every failed transaction or uniqueness race releases its provisional slot;
-  and
-- a message arriving while an Attempt is live uses the in-memory live-control
-  channel and never creates another Attempt; once its queue admission succeeds,
-  a concurrent terminal event closes the stream without replaying that input as
-  a successor.
-
-The single-instance deployment assumption is explicit. Starting a second API
-executor is unsupported rather than approximated with a new distributed
-contract.
-
-## 6. Authorization, HITL, and Mutation Dispatch
-
-Every call revalidates current authenticated user, active organization
-membership, exact Session/Task/Attempt, Task-pinned AgentVersion scope,
-CapabilityDefinition, owner input port, and exact canonical input hash.
-
-The product is single-user. Do not add invoke/approve roles, self-approval
-policy, organization authority profiles, policy snapshots, or grant tokens.
-
-The HITL rule is:
-
-```typescript
-const requiresHumanApproval =
-  isMutation(capability) &&
-  (capability.approvalRisk === 'medium' ||
-    capability.approvalRisk === 'high');
-```
-
-It applies to own-domain and delegated mutations. A live CLI may wait up to 10
-minutes within its 30-minute Attempt timeout. If it exits first, the durable
-Approval/Invocation remains. Additional reasoning is always a user-triggered
-successor Attempt.
-
-The worker claims `ready` mutations with a bounded lease and retries an expired
-lease with the same owner idempotency key. It revalidates current membership,
-Task/Session existence, capability contract fingerprint, authorizing Git SHA,
-resource version, and owner preconditions immediately before the owner call.
-Changed code fails without a business call as `stale_capability_version`;
-changed resources fail as `stale_resource`.
-
-A `job_enqueue` capability succeeds after durable Operation creation and
-returns `operation_ref` immediately. Operations expose status/wait/cancel but
-never start an Agent Attempt.
-
-Automatic release drain is not implemented. For a code upgrade, the operator
-waits until no `ready|executing` mutation is shown before stop/start. If this
-precondition is ignored, the SHA/fingerprint fence fails changed work safely;
-it does not reinterpret it under new code.
-
-## 7. Codex/Claude Runtime and MCP Boundary
-
-### 7.1 Supported platforms and runtimes
-
-The native Runner platforms are exactly `macos | windows`. Node maps `darwin`
-to `macos` and `win32` to `windows`; Linux and unknown platforms fail closed.
-macOS is the supported development and integration-test platform. Native
-Windows is the Office production platform.
-
-Provider runtimes remain a separate axis with exactly
-`codex_cli | claude_cli`. Remove Hermes, OpenAI Responses, credential brokers,
-runtime-handle codecs, monetary budget flags, and fallback selection. Runtime
-and model selection are explicit; a missing selection or incompatible CLI/MCP
-train fails admission and readiness.
-
-Every Attempt forces provider history and session persistence off. KidItem
-never requests or stores provider resume/session IDs. The dedicated host Runner
-account's ordinary Codex and Claude login state is the only persistent provider
-state. KidItem never reads, copies into persistence, encrypts, HMAC-signs, or
-returns provider credential values.
-
-The reference mechanism is platform-specific. macOS Claude uses the dedicated
-account's exact `HOME`/`USER` identity and a bounded boolean-only native auth
-status check so the OS Keychain remains authoritative; it never materializes
-`.claude.json`, settings, projects, or history. Windows Claude uses only a
-validated same-volume hard link to that account's `.claude/.credentials.json`
-inside the disposable Attempt config. Codex references only the validated
-account-owned `auth.json` appropriate to the platform. Unsupported shapes fail
-readiness closed without copying credential bytes.
-
-### 7.2 Runtime topology and ownership
-
-Nest remains the durable authority while a new native `apps/agent-runner`
-process owns only disposable host process execution:
-
-```text
-Nest API container
-  <- HTTP command long-poll   <- Host Runner
-  <- idempotent event POST    <- Host Runner
-  <- MCP v2 Streamable HTTP   <- Codex/Claude CLI
-```
-
-The Runner never exposes an inbound listener. The API container's existing
-Nest port is published only on the host loopback as
-`127.0.0.1:4000 -> api:4000`; there is no dedicated Runner port. Public API
-routes remain under `/api/*`, while Runner/MCP routes are the sibling
-`/internal/agent-runtime/*` namespace. Office nginx returns `404` for
-`/internal/*` and never exposes it to the LAN. Runner and Attempt
-authentication remain mandatory on loopback.
-
-Nest owns Session/Task/Attempt authority, admission, grants, Invocations,
-Approvals, owner idempotency, Operations, and the MCP tool implementation. The
-Runner owns strict provider command construction, ephemeral directories,
-stdin/stdout handling, timeout/interrupt, and complete process-tree cleanup.
-The API container neither installs nor spawns Codex/Claude and mounts no
-provider login volume. The worker never spawns a provider CLI.
-
-### 7.3 Runner HTTP control protocol
-
-The control protocol uses strict, bounded Zod contracts and rejects unknown
-keys. Both control routes are authenticated with the installation Runner
-token:
-
-- `POST /internal/agent-runtime/runner/commands:poll` is a long-poll that
-  returns at most one bounded command batch;
-- `POST /internal/agent-runtime/runner/events` accepts bounded lifecycle,
-  output, readiness, acknowledgement, and terminal event batches.
-
-The Runner creates a cryptographically random `runnerInstanceId` on every
-process start. Its first poll carries the strict hello/readiness snapshot; Nest
-issues one process-memory `leaseId` after validating the complete
-platform/runtime/readiness train. Later polls carry that lease. Exactly one
-command poll may be open for the lease; a concurrent poll is rejected. Nest
-holds an empty poll for at most 20 seconds and returns `204`; the Runner
-immediately opens the next poll with a 25-second client deadline. An open
-authenticated poll or a new poll within the lease window proves liveness. A
-closed/failed poll that is not re-established within 30 seconds expires the
-lease.
-
-Commands are delivered at least once and contain a unique `commandId`, exact
-`attemptId`, deadline, and canonical command hash. The allowed command kinds
-are `attempt.start`, `attempt.input`, and `attempt.interrupt`; there is no raw
-shell command. The Runner acknowledges commands through the event route.
-`attempt.start` replay uses the Attempt ID and canonical launch hash: the same
-command returns the existing process state, changed input conflicts, and a
-terminal Attempt cannot be relaunched. Input and interrupt are also
-idempotent.
-
-Every event batch contains `runnerInstanceId`, `leaseId`, a strictly increasing
-`eventSeq`, and bounded events. Nest deduplicates repeated sequence numbers and
-rejects gaps, stale leases, unknown Attempts, and invalid lifecycle
-transitions. The Runner serializes uploads with at most one event batch in
-flight and retries that exact batch until acknowledged. Live output may be
-coalesced into small bounded batches and is not made durable; terminal state is
-written through the existing AgentAttempt lifecycle.
-
-No new command/event/lease database model is introduced. Control replay and
-deduplication are process-memory safeguards. Durable Attempt authority and boot
-reconciliation remain the recovery boundary.
-
-### 7.4 Runner and Attempt identity
-
-Each installation has one cryptographically random Runner bearer token with at
-least 256 bits of entropy. Windows stores it in a file readable only by the
-dedicated Runner account and SYSTEM; macOS uses a mode-`0600` file. Nest
-receives the matching value as a Docker secret. Rotation is an explicit short
-outage that replaces both protected copies and reruns readiness. Neither side
-logs the token or Authorization header.
-
-Nest generates a separate cryptographically random opaque bearer token for
-each Attempt. It is bound to one immutable Attempt MCP coordinate, expires at
-the earlier of the Attempt deadline and 30 minutes, cannot be refreshed, and
-is invalidated immediately on terminalization, cancellation, interrupt,
-timeout, Runner loss, or API restart. Nest keeps only its SHA-256 digest and
-binding in the Attempt-token registry. The raw token exists only in the
-unacknowledged in-memory `attempt.start` command so at-least-once delivery can
-retry that exact command without minting a second identity; command
-acknowledgement immediately discards that raw command payload. The Runner
-passes the same token to the CLI through a generated environment reference. It
-is never reconstructed, logged, or persisted.
-
-### 7.5 Strict launch and host process boundary
-
-Nest sends only a business-neutral `AttemptLaunchSpec` containing the protocol
-identity, Attempt ID, `codex_cli | claude_cli`, explicit model, bounded prompt,
-`empty_ephemeral_v1` workspace policy, timeout, loopback MCP URL, Attempt
-token, and exact MCP revision `2026-07-28`. It cannot send an executable, shell
-name, raw argument list, arbitrary environment variable, host path, provider
-credential, or business authority field.
-
-The Runner owns code-defined provider command builders. It creates an empty,
-private per-Attempt workspace and generated provider/MCP configuration beneath
-its configured root. The verified provider authentication artifact remains in
-the persistent host login root and is exposed to the isolated provider home
-only through a validated same-volume OS reference supported by the selected
-CLI train; readiness fails instead of copying credential bytes or silently
-using the complete persistent provider home.
-
-Every Codex/Claude process runs non-interactively with the selected train's
-effective full-access permission mode. Codex uses approval policy `never` and
-the full-access permission profile; Claude uses its full-access bypass mode.
-Readiness verifies the effective mode instead of accepting a workspace-only or
-prompting profile. This full access is bounded only by the dedicated,
-non-administrator Host Runner account's OS permissions; it is not a hostile-
-process containment boundary.
-
-The CLI is therefore a trusted local process for this single-user deployment.
-KidItem capability grants, owner idempotency, approval risk, and HITL remain the
-normal business execution contract, but are not claimed to withstand a
-malicious same-account CLI. The dedicated account must not contain DB, Nest,
-business-provider, or unrelated host credentials. Nest still never accepts a
-raw executable, shell command, argument array, environment map, or host path.
-The Runner bearer remains useful against LAN/other-user/accidental callers, but
-is not treated as a hard secret from a full-access child running as the same OS
-account. Hard adversarial CLI isolation would require separate OS identities
-and is outside this single-user scope.
-
-Windows launches every Attempt in a Job Object with kill-on-close. macOS uses
-an exact process group plus a parent-death control-pipe watchdog so an abrupt
-Runner exit also kills the complete group. Native provider subagents stay
-inside that same Attempt, concurrency slot, token lifetime, and cleanup
-boundary. Interrupt, timeout, Runner loss, API restart, and Runner shutdown
-kill the complete tree. Attempt directories are removed after terminalization;
-the host login remains.
-
-### 7.6 Attempt-bound MCP v2 HTTP adapter
-
-Codex and Claude call Nest directly using MCP v2 Streamable HTTP revision
-`2026-07-28`. There is no stdio MCP child, Unix socket, named pipe, byte bridge,
-custom relay, transport session persistence, or legacy fallback.
-
-Generated Codex configuration uses the loopback URL plus
-`bearer_token_env_var`; generated Claude HTTP MCP configuration uses an
-environment-expanded Authorization header. The configuration contains only
-KidItem's Attempt endpoint and the selected train's explicit non-persistent
-controls. The Attempt token is excluded from model-invoked shell environments
-and model-visible output.
-
-Codex also receives `features.mcp_2026_07_28=true` and
-`CODEX_MCP_PROTOCOL_VERSION=2026-07-28`. Claude receives
-`MCP_SDK_GENERATION=v2` and `MCP_PROTOCOL_NEGOTIATION=auto`. Claude's `auto`
-does not authorize legacy fallback: Nest rejects the legacy era and readiness
-must observe revision `2026-07-28`.
-
-The Nest HTTP adapter validates the bearer token, path Attempt ID, TTL,
-terminal state, and immutable in-memory binding before constructing the
-request-scoped MCP server. It then revalidates the durable
-Session/Task/Attempt/AgentVersion/user/organization coordinate for every tool
-call, creates Invocations server-side, executes authorized reads inline, and
-durably admits mutations for the worker. It exposes the exact existing 11 MCP
-transport tools and all 18 domain CapabilityDefinitions, including the ten
-Sourcing capabilities.
-
-### 7.7 Live control and readiness
-
-Live user input and interrupt are ordinary long-poll commands to the same
-running Attempt. They are never persisted as a provider handle or used to
-resume a terminal process. Exact message retry deduplicates the same command;
-it never becomes an implicit Continue. Losing the Runner lease kills the
-Attempt rather than reconnecting to its provider process.
-
-Readiness requires one authenticated Runner lease, supported platform, exact
-control contract, compatible Codex/Claude and MCP train, both provider login
-checks, enforced non-persistent settings, strict modern MCP discovery/list/call,
-runtime-specific terminal-result parsing, token redaction/revocation, and
-process-tree/workspace cleanup. Only Claude requires a live second input;
-Codex returns its strict envelope immediately after its direct probe. Readiness
-is an in-memory projection, not a new database state. Admission checks it and
-the Task-pinned runtime for every new Attempt.
-
-Codex does not make readiness depend on stochastic model tool selection. For a
-`readiness_canary` launch, the shared launch contract carries only an ephemeral
-UUID nonce (required if and only if that scope is selected); it cannot carry a
-server name, tool name, or arbitrary arguments. After exact app-server
-`thread/start`, Runner creates an ephemeral MCP-enabled probe thread and calls
-the supported `mcpServer/tool/call` control-plane RPC with the fixed
-`kiditem_attempt` / `readiness_probe` coordinate and exact nonce. It validates
-the strict structured result, then creates a second fresh ephemeral provider
-thread in the same app-server process and Attempt configuration. The only
-thread override is Runner-owned
-`mcp_servers.kiditem_attempt.enabled=false`; both thread responses must return
-the train's full-access permission profile. Runner assigns only the second
-thread as live, so there is no resume, history, or persistence bridge from
-probe to provider turn. The provider readiness turn is intentionally tool-free; its
-prompt is the minimal structured reachability contract: `Return only a valid
-AgentResultEnvelope JSON object. Do not call any MCP tool.` The direct probe
-carries readiness semantics separately, and Codex never synthesizes a live
-input command. The provider wire schema makes every field required; optional
-shared `needsInput` and `error` values are strict object-or-null placeholders
-that Runner removes only when null before shared-envelope validation. Arbitrary
-`output` is intentionally outside the provider wire schema. Claude retains
-its model-selected scoped readiness probe and live second input during the live
-turn.
-
-The readiness contract is therefore four correlated proofs: a real provider
-structured result (Codex immediate after its direct probe; Claude after its
-live input); a local exact bundled app-server control-plane regression proving
-modern `tools/list` plus `tools/call` on the probe thread; a deterministic
-local fake Responses-provider regression proving an MCP-enabled Codex thread
-exposes the `mcp__kiditem_attempt` namespace child with `tool_choice: auto`
-while the fresh readiness provider thread omits that namespace; and a
-deterministic session-level Codex `turn/start` / `turn/steer` /
-completion-decode gate. The local gates do not substitute for provider-turn
-coverage, the model-visible metadata proof does not claim a live model selected
-the tool, and the session-level gate does not claim a fake provider completed a
-full live turn.
-
-## 8. Basic Restart Recovery
-
-Basic recovery means restart with the same deployed application version/SHA:
-
-1. API shutdown or loss closes/fails the Runner's outstanding command poll.
-   The Runner terminates every live macOS process group or Windows Job Object
-   before it reconnects.
-2. API boot has no prior Runner lease or Attempt-token digest. It marks every
-   prior `starting|running` Attempt `process_interrupted` and rejects stale
-   events from the old `runnerInstanceId`/`leaseId`.
-3. Its nonterminal inline read Invocations become
-   `failed/process_interrupted`; they are not reconstructed or retried.
-4. Task remains `open` unless it already has an explicit business terminal
-   status.
-5. Pending Approvals remain durable until decision, cancellation, or expiry.
-6. `ready` mutations remain worker work; an expired `executing` lease is
-   retried with the same owner idempotency key.
-7. The Runner removes only validated stale Attempt directories beneath its
-   configured private root after process-tree termination.
-8. Web reloads Task, Attempt, Approval, Invocation/Operation, result, and child
-   Task facts. It does not compute or return a Task presentation status.
-9. Continue creates a new immutable Attempt from current durable Task,
-   Invocation, Approval, Operation, and resource state. It never restores a
-   provider session.
-10. Transport/idempotency replay after interruption returns the existing
-    Task/Attempt projection. It never synthesizes Continue or a successor.
-
-Runner crash, host reboot, a poll lease that cannot be renewed within 30
-seconds, or an Attempt-token failure uses the same fail-closed path. Browser
-disconnect ends only the live stream and does not cancel the CLI. Worker
-restart uses the same mutation lease/idempotency rules. Cross-version rolling
-upgrade recovery and automatic background reasoning are outside scope.
-
-## 9. Task Projection, CopilotKit, and Web
-
-The browser calls same-origin `/api/copilotkit`. A focused authenticated Nest
-incoming adapter calls Agent OS application ports in process and streams future
-AG-UI events. It is composed only in the API root; worker and MCP roots cannot
-import it.
-
-There is no durable chat, conversation event, replay cursor, live-join token,
-or provider history. On refresh, Web loads:
-
-- root/child Task tree;
-- current/latest Attempt states;
-- Approval rows and admitted mutation state;
-- referenced Operation state;
-- concise result summary and resource/operation references; and
-- optional structured `result.needsInput` content without promoting it to a
-  Task lifecycle or presentation state.
-
-There is no Task-facing `running`, `awaiting_approval`, `awaiting_operation`,
-`awaiting_child`, `needs_input`, `needs_continue`, terminal, or error
-presentation enum and no precedence algorithm. Web labels and actions are
-computed locally from the source records. It enables Continue when there is no
-live Attempt and the Task is not cancelled; this action does not run
-automatically. Web then subscribes only to future live events. Past chat bubbles
-are not rebuilt.
-
-Authenticated application commands cover Approval decision, user Continue,
-Task cancel/reopen, live interrupt, and terminal-only Session deletion.
-
-## 10. Terminal-Only Session Hard Delete
-
-There is no Session deletion lifecycle or deletion Operation. A current-user
-delete command uses one transaction:
-
-1. lock the organization-fenced Session row;
-2. lock/read its Tasks, Attempts, Invocations, and Approvals;
-3. reject with `session_busy` if any Attempt or Invocation is nonterminal or any
-   Approval is pending;
-4. hard-delete the Session-owned graph by cascade when all work is terminal.
-
-The admission transaction also locks Session then Task. Therefore either an
-admission commits first and deletion sees busy work, or deletion commits first
-and admission sees no Session. No `deleting` state, cutoff, generation,
-tombstone, retention, cleanup graph, or binding row is needed.
-
-Operations and business rows are not deleted. Only their references disappear.
-A user who wants to delete active work first cancels/interrupts it and waits for
-already-admitted mutations to terminalize.
-
-## 11. Clean Schema Cutover
-
-Legacy data is intentionally discarded even when found. Do not write a
-backfill, conversion, export, or compatibility reader.
-
-To avoid nullable hardening against populated legacy tables:
-
-1. add the final logical `AgentVersion`, `AgentSession`, and `AgentTask`
-   symbols mapped to `agent_work_versions`, `agent_work_sessions`, and
-   `agent_work_tasks`;
-2. add `AgentAttempt`, `AgentCapabilityInvocation`, and
-   `AgentCapabilityApproval` against that physical graph;
-3. cut application callers to only those tables without dual write;
-4. remove every legacy caller/model; and
-5. drop the old physical Agent OS tables with the repository's approved
-   `db:push -- --accept-data-loss` path.
-
-Before applying the destructive cutover to the home-server database:
-
-- stop API and worker writers;
-- create a PostgreSQL custom-format backup;
-- verify `pg_restore --list` succeeds;
-- record a SHA-256 checksum and the exact database/VERSION/Git SHA;
-- capture content-free counts/identities for unrelated core business and
-  Operation rows.
-
-After `db:push`, regenerate Prisma/ERD/shared artifacts, boot API and worker,
-seed the six AgentVersions, run the interaction smoke, and compare the unrelated
-row checks. If any step fails, keep the service stopped and use the backup for
-manual full-database restore. KID-25 does not automate or rehearse that restore
-and records no RPO/RTO claim.
-
-No archive contents, credentials, prompts, mutation inputs, or row data enter
-CI logs or the repository.
-
-## 12. Removed Production Surface
-
-The final source/schema scanner reports zero production findings for:
-
-- standalone Interaction Gateway/private Nest control plane/gateway URL;
-- generic AgentInstance/AgentRun/AgentRunRequest and legacy HTTP/worker paths;
-- AgentExecution/context epoch/policy snapshot/authority profile/grant/outbox;
-- conversation/message/event/replay/summarizer/live-join state;
-- artifact/materialization/provider upload/storage ownership;
-- usage/cost ledgers and monetary budgets;
-- Hermes/OpenAI Responses/provider credential/session/handle persistence;
-- full-Nest MCP child and `KIDITEM_MCP_EXECUTION_CONTEXT`;
-- active credentials or secrets introduced into Agent OS runtime persistence or
-  passed across the Runner launch/control boundary;
-- fixed playbooks, tool-wrapper Agents, capability `kind`, `visibility`, old
-  approval metadata, or duplicate handler policy;
-- background continuation/coordinator/Operation-to-Agent hooks,
-  `continuationMode`, or `continuationKey`;
-- advisory executor lock, distributed admission, release drain, or capacity
-  queue;
-- coordinated Session deletion state/Operation/bindings; and
-- legacy Agent OS shared exports and old Web Agent console/routes.
-
-The scanner must allow the required process-memory-only Runner lease,
-command/event replay guards, Attempt-token digest bindings, and process handles,
-and must distinguish them from forbidden persistence/codec paths. It enforces
-two final security invariants: active credential/secret material is never
-persisted or admitted as raw launch input, and ephemeral Runner control state
-never becomes durable. It does not maintain special predicates for retired
-HMAC names or fixtures that can no longer re-enter the final architecture; a
-value such as `signingSecret` is rejected by the generic secret rule, while a
-non-secret hash or digest remains valid protocol metadata.
-
-## 13. Home-Server Deployment
-
-Deploy the existing Web, API, and worker containers plus one native host
-`apps/agent-runner` process. API owns CopilotKit, durable Agent OS authority,
-Runner admission, and MCP HTTP. Runner owns only native CLI process execution;
-worker owns mutation dispatch and Operations. There is no gateway, Runner
-inbound listener, or independently deployed Agent service.
-
-Compose/configuration declares exactly one API replica. Process-local maximum
-concurrency is controlled only by:
-
-```text
-AGENT_CLI_MAX_CONCURRENCY=4
-```
-
-Attempt timeout 30 minutes and Approval lifetime 24 hours remain code
-constants. There is no live Approval wait. Remove generic Agent worker
-enablement, old
-runtime concurrency/wait/budget values, retired internal credential/signing
-settings, and gateway URLs.
-
-The existing GitHub Actions Office release remains the only deployment
-entrypoint. Its immutable bundle includes a versioned Runner artifact and
-runtime-contract manifest. Office installs and runs the Runner through Task
-Scheduler under a dedicated Windows account; macOS starts the development
-Runner explicitly. The release transaction stops the scheduled Runner,
-atomically replaces it, verifies its definition, and restarts it.
-
-The Runner installation token is protected by Windows ACL or macOS mode
-`0600`; Nest receives the matching value through a Docker secret. The Nest
-internal runtime route is published only on host loopback and explicitly
-denied by Office nginx. No Windows Firewall LAN rule is added. Codex/Claude and
-their login profile are removed from the API image and Compose volumes.
-
-KID-25 adds focused Runner/MCP/runtime tests and readiness for the runtime
-selected by a published AgentVersion. It does not add a scheduled compatibility
-workflow, compatibility image, automatic dependency update, advisory singleton
-lock, automatic release drain, or durable Runner inventory.
-
-The interrupted MCP v2 worktree diff is reconciled in place. Reuse its modern
-runtime contract, strict Zod wire schemas, bounded result envelope, Nest-owned
-11-tool factory, and transport-independent scanner assertions. Replace and
-remove its stdio-to-UDS bridge, Unix socket server, Linux `/proc` peer verifier,
-custom proxy/relay, API-owned provider process registry, container CLI packages,
-login volume, and Docker-image CLI assertions. The replacement surface is
-`apps/agent-runner`, shared command/event schemas, Nest Runner admission,
-platform supervisors, the in-memory Attempt-token registry, direct MCP HTTP,
-loopback deployment wiring, and matching readiness tests. This cutover does not
-change the 18 capability definitions or lifecycle schema. The validated PR 479
-architecture convergence does co-locate owner capability binding and replaces
-split-brain ephemeral Web interaction state; neither change adds durable state
-or changes a business capability contract.
-
-Code upgrade is stop/start. The operator first confirms no `ready|executing`
-mutation, stops Attempt admission and the Runner, deploys the matching
-API/worker/Runner train, and requires full readiness before admitting work.
-Crash restart with the same SHA follows Section 8.
-
-### 13.1 Validated PR 479 Architecture Convergence
-
-The validated 2026-08-25 PR 479 architecture review was accepted as
-implementation authority for the following five depth corrections.
-They refine the fixed topology without expanding KID-25's runtime, schema, or
-multi-user scope:
-
-1. API and native Runner each have one control-session Module. Lease, queue,
-   event, readiness, deadline, and terminal state are private implementation
-   details; controllers, MCP, launch, live input, and HTTP receive narrow view
-   Interfaces rather than those primitives.
-2. REST and CopilotKit use one Agent Work intake Module for AgentVersion,
-   runtime/model, root/successor admission, launch context, and output binding.
-3. One ephemeral interaction Module owns selected Agent, draft, Session URL,
-   and UI actions. Durable Session projection pins the immutable Agent
-   definition, and no transcript/provider state moves into Web persistence.
-4. Each owner domain co-locates CapabilityDefinition, incoming port, and
-   binding Adapter. Agent OS aggregates and validates exact 1:1 compositions;
-   it contains no 18-key implementation switch or generic owner cast.
-5. Durable Work persistence exposes four invariant-cluster Interfaces:
-   admission, invocation/approval, mutation, and lifecycle/recovery. They share
-   one Prisma atomicity/locking implementation, and the retired mega port has no
-   compatibility facade.
-
-The deletion tests are structural: no production consumer may import the old
-Runner state primitives, duplicate controller orchestration, split Web store,
-central capability dispatch map, or broad Work transaction port. Flat Zod
-schemas, capability catalog data, shared protocol DTOs, and thin HTTP Adapters
-remain deliberately flat.
-
-## 14. Implementation Order
-
-Use substantial integrated Terra work units, not file-sized microtasks. Use
-selective Sol review for important boundaries when needed, but make executable
-QA the final blocking gate. Fix every reproduced QA failure before completion.
-
-The exact Host Runner/control/MCP/deployment file sequence and TDD gates are
-owned by
-`docs/superpowers/plans/2026-08-24-kid-25-mcp-v2-runtime-train.md`. That plan
-supersedes every earlier container CLI, stdio, UDS, or API-local provider
-process instruction without changing this design's capability/schema/Web
-scope.
-
-The numbered sequence is an execution and review aid, not a requirement to
-keep legacy code compatible between commits. Replacement wiring and legacy
-deletion may be combined or moved earlier when that produces a smaller,
-coherent cutover. The fixed final topology, state ownership, security
-invariants, and acceptance gates remain authoritative.
-
-1. Add final registries, routing/HITL/idempotency validators, replacement
-   physical schema/shared contracts, and fail-first legacy scanners.
-2. Implement one admission/lifecycle/Invocation/Approval/delegation boundary
-   against the replacement graph.
-3. Move capability implementations to owner input ports, preserve the reusable
-   modern MCP v2 server work, and implement the native Host Runner, strict HTTP
-   control contracts, direct MCP Streamable HTTP, and platform supervisors.
-4. Implement worker mutation dispatch, Approval expiry, and same-SHA API/worker
-   restart reconciliation.
-5. Cut Nest CopilotKit/Web to durable work facts plus future live events,
-   switch all callers, then delete the entire legacy code/schema in one clean
-   contraction.
-6. Remove container CLI/UDS/stdio assumptions, align the single-node
-   Compose/Runner artifact/config/docs, perform the basic backup/cutover check,
-   run macOS and Windows QA gates, push the existing branch, and update
-   PR/Linear.
-
-## 15. Verification and Acceptance
-
-### 15.1 Registry and capability
-
-- Exactly 14 domains and six Agents validate at boot.
-- Domain assignment is many-to-many and never auto-selects delegation target.
-- Every capability key is owner-prefixed with one definition/implementation.
-- Mutation effects require idempotency; query risk is `none|low`.
-- Own/cross-domain read/mutation and HITL matrices pass.
-
-### 15.2 Admission and persistence
-
-- One Session has one root Task and a valid child tree.
-- Root/follow-up/Continue/delegation races create exactly one intended Attempt.
-- Same root message key/input returns the existing root Attempt; key drift
-  conflicts, and neither path duplicates the first prompt as live input.
-- A different root message key against the same Session fails closed without a
-  live message or successor.
-- Live-parent delegation works while a same-Task successor is rejected.
-- Four Attempts run and the fifth is rejected before row creation.
-- Capacity and transaction failures release process-local slots.
-- Exact delegation idempotency returns one child/latest Attempt or conflict;
-  terminal replay creates no successor and performs no relaunch.
-- Read Invocation stores hash only; mutation stores canonical input/key.
+Routing remains intentionally simple:
+
+1. Read capability: the current conversation or Agent invokes it directly
+   through an exact ephemeral read grant.
+2. Mutation capability in the current Agent's assigned domain: invoke directly.
+3. Mutation outside current scope, including every mutation from general chat:
+   explicitly select a target Agent and use an execution-scoped delegation
+   grant.
+
+Approval risk is evaluated after routing. Delegation never bypasses HITL.
+
+### 5.2 Delegation without child Task
+
+Cross-Agent business delegation uses a provider-native subagent with the target
+Agent's code-owned instruction profile. KidItem creates only an ephemeral,
+process-memory execution grant bound to:
+
+- authenticated user and organization;
+- active top-level conversation/turn;
+- explicit target Agent;
+- exact capability key and canonical input hash; and
+- a bounded expiry.
+
+The grant is an opaque random identifier, not an HMAC, reusable policy, or
+database row. The target native subagent uses it for the exact mutation call.
+The server validates the current target Agent definition and capability owner
+scope before durable mutation admission.
+
+No child AgentTask, child ConversationDescriptor, AgentAttempt, delegation
+tree, depth counter, fan-out counter, cycle graph, or automatic target Agent
+mapping is created. Native subagent status and nested reasoning remain provider
+UI/runtime details.
+
+An unassigned-domain mutation may proceed only when the user/provider explicitly
+selects an Agent and the server creates an exact execution-scoped capability
+grant. No hidden owner Agent is inferred.
+
+## 6. Durable mutation, approval, and Operation model
+
+### 6.1 Final PostgreSQL graph
+
+Agent OS persistence contains exactly two models:
+
+~~~text
+CapabilityInvocation
+  -> optional CapabilityApproval
+
+CapabilityInvocation.result
+  -> resource_ref values
+  -> operation_ref values
+
+OperationRun and owner-domain entities remain independently owned.
+~~~
+
+Read capabilities execute live and do not require a durable Invocation row.
+Application logs may contain content-free diagnostics, but not canonical input,
+credential, transcript, or provider history.
+
+### 6.2 CapabilityInvocation
+
+CapabilityInvocation is the exact mutation-admission receipt and worker work
+item. It stores:
+
+- organization and initiating user;
+- capability key and owner domain;
+- optional executing Agent key for delegated responsibility provenance;
+- exact canonical input and SHA-256 input hash;
+- effects, approval risk, and idempotency requirement;
+- required owner idempotency key;
+- application version, authorizing Git SHA, and capability contract
+  fingerprint;
+- status, bounded worker lease/retry fields, concise result references,
+  structured error, and timestamps.
+
+It stores no conversation ID, provider-native session ID, AgentVersion,
+AgentTask, AgentAttempt, runtime, model, reasoning effort, transcript, prompt,
+subagent identity, or provider credential.
+
+Its statuses are:
+
+~~~text
+approval_pending | ready | executing | succeeded | failed
+~~~
+
+No-approval mutation starts ready. Approval-required mutation starts
+approval_pending. The worker is the only owner of ready/executing dispatch.
+
+Mutation admission provides one exact owner idempotency key. Same key and same
+canonical input return the same Invocation/result. Same key with changed input
+is an idempotency conflict. Missing key is rejected before the owner call. The
+same exact key reaches the final database or Operation owner.
+
+### 6.3 CapabilityApproval
+
+CapabilityApproval binds one exact CapabilityInvocation and input hash. It
+stores:
+
+- organization and invocation;
+- exact input hash;
+- pending, approved, rejected, or expired status;
+- bounded expiry;
+- deciding user, optional reason, and decision timestamps.
+
+The decision is immutable and non-reusable. Medium/high mutations require
+approval; none/low do not. This is a single-user confirmation boundary, not
+role separation.
+
+If the provider turn is still alive within a bounded wait, it may receive the
+approved result and continue. If it has ended, the worker still completes the
+already-admitted mutation or Operation. No model turn starts automatically.
+The next explicit user message can inspect the Invocation, Approval, Operation,
+and business resource through MCP.
+
+### 6.4 OperationRun and domain state
+
+A job_enqueue capability succeeds when OperationRun is durably created and
+returns operation_ref immediately. It does not poll and does not start a model
+turn on completion.
+
+Owner-domain entities remain the source of truth for business lifecycle.
+OperationRun remains the source of truth for long-running deterministic work,
+lease recovery, progress, and result. CapabilityInvocation does not duplicate
+either lifecycle.
+
+The Agent OS screen's business-work views aggregate owner-domain projections,
+pending Approvals, and queued/running Operations. There is no generic Task
+status or needs_continue state.
+
+## 7. Host Agent Gateway and provider adapters
+
+### 7.1 Supported runtime axes
+
+Host platforms are:
+
+~~~text
+macos | windows
+~~~
+
+Provider runtimes are:
+
+~~~text
+codex_cli | claude_cli
+~~~
+
+Windows is the Office production target. macOS is sufficient for current
+implementation and local QA. Windows-specific Task Scheduler, ACL, Job Object,
+quoting, and packaging tests remain release milestone QA rather than blocking
+current architecture work until the Windows environment is stabilized.
+
+The Gateway uses the host account's existing Codex/Claude login state. KidItem
+does not read, copy, encrypt, HMAC-sign, persist, or return credential bytes.
+Claude live model conversation cannot be a local acceptance gate while the
+development account lacks a paid subscription; deterministic adapter and
+readiness contracts remain required and the limitation is reported.
+
+### 7.2 Provider adapter behavior
+
+The Gateway exposes one common conversation/turn interface while using
+provider-native mechanisms:
+
+- create, list, open, title, and delete/archive top-level conversations;
+- start one explicit user turn with selected model and reasoning effort;
+- stream bounded assistant/tool/status events;
+- send live user input when supported;
+- interrupt an active turn; and
+- expose provider-native conversation history for UI rendering.
+
+Codex may use its app-server/thread interface. Claude may use its supported
+streaming conversation/session interface. Provider-native process and session
+details stay behind each adapter.
+
+There is no raw shell command API. Nest sends structured conversation and turn
+commands only. Provider command builders, executable resolution, supported
+arguments, local workspace, environment allowlist, and full-access flags are
+Gateway-owned code.
+
+The CLI runs non-interactively with full-access permissions under the dedicated
+non-administrator runtime account. This is a trusted single-user boundary, not
+hostile-process containment. The account must not contain DB, Nest,
+business-provider, or unrelated host credentials.
+
+### 7.3 Control and network topology
+
+The final network topology is:
+
+~~~text
+Browser
+  -> nginx -> Nest public /api routes
+
+Host Agent Gateway
+  -> outbound authenticated command long-poll to
+     /internal/agent-runtime/gateway/commands:poll
+  -> idempotent event POST to
+     /internal/agent-runtime/gateway/events
+
+Codex/Claude
+  -> MCP v2 Streamable HTTP at
+     /internal/agent-runtime/mcp
+~~~
+
+Nest port 4000 is loopback/private only. Office nginx returns 404 for
+/internal paths. There is no port 4401, Gateway inbound listener, LAN-exposed
+MCP endpoint, WebSocket requirement, standalone interaction service, stdio
+bridge, UDS, named pipe, or custom byte relay.
+
+The installation Runner/Gateway bearer remains one random 256-bit token,
+protected by Windows ACL or macOS mode 0600 and supplied to Nest as a Docker
+secret. It is rotatable and never logged.
+
+Each active provider turn receives an ephemeral execution binding. The binding
+is random, bounded to authenticated user, organization, conversation, optional
+Agent, and turn, and is invalidated on terminal turn, interrupt, Gateway loss,
+API restart, or expiry. It is process-memory only and never logged or persisted.
+Provider-specific adapters may refresh or recreate their local process/config
+to apply a new binding without changing provider conversation history.
+
+### 7.4 MCP v2 boundary
+
+Codex/Claude call the Nest-owned MCP v2 Streamable HTTP adapter using protocol
+revision 2026-07-28. The adapter is transport/session-stateless and validates
+the current ephemeral execution binding on every request.
+
+It exposes:
+
+- internal transport tools for catalog, invoke, delegation, Invocation status,
+  Approval status, Operation status, and readiness as required; and
+- all seventeen Agent-facing CapabilityDefinitions.
+
+Read calls validate strict schemas and execute through the owner port. Mutation
+calls validate routing/grant, canonicalize input, durably admit
+CapabilityInvocation/CapabilityApproval, and return a concise reference.
+
+MCP v2 Task records do not replace OperationRun. No MCP transport session,
+provider session, or conversation transcript is written to PostgreSQL. Legacy
+protocol fallback fails readiness rather than silently downgrading.
+
+At implementation start, resolve the latest mutually compatible Codex CLI,
+Claude CLI, MCP SDK v2, and schema packages, then commit the exact resolved
+versions and lockfile together. Do not use a floating latest dependency at
+runtime.
+
+### 7.5 Concurrency and live control
+
+The Gateway limits active provider turns installation-wide. The initial default
+is four. Capacity is process-local, immediate, and non-durable; there is no
+PostgreSQL queue, quota, delegation depth, or fan-out state.
+
+Conversation sessions may remain available while idle and do not consume an
+active-turn slot. Native subagents execute within the parent turn's provider
+runtime and slot.
+
+Live input and interrupt are control commands for the current provider turn.
+They do not create durable Attempts or Continue state.
+
+## 8. Restart and failure semantics
+
+### 8.1 API or Gateway restart
+
+On API or Gateway restart:
+
+1. active live streams and ephemeral execution bindings are invalidated;
+2. any active provider turn is interrupted or treated as disconnected;
+3. no new model turn is created;
+4. provider-native local conversation history remains owned by the provider;
+5. the next explicit user message may continue that same conversation;
+6. a read call that did not complete has no durable replay obligation;
+7. a mutation admitted before failure remains CapabilityInvocation worker work;
+8. pending Approval remains actionable;
+9. OperationRun continues under its existing durable lease/idempotency rules;
+   and
+10. a mutation not durably admitted is treated as never started.
+
+There is no AgentAttempt process_interrupted state, successor Attempt,
+needs_continue projection, provider-session reconstruction in PostgreSQL, or
+automatic reasoning recovery.
+
+### 8.2 Provider process failure
+
+A provider process failure ends only the active turn. The Gateway reports a
+bounded error and preserves the provider-local conversation when the provider
+supports it. The user may retry by sending another explicit message.
+
+Transport retry can deduplicate the same in-memory turn/tool coordinate. After
+durable mutation admission, CapabilityInvocation and owner idempotency are the
+only replay authorities.
+
+### 8.3 Worker restart
+
+Worker restart retries expired executing mutation leases with the same exact
+canonical input and owner idempotency key. It must not duplicate a committed
+domain write or OperationRun. Approval expiry and a concurrent user decision
+have one transactional winner.
+
+## 9. CopilotKit and Web UX
+
+### 9.1 Agent OS screen
+
+The Agent OS screen follows the ChatGPT Desktop interaction model:
+
+- sidebar: top-level provider conversations only;
+- new chat: general conversation with no Agent;
+- domain dashboard chat: conversation bound to that domain Agent;
+- header/composer: explicit runtime at creation plus per-turn model and
+  reasoning-effort selectors;
+- main stream: provider-native conversation history and future live events;
+- inline cards: resource refs, mutation Invocation, Approval, and Operation
+  status/actions.
+
+Provider-native subagents are not sidebar conversations. Their nested progress
+may be displayed only if the provider exposes it as part of the parent turn.
+
+There is no AgentTask list/tree, Attempt list, Continue button/state,
+needs_continue, awaiting_child, or reconstructed KidItem transcript.
+
+### 9.2 Data access
+
+The browser calls only authenticated same-origin Nest APIs. Nest proxies
+conversation list/history/commands to the Host Agent Gateway and does not
+persist them.
+
+When the Gateway is unavailable, the UI reports runtime unavailability rather
+than showing a stale KidItem conversation copy. Durable business cards continue
+to load from their owner-domain, Approval, Invocation, and Operation APIs.
+
+### 9.3 Conversation deletion
+
+Conversation deletion is a provider/Gateway-local operation. It removes or
+archives the local descriptor and asks the provider to apply its supported
+history deletion behavior. It never cascades into PostgreSQL business records,
+Invocations, Approvals, or Operations.
+
+## 10. Clean schema and code cutover
+
+### 10.1 Removed Prisma models
+
+Drop these models and physical tables:
+
+~~~text
+AgentVersion
+AgentSession
+AgentTask
+AgentAttempt
+~~~
+
+Drop the current Agent-prefixed Invocation/Approval graph and create the clean
+two-model graph:
+
+~~~text
+CapabilityInvocation
+CapabilityApproval
+~~~
+
+The clean models must not retain nullable sessionId, taskId, attemptId,
+agentVersionId, runtimeType, reportedModel, authorization expiry, or provider
+history compatibility fields.
+
+All existing Agent OS rows may be discarded. Do not backfill, export, map,
+dual-write, or retain compatibility views.
+
+### 10.2 Required database invariants
+
+Use string-backed statuses plus Zod/domain validation. Require:
+
+- organization-fenced relations;
+- one Approval per Invocation;
+- unique required owner idempotency coordinate for mutations;
+- ready/executing lease indexes;
+- exact input-hash binding for Approval; and
+- no native PostgreSQL enum.
+
+Business input schemas cannot accept organization, user, conversation, Agent,
+runtime, model, provider session, execution binding, or other server authority
+fields.
+
+### 10.3 Removed production code
+
+Remove, without compatibility facades:
+
+- AgentVersion publication/seed/history;
+- AgentSession/AgentTask/AgentAttempt repositories and services;
+- root/follow-up/Continue/reopen/cancel/delegation Task admission;
+- Attempt capacity, launch, reconciliation, token, and process-state code;
+- Task facts/projection/tree and terminal Session deletion APIs;
+- AgentTask-based MCP bindings and child status/wait/result/message tools;
+- Operator Agent prompt/publication/readiness and agent_os.platform_probe;
+- disposable empty-home/non-persistent provider enforcement;
+- automatic successor and restart recovery tests;
+- stale Task/Attempt Web state and routes; and
+- scanners or fixtures that preserve those retired names only for legacy
+  compatibility.
+
+Retain and simplify:
+
+- owner-local CapabilityDefinition composition;
+- strict capability schemas and owner idempotency;
+- CapabilityInvocation/Approval worker dispatch;
+- OperationRun execution and recovery;
+- MCP v2 modern-only adapter;
+- installation secret and ephemeral runtime binding security;
+- native provider command/process adapters;
+- same-origin CopilotKit incoming adapter; and
+- secret/control-state persistence scanners expressed as current general
+  invariants.
+
+## 11. Home-server deployment
+
+The Office deployment remains:
+
+~~~text
+Windows host
+  -> nginx / Web / one Nest API container / worker container
+  -> one Task Scheduler-managed native Host Agent Gateway
+       -> host-installed Codex and Claude runtimes
+       -> provider-local login and conversation history
+~~~
+
+GitHub Actions remains the only Office release entrypoint. Task Scheduler
+registration is needed only for first install, task-definition changes, or
+Windows account/password changes. Normal deploy/rollback replaces the versioned
+Gateway runtime and restarts the existing task.
+
+Runner/Gateway bearer rotation is independent of the Windows account and
+provider login. Provider authentication is the dedicated Windows user's
+existing CLI login state.
+
+The API image does not install or launch Codex/Claude and mounts no provider
+login directory. The worker never launches a provider runtime. Internal routes
+are loopback/private and blocked by nginx.
+
+Windows execution verification is deferred until the Windows QA environment is
+stable. macOS must prove the common Gateway/provider contract, process control,
+MCP v2, capability routing, mutation admission, and Web flow. Windows-specific
+verification remains a declared release milestone, not a hidden claim.
+
+## 12. Implementation order
+
+After this documented design is reviewed, replace the existing implementation
+plan with substantial integrated units:
+
+1. fail-first contract and schema tests for the two-model persistence graph,
+   five Agents, seventeen capabilities, no Operator, and no Task/Attempt;
+2. simplify CapabilityInvocation/Approval admission and worker recovery;
+3. replace Attempt/Task MCP binding and child delegation with ephemeral
+   conversation/turn binding plus provider-native Agent delegation;
+4. refactor the native Runner into the always-on Host Agent Gateway with
+   provider-local conversation adapters;
+5. replace the Web Task view with the provider conversation sidebar/stream and
+   model/effort controls;
+6. delete the four retired models and all legacy lifecycle code, align
+   deployment/docs/scanners, and run the complete QA matrix.
+
+Task boundaries are review aids, not compatibility boundaries. Preserve
+focused TDD tests, do not spend work on temporary legacy compatibility, and
+delete old surfaces as soon as their replacement is integrated.
+
+Implementation subagents use Terra with max reasoning. Use selective Sol max
+review only for material authority, mutation, transport, or process boundaries.
+Final completion is QA-driven; use a final Sol max integrated review only when
+executable QA cannot resolve an important ambiguity.
+
+## 13. Verification and acceptance
+
+### 13.1 Conversation and provider runtime
+
+- General and Agent-bound top-level conversations create distinct provider
+  sessions without PostgreSQL rows.
+- One Agent can own multiple top-level conversations.
+- Runtime is fixed per conversation; model/effort are explicit per turn and
+  have no silent fallback.
+- Sidebar and history reload from the Gateway/provider local source.
+- Native subagents create no top-level conversation or database row.
+- Restart creates no automatic model turn; the next user message can continue
+  provider-local history.
+- Active-turn concurrency rejects excess work without a database row or queue.
+
+### 13.2 Agent and capability catalog
+
+- Exactly fourteen domains and five Agents validate at boot.
+- Operator and agent_os.platform_probe have zero production/publication/MCP
+  catalog findings.
+- Exactly seventeen Agent-facing definitions have one strict schema, one exact
+  owner input port, and one implementation.
+- Sourcing exposes exactly its ten approved capabilities.
+- Domain assignment is many-to-many.
+- Cross-domain reads run directly; cross-domain mutations require explicit
+  target Agent and exact ephemeral grant.
+- Provider-native delegation creates no child Task or child conversation.
+
+### 13.3 Mutation, Approval, and Operation
+
+- Reads create no CapabilityInvocation row.
+- Every mutation stores exact canonical input/hash and owner key before owner
+  execution.
+- Same key/input replays; same key/drift conflicts; missing key fails before
+  owner call.
 - Medium/high mutation cannot execute before exact immutable Approval.
-- Decision/expiry/cancel races have one terminal winner.
-- Approval completion advances only admitted deterministic work; it never
-  wakes the terminal CLI or creates a successor Attempt.
-- One Task has at most one live Attempt.
-- Terminal-only Session deletion races safely with admission.
-- Final Prisma schema has exactly six Agent OS models and no continuation or
-  deletion-lifecycle fields.
+- Worker restart does not duplicate a committed domain write or OperationRun.
+- Operation-backed capability returns operation_ref immediately and never
+  starts a model turn on completion.
+- Scrape evidence is same-turn bounded and fabricated/unbound ingest fails.
 
-### 15.3 Runtime and restart
+### 13.4 Security and transport
 
-- Platforms are exactly `macos | windows`; runtimes are exactly
-  `codex_cli | claude_cli`; Linux Runner admission fails.
-- Codex/Claude command tests prove exact non-persistent settings and reject raw
-  shell, executable, arbitrary argument/env, and host-path input from Nest.
-- Codex/Claude readiness proves non-interactive full-access mode under the
-  dedicated non-administrator account; no workspace-only permission profile or
-  provider permission prompt is accepted.
-- The API image neither installs nor spawns provider CLIs and mounts no provider
-  login volume.
-- Runner control uses one authenticated command long-poll and idempotent event
-  POSTs; duplicate commands/events do not duplicate processes or transitions.
-- One outstanding poll, 20-second empty response, 25-second client deadline,
-  and 30-second lease expiry are enforced.
-- CLI children receive no DB/Nest/business/provider credential values.
-- Attempt workspace, Windows Job Object/macOS process group and parent-death
-  watchdog, and generated configuration are isolated and cleaned.
-- Native subagents remain inside one Attempt/slot/authority.
-- Live second message and interrupt use only the long-poll control lane.
-- Runner-token rotation, Attempt-token binding/TTL/revocation, and log
-  redaction pass.
-- Direct MCP v2 Streamable HTTP exposes exactly 11 tools and 18 capabilities;
-  stdio/UDS/custom relay and legacy fallback have zero production findings.
-- Browser disconnect does not stop the Attempt.
-- Runner crash, control lease loss, and same-SHA API restart kill the complete
-  host process tree, mark live Attempts/read Invocations interrupted, leave
-  Tasks open, preserve Approvals/mutations, and expose manual Continue.
-- Same-SHA worker restart retries expired mutation leases with one idempotency
-  key and does not duplicate a committed mutation/Operation.
-- No provider session/history is created or resumed.
-- macOS real process/loopback integration and Windows Job Object, ACL, quoting,
-  Task Scheduler, and no-LAN-listener CI gates pass.
+- Gateway API accepts no raw shell, executable, argument array, environment map,
+  host path, provider credential, or business authority input.
+- Installation bearer and ephemeral execution binding are authenticated,
+  redacted, non-persistent, and revocable.
+- Provider login/history stay only under the dedicated host account.
+- API/worker containers neither install nor spawn provider CLIs.
+- MCP v2 2026-07-28 is modern-only and legacy fallback fails readiness.
+- Internal routes are loopback/private and nginx-blocked.
+- Common macOS process/runtime tests pass; Windows-specific release QA remains
+  explicitly pending until its environment is stable.
 
-### 15.4 HTTP/Web and cutover
+### 13.5 Schema, Web, and cutover
 
-- Authenticated same-origin `/api/copilotkit` streams live events.
-- Refresh renders Task/Attempt/result/Approval/Invocation/Operation/child facts
-  without replay or a Task presentation enum.
-- Continue creates a new Attempt; no automatic successor exists.
-- Transport/root/delegation replay never acts as Continue, including after a
-  terminal Attempt or same-SHA restart.
-- Web exposes current-user cancel/reopen/delete and exact Approval actions.
-- Source scanner has zero legacy/background/multi-instance findings.
-- Basic custom backup/list/checksum completes before destructive push.
-- Destructive push drops only approved legacy Agent OS objects.
-- Prisma generation, shared/server/Web builds, Nest boot, worker boot, ERD,
-  smoke, and unrelated-row checks pass on the cutover database.
-- Windows Office/home process audit shows Web/API/worker, one Linux API
-  container replica, and one dedicated native Runner. Codex/Claude children
-  stay inside Runner-owned Job Objects and reach only loopback Nest MCP HTTP.
+- Final Agent OS persistence has exactly CapabilityInvocation and
+  CapabilityApproval.
+- AgentVersion, AgentSession, AgentTask, AgentAttempt, and their production
+  callers have zero findings.
+- No conversation/transcript/provider session/model/effort enters PostgreSQL.
+- Web has no Task tree, Attempt view, Continue state, or needs_continue.
+- Conversation deletion does not delete durable business work.
+- Clean destructive push, Prisma generation, shared/server/Web/Gateway builds,
+  Nest boot, worker boot, scanners, focused PostgreSQL races, and browser QA
+  pass against an explicit isolated database.
 
-## 16. Locked Decision Ledger
+## 14. Locked decision ledger
 
-- One user, one Windows home server, one Linux-container Agent authority API,
-  and one dedicated native Windows Runner process.
-- CopilotKit stays inside Nest; Interaction Gateway does not.
-- Codex/Claude CLI stay; Hermes/OpenAI Responses do not.
-- Host Runner account login persists; provider history/session IDs and
-  credential bytes do not enter KidItem persistence.
-- Codex/Claude always run in non-interactive full-access mode under the trusted
-  dedicated non-administrator account. This is not a hostile-process security
-  boundary; that account holds no DB/Nest/business or unrelated credentials.
-- Native subagents are ephemeral; business delegation creates a child Task.
-- Domains/Agents are many-to-many; mutation delegation names a target Agent.
-- AgentVersion snapshots domains/capability keys/runtime/profile, not models or
-  per-tool policy.
-- Capability metadata stays detailed; routing is read versus mutation.
-- Invocation is exact authorization and mutation work item; no grant/outbox.
-- Task owns only business lifecycle; Attempt/Approval/Invocation/Operation/
-  child Task expose their own source facts. No Task presentation lifecycle is
-  derived or persisted.
-- There is no background mode, automatic continuation, continuation field, or
-  Operation-to-Agent trigger.
-- Process-local admission max is four; no queue, advisory lock, quota, or
-  distributed signaling.
-- Runner control is outbound HTTP command long-poll plus idempotent event POST;
-  there is no WebSocket, inbound Runner listener, or durable control queue.
-- Codex/Claude call Nest directly through loopback MCP v2 Streamable HTTP
-  `2026-07-28`; there is no stdio bridge, UDS, named pipe, or custom relay.
-- Runner installation identity and per-Attempt bearer identity are distinct,
-  process-memory admitted, rotatable/revocable, and never logged.
-- Mutations are durable/idempotent; reasoning processes are disposable.
-- Same-SHA restart recovery is required; cross-version automatic drain is not.
-- Session has no lifecycle and deletes only when all owned work is terminal.
-- Work records persist; transcript/replay/artifact/cost/provider sessions do
-  not.
-- Legacy Agent OS data is discarded in a clean six-model cutover.
-- Cutover requires a basic custom backup/list/checksum, not restore rehearsal or
-  RPO/RTO evidence.
-- Final delivery uses substantial Terra units and complete local/Windows QA;
-  targeted Sol review is optional for unresolved important boundaries.
+- KidItem is a remote ChatGPT Desktop-like UI for local Codex/Claude runtimes.
+- Host Agent Gateway is always available; a model turn is never automatic.
+- Provider local state owns top-level conversations and transcripts.
+- Gateway local metadata owns only a minimal cross-provider sidebar descriptor.
+- PostgreSQL stores no conversation, transcript, Agent Task, Attempt,
+  AgentVersion, provider session, model, or reasoning effort.
+- General chat has no AgentDefinition; Operator is removed.
+- Five code-owned business Agents remain.
+- Runtime is selected when creating a conversation; model and effort are
+  explicit per next turn.
+- Native subagents remain inside the parent top-level conversation.
+- Cross-Agent mutation delegation uses provider-native subagents plus an exact
+  ephemeral execution grant, never child Task.
+- AgentTask has no unique owner responsibility and is removed.
+- Owner-domain entities own business lifecycle.
+- CapabilityInvocation owns only exact durable mutation admission and worker
+  execution.
+- CapabilityApproval owns exact single-user confirmation.
+- OperationRun owns long-running deterministic execution and restart recovery.
+- Reads are live and need no durable Invocation.
+- Capability catalog contains seventeen entries, including all ten Sourcing
+  entries and excluding agent_os.platform_probe.
+- CapabilityDefinition and owner ports stay owner-local; Agent OS aggregates.
+- Provider credentials and history remain under the host OS account.
+- CLI runs trusted full-access/non-interactive under the dedicated
+  non-administrator account.
+- MCP is v2 Streamable HTTP revision 2026-07-28 with no legacy fallback.
+- Office is Windows; macOS is the current implementation and local QA platform.
+- Legacy Agent OS data is discarded in a clean two-model cutover.
+- No background reasoning, generic Task lifecycle, compatibility layer, or
+  multi-user enterprise policy is added.

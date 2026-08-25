@@ -1,5 +1,12 @@
 # KID-25 Single-Node Agent OS Clean Contraction Implementation Plan
 
+> **Status (2026-08-25): Superseded pending rewrite.** Do not execute the
+> checkboxes below. The approved provider-native conversation design removes
+> AgentVersion, AgentSession, AgentTask, and AgentAttempt and replaces the
+> disposable Attempt runtime with an always-available Host Agent Gateway. This
+> plan remains only as implementation history until it is replaced after review
+> of the current design authority.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the unreleased Agent OS/Interaction OS graph with a six-model, single-home-server Agent OS that provides correct CLI admission, exact capability/HITL semantics, a clean destructive schema cutover, and basic same-SHA restart recovery.
