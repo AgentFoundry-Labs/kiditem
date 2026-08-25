@@ -22,4 +22,17 @@ export interface SourcingCapabilityAdmissionPort {
     attemptId: string;
     snapshot: unknown;
   }): void;
+
+  /**
+   * A successful durable authorization may retain its exact evidence hash
+   * until that authorization expires. A restarted process never restores it.
+   */
+  retainAuthorizedReplay(input: {
+    capabilityKey: string;
+    organizationId: string;
+    initiatingUserId: string;
+    attemptId: string;
+    input: unknown;
+    authorizationExpiresAt: Date;
+  }): void;
 }

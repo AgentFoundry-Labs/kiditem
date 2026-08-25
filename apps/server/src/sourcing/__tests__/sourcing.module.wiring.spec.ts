@@ -9,6 +9,7 @@ import { CHANNELS_CAPABILITY_COMPOSITION_PORT } from "../../channels/application
 import { SourcingFinalCapabilityAdapter } from "../adapter/in/agent/sourcing-final-capability.adapter";
 import { SourcingCapabilityCompositionAdapter } from "../adapter/in/agent/sourcing-capability-composition.adapter";
 import { SourcingFinalDiscoveryCapabilityAdapter } from "../adapter/in/agent/sourcing-final-discovery-capability.adapter";
+import { SourcingScrapeSnapshotAdmissionGuard } from "../adapter/in/agent/sourcing-scrape-snapshot-admission.guard";
 import { SOURCING_FINAL_CAPABILITY_PORT } from "../application/port/in/capability/sourcing-final-capability.port";
 import { SOURCING_CAPABILITY_COMPOSITION_PORT } from "../application/port/in/capability/sourcing-capability-composition.port";
 import { SOURCING_FINAL_DISCOVERY_CAPABILITY_PORT } from "../application/port/in/capability/sourcing-final-discovery-capability.port";
@@ -52,6 +53,26 @@ describe("Sourcing final capability wiring", () => {
       provide: SOURCING_FINAL_DISCOVERY_CAPABILITY_PORT,
       useExisting: SourcingFinalDiscoveryCapabilityAdapter,
     });
+  });
+
+  it("constructs bounded scrape-snapshot admission state through the Sourcing composition root", () => {
+    const entries = providers(SourcingModule);
+    const registration = entries.find(
+      (entry): entry is {
+        provide: typeof SourcingScrapeSnapshotAdmissionGuard;
+        useFactory: () => SourcingScrapeSnapshotAdmissionGuard;
+      } =>
+        Boolean(entry) &&
+        typeof entry === "object" &&
+        "provide" in entry &&
+        (entry as { provide?: unknown }).provide ===
+          SourcingScrapeSnapshotAdmissionGuard,
+    );
+
+    expect(registration).toBeDefined();
+    expect(registration?.useFactory()).toBeInstanceOf(
+      SourcingScrapeSnapshotAdmissionGuard,
+    );
   });
 
   it("keeps the Sourcing composition Adapter on its incoming port rather than concrete services or runtime handlers", () => {

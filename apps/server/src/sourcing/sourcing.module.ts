@@ -178,7 +178,10 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     SourcingService,
     SourcingFinalCapabilityAdapter,
     SourcingCapabilityCompositionAdapter,
-    SourcingScrapeSnapshotAdmissionGuard,
+    {
+      provide: SourcingScrapeSnapshotAdmissionGuard,
+      useFactory: () => new SourcingScrapeSnapshotAdmissionGuard(),
+    },
     SourcingFinalDiscoveryCapabilityAdapter,
     NaverKeywordResearchService,
     Sourcing1688ImageSearchService,

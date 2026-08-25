@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { SOURCING_CAPABILITIES } from "../../../../../sourcing/domain/capability/sourcing.capabilities";
+import { SourcingScrapeSnapshotAdmissionGuard } from "../../../../../sourcing/adapter/in/agent/sourcing-scrape-snapshot-admission.guard";
 import {
   AgentCapabilityInvocationService,
   canonicalize,
@@ -95,6 +97,7 @@ describe("replacement Agent work lifecycle", () => {
   it("runs a domain-owned pre-authorization admission guard before persisting a mutation invocation", async () => {
     const authorizeInvocation = vi.fn().mockResolvedValue({});
     const admit = vi.fn().mockResolvedValue(undefined);
+    const retainAuthorizedReplay = vi.fn();
     const service = new AgentCapabilityInvocationService(
       { authorizeInvocation } as never,
       {
@@ -109,7 +112,7 @@ describe("replacement Agent work lifecycle", () => {
         ),
       } as never,
       undefined,
-      { admit } as never,
+      { admit, retainAuthorizedReplay } as never,
     );
 
     await service.authorize({
@@ -124,6 +127,80 @@ describe("replacement Agent work lifecycle", () => {
       input: { snapshot: { contentHash: "a".repeat(64) } },
     }));
     expect(admit.mock.invocationCallOrder[0]).toBeLessThan(authorizeInvocation.mock.invocationCallOrder[0]);
+    expect(retainAuthorizedReplay.mock.invocationCallOrder[0]).toBeGreaterThan(
+      authorizeInvocation.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("preserves an exact Sourcing ingest retry after durable authorization but never authorizes a fabricated snapshot", async () => {
+    let now = new Date("2030-01-01T00:00:00.000Z");
+    const snapshot = {
+      sourceUrl: "https://detail.1688.com/offer/1.html",
+      platform: "1688" as const,
+      title: "Toy",
+      price: 1,
+      currency: "CNY",
+      variantKeyNormalized: "",
+      images: [],
+      contentHash: "a".repeat(64),
+    };
+    const input = { snapshot };
+    const guard = new SourcingScrapeSnapshotAdmissionGuard({
+      now: () => now,
+      ttlMs: 100,
+    });
+    const authorizeInvocation = vi.fn().mockResolvedValue({
+      invocationId: "i",
+      approvalId: null,
+      invocationStatus: "ready",
+      approvalStatus: null,
+      applicationVersion: "1.0.0",
+      authorizingGitSha: "a".repeat(40),
+      runtimeType: "codex_cli",
+    });
+    const definition = SOURCING_CAPABILITIES.find(
+      (candidate) => candidate.key === "sourcing.ingestCandidate",
+    );
+    const service = new AgentCapabilityInvocationService(
+      { authorizeInvocation } as never,
+      { resolveDefinition: vi.fn().mockReturnValue(definition) } as never,
+      () => now,
+      guard,
+    );
+    const request = {
+      ...base,
+      capabilityKey: "sourcing.ingestCandidate",
+      authorizationExpiresAt: new Date("2030-01-01T00:30:00.000Z"),
+      ownerIdempotencyKey: "owner-key",
+      input,
+    };
+    guard.recordScrapeSnapshot({
+      organizationId: request.organizationId,
+      initiatingUserId: request.initiatingUserId,
+      attemptId: request.attemptId,
+      snapshot,
+    });
+
+    await expect(service.authorize(request)).resolves.toMatchObject({
+      invocationId: "i",
+    });
+    now = new Date(now.getTime() + 101);
+    await expect(service.authorize(request)).resolves.toMatchObject({
+      invocationId: "i",
+    });
+    expect(authorizeInvocation).toHaveBeenCalledTimes(2);
+
+    const fabricated = new AgentCapabilityInvocationService(
+      { authorizeInvocation } as never,
+      { resolveDefinition: vi.fn().mockReturnValue(definition) } as never,
+      () => now,
+      guard,
+    );
+    await expect(fabricated.authorize({
+      ...request,
+      attemptId: "different-attempt",
+    })).rejects.toThrow("sourcing_scrape_snapshot_unbound");
+    expect(authorizeInvocation).toHaveBeenCalledTimes(2);
   });
 
   it("ignores forged read metadata and derives mutation HITL from the code-owned definition", async () => {

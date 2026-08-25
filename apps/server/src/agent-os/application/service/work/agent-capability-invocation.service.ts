@@ -38,7 +38,10 @@ export class AgentCapabilityInvocationService {
       | "resolveImplementation"
     >,
     private readonly now: () => Date = () => new Date(),
-    private readonly sourcingAdmission?: Pick<SourcingCapabilityAdmissionPort, "admit">,
+    private readonly sourcingAdmission?: Pick<
+      SourcingCapabilityAdmissionPort,
+      "admit" | "retainAuthorizedReplay"
+    >,
   ) {}
 
   async authorize(
@@ -85,7 +88,7 @@ export class AgentCapabilityInvocationService {
       attemptId: input.attemptId,
       input: parsed,
     });
-    return this.transactions.authorizeInvocation({
+    const authorization = await this.transactions.authorizeInvocation({
       ...input,
       ownerDomain: definition.ownerDomain,
       effects: definition.effects,
@@ -116,6 +119,15 @@ export class AgentCapabilityInvocationService {
           }
         : undefined,
     });
+    this.sourcingAdmission?.retainAuthorizedReplay({
+      capabilityKey: input.capabilityKey,
+      organizationId: input.organizationId,
+      initiatingUserId: input.initiatingUserId,
+      attemptId: input.attemptId,
+      input: parsed,
+      authorizationExpiresAt: input.authorizationExpiresAt,
+    });
+    return authorization;
   }
 
   /**
