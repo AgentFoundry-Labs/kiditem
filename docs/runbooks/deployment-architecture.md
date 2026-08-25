@@ -102,6 +102,14 @@ runner, the same immutable SHA, digest, protected-branch, and operator approval
 contracts still apply. Runner placement must not give untrusted pull requests
 access to Office secrets or the Docker host.
 
+The GitHub-hosted workflow produces the immutable Office artifact only. It does
+not receive the dedicated Windows Task Scheduler credential and does not invoke
+`apply-deployment.ps1` against the Office host. A human operator supplies that
+credential as an in-memory `PSCredential` only to the explicit
+`InstallOrUpdateRunnerTask` operation after downloading the approved artifact
+onto the guarded Windows host. Ordinary Deploy/CutoverDeploy/Rollback/token
+rotation restarts the existing task and never receive or re-register it.
+
 ## Runner Decision
 
 Office keeps the current GitHub-hosted GitHub Actions jobs (`ubuntu-latest`). A

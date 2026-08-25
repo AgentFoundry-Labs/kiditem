@@ -206,13 +206,12 @@ try {
   # host while still proving the one production implementation builds and
   # verifies its exact credentialed Password action/principal/trigger/settings
   # contract without forwarding the password to a child process.
-  $taskRelease = Join-Path $root 'task-release'
-  $taskRuntime = Join-Path $taskRelease 'package'
-  $taskEntrypoint = Join-Path $taskRuntime 'dist\main.cjs'
-  $taskConfig = Join-Path $taskRelease 'runner-config.json'
-  New-Item -ItemType Directory -Path (Split-Path -Parent $taskEntrypoint) -Force | Out-Null
-  Set-Content -LiteralPath $taskEntrypoint -Value 'fixture' -NoNewline
-  Set-Content -LiteralPath $taskConfig -Value '{}' -NoNewline
+  $taskRunnerRoot = Join-Path $root 'task-runner'
+  $taskLauncher = Join-Path $taskRunnerRoot 'runner-launcher.cjs'
+  $taskPointer = Join-Path $taskRunnerRoot 'current.json'
+  New-Item -ItemType Directory -Path $taskRunnerRoot -Force | Out-Null
+  Set-Content -LiteralPath $taskLauncher -Value 'fixture launcher' -NoNewline
+  Set-Content -LiteralPath $taskPointer -Value '{}' -NoNewline
   $fixturePrincipal = [pscustomobject]@{
     Sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
     AccountName = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
@@ -224,6 +223,9 @@ try {
   Set-Content -LiteralPath $fixtureNode -Value 'fixture' -NoNewline
   $env:ProgramFiles = $fixtureProgramFiles
   $originalRunnerTaskCredential = Get-Variable -Name RunnerTaskCredential -Scope Script -ValueOnly
+  $originalTaskRunnerRoot = $script:RunnerRoot
+  $originalTaskRunnerLauncherPath = $script:RunnerLauncherPath
+  $originalTaskRunnerCurrentPointerPath = $script:RunnerCurrentPointerPath
   $fixtureTaskPassword = [guid]::NewGuid().ToString('N')
   $fixtureTaskCredential = [pscredential]::new(
     $fixturePrincipal.AccountName,
@@ -231,6 +233,9 @@ try {
   )
   Set-Variable -Name RunnerTaskCredential -Scope Script -Value $fixtureTaskCredential
   try {
+    $script:RunnerRoot = $taskRunnerRoot
+    $script:RunnerLauncherPath = $taskLauncher
+    $script:RunnerCurrentPointerPath = $taskPointer
     $script:fixtureRegisteredTask = $null
     function Assert-RunnerServiceAccount { return $fixturePrincipal }
     function New-ScheduledTaskAction {
@@ -283,15 +288,15 @@ try {
       return $script:fixtureRegisteredTask
     }
 
-    Register-RunnerScheduledTask $taskRelease
-    Assert-RunnerScheduledTaskContract -Task $script:fixtureRegisteredTask -ReleaseRoot $taskRelease -Principal $fixturePrincipal
+    Register-RunnerScheduledTask -Principal $fixturePrincipal
+    Assert-RunnerScheduledTaskContract -Task $script:fixtureRegisteredTask -Principal $fixturePrincipal
     $extraTriggerTask = [pscustomobject]@{
       Actions = $script:fixtureRegisteredTask.Actions
       Principal = $script:fixtureRegisteredTask.Principal
       Triggers = @($script:fixtureRegisteredTask.Triggers[0], $script:fixtureRegisteredTask.Triggers[0])
       Settings = $script:fixtureRegisteredTask.Settings
     }
-    try { Assert-RunnerScheduledTaskContract -Task $extraTriggerTask -ReleaseRoot $taskRelease -Principal $fixturePrincipal; throw 'Task with multiple triggers was admitted.' }
+    try { Assert-RunnerScheduledTaskContract -Task $extraTriggerTask -Principal $fixturePrincipal; throw 'Task with multiple triggers was admitted.' }
     catch {
       if ($_.Exception.Message -notmatch 'exactly one boot trigger') { throw }
     }
@@ -301,13 +306,16 @@ try {
       Triggers = $script:fixtureRegisteredTask.Triggers
       Settings = $script:fixtureRegisteredTask.Settings
     }
-    try { Assert-RunnerScheduledTaskContract -Task $extraActionTask -ReleaseRoot $taskRelease -Principal $fixturePrincipal; throw 'Task with multiple actions was admitted.' }
+    try { Assert-RunnerScheduledTaskContract -Task $extraActionTask -Principal $fixturePrincipal; throw 'Task with multiple actions was admitted.' }
     catch {
       if ($_.Exception.Message -notmatch 'exactly one constrained action') { throw }
     }
   }
   finally {
     Set-Variable -Name RunnerTaskCredential -Scope Script -Value $originalRunnerTaskCredential
+    $script:RunnerRoot = $originalTaskRunnerRoot
+    $script:RunnerLauncherPath = $originalTaskRunnerLauncherPath
+    $script:RunnerCurrentPointerPath = $originalTaskRunnerCurrentPointerPath
     $env:ProgramFiles = $originalProgramFiles
   }
 
@@ -376,7 +384,7 @@ try {
     'OfficeRoot', 'ComposePath', 'OfficeEnvPath', 'DeployEnvPath', 'DeploymentsRoot',
     'CurrentManifestPath', 'PreviousManifestPath', 'ComposeArgs', 'RunnerRoot',
     'RunnerReleasesRoot', 'RunnerCurrentPointerPath', 'RunnerAttemptRoot',
-    'RunnerTokenPath', 'RunnerConfigName'
+    'RunnerTokenPath', 'RunnerConfigName', 'RunnerLauncherPath'
   )) {
     $releaseVariables[$name] = Get-Variable -Name $name -Scope Script -ValueOnly
   }
@@ -384,7 +392,7 @@ try {
   foreach ($name in @(
     'Initialize-RunnerStorage', 'Set-RunnerProtectedAcl', 'Stop-RunnerScheduledTask',
     'Set-ComposeArguments', 'Invoke-Checked', 'Wait-ForRuntime',
-    'Register-RunnerScheduledTask', 'Start-RunnerScheduledTask',
+    'Install-RunnerLauncher', 'Start-RunnerScheduledTask',
     'Wait-ForAgentRuntimeReadiness', 'Assert-CurrentOfficeReleaseIdentity'
   )) {
     $releaseFunctions[$name] = (Get-Command $name -CommandType Function).ScriptBlock
@@ -404,6 +412,7 @@ try {
     $script:RunnerAttemptRoot = Join-Path $script:RunnerRoot 'attempts'
     $script:RunnerTokenPath = Join-Path $script:OfficeRoot 'secrets\agent-runner-token'
     $script:RunnerConfigName = 'runner-config.json'
+    $script:RunnerLauncherPath = Join-Path $script:RunnerRoot 'runner-launcher.cjs'
     New-Item -ItemType Directory -Path $script:OfficeRoot, $script:RunnerRoot, $script:DeploymentsRoot -Force | Out-Null
 
     $bundleRoot = Join-Path $script:DeploymentsRoot ("bundles\{0}" -f $releaseManifest.gitSha)
@@ -422,8 +431,8 @@ try {
     function Set-ComposeArguments { $script:ComposeArgs = @('fixture-compose') }
     function Invoke-Checked { param([string]$Program, [Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments) }
     function Wait-ForRuntime { }
-    $script:fixtureRecoveryRelease = $null
-    function Register-RunnerScheduledTask { param([string]$ReleaseRoot) $script:fixtureRecoveryRelease = $ReleaseRoot }
+    $script:fixtureLauncherInstalls = 0
+    function Install-RunnerLauncher { $script:fixtureLauncherInstalls += 1 }
     function Start-RunnerScheduledTask { }
     function Wait-ForAgentRuntimeReadiness { }
     function Assert-CurrentOfficeReleaseIdentity { }
@@ -453,8 +462,9 @@ try {
     if ((Get-Content -LiteralPath (Join-Path $rehydratedRoot 'package\dist\main.cjs') -Raw) -ne $trustedMain) {
       throw 'Rollback recovery scheduled a tampered cached Runner release instead of rebuilding it from the archived artifact.'
     }
-    if ($script:fixtureRecoveryRelease -ne $rehydratedRoot -or $script:fixtureRunnerStops -lt 2) {
-      throw 'Rollback recovery did not stop and re-register the rehydrated Runner release.'
+    $recoveredPointer = Get-RunnerCurrentRelease
+    if ($null -eq $recoveredPointer -or $recoveredPointer.ReleaseRoot -ne $rehydratedRoot -or $script:fixtureLauncherInstalls -lt 1 -or $script:fixtureRunnerStops -lt 2) {
+      throw 'Rollback recovery did not restart the existing task against the rehydrated Runner release.'
     }
   }
   finally {

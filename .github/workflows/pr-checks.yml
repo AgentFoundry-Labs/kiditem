@@ -55,6 +55,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           node --test scripts/__tests__/office-deployment-contract.test.mjs
+          node --test scripts/__tests__/office-runner-launcher.test.mjs
           $tokens = $null
           $parseErrors = $null
           [System.Management.Automation.Language.Parser]::ParseFile('deploy/office/apply-deployment.ps1', [ref]$tokens, [ref]$parseErrors) | Out-Null

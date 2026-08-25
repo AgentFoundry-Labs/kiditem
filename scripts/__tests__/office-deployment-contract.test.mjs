@@ -272,6 +272,7 @@ test('PR validation exercises the Windows Runner packaging boundary without a ho
   );
   assert.match(workflow, /npm pack --workspace=apps\/agent-runner --dry-run/);
   assert.match(workflow, /node --test scripts\/__tests__\/office-deployment-contract\.test\.mjs/);
+  assert.match(workflow, /node --test scripts\/__tests__\/office-runner-launcher\.test\.mjs/);
   assert.match(workflow, /\[System\.Management\.Automation\.Language\.Parser\]::ParseFile\('deploy\/office\/apply-deployment\.ps1'/);
   assert.match(workflow, /office-windows-native-runtime\.fixture\.ps1/);
   assert.match(workflow, /KidItem\.JobRunner\.Fixture\.csproj/);
@@ -370,7 +371,7 @@ test('Office operator binds API, Runner package, scheduler, token rotation, and 
   const script = read('deploy/office/apply-deployment.ps1');
   const compose = read('deploy/office/compose.office.yml');
 
-  assert.match(script, /ValidateSet\('Deploy', 'CutoverDeploy', 'Status', 'Rollback', 'RotateRunnerToken'\)/);
+  assert.match(script, /ValidateSet\('Deploy', 'CutoverDeploy', 'Status', 'Rollback', 'RotateRunnerToken', 'InstallOrUpdateRunnerTask'\)/);
   assert.match(script, /\$script:OfficeRoot = 'C:\\ProgramData\\KidItem'/);
   assert.match(script, /schemaVersion -ne 2/);
   assert.match(script, /runnerArtifact/);
@@ -518,7 +519,7 @@ test('CutoverDeploy never restarts a prior runtime after a contracted-schema can
   const cutoverCatch = script.indexOf("if ($DeploymentMode -eq 'Cutover')");
   const restore = script.indexOf('Restore-Transaction $backupRoot', cutoverCatch);
 
-  assert.match(script, /ValidateSet\('Deploy', 'CutoverDeploy', 'Status', 'Rollback', 'RotateRunnerToken'\)/);
+  assert.match(script, /ValidateSet\('Deploy', 'CutoverDeploy', 'Status', 'Rollback', 'RotateRunnerToken', 'InstallOrUpdateRunnerTask'\)/);
   assert.match(script, /\[switch\]\$ConfirmCutoverDeploy/);
   assert.match(script, /CutoverDeploy requires -ConfirmCutoverDeploy/);
   assert.match(script, /-ApplySchema is valid only with -Operation Deploy/);
@@ -531,15 +532,27 @@ test('CutoverDeploy never restarts a prior runtime after a contracted-schema can
   assert.match(cutoverBranch, /Restore the approved pre-cutover database backup manually/);
 });
 
-test('Office Runner task uses an exact dedicated credentialed identity with network-capable Password logon', () => {
+test('Office Runner separates credentialed task installation from normal runtime lifecycle operations', () => {
   const script = read('deploy/office/apply-deployment.ps1');
   const fixture = read('scripts/__tests__/office-windows-native-runtime.fixture.ps1');
   const runbook = read('docs/runbooks/office-deploy.md');
   const workflow = read('.github/workflows/office-images.yml');
+  const plan = read('docs/superpowers/plans/2026-08-24-kid-25-mcp-v2-runtime-train.md');
   const statusBranch = script.slice(
     script.indexOf("  'Status' {"),
     script.indexOf("  'Deploy' {"),
   );
+  const functionBody = (name) => {
+    const start = script.indexOf(`function ${name} {`);
+    assert.ok(start >= 0, `missing ${name}`);
+    const next = script.indexOf('\nfunction ', start + 1);
+    return script.slice(start, next < 0 ? script.length : next);
+  };
+  const normalOperationBodies = [
+    functionBody('Install-Deployment'),
+    functionBody('Restore-Transaction'),
+    functionBody('Rotate-RunnerToken'),
+  ];
 
   assert.match(script, /function Resolve-RunnerServicePrincipal/);
   assert.match(script, /SecurityIdentifier/);
@@ -553,30 +566,47 @@ test('Office Runner task uses an exact dedicated credentialed identity with netw
   assert.match(script, /ProfileList/);
   assert.match(script, /\[pscredential\]\$RunnerTaskCredential/);
   assert.match(script, /function Assert-RunnerTaskCredential/);
-  assert.match(script, /function Assert-RunnerInstallationPrerequisites[\s\S]*Assert-RunnerTaskCredential/);
   assert.match(script, /GetNetworkCredential\(\)\.Password/);
   assert.match(script, /function Assert-RunnerScheduledTaskContract/);
   assert.match(script, /-LogonType Password/);
-  assert.match(script, /Register-ScheduledTask[\s\S]*-User \$runnerPrincipal\.AccountName[\s\S]*-Password \$taskPassword/);
+  assert.match(script, /Register-ScheduledTask[\s\S]*-User \$Principal\.AccountName[\s\S]*-Password \$taskPassword/);
   assert.match(script, /Task\.Principal\.LogonType\.ToString\(\) -ne 'Password'/);
   assert.match(script, /Task\.Principal\.RunLevel\.ToString\(\) -ne 'Limited'/);
   assert.match(script, /BootTrigger/);
   assert.match(script, /WorkingDirectory/);
   assert.match(script, /RestartCount/);
+  assert.match(script, /InstallOrUpdateRunnerTask/);
+  assert.match(script, /function Install-OrUpdateRunnerTask/);
+  assert.match(functionBody('Install-OrUpdateRunnerTask'), /Register-RunnerScheduledTask/);
+  assert.match(functionBody('Install-OrUpdateRunnerTask'), /Assert-RunnerTaskCredential/);
+  assert.match(functionBody('Register-RunnerScheduledTask'), /\$script:RunnerLauncherPath/);
+  assert.match(functionBody('Assert-RunnerScheduledTaskContract'), /\$script:RunnerLauncherPath/);
+  assert.match(functionBody('Start-RunnerScheduledTask'), /Assert-RunnerScheduledTaskContract/);
+  assert.doesNotMatch(functionBody('Assert-RuntimePrerequisites'), /RunnerTaskCredential|Assert-RunnerTaskCredential/);
+  for (const body of normalOperationBodies) {
+    assert.doesNotMatch(body, /Register-RunnerScheduledTask|RunnerTaskCredential|Assert-RunnerTaskCredential/);
+    assert.match(body, /Start-RunnerScheduledTask/);
+  }
   assert.doesNotMatch(script, /-LogonType S4U/);
   assert.doesNotMatch(script, /schtasks\.exe[^\r\n]*\/RP\b/i);
   assert.doesNotMatch(script, /Write-(?:Host|Warning|Output)[^\r\n]*\$taskPassword/i);
   assert.match(fixture, /fixtureTaskCredential/);
   assert.match(fixture, /limited Password-logon Task Scheduler principal/);
   assert.match(runbook, /TASK_LOGON_PASSWORD/);
-  assert.match(runbook, /-RunnerTaskCredential \$runnerTaskCredential/);
+  assert.match(runbook, /InstallOrUpdateRunnerTask/);
+  assert.match(runbook, /only .*InstallOrUpdateRunnerTask.*requires.*RunnerTaskCredential/i);
+  assert.match(runbook, /Deploy[\s\S]*CutoverDeploy[\s\S]*Rollback[\s\S]*RotateRunnerToken[\s\S]*do not re-register/i);
   assert.match(runbook, /never put the\s+password in an argument string/i);
   assert.match(runbook, /GitHub Actions[\s\S]*never receives the Task Scheduler credential/i);
+  assert.match(plan, /InstallOrUpdateRunnerTask/);
+  assert.match(plan, /RotateRunnerToken[\s\S]*does not re-register/i);
   assert.doesNotMatch(statusBranch, /RunnerTaskCredential/);
   assert.match(script, /'Deploy' \{[\s\S]*Install-Deployment/);
   assert.match(script, /'CutoverDeploy' \{[\s\S]*Install-Deployment/);
   assert.match(script, /'Rollback' \{[\s\S]*Install-Deployment/);
   assert.match(script, /'RotateRunnerToken' \{[\s\S]*Rotate-RunnerToken/);
+  assert.match(script, /'InstallOrUpdateRunnerTask' \{[\s\S]*Install-OrUpdateRunnerTask/);
+  assert.match(workflow, /cp deploy\/office\/runner-launcher\.cjs office-bundle\//);
   assert.doesNotMatch(workflow, /RunnerTaskCredential|RUNNER_TASK_(?:PASSWORD|CREDENTIAL)/i);
 });
 

@@ -2,7 +2,7 @@
 
 [CmdletBinding()]
 param(
-  [ValidateSet('Deploy', 'CutoverDeploy', 'Status', 'Rollback', 'RotateRunnerToken')]
+  [ValidateSet('Deploy', 'CutoverDeploy', 'Status', 'Rollback', 'RotateRunnerToken', 'InstallOrUpdateRunnerTask')]
   [string]$Operation = 'Status',
   [string]$ManifestPath,
   [string]$RepoRoot = 'C:\workspace\kiditem',
@@ -15,11 +15,10 @@ param(
   [switch]$ConfirmCutoverDeploy,
   [ValidateRange(30, 900)]
   [int]$HealthTimeoutSeconds = 300,
-  # This local account is provisioned before any release. The deployment only
-  # verifies/re-registers its constrained password-logon task; it never creates
-  # an account or reads provider login material. Supply this object from an
-  # interactive Get-Credential prompt or an approved in-memory secret provider,
-  # never from an argv string, environment value, or Office env file.
+  # Used only by -Operation InstallOrUpdateRunnerTask. The deployment never
+  # creates this local account or reads provider login material. Supply this
+  # object from an interactive Get-Credential prompt or approved in-memory
+  # secret provider, never from argv, an environment value, or an Office env.
   [string]$RunnerServiceAccount = 'KidItemAgentRunner',
   [pscredential]$RunnerTaskCredential
 )
@@ -48,6 +47,7 @@ $script:RunnerCurrentPointerPath = Join-Path $script:RunnerRoot 'current.json'
 $script:RunnerAttemptRoot = Join-Path $script:RunnerRoot 'attempts'
 $script:RunnerTokenPath = Join-Path $script:OfficeRoot 'secrets\agent-runner-token'
 $script:RunnerConfigName = 'runner-config.json'
+$script:RunnerLauncherPath = Join-Path $script:RunnerRoot 'runner-launcher.cjs'
 
 function Assert-OfficeRootAnchor {
   # Do not accept a redirected ProgramData, UNC/device spelling, a different
@@ -386,8 +386,7 @@ function Get-OfficeEnvValue {
 }
 
 function Assert-RunnerInstallationPrerequisites {
-  $runnerPrincipal = Assert-RunnerServiceAccount
-  Assert-RunnerTaskCredential -Principal $runnerPrincipal | Out-Null
+  Assert-RunnerServiceAccount | Out-Null
   Initialize-RunnerStorage
   $configuredTokenPath = Get-OfficeEnvValue 'KIDITEM_AGENT_RUNNER_TOKEN_FILE'
   if ([System.IO.Path]::GetFullPath($configuredTokenPath) -ne [System.IO.Path]::GetFullPath($script:RunnerTokenPath)) {
@@ -1117,66 +1116,80 @@ function Switch-RunnerCurrentRelease {
   Assert-RunnerArtifact (Join-Path $ReleaseRoot $Manifest.runnerArtifact) $Manifest
   Assert-RunnerPackageContents $ReleaseRoot $Manifest
   $candidate = "$script:RunnerCurrentPointerPath.candidate-$([guid]::NewGuid().ToString('N'))"
-  [ordered]@{
+  $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+  $pointerJson = [ordered]@{
     gitSha = $Manifest.gitSha
     releaseRoot = [System.IO.Path]::GetFullPath($ReleaseRoot)
     runnerArtifactSha256 = $Manifest.runnerArtifactSha256
-  } | ConvertTo-Json | Set-Content -LiteralPath $candidate -Encoding UTF8
+  } | ConvertTo-Json
+  [System.IO.File]::WriteAllText($candidate, $pointerJson, $utf8NoBom)
   Set-RunnerProtectedAcl -Path $candidate -Mode Read
   Move-RunnerProtectedFile -Candidate $candidate -Target $script:RunnerCurrentPointerPath
 }
 
-function Register-RunnerScheduledTask {
-  param([Parameter(Mandatory = $true)][string]$ReleaseRoot)
+function Install-RunnerLauncher {
+  # The scheduled task must remain stable across ordinary runtime releases.
+  # The launcher resolves only the ACL-protected current pointer, then enters
+  # the matching immutable Runner release in the same Node process.
+  $source = Join-Path $PSScriptRoot 'runner-launcher.cjs'
+  if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+    throw "Office bundle is missing the stable Host Runner launcher: $source"
+  }
+  Initialize-RunnerStorage
+  $candidate = "$script:RunnerLauncherPath.candidate-$([guid]::NewGuid().ToString('N'))"
+  try {
+    Copy-Item -LiteralPath $source -Destination $candidate -Force
+    Set-RunnerProtectedAcl -Path $candidate -Mode ReadExecute
+    Move-RunnerProtectedFile -Candidate $candidate -Target $script:RunnerLauncherPath
+    Assert-RunnerProtectedAcl -Path $script:RunnerLauncherPath -Mode ReadExecute
+  }
+  finally {
+    Remove-Item -LiteralPath $candidate -Force -ErrorAction SilentlyContinue
+  }
+}
 
-  $runnerPrincipal = Assert-RunnerServiceAccount
-  Assert-RunnerExtractionTree $ReleaseRoot
-  $entryPoint = Join-Path $ReleaseRoot 'package\\dist\\main.cjs'
-  $configPath = Join-Path $ReleaseRoot $script:RunnerConfigName
-  if (-not (Test-Path -LiteralPath $entryPoint -PathType Leaf) -or -not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
-    throw 'Runner scheduled task cannot be registered from an incomplete release.'
+function Register-RunnerScheduledTask {
+  param([Parameter(Mandatory = $true)][object]$Principal)
+
+  if (-not (Test-Path -LiteralPath $script:RunnerLauncherPath -PathType Leaf)) {
+    throw 'Host Runner task cannot be registered without the stable launcher.'
   }
   $nodeExecutable = Join-Path $env:ProgramFiles 'nodejs\\node.exe'
   if (-not (Test-Path -LiteralPath $nodeExecutable -PathType Leaf)) {
     throw "Host Node 22 executable is missing: $nodeExecutable"
   }
-  $runtimeRoot = Join-Path $ReleaseRoot 'package'
-  $arguments = '"{0}" --config "{1}"' -f $entryPoint, $configPath
-  $action = New-ScheduledTaskAction -Execute $nodeExecutable -Argument $arguments -WorkingDirectory $runtimeRoot
-  $taskCredential = Assert-RunnerTaskCredential -Principal $runnerPrincipal
+  $arguments = '"{0}" --current "{1}"' -f $script:RunnerLauncherPath, $script:RunnerCurrentPointerPath
+  $action = New-ScheduledTaskAction -Execute $nodeExecutable -Argument $arguments -WorkingDirectory $script:RunnerRoot
+  $taskCredential = Assert-RunnerTaskCredential -Principal $Principal
   # Microsoft TASK_LOGON_S4U cannot access network resources or encrypted
   # files. The Runner needs provider HTTPS and its dedicated account's login
   # store, so register the task with TASK_LOGON_PASSWORD instead. The password
   # reaches the in-process ScheduledTasks cmdlet only and is never an external
   # process argument or log value.
-  $principal = New-ScheduledTaskPrincipal -UserId $runnerPrincipal.AccountName -LogonType Password -RunLevel Limited
+  $taskPrincipal = New-ScheduledTaskPrincipal -UserId $Principal.AccountName -LogonType Password -RunLevel Limited
   $trigger = New-ScheduledTaskTrigger -AtStartup
   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
-  $task = New-ScheduledTask -Action $action -Principal $principal -Trigger $trigger -Settings $settings
+  $task = New-ScheduledTask -Action $action -Principal $taskPrincipal -Trigger $trigger -Settings $settings
   $taskPassword = $null
   try {
     $taskPassword = $taskCredential.GetNetworkCredential().Password
-    Register-ScheduledTask -TaskName $script:RunnerTaskName -InputObject $task -User $runnerPrincipal.AccountName -Password $taskPassword -Force | Out-Null
+    Register-ScheduledTask -TaskName $script:RunnerTaskName -InputObject $task -User $Principal.AccountName -Password $taskPassword -Force | Out-Null
   }
   finally {
     $taskPassword = $null
   }
   $registered = Get-ScheduledTask -TaskName $script:RunnerTaskName
-  Assert-RunnerScheduledTaskContract -Task $registered -ReleaseRoot $ReleaseRoot -Principal $runnerPrincipal
+  Assert-RunnerScheduledTaskContract -Task $registered -Principal $Principal
 }
 
 function Assert-RunnerScheduledTaskContract {
   param(
     [Parameter(Mandatory = $true)][object]$Task,
-    [Parameter(Mandatory = $true)][string]$ReleaseRoot,
     [Parameter(Mandatory = $true)][object]$Principal
   )
 
-  $entryPoint = Join-Path $ReleaseRoot 'package\\dist\\main.cjs'
-  $configPath = Join-Path $ReleaseRoot $script:RunnerConfigName
   $nodeExecutable = Join-Path $env:ProgramFiles 'nodejs\\node.exe'
-  $runtimeRoot = Join-Path $ReleaseRoot 'package'
-  $expectedArguments = '"{0}" --config "{1}"' -f $entryPoint, $configPath
+  $expectedArguments = '"{0}" --current "{1}"' -f $script:RunnerLauncherPath, $script:RunnerCurrentPointerPath
   $actions = @($Task.Actions)
   if ($actions.Count -ne 1) {
     throw 'Host Runner task must have exactly one constrained action.'
@@ -1185,9 +1198,9 @@ function Assert-RunnerScheduledTaskContract {
   if (
     ([System.IO.Path]::GetFullPath([string]$action.Execute) -ne [System.IO.Path]::GetFullPath($nodeExecutable)) -or
     ([string]$action.Arguments -ne $expectedArguments) -or
-    ([System.IO.Path]::GetFullPath([string]$action.WorkingDirectory) -ne [System.IO.Path]::GetFullPath($runtimeRoot))
+    ([System.IO.Path]::GetFullPath([string]$action.WorkingDirectory) -ne [System.IO.Path]::GetFullPath($script:RunnerRoot))
   ) {
-    throw 'Host Runner task action does not bind the exact versioned Runner entrypoint.'
+    throw 'Host Runner task action does not bind the stable protected launcher.'
   }
   try {
     $registeredSid = ([System.Security.Principal.NTAccount]::new([string]$Task.Principal.UserId)).Translate([System.Security.Principal.SecurityIdentifier])
@@ -1241,7 +1254,26 @@ function Stop-RunnerScheduledTask {
 }
 
 function Start-RunnerScheduledTask {
+  $runnerPrincipal = Assert-RunnerServiceAccount
+  $task = Get-ScheduledTask -TaskName $script:RunnerTaskName -ErrorAction SilentlyContinue
+  if ($null -eq $task) {
+    throw 'Host Runner task is missing. Run -Operation InstallOrUpdateRunnerTask before a normal runtime operation.'
+  }
+  Assert-RunnerScheduledTaskContract -Task $task -Principal $runnerPrincipal
   Start-ScheduledTask -TaskName $script:RunnerTaskName
+}
+
+function Install-OrUpdateRunnerTask {
+  # This is the only credentialed Task Scheduler operation. It is run during
+  # initial host provisioning, a deliberate task-definition update, or after
+  # the dedicated Windows account password changes. Normal release operations
+  # only replace the immutable runtime/current pointer and restart this task.
+  Assert-RunnerInstallationPrerequisites
+  Install-RunnerLauncher
+  $runnerPrincipal = Assert-RunnerServiceAccount
+  Assert-RunnerTaskCredential -Principal $runnerPrincipal | Out-Null
+  Register-RunnerScheduledTask -Principal $runnerPrincipal
+  Write-Host 'Host Runner Task Scheduler registration updated. Run the normal deployment or token rotation to restart and verify the runtime.'
 }
 
 function Wait-ForAgentRuntimeReadiness {
@@ -1379,10 +1411,10 @@ function Rotate-RunnerToken {
     Invoke-Checked docker @script:ComposeArgs stop api worker
     $rehydratedRunnerRelease = New-RunnerRelease -ArtifactPath $archivedRunnerArtifact -Manifest $manifest
     Switch-RunnerCurrentRelease $rehydratedRunnerRelease $manifest
+    Install-RunnerLauncher
     Replace-RunnerInstallationToken
     Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api worker web nginx
     Wait-ForRuntime
-    Register-RunnerScheduledTask $rehydratedRunnerRelease
     Start-RunnerScheduledTask
     Wait-ForAgentRuntimeReadiness
     Assert-CurrentOfficeReleaseIdentity
@@ -1397,10 +1429,10 @@ function Rotate-RunnerToken {
       Move-RunnerProtectedFile -Candidate $restoreCandidate -Target $script:RunnerTokenPath
       $recoveredRunnerRelease = New-RunnerRelease -ArtifactPath $archivedRunnerArtifact -Manifest $manifest
       Switch-RunnerCurrentRelease $recoveredRunnerRelease $manifest
+      Install-RunnerLauncher
       Set-ComposeArguments
       Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api worker web nginx
       Wait-ForRuntime
-      Register-RunnerScheduledTask $recoveredRunnerRelease
       Start-RunnerScheduledTask
       Wait-ForAgentRuntimeReadiness
       Assert-CurrentOfficeReleaseIdentity
@@ -1457,10 +1489,10 @@ function Restore-Transaction {
   }
   $previousRunnerRelease = New-RunnerRelease -ArtifactPath $previousArtifact -Manifest $previousManifest
   Switch-RunnerCurrentRelease $previousRunnerRelease $previousManifest
+  Install-RunnerLauncher
   Set-ComposeArguments
   Invoke-Checked docker @script:ComposeArgs up --detach --no-build api worker web nginx
   Wait-ForRuntime
-  Register-RunnerScheduledTask $previousRunnerRelease
   Start-RunnerScheduledTask
   Wait-ForAgentRuntimeReadiness
   Assert-CurrentOfficeReleaseIdentity
@@ -1551,6 +1583,7 @@ function Install-Deployment {
     Invoke-Checked docker @script:ComposeArgs config --quiet
     Assert-RenderedManifestDeployment $manifest
     $runnerReleaseRoot = New-RunnerRelease -ArtifactPath $sourceRunnerArtifact -Manifest $manifest
+    Install-RunnerLauncher
     if ($ApplySchema) {
       Write-Warning 'Stopping application containers before the approved Prisma schema push. Runtime rollback cannot undo schema changes.'
       Invoke-Checked docker @script:ComposeArgs stop api worker web nginx
@@ -1565,7 +1598,6 @@ function Install-Deployment {
     Invoke-Checked docker @script:ComposeArgs up --detach --no-build api worker web nginx
     Wait-ForRuntime
     Switch-RunnerCurrentRelease $runnerReleaseRoot $manifest
-    Register-RunnerScheduledTask $runnerReleaseRoot
     Start-RunnerScheduledTask
     Wait-ForAgentRuntimeReadiness
     Assert-SmokeTests
@@ -1681,5 +1713,8 @@ switch ($Operation) {
   'RotateRunnerToken' {
     Rotate-RunnerToken $head
     Write-Host 'Host Runner installation bearer rotated and full readiness reverified.'
+  }
+  'InstallOrUpdateRunnerTask' {
+    Install-OrUpdateRunnerTask
   }
 }

@@ -979,11 +979,12 @@ Require:
 - Office manifest schema 2 contains Runner artifact filename, SHA-256,
   control/CLI contract identity, platform `windows`, and exact CLI versions;
 - deployment verifies the artifact/hash, stops the existing scheduled Runner,
-  atomically switches versioned roots, preserves/validates the dedicated task
-  principal, starts the matching Runner after API boot, and rolls back API/Web/
-  Runner as one release identity;
+  atomically switches versioned roots, and restarts the existing stable task
+  after API boot; only the explicit `InstallOrUpdateRunnerTask` operation
+  registers or updates its dedicated-account Scheduler credential;
 - `RotateRunnerToken` performs a short stop, atomically replaces the one ACL
-  file, restarts API/Runner, and requires full readiness;
+  file, restarts API/Runner, does not re-register the task, and requires full
+  readiness;
 - Windows package/build tests run on `windows-latest` and no script creates a
   firewall/LAN listener.
 
@@ -1040,24 +1041,31 @@ Do not add a second deploy script. `apply-deployment.ps1` owns:
 
 - protected roots under `C:\ProgramData\KidItem\agent-runner\releases\<gitSha>`;
 - a `current` pointer switched only after package/hash/runtime-manifest checks;
+- one stable ACL-protected `runner-launcher.cjs` task action that accepts only
+  that pointer and enters the selected immutable package in-process;
 - Task Scheduler task `KidItem Agent Runner` under the pre-provisioned
   dedicated account, credentialed `Password` logon with its user profile,
   limited privilege, start-at-boot plus restart-on-failure. S4U is forbidden
   because it cannot reach provider HTTPS or the account's encrypted login
   store. The operator passes the dedicated account credential only as an
-  in-memory PowerShell `PSCredential` when the task is registered; it is never
-  written to env, KidItem storage, argv, or logs;
+  in-memory PowerShell `PSCredential` to explicit
+  `InstallOrUpdateRunnerTask` (initial installation, task definition update,
+  or Windows account password change); it is never written to env, KidItem
+  storage, argv, or logs;
 - host config containing only loopback origin, protected token path, attempt
   root, and versioned Runner root;
 - ACL: inheritance removed; dedicated Runner account and SYSTEM can read the
   token, Administrators can rotate it; ordinary Users cannot;
-- deploy order: stop Runner, deploy API/Web/worker, start API, switch/start
-  matching Runner, wait for full Agent runtime readiness, then finish;
+- deploy order: stop Runner, deploy API/Web/worker, update the protected
+  runtime/current pointer, start the existing task, wait for full Agent runtime
+  readiness, then finish; normal Deploy/CutoverDeploy/Rollback never re-register
+  the task;
 - rollback order: stop Runner, restore prior API/Web/Runner manifest together,
   start and reverify;
 - token rotation: stop Runner/API, atomically write an unpadded base64url
   encoding of 32 newly generated random bytes to the same protected file,
-  restart both, rerun readiness.
+  restart the existing task and API, rerun readiness, and never re-register the
+  task.
 
 Provider login is an operator prerequisite performed interactively once under
 the dedicated account. Deployment never reads/copies provider credential

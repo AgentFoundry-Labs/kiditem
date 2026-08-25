@@ -290,13 +290,15 @@ Office contract.
 The Windows Host Runner installer creates the protected Task Scheduler service
 account boundary. It uses Task Scheduler `Password` logon, not S4U: the native
 Runner needs provider HTTPS and the dedicated account's encrypted login store,
-which S4U cannot access. Before any operation that re-registers the task, the
-operator supplies that account's password as an in-memory PowerShell
-`PSCredential`; it is not an Office environment variable, Docker secret, or
-KidItem persistence value. Task Scheduler owns its protected registration
-secret. An operator performs provider login under that account before the
-Runner reports readiness. KidItem neither stores, copies, nor forwards
-Anthropic/OpenAI credentials. The browser reaches same-origin `/api/copilotkit`;
+which S4U cannot access. Only explicit `InstallOrUpdateRunnerTask` (initial
+installation, task definition update, or Windows account password change)
+receives that account's password as an in-memory PowerShell `PSCredential`; it
+is not an Office environment variable, Docker secret, or KidItem persistence
+value. `Deploy`, `CutoverDeploy`, `Rollback`, and `RotateRunnerToken` restart
+the existing task without re-registering it. Task Scheduler owns its protected
+registration secret. An operator performs provider login under that account
+before the Runner reports readiness. KidItem neither stores, copies, nor
+forwards Anthropic/OpenAI credentials. The browser reaches same-origin `/api/copilotkit`;
 it has no gateway secret or browser-provided identity.
 
 The browser sees only same-origin `/api/copilotkit`; the Next rewrite points
