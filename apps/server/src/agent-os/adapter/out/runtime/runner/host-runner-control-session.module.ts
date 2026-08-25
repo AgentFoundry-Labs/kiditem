@@ -204,38 +204,3 @@ export class HostRunnerControlSession implements HostRunnerControlSessionPort {
     return this.commands.enqueueInterrupt(input);
   }
 }
-
-/**
- * Central Nest composition can use this helper to bind one session and each
- * narrow view without leaking the private implementation collaborators.
- */
-export function hostRunnerControlSessionProviders<TDependencies extends readonly unknown[]>(input: Readonly<{
-  inject: TDependencies;
-  create: (...dependencies: TDependencies) => HostRunnerControlSessionPort;
-}>) {
-  return [
-    { provide: HOST_RUNNER_CONTROL_SESSION, inject: input.inject, useFactory: input.create },
-    {
-      provide: HOST_RUNNER_CONTROL_HTTP_PORT,
-      inject: [HOST_RUNNER_CONTROL_SESSION],
-      useFactory: (session: HostRunnerControlSessionPort): HostRunnerControlHttpPort => session.http,
-    },
-    {
-      provide: HOST_RUNNER_CONTROL_ATTEMPT_PORT,
-      inject: [HOST_RUNNER_CONTROL_SESSION],
-      useFactory: (session: HostRunnerControlSessionPort): HostRunnerControlAttemptPort => session.attempts,
-    },
-    {
-      provide: HOST_RUNNER_CONTROL_READINESS_PORT,
-      inject: [HOST_RUNNER_CONTROL_SESSION],
-      useFactory: (session: HostRunnerControlSessionPort): HostRunnerControlReadinessPort => session.readiness,
-    },
-  ] as const;
-}
-
-export const HOST_RUNNER_CONTROL_SESSION_EXPORTS = Object.freeze([
-  HOST_RUNNER_CONTROL_SESSION,
-  HOST_RUNNER_CONTROL_HTTP_PORT,
-  HOST_RUNNER_CONTROL_ATTEMPT_PORT,
-  HOST_RUNNER_CONTROL_READINESS_PORT,
-] as const);
