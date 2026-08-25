@@ -12,7 +12,8 @@
 - Data decision: discard every legacy Agent OS row even when discovered; no
   backfill, conversion, compatibility reader, or dual-write
 - Release decision: KID-25 proves runtime/admission correctness, one clean
-  schema cutover, and basic same-version restart recovery. Multi-instance
+  schema cutover, and basic same-version interruption detection plus explicit
+  manual recovery. Multi-instance
   coordination, automatic release drain, compatibility automation, isolated
   restore rehearsal, and measured RPO/RTO are not required.
 
@@ -95,7 +96,8 @@ AgentRun paths add state without advancing the required single-user workflow.
 - Ephemeral host-native Codex/Claude execution using the dedicated Runner
   account's existing login.
 - Exact owner-domain capability authorization, mutation idempotency, and HITL.
-- Basic same-version API/worker restart recovery without provider resume.
+- Basic same-version API/worker restart reconciliation without provider resume
+  or automatic successor reasoning.
 - Same-origin CopilotKit live streaming and a durable work projection without
   chat replay.
 - A final six-model Agent OS schema with all legacy code/schema removed.
@@ -108,6 +110,9 @@ AgentRun paths add state without advancing the required single-user workflow.
 - More than one Agent-executor API instance.
 - PostgreSQL advisory executor locks or distributed admission/signaling.
 - Automatic background Tasks or Operation-triggered successor Attempts.
+- Automatic successor Attempts caused by transport retry, root uniqueness
+  collision, delegation idempotency replay, CLI failure, timeout, Runner loss,
+  or API restart.
 - Stored `continuationMode`, `continuationKey`, queue, capacity-wait, or retry
   eligibility state.
 - Automatic mutation drain across application-version upgrades.
@@ -187,8 +192,10 @@ open | completed | failed | cancelled
 ```
 
 Task has no Approval-wait, Operation-wait, child-wait, capacity, Continue, or
-background state. It has no `continuationMode`. Every Task is interactive. A
-user Continue/follow-up creates a successor Attempt on the same Task.
+background state. It has no `continuationMode`. Every Task is interactive. An
+explicit authenticated Continue/follow-up command creates a successor Attempt
+on the same Task. A transport retry or idempotency replay is not a Continue and
+cannot create a successor.
 
 Task status changes only from an explicit validated business outcome or current
 user command. Process interruption alone leaves Task `open`. Cancelling a Task
@@ -214,7 +221,8 @@ starting | running | succeeded | failed | process_interrupted | cancelled
 ```
 
 Attempt has no waiting, capacity, Approval, Operation, child, or Continue state
-and no `continuationKey`. A terminal Attempt is never mutated or resumed.
+and no `continuationKey`. A terminal Attempt is never mutated, resumed, or
+silently replaced by a successor.
 
 Every terminal Agent result uses one concise envelope containing outcome,
 summary, `resource_ref` values, `operation_ref` values, optional structured
@@ -422,14 +430,17 @@ explicitly selected Agent. It stores the parent Task, delegating live Attempt,
 target AgentVersion, objective, completion criteria, resource references,
 idempotency key, and canonical request hash.
 
-Repeating a delegation key with the same hash returns the existing child;
-another payload returns `delegation_idempotency_conflict`. Same-type Agents may
-recur. There is no depth, fan-out, quota, or cycle policy.
+Repeating a delegation key with the same hash returns the existing child and
+its latest durable Attempt projection; another payload returns
+`delegation_idempotency_conflict`. Replay never relaunches a terminal Attempt
+or creates a successor, even when the child Task remains open. Same-type Agents
+may recur. There is no depth, fan-out, quota, or cycle policy.
 
 The parent may call child `status`, `wait`, `result`, `message`, and live
-`interrupt`. A completed child follow-up reopens that same Task and creates a
-successor Attempt. Parent failure/cancellation never automatically changes the
-child business lifecycle, and child failure never automatically fails parent.
+`interrupt`. An explicit child `message`/Continue may reopen that same Task and
+create a successor Attempt; repeating `delegate_to_agent` cannot. Parent
+failure/cancellation never automatically changes the child business lifecycle,
+and child failure never automatically fails parent.
 
 ### 5.3 Single-process admission
 
@@ -444,17 +455,26 @@ Admission rules are:
 - on exhaustion return `agent_capacity_exhausted` with Retry-After and create
   no row;
 - new Session/root Task/first Attempt are one transaction;
+- each logical root/live message carries a bounded caller-owned
+  `messageCommandKey`; same key plus the same canonical input is an exact replay
+  and changed input conflicts;
+- root exact replay returns/rebinds the existing root Attempt and never routes
+  the first prompt into live input or a successor;
+- a same-Session root collision with a different message key is not replay; it
+  fails as `root_task_already_exists` and never becomes live input or Continue;
 - follow-up/retry/Continue locks Session then Task, validates current user and
   organization, Task status, pinned AgentVersion/runtime, terminal predecessor,
   and no live Attempt, then inserts a successor;
-- delegation fast-path returns an existing same-key/same-hash child without a
-  slot; otherwise reserve capacity, lock Session then the live parent Task,
-  verify the exact delegating Attempt, and atomically create child plus first
-  Attempt;
+- delegation replay returns an existing same-key/same-hash child and latest
+  Attempt without a slot, relaunch, or successor; otherwise reserve capacity,
+  lock Session then the live parent Task, verify the exact delegating Attempt,
+  and atomically create child plus first Attempt;
 - every failed transaction or uniqueness race releases its provisional slot;
   and
 - a message arriving while an Attempt is live uses the in-memory live-control
-  channel and never creates another Attempt.
+  channel and never creates another Attempt; once its queue admission succeeds,
+  a concurrent terminal event closes the stream without replaying that input as
+  a successor.
 
 The single-instance deployment assumption is explicit. Starting a second API
 executor is unsupported rather than approximated with a new distributed
@@ -677,8 +697,9 @@ Sourcing capabilities.
 
 Live user input and interrupt are ordinary long-poll commands to the same
 running Attempt. They are never persisted as a provider handle or used to
-resume a terminal process. Losing the Runner lease kills the Attempt rather
-than reconnecting to its provider process.
+resume a terminal process. Exact message retry deduplicates the same command;
+it never becomes an implicit Continue. Losing the Runner lease kills the
+Attempt rather than reconnecting to its provider process.
 
 Readiness requires one authenticated Runner lease, supported platform, exact
 control contract, compatible Codex/Claude and MCP train, both provider login
@@ -750,6 +771,8 @@ Basic recovery means restart with the same deployed application version/SHA:
 9. Continue creates a new immutable Attempt from current durable Task,
    Invocation, Approval, Operation, and resource state. It never restores a
    provider session.
+10. Transport/idempotency replay after interruption returns the existing
+    Task/Attempt projection. It never synthesizes Continue or a successor.
 
 Runner crash, host reboot, a poll lease that cannot be renewed within 30
 seconds, or an Attempt-token failure uses the same fail-closed path. Browser
@@ -779,8 +802,10 @@ Projection precedence is pending Approval, active mutation/Operation, open
 child, structured `needs_input`, then `needs_continue`. `needs_continue` means
 the Task is `open`, has no live Attempt, and the current durable work still
 allows a user follow-up. It is never a stored status, source set, or automatic
-trigger. Web then subscribes only to future live events. Past chat bubbles are
-not rebuilt.
+trigger. The same rule applies to an open delegated child whose latest Attempt
+is terminal: replay shows that child and its `needs_continue` projection rather
+than launching it. Web then subscribes only to future live events. Past chat
+bubbles are not rebuilt.
 
 Authenticated application commands cover Approval decision, user Continue,
 Task cancel/reopen, live interrupt, and terminal-only Session deletion.
@@ -1010,10 +1035,15 @@ invariants, and acceptance gates remain authoritative.
 
 - One Session has one root Task and a valid child tree.
 - Root/follow-up/Continue/delegation races create exactly one intended Attempt.
+- Same root message key/input returns the existing root Attempt; key drift
+  conflicts, and neither path duplicates the first prompt as live input.
+- A different root message key against the same Session fails closed without a
+  live message or successor.
 - Live-parent delegation works while a same-Task successor is rejected.
 - Four Attempts run and the fifth is rejected before row creation.
 - Capacity and transaction failures release process-local slots.
-- Exact delegation idempotency returns one child or conflict.
+- Exact delegation idempotency returns one child/latest Attempt or conflict;
+  terminal replay creates no successor and performs no relaunch.
 - Read Invocation stores hash only; mutation stores canonical input/key.
 - Medium/high mutation cannot execute before exact immutable Approval.
 - Decision/expiry/cancel races have one terminal winner.
@@ -1058,6 +1088,8 @@ invariants, and acceptance gates remain authoritative.
 - Authenticated same-origin `/api/copilotkit` streams live events.
 - Refresh renders durable Task/result/Approval/Operation state without replay.
 - Continue creates a new Attempt; no automatic successor exists.
+- Transport/root/delegation replay never acts as Continue, including after a
+  terminal Attempt or same-SHA restart.
 - Web exposes current-user cancel/reopen/delete and exact Approval actions.
 - Source scanner has zero legacy/background/multi-instance findings.
 - Basic custom backup/list/checksum completes before destructive push.

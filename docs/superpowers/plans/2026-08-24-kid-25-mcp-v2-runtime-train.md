@@ -143,6 +143,9 @@ mandatory.
   and Attempt token bindings are process-memory only.
 - API/Runner restart never reconstructs a CLI or provider session. Durable
   state creates an immutable successor Attempt only when the user continues.
+- Transport retry, message idempotency replay, root uniqueness collision, and
+  delegation replay return existing durable work or a conflict. They never
+  synthesize Continue, relaunch a terminal Attempt, or create a successor.
 
 MCP v2 Tasks and production MRTR state are not adopted. The existing Approval,
 Invocation, and Operation records remain authoritative.
@@ -867,7 +870,9 @@ Tests prove:
 - API boot has no old lease/token and performs the same durable reconciliation;
 - pending Approvals and `ready` mutations remain; expired `executing` mutation
   leases retry under the existing owner idempotency key;
-- Continue creates a new immutable Attempt and never resumes provider state.
+- Continue creates a new immutable Attempt and never resumes provider state;
+- retrying the same root/live/delegation command after interruption returns the
+  existing projection or conflict and never creates a successor.
 
 - [x] **Step 2: Implement readiness without circular durable state**
 

@@ -44,8 +44,9 @@ is a hard stop.
 | Authorization | `agent_default_scope \| cross_domain_read_grant \| explicit_execution_grant` |
 | Admission | one API process, process-local max 4, immediate reject, no queue/DB lock |
 | Follow-up | current-user message/Continue creates a successor Attempt; never automatic |
+| Replay | same logical key/input returns existing work; never creates a successor |
 | Deletion | terminal-only transactional hard delete; otherwise `session_busy` |
-| Restart | same-SHA live Attempt/read interruption plus durable Approval/mutation recovery |
+| Restart | same-SHA Attempt/read interruption, manual Continue, durable Approval/mutation recovery |
 
 ## Task 1: Establish Final Registries, Replacement Tables, Shared Contracts, and Legacy Scanner
 
@@ -298,11 +299,15 @@ Cover these exact cases:
 
 ```text
 new Session/root/first Attempt: capacity then one atomic transaction
+root replay same message key/input: existing root/Attempt, no live duplicate
+root replay same key/changed input: idempotency conflict
+same Session/different root key: root_task_already_exists, no live/successor
 follow-up/Continue: terminal predecessor plus no live Attempt
 live message: in-memory delivery, no successor row
+accepted live message versus terminal race: close stream, no successor replay
 same-Task concurrent follow-up: one winner, attempt_already_running
 live parent delegation: allowed; child first Attempt created atomically
-delegation replay same hash: existing child, no second slot
+delegation replay same hash: existing child/latest Attempt, no slot/relaunch/successor
 delegation replay changed hash: delegation_idempotency_conflict
 four live Attempts: accepted; fifth: agent_capacity_exhausted, no row
 cancel Task: live Attempt cancelled, pending Approval expired,
@@ -330,13 +335,17 @@ Expected: FAIL before the common boundary exists.
 single-release lease or throws `agent_capacity_exhausted`; it never waits or
 writes capacity state.
 
-Root, follow-up, retry, manual Continue, and delegation use one admission
-service. Follow-up locks Session then Task and validates current user/active
-organization, Task status, pinned AgentVersion/runtime, predecessor terminality,
-and no live Attempt. Delegation fast-reads an existing same-key/same-hash child;
-otherwise it reserves capacity, locks Session then the live parent Task, proves
-the exact delegating Attempt, and creates child plus first Attempt atomically.
-Every rejection/race releases its provisional lease.
+Root, follow-up, explicit retry/Continue, and delegation use one admission
+service. A bounded logical message key distinguishes transport replay from a
+new command. Root same-key/same-input replay returns the existing root Attempt;
+same-key drift conflicts and never becomes live input. Follow-up locks Session
+then Task and validates current user/active organization, Task status, pinned
+AgentVersion/runtime, predecessor terminality, and no live Attempt. Delegation
+fast-reads an existing same-key/same-hash child and latest Attempt without
+relaunching or creating a successor; otherwise it reserves capacity, locks
+Session then the live parent Task, proves the exact delegating Attempt, and
+creates child plus first Attempt atomically. Every rejection/race releases its
+provisional lease.
 
 Do not acquire a PostgreSQL advisory lock and do not add background admission.
 
@@ -376,6 +385,9 @@ The projection may return `running`, `awaiting_approval`,
 `awaiting_operation`, `awaiting_child`, `needs_input`, `needs_continue`, and
 terminal/error UI values. None is persisted. `needs_continue` means an open
 Task with no live Attempt that permits a manual follow-up; it never starts work.
+An open delegated child with a terminal latest Attempt follows the same rule.
+Replaying its delegation key returns that projection and cannot synthesize
+Continue.
 
 - [x] **Step 5: Implement terminal-only transactional Session deletion**
 
@@ -554,6 +566,7 @@ abandoned authorized/executing read -> failed/process_interrupted, no retry
 pending Approval -> preserved
 ready mutation -> preserved
 Task -> remains open and projects manual Continue
+root/delegation transport replay -> existing projection, no automatic successor
 stale workspace/socket -> safely removed beneath configured root only
 changed SHA/fingerprint -> failed/stale_capability_version, no owner call
 job enqueue -> succeeded with operation_ref; Operation never starts Attempt
@@ -847,7 +860,7 @@ canonical mutation input.
 - [x] **Step 3: Rewrite durable architecture/runbooks/instructions**
 
 `docs/ARCHITECTURE.md` and Agent OS `AGENTS.md` describe only the single-node
-six-model graph, process-local capacity, terminal deletion, manual Continue,
+six-model graph, process-local capacity, terminal deletion, explicit Continue,
 native Host Runner/loopback MCP boundary, and same-SHA restart recovery. Remove
 stale history instead of appending exceptions. Document dedicated-account CLI
 login as an operator prerequisite and code upgrade as stop/start after
@@ -878,7 +891,8 @@ architecture review on the existing diff:
 Required focused evidence includes Runner protocol traces and native build,
 REST/Copilot parity, Sourcing-to-selected-Agent UI integration, exact 18-entry
 capability composition, persistence static deletion checks, PostgreSQL races,
-restart recovery, server/Web builds, and Nest module compilation. Delete the
+restart reconciliation, exact root/live/delegation replay without automatic
+successors, server/Web builds, and Nest module compilation. Delete the
 old broad Work port, API runtime-control facade, split Web store, duplicated
 controller orchestration, and central 18-key handler map; do not retain legacy
 forwarders.
