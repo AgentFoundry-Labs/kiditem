@@ -1,51 +1,47 @@
 /** Read-only anti-corruption port for Channels-owned Agent capabilities. */
 export const SOURCING_FROZEN_REGISTRATION_READ_CAPABILITY_PORT = Symbol(
-  'SOURCING_FROZEN_REGISTRATION_READ_CAPABILITY_PORT',
+  "SOURCING_FROZEN_REGISTRATION_READ_CAPABILITY_PORT",
 );
 
-export interface FrozenRegistrationSubmissionInput {
+export interface FrozenRegistrationReference {
   organizationId: string;
   initiatingUserId: string;
+  executionId: string;
+  preparationId: string;
+}
+
+/**
+ * Server-loaded registration state. It is deliberately returned by Sourcing's
+ * read boundary rather than accepted through the Agent capability contract.
+ */
+export interface ServerFrozenRegistration {
   executionId: string;
   preparationId: string;
   sourceCandidateId: string;
   channelAccountId: string;
   submissionKey: string;
   submissionPayloadHash: string;
-  submissionPayloadJson: unknown;
+  submissionPayloadJson: Record<string, unknown>;
   providerSubmissionId: string | null;
   registrationResult: unknown;
-  isRetry?: boolean;
-  providerOutcome?: string;
-  providerCreateAllowed?: boolean;
+  isRetry: boolean;
+  providerOutcome:
+    "not_attempted" | "uncertain" | "succeeded" | "definitive_failure";
+  displayName: string;
   masterProductId?: string;
   optionLinks: Array<{
     externalOptionId: string;
     sellpiaInventorySkuId: string;
     quantity: number;
   }>;
-}
-
-export interface FrozenRegistrationConfirmationInput
-  extends FrozenRegistrationSubmissionInput {
-  externalListingId: string;
-  displayName: string;
-  confirmationEvidence: {
-    wingVendorId: string;
-    wingIdentitySource: string;
-  };
-}
-
-export interface FrozenRegistrationProvenance {
-  displayName: string;
   expectedProviderAccountId: string | null;
 }
 
 export interface SourcingFrozenRegistrationReadCapabilityPort {
-  validateSubmission(
-    input: FrozenRegistrationSubmissionInput,
-  ): Promise<FrozenRegistrationProvenance>;
-  validateExternalConfirmation(
-    input: FrozenRegistrationConfirmationInput,
-  ): Promise<FrozenRegistrationProvenance>;
+  loadSubmission(
+    input: FrozenRegistrationReference,
+  ): Promise<ServerFrozenRegistration>;
+  loadExternalConfirmation(
+    input: FrozenRegistrationReference,
+  ): Promise<ServerFrozenRegistration>;
 }

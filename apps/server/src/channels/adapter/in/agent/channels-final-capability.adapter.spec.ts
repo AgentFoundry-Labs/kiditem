@@ -1,104 +1,377 @@
-import { describe, expect, it, vi } from 'vitest';
-import { deriveOwnerIdempotencyKey } from '../../../../common/owner-idempotency-key';
-import { ChannelsFinalCapabilityAdapter } from './channels-final-capability.adapter';
+import { describe, expect, it, vi } from "vitest";
+import {
+  canonicalOwnerInputHash,
+  deriveOwnerIdempotencyKey,
+} from "../../../../common/owner-idempotency-key";
+import { ChannelsFinalCapabilityAdapter } from "./channels-final-capability.adapter";
 
-const input = {
-  executionId: '00000000-0000-4000-8000-000000000004', preparationId: '00000000-0000-4000-8000-000000000005', sourceCandidateId: '00000000-0000-4000-8000-000000000006', channelAccountId: '00000000-0000-4000-8000-000000000007', submissionKey: 'frozen-submission', submissionPayloadHash: 'a'.repeat(64), submissionPayloadJson: { registrationInput: {} }, providerSubmissionId: null, registrationResult: null, isRetry: false, providerOutcome: 'not_attempted' as const, providerCreateAllowed: true, optionLinks: [],
+const submissionInput = {
+  executionId: "00000000-0000-4000-8000-000000000004",
+  preparationId: "00000000-0000-4000-8000-000000000005",
 };
 
-function context() {
-  const attemptId = 'attempt-1';
+const confirmationInput = {
+  ...submissionInput,
+  externalListingId: "provider-listing",
+  confirmationEvidence: {
+    wingVendorId: "vendor-1",
+    wingIdentitySource: "dom:data-vendor-id" as const,
+  },
+};
+
+const frozen = {
+  ...submissionInput,
+  sourceCandidateId: "00000000-0000-4000-8000-000000000006",
+  channelAccountId: "00000000-0000-4000-8000-000000000007",
+  submissionKey: "frozen-submission",
+  submissionPayloadHash: "a".repeat(64),
+  submissionPayloadJson: { registrationInput: { optionLinks: [] } },
+  providerSubmissionId: null,
+  registrationResult: null,
+  isRetry: false,
+  providerOutcome: "not_attempted" as const,
+  masterProductId: undefined,
+  optionLinks: [],
+  displayName: "Toy",
+  expectedProviderAccountId: null,
+};
+
+function context(
+  capabilityKey:
+    "channels.submit_coupang_listing" | "channels.register_confirmed_listing",
+  input: typeof submissionInput | typeof confirmationInput,
+) {
+  const attemptId = "attempt-1";
   return {
-    organizationId: '00000000-0000-4000-8000-000000000001', initiatingUserId: '00000000-0000-4000-8000-000000000002',
-    sessionId: 'session-1', taskId: 'task-1', attemptId, agentVersionId: 'version-1',
+    organizationId: "00000000-0000-4000-8000-000000000001",
+    initiatingUserId: "00000000-0000-4000-8000-000000000002",
+    sessionId: "session-1",
+    taskId: "task-1",
+    attemptId,
+    agentVersionId: "version-1",
     ownerIdempotencyKey: deriveOwnerIdempotencyKey({
       attemptId,
-      capabilityKey: 'channels.submit_coupang_listing',
+      capabilityKey,
       input,
     }),
-    applicationVersion: '0.25.0', authorizingGitSha: 'a'.repeat(40), runtimeType: 'codex_cli',
+    applicationVersion: "0.25.0",
+    authorizingGitSha: "a".repeat(40),
+    runtimeType: "codex_cli",
   };
 }
 
-describe('ChannelsFinalCapabilityAdapter', () => {
-  it('uses Sourcing only as a read-only provenance guard while Channels owns submission and listing resolution', async () => {
-    const executionContext = context();
+describe("ChannelsFinalCapabilityAdapter", () => {
+  it("loads the frozen submission server-side before Channels owns provider submission and listing resolution", async () => {
+    const executionContext = context(
+      "channels.submit_coupang_listing",
+      submissionInput,
+    );
     const registrations = {
       reconcileProductRegistration: vi.fn().mockResolvedValue(null),
-      submitProductRegistration: vi.fn().mockResolvedValue({ externalListingId: 'provider-hidden' }),
-      resolveProductRegistration: vi.fn().mockResolvedValue({ listingId: '00000000-0000-4000-8000-000000000008' }),
+      submitProductRegistration: vi
+        .fn()
+        .mockResolvedValue({ externalListingId: "provider-hidden" }),
+      resolveProductRegistrationWithOwnerReceipt: vi
+        .fn()
+        .mockResolvedValue({
+          listingId: "00000000-0000-4000-8000-000000000008",
+        }),
       assertExternalProductRegistrationAccount: vi.fn(),
     };
     const executions = {
-      claimProviderWrite: vi.fn().mockResolvedValue({ mode: 'create', leaseToken: 'lease-1' }),
+      claimProviderWrite: vi
+        .fn()
+        .mockResolvedValue({ mode: "create", leaseToken: "lease-1" }),
       finalizeProviderWrite: vi.fn().mockResolvedValue(undefined),
       markProviderWriteUncertain: vi.fn().mockResolvedValue(undefined),
       markProviderWriteDefinitiveFailure: vi.fn().mockResolvedValue(undefined),
     };
-    const provenance = { validateSubmission: vi.fn().mockResolvedValue({ displayName: 'Toy', expectedProviderAccountId: null }), validateExternalConfirmation: vi.fn() };
-    const prisma = { $transaction: vi.fn(async (work: (tx: object) => unknown) => work({ tx: true })) };
-    const adapter = new ChannelsFinalCapabilityAdapter(registrations as never, provenance as never, prisma as never, executions as never);
+    const provenance = {
+      loadSubmission: vi.fn().mockResolvedValue(frozen),
+      loadExternalConfirmation: vi.fn(),
+    };
+    const prisma = {
+      $transaction: vi.fn(async (work: (tx: object) => unknown) =>
+        work({ tx: true }),
+      ),
+    };
+    const adapter = new ChannelsFinalCapabilityAdapter(
+      registrations as never,
+      provenance as never,
+      prisma as never,
+      executions as never,
+    );
 
-    await expect(adapter.submitCoupangListing({ context: executionContext, input })).resolves.toEqual({ preparationId: input.preparationId, listingId: '00000000-0000-4000-8000-000000000008', status: 'registered' });
-    expect(provenance.validateSubmission).toHaveBeenCalledWith(expect.objectContaining({ organizationId: executionContext.organizationId, initiatingUserId: executionContext.initiatingUserId }));
-    expect(registrations.submitProductRegistration).toHaveBeenCalledOnce();
+    await expect(
+      adapter.submitCoupangListing({
+        context: executionContext,
+        input: submissionInput,
+      }),
+    ).resolves.toEqual({
+      preparationId: submissionInput.preparationId,
+      listingId: "00000000-0000-4000-8000-000000000008",
+      status: "registered",
+    });
+
+    expect(provenance.loadSubmission).toHaveBeenCalledWith({
+      organizationId: executionContext.organizationId,
+      initiatingUserId: executionContext.initiatingUserId,
+      ...submissionInput,
+    });
     expect(registrations.submitProductRegistration).toHaveBeenCalledWith(
-      expect.objectContaining({ ownerIdempotencyKey: executionContext.ownerIdempotencyKey }),
+      expect.objectContaining({
+        submissionPayloadJson: frozen.submissionPayloadJson,
+        providerSubmissionId: frozen.providerSubmissionId,
+        registrationResult: frozen.registrationResult,
+        ownerIdempotencyKey: executionContext.ownerIdempotencyKey,
+      }),
       expect.any(Function),
     );
-    expect(executions.claimProviderWrite).toHaveBeenCalledWith(expect.objectContaining({
-      organizationId: executionContext.organizationId,
-      executionId: input.executionId,
-      idempotencyKey: input.submissionKey,
-      requestHash: input.submissionPayloadHash,
-      ownerIdempotencyKey: executionContext.ownerIdempotencyKey,
-    }));
-    expect(executions.finalizeProviderWrite).toHaveBeenCalledWith(expect.objectContaining({
-      leaseToken: 'lease-1',
-      externalListingId: 'provider-hidden',
-    }));
-    expect(registrations.resolveProductRegistration).toHaveBeenCalledWith({ tx: true }, expect.objectContaining({ externalListingId: 'provider-hidden', sourceCandidateId: input.sourceCandidateId }));
+    expect(executions.claimProviderWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: executionContext.organizationId,
+        executionId: frozen.executionId,
+        preparationId: frozen.preparationId,
+        channelAccountId: frozen.channelAccountId,
+        sourceCandidateId: frozen.sourceCandidateId,
+        idempotencyKey: frozen.submissionKey,
+        requestHash: frozen.submissionPayloadHash,
+        ownerIdempotencyKey: executionContext.ownerIdempotencyKey,
+      }),
+    );
+    expect(executions.finalizeProviderWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        leaseToken: "lease-1",
+        externalListingId: "provider-hidden",
+      }),
+    );
+    expect(
+      registrations.resolveProductRegistrationWithOwnerReceipt,
+    ).toHaveBeenCalledWith(
+      { tx: true },
+      expect.objectContaining({
+        externalListingId: "provider-hidden",
+        sourceCandidateId: frozen.sourceCandidateId,
+        channelAccountId: frozen.channelAccountId,
+        ownerCapabilityKey: "channels.submit_coupang_listing",
+        ownerIdempotencyKey: executionContext.ownerIdempotencyKey,
+        ownerRequestHash: canonicalOwnerInputHash(submissionInput),
+      }),
+    );
   });
 
-  it('replays the completed Channels execution without another provider create', async () => {
-    const executionContext = context();
+  it("replays the completed Channels provider execution without another provider create", async () => {
+    const executionContext = context(
+      "channels.submit_coupang_listing",
+      submissionInput,
+    );
     const registrations = {
       reconcileProductRegistration: vi.fn(),
       submitProductRegistration: vi.fn(),
-      resolveProductRegistration: vi.fn().mockResolvedValue({ listingId: '00000000-0000-4000-8000-000000000008' }),
+      resolveProductRegistrationWithOwnerReceipt: vi
+        .fn()
+        .mockResolvedValue({
+          listingId: "00000000-0000-4000-8000-000000000008",
+        }),
       assertExternalProductRegistrationAccount: vi.fn(),
     };
     const executions = {
       claimProviderWrite: vi.fn().mockResolvedValue({
-        mode: 'replay',
+        mode: "replay",
         leaseToken: null,
-        providerSubmissionId: 'provider-submission',
-        externalListingId: 'provider-listing',
+        providerSubmissionId: "provider-submission",
+        externalListingId: "provider-listing",
       }),
-      finalizeProviderWrite: vi.fn(), markProviderWriteUncertain: vi.fn(), markProviderWriteDefinitiveFailure: vi.fn(),
+      finalizeProviderWrite: vi.fn(),
+      markProviderWriteUncertain: vi.fn(),
+      markProviderWriteDefinitiveFailure: vi.fn(),
     };
-    const provenance = { validateSubmission: vi.fn().mockResolvedValue({ displayName: 'Toy', expectedProviderAccountId: null }), validateExternalConfirmation: vi.fn() };
-    const prisma = { $transaction: vi.fn(async (work: (tx: object) => unknown) => work({ tx: true })) };
-    const adapter = new ChannelsFinalCapabilityAdapter(registrations as never, provenance as never, prisma as never, executions as never);
+    const provenance = {
+      loadSubmission: vi.fn().mockResolvedValue(frozen),
+      loadExternalConfirmation: vi.fn(),
+    };
+    const prisma = {
+      $transaction: vi.fn(async (work: (tx: object) => unknown) =>
+        work({ tx: true }),
+      ),
+    };
+    const adapter = new ChannelsFinalCapabilityAdapter(
+      registrations as never,
+      provenance as never,
+      prisma as never,
+      executions as never,
+    );
 
-    await adapter.submitCoupangListing({ context: executionContext, input });
+    await adapter.submitCoupangListing({
+      context: executionContext,
+      input: submissionInput,
+    });
 
     expect(registrations.reconcileProductRegistration).not.toHaveBeenCalled();
     expect(registrations.submitProductRegistration).not.toHaveBeenCalled();
     expect(executions.finalizeProviderWrite).not.toHaveBeenCalled();
   });
 
-  it('rejects a changed owner key before it can claim or call the provider', async () => {
-    const registrations = { reconcileProductRegistration: vi.fn(), submitProductRegistration: vi.fn(), resolveProductRegistration: vi.fn(), assertExternalProductRegistrationAccount: vi.fn() };
-    const executions = { claimProviderWrite: vi.fn(), finalizeProviderWrite: vi.fn(), markProviderWriteUncertain: vi.fn(), markProviderWriteDefinitiveFailure: vi.fn() };
-    const provenance = { validateSubmission: vi.fn().mockResolvedValue({ displayName: 'Toy', expectedProviderAccountId: null }), validateExternalConfirmation: vi.fn() };
+  it("requires the exact derived owner key before loading or claiming a provider submission", async () => {
+    const registrations = {
+      reconcileProductRegistration: vi.fn(),
+      submitProductRegistration: vi.fn(),
+      resolveProductRegistrationWithOwnerReceipt: vi.fn(),
+      assertExternalProductRegistrationAccount: vi.fn(),
+    };
+    const executions = {
+      claimProviderWrite: vi.fn(),
+      finalizeProviderWrite: vi.fn(),
+      markProviderWriteUncertain: vi.fn(),
+      markProviderWriteDefinitiveFailure: vi.fn(),
+    };
+    const provenance = {
+      loadSubmission: vi.fn(),
+      loadExternalConfirmation: vi.fn(),
+    };
     const prisma = { $transaction: vi.fn() };
-    const adapter = new ChannelsFinalCapabilityAdapter(registrations as never, provenance as never, prisma as never, executions as never);
+    const adapter = new ChannelsFinalCapabilityAdapter(
+      registrations as never,
+      provenance as never,
+      prisma as never,
+      executions as never,
+    );
 
-    await expect(adapter.submitCoupangListing({ context: { ...context(), ownerIdempotencyKey: 'changed' }, input }))
-      .rejects.toThrow('owner_idempotency_key_conflict');
+    await expect(
+      adapter.submitCoupangListing({
+        context: {
+          ...context("channels.submit_coupang_listing", submissionInput),
+          ownerIdempotencyKey: "f".repeat(64),
+        },
+        input: submissionInput,
+      }),
+    ).rejects.toThrow("owner_idempotency_key_conflict");
 
+    expect(provenance.loadSubmission).not.toHaveBeenCalled();
     expect(executions.claimProviderWrite).not.toHaveBeenCalled();
     expect(registrations.submitProductRegistration).not.toHaveBeenCalled();
+  });
+
+  it("validates external confirmation against server-loaded frozen provenance and resolves it behind a Channels receipt", async () => {
+    const executionContext = context(
+      "channels.register_confirmed_listing",
+      confirmationInput,
+    );
+    const registrations = {
+      reconcileProductRegistration: vi.fn(),
+      submitProductRegistration: vi.fn(),
+      resolveProductRegistrationWithOwnerReceipt: vi
+        .fn()
+        .mockResolvedValue({
+          listingId: "00000000-0000-4000-8000-000000000008",
+        }),
+      assertExternalProductRegistrationAccount: vi
+        .fn()
+        .mockResolvedValue({ channel: "coupang", vendorId: "vendor-1" }),
+    };
+    const executions = {
+      claimProviderWrite: vi.fn(),
+      finalizeProviderWrite: vi.fn(),
+      markProviderWriteUncertain: vi.fn(),
+      markProviderWriteDefinitiveFailure: vi.fn(),
+    };
+    const provenance = {
+      loadSubmission: vi.fn(),
+      loadExternalConfirmation: vi.fn().mockResolvedValue({
+        ...frozen,
+        expectedProviderAccountId: "vendor-1",
+      }),
+    };
+    const prisma = {
+      $transaction: vi.fn(async (work: (tx: object) => unknown) =>
+        work({ tx: true }),
+      ),
+    };
+    const adapter = new ChannelsFinalCapabilityAdapter(
+      registrations as never,
+      provenance as never,
+      prisma as never,
+      executions as never,
+    );
+
+    await expect(
+      adapter.registerConfirmedListing({
+        context: executionContext,
+        input: confirmationInput,
+      }),
+    ).resolves.toEqual({
+      preparationId: submissionInput.preparationId,
+      listingId: "00000000-0000-4000-8000-000000000008",
+      status: "registered",
+    });
+
+    expect(provenance.loadExternalConfirmation).toHaveBeenCalledWith({
+      organizationId: executionContext.organizationId,
+      initiatingUserId: executionContext.initiatingUserId,
+      ...submissionInput,
+    });
+    expect(
+      registrations.assertExternalProductRegistrationAccount,
+    ).toHaveBeenCalledWith({
+      organizationId: executionContext.organizationId,
+      channelAccountId: frozen.channelAccountId,
+    });
+    expect(
+      registrations.resolveProductRegistrationWithOwnerReceipt,
+    ).toHaveBeenCalledWith(
+      { tx: true },
+      expect.objectContaining({
+        externalListingId: confirmationInput.externalListingId,
+        displayName: frozen.displayName,
+        ownerCapabilityKey: "channels.register_confirmed_listing",
+        ownerIdempotencyKey: executionContext.ownerIdempotencyKey,
+        ownerRequestHash: canonicalOwnerInputHash(confirmationInput),
+      }),
+    );
+  });
+
+  it("rejects a changed confirmed-listing input with the original owner key before listing resolution", async () => {
+    const registrations = {
+      reconcileProductRegistration: vi.fn(),
+      submitProductRegistration: vi.fn(),
+      resolveProductRegistrationWithOwnerReceipt: vi.fn(),
+      assertExternalProductRegistrationAccount: vi.fn(),
+    };
+    const executions = {
+      claimProviderWrite: vi.fn(),
+      finalizeProviderWrite: vi.fn(),
+      markProviderWriteUncertain: vi.fn(),
+      markProviderWriteDefinitiveFailure: vi.fn(),
+    };
+    const provenance = {
+      loadSubmission: vi.fn(),
+      loadExternalConfirmation: vi.fn(),
+    };
+    const prisma = { $transaction: vi.fn() };
+    const adapter = new ChannelsFinalCapabilityAdapter(
+      registrations as never,
+      provenance as never,
+      prisma as never,
+      executions as never,
+    );
+    const changed = {
+      ...confirmationInput,
+      externalListingId: "provider-listing-changed",
+    };
+
+    await expect(
+      adapter.registerConfirmedListing({
+        context: context(
+          "channels.register_confirmed_listing",
+          confirmationInput,
+        ),
+        input: changed,
+      }),
+    ).rejects.toThrow("owner_idempotency_key_conflict");
+
+    expect(provenance.loadExternalConfirmation).not.toHaveBeenCalled();
+    expect(
+      registrations.resolveProductRegistrationWithOwnerReceipt,
+    ).not.toHaveBeenCalled();
   });
 });

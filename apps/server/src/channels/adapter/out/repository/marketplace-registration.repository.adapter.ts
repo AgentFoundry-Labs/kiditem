@@ -3,24 +3,22 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
-} from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
-import type { Prisma } from '@prisma/client';
-import { PrismaService } from '../../../../prisma/prisma.service';
-import type { MarketplaceRegistrationRepositoryPort } from '../../../application/port/out/repository/channel-listing.repository.port';
+} from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
+import { PrismaService } from "../../../../prisma/prisma.service";
+import type { MarketplaceRegistrationRepositoryPort } from "../../../application/port/out/repository/channel-listing.repository.port";
 import {
   normalizeKidItemFirstRegistrationLinks,
   type KidItemFirstOptionLink,
   type KidItemFirstRegistrationLinks,
-} from '../../../domain/kiditem-first-registration-links';
-import { lockChannelListingRow } from './channel-listing-row-lock';
+} from "../../../domain/kiditem-first-registration-links";
+import { lockChannelListingRow } from "./channel-listing-row-lock";
 
 const PROVIDER_RECONCILIATION_LEASE_MS = 5 * 60 * 1_000;
 
 @Injectable()
-export class MarketplaceRegistrationRepositoryAdapter
-  implements MarketplaceRegistrationRepositoryPort
-{
+export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegistrationRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
   async claimProviderWrite(input: {
@@ -33,8 +31,10 @@ export class MarketplaceRegistrationRepositoryAdapter
     requestHash: string;
     ownerIdempotencyKey: string;
   }) {
-    if (!input.ownerIdempotencyKey.trim()) {
-      throw new ConflictException('Provider write requires an owner idempotency key.');
+    if (!/^[a-f0-9]{64}$/.test(input.ownerIdempotencyKey)) {
+      throw new ConflictException(
+        "Provider write requires a canonical owner idempotency key.",
+      );
     }
     return this.prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<{ id: string }[]>`
@@ -42,22 +42,36 @@ export class MarketplaceRegistrationRepositoryAdapter
         WHERE id = ${input.executionId}::uuid
           AND organization_id = ${input.organizationId}::uuid
         FOR UPDATE`;
-      if (rows.length !== 1) throw new NotFoundException('Product registration execution not found.');
+      if (rows.length !== 1)
+        throw new NotFoundException(
+          "Product registration execution not found.",
+        );
       const execution = await tx.productRegistrationExecution.findFirst({
         where: { id: input.executionId, organizationId: input.organizationId },
-        include: { productPreparation: { select: { sourceCandidateId: true } } },
+        include: {
+          productPreparation: { select: { sourceCandidateId: true } },
+        },
       });
-      if (!execution
-        || execution.productPreparationId !== input.preparationId
-        || execution.channelAccountId !== input.channelAccountId
-        || execution.productPreparation.sourceCandidateId !== input.sourceCandidateId
-        || execution.idempotencyKey !== input.idempotencyKey
-        || execution.requestHash !== input.requestHash) {
-        throw new ConflictException('Frozen product registration execution changed.');
+      if (
+        !execution ||
+        execution.productPreparationId !== input.preparationId ||
+        execution.channelAccountId !== input.channelAccountId ||
+        execution.productPreparation.sourceCandidateId !==
+          input.sourceCandidateId ||
+        execution.idempotencyKey !== input.idempotencyKey ||
+        execution.requestHash !== input.requestHash
+      ) {
+        throw new ConflictException(
+          "Frozen product registration execution changed.",
+        );
       }
-      if (execution.ownerIdempotencyKey
-        && execution.ownerIdempotencyKey !== input.ownerIdempotencyKey) {
-        throw new ConflictException('Product registration owner idempotency key conflicted.');
+      if (
+        execution.ownerIdempotencyKey &&
+        execution.ownerIdempotencyKey !== input.ownerIdempotencyKey
+      ) {
+        throw new ConflictException(
+          "Product registration owner idempotency key conflicted.",
+        );
       }
       if (!execution.ownerIdempotencyKey) {
         const bound = await tx.productRegistrationExecution.updateMany({
@@ -69,61 +83,75 @@ export class MarketplaceRegistrationRepositoryAdapter
           data: { ownerIdempotencyKey: input.ownerIdempotencyKey },
         });
         if (bound.count !== 1) {
-          throw new ConflictException('Product registration execution changed.');
+          throw new ConflictException(
+            "Product registration execution changed.",
+          );
         }
       }
-      if (execution.providerOutcome === 'succeeded'
-        && execution.providerSubmissionId
-        && execution.externalListingId) {
+      if (
+        execution.providerOutcome === "succeeded" &&
+        execution.providerSubmissionId &&
+        execution.externalListingId
+      ) {
         return {
-          mode: 'replay' as const,
+          mode: "replay" as const,
           leaseToken: null,
           providerSubmissionId: execution.providerSubmissionId,
           externalListingId: execution.externalListingId,
         };
       }
-      if (execution.providerOutcome === 'uncertain') {
+      if (execution.providerOutcome === "uncertain") {
         const now = new Date();
-        const leaseIsLive = execution.leaseToken
-          && execution.leaseClaimedAt
-          && now.getTime() - execution.leaseClaimedAt.getTime() < PROVIDER_RECONCILIATION_LEASE_MS;
+        const leaseIsLive =
+          execution.leaseToken &&
+          execution.leaseClaimedAt &&
+          now.getTime() - execution.leaseClaimedAt.getTime() <
+            PROVIDER_RECONCILIATION_LEASE_MS;
         // A concurrent same-key caller must never steal an active owner's
         // finalization fence. It can only observe pending reconciliation.
         if (leaseIsLive) {
-          return { mode: 'reconcile' as const, leaseToken: null };
+          return { mode: "reconcile" as const, leaseToken: null };
         }
         const leaseToken = randomUUID();
         const claimed = await tx.productRegistrationExecution.updateMany({
           where: {
             id: execution.id,
             organizationId: input.organizationId,
-            providerOutcome: 'uncertain',
-            status: { in: ['executing', 'reconciling'] },
+            providerOutcome: "uncertain",
+            status: { in: ["executing", "reconciling"] },
           },
           data: {
-            status: 'reconciling',
+            status: "reconciling",
             leaseToken,
             leaseClaimedAt: now,
           },
         });
-        if (claimed.count !== 1) throw new ConflictException('Product registration execution changed.');
-        return { mode: 'reconcile' as const, leaseToken };
+        if (claimed.count !== 1)
+          throw new ConflictException(
+            "Product registration execution changed.",
+          );
+        return { mode: "reconcile" as const, leaseToken };
       }
-      if (execution.status !== 'prepared' || execution.providerOutcome !== 'not_attempted') {
-        throw new ConflictException('Product registration execution cannot create a provider listing.');
+      if (
+        execution.status !== "prepared" ||
+        execution.providerOutcome !== "not_attempted"
+      ) {
+        throw new ConflictException(
+          "Product registration execution cannot create a provider listing.",
+        );
       }
       const leaseToken = randomUUID();
       const claimed = await tx.productRegistrationExecution.updateMany({
         where: {
           id: execution.id,
           organizationId: input.organizationId,
-          status: 'prepared',
-          providerOutcome: 'not_attempted',
+          status: "prepared",
+          providerOutcome: "not_attempted",
           leaseToken: execution.leaseToken,
         },
         data: {
-          status: 'executing',
-          providerOutcome: 'uncertain',
+          status: "executing",
+          providerOutcome: "uncertain",
           leaseToken,
           leaseClaimedAt: new Date(),
           startedAt: new Date(),
@@ -131,8 +159,9 @@ export class MarketplaceRegistrationRepositoryAdapter
           lastErrorMessage: null,
         },
       });
-      if (claimed.count !== 1) throw new ConflictException('Product registration execution changed.');
-      return { mode: 'create' as const, leaseToken };
+      if (claimed.count !== 1)
+        throw new ConflictException("Product registration execution changed.");
+      return { mode: "create" as const, leaseToken };
     });
   }
 
@@ -149,12 +178,12 @@ export class MarketplaceRegistrationRepositoryAdapter
         id: input.executionId,
         organizationId: input.organizationId,
         leaseToken: input.leaseToken,
-        providerOutcome: 'uncertain',
-        status: { in: ['executing', 'reconciling'] },
+        providerOutcome: "uncertain",
+        status: { in: ["executing", "reconciling"] },
       },
       data: {
-        status: 'succeeded',
-        providerOutcome: 'succeeded',
+        status: "succeeded",
+        providerOutcome: "succeeded",
         providerSubmissionId: input.providerSubmissionId,
         externalListingId: input.externalListingId,
         resultJson: input.result as Prisma.InputJsonValue,
@@ -165,7 +194,8 @@ export class MarketplaceRegistrationRepositoryAdapter
         lastErrorMessage: null,
       },
     });
-    if (updated.count !== 1) throw new ConflictException('Product registration execution changed.');
+    if (updated.count !== 1)
+      throw new ConflictException("Product registration execution changed.");
   }
 
   async markProviderWriteUncertain(input: {
@@ -179,12 +209,17 @@ export class MarketplaceRegistrationRepositoryAdapter
         id: input.executionId,
         organizationId: input.organizationId,
         leaseToken: input.leaseToken,
-        providerOutcome: 'uncertain',
-        status: 'executing',
+        providerOutcome: "uncertain",
+        status: "executing",
       },
-      data: { status: 'reconciling', lastErrorCode: 'provider_uncertain', lastErrorMessage: input.message.slice(0, 1_000) },
+      data: {
+        status: "reconciling",
+        lastErrorCode: "provider_uncertain",
+        lastErrorMessage: input.message.slice(0, 1_000),
+      },
     });
-    if (updated.count !== 1) throw new ConflictException('Product registration execution changed.');
+    if (updated.count !== 1)
+      throw new ConflictException("Product registration execution changed.");
   }
 
   async markProviderWriteDefinitiveFailure(input: {
@@ -198,35 +233,40 @@ export class MarketplaceRegistrationRepositoryAdapter
         id: input.executionId,
         organizationId: input.organizationId,
         leaseToken: input.leaseToken,
-        providerOutcome: 'uncertain',
-        status: 'executing',
+        providerOutcome: "uncertain",
+        status: "executing",
       },
       data: {
-        status: 'failed',
-        providerOutcome: 'definitive_failure',
+        status: "failed",
+        providerOutcome: "definitive_failure",
         completedAt: new Date(),
         leaseToken: null,
         leaseClaimedAt: null,
-        lastErrorCode: 'provider_definitive_failure',
+        lastErrorCode: "provider_definitive_failure",
         lastErrorMessage: input.message.slice(0, 1_000),
       },
     });
-    if (updated.count !== 1) throw new ConflictException('Product registration execution changed.');
+    if (updated.count !== 1)
+      throw new ConflictException("Product registration execution changed.");
   }
 
   async assertActiveRegistrationAccount(input: {
     organizationId: string;
     channelAccountId: string;
-  }): Promise<{ channel: string; vendorId: string | null; externalAccountId: string | null }> {
+  }): Promise<{
+    channel: string;
+    vendorId: string | null;
+    externalAccountId: string | null;
+  }> {
     const account = await this.prisma.channelAccount.findFirst({
       where: {
         id: input.channelAccountId,
         organizationId: input.organizationId,
-        status: 'active',
+        status: "active",
       },
       select: { channel: true, vendorId: true, externalAccountId: true },
     });
-    if (!account) throw new NotFoundException('Marketplace account not found.');
+    if (!account) throw new NotFoundException("Marketplace account not found.");
     return account;
   }
 
@@ -253,7 +293,7 @@ export class MarketplaceRegistrationRepositoryAdapter
         },
       },
       select: { externalId: true, displayName: true, status: true },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+      orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
       take: 2,
     });
     if (listings.length > 1) {
@@ -264,10 +304,10 @@ export class MarketplaceRegistrationRepositoryAdapter
     const listing = listings[0];
     return listing
       ? {
-        externalListingId: listing.externalId,
-        displayName: listing.displayName?.trim() || listing.externalId,
-        status: listing.status?.trim() || null,
-      }
+          externalListingId: listing.externalId,
+          displayName: listing.displayName?.trim() || listing.externalId,
+          status: listing.status?.trim() || null,
+        }
       : null;
   }
 
@@ -298,16 +338,24 @@ export class MarketplaceRegistrationRepositoryAdapter
   ) {
     const tx = transaction as Prisma.TransactionClient;
     const externalId = input.externalListingId.trim();
-    if (!externalId) throw new BadRequestException('Marketplace listing identity is required.');
+    if (!externalId)
+      throw new BadRequestException(
+        "Marketplace listing identity is required.",
+      );
     let exactLinks: KidItemFirstRegistrationLinks;
     try {
-      exactLinks = normalizeKidItemFirstRegistrationLinks({
-        masterProductId: input.masterProductId,
-        optionLinks: input.optionLinks,
-      }, input.submissionKey);
+      exactLinks = normalizeKidItemFirstRegistrationLinks(
+        {
+          masterProductId: input.masterProductId,
+          optionLinks: input.optionLinks,
+        },
+        input.submissionKey,
+      );
     } catch (error) {
       throw new BadRequestException(
-        error instanceof Error ? error.message : 'Invalid KidItem-first product links.',
+        error instanceof Error
+          ? error.message
+          : "Invalid KidItem-first product links.",
       );
     }
     const [account, candidate] = await Promise.all([
@@ -315,7 +363,7 @@ export class MarketplaceRegistrationRepositoryAdapter
         where: {
           id: input.channelAccountId,
           organizationId: input.organizationId,
-          status: 'active',
+          status: "active",
         },
         select: { id: true, channel: true },
       }),
@@ -328,8 +376,9 @@ export class MarketplaceRegistrationRepositoryAdapter
         select: { id: true },
       }),
     ]);
-    if (!account) throw new NotFoundException('Marketplace account not found.');
-    if (!candidate) throw new NotFoundException('Sourcing candidate not found.');
+    if (!account) throw new NotFoundException("Marketplace account not found.");
+    if (!candidate)
+      throw new NotFoundException("Sourcing candidate not found.");
     await assertExactProductGraph(tx, {
       organizationId: input.organizationId,
       ...exactLinks,
@@ -352,58 +401,69 @@ export class MarketplaceRegistrationRepositoryAdapter
         catalogMatchingEligibleOnly: false,
       });
       if (!locked) {
-        throw new ConflictException('Marketplace listing changed concurrently.');
+        throw new ConflictException(
+          "Marketplace listing changed concurrently.",
+        );
       }
     }
     const existing = existingIdentity
       ? await tx.channelListing.findFirst({
-        where: {
-          id: existingIdentity.id,
-          organizationId: input.organizationId,
-          channelAccountId: account.id,
-          externalId,
-        },
-        select: {
-          id: true,
-          sourceCandidateId: true,
-          channelAccountId: true,
-          channelAccount: { select: { channel: true } },
-          externalId: true,
-          status: true,
-          masterProductId: true,
-        },
-      })
+          where: {
+            id: existingIdentity.id,
+            organizationId: input.organizationId,
+            channelAccountId: account.id,
+            externalId,
+          },
+          select: {
+            id: true,
+            sourceCandidateId: true,
+            channelAccountId: true,
+            channelAccount: { select: { channel: true } },
+            externalId: true,
+            status: true,
+            masterProductId: true,
+          },
+        })
       : null;
     if (existing) {
-      const activeDeletion = await tx.channelListingDeletionOperation.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          channelAccountId: account.id,
-          channelListingId: existing.id,
-          // A completed provider deletion is also a hard fence: registration
-          // finalization must never resurrect a listing that WING deleted.
-          OR: [
-            { status: { in: ['prepared', 'executing', 'reconciling'] } },
-            { providerOutcome: 'succeeded' },
-          ],
+      const activeDeletion = await tx.channelListingDeletionOperation.findFirst(
+        {
+          where: {
+            organizationId: input.organizationId,
+            channelAccountId: account.id,
+            channelListingId: existing.id,
+            // A completed provider deletion is also a hard fence: registration
+            // finalization must never resurrect a listing that WING deleted.
+            OR: [
+              { status: { in: ["prepared", "executing", "reconciling"] } },
+              { providerOutcome: "succeeded" },
+            ],
+          },
+          select: { id: true },
         },
-        select: { id: true },
-      });
+      );
       if (activeDeletion) {
         throw new ConflictException(
-          'Marketplace listing has an active deletion operation and cannot be reactivated.',
+          "Marketplace listing has an active deletion operation and cannot be reactivated.",
         );
       }
     }
-    if (existing?.sourceCandidateId && existing.sourceCandidateId !== candidate.id) {
-      throw new ConflictException('Marketplace listing already belongs to another source candidate.');
+    if (
+      existing?.sourceCandidateId &&
+      existing.sourceCandidateId !== candidate.id
+    ) {
+      throw new ConflictException(
+        "Marketplace listing already belongs to another source candidate.",
+      );
     }
     if (
-      existing?.masterProductId
-      && exactLinks.masterProductId
-      && existing.masterProductId !== exactLinks.masterProductId
+      existing?.masterProductId &&
+      exactLinks.masterProductId &&
+      existing.masterProductId !== exactLinks.masterProductId
     ) {
-      throw new ConflictException('Marketplace listing is linked to another MasterProduct.');
+      throw new ConflictException(
+        "Marketplace listing is linked to another MasterProduct.",
+      );
     }
     if (!existing) {
       const created = await tx.channelListing.create({
@@ -413,7 +473,7 @@ export class MarketplaceRegistrationRepositoryAdapter
           channelAccountId: account.id,
           externalId,
           displayName: input.displayName,
-          status: 'active',
+          status: "active",
           isActive: true,
           masterProductId: exactLinks.masterProductId,
         },
@@ -425,7 +485,12 @@ export class MarketplaceRegistrationRepositoryAdapter
           status: true,
         },
       });
-      await upsertExactOptionLinks(tx, input.organizationId, created.id, optionLinks);
+      await upsertExactOptionLinks(
+        tx,
+        input.organizationId,
+        created.id,
+        optionLinks,
+      );
       return {
         listingId: created.id,
         channelAccountId: created.channelAccountId!,
@@ -439,20 +504,20 @@ export class MarketplaceRegistrationRepositoryAdapter
       where: {
         id: existing.id,
         organizationId: input.organizationId,
-        OR: [
-          { sourceCandidateId: null },
-          { sourceCandidateId: candidate.id },
-        ],
+        OR: [{ sourceCandidateId: null }, { sourceCandidateId: candidate.id }],
       },
       data: {
         sourceCandidateId: candidate.id,
         displayName: input.displayName,
-        status: 'active',
+        status: "active",
         isActive: true,
-        ...(exactLinks.masterProductId ? { masterProductId: exactLinks.masterProductId } : {}),
+        ...(exactLinks.masterProductId
+          ? { masterProductId: exactLinks.masterProductId }
+          : {}),
       },
     });
-    if (updated.count !== 1) throw new ConflictException('Marketplace listing changed concurrently.');
+    if (updated.count !== 1)
+      throw new ConflictException("Marketplace listing changed concurrently.");
     const listing = await tx.channelListing.findFirst({
       where: { id: existing.id, organizationId: input.organizationId },
       select: {
@@ -463,8 +528,14 @@ export class MarketplaceRegistrationRepositoryAdapter
         status: true,
       },
     });
-    if (!listing?.channelAccountId) throw new ConflictException('Marketplace listing account is missing.');
-    await upsertExactOptionLinks(tx, input.organizationId, listing.id, optionLinks);
+    if (!listing?.channelAccountId)
+      throw new ConflictException("Marketplace listing account is missing.");
+    await upsertExactOptionLinks(
+      tx,
+      input.organizationId,
+      listing.id,
+      optionLinks,
+    );
     return {
       listingId: listing.id,
       channelAccountId: listing.channelAccountId,
@@ -474,6 +545,116 @@ export class MarketplaceRegistrationRepositoryAdapter
     };
   }
 
+  async resolveProductRegistrationWithOwnerReceipt(
+    transaction: object,
+    input: {
+      organizationId: string;
+      sourceCandidateId: string;
+      channelAccountId: string;
+      submissionKey: string;
+      externalListingId: string;
+      displayName: string;
+      masterProductId?: string;
+      optionLinks?: Array<{
+        externalOptionId: string;
+        sellpiaInventorySkuId: string;
+        quantity: number;
+      }>;
+      ownerCapabilityKey:
+        | "channels.register_confirmed_listing"
+        | "channels.submit_coupang_listing";
+      ownerIdempotencyKey: string;
+      ownerRequestHash: string;
+    },
+  ) {
+    if (
+      !/^[a-f0-9]{64}$/.test(input.ownerIdempotencyKey) ||
+      !/^[a-f0-9]{64}$/.test(input.ownerRequestHash)
+    ) {
+      throw new ConflictException(
+        "Channels registration owner receipt is invalid.",
+      );
+    }
+    const tx = transaction as Prisma.TransactionClient;
+    const lockKey = [
+      "channels-registration-owner-receipt",
+      input.organizationId,
+      input.ownerCapabilityKey,
+      input.ownerIdempotencyKey,
+    ].join(":");
+    await tx.$queryRaw(
+      Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"`,
+    );
+    const receipt =
+      await tx.channelRegistrationOwnerIdempotencyReceipt.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          capabilityKey: input.ownerCapabilityKey,
+          ownerIdempotencyKey: input.ownerIdempotencyKey,
+        },
+        select: { requestHash: true, resultJson: true },
+      });
+    if (receipt) {
+      if (receipt.requestHash !== input.ownerRequestHash) {
+        throw new ConflictException(
+          "Channels registration owner idempotency key conflicted.",
+        );
+      }
+      return receiptListingResult(receipt.resultJson);
+    }
+
+    const resolved = await this.resolveProductRegistration(tx, input);
+    const result = {
+      listingId: resolved.listingId,
+      channelAccountId: resolved.channelAccountId,
+      channel: resolved.channel,
+      externalId: resolved.externalId,
+      status: resolved.status,
+    };
+    await tx.channelRegistrationOwnerIdempotencyReceipt.create({
+      data: {
+        organizationId: input.organizationId,
+        capabilityKey: input.ownerCapabilityKey,
+        ownerIdempotencyKey: input.ownerIdempotencyKey,
+        requestHash: input.ownerRequestHash,
+        resultJson: result as Prisma.InputJsonValue,
+      },
+    });
+    return result;
+  }
+}
+
+function receiptListingResult(value: Prisma.JsonValue): {
+  listingId: string;
+  channelAccountId: string;
+  channel: string;
+  externalId: string;
+  status: string | null;
+} {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ConflictException(
+      "Channels registration owner receipt is invalid.",
+    );
+  }
+  const result = value as Record<string, Prisma.JsonValue>;
+  if (
+    typeof result.listingId !== "string" ||
+    typeof result.channelAccountId !== "string" ||
+    typeof result.channel !== "string" ||
+    typeof result.externalId !== "string" ||
+    (result.status !== null && typeof result.status !== "string")
+  ) {
+    throw new ConflictException(
+      "Channels registration owner receipt is invalid.",
+    );
+  }
+  return {
+    listingId: result.listingId,
+    channelAccountId: result.channelAccountId,
+    channel: result.channel,
+    externalId: result.externalId,
+    status: result.status,
+  };
 }
 
 async function upsertExactOptionLinks(
@@ -489,10 +670,7 @@ async function upsertExactOptionLinks(
         organizationId,
         listingId,
         isActive: true,
-        OR: [
-          { externalOptionId },
-          { sellerSku: link.providerOptionKey },
-        ],
+        OR: [{ externalOptionId }, { sellerSku: link.providerOptionKey }],
       },
       select: {
         id: true,
@@ -501,20 +679,25 @@ async function upsertExactOptionLinks(
           select: { sellpiaInventorySkuId: true, quantity: true },
         },
       },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+      orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
     });
-    if (existing.some((option) =>
-      option.inventoryComponents.length > 0
-      && (option.inventoryComponents.length !== 1
-        || option.inventoryComponents[0]!.sellpiaInventorySkuId
-          !== link.sellpiaInventorySkuId
-        || option.inventoryComponents[0]!.quantity !== link.quantity))) {
+    if (
+      existing.some(
+        (option) =>
+          option.inventoryComponents.length > 0 &&
+          (option.inventoryComponents.length !== 1 ||
+            option.inventoryComponents[0]!.sellpiaInventorySkuId !==
+              link.sellpiaInventorySkuId ||
+            option.inventoryComponents[0]!.quantity !== link.quantity),
+      )
+    ) {
       throw new ConflictException(
-        'Marketplace option already has a different inventory recipe.',
+        "Marketplace option already has a different inventory recipe.",
       );
     }
-    const target = existing.find((option) => option.externalOptionId === externalOptionId)
-      ?? existing[0];
+    const target =
+      existing.find((option) => option.externalOptionId === externalOptionId) ??
+      existing[0];
     if (!target) {
       const createdOption = await tx.channelListingOption.create({
         data: {
@@ -550,7 +733,7 @@ async function upsertExactOptionLinks(
     });
     if (updated.count !== 1) {
       throw new ConflictException(
-        'Marketplace option changed while confirming its inventory recipe.',
+        "Marketplace option changed while confirming its inventory recipe.",
       );
     }
     if (target.inventoryComponents.length === 0) {
@@ -567,7 +750,10 @@ async function upsertExactOptionLinks(
 }
 
 async function assertExactProductGraph(
-  client: Pick<Prisma.TransactionClient, 'masterProduct' | 'sellpiaInventorySku'>,
+  client: Pick<
+    Prisma.TransactionClient,
+    "masterProduct" | "sellpiaInventorySku"
+  >,
   input: {
     organizationId: string;
     masterProductId?: string;
@@ -579,7 +765,9 @@ async function assertExactProductGraph(
 ): Promise<void> {
   if (!input.masterProductId) {
     if (input.optionLinks.length > 0) {
-      throw new BadRequestException('KidItem-first option links require a MasterProduct identity.');
+      throw new BadRequestException(
+        "KidItem-first option links require a MasterProduct identity.",
+      );
     }
     return;
   }
@@ -593,14 +781,22 @@ async function assertExactProductGraph(
   });
   if (!masterProduct) {
     throw new BadRequestException(
-      'KidItem-first MasterProduct is inactive, missing, or belongs to another organization.',
+      "KidItem-first MasterProduct is inactive, missing, or belongs to another organization.",
     );
   }
   if (input.optionLinks.length === 0) return;
-  if (input.optionLinks.some((link) => !Number.isSafeInteger(link.quantity) || link.quantity <= 0)) {
-    throw new BadRequestException('Every option inventory quantity must be a positive integer.');
+  if (
+    input.optionLinks.some(
+      (link) => !Number.isSafeInteger(link.quantity) || link.quantity <= 0,
+    )
+  ) {
+    throw new BadRequestException(
+      "Every option inventory quantity must be a positive integer.",
+    );
   }
-  const skuIds = [...new Set(input.optionLinks.map((link) => link.sellpiaInventorySkuId))];
+  const skuIds = [
+    ...new Set(input.optionLinks.map((link) => link.sellpiaInventorySkuId)),
+  ];
   const skus = await client.sellpiaInventorySku.findMany({
     where: {
       organizationId: input.organizationId,
@@ -611,7 +807,7 @@ async function assertExactProductGraph(
   });
   if (new Set(skus.map((sku) => sku.id)).size !== skuIds.length) {
     throw new BadRequestException(
-      'Every KidItem-first inventory SKU must be active and belong to the organization.',
+      "Every KidItem-first inventory SKU must be active and belong to the organization.",
     );
   }
 }

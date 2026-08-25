@@ -1,34 +1,36 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { PrismaService } from '../../../../prisma/prisma.service';
+import { Inject, Injectable } from "@nestjs/common";
+import { PrismaService } from "../../../../prisma/prisma.service";
+import {
+  canonicalOwnerInputHash,
+  deriveOwnerIdempotencyKey,
+} from "../../../../common/owner-idempotency-key";
 import {
   CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,
   DefinitiveMarketplaceRegistrationError,
   type ChannelsMarketplaceRegistrationCapabilityPort,
-} from '../../../application/port/in/capability/marketplace-registration.port';
+} from "../../../application/port/in/capability/marketplace-registration.port";
 import {
   MARKETPLACE_REGISTRATION_REPOSITORY_PORT,
   type MarketplaceRegistrationRepositoryPort,
-} from '../../../application/port/out/repository/channel-listing.repository.port';
-import { deriveOwnerIdempotencyKey } from '../../../../common/owner-idempotency-key';
+} from "../../../application/port/out/repository/channel-listing.repository.port";
 import {
   SOURCING_FROZEN_REGISTRATION_READ_CAPABILITY_PORT,
+  type ServerFrozenRegistration,
   type SourcingFrozenRegistrationReadCapabilityPort,
-} from '../../../../sourcing/application/port/in/capability/sourcing-frozen-registration-capability.port';
+} from "../../../../sourcing/application/port/in/capability/sourcing-frozen-registration-capability.port";
 import type {
+  ChannelsConfirmedListingInput,
   ChannelsFinalCapabilityPort,
-  ChannelsFrozenConfirmationInput,
-  ChannelsFrozenSubmissionInput,
   ChannelsOwnerExecutionContext,
-} from '../../../application/port/in/capability/channels-final-capability.port';
+  ChannelsRegistrationReference,
+} from "../../../application/port/in/capability/channels-final-capability.port";
 
 /**
  * Channels owns provider submission and ChannelListing mutation. Sourcing is
- * consulted only through the read-only frozen-provenance anti-corruption port.
+ * consulted only through its read-only frozen-provenance anti-corruption port.
  */
 @Injectable()
-export class ChannelsFinalCapabilityAdapter
-  implements ChannelsFinalCapabilityPort
-{
+export class ChannelsFinalCapabilityAdapter implements ChannelsFinalCapabilityPort {
   constructor(
     @Inject(CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT)
     private readonly registrations: ChannelsMarketplaceRegistrationCapabilityPort,
@@ -38,56 +40,73 @@ export class ChannelsFinalCapabilityAdapter
     @Inject(MARKETPLACE_REGISTRATION_REPOSITORY_PORT)
     private readonly executions: Pick<
       MarketplaceRegistrationRepositoryPort,
-      'claimProviderWrite' | 'finalizeProviderWrite' | 'markProviderWriteUncertain' | 'markProviderWriteDefinitiveFailure'
+      | "claimProviderWrite"
+      | "finalizeProviderWrite"
+      | "markProviderWriteUncertain"
+      | "markProviderWriteDefinitiveFailure"
     >,
   ) {}
 
-  async submitCoupangListing({ context, input }: { context: ChannelsOwnerExecutionContext; input: ChannelsFrozenSubmissionInput }) {
-    const frozen = await this.provenance.validateSubmission(toSourcingSubmission(context, input));
-    const submission = toSubmissionInput(context, input);
-    assertSubmissionOwnerKey(context, input);
+  async submitCoupangListing({
+    context,
+    input,
+  }: {
+    context: ChannelsOwnerExecutionContext;
+    input: ChannelsRegistrationReference;
+  }) {
+    assertOwnerKey(context, "channels.submit_coupang_listing", input);
+    const frozen = await this.provenance.loadSubmission(
+      toFrozenReference(context, input),
+    );
+    const submission = toSubmissionInput(context, frozen);
     const claim = await this.executions.claimProviderWrite({
       organizationId: context.organizationId,
-      executionId: input.executionId,
-      preparationId: input.preparationId,
-      channelAccountId: input.channelAccountId,
-      sourceCandidateId: input.sourceCandidateId,
-      idempotencyKey: input.submissionKey,
-      requestHash: input.submissionPayloadHash,
+      executionId: frozen.executionId,
+      preparationId: frozen.preparationId,
+      channelAccountId: frozen.channelAccountId,
+      sourceCandidateId: frozen.sourceCandidateId,
+      idempotencyKey: frozen.submissionKey,
+      requestHash: frozen.submissionPayloadHash,
       ownerIdempotencyKey: requiredOwnerIdempotencyKey(context),
     });
-    let providerResult: { providerSubmissionId?: string | null; externalListingId: string };
+    let providerResult: {
+      providerSubmissionId?: string | null;
+      externalListingId: string;
+    };
     try {
-      if (claim.mode === 'replay') {
+      if (claim.mode === "replay") {
         providerResult = {
           providerSubmissionId: claim.providerSubmissionId,
           externalListingId: claim.externalListingId,
         };
       } else {
-        const reconciled = await this.registrations.reconcileProductRegistration({
-          ...submission,
-          // Agent-provided outcome flags are advisory only. The Channels-owned
-          // execution fence is the sole authority for provider IO.
-          isRetry: true,
-          providerCreateAllowed: false,
-        });
+        const reconciled =
+          await this.registrations.reconcileProductRegistration({
+            ...submission,
+            isRetry: true,
+            // Only the Channels-owned provider claim may authorize create.
+            providerCreateAllowed: false,
+          });
         if (reconciled) {
           providerResult = reconciled;
-        } else if (claim.mode === 'reconcile') {
-          throw new Error('provider_reconciliation_pending');
+        } else if (claim.mode === "reconcile") {
+          throw new Error("provider_reconciliation_pending");
         } else {
-          providerResult = await this.registrations.submitProductRegistration({
-            ...submission,
-            isRetry: false,
-            providerCreateAllowed: true,
-          }, async () => undefined);
+          providerResult = await this.registrations.submitProductRegistration(
+            {
+              ...submission,
+              isRetry: false,
+              providerCreateAllowed: true,
+            },
+            async () => undefined,
+          );
         }
         if (!claim.leaseToken) {
-          throw new Error('provider_reconciliation_pending');
+          throw new Error("provider_reconciliation_pending");
         }
         await this.executions.finalizeProviderWrite({
           organizationId: context.organizationId,
-          executionId: input.executionId,
+          executionId: frozen.executionId,
           leaseToken: claim.leaseToken,
           providerSubmissionId: providerResult.providerSubmissionId ?? null,
           externalListingId: providerResult.externalListingId,
@@ -95,10 +114,10 @@ export class ChannelsFinalCapabilityAdapter
         });
       }
     } catch (error) {
-      if (claim.mode !== 'replay' && claim.leaseToken) {
+      if (claim.mode !== "replay" && claim.leaseToken) {
         const failure = {
           organizationId: context.organizationId,
-          executionId: input.executionId,
+          executionId: frozen.executionId,
           leaseToken: claim.leaseToken,
           message: error instanceof Error ? error.message : String(error),
         };
@@ -111,114 +130,142 @@ export class ChannelsFinalCapabilityAdapter
       throw error;
     }
     const listing = await this.prisma.$transaction((tx) =>
-      this.registrations.resolveProductRegistration(tx, {
-        ...submission,
-        externalListingId: providerResult.externalListingId,
-        displayName: frozen.displayName,
-        ...(input.masterProductId ? { masterProductId: input.masterProductId } : {}),
-        optionLinks: input.optionLinks,
-      }));
-    return {
-      preparationId: input.preparationId,
-      listingId: listing.listingId,
-      status: 'registered' as const,
-    };
+      this.registrations.resolveProductRegistrationWithOwnerReceipt(
+        tx,
+        receiptResolutionInput({
+          context,
+          frozen,
+          capabilityKey: "channels.submit_coupang_listing",
+          ownerInput: input,
+          externalListingId: providerResult.externalListingId,
+        }),
+      ),
+    );
+    return registeredResult(frozen.preparationId, listing.listingId);
   }
 
-  async registerConfirmedListing({ context, input }: { context: ChannelsOwnerExecutionContext; input: ChannelsFrozenConfirmationInput }) {
-    const frozen = await this.provenance.validateExternalConfirmation(toSourcingConfirmation(context, input));
-    const account = await this.registrations.assertExternalProductRegistrationAccount({
-      organizationId: context.organizationId,
-      channelAccountId: input.channelAccountId,
-    });
-    if (frozen.expectedProviderAccountId !== account.vendorId
-      || input.confirmationEvidence.wingVendorId !== account.vendorId) {
-      throw new Error('frozen_submission_mismatch:provider_account');
+  async registerConfirmedListing({
+    context,
+    input,
+  }: {
+    context: ChannelsOwnerExecutionContext;
+    input: ChannelsConfirmedListingInput;
+  }) {
+    assertOwnerKey(context, "channels.register_confirmed_listing", input);
+    const frozen = await this.provenance.loadExternalConfirmation(
+      toFrozenReference(context, input),
+    );
+    const account =
+      await this.registrations.assertExternalProductRegistrationAccount({
+        organizationId: context.organizationId,
+        channelAccountId: frozen.channelAccountId,
+      });
+    if (
+      frozen.expectedProviderAccountId !== account.vendorId ||
+      input.confirmationEvidence.wingVendorId !== account.vendorId
+    ) {
+      throw new Error("frozen_submission_mismatch:provider_account");
     }
-    const submission = toSubmissionInput(context, input);
     const listing = await this.prisma.$transaction((tx) =>
-      this.registrations.resolveProductRegistration(tx, {
-        ...submission,
-        externalListingId: input.externalListingId,
-        displayName: input.displayName,
-        ...(input.masterProductId ? { masterProductId: input.masterProductId } : {}),
-        optionLinks: input.optionLinks,
-      }));
-    return {
-      preparationId: input.preparationId,
-      listingId: listing.listingId,
-      status: 'registered' as const,
-    };
+      this.registrations.resolveProductRegistrationWithOwnerReceipt(
+        tx,
+        receiptResolutionInput({
+          context,
+          frozen,
+          capabilityKey: "channels.register_confirmed_listing",
+          ownerInput: input,
+          externalListingId: input.externalListingId,
+        }),
+      ),
+    );
+    return registeredResult(frozen.preparationId, listing.listingId);
   }
 }
 
-function requiredOwnerIdempotencyKey(context: ChannelsOwnerExecutionContext): string {
-  if (!context.ownerIdempotencyKey?.trim()) throw new Error('owner_idempotency_key_required');
+function requiredOwnerIdempotencyKey(
+  context: ChannelsOwnerExecutionContext,
+): string {
+  if (!/^[a-f0-9]{64}$/.test(context.ownerIdempotencyKey)) {
+    throw new Error("owner_idempotency_key_required");
+  }
   return context.ownerIdempotencyKey;
 }
 
-function assertSubmissionOwnerKey(
+function assertOwnerKey(
   context: ChannelsOwnerExecutionContext,
-  input: ChannelsFrozenSubmissionInput,
+  capabilityKey:
+    "channels.submit_coupang_listing" | "channels.register_confirmed_listing",
+  input: ChannelsRegistrationReference | ChannelsConfirmedListingInput,
 ): void {
   const expected = deriveOwnerIdempotencyKey({
     attemptId: context.attemptId,
-    capabilityKey: 'channels.submit_coupang_listing',
+    capabilityKey,
     input,
   });
   if (requiredOwnerIdempotencyKey(context) !== expected) {
-    throw new Error('owner_idempotency_key_conflict');
+    throw new Error("owner_idempotency_key_conflict");
   }
 }
 
-function toSubmissionInput(context: ChannelsOwnerExecutionContext, input: ChannelsFrozenSubmissionInput) {
+function toFrozenReference(
+  context: ChannelsOwnerExecutionContext,
+  input: ChannelsRegistrationReference,
+) {
   return {
     organizationId: context.organizationId,
     initiatingUserId: context.initiatingUserId,
     executionId: input.executionId,
     preparationId: input.preparationId,
-    sourceCandidateId: input.sourceCandidateId,
-    channelAccountId: input.channelAccountId,
-    submissionKey: input.submissionKey,
-    submissionPayloadHash: input.submissionPayloadHash,
-    submissionPayloadJson: input.submissionPayloadJson,
-    providerSubmissionId: input.providerSubmissionId,
-    registrationResult: input.registrationResult,
-    ownerIdempotencyKey: context.ownerIdempotencyKey,
-    ...(input.isRetry !== undefined ? { isRetry: input.isRetry } : {}),
-    ...(input.providerOutcome ? { providerOutcome: input.providerOutcome } : {}),
-    ...(input.providerCreateAllowed !== undefined
-      ? { providerCreateAllowed: input.providerCreateAllowed }
-      : {}),
   };
 }
 
-function toSourcingSubmission(context: ChannelsOwnerExecutionContext, input: ChannelsFrozenSubmissionInput) {
+function toSubmissionInput(
+  context: ChannelsOwnerExecutionContext,
+  frozen: ServerFrozenRegistration,
+) {
   return {
     organizationId: context.organizationId,
     initiatingUserId: context.initiatingUserId,
-    executionId: input.executionId,
-    preparationId: input.preparationId,
-    sourceCandidateId: input.sourceCandidateId,
-    channelAccountId: input.channelAccountId,
-    submissionKey: input.submissionKey,
-    submissionPayloadHash: input.submissionPayloadHash,
-    submissionPayloadJson: input.submissionPayloadJson,
-    providerSubmissionId: input.providerSubmissionId,
-    registrationResult: input.registrationResult,
-    isRetry: input.isRetry,
-    providerOutcome: input.providerOutcome,
-    providerCreateAllowed: input.providerCreateAllowed,
-    ...(input.masterProductId ? { masterProductId: input.masterProductId } : {}),
-    optionLinks: input.optionLinks,
+    executionId: frozen.executionId,
+    preparationId: frozen.preparationId,
+    sourceCandidateId: frozen.sourceCandidateId,
+    channelAccountId: frozen.channelAccountId,
+    submissionKey: frozen.submissionKey,
+    submissionPayloadHash: frozen.submissionPayloadHash,
+    submissionPayloadJson: frozen.submissionPayloadJson,
+    providerSubmissionId: frozen.providerSubmissionId,
+    registrationResult: frozen.registrationResult,
+    ownerIdempotencyKey: requiredOwnerIdempotencyKey(context),
+    isRetry: frozen.isRetry,
+    providerOutcome: frozen.providerOutcome,
   };
 }
 
-function toSourcingConfirmation(context: ChannelsOwnerExecutionContext, input: ChannelsFrozenConfirmationInput) {
+function receiptResolutionInput(input: {
+  context: ChannelsOwnerExecutionContext;
+  frozen: ServerFrozenRegistration;
+  capabilityKey:
+    "channels.submit_coupang_listing" | "channels.register_confirmed_listing";
+  ownerInput: ChannelsRegistrationReference | ChannelsConfirmedListingInput;
+  externalListingId: string;
+}) {
   return {
-    ...toSourcingSubmission(context, input),
+    organizationId: input.context.organizationId,
+    sourceCandidateId: input.frozen.sourceCandidateId,
+    channelAccountId: input.frozen.channelAccountId,
+    submissionKey: input.frozen.submissionKey,
     externalListingId: input.externalListingId,
-    displayName: input.displayName,
-    confirmationEvidence: input.confirmationEvidence,
+    displayName: input.frozen.displayName,
+    ...(input.frozen.masterProductId
+      ? { masterProductId: input.frozen.masterProductId }
+      : {}),
+    optionLinks: input.frozen.optionLinks,
+    ownerCapabilityKey: input.capabilityKey,
+    ownerIdempotencyKey: requiredOwnerIdempotencyKey(input.context),
+    ownerRequestHash: canonicalOwnerInputHash(input.ownerInput),
   };
+}
+
+function registeredResult(preparationId: string, listingId: string) {
+  return { preparationId, listingId, status: "registered" as const };
 }

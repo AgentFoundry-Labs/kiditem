@@ -34,8 +34,12 @@ describe('KID-25 owner capability boundary', () => {
 
     for (const [key, ownerDomain, ownerInputPort] of requiredOwners) {
       expect(source.match(new RegExp(`key: ['\"]${key.replace('.', '\\.') }['\"]`, 'g'))).toHaveLength(1);
-      expect(source).toContain(`ownerDomain: '${ownerDomain}'`);
-      expect(source).toContain(`ownerInputPort: '${ownerInputPort}'`);
+      expect(source).toMatch(
+        new RegExp(`ownerDomain: ['\"]${ownerDomain}['\"]`),
+      );
+      expect(source).toMatch(
+        new RegExp(`ownerInputPort: ['\"]${ownerInputPort}['\"]`),
+      );
     }
     expect(source).not.toContain('market.collect_shadow_signals');
     expect(source).not.toContain('product_listing.create_generation_package');

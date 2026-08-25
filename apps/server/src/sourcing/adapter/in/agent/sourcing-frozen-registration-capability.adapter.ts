@@ -1,125 +1,151 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from "@nestjs/common";
 import {
   PRODUCT_PREPARATION_REPOSITORY_PORT,
   type FrozenProductPreparationSubmission,
   type ProductPreparationRepositoryPort,
-} from '../../../application/port/out/repository/product-preparation.repository.port';
+} from "../../../application/port/out/repository/product-preparation.repository.port";
 import type {
-  FrozenRegistrationConfirmationInput,
-  FrozenRegistrationSubmissionInput,
+  FrozenRegistrationReference,
+  ServerFrozenRegistration,
   SourcingFrozenRegistrationReadCapabilityPort,
-} from '../../../application/port/in/capability/sourcing-frozen-registration-capability.port';
+} from "../../../application/port/in/capability/sourcing-frozen-registration-capability.port";
 
 /**
- * Read-only Sourcing provenance guard. It never submits a provider request,
- * finalizes a listing, or changes ProductPreparation state.
+ * Read-only Sourcing provenance guard. It loads immutable preparation state
+ * for Channels but never submits a provider request or finalizes a listing.
  */
 @Injectable()
-export class SourcingFrozenRegistrationReadCapabilityAdapter
-  implements SourcingFrozenRegistrationReadCapabilityPort
-{
+export class SourcingFrozenRegistrationReadCapabilityAdapter implements SourcingFrozenRegistrationReadCapabilityPort {
   constructor(
     @Inject(PRODUCT_PREPARATION_REPOSITORY_PORT)
     private readonly preparations: ProductPreparationRepositoryPort,
   ) {}
 
-  async validateSubmission(input: FrozenRegistrationSubmissionInput) {
-    const frozen = await this.assertFrozen(input);
-    return { displayName: frozen.displayName, expectedProviderAccountId: null };
+  async loadSubmission(
+    input: FrozenRegistrationReference,
+  ): Promise<ServerFrozenRegistration> {
+    const { frozen } = await this.loadActorBoundFrozen(input);
+    return toServerFrozenRegistration(frozen, null);
   }
 
-  async validateExternalConfirmation(input: FrozenRegistrationConfirmationInput) {
-    const frozen = await this.assertFrozen(input);
-    if (frozen.displayName !== input.displayName) {
-      throw new Error('frozen_submission_mismatch:display_name');
+  async loadExternalConfirmation(
+    input: FrozenRegistrationReference,
+  ): Promise<ServerFrozenRegistration> {
+    const { frozen, execution } = await this.loadActorBoundFrozen(input);
+    if (!["executing", "reconciling", "succeeded"].includes(execution.status)) {
+      throw new Error("frozen_submission_mismatch:execution");
     }
-    const execution = await this.preparations.getExternalExecution({
-      organizationId: input.organizationId,
-      sourceCandidateId: input.sourceCandidateId,
-      executionId: input.executionId,
-      requestedByUserId: input.initiatingUserId,
-    });
-    if (execution.preparationId !== input.preparationId
-      || !['executing', 'reconciling', 'succeeded'].includes(execution.status)) {
-      throw new Error('frozen_submission_mismatch:execution');
-    }
-    return {
-      displayName: frozen.displayName,
-      expectedProviderAccountId: execution.expectedProviderAccountId,
-    };
+    return toServerFrozenRegistration(
+      frozen,
+      execution.expectedProviderAccountId,
+    );
   }
 
-  private async assertFrozen(input: FrozenRegistrationSubmissionInput) {
+  private async loadActorBoundFrozen(input: FrozenRegistrationReference) {
     const frozen = await this.preparations.loadFrozenSubmission(
       input.organizationId,
       input.preparationId,
     );
-    const fields: Array<
-      keyof Pick<
-        FrozenProductPreparationSubmission,
-        'executionId' | 'preparationId' | 'sourceCandidateId' | 'channelAccountId'
-        | 'submissionKey' | 'submissionPayloadHash' | 'providerSubmissionId'
-        | 'isRetry' | 'providerOutcome'
-      >
-    > = [
-      'executionId', 'preparationId', 'sourceCandidateId', 'channelAccountId',
-      'submissionKey', 'submissionPayloadHash', 'providerSubmissionId',
-      'isRetry', 'providerOutcome',
-    ];
-    for (const field of fields) {
-      if (input[field] !== frozen[field]) {
-        throw new Error(`frozen_submission_mismatch:${field}`);
-      }
+    if (
+      frozen.executionId !== input.executionId ||
+      frozen.preparationId !== input.preparationId
+    ) {
+      throw new Error("frozen_submission_mismatch:execution");
     }
-    if (!sameCanonicalJson(input.submissionPayloadJson, frozen.submissionPayloadJson)
-      || !sameCanonicalJson(input.registrationResult, frozen.registrationResult)
-      || !sameCanonicalJson({
-        ...(input.masterProductId ? { masterProductId: input.masterProductId } : {}),
-        optionLinks: input.optionLinks,
-      }, frozenLinks(frozen.submissionPayloadJson))) {
-      throw new Error('frozen_submission_mismatch');
+    const execution = await this.preparations.getExternalExecution({
+      organizationId: input.organizationId,
+      sourceCandidateId: frozen.sourceCandidateId,
+      executionId: input.executionId,
+      requestedByUserId: input.initiatingUserId,
+    });
+    if (
+      execution.executionId !== frozen.executionId ||
+      execution.preparationId !== frozen.preparationId
+    ) {
+      throw new Error("frozen_submission_mismatch:execution");
     }
-    return frozen;
+    return { frozen, execution };
   }
 }
 
-function frozenLinks(payload: unknown) {
-  const root = record(payload);
-  const registrationInput = record(root.registrationInput);
+function toServerFrozenRegistration(
+  frozen: FrozenProductPreparationSubmission,
+  expectedProviderAccountId: string | null,
+): ServerFrozenRegistration {
+  const submissionPayloadJson = requiredRecord(
+    frozen.submissionPayloadJson,
+    "payload",
+  );
+  const registrationInput = record(submissionPayloadJson.registrationInput);
+  const optionLinks = Array.isArray(registrationInput.optionLinks)
+    ? registrationInput.optionLinks.map(toFrozenOptionLink)
+    : [];
+  const masterProductId = optionalText(registrationInput.masterProductId);
+  const providerOutcome = frozen.providerOutcome;
+  if (
+    !["not_attempted", "uncertain", "succeeded", "definitive_failure"].includes(
+      providerOutcome,
+    )
+  ) {
+    throw new Error("frozen_submission_mismatch:provider_outcome");
+  }
   return {
-    ...(typeof registrationInput.masterProductId === 'string'
-      ? { masterProductId: registrationInput.masterProductId }
-      : {}),
-    optionLinks: Array.isArray(registrationInput.optionLinks)
-      ? registrationInput.optionLinks.map((link) => {
-        const item = record(link);
-        return {
-          externalOptionId: item.externalOptionId,
-          sellpiaInventorySkuId: item.sellpiaInventorySkuId,
-          quantity: item.quantity,
-        };
-      })
-      : [],
+    executionId: frozen.executionId,
+    preparationId: frozen.preparationId,
+    sourceCandidateId: frozen.sourceCandidateId,
+    channelAccountId: frozen.channelAccountId,
+    submissionKey: frozen.submissionKey,
+    submissionPayloadHash: frozen.submissionPayloadHash,
+    submissionPayloadJson,
+    providerSubmissionId: frozen.providerSubmissionId,
+    registrationResult: frozen.registrationResult,
+    isRetry: frozen.isRetry,
+    providerOutcome,
+    displayName: frozen.displayName,
+    ...(masterProductId ? { masterProductId } : {}),
+    optionLinks,
+    expectedProviderAccountId: optionalText(expectedProviderAccountId),
   };
 }
 
+function toFrozenOptionLink(value: unknown): {
+  externalOptionId: string;
+  sellpiaInventorySkuId: string;
+  quantity: number;
+} {
+  const link = requiredRecord(value, "links");
+  const externalOptionId = optionalText(link.externalOptionId);
+  const sellpiaInventorySkuId = optionalText(link.sellpiaInventorySkuId);
+  const quantity = link.quantity;
+  if (
+    !externalOptionId ||
+    !sellpiaInventorySkuId ||
+    typeof quantity !== 'number' ||
+    !Number.isSafeInteger(quantity) ||
+    quantity <= 0
+  ) {
+    throw new Error("frozen_submission_mismatch:links");
+  }
+  return { externalOptionId, sellpiaInventorySkuId, quantity };
+}
+
+function requiredRecord(
+  value: unknown,
+  field: string,
+): Record<string, unknown> {
+  const item = record(value);
+  if (Object.keys(item).length === 0) {
+    throw new Error(`frozen_submission_mismatch:${field}`);
+  }
+  return item;
+}
+
 function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
     : {};
 }
 
-function sameCanonicalJson(left: unknown, right: unknown): boolean {
-  return canonicalJson(left) === canonicalJson(right);
-}
-
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value);
+function optionalText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }

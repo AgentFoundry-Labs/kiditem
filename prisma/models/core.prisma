@@ -125,6 +125,7 @@ model Organization {
   channelListings                         ChannelListing[]
   channelListingOptions                   ChannelListingOption[]
   channelListingOptionInventoryComponents ChannelListingOptionInventoryComponent[]
+  channelRegistrationOwnerIdempotencyReceipts ChannelRegistrationOwnerIdempotencyReceipt[] @relation("ChannelRegistrationOwnerIdempotencyReceiptOrganization")
   channelListingDeletionOperations        ChannelListingDeletionOperation[]        @relation("ChannelListingDeletionOperationOrganization")
 
   // Channels — market-data snapshots (Wave C0)

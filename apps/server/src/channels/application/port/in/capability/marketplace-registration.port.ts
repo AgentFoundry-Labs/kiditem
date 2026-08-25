@@ -1,12 +1,12 @@
 import type {
   ChannelListingRegistrationResult,
   MarketplaceSubmissionResult,
-} from '@kiditem/shared/channel-listing';
+} from "@kiditem/shared/channel-listing";
 
 export class DefinitiveMarketplaceRegistrationError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'DefinitiveMarketplaceRegistrationError';
+    this.name = "DefinitiveMarketplaceRegistrationError";
   }
 }
 
@@ -28,8 +28,7 @@ export interface ProductRegistrationSubmissionCapabilityInput {
   providerCreateAllowed?: boolean;
 }
 
-export interface ResolveProductRegistrationCapabilityInput
-  extends ProductRegistrationSubmissionCapabilityInput {
+export interface ResolveProductRegistrationCapabilityInput extends ProductRegistrationSubmissionCapabilityInput {
   externalListingId: string;
   displayName: string;
   masterProductId?: string;
@@ -38,6 +37,29 @@ export interface ResolveProductRegistrationCapabilityInput
     sellpiaInventorySkuId: string;
     quantity: number;
   }>;
+}
+
+/**
+ * Channels-owned local listing resolution. Provider payload/state is never
+ * carried through this receipt boundary.
+ */
+export interface ResolveProductRegistrationWithOwnerReceiptInput {
+  organizationId: string;
+  sourceCandidateId: string;
+  channelAccountId: string;
+  submissionKey: string;
+  externalListingId: string;
+  displayName: string;
+  masterProductId?: string;
+  optionLinks?: Array<{
+    externalOptionId: string;
+    sellpiaInventorySkuId: string;
+    quantity: number;
+  }>;
+  ownerCapabilityKey:
+    "channels.register_confirmed_listing" | "channels.submit_coupang_listing";
+  ownerIdempotencyKey: string;
+  ownerRequestHash: string;
 }
 
 export interface ExternalProductRegistrationPreflightInput {
@@ -52,7 +74,7 @@ export interface ExternalProductRegistrationPreflightInput {
 
 export type ExternalProductRegistrationMatchPreviewInput = Omit<
   ExternalProductRegistrationPreflightInput,
-  'channelAccountId' | 'selectedSellpiaInventorySkuId' | 'selectedQuantity'
+  "channelAccountId" | "selectedSellpiaInventorySkuId" | "selectedQuantity"
 >;
 
 export interface ExternalProductRegistrationMatchProposal {
@@ -65,9 +87,10 @@ export interface ExternalProductRegistrationMatchProposal {
 }
 
 export interface ExternalProductRegistrationMatchPreviewResult {
-  status: 'matched' | 'selection_required';
+  status: "matched" | "selection_required";
   reason: string;
-  sellpiaMatch: ExternalProductRegistrationPreflightResult['sellpiaMatch'] | null;
+  sellpiaMatch:
+    ExternalProductRegistrationPreflightResult["sellpiaMatch"] | null;
   proposals: ExternalProductRegistrationMatchProposal[];
 }
 
@@ -88,7 +111,7 @@ export interface ExternalProductRegistrationPreflightResult {
 }
 
 export const CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT = Symbol(
-  'CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT',
+  "CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT",
 );
 
 export interface ChannelsMarketplaceRegistrationCapabilityPort {
@@ -103,7 +126,7 @@ export interface ChannelsMarketplaceRegistrationCapabilityPort {
   assertExternalProductRegistrationAccount(input: {
     organizationId: string;
     channelAccountId: string;
-  }): Promise<{ channel: 'coupang'; vendorId: string }>;
+  }): Promise<{ channel: "coupang"; vendorId: string }>;
 
   reconcileProductRegistration(
     input: ProductRegistrationSubmissionCapabilityInput,
@@ -119,4 +142,8 @@ export interface ChannelsMarketplaceRegistrationCapabilityPort {
     input: ResolveProductRegistrationCapabilityInput,
   ): Promise<ChannelListingRegistrationResult>;
 
+  resolveProductRegistrationWithOwnerReceipt(
+    transaction: object,
+    input: ResolveProductRegistrationWithOwnerReceiptInput,
+  ): Promise<ChannelListingRegistrationResult>;
 }
