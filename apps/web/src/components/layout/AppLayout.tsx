@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect } from 'react';
-import dynamic from 'next/dynamic';
 import { usePathname, useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
@@ -15,17 +14,9 @@ import GenerationCompletionWatcher from '@/components/GenerationCompletionWatche
 import QuickActionFab from '@/components/QuickActionFab';
 import { useAuth } from '@/hooks/useAuth';
 import RebuildReadinessBanner from '@/components/RebuildReadinessBanner';
-import { openInteraction } from '@/components/agent-interaction/interaction-surface-state';
+import { ConversationProvider } from '@/components/agent-interaction/ConversationProvider';
+import { openConversation } from '@/components/agent-interaction/conversation-surface-state';
 import Sidebar from './Sidebar';
-
-const AgentInteractionProvider = dynamic(
-  () => import('@/components/agent-interaction/AgentInteractionProvider').then((module) => module.AgentInteractionProvider),
-  { ssr: false },
-);
-const AgentInteractionPanel = dynamic(
-  () => import('@/components/agent-interaction/AgentInteractionPanel').then((module) => module.AgentInteractionPanel),
-  { ssr: false },
-);
 
 function PanelMount() {
   usePanelStream();
@@ -38,35 +29,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
 
-  // 풀스크린 surface — sidebar/panel/copilot 없이 children 만 렌더.
-  // - `/` (launcher) 와 `/agent-os` 는 자체 레이아웃 (main).
-  // - `/login` 은 인증 진입점.
-  // - `/detail-page-client-render` 는 Chrome 확장 프로그램이 캡처하는 격리 렌더 surface.
-  const isFullscreenSurface =
+  // Public/isolated surfaces render their own layout. `/agent-os` is fullscreen
+  // too, but remains a protected surface before its provider can mount.
+  const isPublicOrIsolatedSurface =
     pathname === '/' ||
-    pathname.startsWith('/agent-os') ||
     pathname.startsWith('/login') ||
     pathname.startsWith('/detail-page-client-render');
+  const isAgentWorkspace = pathname.startsWith('/agent-os');
 
   useEffect(() => {
-    if (isFullscreenSurface) return;
+    if (isPublicOrIsolatedSurface) return;
     if (auth.status !== 'anonymous') return;
     const nextPath = `${pathname}${window.location.search}`;
     router.replace(`/login?next=${encodeURIComponent(nextPath)}`);
-  }, [auth.status, isFullscreenSurface, pathname, router]);
+  }, [auth.status, isPublicOrIsolatedSurface, pathname, router]);
 
-  if (isFullscreenSurface) {
-    if (pathname.startsWith('/agent-os')) {
-      return <AgentInteractionProvider>{children}</AgentInteractionProvider>;
-    }
+  if (isPublicOrIsolatedSurface) {
     return <>{children}</>;
   }
-
-  const isEditorRoute = pathname.includes('/editor');
-  const isFinalSelectionRoute = pathname === '/sourcing-ai/final-selection';
-  const isWingCatalogRoute = pathname === '/sourcing-ai/wing-catalog';
-  const collapsedForEditor = isEditorRoute || !sidebarOpen;
-  const showAutoReadinessModal = pathname === '/dashboard';
 
   if (auth.status === 'loading' || auth.status === 'anonymous') {
     return (
@@ -114,6 +94,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
+  if (isAgentWorkspace) {
+    return <ConversationProvider>{children}</ConversationProvider>;
+  }
+
+  const isEditorRoute = pathname.includes('/editor');
+  const isFinalSelectionRoute = pathname === '/sourcing-ai/final-selection';
+  const isWingCatalogRoute = pathname === '/sourcing-ai/wing-catalog';
+  const collapsedForEditor = isEditorRoute || !sidebarOpen;
+  const showAutoReadinessModal = pathname === '/dashboard';
+
   const content = (
     <div className="min-h-screen bg-[var(--background)]">
       <Sidebar lockCollapsed={isEditorRoute} />
@@ -140,11 +130,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <GenerationCompletionWatcher />
       {isEditorRoute ? null : (
         <QuickActionFab
-          onAgentInteractionOpen={() => openInteraction({
-            agentDefinitionKey: null,
-            sessionId: null,
-            draft: '',
-          })}
+          onOpenConversation={() => {
+            openConversation({ fixedAgentKey: null });
+            router.push('/agent-os');
+          }}
         />
       )}
     </div>
@@ -152,10 +141,5 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (isEditorRoute) return content;
 
-  return (
-    <AgentInteractionProvider>
-      {content}
-      <AgentInteractionPanel />
-    </AgentInteractionProvider>
-  );
+  return content;
 }

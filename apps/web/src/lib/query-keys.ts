@@ -1,7 +1,10 @@
 export const queryKeys = {
-  agentInteraction: {
-    all: ['agent-interaction'] as const,
-    bootstrap: () => [...queryKeys.agentInteraction.all, 'bootstrap'] as const,
+  conversations: {
+    all: ['agent-os', 'conversations'] as const,
+    list: () => [...queryKeys.conversations.all, 'list'] as const,
+    history: (conversationId: string) => [...queryKeys.conversations.all, 'history', conversationId] as const,
+    readiness: () => [...queryKeys.conversations.all, 'readiness'] as const,
+    invocation: (invocationId: string) => [...queryKeys.conversations.all, 'invocation', invocationId] as const,
   },
   agents: {
     all: ['agents'] as const,

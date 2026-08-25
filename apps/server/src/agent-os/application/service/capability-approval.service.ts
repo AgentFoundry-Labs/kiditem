@@ -2,7 +2,7 @@ import { AgentOsError } from '../../domain/agent-os.errors';
 import type {
   CapabilityApprovalPort,
   DecideCapabilityApprovalInput,
-} from '../port/in/capability-invocation.port';
+} from '../port/in/capability/capability-invocation.port';
 import type {
   CapabilityInvocationRecord,
   CapabilityInvocationRepositoryPort,

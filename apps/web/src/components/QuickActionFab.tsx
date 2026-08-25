@@ -31,9 +31,9 @@ const ACTIONS: QuickAction[] = [
 ];
 
 export default function QuickActionFab({
-  onAgentInteractionOpen,
+  onOpenConversation,
 }: {
-  onAgentInteractionOpen?: () => void;
+  onOpenConversation?: () => void;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -85,13 +85,13 @@ export default function QuickActionFab({
             </Link>
           );
         }) : null}
-        {open && onAgentInteractionOpen ? (
+        {open && onOpenConversation ? (
           <button
             type="button"
             aria-label="AgentOS 대화 열기"
             title="AgentOS 대화"
             onClick={() => {
-              onAgentInteractionOpen();
+              onOpenConversation();
               setOpen(false);
             }}
             style={{ transform: 'translate(calc(-50% - 92px), -50%)' }}

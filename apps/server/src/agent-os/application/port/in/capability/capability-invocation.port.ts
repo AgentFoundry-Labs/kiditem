@@ -44,7 +44,10 @@ export interface GetCapabilityInvocationInput {
 }
 
 export interface CapabilityInvocationQueryPort {
+  /** Internal capability/MCP status read; never serialize this record to Web. */
   get(input: GetCapabilityInvocationInput): Promise<unknown>;
+  /** Allowlisted authenticated Web receipt, with current code-owned approval risk. */
+  getReceipt(input: GetCapabilityInvocationInput): Promise<unknown>;
 }
 
 export interface DecideCapabilityApprovalInput {

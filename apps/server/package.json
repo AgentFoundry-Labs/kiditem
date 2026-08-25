@@ -17,6 +17,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1029.0",
     "@aws-sdk/s3-request-presigner": "3.1030.0",
+    "@ag-ui/client": "0.0.57",
     "@copilotkit/runtime": "1.69.0",
     "@google/genai": "^1.52.0",
     "@kiditem/shared": "*",

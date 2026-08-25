@@ -4,21 +4,16 @@ import AppLayout from '../AppLayout';
 
 const useAuthMock = vi.hoisted(() => vi.fn());
 const replaceMock = vi.hoisted(() => vi.fn());
+const pushMock = vi.hoisted(() => vi.fn());
 const usePathnameMock = vi.hoisted(() => vi.fn());
 const usePanelStreamMock = vi.hoisted(() => vi.fn());
 const readinessMock = vi.hoisted(() => vi.fn(() => null));
 const generationWatcherMock = vi.hoisted(() => vi.fn(() => null));
-const openInteractionMock = vi.hoisted(() => vi.fn());
-
-vi.mock('next/dynamic', () => ({
-  default: () => ({ children }: { children?: React.ReactNode }) => (
-    <div data-testid="lazy-interaction">{children}</div>
-  ),
-}));
+const openConversationMock = vi.hoisted(() => vi.fn());
 
 vi.mock('next/navigation', () => ({
   usePathname: () => usePathnameMock(),
-  useRouter: () => ({ replace: replaceMock }),
+  useRouter: () => ({ replace: replaceMock, push: pushMock }),
 }));
 
 vi.mock('@/hooks/useAuth', () => ({
@@ -72,13 +67,17 @@ vi.mock('@/components/GlobalConfirmDialog', () => ({
 }));
 
 vi.mock('@/components/QuickActionFab', () => ({
-  default: ({ onAgentInteractionOpen }: { onAgentInteractionOpen?: () => void }) => (
-    <button data-testid="quick-action" onClick={onAgentInteractionOpen}>AgentOS 대화 열기</button>
+  default: ({ onOpenConversation }: { onOpenConversation?: () => void }) => (
+    <button data-testid="quick-action" onClick={onOpenConversation}>AgentOS 대화 열기</button>
   ),
 }));
 
-vi.mock('@/components/agent-interaction/interaction-surface-state', () => ({
-  openInteraction: openInteractionMock,
+vi.mock('@/components/agent-interaction/conversation-surface-state', () => ({
+  openConversation: openConversationMock,
+}));
+
+vi.mock('@/components/agent-interaction/ConversationProvider', () => ({
+  ConversationProvider: ({ children }: { children: React.ReactNode }) => <div data-testid="conversation-provider">{children}</div>,
 }));
 
 function renderLayout() {
@@ -93,11 +92,12 @@ describe('AppLayout auth gate', () => {
   beforeEach(() => {
     useAuthMock.mockReset();
     replaceMock.mockReset();
+    pushMock.mockReset();
     usePathnameMock.mockReset();
     usePanelStreamMock.mockReset();
     readinessMock.mockClear();
     generationWatcherMock.mockClear();
-    openInteractionMock.mockReset();
+    openConversationMock.mockReset();
     usePathnameMock.mockReturnValue('/dashboard');
     window.history.pushState({}, '', '/dashboard');
   });
@@ -117,6 +117,22 @@ describe('AppLayout auth gate', () => {
     expect(usePanelStreamMock).not.toHaveBeenCalled();
     expect(readinessMock).not.toHaveBeenCalled();
     expect(generationWatcherMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
+  });
+
+  it('keeps the Agent workspace and CopilotKit provider unmounted while identity is loading', () => {
+    usePathnameMock.mockReturnValue('/agent-os');
+    useAuthMock.mockReturnValue({
+      status: 'loading',
+      user: null,
+      isLoading: true,
+      logout: vi.fn(),
+    });
+
+    renderLayout();
+
+    expect(screen.queryByTestId('protected-child')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-provider')).not.toBeInTheDocument();
     expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
   });
 
@@ -140,6 +156,26 @@ describe('AppLayout auth gate', () => {
     expect(generationWatcherMock).not.toHaveBeenCalled();
   });
 
+  it('redirects anonymous Agent workspace navigation before mounting its provider', async () => {
+    usePathnameMock.mockReturnValue('/agent-os');
+    useAuthMock.mockReturnValue({
+      status: 'anonymous',
+      user: null,
+      isLoading: false,
+      logout: vi.fn(),
+    });
+    window.history.pushState({}, '', '/agent-os');
+
+    renderLayout();
+
+    await waitFor(() => {
+      expect(replaceMock).toHaveBeenCalledWith('/login?next=%2Fagent-os');
+    });
+    expect(screen.queryByTestId('protected-child')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-provider')).not.toBeInTheDocument();
+    expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
+  });
+
   it('mounts protected children and background runtime once KidItem identity is ready', () => {
     useAuthMock.mockReturnValue({
       status: 'ready',
@@ -155,13 +191,9 @@ describe('AppLayout auth gate', () => {
     expect(usePanelStreamMock).toHaveBeenCalledTimes(1);
     expect(readinessMock).toHaveBeenCalledTimes(1);
     expect(generationWatcherMock).toHaveBeenCalledTimes(1);
-    expect(screen.getAllByTestId('lazy-interaction')).toHaveLength(2);
     fireEvent.click(screen.getByRole('button', { name: 'AgentOS 대화 열기' }));
-    expect(openInteractionMock).toHaveBeenCalledWith({
-      agentDefinitionKey: null,
-      sessionId: null,
-      draft: '',
-    });
+    expect(openConversationMock).toHaveBeenCalledWith({ fixedAgentKey: null });
+    expect(pushMock).toHaveBeenCalledWith('/agent-os');
   });
 
   it.each([
@@ -210,7 +242,7 @@ describe('AppLayout auth gate', () => {
     renderLayout();
 
     expect(screen.getByTestId('protected-child')).toBeInTheDocument();
-    expect(screen.getAllByTestId('lazy-interaction')).toHaveLength(1);
+    expect(screen.getByTestId('conversation-provider')).toBeInTheDocument();
   });
 
   it('shows organization guidance without starting background runtime when membership is missing', () => {
@@ -232,5 +264,37 @@ describe('AppLayout auth gate', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '로그인으로 돌아가기' }));
     expect(logoutMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the Agent workspace provider behind the organization-membership gate', () => {
+    usePathnameMock.mockReturnValue('/agent-os');
+    useAuthMock.mockReturnValue({
+      status: 'no_organization',
+      user: { id: 'user-1', organizationId: null },
+      isLoading: false,
+      logout: vi.fn(),
+    });
+
+    renderLayout();
+
+    expect(screen.getByText('조직 연결이 필요합니다')).toBeInTheDocument();
+    expect(screen.queryByTestId('protected-child')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-provider')).not.toBeInTheDocument();
+  });
+
+  it('keeps the Agent workspace provider behind an auth-error gate', () => {
+    usePathnameMock.mockReturnValue('/agent-os');
+    useAuthMock.mockReturnValue({
+      status: 'error',
+      user: null,
+      isLoading: false,
+      logout: vi.fn(),
+    });
+
+    renderLayout();
+
+    expect(screen.getByText('로그인 상태를 확인하지 못했습니다')).toBeInTheDocument();
+    expect(screen.queryByTestId('protected-child')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-provider')).not.toBeInTheDocument();
   });
 });

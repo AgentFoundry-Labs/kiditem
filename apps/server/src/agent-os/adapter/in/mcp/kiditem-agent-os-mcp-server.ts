@@ -11,7 +11,7 @@ import { MUTATION_EFFECTS } from '../../../../common/capability-definition';
 import {
   CAPABILITY_INVOCATION_PORT,
   type CapabilityInvocationPort,
-} from '../../../application/port/in/capability-invocation.port';
+} from '../../../application/port/in/capability/capability-invocation.port';
 import { CapabilityInvocationRecordSchema } from '../../../application/port/out/capability-invocation.repository.port';
 import { AgentCapabilityRegistry } from '../../../application/service/agent-capability-registry.service';
 import { AgentOsError } from '../../../domain/agent-os.errors';

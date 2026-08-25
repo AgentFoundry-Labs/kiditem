@@ -18,7 +18,7 @@ import {
   CAPABILITY_INVOCATION_PORT,
   type CapabilityApprovalPort,
   type CapabilityInvocationPort,
-} from '../../../../application/port/in/capability-invocation.port';
+} from '../../../../application/port/in/capability/capability-invocation.port';
 
 const InvocationParamsSchema = z.object({ invocationId: z.string().uuid() }).strict();
 const DecisionSchema = z.object({
@@ -43,7 +43,7 @@ export class CapabilityInvocationController {
   ) {
     const parsed = parseParams({ invocationId });
     try {
-      return await this.invocations.get({
+      return await this.invocations.getReceipt({
         organizationId,
         invocationId: parsed.invocationId,
       });
@@ -62,12 +62,16 @@ export class CapabilityInvocationController {
     const params = parseParams({ invocationId });
     const decision = parseDecision(body);
     try {
-      return await this.approvals.decide({
+      await this.approvals.decide({
         organizationId,
         userId: user.id,
         invocationId: params.invocationId,
         decision: decision.decision,
         ...(decision.reason ? { reason: decision.reason } : {}),
+      });
+      return await this.invocations.getReceipt({
+        organizationId,
+        invocationId: params.invocationId,
       });
     } catch (error) {
       rethrowInvocationError(error);

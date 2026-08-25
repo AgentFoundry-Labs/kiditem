@@ -1,0 +1,229 @@
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Inject,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import {
+  AgentKeySchema,
+  ConversationIdSchema,
+  ConversationTitleSchema,
+  ModelSchema,
+  ProviderRuntimeSchema,
+  ReasoningEffortSchema,
+  TurnIdSchema,
+} from '@kiditem/shared/agent-runtime';
+import { z } from 'zod';
+import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../../../../auth/auth.types';
+import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
+import {
+  CONVERSATION_PORT,
+  ConversationTurnMessageSchema,
+  type ConversationPort,
+} from '../../../../application/port/in/capability/conversation.port';
+
+const CreateConversationSchema = z.object({
+  runtime: ProviderRuntimeSchema,
+  agentKey: AgentKeySchema.nullable(),
+  title: ConversationTitleSchema.optional(),
+}).strict();
+const RenameConversationSchema = z.object({
+  title: ConversationTitleSchema,
+}).strict();
+const StartTurnSchema = z.object({
+  message: ConversationTurnMessageSchema,
+  model: ModelSchema,
+  reasoningEffort: ReasoningEffortSchema,
+}).strict();
+const InputTurnSchema = z.object({
+  message: ConversationTurnMessageSchema,
+}).strict();
+
+/** Same-origin browser facade. It never accepts provider or execution coordinates. */
+@Controller('agent-os/conversations')
+export class ConversationController {
+  constructor(
+    @Inject(CONVERSATION_PORT)
+    private readonly conversations: ConversationPort,
+  ) {}
+
+  @Get()
+  list(
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.conversations.list(owner(organizationId, user));
+  }
+
+  @Post()
+  async create(
+    @Body() body: unknown,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const command = parse(CreateConversationSchema, body, 'Invalid conversation create request.');
+    try {
+      return await this.conversations.create({ ...owner(organizationId, user), ...command });
+    } catch (error) {
+      rethrowConversationError(error);
+    }
+  }
+
+  @Get(':conversationId/history')
+  async history(
+    @Param('conversationId') conversationId: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    try {
+      return await this.conversations.history({
+        ...owner(organizationId, user),
+        conversationId: parseId(ConversationIdSchema, conversationId, 'conversationId'),
+      });
+    } catch (error) {
+      rethrowConversationError(error);
+    }
+  }
+
+  @Patch(':conversationId')
+  async rename(
+    @Param('conversationId') conversationId: string,
+    @Body() body: unknown,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const command = parse(RenameConversationSchema, body, 'Invalid conversation rename request.');
+    try {
+      return await this.conversations.rename({
+        ...owner(organizationId, user),
+        conversationId: parseId(ConversationIdSchema, conversationId, 'conversationId'),
+        title: command.title,
+      });
+    } catch (error) {
+      rethrowConversationError(error);
+    }
+  }
+
+  @Delete(':conversationId')
+  async delete(
+    @Param('conversationId') conversationId: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    try {
+      await this.conversations.delete({
+        ...owner(organizationId, user),
+        conversationId: parseId(ConversationIdSchema, conversationId, 'conversationId'),
+      });
+      return undefined;
+    } catch (error) {
+      rethrowConversationError(error);
+    }
+  }
+
+  @Post(':conversationId/turns')
+  async start(
+    @Param('conversationId') conversationId: string,
+    @Body() body: unknown,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const command = parse(StartTurnSchema, body, 'Invalid conversation turn request.');
+    try {
+      const turn = await this.conversations.start({
+        ...owner(organizationId, user),
+        conversationId: parseId(ConversationIdSchema, conversationId, 'conversationId'),
+        ...command,
+      });
+      return { turnId: turn.turnId };
+    } catch (error) {
+      rethrowConversationError(error);
+    }
+  }
+
+  @Post(':conversationId/turns/:turnId/input')
+  async input(
+    @Param('conversationId') conversationId: string,
+    @Param('turnId') turnId: string,
+    @Body() body: unknown,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const command = parse(InputTurnSchema, body, 'Invalid conversation input request.');
+    try {
+      await this.conversations.input({
+        ...owner(organizationId, user),
+        conversationId: parseId(ConversationIdSchema, conversationId, 'conversationId'),
+        turnId: parseId(TurnIdSchema, turnId, 'turnId'),
+        message: command.message,
+      });
+      return undefined;
+    } catch (error) {
+      rethrowConversationError(error);
+    }
+  }
+
+  @Post(':conversationId/turns/:turnId/interrupt')
+  async interrupt(
+    @Param('conversationId') conversationId: string,
+    @Param('turnId') turnId: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    try {
+      await this.conversations.interrupt({
+        ...owner(organizationId, user),
+        conversationId: parseId(ConversationIdSchema, conversationId, 'conversationId'),
+        turnId: parseId(TurnIdSchema, turnId, 'turnId'),
+      });
+      return undefined;
+    } catch (error) {
+      rethrowConversationError(error);
+    }
+  }
+}
+
+function owner(organizationId: string, user: AuthUser) {
+  return { organizationId, userId: user.id };
+}
+
+function parse<T extends z.ZodTypeAny>(schema: T, input: unknown, message: string): z.infer<T> {
+  const parsed = schema.safeParse(input);
+  if (!parsed.success) throw new BadRequestException(message);
+  return parsed.data;
+}
+
+function parseId<T extends z.ZodTypeAny>(schema: T, input: string, label: string): z.infer<T> {
+  const parsed = schema.safeParse(input);
+  if (!parsed.success) throw new BadRequestException(`${label} is invalid.`);
+  return parsed.data;
+}
+
+function rethrowConversationError(error: unknown): never {
+  if (error instanceof AgentOsRuntimeError && error.code === 'conversation_not_found') {
+    throw new NotFoundException('Conversation was not found.');
+  }
+  if (error instanceof AgentOsRuntimeError && error.code === 'conversation_gateway_unavailable') {
+    throw new ServiceUnavailableException('The provider Gateway is unavailable.');
+  }
+  if (error instanceof AgentOsRuntimeError && [
+    'conversation_agent_invalid',
+    'conversation_message_required',
+    'conversation_model_required',
+    'conversation_model_unsupported',
+    'conversation_reasoning_effort_required',
+    'conversation_reasoning_effort_unsupported',
+  ].includes(error.code)) {
+    throw new BadRequestException(error.code);
+  }
+  throw error;
+}

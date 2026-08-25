@@ -34,6 +34,22 @@ const readDefinition = {
 };
 
 describe('CapabilityInvocationService', () => {
+  it('projects the current capability approval risk with an authenticated receipt', async () => {
+    const repository = { findById: vi.fn().mockResolvedValue(invocation({ input: { alpha: 'candidate', nested: { a: 1, b: 2 } }, status: 'pending' })) };
+    const owner = { capabilityKey: mutationDefinition.key, invoke: vi.fn() };
+    const service = new CapabilityInvocationService(repository as never, registry(mutationDefinition, owner) as never);
+
+    const receipt = await service.getReceipt({ organizationId: ORGANIZATION_ID, invocationId: INVOCATION_ID });
+    expect(receipt).toMatchObject({
+      id: INVOCATION_ID,
+      approvalRisk: 'low',
+    });
+    expect(receipt).not.toHaveProperty('requestKey');
+    expect(receipt).not.toHaveProperty('inputHash');
+    expect(receipt).not.toHaveProperty('approvalInputHash');
+    expect(receipt).not.toHaveProperty('approvalDecidedByUserId');
+  });
+
   it('canonically admits a mutation once, passes the exact opaque owner key, and replays the persisted result', async () => {
     const input = { nested: { b: 2, a: 1 }, alpha: 'candidate' };
     const result = completedResult();

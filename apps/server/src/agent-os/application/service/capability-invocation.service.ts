@@ -2,7 +2,10 @@ import {
   CapabilityResultEnvelopeSchema,
   type CapabilityResultEnvelope,
 } from '@kiditem/shared/agent-interaction';
-import { MUTATION_EFFECTS } from '../../../common/capability-definition';
+import {
+  MUTATION_EFFECTS,
+  type CapabilityApprovalRisk,
+} from '../../../common/capability-definition';
 import {
   canonicalizeOwnerInput,
   canonicalOwnerInputHash,
@@ -21,7 +24,7 @@ import type {
   CapabilityInvocationResult,
   GetCapabilityInvocationInput,
   InvokeCapabilityInput,
-} from '../port/in/capability-invocation.port';
+} from '../port/in/capability/capability-invocation.port';
 import type {
   CapabilityInvocationRecord,
   CapabilityInvocationRepositoryPort,
@@ -52,6 +55,22 @@ export class OwnerResultAmbiguousError extends AgentOsError {
 }
 
 /**
+ * Authenticated receipt projection. Approval risk belongs to the current
+ * code-owned capability definition, never to the durable Invocation row.
+ */
+export type CapabilityInvocationReceipt = Pick<CapabilityInvocationRecord,
+  | 'id'
+  | 'capabilityKey'
+  | 'actingAgentKey'
+  | 'canonicalInput'
+  | 'status'
+  | 'approvalStatus'
+  | 'approvalExpiresAt'
+> & {
+  approvalRisk: CapabilityApprovalRisk;
+};
+
+/**
  * Request-driven capability admission. Invocations are replay receipts, never
  * a queue: every execution is caused by this explicit method call.
  */
@@ -75,6 +94,24 @@ export class CapabilityInvocationService implements CapabilityInvocationPort {
       throw new AgentOsError('CAPABILITY_NOT_FOUND', 'Capability invocation was not found.');
     }
     return invocation;
+  }
+
+  async getReceipt(input: GetCapabilityInvocationInput): Promise<CapabilityInvocationReceipt> {
+    const invocation = await this.get(input);
+    const definition = this.capabilities.resolveDefinition(invocation.capabilityKey);
+    if (!definition) {
+      throw new AgentOsError('CAPABILITY_NOT_FOUND', 'Capability invocation was not found.');
+    }
+    return {
+      id: invocation.id,
+      capabilityKey: invocation.capabilityKey,
+      actingAgentKey: invocation.actingAgentKey,
+      canonicalInput: invocation.canonicalInput,
+      status: invocation.status,
+      approvalStatus: invocation.approvalStatus,
+      approvalExpiresAt: invocation.approvalExpiresAt,
+      approvalRisk: definition.approvalRisk,
+    };
   }
 
   async invoke(input: InvokeCapabilityInput): Promise<CapabilityInvocationResult> {

@@ -42,14 +42,14 @@ describe('QuickActionFab', () => {
     expect(screen.queryByRole('link', { name: '상품 생성' })).not.toBeInTheDocument();
   });
 
-  it('adds one AgentOS interaction action to the existing fan', () => {
-    const openAgentInteraction = vi.fn();
-    render(<QuickActionFab onAgentInteractionOpen={openAgentInteraction} />);
+  it('opens the General conversation from the existing fan', () => {
+    const openConversation = vi.fn();
+    render(<QuickActionFab onOpenConversation={openConversation} />);
 
     fireEvent.click(screen.getByRole('button', { name: '퀵 메뉴 열기' }));
     fireEvent.click(screen.getByRole('button', { name: 'AgentOS 대화 열기' }));
 
-    expect(openAgentInteraction).toHaveBeenCalledTimes(1);
+    expect(openConversation).toHaveBeenCalledTimes(1);
     expect(screen.getAllByTestId('quick-action-fab')).toHaveLength(1);
   });
 });

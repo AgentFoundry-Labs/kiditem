@@ -16,7 +16,7 @@ import { PrismaCapabilityInvocationRepository } from './adapter/out/repository/p
 import {
   CAPABILITY_APPROVAL_PORT,
   CAPABILITY_INVOCATION_PORT,
-} from './application/port/in/capability-invocation.port';
+} from './application/port/in/capability/capability-invocation.port';
 import {
   CAPABILITY_INVOCATION_REPOSITORY_PORT,
   type CapabilityInvocationRepositoryPort,
