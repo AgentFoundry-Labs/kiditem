@@ -81,9 +81,9 @@ KID-25의 provider-native runtime은 다음 경계를 따로 증명한다.
   history는 host account가 소유하며 Nest, DB, worker, 브라우저로 복사하지 않는다.
 - `npm run qa:agent-os:clean-cutover`는 자체 Testcontainer만 대상으로 legacy
   rows를 버리고 one-model schema를 적용한다. 개발/Office DB, `--force-reset`,
-  검증되지 않은 URL은 거절한다. `--serve-browser-qa`는 기존 deterministic
-  auth/business seed를 JSON argument 배열로 지정한
-  `KIDITEM_BROWSER_QA_SEED_COMMAND`가 없으면 container 시작 전 fail-closed한다.
+  검증되지 않은 URL은 거절한다. `--serve-browser-qa`는 내장 deterministic
+  auth/business seed만 실행하며, interactive stdin과 `--email` 또는
+  `KIDITEM_BROWSER_QA_EMAIL`가 없으면 container 시작 전 fail-closed한다.
 
 Normal CI는 live provider login을 요구하지 않는다. macOS executable QA에서는
 host의 기존 Codex login으로 canary와 대화 흐름을 확인한다. Claude live reply와

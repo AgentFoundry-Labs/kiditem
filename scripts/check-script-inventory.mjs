@@ -29,6 +29,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'qa-agent-os-clean-cutover.mjs',
   'run-data-migrations.ts',
   'safe-prisma-db-push.mjs',
+  'seed-agent-os-browser-qa.ts',
   'seed-order-collection-mall-accounts.ts',
   'smoke-interaction-os.mjs',
   'vitest.config.ts',
@@ -92,6 +93,12 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
     'node scripts/qa-agent-os-clean-cutover.mjs'
   ) {
     missingPackageHooks.push('qa:agent-os:clean-cutover');
+  }
+  if (
+    packageScripts['seed:agent-os:browser-qa'] !==
+    'tsx scripts/seed-agent-os-browser-qa.ts'
+  ) {
+    missingPackageHooks.push('seed:agent-os:browser-qa');
   }
   if (!packageScripts['check:scripts-inventory']) {
     missingPackageHooks.push('check:scripts-inventory');

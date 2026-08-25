@@ -29,6 +29,7 @@ function createIsolatedTarget(helper, overrides = {}) {
 function createRunDependencies(helper, options = {}) {
   const events = [];
   const commandCalls = [];
+  const browserQaSeedCommands = [];
   const databaseName = options.databaseName ?? helper.createGeneratedDatabaseName(
     () => Buffer.from('0123456789abcdef', 'hex'),
   );
@@ -71,9 +72,25 @@ function createRunDependencies(helper, options = {}) {
       events.push('invocation-tests:run');
       assert.equal(databaseUrl, target.databaseUrl);
     },
-    seedBrowserQaBundle: async ({ databaseUrl }) => {
+    assertBrowserQaInteractiveStdin: async () => {},
+    assertBrowserQaEmailConfigured: async ({ email }) => {
+      assert.equal(email, options.browserQaEmail ?? 'browser.qa@example.test');
+    },
+    createBrowserQaSeedCommand: async ({ email }) => {
+      browserQaSeedCommands.push(email);
+      return {
+        command: 'npm',
+        args: ['run', 'seed:agent-os:browser-qa', '--', '--email', email],
+      };
+    },
+    seedBrowserQaBundle: async ({ databaseUrl, target: seedTarget, seedCommand }) => {
       events.push('browser-qa:seed');
       assert.equal(databaseUrl, target.databaseUrl);
+      assert.equal(seedTarget.databaseName, target.databaseName);
+      assert.deepEqual(seedCommand, {
+        command: 'npm',
+        args: ['run', 'seed:agent-os:browser-qa', '--', '--email', options.browserQaEmail ?? 'browser.qa@example.test'],
+      });
     },
     startBrowserQaStack: async ({ databaseUrl }) => {
       events.push('browser-qa:start');
@@ -91,7 +108,7 @@ function createRunDependencies(helper, options = {}) {
     },
   };
 
-  return { commandCalls, dependencies, events, target };
+  return { browserQaSeedCommands, commandCalls, dependencies, events, target };
 }
 
 test('generates a marked, unique database name for the isolated clean-cutover container', async () => {
@@ -217,7 +234,15 @@ test('refuses force-reset and unsupported command-line arguments', async () => {
   assert.equal(typeof helper.assertSafeCleanCutoverArgs, 'function');
   if (typeof helper.assertSafeCleanCutoverArgs !== 'function') return;
 
-  assert.doesNotThrow(() => helper.assertSafeCleanCutoverArgs(['--serve-browser-qa']));
+  assert.doesNotThrow(() => helper.assertSafeCleanCutoverArgs([
+    '--serve-browser-qa',
+    '--email',
+    'browser.qa@example.test',
+  ]));
+  assert.throws(
+    () => helper.assertSafeCleanCutoverArgs(['--email', 'browser.qa@example.test']),
+    /only with --serve-browser-qa/i,
+  );
   assert.throws(
     () => helper.assertSafeCleanCutoverArgs(['--force-reset']),
     /force-reset.*blocked/i,
@@ -383,7 +408,7 @@ test('serve-browser-qa keeps the verified container alive only until shutdown an
 
   const { dependencies, events, target } = createRunDependencies(helper);
   const result = await helper.runCleanCutover({
-    args: ['--serve-browser-qa'],
+    args: ['--serve-browser-qa', '--email', 'browser.qa@example.test'],
     dependencies,
   });
 
@@ -410,7 +435,7 @@ test('builds the server after the guard and before starting the browser-QA child
 
   const { commandCalls, dependencies, events, target } = createRunDependencies(helper);
   await helper.runCleanCutover({
-    args: ['--serve-browser-qa'],
+    args: ['--serve-browser-qa', '--email', 'browser.qa@example.test'],
     dependencies,
   });
 
@@ -505,44 +530,65 @@ test('builds a disposable legacy fixture with sample rows for all six retired ta
   }
 });
 
-test('requires an injected deterministic seed command before browser-QA child processes may start', async () => {
+test('uses the built-in interactive browser-QA seed command instead of an ambient seed-command environment value', async () => {
   const helper = await loadHelper();
-  assert.equal(typeof helper.parseBrowserQaSeedCommand, 'function');
-  if (typeof helper.parseBrowserQaSeedCommand !== 'function') return;
+  assert.equal(typeof helper.createBrowserQaSeedCommand, 'function');
+  assert.equal(typeof helper.assertBrowserQaInteractiveStdin, 'function');
+  assert.equal(typeof helper.createBrowserQaSeedEnvironment, 'function');
+  if (
+    typeof helper.createBrowserQaSeedCommand !== 'function'
+    || typeof helper.assertBrowserQaInteractiveStdin !== 'function'
+    || typeof helper.createBrowserQaSeedEnvironment !== 'function'
+  ) return;
 
+  assert.deepEqual(helper.createBrowserQaSeedCommand(), {
+    command: 'npm',
+    args: ['run', 'seed:agent-os:browser-qa'],
+  });
+  assert.deepEqual(helper.createBrowserQaSeedCommand({ email: 'browser.qa@example.test' }), {
+    command: 'npm',
+    args: ['run', 'seed:agent-os:browser-qa', '--', '--email', 'browser.qa@example.test'],
+  });
+  assert.doesNotThrow(() => helper.assertBrowserQaInteractiveStdin({ isTTY: true }));
   assert.throws(
-    () => helper.parseBrowserQaSeedCommand(undefined),
-    /requires.*seed command/i,
+    () => helper.assertBrowserQaInteractiveStdin({ isTTY: false }),
+    /interactive stdin/i,
   );
-  assert.deepEqual(
-    helper.parseBrowserQaSeedCommand('["npm","run","seed:browser-qa"]'),
-    { command: 'npm', args: ['run', 'seed:browser-qa'] },
-  );
-  assert.throws(
-    () => helper.parseBrowserQaSeedCommand('npm run seed:browser-qa'),
-    /JSON array/i,
-  );
+
+  const target = helper.assertIsolatedTestcontainerTarget(createIsolatedTarget(helper));
+  const environment = helper.createBrowserQaSeedEnvironment(target.databaseUrl, target, {
+    DATABASE_URL: 'postgresql://unsafe@localhost:5432/kiditem',
+    KIDITEM_BROWSER_QA_SEED_TARGET: 'unsafe context',
+    PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION: 'must-not-leak',
+  });
+  assert.equal(environment.DATABASE_URL, target.databaseUrl);
+  assert.equal(environment.PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION, undefined);
+  assert.deepEqual(JSON.parse(environment.KIDITEM_BROWSER_QA_SEED_TARGET), {
+    databaseName: target.databaseName,
+    host: target.host,
+    mappedPort: target.mappedPort,
+  });
 });
 
-test('serve-browser-qa refuses a missing deterministic seed before starting the container', async () => {
+test('serve-browser-qa refuses non-interactive stdin before starting the container', async () => {
   const helper = await loadHelper();
   assert.equal(typeof helper.runCleanCutover, 'function');
   if (typeof helper.runCleanCutover !== 'function') return;
 
   const { dependencies, events } = createRunDependencies(helper);
-  dependencies.assertBrowserQaSeedCommand = () => {
-    events.push('browser-qa:seed-command:validate');
-    throw new Error('browser-QA seed command is unavailable');
+  dependencies.assertBrowserQaInteractiveStdin = () => {
+    events.push('browser-qa:stdin:validate');
+    throw new Error('browser-QA requires interactive stdin');
   };
 
   await assert.rejects(
     () => helper.runCleanCutover({
-      args: ['--serve-browser-qa'],
+      args: ['--serve-browser-qa', '--email', 'browser.qa@example.test'],
       dependencies,
     }),
-    /seed command is unavailable/i,
+    /interactive stdin/i,
   );
-  assert.deepEqual(events, ['browser-qa:seed-command:validate']);
+  assert.deepEqual(events, ['browser-qa:stdin:validate']);
 });
 
 test('CLI blocks force-reset before loading a runtime dependency or touching Docker', () => {

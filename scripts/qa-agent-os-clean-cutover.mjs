@@ -9,6 +9,8 @@ const repoRoot = path.resolve(path.dirname(scriptPath), '..');
 const databasePort = 5432;
 const fixtureMarker = 'retired-agent-os-fixture';
 const prismaUserConsentEnvironmentKey = 'PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION';
+const browserQaSeedTargetEnvironmentKey = 'KIDITEM_BROWSER_QA_SEED_TARGET';
+const browserQaEmailEnvironmentKey = 'KIDITEM_BROWSER_QA_EMAIL';
 const browserQaWebUrl = 'http://127.0.0.1:3000';
 const browserQaApiUrl = 'http://127.0.0.1:4000';
 
@@ -39,14 +41,42 @@ export function createGeneratedDatabaseName(random = randomBytes) {
 }
 
 export function assertSafeCleanCutoverArgs(args) {
-  for (const arg of args) {
+  parseCleanCutoverArgs(args);
+}
+
+export function parseCleanCutoverArgs(args) {
+  let serveBrowserQa = false;
+  let browserQaEmail;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
     if (arg === '--force-reset' || arg.startsWith('--force-reset=')) {
       throw new Error('--force-reset is blocked by the isolated clean-cutover helper.');
     }
-    if (arg !== '--serve-browser-qa') {
-      throw new Error(`Unsupported argument for the isolated clean-cutover helper: ${arg}`);
+    if (arg === '--serve-browser-qa') {
+      if (serveBrowserQa) throw new Error('--serve-browser-qa may be supplied only once.');
+      serveBrowserQa = true;
+      continue;
     }
+    if (arg === '--email') {
+      const email = args[index + 1];
+      if (!email || email.startsWith('--')) throw new Error('--email requires a value.');
+      browserQaEmail = email;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--email=')) {
+      browserQaEmail = arg.slice('--email='.length);
+      continue;
+    }
+    throw new Error(`Unsupported argument for the isolated clean-cutover helper: ${arg}`);
   }
+
+  if (browserQaEmail !== undefined && !serveBrowserQa) {
+    throw new Error('--email is supported only with --serve-browser-qa.');
+  }
+
+  return { serveBrowserQa, browserQaEmail };
 }
 
 export function assertIsolatedTestcontainerTarget({
@@ -89,15 +119,25 @@ export function assertIsolatedTestcontainerTarget({
 }
 
 export async function runCleanCutover({ args = [], dependencies } = {}) {
-  assertSafeCleanCutoverArgs(args);
+  const options = parseCleanCutoverArgs(args);
   if (!dependencies) {
     throw new Error('Clean-cutover runtime dependencies are required.');
   }
 
-  const serveBrowserQa = args.includes('--serve-browser-qa');
-  const browserQaSeedCommand = serveBrowserQa && dependencies.assertBrowserQaSeedCommand
-    ? await dependencies.assertBrowserQaSeedCommand()
-    : undefined;
+  const { serveBrowserQa, browserQaEmail } = options;
+  let browserQaSeedCommand;
+  if (serveBrowserQa) {
+    if (
+      !dependencies.assertBrowserQaInteractiveStdin
+      || !dependencies.assertBrowserQaEmailConfigured
+      || !dependencies.createBrowserQaSeedCommand
+    ) {
+      throw new Error('Built-in browser-QA seed dependencies are required.');
+    }
+    await dependencies.assertBrowserQaInteractiveStdin();
+    await dependencies.assertBrowserQaEmailConfigured({ email: browserQaEmail });
+    browserQaSeedCommand = await dependencies.createBrowserQaSeedCommand({ email: browserQaEmail });
+  }
   const databaseName = dependencies.createDatabaseName();
   let container;
   let browserQaChildren = [];
@@ -146,6 +186,7 @@ export async function runCleanCutover({ args = [], dependencies } = {}) {
 
     await dependencies.seedBrowserQaBundle({
       databaseUrl: target.databaseUrl,
+      target,
       seedCommand: browserQaSeedCommand,
     });
     await runScopedCommand(dependencies, {
@@ -183,36 +224,10 @@ export function createLegacyFixtureStatements() {
   });
 }
 
-export function parseBrowserQaSeedCommand(rawCommand) {
-  if (typeof rawCommand !== 'string' || rawCommand.trim() === '') {
-    throw new Error(
-      '--serve-browser-qa requires an injected deterministic seed command before child processes can start.',
-    );
-  }
-
-  let commandParts;
-  try {
-    commandParts = JSON.parse(rawCommand);
-  } catch {
-    throw new Error('The browser-QA seed command must be a JSON array of executable arguments.');
-  }
-  if (
-    !Array.isArray(commandParts) ||
-    commandParts.length === 0 ||
-    commandParts.some((part) => typeof part !== 'string' || part.trim() === '' || part.includes('\0'))
-  ) {
-    throw new Error('The browser-QA seed command must be a non-empty JSON array of executable arguments.');
-  }
-
-  return {
-    command: commandParts[0],
-    args: commandParts.slice(1),
-  };
-}
-
 export function createRuntimeDependencies({
-  browserQaSeedCommand = process.env.KIDITEM_BROWSER_QA_SEED_COMMAND,
   prismaUserConsent = process.env[prismaUserConsentEnvironmentKey],
+  browserQaInput = process.stdin,
+  browserQaEmail = process.env[browserQaEmailEnvironmentKey],
 } = {}) {
   return {
     createDatabaseName,
@@ -222,10 +237,13 @@ export function createRuntimeDependencies({
     prismaUserConsent,
     assertCleanCutover,
     runInvocationTests,
-    assertBrowserQaSeedCommand: () => parseBrowserQaSeedCommand(browserQaSeedCommand),
-    seedBrowserQaBundle: ({ databaseUrl }) => seedBrowserQaBundle({
+    assertBrowserQaInteractiveStdin: () => assertBrowserQaInteractiveStdin(browserQaInput),
+    assertBrowserQaEmailConfigured: ({ email }) => assertBrowserQaEmailConfigured(email ?? browserQaEmail),
+    createBrowserQaSeedCommand,
+    seedBrowserQaBundle: ({ databaseUrl, target, seedCommand }) => seedBrowserQaBundle({
       databaseUrl,
-      command: parseBrowserQaSeedCommand(browserQaSeedCommand),
+      target,
+      command: seedCommand,
     }),
     startBrowserQaStack,
     stopBrowserQaStack,
@@ -328,9 +346,29 @@ async function runInvocationTests({ databaseUrl }) {
   });
 }
 
-async function seedBrowserQaBundle({ databaseUrl, command }) {
+export function createBrowserQaSeedCommand({ email } = {}) {
+  const args = ['run', 'seed:agent-os:browser-qa'];
+  if (typeof email === 'string' && email.trim() !== '') {
+    args.push('--', '--email', email);
+  }
+  return { command: 'npm', args };
+}
+
+export function assertBrowserQaInteractiveStdin(input = process.stdin) {
+  if (!input?.isTTY) {
+    throw new Error('--serve-browser-qa requires interactive stdin for the browser-QA password.');
+  }
+}
+
+export function assertBrowserQaEmailConfigured(email) {
+  if (typeof email !== 'string' || email.trim() === '') {
+    throw new Error('--serve-browser-qa requires --email or KIDITEM_BROWSER_QA_EMAIL.');
+  }
+}
+
+async function seedBrowserQaBundle({ databaseUrl, target, command }) {
   await runProcess(command.command, command.args, {
-    env: scopedDatabaseEnvironment(databaseUrl),
+    env: createBrowserQaSeedEnvironment(databaseUrl, target),
     label: 'browser-QA deterministic seed',
   });
 }
@@ -449,6 +487,16 @@ function scopedDatabaseEnvironment(databaseUrl, prismaUserConsent, baseEnvironme
   if (typeof prismaUserConsent === 'string' && prismaUserConsent !== '') {
     environment[prismaUserConsentEnvironmentKey] = prismaUserConsent;
   }
+  return environment;
+}
+
+export function createBrowserQaSeedEnvironment(databaseUrl, target, baseEnvironment = process.env) {
+  const environment = scopedDatabaseEnvironment(databaseUrl, undefined, baseEnvironment);
+  environment[browserQaSeedTargetEnvironmentKey] = JSON.stringify({
+    databaseName: target.databaseName,
+    host: target.host,
+    mappedPort: target.mappedPort,
+  });
   return environment;
 }
 

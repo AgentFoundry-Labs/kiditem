@@ -63,10 +63,11 @@ Local development:
   jobs, not Agent OS runs. For local preview, keep `AI_TEXT_MODEL`,
   `AI_IMAGE_MODEL`, and `AI_IMAGE_ANALYSIS_MODEL` set in `apps/server/.env`.
 - Local env must not be copied to Office as-is.
-- `KIDITEM_BROWSER_QA_SEED_COMMAND` is a test-only JSON argument array consumed
-  by `qa:agent-os:clean-cutover -- --serve-browser-qa`. It must name an existing
-  deterministic seed command; it is never an Office runtime variable and must
-  not contain a password or database URL.
+- `KIDITEM_BROWSER_QA_EMAIL` is an optional, non-secret test-only login email
+  for `qa:agent-os:clean-cutover -- --serve-browser-qa`; `--email <email>`
+  takes precedence. It is never an Office runtime variable. The browser-QA
+  password is requested only from interactive stdin and must never be placed in
+  an environment variable, command argument, source, or log.
 
 Office:
 

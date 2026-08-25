@@ -78,6 +78,22 @@ npm run build --workspace=apps/web
 The clean-cutover helper accepts only its own generated Testcontainer database.
 The interaction smoke issues the real readiness/conversation/history/MCP request
 sequence with injectable test doubles and stops at an approval-pending mutation.
+
+For executable browser QA, run the helper from an interactive terminal and pass
+the non-secret login email explicitly (or set `KIDITEM_BROWSER_QA_EMAIL`):
+
+```bash
+npm run qa:agent-os:clean-cutover -- --serve-browser-qa --email <email>
+```
+
+The helper injects its verified Testcontainer target into the built-in seed,
+which creates only one active owner User/Organization/Membership and one
+synthetic Sourcing candidate. It then prompts for the login password through
+stdin; the seed accepts no password argument or environment variable. Running
+the seed directly, using a non-interactive terminal, omitting the email, or
+supplying a non-isolated target fails before it can write. Stop the helper with
+SIGINT to stop the child processes and remove the disposable container; there
+is no persistent-data rollback step.
 Executable macOS QA uses the host's existing Codex login. Live Claude reply and
 Windows ACL/Job Object/Task Scheduler execution remain explicit deferred gates
 until those environments are available.
