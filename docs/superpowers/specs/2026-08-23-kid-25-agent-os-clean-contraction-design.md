@@ -260,8 +260,9 @@ sourcing     supply
 
 Domain assignment is many-to-many default scope, not exclusive ownership. A
 domain may be assigned to multiple Agents. A capability may exist in an
-unassigned domain and may execute only through a valid execution-scoped grant.
-There is no domain-to-unique-Agent auto-routing table.
+unassigned domain. Reads remain directly available, but a mutation in an
+unassigned domain is rejected until an Agent is assigned that domain. There is
+no domain-to-unique-Agent auto-routing table or capability-grant system.
 
 ### 4.2 Final Agent definitions
 
@@ -276,7 +277,8 @@ Keep exactly five code-owned business Agents:
 | Advertising | advertising |
 
 Remove Operator. Domains previously attached only to Operator remain ordinary
-catalog domains and may be read or granted explicitly.
+catalog domains. Their reads remain available; their mutations require a
+current Agent assignment before execution.
 
 AgentDefinition contains only:
 
@@ -401,40 +403,41 @@ receipt, not a new persistence model, HMAC, or provider-session field.
 
 Routing remains intentionally simple:
 
-1. Read capability: the current conversation or Agent invokes it directly
-   through an exact ephemeral read grant.
+1. Read capability: the current conversation or Agent invokes it directly.
 2. Mutation capability in the current Agent's assigned domain: invoke directly.
 3. Mutation outside current scope, including every mutation from general chat:
-   explicitly select a target Agent and use an execution-scoped delegation
-   grant.
+   explicitly select a target Agent and run a provider-native subagent with
+   that Agent's profile.
 
 Approval risk is evaluated after routing. Delegation never bypasses HITL.
 
-### 5.2 Delegation without child Task
+### 5.2 Delegation without child Task or capability grant
 
 Cross-Agent business delegation uses a provider-native subagent with the target
-Agent's code-owned instruction profile. KidItem creates only an ephemeral,
-process-memory execution grant bound to:
+Agent's code-owned instruction profile. The MCP transport envelope carries
+actingAgentKey separately from the capability's strict business input. For a
+mutation, Nest validates:
 
-- authenticated user and organization;
-- active top-level conversation/turn;
-- explicit target Agent;
-- exact capability key and canonical input hash; and
-- a bounded expiry.
+- the current authenticated user and organization from the execution binding;
+- that actingAgentKey resolves to a current AgentDefinition;
+- that the capability ownerDomain is included in that Agent's assignedDomains;
+- the strict capability input and canonical input hash; and
+- owner idempotency and approval policy.
 
-The grant is an opaque random identifier, not an HMAC, reusable policy, or
-database row. The target native subagent uses it for the exact mutation call.
-The server validates the current target Agent definition and capability owner
-scope before durable mutation admission.
+CapabilityInvocation stores executingAgentKey as concise responsibility/audit
+provenance. It does not store a provider subagent ID or attempt to prove that a
+native subagent process actually ran. The CLI is already a trusted full-access
+process in this single-user topology, so a separate capability grant would not
+create a meaningful security boundary.
 
 No child AgentTask, child ConversationDescriptor, AgentAttempt, delegation
-tree, depth counter, fan-out counter, cycle graph, or automatic target Agent
-mapping is created. Native subagent status and nested reasoning remain provider
-UI/runtime details.
+grant, delegation tree, depth counter, fan-out counter, cycle graph, or
+automatic target Agent mapping is created. Native subagent status and nested
+reasoning remain provider UI/runtime details.
 
-An unassigned-domain mutation may proceed only when the user/provider explicitly
-selects an Agent and the server creates an exact execution-scoped capability
-grant. No hidden owner Agent is inferred.
+An unassigned-domain mutation is rejected. Supporting it requires assigning the
+domain to an explicit Agent through the code-owned registry; no hidden owner,
+temporary override, or capability grant is inferred.
 
 ## 6. Durable mutation, approval, and Operation model
 
@@ -464,7 +467,7 @@ item. It stores:
 
 - organization and initiating user;
 - capability key and owner domain;
-- optional executing Agent key for delegated responsibility provenance;
+- required executing Agent key for responsibility provenance;
 - exact canonical input and SHA-256 input hash;
 - effects, approval risk, and idempotency requirement;
 - required owner idempotency key;
@@ -611,9 +614,11 @@ secret. It is rotatable and never logged.
 Each active provider turn receives an ephemeral execution binding. The binding
 is random, bounded to authenticated user, organization, conversation, optional
 Agent, and turn, and is invalidated on terminal turn, interrupt, Gateway loss,
-API restart, or expiry. It is process-memory only and never logged or persisted.
-Provider-specific adapters may refresh or recreate their local process/config
-to apply a new binding without changing provider conversation history.
+API restart, or expiry. It authenticates access to the internal MCP endpoint;
+it is not a read, mutation, delegation, or capability grant. It is
+process-memory only and never logged or persisted. Provider-specific adapters
+may refresh or recreate their local process/config to apply a new binding
+without changing provider conversation history.
 
 ### 7.4 MCP v2 boundary
 
@@ -628,7 +633,8 @@ It exposes:
 - all seventeen Agent-facing CapabilityDefinitions.
 
 Read calls validate strict schemas and execute through the owner port. Mutation
-calls validate routing/grant, canonicalize input, durably admit
+calls validate actingAgentKey against the current Agent/domain assignment,
+canonicalize input, durably admit
 CapabilityInvocation/CapabilityApproval, and return a concise reference.
 
 MCP v2 Task records do not replace OperationRun. No MCP transport session,
@@ -841,8 +847,9 @@ plan with substantial integrated units:
 1. fail-first contract and schema tests for the two-model persistence graph,
    five Agents, seventeen capabilities, no Operator, and no Task/Attempt;
 2. simplify CapabilityInvocation/Approval admission and worker recovery;
-3. replace Attempt/Task MCP binding and child delegation with ephemeral
-   conversation/turn binding plus provider-native Agent delegation;
+3. replace Attempt/Task MCP binding and child delegation with authenticated
+   conversation/turn binding, actingAgentKey, and provider-native Agent
+   delegation;
 4. refactor the native Runner into the always-on Host Agent Gateway with
    provider-local conversation adapters;
 5. replace the Web Task view with the provider conversation sidebar/stream and
@@ -883,8 +890,11 @@ executable QA cannot resolve an important ambiguity.
   owner input port, and one implementation.
 - Sourcing exposes exactly its ten approved capabilities.
 - Domain assignment is many-to-many.
-- Cross-domain reads run directly; cross-domain mutations require explicit
-  target Agent and exact ephemeral grant.
+- Cross-domain reads run directly; cross-domain mutations require an explicit
+  target Agent whose current assignedDomains contains the owner domain.
+- Every mutation requires actingAgentKey; unknown Agent and owner-domain
+  mismatch fail before CapabilityInvocation admission.
+- No read, mutation, delegation, or capability grant model exists.
 - Provider-native delegation creates no child Task or child conversation.
 
 ### 13.3 Mutation, Approval, and Operation
@@ -939,8 +949,8 @@ executable QA cannot resolve an important ambiguity.
 - Runtime is selected when creating a conversation; model and effort are
   explicit per next turn.
 - Native subagents remain inside the parent top-level conversation.
-- Cross-Agent mutation delegation uses provider-native subagents plus an exact
-  ephemeral execution grant, never child Task.
+- Cross-Agent mutation delegation uses provider-native subagents plus an
+  actingAgentKey transport coordinate, never a capability grant or child Task.
 - AgentTask has no unique owner responsibility and is removed.
 - Owner-domain entities own business lifecycle.
 - CapabilityInvocation owns only exact durable mutation admission and worker
