@@ -4,7 +4,7 @@
 
 **Goal:** Move disposable Codex/Claude execution out of the Nest container into one native host Runner, connect it to Nest through authenticated outbound HTTP long-poll/event POST and direct MCP v2 Streamable HTTP, and preserve KidItem as the only durable work authority.
 
-**Architecture:** One Nest API container owns admission, Task/Attempt/Invocation/Approval/Operation authority, short-lived Attempt tokens, the MCP v2 tool implementation, and all durable transitions. One native `apps/agent-runner` process owns provider command construction, isolated per-Attempt homes/workspaces, CLI stdin/stdout, process-tree supervision, and cleanup. The Runner has no inbound listener: it polls Nest for strict structured commands and posts idempotent events; each CLI calls Nest's loopback-only Attempt MCP endpoint directly. Windows is the Office production host, macOS is the supported development and integration-test host.
+**Architecture:** One Nest API container owns admission, Task/Attempt/Invocation/Approval/Operation authority, short-lived Attempt tokens, the MCP v2 tool implementation, and all durable transitions. One native `apps/agent-runner` process owns provider command construction, ephemeral per-Attempt homes/workspaces, trusted full-access/non-interactive CLI execution under one dedicated non-administrator OS account, CLI stdin/stdout, process-tree supervision, and cleanup. The Runner has no inbound listener: it polls Nest for strict structured commands and posts idempotent events; each CLI calls Nest's loopback-only Attempt MCP endpoint directly. Windows is the Office production host, macOS is the supported development and integration-test host.
 
 **Tech Stack:** Node.js 22, TypeScript, NestJS/Express, Zod 3 shared control contracts, Zod 4 only inside the MCP SDK adapter, MCP TypeScript SDK v2, MCP `2026-07-28`, Codex CLI `0.149.1`, Claude Code `2.1.241`, Vitest, tsup, .NET 8 Windows Job Objects, PowerShell Task Scheduler, Docker Compose, GitHub Actions.
 
@@ -139,6 +139,8 @@ mandatory.
 - `AgentCapabilityInvocation` and owner idempotency own mutation admission and
   replay safety.
 - `Operation` remains the durable source of truth for long-running work.
+- Web reads Task/Attempt/Approval/Invocation/Operation/child source facts and
+  defines no Task presentation enum or derived waiting/Continue lifecycle.
 - Runner leases, command replay, event sequence, process handles, readiness,
   and Attempt token bindings are process-memory only.
 - API/Runner restart never reconstructs a CLI or provider session. Durable
@@ -146,6 +148,9 @@ mandatory.
 - Transport retry, message idempotency replay, root uniqueness collision, and
   delegation replay return existing durable work or a conflict. They never
   synthesize Continue, relaunch a terminal Attempt, or create a successor.
+- Approval completion may release only the already-admitted deterministic
+  mutation/Operation. It never wakes a CLI, supplies input to a terminal
+  Attempt, or starts successor reasoning.
 
 MCP v2 Tasks and production MRTR state are not adopted. The existing Approval,
 Invocation, and Operation records remain authoritative.
@@ -189,8 +194,17 @@ The shared schema must not contain an executable, shell, raw argument array,
 arbitrary environment map, host path, provider credential, DB/Nest secret, or
 organization/user/session/business authority field. Runner-owned provider
 builders resolve exact executable entrypoints relative to the installed Runner
-artifact and construct all arguments, environment, sandbox, non-persistence,
-and MCP configuration.
+artifact and construct all arguments, environment, full-access/non-interactive
+permission mode, non-persistence, and MCP configuration.
+
+The full-access CLI is trusted local code in this single-user topology. Its OS
+ceiling is the dedicated non-administrator account, not a provider sandbox.
+That account contains only the required provider login and Runner control
+material, never DB/Nest/business-provider or unrelated credentials. Because a
+same-account full-access child can in principle read account-readable Runner
+material, bearer authentication is not claimed as hostile-child isolation; it
+protects the loopback control surface from LAN, other users, and accidental
+callers. Separate Runner/CLI OS identities are explicitly outside scope.
 
 ## Task 1: Freeze the shared runtime/control contract and fail-first scanners
 
@@ -590,7 +604,7 @@ rtk git commit -m "refactor: admit native Host Runner attempts"
 - Modify: `package.json`
 - Modify: `package-lock.json`
 
-- [x] **Step 1: Add failing Runner state-machine and command-builder tests**
+- [ ] **Step 1: Extend failing Runner state-machine and command-builder tests**
 
 Use fixture provider processes, not mocks around the code under test, to prove:
 
@@ -607,6 +621,9 @@ Use fixture provider processes, not mocks around the code under test, to prove:
 - abrupt Runner/watchdog exit kills the full fixture descendant tree;
 - Attempt directories and generated configuration are removed while the
   provider login artifact remains;
+- every Codex thread reports the train's full-access profile with approval
+  policy `never`, every Claude launch uses full-access bypass mode, and a
+  workspace-only/prompting profile fails readiness;
 - tokens are absent from diagnostics, generated stdout, model-visible output,
   and tool-shell environments.
 
@@ -680,7 +697,7 @@ installed locally. Same hash returns the installed state; drift emits one
 serializes one stable JSON body at a time and advances `eventSeq` only after
 Nest acknowledges it.
 
-- [x] **Step 3: Port provider protocol logic behind Runner-owned builders**
+- [ ] **Step 3: Update provider protocol logic behind Runner-owned builders**
 
 Resolve provider entrypoints only beneath the installed Runner package:
 
@@ -705,7 +722,9 @@ Nest data never supplies `executable/args/cwd/env`. Builders generate:
   `thread/start.ephemeral=true`, explicit model, strict config, MCP
   `2026-07-28` feature, `CODEX_MCP_PROTOCOL_VERSION=2026-07-28`, direct HTTP
   server URL, and
-  `bearer_token_env_var = "KIDITEM_ATTEMPT_MCP_TOKEN"`;
+  `bearer_token_env_var = "KIDITEM_ATTEMPT_MCP_TOKEN"`; every provider and
+  probe thread uses approval policy `never` and the train's full-access
+  permission profile rather than `:workspace`;
 - Claude: on macOS, the dedicated account's ordinary `HOME` plus exact `USER`
   identity so Claude Code can use that account's Keychain login without
   linking or copying host settings; on Windows, an isolated
@@ -714,16 +733,19 @@ Nest data never supplies `executable/args/cwd/env`. Builders generate:
   `--no-session-persistence`, `--strict-mcp-config`, stream-json
   input/output, explicit model, `MCP_SDK_GENERATION=v2`,
   `MCP_PROTOCOL_NEGOTIATION=auto`, and an HTTP MCP config whose Authorization
-  header expands `KIDITEM_ATTEMPT_MCP_TOKEN`;
+  header expands `KIDITEM_ATTEMPT_MCP_TOKEN`; every launch selects Claude's
+  full-access bypass permission mode and never prompts for provider approval;
 - both: no user settings/plugins/hooks/memories/history, no provider resume,
-  no arbitrary browser/network tool, no model-visible shell environment
-  containing the Attempt token, no prompt/token in command-line args, and
-  provider auto-update disabled.
+  no model-visible shell environment containing the Attempt token, no prompt/
+  token in command-line args, and provider auto-update disabled. Shell,
+  filesystem, and network access otherwise follow the dedicated account's OS
+  permissions.
 
 Port the existing Codex app-server steering and Claude stream-json parser into
 the Runner. A live second message uses the same provider process. Provider
 native subagents are allowed but remain descendants of the same supervisor,
-Attempt token, slot, timeout, workspace, and sandbox.
+Attempt token, slot, timeout, ephemeral workspace, and trusted full-access OS
+account boundary.
 
 Claude's `auto` is only the documented client negotiation setting. Nest's
 `legacy: 'reject'` handler plus the observed canary revision make any v1/2025
@@ -762,7 +784,7 @@ closes the Job on Runner pipe EOF. The helper has no listener and accepts only
 Runner-local structured launch data. Normal interrupt/timeout/shutdown uses the
 same complete-tree path.
 
-- [x] **Step 5: Run unit and real macOS process gates and commit**
+- [ ] **Step 5: Run unit and real macOS process gates and commit**
 
 ```bash
 rtk npm install
@@ -807,7 +829,7 @@ the actual logged-in CLI canary.
 - Create: `apps/agent-runner/src/__tests__/runner-nest-loopback.integration.spec.ts`
 - Create: `apps/agent-runner/src/__tests__/real-cli-readiness.integration.spec.ts`
 
-- [x] **Step 1: Add failing readiness/recovery tests**
+- [ ] **Step 1: Extend failing readiness/recovery tests**
 
 Readiness is a process-memory projection with two phases:
 
@@ -822,7 +844,8 @@ Readiness is a process-memory projection with two phases:
    `mcp_servers.kiditem_attempt.disabled_tools=["readiness_probe"]` override.
    It starts a separate normal MCP-enabled ephemeral probe thread in the same
    app-server process/configuration and retains only that thread ID plus the
-   nonce in memory. Both thread responses must return the `:workspace` profile.
+   nonce in memory. Both thread responses must return the train's full-access
+   profile.
    Codex returns its strict result immediately from the tool-hidden provider
    thread with the minimal structured reachability prompt, `Return only a
    valid AgentResultEnvelope JSON object. Do not call any MCP tool.` After a
@@ -846,6 +869,8 @@ runtime/model pair selected by every active AgentVersion.
 
 Tests prove:
 
+- Codex and Claude run non-interactively with the expected full-access mode;
+  provider prompts and workspace-only permission profiles fail closed;
 - both modern clients negotiate `2026-07-28`; 2025 initialize and quiet
   fallback fail before tool invocation;
 - the canary exposes one tool while business MCP exposes exactly 11 tools and
@@ -874,7 +899,7 @@ Tests prove:
 - retrying the same root/live/delegation command after interruption returns the
   existing projection or conflict and never creates a successor.
 
-- [x] **Step 2: Implement readiness without circular durable state**
+- [ ] **Step 2: Implement full-access readiness without circular durable state**
 
 `AgentAttemptReadinessService` no longer imports `child_process`, resolves host
 login paths, or executes provider binaries. It queries
@@ -1165,7 +1190,7 @@ The final server runtime tree may retain only:
 - Nest-owned 11-tool factory and strict result/wire helpers;
 - existing durable work/capability application services.
 
-- [x] **Step 2: Rewrite nearby durable documentation, not append history**
+- [ ] **Step 2: Rewrite nearby durable documentation, not append history**
 
 All durable docs must say:
 
@@ -1179,8 +1204,16 @@ All durable docs must say:
   and never logged;
 - provider login persists only in the dedicated account; provider
   session/history does not;
+- every provider process uses trusted full-access/non-interactive mode under
+  that non-administrator account; the same-account CLI is not an adversarial
+  containment boundary and the account holds no DB/Nest/business or unrelated
+  credentials;
 - restart means `process_interrupted` plus manual immutable successor, never
   provider resume;
+- Approval completion advances only already-admitted deterministic work and
+  never wakes a CLI or starts successor reasoning;
+- Web renders Task/Attempt/Approval/Invocation/Operation/child source facts and
+  has no Task presentation enum or `needs_continue` state;
 - exactly 11 MCP tools, 18 capabilities, and ten Sourcing capabilities remain;
 - no new Agent OS schema/status, durable Web state, gateway, internal signing or
   credential broker, durable Runner control queue, quota, or multi-instance
@@ -1277,7 +1310,7 @@ impact; do not mark it complete unless its own acceptance is complete.
 | Replay | same command/event hash reuses; drift/gap conflicts; no duplicate process/transition |
 | Identity | protected rotatable Runner token; per-Attempt digest/TTL/binding/revocation |
 | Launch | no raw shell/executable/args/env/path/authority from Nest |
-| Isolation | empty workspace, auth reference only, non-persistent provider settings |
+| Execution trust | ephemeral workspace/auth reference/non-persistent settings; trusted full-access CLI under one dedicated non-administrator account; no hostile same-account containment claim |
 | Process tree | macOS watchdog/group and Windows Job Object kill descendants on all exits |
 | MCP | direct loopback Streamable HTTP `2026-07-28`, modern-only, stateless/request-scoped |
 | Catalog | exactly 11 tools, 18 definitions, all ten Sourcing capabilities |
@@ -1305,6 +1338,9 @@ Do not add:
   admission, or multi-API lease; owner-local binding composition is required;
 - Web/AG-UI durable states or a separately deployed interaction service; one
   ephemeral in-process interaction-state Module is required;
+- provider workspace-only permission prompts or a claim that the trusted
+  same-account full-access CLI is adversarially isolated; separate Runner/CLI
+  OS identities are outside scope;
 - alternate local deploy scripts, mutable runtime downloads, automatic
   upgrade PRs, scheduled compatibility pipelines, or restore-rehearsal scope.
 

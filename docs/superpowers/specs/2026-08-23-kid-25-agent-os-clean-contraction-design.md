@@ -197,6 +197,13 @@ explicit authenticated Continue/follow-up command creates a successor Attempt
 on the same Task. A transport retry or idempotency replay is not a Continue and
 cannot create a successor.
 
+Task also has no derived presentation status. API and Web render the source
+facts directly: Task status, latest Attempt, Approval rows, Invocation/
+Operation references, child Tasks, and structured result content. **Continue**
+is an action, not a state. It is offered when the Task is not cancelled and has
+no live Attempt. Continuing a completed or failed Task atomically reopens it
+before creating the successor; a cancelled Task requires explicit Reopen.
+
 Task status changes only from an explicit validated business outcome or current
 user command. Process interruption alone leaves Task `open`. Cancelling a Task
 interrupts live reasoning and blocks new Attempts/Invocations, expires pending
@@ -223,6 +230,14 @@ starting | running | succeeded | failed | process_interrupted | cancelled
 Attempt has no waiting, capacity, Approval, Operation, child, or Continue state
 and no `continuationKey`. A terminal Attempt is never mutated, resumed, or
 silently replaced by a successor.
+
+When a capability needs HITL, Nest first stores the exact Invocation, canonical
+input/hash, and pending Approval, then returns that durable reference to the
+CLI. The CLI emits its bounded terminal result and exits; KidItem never keeps
+the process alive to await the decision. Approval may release the deterministic
+mutation or Operation, but it never sends input to the old process or starts
+reasoning. Any later reasoning is an explicit user Continue and a new immutable
+Attempt.
 
 Every terminal Agent result uses one concise envelope containing outcome,
 summary, `resource_ref` values, `operation_ref` values, optional structured
@@ -272,6 +287,10 @@ pending Approval before emitting UI/CLI notification. A decision and the
 Invocation transition occur in one transaction. Approval expires within 24
 hours; Task cancellation may expire it earlier. The worker performs a bounded
 due-Approval sweep without adding a queue/outbox model.
+
+Approval completion is not an Agent trigger. It may advance only the already
+admitted deterministic mutation/Operation. It never wakes an Attempt, creates
+a successor, or derives a Task waiting/Continue status.
 
 ### 3.8 Database invariants
 
@@ -422,8 +441,9 @@ target Agent and execution grant; no hidden owner Agent is inferred.
 ### 5.2 Native subagents versus KidItem delegation
 
 Codex/Claude native subagents are ephemeral helpers inside one Attempt. They
-share its AgentVersion, workspace, MCP HTTP binding, authority, sandbox,
-Runner-owned supervisor tree, and one global slot. They create no KidItem row.
+share its AgentVersion, workspace, MCP HTTP binding, authority, trusted
+full-access OS-account execution boundary, Runner-owned supervisor tree, and
+one global slot. They create no KidItem row.
 
 A KidItem child Task is created only when business responsibility moves to an
 explicitly selected Agent. It stores the parent Task, delegating live Attempt,
@@ -657,6 +677,25 @@ only through a validated same-volume OS reference supported by the selected
 CLI train; readiness fails instead of copying credential bytes or silently
 using the complete persistent provider home.
 
+Every Codex/Claude process runs non-interactively with the selected train's
+effective full-access permission mode. Codex uses approval policy `never` and
+the full-access permission profile; Claude uses its full-access bypass mode.
+Readiness verifies the effective mode instead of accepting a workspace-only or
+prompting profile. This full access is bounded only by the dedicated,
+non-administrator Host Runner account's OS permissions; it is not a hostile-
+process containment boundary.
+
+The CLI is therefore a trusted local process for this single-user deployment.
+KidItem capability grants, owner idempotency, approval risk, and HITL remain the
+normal business execution contract, but are not claimed to withstand a
+malicious same-account CLI. The dedicated account must not contain DB, Nest,
+business-provider, or unrelated host credentials. Nest still never accepts a
+raw executable, shell command, argument array, environment map, or host path.
+The Runner bearer remains useful against LAN/other-user/accidental callers, but
+is not treated as a hard secret from a full-access child running as the same OS
+account. Hard adversarial CLI isolation would require separate OS identities
+and is outside this single-user scope.
+
 Windows launches every Attempt in a Job Object with kill-on-close. macOS uses
 an exact process group plus a parent-death control-pipe watchdog so an abrupt
 Runner exit also kills the complete group. Native provider subagents stay
@@ -721,9 +760,9 @@ the strict structured result, then creates a second fresh ephemeral provider
 thread in the same app-server process and Attempt configuration. The only
 thread override is Runner-owned
 `mcp_servers.kiditem_attempt.enabled=false`; both thread responses must return
-the `:workspace` permission profile. Runner assigns only the second thread as
-live, so there is no resume, history, or persistence bridge from probe to
-provider turn. The provider readiness turn is intentionally tool-free; its
+the train's full-access permission profile. Runner assigns only the second
+thread as live, so there is no resume, history, or persistence bridge from
+probe to provider turn. The provider readiness turn is intentionally tool-free; its
 prompt is the minimal structured reachability contract: `Return only a valid
 AgentResultEnvelope JSON object. Do not call any MCP tool.` The direct probe
 carries readiness semantics separately, and Codex never synthesizes a live
@@ -766,8 +805,8 @@ Basic recovery means restart with the same deployed application version/SHA:
    retried with the same owner idempotency key.
 7. The Runner removes only validated stale Attempt directories beneath its
    configured private root after process-tree termination.
-8. Web reloads the durable Task projection and shows **Continue** when more
-   reasoning is needed.
+8. Web reloads Task, Attempt, Approval, Invocation/Operation, result, and child
+   Task facts. It does not compute or return a Task presentation status.
 9. Continue creates a new immutable Attempt from current durable Task,
    Invocation, Approval, Operation, and resource state. It never restores a
    provider session.
@@ -792,20 +831,19 @@ or provider history. On refresh, Web loads:
 
 - root/child Task tree;
 - current/latest Attempt states;
-- pending Approvals and ready/executing mutations;
+- Approval rows and admitted mutation state;
 - referenced Operation state;
 - concise result summary and resource/operation references; and
-- derived `running`, `awaiting_approval`, `awaiting_operation`,
-  `awaiting_child`, `needs_input`, `needs_continue`, terminal, and error UI.
+- optional structured `result.needsInput` content without promoting it to a
+  Task lifecycle or presentation state.
 
-Projection precedence is pending Approval, active mutation/Operation, open
-child, structured `needs_input`, then `needs_continue`. `needs_continue` means
-the Task is `open`, has no live Attempt, and the current durable work still
-allows a user follow-up. It is never a stored status, source set, or automatic
-trigger. The same rule applies to an open delegated child whose latest Attempt
-is terminal: replay shows that child and its `needs_continue` projection rather
-than launching it. Web then subscribes only to future live events. Past chat
-bubbles are not rebuilt.
+There is no Task-facing `running`, `awaiting_approval`, `awaiting_operation`,
+`awaiting_child`, `needs_input`, `needs_continue`, terminal, or error
+presentation enum and no precedence algorithm. Web labels and actions are
+computed locally from the source records. It enables Continue when there is no
+live Attempt and the Task is not cancelled; this action does not run
+automatically. Web then subscribes only to future live events. Past chat bubbles
+are not rebuilt.
 
 Authenticated application commands cover Approval decision, user Continue,
 Task cancel/reopen, live interrupt, and terminal-only Session deletion.
@@ -913,8 +951,9 @@ concurrency is controlled only by:
 AGENT_CLI_MAX_CONCURRENCY=4
 ```
 
-Attempt 30 minutes, live Approval wait 10 minutes, and Approval lifetime 24
-hours remain code constants. Remove generic Agent worker enablement, old
+Attempt timeout 30 minutes and Approval lifetime 24 hours remain code
+constants. There is no live Approval wait. Remove generic Agent worker
+enablement, old
 runtime concurrency/wait/budget values, retired internal credential/signing
 settings, and gateway URLs.
 
@@ -1013,7 +1052,7 @@ invariants, and acceptance gates remain authoritative.
    control contracts, direct MCP Streamable HTTP, and platform supervisors.
 4. Implement worker mutation dispatch, Approval expiry, and same-SHA API/worker
    restart reconciliation.
-5. Cut Nest CopilotKit/Web to durable work projection plus future live events,
+5. Cut Nest CopilotKit/Web to durable work facts plus future live events,
    switch all callers, then delete the entire legacy code/schema in one clean
    contraction.
 6. Remove container CLI/UDS/stdio assumptions, align the single-node
@@ -1047,6 +1086,8 @@ invariants, and acceptance gates remain authoritative.
 - Read Invocation stores hash only; mutation stores canonical input/key.
 - Medium/high mutation cannot execute before exact immutable Approval.
 - Decision/expiry/cancel races have one terminal winner.
+- Approval completion advances only admitted deterministic work; it never
+  wakes the terminal CLI or creates a successor Attempt.
 - One Task has at most one live Attempt.
 - Terminal-only Session deletion races safely with admission.
 - Final Prisma schema has exactly six Agent OS models and no continuation or
@@ -1058,6 +1099,9 @@ invariants, and acceptance gates remain authoritative.
   `codex_cli | claude_cli`; Linux Runner admission fails.
 - Codex/Claude command tests prove exact non-persistent settings and reject raw
   shell, executable, arbitrary argument/env, and host-path input from Nest.
+- Codex/Claude readiness proves non-interactive full-access mode under the
+  dedicated non-administrator account; no workspace-only permission profile or
+  provider permission prompt is accepted.
 - The API image neither installs nor spawns provider CLIs and mounts no provider
   login volume.
 - Runner control uses one authenticated command long-poll and idempotent event
@@ -1086,7 +1130,8 @@ invariants, and acceptance gates remain authoritative.
 ### 15.4 HTTP/Web and cutover
 
 - Authenticated same-origin `/api/copilotkit` streams live events.
-- Refresh renders durable Task/result/Approval/Operation state without replay.
+- Refresh renders Task/Attempt/result/Approval/Invocation/Operation/child facts
+  without replay or a Task presentation enum.
 - Continue creates a new Attempt; no automatic successor exists.
 - Transport/root/delegation replay never acts as Continue, including after a
   terminal Attempt or same-SHA restart.
@@ -1108,13 +1153,18 @@ invariants, and acceptance gates remain authoritative.
 - Codex/Claude CLI stay; Hermes/OpenAI Responses do not.
 - Host Runner account login persists; provider history/session IDs and
   credential bytes do not enter KidItem persistence.
+- Codex/Claude always run in non-interactive full-access mode under the trusted
+  dedicated non-administrator account. This is not a hostile-process security
+  boundary; that account holds no DB/Nest/business or unrelated credentials.
 - Native subagents are ephemeral; business delegation creates a child Task.
 - Domains/Agents are many-to-many; mutation delegation names a target Agent.
 - AgentVersion snapshots domains/capability keys/runtime/profile, not models or
   per-tool policy.
 - Capability metadata stays detailed; routing is read versus mutation.
 - Invocation is exact authorization and mutation work item; no grant/outbox.
-- Task owns business lifecycle; Attempt owns process lifecycle; waits derive.
+- Task owns only business lifecycle; Attempt/Approval/Invocation/Operation/
+  child Task expose their own source facts. No Task presentation lifecycle is
+  derived or persisted.
 - There is no background mode, automatic continuation, continuation field, or
   Operation-to-Agent trigger.
 - Process-local admission max is four; no queue, advisory lock, quota, or

@@ -45,6 +45,9 @@ is a hard stop.
 | Admission | one API process, process-local max 4, immediate reject, no queue/DB lock |
 | Follow-up | current-user message/Continue creates a successor Attempt; never automatic |
 | Replay | same logical key/input returns existing work; never creates a successor |
+| HITL completion | advances only admitted deterministic mutation/Operation; never wakes or relaunches CLI reasoning |
+| Web work view | source Task/Attempt/Approval/Invocation/Operation/child facts only; no Task presentation enum |
+| CLI permission | trusted full-access/non-interactive mode under the dedicated non-administrator OS account |
 | Deletion | terminal-only transactional hard delete; otherwise `session_busy` |
 | Restart | same-SHA Attempt/read interruption, manual Continue, durable Approval/mutation recovery |
 
@@ -286,14 +289,16 @@ Expected: PASS; no destructive push or legacy data rewrite occurs in this task.
 - Create: `apps/server/src/agent-os/application/service/work/agent-capability-invocation.service.ts`
 - Create: `apps/server/src/agent-os/application/service/work/agent-capability-approval.service.ts`
 - Create: `apps/server/src/agent-os/application/service/work/agent-approval-expiry.service.ts`
-- Create: `apps/server/src/agent-os/application/service/work/agent-work-projection.service.ts`
+- Delete: `apps/server/src/agent-os/application/service/work/agent-work-projection.service.ts`
+- Modify: `apps/server/src/agent-os/application/service/work/agent-work-query.service.ts`
+- Modify: `apps/server/src/agent-os/application/port/out/work/agent-work-repository.port.ts`
 - Create: `apps/server/src/agent-os/application/service/work/agent-session-terminal-delete.service.ts`
 - Create: `apps/server/src/agent-os/application/service/work/__tests__/agent-work-lifecycle.spec.ts`
 - Create: `apps/server/src/agent-os/__tests__/agent-work-races.pg.integration.spec.ts`
 - Replace internals under: `apps/server/src/agent-os/application/service/session-control/`
 - Replace internals under: `apps/server/src/agent-os/adapter/out/transaction/session-control/`
 
-- [x] **Step 1: Write the failing admission and lifecycle matrix**
+- [ ] **Step 1: Extend the failing admission and lifecycle matrix**
 
 Cover these exact cases:
 
@@ -314,6 +319,8 @@ cancel Task: live Attempt cancelled, pending Approval expired,
              ready/executing mutation preserved
 cancelled Task ordinary message: task_cancelled
 explicit current-user Reopen: open plus immutable successor Attempt
+approval decision: deterministic admitted work only, no live CLI wake/successor
+facts-only work view: no Task presentation enum or needs_continue state
 terminal-only Session delete versus admission: one winner, no orphan/slot leak
 busy Session delete: session_busy, no row removed
 ```
@@ -369,7 +376,7 @@ and Approval, validates exact hash/current user/expiry, and atomically changes
 Approval plus Invocation. The expiry service uses the same fence and changes
 due pending Approval to `expired` and Invocation to `failed/approval_expired`.
 
-- [x] **Step 4: Implement explicit Task transitions and derived projection**
+- [ ] **Step 4: Implement explicit Task transitions and facts-only work view**
 
 Only the lifecycle service writes Task status. Process errors never directly
 write Task terminal state. Enforce:
@@ -381,13 +388,14 @@ completed|failed -> open      explicit follow-up/retry
 cancelled -> open             explicit current-user Reopen only
 ```
 
-The projection may return `running`, `awaiting_approval`,
-`awaiting_operation`, `awaiting_child`, `needs_input`, `needs_continue`, and
-terminal/error UI values. None is persisted. `needs_continue` means an open
-Task with no live Attempt that permits a manual follow-up; it never starts work.
-An open delegated child with a terminal latest Attempt follows the same rule.
-Replaying its delegation key returns that projection and cannot synthesize
-Continue.
+Return Task status, latest Attempt, Approval rows, admitted Invocation/
+Operation references, child Tasks, and structured result content directly.
+Do not define or return Task-facing `running`, `awaiting_approval`,
+`awaiting_operation`, `awaiting_child`, `needs_input`, `needs_continue`,
+terminal, or error presentation values. `result.needsInput` remains bounded
+result content, not a lifecycle. Continue is an explicit action available when
+there is no live Attempt and the Task is not cancelled. Replaying a delegation
+key returns existing source facts and cannot synthesize Continue.
 
 - [x] **Step 5: Implement terminal-only transactional Session deletion**
 
@@ -398,7 +406,7 @@ graph by cascade. Admission uses the same Session-before-Task lock order, so a
 delete/admission race cannot leave post-delete work or require a `deleting`
 state. Operations/business resources remain.
 
-- [x] **Step 6: Run lifecycle/race gates and commit**
+- [ ] **Step 6: Run lifecycle/race gates and commit**
 
 ```bash
 rtk npm exec --workspace=apps/server vitest -- run \
@@ -534,8 +542,9 @@ outbound HTTP long-poll/event POST, and direct loopback MCP v2 Streamable HTTP
 The runtime train preserves the 18-capability catalog and all owner boundaries
 established above. It does not authorize any AgentVersion, capability, schema,
 status, or Web changes. Expected: exact logged-in Codex/Claude readiness,
-non-persistent Attempts, bounded live control, complete process-tree cleanup,
-and no provider credential/session/history persistence.
+non-persistent Attempts, trusted full-access/non-interactive provider mode
+under the dedicated non-administrator account, bounded live control, complete
+process-tree cleanup, and no provider credential/session/history persistence.
 
 ## Task 4: Dispatch Durable Mutations and Prove Basic Same-SHA Restart Recovery
 
@@ -663,6 +672,9 @@ Expected: PASS for same-SHA API and worker restart with no duplicate mutation.
 - Modify: `apps/web/src/components/agent-interaction/AgentInteractionProvider.tsx`
 - Modify: `apps/web/src/components/agent-interaction/AgentInteractionPanel.tsx`
 - Modify: `apps/web/src/components/agent-interaction/AgentInteractionSurface.tsx`
+- Modify: `apps/web/src/components/agent-interaction/AgentInteractionTaskList.tsx`
+- Modify: `apps/web/src/components/agent-interaction/useAgentInteraction.ts`
+- Modify: `apps/web/src/components/agent-interaction/__tests__/AgentInteractionSurface.spec.tsx`
 - Modify: `apps/web/src/components/agent-interaction/useKidItemConversation.ts`
 - Modify: `apps/web/src/components/agent-interaction/useInteractionBootstrap.ts`
 - Modify: `apps/web/src/components/agent-interaction/interaction-store.ts`
@@ -692,12 +704,13 @@ Expected: PASS for same-SHA API and worker restart with no duplicate mutation.
 - Modify: `docs/erd/system.md`
 - Modify: `package.json`
 
-- [x] **Step 1: Write failing HTTP/Web/no-replay tests**
+- [ ] **Step 1: Extend failing HTTP/Web/no-replay tests**
 
 Require authenticated same-origin `/api/copilotkit`, one root Task, future live
 AG-UI, disconnect without Attempt cancellation, durable projection on refresh,
 manual Continue successor, exact Approval actions, Task cancel/reopen, terminal-
-only Session delete, and no past chat replay.
+only Session delete, facts-only work data with no Task presentation enum,
+Approval completion without CLI wake/successor, and no past chat replay.
 
 Run:
 
@@ -710,7 +723,7 @@ rtk npm exec --workspace=apps/web vitest -- run src/components/agent-interaction
 
 Expected: FAIL on Copilot thread/replay/Execution assumptions.
 
-- [x] **Step 2: Implement the focused Nest incoming adapter and Web projection**
+- [ ] **Step 2: Implement the focused Nest incoming adapter and facts-only Web view**
 
 Nest authenticates user/organization, calls application ports in process, and
 owns no replay/session/authority/active-process state. First prompt defaults to
@@ -720,8 +733,13 @@ Continue, live interrupt, Task cancel/reopen, and terminal Session delete.
 
 Keep `runtimeUrl="/api/copilotkit"`. Web stores only future live UI events in
 memory and renders durable Task tree, Attempt, Approval, mutation/Operation,
-summary, refs, `needs_input`, and manual `needs_continue`. No transcript is
-rebuilt after refresh.
+summary, refs, and optional structured `result.needsInput` content as source
+facts. It defines no Task presentation enum. Continue is a user action, not a
+state or automatic trigger. No transcript is rebuilt after refresh.
+
+Delete `AgentWorkProjectionService` and the `presentation` field. Rename any
+remaining query/repository/Web aggregate type to facts/view terminology rather
+than preserving a presentation-layer compatibility alias.
 
 - [x] **Step 3: Switch retained product/domain callers before deletion**
 
@@ -771,7 +789,7 @@ rtk npm run check:conventions
 Expected: PASS; destructive output drops only approved legacy Agent OS objects,
 unrelated rows remain, and scanner reports zero findings.
 
-- [x] **Step 6: Run HTTP/Web/cutover gates and commit**
+- [ ] **Step 6: Run HTTP/Web/cutover gates and commit**
 
 ```bash
 rtk npm exec --workspace=apps/server vitest -- run src/agent-os src/operations
@@ -857,14 +875,17 @@ Do not automate restore rehearsal, archive retention policy, RPO/RTO, or release
 drain. Never log the database URL, archive contents, credentials, prompts, or
 canonical mutation input.
 
-- [x] **Step 3: Rewrite durable architecture/runbooks/instructions**
+- [ ] **Step 3: Rewrite durable architecture/runbooks/instructions**
 
 `docs/ARCHITECTURE.md` and Agent OS `AGENTS.md` describe only the single-node
 six-model graph, process-local capacity, terminal deletion, explicit Continue,
 native Host Runner/loopback MCP boundary, and same-SHA restart recovery. Remove
 stale history instead of appending exceptions. Document dedicated-account CLI
-login as an operator prerequisite and code upgrade as stop/start after
-confirming no ready/executing mutation.
+login and trusted full-access/non-interactive execution as operator
+prerequisites. The account is non-administrator, contains no DB/Nest/business
+or unrelated credentials, and is not claimed as a hostile-process containment
+boundary. Document code upgrade as stop/start after confirming no ready/
+executing mutation.
 
 PR release decision is: destructive unreleased Agent OS cutover, no backfill;
 basic custom backup/list/checksum; actual legacy Agent data discarded.
