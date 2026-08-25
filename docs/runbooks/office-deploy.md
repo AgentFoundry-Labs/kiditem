@@ -6,6 +6,12 @@ them to GHCR, and publishes a manifest containing immutable digest references.
 The office PC only pulls and recreates containers; it never builds product
 images during deployment.
 
+GitHub Actions is the immutable release-artifact publisher, not the Office
+host deployer: it never receives the Task Scheduler credential and never
+invokes task registration. After the approved artifact is downloaded, a human
+operator runs its bundled PowerShell entrypoint on the Windows host and supplies
+the dedicated Runner account only as an in-memory `PSCredential`.
+
 ## Human Prerequisites
 
 - `release/office` exists permanently on GitHub, is protected against deletion
@@ -19,7 +25,8 @@ images during deployment.
 - The dedicated local `KidItemAgentRunner` service account exists and the
   operator has completed Codex/Claude login under that account. The deployment
   script verifies and uses the account; it does not create it or read login
-  material.
+  material. The operator can obtain its Windows account credential with a local
+  PowerShell `Get-Credential` prompt when a task-registering operation runs.
 - The operator can read the private GHCR packages
   `kiditem-api` and `kiditem-web`.
 - `C:\ProgramData\Kiditem\.env.office` and the API env file referenced by
@@ -125,11 +132,22 @@ New-Item -ItemType Directory -Force `
 gh run download <run-id> `
   --name "office-deployment-<full-sha>" `
   --dir "C:\ProgramData\Kiditem\incoming\<full-sha>"
+$runnerTaskCredential = Get-Credential -UserName "$env:COMPUTERNAME\KidItemAgentRunner" `
+  -Message 'Credential for the dedicated KidItem Host Runner Task Scheduler account'
 & "C:\ProgramData\Kiditem\incoming\<full-sha>\apply-deployment.ps1" `
   -Operation Deploy `
   -ManifestPath "C:\ProgramData\Kiditem\incoming\<full-sha>\office-deployment.json" `
-  -ApplySchema
+  -ApplySchema `
+  -RunnerTaskCredential $runnerTaskCredential
 ```
+
+`Deploy`, `CutoverDeploy`, `Rollback`, and `RotateRunnerToken` all re-register
+the native task and therefore require `-RunnerTaskCredential`. Create it with
+`Get-Credential` in the current elevated PowerShell process; never put the
+password in an argument string, environment variable, `.env` file, Docker
+secret, transcript, or log. `Status` is read-only and needs no credential.
+The deployment checks that the credential resolves to the same SID as the
+configured dedicated Runner account before it changes runtime state.
 
 Use `-ApplySchema` only when the reviewed release contains a Prisma schema
 change. It is required for the Office local-auth release because that release
@@ -175,7 +193,8 @@ While application writers remain stopped:
    & "C:\ProgramData\Kiditem\incoming\<full-sha>\apply-deployment.ps1" `
      -Operation CutoverDeploy `
      -ConfirmCutoverDeploy `
-     -ManifestPath "C:\ProgramData\Kiditem\incoming\<full-sha>\office-deployment.json"
+     -ManifestPath "C:\ProgramData\Kiditem\incoming\<full-sha>\office-deployment.json" `
+     -RunnerTaskCredential $runnerTaskCredential
    ```
 
    `CutoverDeploy` rejects `-ApplySchema`: the destructive schema step has
@@ -206,7 +225,8 @@ npm run data:migrate -- up --phase pre-schema --release-version <VERSION> --targ
   -Operation Deploy `
   -ManifestPath "C:\ProgramData\Kiditem\incoming\<full-sha>\office-deployment.json" `
   -ApplySchema `
-  -AcceptDataLoss
+  -AcceptDataLoss `
+  -RunnerTaskCredential $runnerTaskCredential
 
 npm run data:migrate -- up --phase post-schema --release-version <VERSION> --target office `
   --confirm APPLY_DATA_MIGRATIONS
@@ -298,12 +318,20 @@ secret file. Provider installation, interactive login, isolated homes and
 workspaces, and process cleanup are native Host Runner responsibilities; they
 are never Compose profile operations or API environment values.
 
-Do not place provider credentials, provider tokens, or the raw Runner bearer in
-the Office env file or command line. The deployment package provisions the
-native Runner under the constrained S4U Task Scheduler account. It verifies the
-archive SHA and runtime contract, protects the config/token with Windows ACLs,
-starts the task only after the matching API is healthy, and requires full
-Windows/runtime/model/direct-MCP readiness before business Attempt admission.
+Do not place provider credentials, provider tokens, the raw Runner bearer, or
+the dedicated Task Scheduler account password in the Office env file or command
+line. The deployment package provisions the native Runner under the constrained
+dedicated account with `TASK_LOGON_PASSWORD`/PowerShell `Password` logon and
+limited privilege. S4U is prohibited because Windows denies it network and
+encrypted-file access; the Runner needs provider HTTPS and its dedicated
+account's login store. This follows Microsoft's
+[`TASK_LOGON_TYPE` contract](https://learn.microsoft.com/windows/win32/api/taskschd/ne-taskschd-task_logon_type).
+The operator supplies the account credential only as an
+in-memory `PSCredential`, and Task Scheduler—not KidItem—keeps the protected
+registration secret. The package verifies the archive SHA and runtime contract,
+protects the config/token with Windows ACLs, starts the task only after the
+matching API is healthy, and requires full Windows/runtime/model/direct-MCP
+readiness before business Attempt admission.
 
 The Runner's installation bearer and each short-lived Attempt bearer are
 different values. Rotation uses the guarded deployment entrypoint and restarts
@@ -311,8 +339,16 @@ the matching API/worker/Runner set before readiness is accepted:
 
 ```powershell
 & C:\workspace\kiditem\deploy\office\apply-deployment.ps1 `
-  -Operation RotateRunnerToken
+  -Operation RotateRunnerToken `
+  -RunnerTaskCredential $runnerTaskCredential
 ```
+
+If the dedicated Windows account password is rotated, update that account using
+the approved Windows administration procedure, obtain a fresh `PSCredential`,
+then immediately run `RotateRunnerToken` as above. That guarded operation
+re-registers the task with the fresh secret, restarts the matching API/worker/
+Runner set, and requires full readiness. It intentionally rotates the Runner
+bearer as well. KidItem never stores the account password.
 
 The Runner makes outbound long-poll/event requests to
 `http://127.0.0.1:4000/internal/agent-runtime/*`; provider MCP calls use the
@@ -345,7 +381,8 @@ before re-checking the 10 GB host-drive guard:
 ```powershell
 & .\apply-deployment.ps1 -Operation Deploy `
   -ManifestPath .\office-deployment.json `
-  -PruneBuildCache
+  -PruneBuildCache `
+  -RunnerTaskCredential $runnerTaskCredential
 ```
 
 The script never runs `docker system prune`, `docker volume prune`, or deletes
@@ -366,7 +403,8 @@ Rollback selects `previous.json`, reuses the same digest/revision and health
 guards, and swaps the current/previous manifest records:
 
 ```powershell
-& C:\workspace\kiditem\deploy\office\apply-deployment.ps1 -Operation Rollback
+& C:\workspace\kiditem\deploy\office\apply-deployment.ps1 -Operation Rollback `
+  -RunnerTaskCredential $runnerTaskCredential
 ```
 
 Rollback is valid for application regressions only.

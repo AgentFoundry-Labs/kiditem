@@ -204,7 +204,8 @@ try {
   # Exercise the real scheduler registration/readback function with an
   # in-process ScheduledTasks adapter. This avoids changing the Windows CI
   # host while still proving the one production implementation builds and
-  # verifies its exact S4U action/principal/trigger/settings contract.
+  # verifies its exact credentialed Password action/principal/trigger/settings
+  # contract without forwarding the password to a child process.
   $taskRelease = Join-Path $root 'task-release'
   $taskRuntime = Join-Path $taskRelease 'package'
   $taskEntrypoint = Join-Path $taskRuntime 'dist\main.cjs'
@@ -222,6 +223,13 @@ try {
   New-Item -ItemType Directory -Path (Split-Path -Parent $fixtureNode) -Force | Out-Null
   Set-Content -LiteralPath $fixtureNode -Value 'fixture' -NoNewline
   $env:ProgramFiles = $fixtureProgramFiles
+  $originalRunnerTaskCredential = Get-Variable -Name RunnerTaskCredential -Scope Script -ValueOnly
+  $fixtureTaskPassword = [guid]::NewGuid().ToString('N')
+  $fixtureTaskCredential = [pscredential]::new(
+    $fixturePrincipal.AccountName,
+    (ConvertTo-SecureString -String $fixtureTaskPassword -AsPlainText -Force)
+  )
+  Set-Variable -Name RunnerTaskCredential -Scope Script -Value $fixtureTaskCredential
   try {
     $script:fixtureRegisteredTask = $null
     function Assert-RunnerServiceAccount { return $fixturePrincipal }
@@ -232,6 +240,15 @@ try {
     function New-ScheduledTaskPrincipal {
       param([string]$UserId, [object]$LogonType, [object]$RunLevel)
       return [pscustomobject]@{ UserId = $UserId; LogonType = $LogonType; RunLevel = $RunLevel }
+    }
+    function New-ScheduledTask {
+      param([object]$Action, [object]$Principal, [object]$Trigger, [object]$Settings)
+      return [pscustomobject]@{
+        Actions = @($Action)
+        Principal = $Principal
+        Triggers = @($Trigger)
+        Settings = $Settings
+      }
     }
     function New-ScheduledTaskTrigger {
       param([switch]$AtStartup)
@@ -248,17 +265,18 @@ try {
       }
     }
     function Register-ScheduledTask {
-      param([string]$TaskName, [object]$Action, [object]$Principal, [object]$Trigger, [object]$Settings, [switch]$Force)
-      if ($TaskName -ne 'KidItem Agent Runner' -or -not $Force) {
+      param([string]$TaskName, [object]$InputObject, [string]$User, [string]$Password, [switch]$Force)
+      if ($TaskName -ne 'KidItem Agent Runner' -or -not $Force -or $User -ne $fixturePrincipal.AccountName) {
         throw 'Fixture expected the exact constrained Host Runner task registration.'
       }
-      $script:fixtureRegisteredTask = [pscustomobject]@{
-        Actions = @($Action)
-        Principal = $Principal
-        Triggers = @($Trigger)
-        Settings = $Settings
+      if ($Password -ne $fixtureTaskPassword) {
+        throw 'Fixture received a Scheduler password different from the supplied in-memory credential.'
       }
-      return $script:fixtureRegisteredTask
+      if ($InputObject.Principal.LogonType.ToString() -ne 'Password' -or $InputObject.Principal.RunLevel.ToString() -ne 'Limited') {
+        throw 'Fixture expected a limited Password-logon Task Scheduler principal.'
+      }
+      $script:fixtureRegisteredTask = $InputObject
+      return $InputObject
     }
     function Get-ScheduledTask {
       param([string]$TaskName)
@@ -289,6 +307,7 @@ try {
     }
   }
   finally {
+    Set-Variable -Name RunnerTaskCredential -Scope Script -Value $originalRunnerTaskCredential
     $env:ProgramFiles = $originalProgramFiles
   }
 

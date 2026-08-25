@@ -381,7 +381,8 @@ test('Office operator binds API, Runner package, scheduler, token rotation, and 
   assert.match(script, /RunnerReleasesRoot = Join-Path \$script:RunnerRoot 'releases'/);
   assert.match(script, /KidItem Agent Runner/);
   assert.match(script, /New-ScheduledTaskPrincipal/);
-  assert.match(script, /-LogonType S4U/);
+  assert.match(script, /-LogonType Password/);
+  assert.match(script, /-RunnerTaskCredential/);
   assert.match(script, /New-ScheduledTaskTrigger -AtStartup/);
   assert.match(script, /RestartCount/);
   assert.match(script, /Set-RunnerProtectedAcl/);
@@ -530,8 +531,15 @@ test('CutoverDeploy never restarts a prior runtime after a contracted-schema can
   assert.match(cutoverBranch, /Restore the approved pre-cutover database backup manually/);
 });
 
-test('Office Runner principal and scheduled task are read back as an exact least-privilege identity', () => {
+test('Office Runner task uses an exact dedicated credentialed identity with network-capable Password logon', () => {
   const script = read('deploy/office/apply-deployment.ps1');
+  const fixture = read('scripts/__tests__/office-windows-native-runtime.fixture.ps1');
+  const runbook = read('docs/runbooks/office-deploy.md');
+  const workflow = read('.github/workflows/office-images.yml');
+  const statusBranch = script.slice(
+    script.indexOf("  'Status' {"),
+    script.indexOf("  'Deploy' {"),
+  );
 
   assert.match(script, /function Resolve-RunnerServicePrincipal/);
   assert.match(script, /SecurityIdentifier/);
@@ -543,12 +551,33 @@ test('Office Runner principal and scheduled task are read back as an exact least
   assert.match(script, /Assert-RunnerPrincipalIsLeastPrivilege/);
   assert.match(script, /SeBatchLogonRight/);
   assert.match(script, /ProfileList/);
+  assert.match(script, /\[pscredential\]\$RunnerTaskCredential/);
+  assert.match(script, /function Assert-RunnerTaskCredential/);
+  assert.match(script, /function Assert-RunnerInstallationPrerequisites[\s\S]*Assert-RunnerTaskCredential/);
+  assert.match(script, /GetNetworkCredential\(\)\.Password/);
   assert.match(script, /function Assert-RunnerScheduledTaskContract/);
-  assert.match(script, /Task\.Principal\.LogonType\.ToString\(\) -ne 'S4U'/);
+  assert.match(script, /-LogonType Password/);
+  assert.match(script, /Register-ScheduledTask[\s\S]*-User \$runnerPrincipal\.AccountName[\s\S]*-Password \$taskPassword/);
+  assert.match(script, /Task\.Principal\.LogonType\.ToString\(\) -ne 'Password'/);
   assert.match(script, /Task\.Principal\.RunLevel\.ToString\(\) -ne 'Limited'/);
   assert.match(script, /BootTrigger/);
   assert.match(script, /WorkingDirectory/);
   assert.match(script, /RestartCount/);
+  assert.doesNotMatch(script, /-LogonType S4U/);
+  assert.doesNotMatch(script, /schtasks\.exe[^\r\n]*\/RP\b/i);
+  assert.doesNotMatch(script, /Write-(?:Host|Warning|Output)[^\r\n]*\$taskPassword/i);
+  assert.match(fixture, /fixtureTaskCredential/);
+  assert.match(fixture, /limited Password-logon Task Scheduler principal/);
+  assert.match(runbook, /TASK_LOGON_PASSWORD/);
+  assert.match(runbook, /-RunnerTaskCredential \$runnerTaskCredential/);
+  assert.match(runbook, /never put the\s+password in an argument string/i);
+  assert.match(runbook, /GitHub Actions[\s\S]*never receives the Task Scheduler credential/i);
+  assert.doesNotMatch(statusBranch, /RunnerTaskCredential/);
+  assert.match(script, /'Deploy' \{[\s\S]*Install-Deployment/);
+  assert.match(script, /'CutoverDeploy' \{[\s\S]*Install-Deployment/);
+  assert.match(script, /'Rollback' \{[\s\S]*Install-Deployment/);
+  assert.match(script, /'RotateRunnerToken' \{[\s\S]*Rotate-RunnerToken/);
+  assert.doesNotMatch(workflow, /RunnerTaskCredential|RUNNER_TASK_(?:PASSWORD|CREDENTIAL)/i);
 });
 
 test('Office artifact verification checks each bundled CLI result before the helper fixture and clears its expected native exit', () => {

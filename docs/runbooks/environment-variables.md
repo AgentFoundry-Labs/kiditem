@@ -288,8 +288,14 @@ Office contract.
 | `AGENT_ADVERTISING_MODEL` | Every published Advertising version | API admission/readiness | Explicit model. |
 
 The Windows Host Runner installer creates the protected Task Scheduler service
-account boundary. An operator performs provider login under that account before
-the Runner reports readiness. KidItem neither stores, copies, nor forwards
+account boundary. It uses Task Scheduler `Password` logon, not S4U: the native
+Runner needs provider HTTPS and the dedicated account's encrypted login store,
+which S4U cannot access. Before any operation that re-registers the task, the
+operator supplies that account's password as an in-memory PowerShell
+`PSCredential`; it is not an Office environment variable, Docker secret, or
+KidItem persistence value. Task Scheduler owns its protected registration
+secret. An operator performs provider login under that account before the
+Runner reports readiness. KidItem neither stores, copies, nor forwards
 Anthropic/OpenAI credentials. The browser reaches same-origin `/api/copilotkit`;
 it has no gateway secret or browser-provided identity.
 

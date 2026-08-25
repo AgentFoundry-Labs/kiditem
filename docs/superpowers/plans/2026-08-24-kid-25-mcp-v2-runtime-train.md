@@ -1041,8 +1041,12 @@ Do not add a second deploy script. `apply-deployment.ps1` owns:
 - protected roots under `C:\ProgramData\KidItem\agent-runner\releases\<gitSha>`;
 - a `current` pointer switched only after package/hash/runtime-manifest checks;
 - Task Scheduler task `KidItem Agent Runner` under the pre-provisioned
-  dedicated account, S4U logon with its user profile, limited privilege,
-  start-at-boot plus restart-on-failure;
+  dedicated account, credentialed `Password` logon with its user profile,
+  limited privilege, start-at-boot plus restart-on-failure. S4U is forbidden
+  because it cannot reach provider HTTPS or the account's encrypted login
+  store. The operator passes the dedicated account credential only as an
+  in-memory PowerShell `PSCredential` when the task is registered; it is never
+  written to env, KidItem storage, argv, or logs;
 - host config containing only loopback origin, protected token path, attempt
   root, and versioned Runner root;
 - ACL: inheritance removed; dedicated Runner account and SYSTEM can read the

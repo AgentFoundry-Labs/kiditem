@@ -16,9 +16,12 @@ param(
   [ValidateRange(30, 900)]
   [int]$HealthTimeoutSeconds = 300,
   # This local account is provisioned before any release. The deployment only
-  # verifies/re-registers its constrained S4U task; it never creates an account
-  # or reads provider login material.
-  [string]$RunnerServiceAccount = 'KidItemAgentRunner'
+  # verifies/re-registers its constrained password-logon task; it never creates
+  # an account or reads provider login material. Supply this object from an
+  # interactive Get-Credential prompt or an approved in-memory secret provider,
+  # never from an argv string, environment value, or Office env file.
+  [string]$RunnerServiceAccount = 'KidItemAgentRunner',
+  [pscredential]$RunnerTaskCredential
 )
 
 Set-StrictMode -Version Latest
@@ -383,7 +386,8 @@ function Get-OfficeEnvValue {
 }
 
 function Assert-RunnerInstallationPrerequisites {
-  Assert-RunnerServiceAccount
+  $runnerPrincipal = Assert-RunnerServiceAccount
+  Assert-RunnerTaskCredential -Principal $runnerPrincipal | Out-Null
   Initialize-RunnerStorage
   $configuredTokenPath = Get-OfficeEnvValue 'KIDITEM_AGENT_RUNNER_TOKEN_FILE'
   if ([System.IO.Path]::GetFullPath($configuredTokenPath) -ne [System.IO.Path]::GetFullPath($script:RunnerTokenPath)) {
@@ -481,6 +485,27 @@ function Assert-RunnerServiceAccount {
   Assert-RunnerPrincipalIsLeastPrivilege $principal
   Assert-RunnerPrincipalProfileAndBatchLogon $principal
   return $principal
+}
+
+function Assert-RunnerTaskCredential {
+  param([Parameter(Mandatory = $true)][object]$Principal)
+
+  if ($null -eq $RunnerTaskCredential -or [string]::IsNullOrWhiteSpace([string]$RunnerTaskCredential.UserName)) {
+    throw 'Host Runner task requires -RunnerTaskCredential from Get-Credential; never provide the password through argv, an environment value, or an Office env file.'
+  }
+  try {
+    $credentialSid = ([System.Security.Principal.NTAccount]::new([string]$RunnerTaskCredential.UserName)).Translate([System.Security.Principal.SecurityIdentifier])
+  }
+  catch {
+    throw 'Host Runner task credential username cannot be resolved to an exact SID.'
+  }
+  if ($credentialSid.Value -ne $Principal.Sid.Value) {
+    throw 'Host Runner task credential username does not match the configured dedicated principal SID.'
+  }
+  if ([string]::IsNullOrWhiteSpace($RunnerTaskCredential.GetNetworkCredential().Password)) {
+    throw 'Host Runner task credential password is empty.'
+  }
+  return $RunnerTaskCredential
 }
 
 function Invoke-RunnerProtectedOwnerTakeover {
@@ -1118,10 +1143,24 @@ function Register-RunnerScheduledTask {
   $runtimeRoot = Join-Path $ReleaseRoot 'package'
   $arguments = '"{0}" --config "{1}"' -f $entryPoint, $configPath
   $action = New-ScheduledTaskAction -Execute $nodeExecutable -Argument $arguments -WorkingDirectory $runtimeRoot
-  $principal = New-ScheduledTaskPrincipal -UserId $runnerPrincipal.AccountName -LogonType S4U -RunLevel Limited
+  $taskCredential = Assert-RunnerTaskCredential -Principal $runnerPrincipal
+  # Microsoft TASK_LOGON_S4U cannot access network resources or encrypted
+  # files. The Runner needs provider HTTPS and its dedicated account's login
+  # store, so register the task with TASK_LOGON_PASSWORD instead. The password
+  # reaches the in-process ScheduledTasks cmdlet only and is never an external
+  # process argument or log value.
+  $principal = New-ScheduledTaskPrincipal -UserId $runnerPrincipal.AccountName -LogonType Password -RunLevel Limited
   $trigger = New-ScheduledTaskTrigger -AtStartup
   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
-  Register-ScheduledTask -TaskName $script:RunnerTaskName -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Force | Out-Null
+  $task = New-ScheduledTask -Action $action -Principal $principal -Trigger $trigger -Settings $settings
+  $taskPassword = $null
+  try {
+    $taskPassword = $taskCredential.GetNetworkCredential().Password
+    Register-ScheduledTask -TaskName $script:RunnerTaskName -InputObject $task -User $runnerPrincipal.AccountName -Password $taskPassword -Force | Out-Null
+  }
+  finally {
+    $taskPassword = $null
+  }
   $registered = Get-ScheduledTask -TaskName $script:RunnerTaskName
   Assert-RunnerScheduledTaskContract -Task $registered -ReleaseRoot $ReleaseRoot -Principal $runnerPrincipal
 }
@@ -1159,8 +1198,8 @@ function Assert-RunnerScheduledTaskContract {
   if ($registeredSid.Value -ne $Principal.Sid.Value) {
     throw 'Host Runner task principal does not match the configured dedicated principal SID.'
   }
-  if ($Task.Principal.LogonType.ToString() -ne 'S4U') {
-    throw 'Host Runner task must use S4U logon.'
+  if ($Task.Principal.LogonType.ToString() -ne 'Password') {
+    throw 'Host Runner task must use Password logon.'
   }
   if ($Task.Principal.RunLevel.ToString() -ne 'Limited') {
     throw 'Host Runner task must run at limited privilege.'
