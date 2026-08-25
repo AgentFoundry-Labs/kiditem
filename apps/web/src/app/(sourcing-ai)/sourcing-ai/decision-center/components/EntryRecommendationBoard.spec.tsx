@@ -30,6 +30,7 @@ const interactionRuntimeMocks = vi.hoisted(() => ({
   useAgent: vi.fn(),
   addMessage: vi.fn(),
   runAgent: vi.fn(),
+  subscribe: vi.fn(() => ({ unsubscribe: vi.fn() })),
 }));
 
 vi.mock('@/hooks/useAuth', () => ({ useAuth: vi.fn() }));
@@ -61,7 +62,11 @@ vi.mock('@copilotkit/react-core/v2', () => ({
   useAgent: (input: unknown) => {
     interactionRuntimeMocks.useAgent(input);
     return {
-      agent: { messages: [], addMessage: interactionRuntimeMocks.addMessage },
+      agent: {
+        messages: [],
+        addMessage: interactionRuntimeMocks.addMessage,
+        subscribe: interactionRuntimeMocks.subscribe,
+      },
       isReady: true,
     };
   },
