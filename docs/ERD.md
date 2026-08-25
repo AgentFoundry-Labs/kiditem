@@ -28,7 +28,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [AgentOS](erd/agentos.md) | 6 |
 | [AI](erd/ai.md) | 22 |
 | [Automation](erd/automation.md) | 2 |
-| [Channels](erd/channels.md) | 21 |
+| [Channels](erd/channels.md) | 22 |
 | [Core](erd/core.md) | 16 |
 | [Finance](erd/finance.md) | 1 |
 | [Inventory](erd/inventory.md) | 6 |
@@ -81,6 +81,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ChannelListingDailySnapshot | Channels | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
 | ChannelListingDeletionOperation | Channels | `channel_listing_deletion_operations` | Channel listing 삭제의 provider side effect 실행 기록. 삭제 대상 외부 listing identity를 요청 시점에 동결한다. |
 | ChannelListingOptionDailySnapshot | Channels | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
+| ChannelRegistrationOwnerIdempotencyReceipt | Channels | `channel_registration_owner_idempotency_receipts` | Agent-triggered registration mutation receipt keyed by the exact Channels owner input, atomically retained with local listing resolution. |
 | ChannelScrapeChunk | Channels | `channel_scrape_chunks` | Browser catalog collection payloads kept in JSONB until an atomic publication succeeds. |
 | ChannelScrapeRun | Channels | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | Channels | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
@@ -693,6 +694,15 @@ erDiagram
     Int quantity
     DateTime createdAt
     DateTime updatedAt
+  }
+  ChannelRegistrationOwnerIdempotencyReceipt {
+    String id PK
+    String organizationId FK
+    String capabilityKey
+    String ownerIdempotencyKey
+    String requestHash
+    Json resultJson
+    DateTime createdAt
   }
   ChannelScrapeChunk {
     String id PK
@@ -2914,6 +2924,7 @@ erDiagram
   Organization ||--o{ ChannelListingOption : "organization"
   Organization ||--o{ ChannelListingOptionDailySnapshot : "organization"
   Organization ||--o{ ChannelListingOptionInventoryComponent : "organization"
+  Organization ||--o{ ChannelRegistrationOwnerIdempotencyReceipt : "organization"
   Organization ||--o{ ChannelScrapeChunk : "organization"
   Organization ||--o{ ChannelScrapeRun : "organization"
   Organization ||--o{ ChannelScrapeSnapshot : "organization"

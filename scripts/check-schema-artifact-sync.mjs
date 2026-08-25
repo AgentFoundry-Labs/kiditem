@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { writeErd } from './generate-prisma-erd.mjs';
 
 const SCHEMA_PATHS = ['prisma/schema.prisma', 'prisma/models/'];
 const ERD_OVERVIEW_PATH = 'docs/ERD.md';
@@ -79,7 +83,52 @@ export function analyzeSchemaArtifactSync(files) {
   };
 }
 
-function main() {
+/**
+ * Regenerate ERD artifacts in an isolated temporary directory and compare
+ * them with the checked-in navigation artifacts without modifying the tree.
+ */
+export async function checkGeneratedErdArtifacts({
+  repoRoot = process.cwd(),
+  generate = writeErd,
+} = {}) {
+  const root = path.resolve(repoRoot);
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'kiditem-schema-artifact-sync-'));
+  const outputPath = path.join(temporaryRoot, ERD_OVERVIEW_PATH);
+  const domainOutputDir = path.join(temporaryRoot, DOMAIN_ERD_PATH);
+
+  try {
+    await generate({
+      modelsDir: path.join(root, 'prisma', 'models'),
+      outputPath,
+      domainOutputDir,
+    });
+
+    const generatedFiles = [
+      ERD_OVERVIEW_PATH,
+      ...(await markdownFiles(domainOutputDir)).map((file) => path.posix.join('docs/erd', file)),
+    ];
+    const trackedDomainFiles = await markdownFiles(path.join(root, DOMAIN_ERD_PATH));
+    const driftedFiles = [];
+
+    for (const file of generatedFiles) {
+      const generated = await readFile(path.join(temporaryRoot, file), 'utf8');
+      const tracked = await readUtf8OrNull(path.join(root, file));
+      if (tracked !== generated) driftedFiles.push(file);
+    }
+
+    for (const file of trackedDomainFiles) {
+      const relativePath = path.posix.join('docs/erd', file);
+      if (!generatedFiles.includes(relativePath)) driftedFiles.push(relativePath);
+    }
+
+    const uniqueDriftedFiles = [...new Set(driftedFiles)].sort((left, right) => left.localeCompare(right));
+    return { matches: uniqueDriftedFiles.length === 0, driftedFiles: uniqueDriftedFiles };
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+}
+
+async function main() {
   const args = parseArgs(process.argv.slice(2));
   const base =
     args.base ||
@@ -100,6 +149,13 @@ function main() {
   }
 
   if (result.hasGeneratedArtifacts) {
+    const generated = await checkGeneratedErdArtifacts();
+    if (!generated.matches) {
+      console.error('check:schema-artifact-sync FAIL');
+      console.error(`Generated ERD drift: ${generated.driftedFiles.join(', ')}`);
+      console.error('Run npm run db:erd, then commit the generated ERD output.');
+      process.exit(1);
+    }
     console.log('check:schema-artifact-sync PASS');
     console.log(`Schema files: ${result.schemaFiles.join(', ')}`);
     console.log(
@@ -117,6 +173,28 @@ function main() {
   process.exit(1);
 }
 
+async function markdownFiles(directory) {
+  try {
+    const entries = await readdir(directory, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+      .map((entry) => entry.name)
+      .sort((left, right) => left.localeCompare(right));
+  } catch (error) {
+    if (error && typeof error === 'object' && error.code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
+async function readUtf8OrNull(filePath) {
+  try {
+    return await readFile(filePath, 'utf8');
+  } catch (error) {
+    if (error && typeof error === 'object' && error.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  main();
+  void main();
 }

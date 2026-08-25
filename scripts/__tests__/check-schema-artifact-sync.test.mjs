@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import * as schemaArtifactSync from '../check-schema-artifact-sync.mjs';
 import {
   analyzeSchemaArtifactSync,
   mergeChangedFiles,
@@ -67,4 +71,35 @@ test('merges committed, staged, unstaged, and untracked changed files', () => {
     'docs/ERD.md',
     'docs/erd/orders.md',
   ]);
+});
+
+test('reports stale generated ERD content rather than accepting changed artifact paths alone', async () => {
+  const repoRoot = await mkdtemp(path.join(os.tmpdir(), 'kiditem-schema-artifact-sync-'));
+
+  try {
+    await mkdir(path.join(repoRoot, 'prisma', 'models'), { recursive: true });
+    await mkdir(path.join(repoRoot, 'docs', 'erd'), { recursive: true });
+    await writeFile(
+      path.join(repoRoot, 'prisma', 'models', 'channels.prisma'),
+      `/// @namespace Channels
+/// @describe Durable owner receipt.
+model ChannelReceipt {
+  id String @id
+
+  @@map("channel_receipts")
+}
+`,
+      'utf8',
+    );
+    await writeFile(path.join(repoRoot, 'docs', 'ERD.md'), 'stale overview\n', 'utf8');
+    await writeFile(path.join(repoRoot, 'docs', 'erd', 'channels.md'), 'stale domain\n', 'utf8');
+
+    assert.equal(typeof schemaArtifactSync.checkGeneratedErdArtifacts, 'function');
+    const result = await schemaArtifactSync.checkGeneratedErdArtifacts({ repoRoot });
+
+    assert.equal(result.matches, false);
+    assert.deepEqual(result.driftedFiles, ['docs/ERD.md', 'docs/erd/channels.md']);
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
 });

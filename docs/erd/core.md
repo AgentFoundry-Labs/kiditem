@@ -397,6 +397,7 @@ erDiagram
 | Organization | organization | referenced by external | Channels | ChannelListingDailySnapshot |
 | Organization | organization | referenced by external | Channels | ChannelListingDeletionOperation |
 | Organization | organization | referenced by external | Channels | ChannelListingOptionDailySnapshot |
+| Organization | organization | referenced by external | Channels | ChannelRegistrationOwnerIdempotencyReceipt |
 | Organization | organization | referenced by external | Channels | ChannelScrapeChunk |
 | Organization | organization | referenced by external | Channels | ChannelScrapeRun |
 | Organization | organization | referenced by external | Channels | ChannelScrapeSnapshot |
