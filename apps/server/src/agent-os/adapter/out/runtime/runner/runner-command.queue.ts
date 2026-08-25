@@ -20,12 +20,18 @@ type CommandRecord = {
 
 type StartState = {
   fingerprint: string;
+  replayFingerprint: string;
   commandId: string;
   commandHash: string;
   deadlineAt: string;
   mcpToolScope: AttemptLaunchSpec['mcpToolScope'];
   leaseGeneration: number;
 };
+
+export type RunnerStartReplayMetadata = Readonly<{
+  deadlineAt: string;
+  leaseGeneration: number;
+}>;
 
 type AcknowledgementTombstone = {
   attemptId: string;
@@ -65,15 +71,24 @@ export class RunnerCommandQueue {
     this.maxEntries = Math.max(1, options.maxEntries ?? RUNNER_COMMAND_QUEUE_MAX_ENTRIES);
   }
 
-  enqueueStart(input: { launch: AttemptLaunchSpec; deadlineAt: Date; leaseGeneration: number }): RunnerStartCommand {
+  enqueueStart(input: {
+    launch: AttemptLaunchSpec;
+    deadlineAt: Date;
+    leaseGeneration: number;
+    replayFingerprint?: string;
+  }): RunnerStartCommand {
     const attemptId = input.launch.attemptId;
     if (this.terminalAttempts.has(attemptId)) throw new Error('attempt_terminal');
     if (this.fencedAttempts.has(attemptId)) throw new Error('attempt_generation_fenced');
     assertLeaseGeneration(input.leaseGeneration);
     const fingerprint = hash(canonicalStartCommandInput(input));
+    const replayFingerprint = input.replayFingerprint ?? fingerprint;
+    assertReplayFingerprint(replayFingerprint);
     const existing = this.startStates.get(attemptId);
     if (existing) {
-      if (existing.fingerprint !== fingerprint) throw new Error('runner_start_command_conflict');
+      if (existing.fingerprint !== fingerprint || existing.replayFingerprint !== replayFingerprint) {
+        throw new Error('runner_start_command_conflict');
+      }
       const active = this.records.get(existing.commandId)?.command;
       if (active?.kind === 'attempt.start') return active;
       // The original raw token was discarded on acknowledgement. Rehydrate a
@@ -100,6 +115,7 @@ export class RunnerCommandQueue {
     };
     this.startStates.set(attemptId, {
       fingerprint,
+      replayFingerprint,
       commandId: command.commandId,
       commandHash: command.commandHash,
       deadlineAt: command.deadlineAt,
@@ -260,6 +276,24 @@ export class RunnerCommandQueue {
     return this.startStates.has(attemptId);
   }
 
+  /** Token-free identity metadata retained until terminalization or lease fencing. */
+  startReplayMetadataForAttempt(attemptId: string): RunnerStartReplayMetadata | null {
+    const state = this.startStates.get(attemptId);
+    return state ? Object.freeze({ deadlineAt: state.deadlineAt, leaseGeneration: state.leaseGeneration }) : null;
+  }
+
+  /**
+   * Confirms a retry has the exact business identity that originally created
+   * this Attempt start. The state deliberately contains only an opaque digest.
+   */
+  assertStartReplayFingerprint(input: { attemptId: string; replayFingerprint: string }): void {
+    assertReplayFingerprint(input.replayFingerprint);
+    const state = this.startStates.get(input.attemptId);
+    if (state && state.replayFingerprint !== input.replayFingerprint) {
+      throw new Error('runner_start_command_conflict');
+    }
+  }
+
   commandAttempt(commandId: string): string | null {
     return this.records.get(commandId)?.command.attemptId
       ?? this.acknowledgements.get(commandId)?.attemptId
@@ -347,6 +381,10 @@ function canonicalStartCommandInput(input: { launch: AttemptLaunchSpec; deadline
 
 function assertLeaseGeneration(value: number): void {
   if (!Number.isSafeInteger(value) || value < 1) throw new Error('runner_lease_generation_invalid');
+}
+
+function assertReplayFingerprint(value: string): void {
+  if (!/^[a-f0-9]{64}$/.test(value)) throw new Error('runner_start_replay_fingerprint_invalid');
 }
 
 function immutableLaunch(launch: AttemptLaunchSpec): AttemptLaunchSpec {

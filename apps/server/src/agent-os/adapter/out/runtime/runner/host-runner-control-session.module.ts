@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { AttemptLaunchSpecSchema } from '@kiditem/shared/agent-runtime';
 import { AttemptTokenRegistry } from './attempt-token.registry';
 import { RunnerCommandQueue } from './runner-command.queue';
@@ -179,19 +180,29 @@ export class HostRunnerControlSession implements HostRunnerControlSessionPort {
   }): void {
     if (input.launch.mcpToolScope !== 'business') throw new Error('runner_business_launch_scope_invalid');
     const lease = this.leases.requireReady();
-    const existing = this.commands.startForAttempt(input.launch.attemptId);
-    if (!existing && this.commands.hasStartedAttempt(input.launch.attemptId)) return;
-    const deadlineAt = existing ? new Date(existing.deadlineAt) : input.deadlineAt;
+    const replay = this.commands.startReplayMetadataForAttempt(input.launch.attemptId);
+    const deadlineAt = replay ? new Date(replay.deadlineAt) : input.deadlineAt;
+    const leaseGeneration = replay?.leaseGeneration ?? this.leases.generationForLease(lease);
+    const replayFingerprint = businessStartReplayFingerprint({
+      launch: input.launch,
+      binding: input.binding,
+      deadlineAt,
+      leaseGeneration,
+    });
+    if (replay) {
+      this.commands.assertStartReplayFingerprint({ attemptId: input.launch.attemptId, replayFingerprint });
+      return;
+    }
     let issued = false;
     try {
-      const attemptToken = existing?.launch.attemptToken
-        ?? this.tokens.issueBusiness({ binding: input.binding, leaseId: lease.leaseId, deadline: deadlineAt }).raw;
-      issued = !existing;
+      const attemptToken = this.tokens.issueBusiness({ binding: input.binding, leaseId: lease.leaseId, deadline: deadlineAt }).raw;
+      issued = true;
       const launch = AttemptLaunchSpecSchema.parse({ ...input.launch, attemptToken });
       this.commands.enqueueStart({
         launch,
         deadlineAt,
-        leaseGeneration: this.leases.generationForLease(lease),
+        leaseGeneration,
+        replayFingerprint,
       });
     } catch (error) {
       if (issued) this.tokens.revokeAttempt(input.launch.attemptId);
@@ -203,4 +214,30 @@ export class HostRunnerControlSession implements HostRunnerControlSessionPort {
     this.tokens.revokeAttempt(input.attemptId);
     return this.commands.enqueueInterrupt(input);
   }
+}
+
+/**
+ * This stays process-local and stores only a SHA-256 digest in the command
+ * queue. The raw attempt token is neither an input nor part of retained replay
+ * metadata, while the MCP binding remains part of the replay identity.
+ */
+function businessStartReplayFingerprint(input: {
+  launch: Omit<AttemptLaunchSpec, 'attemptToken'>;
+  binding: AttemptMcpBinding;
+  deadlineAt: Date;
+  leaseGeneration: number;
+}): string {
+  return createHash('sha256').update(stableJson({
+    launch: input.launch,
+    binding: input.binding,
+    deadlineAt: input.deadlineAt.toISOString(),
+    leaseGeneration: input.leaseGeneration,
+  })).digest('hex');
+}
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(',')}}`;
 }
