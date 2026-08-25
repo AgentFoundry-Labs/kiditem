@@ -6,11 +6,11 @@ import {
 } from "@kiditem/shared/agent-interaction";
 import { AgentOsRuntimeError } from "../../../domain/agent-os.errors";
 import type {
-  AgentWorkTransactionPort,
   InvocationAuthorizationInput,
   InvocationAuthorizationResult,
   InlineInvocationFinalizeInput,
-} from "../../port/out/work/agent-work-transaction.port";
+} from "../../port/out/work/agent-work-persistence.types";
+import type { AgentWorkInvocationApprovalPort } from "../../port/out/work/agent-work-invocation-approval.port";
 import { AgentCapabilityRegistry } from "../agent-capability-registry.service";
 import { MUTATION_EFFECTS } from "../../../domain/capability/capability-definition";
 import type { SourcingCapabilityAdmissionPort } from "../../../../sourcing/application/port/in/capability/sourcing-capability-admission.port";
@@ -31,11 +31,7 @@ type PublicAuthorizationInput = Pick<
 
 export class AgentCapabilityInvocationService {
   constructor(
-    private readonly transactions: Pick<
-      AgentWorkTransactionPort,
-      "authorizeInvocation"
-      | "finalizeInlineInvocation"
-    >,
+    private readonly transactions: AgentWorkInvocationApprovalPort,
     private readonly capabilities: Pick<
       AgentCapabilityRegistry,
       "resolveDefinition"

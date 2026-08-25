@@ -1,15 +1,12 @@
 import {
   ATTEMPT_RUNTIME_TRAIN,
-  AttemptLaunchSpecSchema,
   type AttemptLaunchSpec,
 } from '@kiditem/shared/agent-runtime';
 import type {
   LiveAttemptExecutionCapabilityPort,
   LiveAttemptMcpBinding,
 } from '../../../../application/port/in/capability/live-attempt-execution.capability.port';
-import { AttemptTokenRegistry } from './attempt-token.registry';
-import { RunnerCommandQueue } from './runner-command.queue';
-import { RunnerLeaseRegistry } from './runner-lease.registry';
+import type { HostRunnerControlAttemptPort } from './host-runner-control-session.module';
 
 const MAX_ATTEMPT_TIMEOUT_MS = 30 * 60_000;
 
@@ -20,9 +17,7 @@ export interface AttemptPromptResolver {
 export interface HostRunnerAttemptExecutorServiceOptions {
   admission: { assert(binding: Pick<LiveAttemptMcpBinding, 'attemptId' | 'organizationId' | 'sessionId' | 'taskId' | 'agentVersionId'>, runtime: 'codex_cli' | 'claude_cli'): Promise<void> };
   prompts: AttemptPromptResolver;
-  tokens: AttemptTokenRegistry;
-  commands: RunnerCommandQueue;
-  leases: RunnerLeaseRegistry;
+  control: Pick<HostRunnerControlAttemptPort, 'startBusiness' | 'interrupt'>;
   loopbackOrigin: string;
   now?: () => Date;
 }
@@ -43,48 +38,31 @@ export class HostRunnerAttemptExecutorService implements LiveAttemptExecutionCap
   async start(input: Parameters<LiveAttemptExecutionCapabilityPort['start']>[0]): Promise<void> {
     await this.options.admission.assert(input.mcp, input.runtime);
     const prompt = await this.options.prompts.resolve({ reference: input.instructionProfileRef, prompt: input.prompt });
-    const lease = this.options.leases.requireReady();
-    const leaseGeneration = this.options.leases.generationForLease(lease);
-    const existing = this.options.commands.startForAttempt(input.attemptId);
-    if (!existing && this.options.commands.hasStartedAttempt(input.attemptId)) return;
-    const deadlineAt = existing
-      ? new Date(existing.deadlineAt)
-      : validDeadline(input.deadlineAt, this.now());
-    let issued = false;
-    try {
-      const raw = existing?.launch.attemptToken
-        ?? this.options.tokens.issueBusiness({ binding: input.mcp, leaseId: lease.leaseId, deadline: deadlineAt }).raw;
-      issued = !existing;
-      const launch = parseLaunch({
-        attemptId: input.attemptId,
-        runtime: input.runtime,
-        model: input.profile.model,
-        prompt,
-        timeoutMs: Math.max(1_000, Math.min(MAX_ATTEMPT_TIMEOUT_MS, deadlineAt.getTime() - this.now().getTime())),
-        mcpUrl: new URL(`/internal/agent-runtime/attempts/${input.attemptId}/mcp`, this.origin).toString(),
-        attemptToken: raw,
-      });
-      this.options.commands.enqueueStart({ launch, deadlineAt, leaseGeneration });
-    } catch (error) {
-      if (issued) this.options.tokens.revokeAttempt(input.attemptId);
-      throw error;
-    }
+    const deadlineAt = validDeadline(input.deadlineAt, this.now());
+    const launch = parseLaunch({
+      attemptId: input.attemptId,
+      runtime: input.runtime,
+      model: input.profile.model,
+      prompt,
+      timeoutMs: Math.max(1_000, Math.min(MAX_ATTEMPT_TIMEOUT_MS, deadlineAt.getTime() - this.now().getTime())),
+      mcpUrl: new URL(`/internal/agent-runtime/attempts/${input.attemptId}/mcp`, this.origin).toString(),
+    });
+    this.options.control.startBusiness({ launch, binding: input.mcp, deadlineAt });
   }
 
   async interrupt(attemptId: string): Promise<void> {
-    this.options.tokens.revokeAttempt(attemptId);
-    this.options.commands.enqueueInterrupt({ attemptId, deadlineAt: this.now() });
+    this.options.control.interrupt({ attemptId, deadlineAt: this.now() });
   }
 }
 
-function parseLaunch(input: Pick<AttemptLaunchSpec, 'attemptId' | 'runtime' | 'model' | 'prompt' | 'timeoutMs' | 'mcpUrl' | 'attemptToken'>): AttemptLaunchSpec {
-  return AttemptLaunchSpecSchema.parse({
+function parseLaunch(input: Pick<AttemptLaunchSpec, 'attemptId' | 'runtime' | 'model' | 'prompt' | 'timeoutMs' | 'mcpUrl'>): Omit<AttemptLaunchSpec, 'attemptToken'> {
+  return {
     ...input,
     workspacePolicy: 'empty_ephemeral_v1',
     mcpToolScope: 'business',
     mcpProtocolRevision: ATTEMPT_RUNTIME_TRAIN.mcpProtocolRevision,
     cliContractIdentity: ATTEMPT_RUNTIME_TRAIN.cliContractIdentity,
-  });
+  };
 }
 
 function validDeadline(deadline: Date | undefined, now: Date): Date {

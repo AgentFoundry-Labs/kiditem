@@ -7,7 +7,7 @@ import type {
   ApprovalDecisionResult,
   TaskLifecycleTransitionInput,
   TerminalSessionDeleteInput,
-} from '../../out/work/agent-work-transaction.port';
+} from '../../out/work/agent-work-persistence.types';
 
 export const AGENT_WORK_COMMAND_PORT = Symbol('AGENT_WORK_COMMAND_PORT');
 

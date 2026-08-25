@@ -35,7 +35,16 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort, Agent
   async loadOwnedProjection(input: { organizationId: string; userId: string; sessionId: string }): Promise<unknown | null> {
     return this.prisma.agentSession.findFirst({
       where: { id: input.sessionId, organizationId: input.organizationId, createdByUserId: input.userId },
-      include: { tasks: { include: { attempts: { orderBy: { ordinal: 'desc' }, take: 1 }, invocations: { include: { approval: true }, orderBy: { createdAt: 'desc' } } }, orderBy: { createdAt: 'asc' } } },
+      include: {
+        tasks: {
+          include: {
+            assignedAgentVersion: { select: { agentDefinitionKey: true } },
+            attempts: { orderBy: { ordinal: 'desc' }, take: 1 },
+            invocations: { include: { approval: true }, orderBy: { createdAt: 'desc' } },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
     });
   }
 

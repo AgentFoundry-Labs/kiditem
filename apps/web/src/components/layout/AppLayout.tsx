@@ -15,7 +15,7 @@ import GenerationCompletionWatcher from '@/components/GenerationCompletionWatche
 import QuickActionFab from '@/components/QuickActionFab';
 import { useAuth } from '@/hooks/useAuth';
 import RebuildReadinessBanner from '@/components/RebuildReadinessBanner';
-import { useInteractionStore } from '@/components/agent-interaction/interaction-store';
+import { openInteraction } from '@/components/agent-interaction/interaction-surface-state';
 import Sidebar from './Sidebar';
 
 const AgentInteractionProvider = dynamic(
@@ -37,7 +37,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const auth = useAuth();
   const pathname = usePathname();
   const router = useRouter();
-  const setInteractionOpen = useInteractionStore((state) => state.setOpen);
 
   // 풀스크린 surface — sidebar/panel/copilot 없이 children 만 렌더.
   // - `/` (launcher) 와 `/agent-os` 는 자체 레이아웃 (main).
@@ -57,6 +56,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [auth.status, isFullscreenSurface, pathname, router]);
 
   if (isFullscreenSurface) {
+    if (pathname.startsWith('/agent-os')) {
+      return <AgentInteractionProvider>{children}</AgentInteractionProvider>;
+    }
     return <>{children}</>;
   }
 
@@ -137,7 +139,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <GlobalConfirmDialog />
       <GenerationCompletionWatcher />
       {isEditorRoute ? null : (
-        <QuickActionFab onAgentInteractionOpen={() => setInteractionOpen(true)} />
+        <QuickActionFab
+          onAgentInteractionOpen={() => openInteraction({
+            agentDefinitionKey: null,
+            sessionId: null,
+            draft: '',
+          })}
+        />
       )}
     </div>
   );

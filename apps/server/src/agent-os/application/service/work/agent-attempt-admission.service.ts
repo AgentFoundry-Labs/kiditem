@@ -3,26 +3,18 @@ import type {
   AdmitAttemptResult,
   AdmitRootAttemptInput,
   AdmitRootAttemptResult,
-  AgentWorkTransactionPort,
   DelegateTaskInput,
   DelegateTaskResult,
-} from "../../port/out/work/agent-work-transaction.port";
+} from "../../port/out/work/agent-work-persistence.types";
+import type { AgentWorkAdmissionPort } from "../../port/out/work/agent-work-admission.port";
 import type { AgentAttemptReadinessPreflightPort } from '../../port/out/runtime/agent-attempt-readiness-preflight.port';
 import { AgentAttemptCapacityService } from "./agent-attempt-capacity.service";
 
 /** The sole capacity gate for every local CLI attempt admission path. */
 export class AgentAttemptAdmissionService {
-  private readonly accepted = new Map<string, () => void>();
-
   constructor(
     private readonly capacity: AgentAttemptCapacityService,
-    private readonly transactions: Pick<
-      AgentWorkTransactionPort,
-      | "admitAttempt"
-      | "admitRootAttempt"
-      | "findDelegationReplay"
-      | "delegateTask"
-    >,
+    private readonly transactions: AgentWorkAdmissionPort,
     private readonly readiness: AgentAttemptReadinessPreflightPort,
   ) {}
 
@@ -31,7 +23,7 @@ export class AgentAttemptAdmissionService {
     const lease = this.capacity.tryReserve();
     try {
       const admitted = await this.transactions.admitAttempt(input);
-      this.accepted.set(admitted.attemptId, lease.release);
+      this.capacity.acceptAttempt(admitted.attemptId, lease);
       return admitted;
     } catch (error) {
       lease.release();
@@ -44,7 +36,7 @@ export class AgentAttemptAdmissionService {
     const lease = this.capacity.tryReserve();
     try {
       const admitted = await this.transactions.admitRootAttempt(input);
-      this.accepted.set(admitted.attempt.id, lease.release);
+      this.capacity.acceptAttempt(admitted.attempt.id, lease);
       return admitted;
     } catch (error) {
       lease.release();
@@ -68,7 +60,7 @@ export class AgentAttemptAdmissionService {
     try {
       const delegated = await this.transactions.delegateTask(input);
       if (delegated.replayed) lease.release();
-      else this.accepted.set(delegated.firstAttemptId, lease.release);
+      else this.capacity.acceptAttempt(delegated.firstAttemptId, lease);
       return delegated;
     } catch (error) {
       lease.release();
@@ -78,9 +70,6 @@ export class AgentAttemptAdmissionService {
 
   /** Called once the local CLI process reaches any terminal state. */
   releaseAttempt(attemptId: string): void {
-    const release = this.accepted.get(attemptId);
-    if (!release) return;
-    this.accepted.delete(attemptId);
-    release();
+    this.capacity.releaseAttempt(attemptId);
   }
 }

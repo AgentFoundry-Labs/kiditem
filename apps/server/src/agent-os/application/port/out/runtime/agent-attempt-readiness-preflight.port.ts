@@ -2,7 +2,7 @@ import type {
   AdmitAttemptInput,
   AdmitRootAttemptInput,
   DelegateTaskInput,
-} from '../work/agent-work-transaction.port';
+} from '../work/agent-work-persistence.types';
 
 /** Exact Runner tuple validation before a durable Attempt admission begins. */
 export interface AgentAttemptReadinessPreflightPort {

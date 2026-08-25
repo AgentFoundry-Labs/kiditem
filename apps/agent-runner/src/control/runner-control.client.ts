@@ -2,7 +2,6 @@ import {
   RunnerCommandBatchSchema,
   RunnerEventAcknowledgementSchema,
   RunnerLeaseResponseSchema,
-  type RunnerCommandBatch,
   type RunnerEventBatch,
   type RunnerHello,
   type RunnerLeaseResponse,
@@ -13,6 +12,7 @@ export class RunnerControlHttpError extends Error {
   constructor(readonly status: number) { super(`runner_control_http_${status}`); }
 }
 
+/** Outbound HTTP adapter; the native session owns retry and lease-loss state. */
 export class RunnerControlClient {
   private readonly origin: URL;
   private readonly request: typeof fetch;
@@ -90,114 +90,6 @@ export class RunnerControlClient {
 
   private noteSuccessfulPollResponse(): void {
     for (const listener of this.successfulPollListeners) listener();
-  }
-}
-
-/** A single serial long-poll loop. Transient failures may reconnect only before the lease deadline. */
-export class RunnerControlLoop {
-  private readonly now: () => number;
-  private readonly sleep: (milliseconds: number) => Promise<void>;
-  private readonly controlLossDeadlineMs: number;
-
-  constructor(private readonly options: Readonly<{
-    client: RunnerControlClient;
-    now?: () => number;
-    sleep?: (milliseconds: number) => Promise<void>;
-    controlLossDeadlineMs?: number;
-  }>) {
-    this.now = options.now ?? Date.now;
-    this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
-    this.controlLossDeadlineMs = options.controlLossDeadlineMs ?? 30_000;
-  }
-
-  async run(input: Readonly<{
-    runnerInstanceId: string;
-    leaseId: string;
-    onCommands: (commands: RunnerCommandBatch) => Promise<void>;
-    killAll: () => Promise<void>;
-  }>): Promise<never> {
-    const deadline = new RunnerControlLossDeadline({
-      client: this.options.client,
-      now: this.now,
-      durationMs: this.controlLossDeadlineMs,
-      killAll: input.killAll,
-    });
-    const unsubscribe = this.options.client.onSuccessfulCommandPoll(() => deadline.reset());
-    deadline.start();
-    try {
-      for (;;) {
-        try {
-          const commands = await deadline.race(this.options.client.poll({ kind: 'poll', runnerInstanceId: input.runnerInstanceId, leaseId: input.leaseId }));
-          if (commands) await deadline.race(input.onCommands(commands));
-          continue; // 204 intentionally repolls immediately.
-        } catch (error) {
-          if (deadline.expired) return await deadline.waitForLoss();
-          if (error instanceof RunnerControlHttpError && (error.status === 401 || error.status === 403 || error.status === 409)) {
-            return await deadline.failClosed();
-          }
-          await deadline.race(this.sleep(100));
-        }
-      }
-    } finally {
-      unsubscribe();
-      deadline.dispose();
-    }
-  }
-}
-
-/** A wall-clock lease boundary which stays live while an individual fetch never settles. */
-class RunnerControlLossDeadline {
-  private readonly loss: Promise<never>;
-  private rejectLoss!: (error: Error) => void;
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  private lossStarted = false;
-  private disposed = false;
-  private deadline = 0;
-
-  constructor(private readonly options: Readonly<{
-    client: RunnerControlClient;
-    now: () => number;
-    durationMs: number;
-    killAll: () => Promise<void>;
-  }>) {
-    if (!Number.isFinite(options.durationMs) || options.durationMs <= 0) throw new Error('runner_control_deadline_invalid');
-    this.loss = new Promise<never>((_resolve, reject) => { this.rejectLoss = reject; });
-  }
-
-  get expired(): boolean { return this.lossStarted; }
-
-  start(): void { this.reset(); }
-
-  reset(): void {
-    if (this.disposed || this.lossStarted) return;
-    this.deadline = this.options.now() + this.options.durationMs;
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(() => { void this.failClosed().catch(() => undefined); }, Math.max(0, this.deadline - this.options.now()));
-  }
-
-  race<T>(work: Promise<T>): Promise<T> { return Promise.race([work, this.loss]); }
-
-  async failClosed(): Promise<never> {
-    if (!this.lossStarted) {
-      this.lossStarted = true;
-      if (this.timer) { clearTimeout(this.timer); this.timer = null; }
-      this.options.client.abortInFlight();
-      let cleanup: Promise<void>;
-      try { cleanup = Promise.resolve(this.options.killAll()); }
-      catch (error) { cleanup = Promise.reject(error); }
-      void cleanup.then(
-        () => this.rejectLoss(new Error('runner_lease_lost')),
-        (error) => this.rejectLoss(new AggregateError([error], 'runner_control_kill_all_failed')),
-      );
-    }
-    return this.loss;
-  }
-
-  waitForLoss(): Promise<never> { return this.loss; }
-
-  dispose(): void {
-    this.disposed = true;
-    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
   }
 }
 

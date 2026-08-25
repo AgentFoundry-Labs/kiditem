@@ -3,8 +3,11 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { kstDayStart } from '../common/kst';
 import { SELLPIA_SALES_COVERAGE_SELLER_ID } from '../analytics/sellpia-sales/domain/snapshot-coverage';
-import { RunnerReadinessService } from '../agent-os/adapter/out/runtime/runner/runner-readiness.service';
-import type { RunnerReadinessSnapshot } from '../agent-os/adapter/out/runtime/runner/runner-readiness.service';
+import {
+  HOST_RUNNER_CONTROL_READINESS_PORT,
+  type HostRunnerControlReadinessPort,
+  type RunnerReadinessSnapshot,
+} from '../agent-os/adapter/out/runtime/runner/host-runner-control-session.module';
 import type {
   ReadinessCheck,
   ReadinessResponse,
@@ -37,8 +40,8 @@ export type AgentAttemptRuntimeReadinessResponse = Readonly<{
 export class ReadinessService {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(RunnerReadinessService)
-    private readonly attemptReadiness: RunnerReadinessService,
+    @Inject(HOST_RUNNER_CONTROL_READINESS_PORT)
+    private readonly attemptReadiness: Pick<HostRunnerControlReadinessPort, 'assertRuntime' | 'beginCanary' | 'snapshot'>,
   ) {}
 
   /**
@@ -459,7 +462,7 @@ function isRunnerNotReady(error: unknown): boolean {
   return error instanceof Error && error.message === 'runner_not_ready';
 }
 
-function runnerSnapshot(readiness: Pick<RunnerReadinessService, 'snapshot'> | { snapshot?: () => RunnerReadinessSnapshot | null }): RunnerReadinessSnapshot | null {
+function runnerSnapshot(readiness: Pick<HostRunnerControlReadinessPort, 'snapshot'> | { snapshot?: () => RunnerReadinessSnapshot | null }): RunnerReadinessSnapshot | null {
   if (typeof readiness.snapshot !== 'function') return null;
   try {
     return readiness.snapshot();

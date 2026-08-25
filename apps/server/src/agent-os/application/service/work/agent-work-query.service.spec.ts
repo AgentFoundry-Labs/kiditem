@@ -2,6 +2,35 @@ import { describe, expect, it } from 'vitest';
 import { AgentWorkQueryService } from './agent-work-query.service';
 
 describe('AgentWorkQueryService continuation context', () => {
+  it('projects the immutable assigned Agent definition for durable-session UI pinning', async () => {
+    const repository = {
+      loadOwnedProjection: async () => ({
+        id: 'session-1',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        tasks: [{
+          id: 'task-1',
+          parentTaskId: null,
+          objective: 'Research supplier evidence',
+          completionCriteria: 'Return a decision',
+          status: 'open',
+          assignedAgentVersion: { agentDefinitionKey: 'sourcing' },
+          attempts: [],
+          invocations: [],
+        }],
+      }),
+    };
+    const service = new AgentWorkQueryService(repository as never);
+
+    const projection = await service.projection({
+      organizationId: 'org-1',
+      userId: 'user-1',
+      sessionId: 'session-1',
+    }) as { tasks: Array<{ agentDefinitionKey: string }> };
+
+    expect(projection.tasks[0]?.agentDefinitionKey).toBe('sourcing');
+  });
+
   it('builds a bounded successor prompt from durable work facts without prior raw input', async () => {
     const repository = {
       loadOwnedProjection: async () => ({

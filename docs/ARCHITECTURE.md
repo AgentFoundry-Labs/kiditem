@@ -1011,6 +1011,33 @@ imports the HTTP adapter. Restart/follow-up reasoning always starts a new
 immutable Attempt from durable KidItem state; provider session/history is never
 resumed.
 
+The runtime keeps five stateful boundaries deep and leaves data-only contracts
+flat:
+
+- one API-side `HostRunnerControlSession` owns lease generation, command
+  delivery/ACK, event fencing, readiness/canary state, terminal cleanup, token
+  revocation, and lease-loss recovery; HTTP, MCP, live-input, and launch code
+  receive narrow views of that same session;
+- one native `NativeRunnerControlSession` owns polling, command dispatch,
+  event outbox retry, control-loss deadline, and shutdown, while the HTTP client
+  and CLI process supervisor remain adapters;
+- one `AgentWorkIntakePort` owns AgentVersion selection, explicit runtime/model
+  resolution, root or immutable-successor admission, launch context, and future
+  output binding for both REST and CopilotKit;
+- one ephemeral interaction-state module owns the selected Agent, one-time
+  draft, durable session URL coordinate, and new/select/close actions; a loaded
+  Session is pinned to its root Task's immutable Agent definition;
+- four persistence interfaces separate admission, invocation/approval,
+  mutation, and lifecycle/recovery callers while sharing one Prisma atomicity
+  implementation and its lock ordering.
+
+Owner domains pair their own `CapabilityDefinition`, incoming port, and
+implementation in owner-local composition adapters. Agent OS only aggregates
+those compositions and rejects duplicate, missing, unexpected, or mismatched
+registrations. The 18-entry catalog, Zod schemas, and Host Runner wire DTOs stay
+flat declarations; wrapping them in stateful service classes would add no
+invariant ownership.
+
 Each public capability is defined by its owner domain with strict business Zod
 input/output contracts. Agent OS aggregates definitions, applies execution
 grants and admission/HITL policy, and calls the owner-domain incoming port. An

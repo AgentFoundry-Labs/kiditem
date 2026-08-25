@@ -1,7 +1,10 @@
 import 'reflect-metadata';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
-import { RunnerReadinessService } from '../../agent-os/adapter/out/runtime/runner/runner-readiness.service';
+import {
+  HOST_RUNNER_CONTROL_READINESS_PORT,
+  type HostRunnerControlReadinessPort,
+} from '../../agent-os/adapter/out/runtime/runner/host-runner-control-session.module';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ReadinessStateModule } from '../readiness-state.module';
 import { ReadinessService } from '../readiness.service';
@@ -20,7 +23,12 @@ describe('ReadinessStateModule', () => {
       .compile();
     try {
       expect(module.get(ReadinessService)).toBeInstanceOf(ReadinessService);
-      expect(module.get(RunnerReadinessService)).toBeInstanceOf(RunnerReadinessService);
+      const readiness = module.get<HostRunnerControlReadinessPort>(HOST_RUNNER_CONTROL_READINESS_PORT);
+      expect(readiness).toMatchObject({
+        beginCanary: expect.any(Function),
+        assertRuntime: expect.any(Function),
+        snapshot: expect.any(Function),
+      });
     } finally {
       await module.close();
       restore('KIDITEM_APPLICATION_VERSION', previous.version);

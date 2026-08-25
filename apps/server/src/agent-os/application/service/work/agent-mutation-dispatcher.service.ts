@@ -1,5 +1,6 @@
 import type { AgentResultEnvelope } from '@kiditem/shared/agent-interaction';
-import type { AgentWorkTransactionPort, MutationWorkSnapshot } from '../../port/out/work/agent-work-transaction.port';
+import type { MutationWorkSnapshot } from '../../port/out/work/agent-work-persistence.types';
+import type { AgentWorkMutationPort } from '../../port/out/work/agent-work-mutation.port';
 import { AgentCapabilityRegistry } from '../agent-capability-registry.service';
 import { capabilityContractFingerprint } from './agent-capability-invocation.service';
 
@@ -16,7 +17,7 @@ export interface AgentMutationRuntimeIdentity {
  */
 export class AgentMutationDispatcherService {
   constructor(
-    private readonly work: Pick<AgentWorkTransactionPort, 'claimMutation' | 'finalizeMutation'>,
+    private readonly work: AgentWorkMutationPort,
     private readonly capabilities: Pick<AgentCapabilityRegistry, 'resolveDefinition' | 'resolveImplementation'>,
     private readonly runtime: AgentMutationRuntimeIdentity,
     private readonly now: () => Date = () => new Date(),

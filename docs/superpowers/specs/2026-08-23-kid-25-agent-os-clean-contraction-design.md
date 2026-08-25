@@ -920,13 +920,45 @@ login volume, and Docker-image CLI assertions. The replacement surface is
 `apps/agent-runner`, shared command/event schemas, Nest Runner admission,
 platform supervisors, the in-memory Attempt-token registry, direct MCP HTTP,
 loopback deployment wiring, and matching readiness tests. This cutover does not
-change the 18 capability definitions, owner-domain ports, lifecycle schema, or
-Web state.
+change the 18 capability definitions or lifecycle schema. The validated PR 479
+architecture convergence does co-locate owner capability binding and replaces
+split-brain ephemeral Web interaction state; neither change adds durable state
+or changes a business capability contract.
 
 Code upgrade is stop/start. The operator first confirms no `ready|executing`
 mutation, stops Attempt admission and the Runner, deploys the matching
 API/worker/Runner train, and requires full readiness before admitting work.
 Crash restart with the same SHA follows Section 8.
+
+### 13.1 Validated PR 479 Architecture Convergence
+
+The validated 2026-08-25 PR 479 architecture review was accepted as
+implementation authority for the following five depth corrections.
+They refine the fixed topology without expanding KID-25's runtime, schema, or
+multi-user scope:
+
+1. API and native Runner each have one control-session Module. Lease, queue,
+   event, readiness, deadline, and terminal state are private implementation
+   details; controllers, MCP, launch, live input, and HTTP receive narrow view
+   Interfaces rather than those primitives.
+2. REST and CopilotKit use one Agent Work intake Module for AgentVersion,
+   runtime/model, root/successor admission, launch context, and output binding.
+3. One ephemeral interaction Module owns selected Agent, draft, Session URL,
+   and UI actions. Durable Session projection pins the immutable Agent
+   definition, and no transcript/provider state moves into Web persistence.
+4. Each owner domain co-locates CapabilityDefinition, incoming port, and
+   binding Adapter. Agent OS aggregates and validates exact 1:1 compositions;
+   it contains no 18-key implementation switch or generic owner cast.
+5. Durable Work persistence exposes four invariant-cluster Interfaces:
+   admission, invocation/approval, mutation, and lifecycle/recovery. They share
+   one Prisma atomicity/locking implementation, and the retired mega port has no
+   compatibility facade.
+
+The deletion tests are structural: no production consumer may import the old
+Runner state primitives, duplicate controller orchestration, split Web store,
+central capability dispatch map, or broad Work transaction port. Flat Zod
+schemas, capability catalog data, shared protocol DTOs, and thin HTTP Adapters
+remain deliberately flat.
 
 ## 14. Implementation Order
 

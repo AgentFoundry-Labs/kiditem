@@ -8,7 +8,7 @@ const usePathnameMock = vi.hoisted(() => vi.fn());
 const usePanelStreamMock = vi.hoisted(() => vi.fn());
 const readinessMock = vi.hoisted(() => vi.fn(() => null));
 const generationWatcherMock = vi.hoisted(() => vi.fn(() => null));
-const interactionSetOpenMock = vi.hoisted(() => vi.fn());
+const openInteractionMock = vi.hoisted(() => vi.fn());
 
 vi.mock('next/dynamic', () => ({
   default: () => ({ children }: { children?: React.ReactNode }) => (
@@ -77,9 +77,8 @@ vi.mock('@/components/QuickActionFab', () => ({
   ),
 }));
 
-vi.mock('@/components/agent-interaction/interaction-store', () => ({
-  useInteractionStore: (selector: (state: { setOpen: (open: boolean) => void }) => unknown) =>
-    selector({ setOpen: interactionSetOpenMock }),
+vi.mock('@/components/agent-interaction/interaction-surface-state', () => ({
+  openInteraction: openInteractionMock,
 }));
 
 function renderLayout() {
@@ -98,7 +97,7 @@ describe('AppLayout auth gate', () => {
     usePanelStreamMock.mockReset();
     readinessMock.mockClear();
     generationWatcherMock.mockClear();
-    interactionSetOpenMock.mockReset();
+    openInteractionMock.mockReset();
     usePathnameMock.mockReturnValue('/dashboard');
     window.history.pushState({}, '', '/dashboard');
   });
@@ -158,7 +157,11 @@ describe('AppLayout auth gate', () => {
     expect(generationWatcherMock).toHaveBeenCalledTimes(1);
     expect(screen.getAllByTestId('lazy-interaction')).toHaveLength(2);
     fireEvent.click(screen.getByRole('button', { name: 'AgentOS 대화 열기' }));
-    expect(interactionSetOpenMock).toHaveBeenCalledWith(true);
+    expect(openInteractionMock).toHaveBeenCalledWith({
+      agentDefinitionKey: null,
+      sessionId: null,
+      draft: '',
+    });
   });
 
   it.each([
@@ -193,6 +196,21 @@ describe('AppLayout auth gate', () => {
     renderLayout();
 
     expect(screen.getByTestId('quick-action')).toBeInTheDocument();
+  });
+
+  it('keeps the fullscreen Agent workspace inside the CopilotKit provider', () => {
+    usePathnameMock.mockReturnValue('/agent-os');
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    });
+
+    renderLayout();
+
+    expect(screen.getByTestId('protected-child')).toBeInTheDocument();
+    expect(screen.getAllByTestId('lazy-interaction')).toHaveLength(1);
   });
 
   it('shows organization guidance without starting background runtime when membership is missing', () => {

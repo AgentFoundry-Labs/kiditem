@@ -1,15 +1,17 @@
 import type { AttemptRuntimeControlPort } from '../../../../application/port/out/runtime/attempt-runtime-control.port';
-import { RunnerCommandQueue } from './runner-command.queue';
+import type { HostRunnerControlAttemptPort } from './host-runner-control-session.module';
 
 const CONTROL_COMMAND_TTL_MS = 30 * 60_000;
 
-/** Queues live Attempt intents for the sole native Host Runner consumer. */
-export class RunnerAttemptRuntimeControlService implements AttemptRuntimeControlPort {
+/**
+ * Process-control Adapter. Validation remains here while the session owns
+ * token revocation, command idempotency, and native Runner delivery.
+ */
+export class HostRunnerAttemptControlAdapter implements AttemptRuntimeControlPort {
   private readonly now: () => Date;
 
   constructor(private readonly options: {
-    commands: RunnerCommandQueue;
-    tokens: { revokeAttempt(attemptId: string): void };
+    control: Pick<HostRunnerControlAttemptPort, 'sendInput' | 'interrupt'>;
     now?: () => Date;
   }) {
     this.now = options.now ?? (() => new Date());
@@ -18,7 +20,7 @@ export class RunnerAttemptRuntimeControlService implements AttemptRuntimeControl
   async send(input: { attemptId: string; message: string }): Promise<void> {
     const message = input.message.trim();
     if (!message || message.length > 24_000) throw new Error('attempt_input_invalid');
-    this.options.commands.enqueueInput({
+    this.options.control.sendInput({
       attemptId: input.attemptId,
       input: message,
       deadlineAt: this.deadline(),
@@ -26,8 +28,7 @@ export class RunnerAttemptRuntimeControlService implements AttemptRuntimeControl
   }
 
   async interrupt(input: { attemptId: string }): Promise<void> {
-    this.options.tokens.revokeAttempt(input.attemptId);
-    this.options.commands.enqueueInterrupt({
+    this.options.control.interrupt({
       attemptId: input.attemptId,
       deadlineAt: this.deadline(),
     });

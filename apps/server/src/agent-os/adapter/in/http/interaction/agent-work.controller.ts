@@ -9,10 +9,10 @@ import {
   type LiveAttemptExecutionCapabilityPort,
 } from '../../../../application/port/in/capability/live-attempt-execution.capability.port';
 import {
-  AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT,
-  type AgentAttemptLaunchCapabilityPort,
-} from '../../../../application/port/in/capability/agent-attempt-launch.capability.port';
-import { attemptRuntimeVersion } from '@kiditem/shared/agent-runtime';
+  AGENT_WORK_INTAKE_PORT,
+  AgentWorkIntakeError,
+  type AgentWorkIntakePort,
+} from '../../../../application/port/in/work/agent-work-intake.port';
 import { z } from 'zod';
 
 const StartInput = z.object({ objective: z.string().trim().min(1).max(8_000), completionCriteria: z.string().trim().min(1).max(4_000).optional(), input: z.unknown().optional() }).strict();
@@ -27,8 +27,8 @@ export class AgentWorkController {
     @Inject(AGENT_WORK_COMMAND_PORT) private readonly commands: AgentWorkCommandPort,
     @Inject(LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT)
     private readonly executor: LiveAttemptExecutionCapabilityPort,
-    @Inject(AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT)
-    private readonly launch: AgentAttemptLaunchCapabilityPort,
+    @Inject(AGENT_WORK_INTAKE_PORT)
+    private readonly intake: AgentWorkIntakePort,
   ) {}
 
   @Get('sessions/:sessionId')
@@ -39,26 +39,33 @@ export class AgentWorkController {
   @Post('start')
   async start(@Body() body: { objective: string; completionCriteria?: string; input?: unknown }, @CurrentOrganization() organizationId: string, @CurrentUser() user: AuthUser) {
     const input = StartInput.parse(body);
-    const version = await this.queries.activeVersion('operator');
-    if (!version) throw new NotFoundException('operator_agent_version_not_found');
-    const runtime = requiredRuntimeConfig('operator');
-    const runtimeType = supportedRuntime(version.runtimeType);
-    const admitted = await this.commands.root({ organizationId, createdByUserId: user.id, assignedAgentVersionId: version.id, objective: input.objective, completionCriteria: input.completionCriteria ?? 'Provide a concise durable result.', inputResourceRefs: [], input: input.input ?? { prompt: input.objective }, applicationVersion: requiredEnvironment('KIDITEM_APPLICATION_VERSION'), authorizingGitSha: requiredEnvironment('KIDITEM_GIT_SHA'), cliVersion: attemptRuntimeVersion(runtimeType), reportedModel: runtime.model });
-    await this.startAttempt({ attemptId: admitted.attempt.id, sessionId: admitted.session.id, taskId: admitted.task.id, organizationId, userId: user.id, version, prompt: input.objective });
-    return admitted;
+    try {
+      return await this.intake.startRoot({
+        principal: { organizationId, userId: user.id },
+        objective: input.objective,
+        completionCriteria: input.completionCriteria,
+        input: input.input,
+      });
+    } catch (error) {
+      rethrowIntakeError(error);
+    }
   }
 
   @Post('sessions/:sessionId/tasks/:taskId/continue')
   async continue(@Param('sessionId') sessionId: string, @Param('taskId') taskId: string, @Body() body: { predecessorAttemptId: string; prompt: string; reopen?: boolean }, @CurrentOrganization() organizationId: string, @CurrentUser() user: AuthUser) {
     const input = ContinueInput.parse(body);
-    const version = await this.queries.taskVersion({ organizationId, userId: user.id, sessionId, taskId });
-    if (!version) throw new NotFoundException('agent_version_not_found');
-    const runtime = requiredRuntimeConfig(version.agentDefinitionKey);
-    const runtimeType = supportedRuntime(version.runtimeType);
-    const context = await this.queries.continuationContext({ organizationId, userId: user.id, sessionId, taskId, prompt: input.prompt });
-    const admitted = await this.commands.followUp({ organizationId, sessionId, taskId, requestedByUserId: user.id, predecessorAttemptId: input.predecessorAttemptId, intent: input.reopen ? 'reopen' : 'follow_up', input: context.input, applicationVersion: requiredEnvironment('KIDITEM_APPLICATION_VERSION'), authorizingGitSha: requiredEnvironment('KIDITEM_GIT_SHA'), cliVersion: attemptRuntimeVersion(runtimeType), reportedModel: runtime.model });
-    await this.startAttempt({ attemptId: admitted.attemptId, sessionId, taskId, organizationId, userId: user.id, version, prompt: context.prompt });
-    return admitted;
+    try {
+      return await this.intake.continue({
+        principal: { organizationId, userId: user.id },
+        sessionId,
+        taskId,
+        predecessorAttemptId: input.predecessorAttemptId,
+        prompt: input.prompt,
+        reopen: input.reopen,
+      });
+    } catch (error) {
+      rethrowIntakeError(error);
+    }
   }
 
   @Post('sessions/:sessionId/tasks/:taskId/cancel')
@@ -91,23 +98,14 @@ export class AgentWorkController {
   delete(@Param('sessionId') sessionId: string, @CurrentOrganization() organizationId: string, @CurrentUser() user: AuthUser) {
     return this.commands.delete({ organizationId, sessionId, deletedByUserId: user.id });
   }
+}
 
-  private async startAttempt(input: { attemptId: string; sessionId: string; taskId: string; organizationId: string; userId: string; version: { id: string; agentDefinitionKey: string; runtimeType: string; capabilityKeys: unknown; instructionProfileRef: string }; prompt: string }) {
-    await this.launch.start({ attemptId: input.attemptId, runtime: supportedRuntime(input.version.runtimeType), profile: requiredRuntimeConfig(input.version.agentDefinitionKey), prompt: input.prompt, instructionProfileRef: input.version.instructionProfileRef, sessionId: input.sessionId, taskId: input.taskId, agentVersionId: input.version.id, organizationId: input.organizationId, userId: input.userId, capabilityKeys: Array.isArray(input.version.capabilityKeys) ? input.version.capabilityKeys.filter((key): key is string => typeof key === 'string') : [] });
+function rethrowIntakeError(error: unknown): never {
+  if (
+    error instanceof AgentWorkIntakeError
+    && (error.code === 'operator_agent_version_not_found' || error.code === 'agent_version_not_found')
+  ) {
+    throw new NotFoundException(error.code);
   }
-}
-
-function requiredEnvironment(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`missing_required_configuration:${name}`);
-  return value;
-}
-
-function requiredRuntimeConfig(definitionKey: string): { model: string } {
-  return { model: requiredEnvironment(`AGENT_${definitionKey.toUpperCase()}_MODEL`) };
-}
-
-function supportedRuntime(value: string): 'codex_cli' | 'claude_cli' {
-  if (value !== 'codex_cli' && value !== 'claude_cli') throw new Error('attempt_runtime_not_supported');
-  return value;
+  throw error;
 }

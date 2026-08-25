@@ -6,15 +6,15 @@ import type {
   AdmitAttemptInput,
   AdmitRootAttemptInput,
   DelegateTaskInput,
-} from '../../../../application/port/out/work/agent-work-transaction.port';
-import { RunnerReadinessService } from '../runner/runner-readiness.service';
+} from '../../../../application/port/out/work/agent-work-persistence.types';
+import type { HostRunnerControlReadinessPort } from '../runner/host-runner-control-session.module';
 
 /** Fences durable admission and every process launch to an exact Runner tuple. */
 @Injectable()
 export class AgentAttemptRuntimeAdmissionService implements AgentAttemptReadinessPreflightPort {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly readiness: Pick<RunnerReadinessService, 'assertRuntime'>,
+    private readonly readiness: Pick<HostRunnerControlReadinessPort, 'assertRuntime'>,
   ) {}
 
   async assert(binding: { attemptId: string; organizationId: string; sessionId: string; taskId: string; agentVersionId: string }, runtime: 'codex_cli' | 'claude_cli'): Promise<void> {

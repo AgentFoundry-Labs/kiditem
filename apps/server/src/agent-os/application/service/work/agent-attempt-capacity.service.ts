@@ -7,6 +7,7 @@ export interface AgentAttemptCapacityLease {
 /** Process-local CLI capacity. Persistence remains the source of durable work. */
 export class AgentAttemptCapacityService {
   private readonly maximum: number;
+  private readonly accepted = new Map<string, AgentAttemptCapacityLease>();
   private reserved = 0;
 
   constructor(maximum = Number(process.env.AGENT_CLI_MAX_CONCURRENCY ?? 4)) {
@@ -29,5 +30,23 @@ export class AgentAttemptCapacityService {
         this.reserved -= 1;
       },
     };
+  }
+
+  acceptAttempt(attemptId: string, lease: AgentAttemptCapacityLease): void {
+    if (this.accepted.has(attemptId)) {
+      lease.release();
+      throw new AgentOsRuntimeError(
+        "attempt_capacity_binding_conflict",
+        "attempt_capacity_binding_conflict",
+      );
+    }
+    this.accepted.set(attemptId, lease);
+  }
+
+  releaseAttempt(attemptId: string): void {
+    const lease = this.accepted.get(attemptId);
+    if (!lease) return;
+    this.accepted.delete(attemptId);
+    lease.release();
   }
 }

@@ -19,3 +19,11 @@ export interface AnalyticsOverviewCapabilityPort {
     period?: 'today' | 'month';
   }): Promise<AnalyticsOverview>;
 }
+
+/** Agent-facing owner port omits dashboard clock control. */
+export interface AnalyticsAgentOverviewCapabilityPort {
+  readOverview(input: {
+    organizationId: string;
+    period?: 'today' | 'month';
+  }): Promise<AnalyticsOverview>;
+}

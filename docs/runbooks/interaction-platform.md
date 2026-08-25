@@ -21,6 +21,12 @@ thread id; Nest creates `AgentSession`, a Task, and an immutable Attempt only
 on first submit. Output is future-only: provider history and replay transcripts
 are not restored after a restart.
 
+One ephemeral interaction-state module owns the selected Agent, one-time draft,
+thread URL, and open/new/select/close actions for the global FAB, domain entry
+points, and workspace. New work uses that selected Agent. Once a durable
+Session is loaded, the root Task projection pins its immutable Agent definition
+and a stale browser selection cannot replace it.
+
 ## Durable task controls
 
 AgentOS owns durable work independently from CopilotKit. `AgentVersion`,
@@ -66,9 +72,10 @@ PostgreSQL instance as defined in [Agent OS Clean Cutover](agent-os-clean-cutove
 
 ## Process-root boundary
 
-The API root owns durable admission and composes the Nest CopilotKit and MCP
-HTTP adapters over controller-free Agent Work ports. The native Host Runner
-owns the live CLI process lifecycle through authenticated command long-poll and
-event POST. The worker owns durable mutation/Operation recovery but never
-imports API transport or a CLI provider. Preserve this split when adding a
-capability, runtime, or controller.
+The API root routes both REST and CopilotKit through one Agent Work intake
+Module, and exposes narrow views of one Host Runner control session to HTTP,
+MCP, launch, readiness, and live-input adapters. The native Host Runner owns
+poll/dispatch/outbox/control-loss in one native control session and keeps its
+HTTP client and CLI supervisor as adapters. The worker owns durable
+mutation/Operation recovery but never imports API transport or a CLI provider.
+Preserve this split when adding a capability, runtime, or controller.

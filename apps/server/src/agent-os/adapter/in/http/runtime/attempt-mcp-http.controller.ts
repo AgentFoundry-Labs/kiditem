@@ -11,8 +11,12 @@ import { SkipAuth } from '../../../../../auth/decorators/skip-auth.decorator';
 import { createKidItemAgentOsMcpServer } from '../../mcp/kiditem-agent-os-mcp-server';
 import { createReadinessCanaryMcpServer } from '../../mcp/readiness-canary-mcp-server';
 import { AttemptTokenRegistry } from '../../../out/runtime/runner/attempt-token.registry';
-import { RunnerLeaseRegistry } from '../../../out/runtime/runner/runner-lease.registry';
-import { RunnerReadinessService } from '../../../out/runtime/runner/runner-readiness.service';
+import {
+  HOST_RUNNER_CONTROL_ATTEMPT_PORT,
+  HOST_RUNNER_CONTROL_READINESS_PORT,
+  type HostRunnerControlAttemptPort,
+  type HostRunnerControlReadinessPort,
+} from '../../../out/runtime/runner/host-runner-control-session.module';
 import { McpHttpResponseAdapter } from './mcp-http-response.adapter';
 
 export type AttemptMcpHandlerFactory = (
@@ -41,15 +45,16 @@ export const READINESS_MCP_HANDLER_FACTORY = Symbol('READINESS_MCP_HANDLER_FACTO
 export class AttemptMcpHttpController {
   constructor(
     private readonly tokens: AttemptTokenRegistry,
-    private readonly leases: RunnerLeaseRegistry,
+    @Inject(HOST_RUNNER_CONTROL_ATTEMPT_PORT)
+    private readonly control: HostRunnerControlAttemptPort,
     @Inject(ATTEMPT_MCP_ACTIONS_PORT)
     private readonly actions: AttemptMcpActionsPort,
     private readonly responses: McpHttpResponseAdapter,
     @Inject(ATTEMPT_MCP_HANDLER_FACTORY)
     private readonly createHandler: AttemptMcpHandlerFactory = createRequestScopedAttemptMcpHandler,
     @Optional()
-    @Inject(RunnerReadinessService)
-    private readonly readiness?: Pick<RunnerReadinessService, 'canaryMcpBinding'>,
+    @Inject(HOST_RUNNER_CONTROL_READINESS_PORT)
+    private readonly readiness?: Pick<HostRunnerControlReadinessPort, 'canaryMcpBinding'>,
     @Optional()
     @Inject(READINESS_MCP_HANDLER_FACTORY)
     private readonly createReadinessHandler: ReadinessMcpHandlerFactory = createRequestScopedReadinessMcpHandler,
@@ -102,7 +107,7 @@ export class AttemptMcpHttpController {
     let active: { runnerInstanceId: string; leaseId: string; status: 'probing' | 'ready' };
     let binding: Readonly<{ nonce: string; onProbe: (input: { nonce: string }) => void | Promise<void> }>;
     try {
-      active = this.leases.requireActive();
+      active = this.control.requireActive();
       binding = this.readiness.canaryMcpBinding({ canaryId, leaseId: active.leaseId });
     } catch {
       return null;
@@ -118,7 +123,7 @@ export class AttemptMcpHttpController {
 
   private requireLease(): { runnerInstanceId: string; leaseId: string } {
     try {
-      return this.leases.requireReady();
+      return this.control.requireReady();
     } catch {
       throw new UnauthorizedException('attempt_token_invalid');
     }

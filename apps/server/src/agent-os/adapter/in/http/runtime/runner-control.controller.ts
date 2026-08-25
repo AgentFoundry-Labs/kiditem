@@ -8,9 +8,11 @@ import {
   type RunnerPollRequest,
 } from '@kiditem/shared/agent-runtime';
 import { SkipAuth } from '../../../../../auth/decorators/skip-auth.decorator';
-import { RunnerEventHandlerService } from '../../../out/runtime/runner/runner-event-handler.service';
+import {
+  HOST_RUNNER_CONTROL_HTTP_PORT,
+  type HostRunnerControlHttpPort,
+} from '../../../out/runtime/runner/host-runner-control-session.module';
 import { RunnerInstallationTokenService } from '../../../out/runtime/runner/runner-installation-token.service';
-import { RunnerLeaseRegistry } from '../../../out/runtime/runner/runner-lease.registry';
 import { ReadinessService } from '../../../../../readiness/readiness.service';
 
 /** Dedicated loopback control ingress; it never uses a browser session. */
@@ -20,8 +22,8 @@ import { ReadinessService } from '../../../../../readiness/readiness.service';
 export class RunnerControlController {
   constructor(
     private readonly installation: RunnerInstallationTokenService,
-    private readonly leases: RunnerLeaseRegistry,
-    private readonly eventsHandler: RunnerEventHandlerService,
+    @Inject(HOST_RUNNER_CONTROL_HTTP_PORT)
+    private readonly control: HostRunnerControlHttpPort,
     @Inject(ReadinessService)
     private readonly readinessState: Pick<ReadinessService, 'getAgentAttemptRuntimeReadiness'>,
   ) {}
@@ -39,10 +41,10 @@ export class RunnerControlController {
     const input = RunnerPollRequestSchema.parse(body);
     try {
       if (input.kind === 'hello') {
-        response.status(200).json(this.leases.hello(input));
+        response.status(200).json(this.control.hello(input));
         return;
       }
-      const batch = await this.leases.poll(input);
+      const batch = await this.control.poll(input);
       if (!batch.commands.length) {
         response.status(204).end();
         return;
@@ -58,7 +60,7 @@ export class RunnerControlController {
     this.requireInstallationBearer(request);
     const batch = RunnerEventBatchSchema.parse(body) as RunnerEventBatch;
     try {
-      response.status(200).json(await this.eventsHandler.handle(batch));
+      response.status(200).json(await this.control.events(batch));
     } catch (error) {
       throw controlError(error);
     }

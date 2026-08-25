@@ -6,9 +6,8 @@ import { ATTEMPT_RUNTIME_TRAIN, runnerPlatformFromNodePlatform, type AgentCliRun
 import { AttemptExecutor } from './attempt/attempt-executor';
 import { AttemptWorkspaceService } from './attempt/attempt-workspace.service';
 import { loadRunnerConfig, readInstallationToken } from './config/runner-config';
-import { RunnerCommandDispatcher } from './control/runner-command-dispatcher';
-import { RunnerControlClient, RunnerControlLoop } from './control/runner-control.client';
-import { RunnerEventOutbox } from './control/runner-event-outbox';
+import { RunnerControlClient } from './control/runner-control.client';
+import { NativeRunnerControlSession } from './control/native-runner-control-session';
 import { MacosProcessSupervisor } from './platform/macos/macos-process-supervisor';
 import { WindowsJobSupervisor } from './platform/windows/windows-job-supervisor';
 import type { ProcessSupervisor } from './platform/process-supervisor';
@@ -27,9 +26,8 @@ export async function runNativeAgentRunner(argv: readonly string[]): Promise<nev
     controlRevision: ATTEMPT_RUNTIME_TRAIN.controlRevision, mcpProtocolRevision: ATTEMPT_RUNTIME_TRAIN.mcpProtocolRevision,
     cliContractIdentity: ATTEMPT_RUNTIME_TRAIN.cliContractIdentity, runtimes,
   });
-  const outbox = new RunnerEventOutbox({ runnerInstanceId, leaseId: lease.leaseId });
   const supervisor = createSupervisor(platform, config.runtimeRoot);
-  let dispatcher!: RunnerCommandDispatcher;
+  let control!: NativeRunnerControlSession;
   let beginExit: (code: number) => void = () => undefined;
   const executor = new AttemptExecutor({
     runtimeRoot: config.runtimeRoot,
@@ -40,26 +38,11 @@ export async function runNativeAgentRunner(argv: readonly string[]): Promise<nev
       platform,
     }),
     supervisor,
-    emit: (event) => {
-      if (event.kind === 'attempt.terminal') dispatcher.markTerminal(event.attemptId);
-      outbox.enqueue(event);
-    },
+    emit: (event) => control.emit(event),
     onFatal: () => beginExit(1),
   });
-  dispatcher = new RunnerCommandDispatcher({ executor, outbox });
-  const flush = async () => outbox.flush((body) => client.postEventBody(body));
-  const timer = setInterval(() => { void flush().catch(() => undefined); }, 250);
-  let shutdownTask: Promise<void> | null = null;
-  const shutdown = (): Promise<void> => {
-    if (shutdownTask) return shutdownTask;
-    shutdownTask = (async () => {
-      clearInterval(timer);
-      const results = await Promise.allSettled([dispatcher.shutdown(), executor.shutdown()]);
-      const errors = results.flatMap((result) => result.status === 'rejected' ? [result.reason] : []);
-      if (errors.length) throw new AggregateError(errors, 'runner_shutdown_kill_all_failed');
-    })();
-    return shutdownTask;
-  };
+  control = new NativeRunnerControlSession({ client, runnerInstanceId, leaseId: lease.leaseId, executor });
+  const shutdown = (): Promise<void> => control.shutdown();
   let exiting = false;
   beginExit = (code: number): void => {
     if (exiting) return;
@@ -72,13 +55,9 @@ export async function runNativeAgentRunner(argv: readonly string[]): Promise<nev
   const terminate = () => beginExit(0);
   process.once('SIGTERM', terminate); process.once('SIGINT', terminate);
   try {
-    return await new RunnerControlLoop({ client }).run({
-      runnerInstanceId, leaseId: lease.leaseId,
-      onCommands: async (batch) => { for (const command of batch.commands) await dispatcher.dispatch(command); await flush(); },
-      killAll: shutdown,
-    });
+    return await control.run();
   } finally {
-    clearInterval(timer); process.off('SIGTERM', terminate); process.off('SIGINT', terminate);
+    process.off('SIGTERM', terminate); process.off('SIGINT', terminate);
     await shutdown();
   }
 }

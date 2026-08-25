@@ -377,7 +377,7 @@ describe('RunnerReadinessService', () => {
       interruptAttempt: async () => undefined,
       leaseId: () => '118f4eb1-9078-7a1e-9514-b19b5732f5de',
     });
-    const readiness = new RunnerReadinessService(leases);
+    const readiness = projectionReadiness(leases);
     const lease = leases.hello(hello());
     readiness.recordVerifiedCanary({
       runnerInstanceId,
@@ -411,7 +411,7 @@ describe('RunnerReadinessService', () => {
       interruptAttempt: async () => undefined,
       leaseId: () => '118f4eb1-9078-7a1e-9514-b19b5732f5de',
     });
-    const readiness = new RunnerReadinessService(leases);
+    const readiness = projectionReadiness(leases);
     const lease = leases.hello(hello());
 
     expect(lease.status).toBe('probing');
@@ -435,7 +435,7 @@ describe('RunnerReadinessService', () => {
       interruptAttempt: async () => undefined,
       leaseId: () => '118f4eb1-9078-7a1e-9514-b19b5732f5de',
     });
-    const readiness = new RunnerReadinessService(leases);
+    const readiness = projectionReadiness(leases);
     const lease = leases.hello(hello());
     leases.markReady({ runnerInstanceId, leaseId: lease.leaseId });
 
@@ -463,7 +463,7 @@ describe('RunnerReadinessService', () => {
       interruptAttempt: async () => undefined,
       leaseId: () => '118f4eb1-9078-7a1e-9514-b19b5732f5de',
     });
-    const readiness = new RunnerReadinessService(leases);
+    const readiness = projectionReadiness(leases);
 
     await expect(readiness.assertRuntime('codex_cli', 'gpt-5', 'deploy')).rejects.toThrow('runner_not_ready');
     const lease = leases.hello(hello());
@@ -495,6 +495,15 @@ function hello() {
       claude_cli: { version: '2.1.241' as const, loginVerified: true as const, nonPersistentSettingsVerified: true as const },
     },
   };
+}
+
+function projectionReadiness(leases: RunnerLeaseRegistry): RunnerReadinessService {
+  return new RunnerReadinessService({
+    leases,
+    commands: new RunnerCommandQueue(),
+    tokens: new AttemptTokenRegistry(),
+    loopbackOrigin: 'http://127.0.0.1:4000',
+  });
 }
 
 function sequenceIds(): () => string {

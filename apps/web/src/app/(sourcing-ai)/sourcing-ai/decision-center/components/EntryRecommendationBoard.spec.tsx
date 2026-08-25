@@ -3,16 +3,18 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAuth } from '@/hooks/useAuth';
+import { apiClient } from '@/lib/api-client';
+import {
+  closeInteraction,
+  openInteraction,
+} from '@/components/agent-interaction/interaction-surface-state';
+import { AgentInteractionPanel } from '@/components/agent-interaction/AgentInteractionPanel';
 import {
   useSaveSourcingReviewSelection,
   useSourcingInterestTargets,
   useSourcingRecommendations,
   useSourcingReviewSelections,
 } from '../../hooks/use-sourcing-workspace';
-import {
-  resetInteractionStore,
-  useInteractionStore,
-} from '@/components/agent-interaction/interaction-store';
 import { EntryRecommendationBoard } from './EntryRecommendationBoard';
 
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
@@ -23,6 +25,11 @@ const operationMocks = vi.hoisted(() => ({
   cancel: vi.fn(),
   retryAttention: vi.fn(),
   useAction: vi.fn(),
+}));
+const interactionRuntimeMocks = vi.hoisted(() => ({
+  useAgent: vi.fn(),
+  addMessage: vi.fn(),
+  runAgent: vi.fn(),
 }));
 
 vi.mock('@/hooks/useAuth', () => ({ useAuth: vi.fn() }));
@@ -49,12 +56,24 @@ vi.mock('../../hooks/use-sourcing-workspace', () => ({
   useSourcingRecommendations: vi.fn(),
   useSourcingReviewSelections: vi.fn(),
 }));
+vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn() } }));
+vi.mock('@copilotkit/react-core/v2', () => ({
+  useAgent: (input: unknown) => {
+    interactionRuntimeMocks.useAgent(input);
+    return {
+      agent: { messages: [], addMessage: interactionRuntimeMocks.addMessage },
+      isReady: true,
+    };
+  },
+  useCopilotKit: () => ({ copilotkit: { runAgent: interactionRuntimeMocks.runAgent } }),
+}));
 
-function renderBoard() {
+function renderBoard({ withInteractionPanel = false }: { withInteractionPanel?: boolean } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <EntryRecommendationBoard />
+      {withInteractionPanel ? <AgentInteractionPanel /> : null}
     </QueryClientProvider>,
   );
 }
@@ -62,7 +81,9 @@ function renderBoard() {
 describe('EntryRecommendationBoard review state', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resetInteractionStore();
+    openInteraction({ agentDefinitionKey: null, sessionId: null, draft: '' });
+    closeInteraction();
+    interactionRuntimeMocks.runAgent.mockResolvedValue(undefined);
     operationMocks.start.mockResolvedValue({ id: 'operation-1688' });
     operationMocks.useAction.mockReturnValue({
       run: null,
@@ -122,20 +143,32 @@ describe('EntryRecommendationBoard review state', () => {
     expect(screen.queryByText('상품 B')).not.toBeInTheDocument();
   });
 
-  it('opens the shared Interaction Surface with the Sourcing agent and question draft', async () => {
+  it('hands a Sourcing question through the shared Interaction Surface to the selected runtime agent', async () => {
     const user = userEvent.setup();
+    const question = '테스트 지금 진입해도 될까? 근거로 설명해줘.';
 
-    renderBoard();
+    renderBoard({ withInteractionPanel: true });
     await user.click(await screen.findByText('상품 A'));
     await user.click(screen.getByRole('button', { name: 'AgentOS에서 묻기' }));
 
-    expect(useInteractionStore.getState()).toEqual(expect.objectContaining({
-      isOpen: true,
-      selectedAgentDefinitionKey: 'sourcing',
-      selectedSessionName: null,
-      selectedThreadId: null,
-      draft: '테스트 지금 진입해도 될까? 근거로 설명해줘.',
+    expect(await screen.findByDisplayValue(question)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Start' }));
+
+    await waitFor(() => {
+      expect(interactionRuntimeMocks.useAgent).toHaveBeenCalledWith(expect.objectContaining({
+        agentId: 'sourcing',
+        runtimeAgentId: 'sourcing',
+        threadId: expect.any(String),
+      }));
+      expect(interactionRuntimeMocks.addMessage).toHaveBeenCalledWith(expect.objectContaining({
+        role: 'user',
+        content: question,
+      }));
+    });
+    expect(interactionRuntimeMocks.runAgent).toHaveBeenCalledWith(expect.objectContaining({
+      agent: expect.any(Object),
     }));
+    expect(apiClient.post).not.toHaveBeenCalledWith('/api/agent-work/start', expect.anything());
   });
 
   it('reads the persisted entry snapshot on mount and starts the exact 1688 operation only from the missing-supply CTA', async () => {

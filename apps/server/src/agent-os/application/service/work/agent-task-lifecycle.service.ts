@@ -1,15 +1,12 @@
 import type {
-  AgentWorkTransactionPort,
   TaskLifecycleTransitionInput,
-} from "../../port/out/work/agent-work-transaction.port";
+} from "../../port/out/work/agent-work-persistence.types";
+import type { AgentWorkLifecyclePort } from "../../port/out/work/agent-work-lifecycle.port";
 
 /** The only writer of business lifecycle status for replacement tasks. */
 export class AgentTaskLifecycleService {
   constructor(
-    private readonly transactions: Pick<
-      AgentWorkTransactionPort,
-      "transitionTask"
-    >,
+    private readonly transactions: AgentWorkLifecyclePort,
   ) {}
 
   transition(input: TaskLifecycleTransitionInput): Promise<{ status: string }> {

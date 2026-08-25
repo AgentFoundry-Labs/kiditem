@@ -1,25 +1,41 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AgentInteractionSurface } from '../AgentInteractionSurface';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
+import { AgentInteractionSurface } from '../AgentInteractionSurface';
+import {
+  closeInteraction,
+  openInteraction,
+} from '../interaction-surface-state';
 
 vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn() } }));
 const addMessage = vi.fn();
 const runAgent = vi.fn(async () => undefined);
+const useAgentMock = vi.fn();
 vi.mock('@copilotkit/react-core/v2', () => ({
-  useAgent: () => ({ agent: { messages: [], addMessage }, isReady: true }),
+  useAgent: (input: unknown) => {
+    useAgentMock(input);
+    return { agent: { messages: [], addMessage }, isReady: true };
+  },
   useCopilotKit: () => ({ copilotkit: { runAgent } }),
 }));
 
 describe('AgentInteractionSurface durable projection', () => {
+  beforeEach(() => {
+    window.history.replaceState(null, '', '/agent-os');
+    openInteraction({ agentDefinitionKey: null, sessionId: null, draft: '' });
+    closeInteraction();
+  });
+
   afterEach(() => {
+    openInteraction({ agentDefinitionKey: null, sessionId: null, draft: '' });
+    closeInteraction();
     window.history.replaceState(null, '', '/agent-os');
     vi.clearAllMocks();
   });
 
   it('runs the first durable prompt through CopilotKit and renders only future in-memory messages', async () => {
-    vi.mocked(apiClient.get).mockResolvedValue({ session: { id: expect.any(String) }, tasks: [{ id: 'task-1', parentTaskId: null, objective: 'collect signals', status: 'open', presentation: 'running', summary: 'Durable result', error: { message: 'bounded error' }, resourceRefs: [{ kind: 'candidate', id: 'candidate-1' }], operationRefs: [{ kind: 'operation', id: 'run-1', status: 'running' }], latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'running' } }] } as never);
+    vi.mocked(apiClient.get).mockResolvedValue({ session: { id: expect.any(String) }, tasks: [{ id: 'task-1', parentTaskId: null, agentDefinitionKey: 'operator', objective: 'collect signals', status: 'open', presentation: 'running', summary: 'Durable result', error: { message: 'bounded error' }, resourceRefs: [{ kind: 'candidate', id: 'candidate-1' }], operationRefs: [{ kind: 'operation', id: 'run-1', status: 'running' }], latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'running' } }] } as never);
     const user = userEvent.setup();
     render(<AgentInteractionSurface />);
     await user.type(screen.getByPlaceholderText('Ask Operator to begin work'), 'collect signals');
@@ -59,7 +75,7 @@ describe('AgentInteractionSurface durable projection', () => {
   });
 
   it('routes continue, interrupt, cancel, and terminal deletion to durable actions', async () => {
-    vi.mocked(apiClient.get).mockResolvedValue({ session: { id: expect.any(String) }, tasks: [{ id: 'task-1', objective: 'work', status: 'open', presentation: 'needs_continue', latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'running' } }] } as never);
+    vi.mocked(apiClient.get).mockResolvedValue({ session: { id: expect.any(String) }, tasks: [{ id: 'task-1', parentTaskId: null, agentDefinitionKey: 'operator', objective: 'work', status: 'open', presentation: 'needs_continue', latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'running' } }] } as never);
     const user = userEvent.setup(); render(<AgentInteractionSurface />);
     await user.type(screen.getByPlaceholderText('Ask Operator to begin work'), 'work'); await user.click(screen.getByRole('button', { name: 'Start' }));
     await user.click(screen.getByRole('button', { name: 'Continue' }));
@@ -75,7 +91,7 @@ describe('AgentInteractionSurface durable projection', () => {
     window.history.replaceState(null, '', `/agent-os?agentSessionId=${sessionId}`);
     vi.mocked(apiClient.get).mockResolvedValue({
       session: { id: sessionId },
-      tasks: [{ id: 'task-1', parentTaskId: null, objective: 'durable work', status: 'completed', presentation: 'completed', latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'succeeded' } }],
+      tasks: [{ id: 'task-1', parentTaskId: null, agentDefinitionKey: 'operator', objective: 'durable work', status: 'completed', presentation: 'completed', latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'succeeded' } }],
     } as never);
 
     const first = render(<AgentInteractionSurface />);
@@ -89,12 +105,39 @@ describe('AgentInteractionSurface durable projection', () => {
     expect(await screen.findByText('durable work')).toBeVisible();
   });
 
+  it('pins a resumed durable session to its root task agent instead of stale selected UI state', async () => {
+    const sessionId = '00000000-0000-4000-8000-000000000012';
+    openInteraction({ agentDefinitionKey: 'sourcing', sessionId: null, draft: '' });
+    window.history.replaceState(null, '', `/agent-os?agentSessionId=${sessionId}`);
+    vi.mocked(apiClient.get).mockResolvedValue({
+      session: { id: sessionId },
+      tasks: [{
+        id: 'task-1',
+        parentTaskId: null,
+        agentDefinitionKey: 'supply',
+        objective: 'resume durable work',
+        status: 'open',
+        presentation: 'needs_continue',
+        latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'exited' },
+      }],
+    } as never);
+
+    render(<AgentInteractionSurface />);
+
+    await vi.waitFor(() => expect(useAgentMock).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: 'supply',
+      runtimeAgentId: 'supply',
+      threadId: sessionId,
+    })));
+    expect(screen.getByRole('heading', { name: 'Supply work' })).toBeVisible();
+  });
+
   it('clears the selected session URL coordinate for new and deleted terminal work', async () => {
     const sessionId = '00000000-0000-4000-8000-000000000011';
     window.history.replaceState(null, '', `/agent-os?agentSessionId=${sessionId}`);
     vi.mocked(apiClient.get).mockResolvedValue({
       session: { id: sessionId },
-      tasks: [{ id: 'task-1', parentTaskId: null, objective: 'terminal work', status: 'completed', presentation: 'completed', latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'succeeded' } }],
+      tasks: [{ id: 'task-1', parentTaskId: null, agentDefinitionKey: 'operator', objective: 'terminal work', status: 'completed', presentation: 'completed', latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'succeeded' } }],
     } as never);
     const user = userEvent.setup();
 

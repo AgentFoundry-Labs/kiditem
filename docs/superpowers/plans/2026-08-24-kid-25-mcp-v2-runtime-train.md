@@ -63,8 +63,12 @@ This runtime follow-up is a declared platform-boundary reconstruction
 exception. It may touch Agent OS runtime adapters, the new Runner app, shared
 runtime contracts, Office deployment, scanners, and matching runbooks. It must
 not change capability ownership/catalog behavior, lifecycle schemas, Prisma
-models, migrations, backfills, seed semantics, CopilotKit/Web state, or other
-business domains.
+models, migrations, backfills, seed semantics, or other business domains. The
+validated 2026-08-25 PR 479 architecture review additionally authorizes
+owner-local capability composition, one shared Agent Work intake, four narrow
+Work persistence Interfaces, and contraction of ephemeral CopilotKit/Web state.
+Those changes do not alter the 18 definitions, business owner-port contracts,
+durable Web state, or schema.
 
 ## 1. Locked decisions
 
@@ -1137,7 +1141,8 @@ an empty compatibility class.
 The final server runtime tree may retain only:
 
 - shared runtime/control contracts;
-- Runner token/lease/command/event/readiness registries;
+- one API Host Runner control-session Module whose token, lease, command,
+  event, and readiness collaborators are private implementation details;
 - Host Runner execution/control ports;
 - direct Attempt MCP HTTP adapter;
 - Nest-owned 11-tool factory and strict result/wire helpers;
@@ -1160,7 +1165,7 @@ All durable docs must say:
 - restart means `process_interrupted` plus manual immutable successor, never
   provider resume;
 - exactly 11 MCP tools, 18 capabilities, and ten Sourcing capabilities remain;
-- no new Agent OS schema/status, Web state, gateway, internal signing or
+- no new Agent OS schema/status, durable Web state, gateway, internal signing or
   credential broker, durable Runner control queue, quota, or multi-instance
   protocol was added. The Channels domain owns the one registration owner
   idempotency receipt introduced by the integrated boundary repair; it stores
@@ -1278,9 +1283,11 @@ Do not add:
 - MCP Tasks or production MRTR authority;
 - AgentVersion/CapabilityDefinition provider credentials, models, sessions, or
   history;
-- capability catalog changes, owner-port changes, new internal-signing keys, RBAC, quota,
-  delegation depth/fan-out, distributed admission, or multi-API lease;
-- Web/AG-UI durable states or a new interaction service;
+- capability catalog or business owner-port contract changes, new
+  internal-signing keys, RBAC, quota, delegation depth/fan-out, distributed
+  admission, or multi-API lease; owner-local binding composition is required;
+- Web/AG-UI durable states or a separately deployed interaction service; one
+  ephemeral in-process interaction-state Module is required;
 - alternate local deploy scripts, mutable runtime downloads, automatic
   upgrade PRs, scheduled compatibility pipelines, or restore-rehearsal scope.
 

@@ -3,7 +3,7 @@ import type { AgentWorkRepositoryPort } from "../../port/out/work/agent-work-rep
 import type {
   DelegateTaskInput,
   DelegateTaskResult,
-} from "../../port/out/work/agent-work-transaction.port";
+} from "../../port/out/work/agent-work-persistence.types";
 import { AgentAttemptAdmissionService } from "./agent-attempt-admission.service";
 import { canonicalize, hash } from "./agent-capability-invocation.service";
 

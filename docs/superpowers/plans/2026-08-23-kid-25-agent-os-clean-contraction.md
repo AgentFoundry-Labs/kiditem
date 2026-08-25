@@ -856,6 +856,33 @@ confirming no ready/executing mutation.
 PR release decision is: destructive unreleased Agent OS cutover, no backfill;
 basic custom backup/list/checksum; actual legacy Agent data discarded.
 
+- [x] **Step 3a: Apply the validated PR 479 architecture convergence report**
+
+Implement all five recommendations from the validated 2026-08-25 PR 479
+architecture review on the existing diff:
+
+- replace public Runner queue/lease/event/readiness/runtime-control seams with
+  one API `HostRunnerControlSession` and one native
+  `NativeRunnerControlSession`; retain only narrow HTTP, Attempt-control, and
+  readiness views;
+- route REST and CopilotKit root/continue work through one
+  `AGENT_WORK_INTAKE_PORT`;
+- make selected Agent, draft, Session URL, and durable-session pinning one Web
+  interaction-state Module consumed by every entrypoint;
+- move definition-to-owner-handler pairing into the six owner-local capability
+  compositions and leave the central registrar aggregation-only;
+- replace the 15-operation Work transaction Interface with admission,
+  invocation/approval, mutation, and lifecycle/recovery Interfaces sharing the
+  same Prisma atomicity and lock ordering.
+
+Required focused evidence includes Runner protocol traces and native build,
+REST/Copilot parity, Sourcing-to-selected-Agent UI integration, exact 18-entry
+capability composition, persistence static deletion checks, PostgreSQL races,
+restart recovery, server/Web builds, and Nest module compilation. Delete the
+old broad Work port, API runtime-control facade, split Web store, duplicated
+controller orchestration, and central 18-key handler map; do not retain legacy
+forwarders.
+
 - [ ] **Step 4: Run the full mandatory acceptance matrix**
 
 Use one explicit disposable acceptance database for schema/seed/boot/smoke:

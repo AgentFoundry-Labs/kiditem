@@ -3,10 +3,9 @@ import type { AttemptLaunchSpec, RunnerEventBatch, RunnerHello } from '@kiditem/
 import { AgentAttemptReconciler } from '../../../../application/service/work/agent-attempt-reconciler.service';
 import { AttemptTokenRegistry } from './attempt-token.registry';
 import { HostRunnerAttemptExecutorService } from './host-runner-attempt-executor.service';
+import { HostRunnerControlSession } from './host-runner-control-session.module';
 import { RunnerCommandQueue } from './runner-command.queue';
-import { RunnerEventHandlerService } from './runner-event-handler.service';
 import { RunnerLeaseRegistry } from './runner-lease.registry';
-import { RunnerReadinessService } from './runner-readiness.service';
 
 const now = new Date('2026-08-25T00:00:00.000Z');
 const firstRunnerId = '018f4eb1-9078-7a1e-9514-b19b5732f5de';
@@ -20,28 +19,27 @@ describe('Runner lease-loss cleanup barrier', () => {
   it('keeps a fast replacement canary probing until the real reconciler settles, then admits only a later business Attempt', async () => {
     const recovery = deferred<{ reconciled: number; attemptIds: string[] }>();
     const fixture = productionFixture({ reconcile: () => recovery.promise });
-    const first = fixture.leases.hello(hello(firstRunnerId));
-    fixture.readiness.recordVerifiedCanary(verified(firstRunnerId, first));
+    const first = fixture.control.http.hello(hello(firstRunnerId));
+    fixture.control.readiness.recordVerifiedCanary(verified(firstRunnerId, first));
     await fixture.executor.start(liveAttempt(oldAttemptId));
 
-    const replacement = fixture.leases.hello(hello(secondRunnerId));
+    const replacement = fixture.control.http.hello(hello(secondRunnerId));
     await settle();
     expect(fixture.reconcile).toHaveBeenCalledTimes(1);
 
     const terminal = await completeCanaryUntilTerminal(fixture, secondRunnerId, replacement, canaryId);
 
-    await expect(fixture.handler.handle(terminal)).rejects.toThrow('runner_not_ready');
-    expect(fixture.leases.requireActive().status).toBe('probing');
+    await expect(fixture.control.http.events(terminal)).rejects.toThrow('runner_not_ready');
+    expect(fixture.control.attempts.requireActive().status).toBe('probing');
     await expect(fixture.executor.start(liveAttempt(newAttemptId))).rejects.toThrow('runner_not_ready');
-    expect(fixture.commands.take().commands).toEqual([]);
 
     recovery.resolve({ reconciled: 1, attemptIds: [oldAttemptId] });
     await settle();
     await settle();
 
-    await expect(fixture.handler.handle(terminal)).resolves.toEqual({ eventSeq: 3, accepted: true });
+    await expect(fixture.control.http.events(terminal)).resolves.toEqual({ eventSeq: 3, accepted: true });
     await fixture.executor.start(liveAttempt(newAttemptId));
-    const delivered = await fixture.leases.poll({ runnerInstanceId: secondRunnerId, leaseId: replacement.leaseId });
+    const delivered = await fixture.control.http.poll({ kind: 'poll', runnerInstanceId: secondRunnerId, leaseId: replacement.leaseId });
 
     expect(delivered.commands).toMatchObject([{ kind: 'attempt.start', attemptId: newAttemptId }]);
     expect(fixture.transitionAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: oldAttemptId }));
@@ -57,23 +55,23 @@ describe('Runner lease-loss cleanup barrier', () => {
       reconcile: async () => { throw new Error('durable_reconciliation_unavailable'); },
       transitionAttempt: () => transition.promise,
     });
-    const first = fixture.leases.hello(hello(firstRunnerId));
-    fixture.readiness.recordVerifiedCanary(verified(firstRunnerId, first));
+    const first = fixture.control.http.hello(hello(firstRunnerId));
+    fixture.control.readiness.recordVerifiedCanary(verified(firstRunnerId, first));
     await fixture.executor.start(liveAttempt(oldAttemptId));
 
-    const replacement = fixture.leases.hello(hello(secondRunnerId));
+    const replacement = fixture.control.http.hello(hello(secondRunnerId));
     await settle();
     await settle();
     expect(fixture.transitionAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: oldAttemptId, from: 'running' }));
 
-    expect(() => fixture.readiness.recordVerifiedCanary(verified(secondRunnerId, replacement))).toThrow('runner_not_ready');
-    expect(() => fixture.leases.requireReady()).toThrow('runner_not_ready');
+    expect(() => fixture.control.readiness.recordVerifiedCanary(verified(secondRunnerId, replacement))).toThrow('runner_not_ready');
+    expect(() => fixture.control.attempts.requireReady()).toThrow('runner_not_ready');
 
     transition.resolve({ transitioned: true });
     await settle();
     await settle();
 
-    expect(() => fixture.readiness.recordVerifiedCanary(verified(secondRunnerId, replacement))).not.toThrow();
+    expect(() => fixture.control.readiness.recordVerifiedCanary(verified(secondRunnerId, replacement))).not.toThrow();
     expect(fixture.capacity.releaseAttempt).toHaveBeenCalledTimes(1);
     expect(fixture.capacity.releaseAttempt).toHaveBeenCalledWith(oldAttemptId);
     fixture.dispose();
@@ -126,19 +124,14 @@ function productionFixture(input: {
   reconcile: () => Promise<{ reconciled: number; attemptIds: string[] }>;
   transitionAttempt?: () => Promise<{ transitioned: boolean }>;
 }) {
-  const commands = new RunnerCommandQueue({ commandId: sequenceIds() });
   const tokens = new AttemptTokenRegistry({ now: () => now });
-  const leases = new RunnerLeaseRegistry({
-    commands,
-    interruptAttempt: async () => undefined,
-    leaseId: sequenceLeaseIds(),
-    now: () => now,
-  });
   const transitionAttempt = vi.fn(input.transitionAttempt ?? (async () => ({ transitioned: true })));
   const work = {
     reconcile: vi.fn(input.reconcile),
     transitionAttempt,
     finalizeTaskFromAttempt: vi.fn(async () => ({ finalized: true, status: 'completed' })),
+    transitionTask: vi.fn(async () => ({ status: 'completed' })),
+    deleteTerminalSession: vi.fn(async () => ({ deleted: true })),
   };
   const capacity = { releaseAttempt: vi.fn() };
   const reconciler = new AgentAttemptReconciler(
@@ -147,45 +140,33 @@ function productionFixture(input: {
     { applicationVersion: '1.0.0', gitSha: 'abc123' },
     () => now,
   );
-  const readiness = new RunnerReadinessService({
-    leases,
-    commands,
-    tokens,
-    loopbackOrigin: 'http://127.0.0.1:4000',
-    canaryId: () => canaryId,
-    nonce: () => '618f4eb1-9078-7a1e-9514-b19b5732f5de',
-    now: () => now,
-  });
-  const handler = new RunnerEventHandlerService({
-    leases,
-    commands,
+  const control = new HostRunnerControlSession({
     tokens,
     work,
     capacity,
     output: { publish: vi.fn(), finish: vi.fn() },
-    readiness,
-    reconciler,
+    loopbackOrigin: 'http://127.0.0.1:4000',
+    commandQueue: { commandId: sequenceIds() },
+    leaseId: sequenceLeaseIds(),
+    canaryId: () => canaryId,
+    nonce: () => '618f4eb1-9078-7a1e-9514-b19b5732f5de',
     now: () => now,
+    reconciler,
   });
   const executor = new HostRunnerAttemptExecutorService({
     admission: { assert: vi.fn(async () => undefined) },
     prompts: { resolve: vi.fn(async ({ prompt }: { prompt: string }) => prompt) },
-    tokens,
-    commands,
-    leases,
+    control: control.attempts,
     loopbackOrigin: 'http://127.0.0.1:4000',
     now: () => now,
   });
   return {
-    commands,
-    leases,
-    readiness,
-    handler,
+    control,
     executor,
     reconcile: work.reconcile,
     transitionAttempt,
     capacity,
-    dispose: () => leases.dispose(),
+    dispose: () => control.dispose(),
   };
 }
 
@@ -195,16 +176,16 @@ async function completeCanaryUntilTerminal(
   lease: { leaseId: string },
   expectedCanaryId: string,
 ): Promise<RunnerEventBatch> {
-  fixture.readiness.beginCanary({ runtime: 'codex_cli', model: 'gpt-5', deployIdentity: '1.0.0:abc123' });
-  const start = (await fixture.leases.poll({ runnerInstanceId, leaseId: lease.leaseId })).commands[0]!;
-  await fixture.handler.handle(batch(runnerInstanceId, lease.leaseId, 1, [{ kind: 'attempt.started', attemptId: expectedCanaryId }]));
-  await fixture.handler.handle(batch(runnerInstanceId, lease.leaseId, 2, [{
+  fixture.control.readiness.beginCanary({ runtime: 'codex_cli', model: 'gpt-5', deployIdentity: '1.0.0:abc123' });
+  const start = (await fixture.control.http.poll({ kind: 'poll', runnerInstanceId, leaseId: lease.leaseId })).commands[0]!;
+  await fixture.control.http.events(batch(runnerInstanceId, lease.leaseId, 1, [{ kind: 'attempt.started', attemptId: expectedCanaryId }]));
+  await fixture.control.http.events(batch(runnerInstanceId, lease.leaseId, 2, [{
     kind: 'command_ack',
     commandId: start.commandId,
     attemptId: expectedCanaryId,
     commandHash: start.commandHash,
   }]));
-  fixture.readiness.canaryMcpBinding({ canaryId: expectedCanaryId, leaseId: lease.leaseId })
+  fixture.control.readiness.canaryMcpBinding({ canaryId: expectedCanaryId, leaseId: lease.leaseId })
     .onProbe({ nonce: '618f4eb1-9078-7a1e-9514-b19b5732f5de' });
   return batch(runnerInstanceId, lease.leaseId, 3, [{
     kind: 'attempt.terminal',

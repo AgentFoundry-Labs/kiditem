@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { AgentWorkCommandPort } from '../../port/in/work/agent-work-command.port';
-import type { AdmitAttemptInput, AdmitRootAttemptInput, ApprovalDecisionInput, TaskLifecycleTransitionInput, TerminalSessionDeleteInput } from '../../port/out/work/agent-work-transaction.port';
+import type { AdmitAttemptInput, AdmitRootAttemptInput, ApprovalDecisionInput, TaskLifecycleTransitionInput, TerminalSessionDeleteInput } from '../../port/out/work/agent-work-persistence.types';
 import { AgentAttemptAdmissionService } from './agent-attempt-admission.service';
 import { AgentCapabilityApprovalService } from './agent-capability-approval.service';
 import { AgentSessionTerminalDeleteService } from './agent-session-terminal-delete.service';

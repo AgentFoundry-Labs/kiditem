@@ -4,7 +4,7 @@ import type {
 } from '../../port/in/capability/agent-attempt-launch.capability.port';
 import type { LiveAttemptExecutionCapabilityPort } from '../../port/in/capability/live-attempt-execution.capability.port';
 import type { LiveAttemptFutureOutputCapabilityPort } from '../../port/in/capability/live-attempt-future-output.capability.port';
-import type { AgentWorkTransactionPort } from '../../port/out/work/agent-work-transaction.port';
+import type { AgentWorkLifecyclePort } from '../../port/out/work/agent-work-lifecycle.port';
 
 export interface AgentAttemptLaunchServiceOptions {
   now?: () => Date;
@@ -37,7 +37,7 @@ export class AgentAttemptLaunchService implements AgentAttemptLaunchCapabilityPo
 
   constructor(
     private readonly execution: Pick<LiveAttemptExecutionCapabilityPort, 'start'>,
-    private readonly work: Pick<AgentWorkTransactionPort, 'transitionAttempt' | 'finalizeTaskFromAttempt'>,
+    private readonly work: AgentWorkLifecyclePort,
     private readonly admissions: { releaseAttempt(attemptId: string): void },
     private readonly output: Pick<LiveAttemptFutureOutputCapabilityPort, 'bind' | 'finish'>,
     options: AgentAttemptLaunchServiceOptions = {},

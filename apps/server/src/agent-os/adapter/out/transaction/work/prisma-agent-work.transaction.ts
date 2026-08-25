@@ -11,7 +11,6 @@ import type {
   ApprovalDecisionInput,
   ApprovalDecisionResult,
   ApprovalExpiryInput,
-  AgentWorkTransactionPort,
   MutationClaimInput,
   MutationFinalizeInput,
   InlineInvocationFinalizeInput,
@@ -23,7 +22,12 @@ import type {
   TaskLifecycleTransitionInput,
   AttemptLifecycleTransitionInput,
   TerminalSessionDeleteInput,
-} from "../../../../application/port/out/work/agent-work-transaction.port";
+  FinalizeTaskFromAttemptInput,
+} from "../../../../application/port/out/work/agent-work-persistence.types";
+import type { AgentWorkAdmissionPort } from "../../../../application/port/out/work/agent-work-admission.port";
+import type { AgentWorkInvocationApprovalPort } from "../../../../application/port/out/work/agent-work-invocation-approval.port";
+import type { AgentWorkLifecyclePort } from "../../../../application/port/out/work/agent-work-lifecycle.port";
+import type { AgentWorkMutationPort } from "../../../../application/port/out/work/agent-work-mutation.port";
 import { AgentResultEnvelopeSchema } from '@kiditem/shared/agent-interaction';
 import type { OperationRunnerPort } from '../../../../../operations/application/port/in/operation-runner.port';
 import {
@@ -37,24 +41,18 @@ import {
   type AgentWorkTransaction,
 } from "./internal/agent-work-transaction.guards";
 
-export class PrismaAgentWorkTransaction implements Pick<
-  AgentWorkTransactionPort,
-  | "admitRootAttempt"
-  | "admitAttempt"
-  | "findDelegationReplay"
-  | "delegateTask"
-  | "authorizeInvocation"
-  | "decideApproval"
-  | "expireApproval"
-  | "claimMutation"
-  | "finalizeMutation"
-  | "finalizeInlineInvocation"
-  | "reconcile"
-  | "transitionTask"
-  | "deleteTerminalSession"
-  | "transitionAttempt"
-  | "finalizeTaskFromAttempt"
-> {
+/**
+ * One shared Prisma atomicity kernel for every Agent Work persistence seam.
+ * The public Interfaces are deliberately narrow; transaction and row-lock
+ * guards remain here so their ordering cannot drift between invariant clusters.
+ */
+export class PrismaAgentWorkTransaction
+  implements
+    AgentWorkAdmissionPort,
+    AgentWorkInvocationApprovalPort,
+    AgentWorkMutationPort,
+    AgentWorkLifecyclePort
+{
   constructor(private readonly prisma: PrismaClient, private readonly operations?: Pick<OperationRunnerPort, 'get'>) {}
 
   async admitRootAttempt(
@@ -919,7 +917,7 @@ export class PrismaAgentWorkTransaction implements Pick<
     return { transitioned: updated.count === 1 };
   }
 
-  async finalizeTaskFromAttempt(input: { attemptId: string; at: Date }): Promise<{ finalized: boolean; status: string | null }> {
+  async finalizeTaskFromAttempt(input: FinalizeTaskFromAttemptInput): Promise<{ finalized: boolean; status: string | null }> {
     return this.prisma.$transaction(async (tx) => {
       const attempt = await tx.agentAttempt.findFirst({ where: { id: input.attemptId }, include: { task: true } });
       if (!attempt || attempt.task.status !== 'open' || !['succeeded', 'failed'].includes(attempt.status)) return { finalized: false, status: null };

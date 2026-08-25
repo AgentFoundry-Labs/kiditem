@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AgentWorkController } from './agent-work.controller';
 
 const organizationId = '018f4eb1-9078-7a1e-9514-b19b5732f5de';
@@ -8,52 +8,26 @@ const taskId = '318f4eb1-9078-7a1e-9514-b19b5732f5de';
 const attemptId = '418f4eb1-9078-7a1e-9514-b19b5732f5de';
 const predecessorAttemptId = '518f4eb1-9078-7a1e-9514-b19b5732f5de';
 
-describe('AgentWorkController Host Runner admission', () => {
-  afterEach(() => {
-    delete process.env.KIDITEM_APPLICATION_VERSION;
-    delete process.env.KIDITEM_GIT_SHA;
-    delete process.env.AGENT_OPERATOR_MODEL;
-    delete process.env.KIDITEM_ATTEMPT_LOGIN_HOME;
-    delete process.env.KIDITEM_ATTEMPT_CLI_VERSION;
-  });
-
-  it('starts a root Attempt with only the model and code-owned Codex train in a clean legacy runtime environment', async () => {
-    process.env.KIDITEM_APPLICATION_VERSION = 'app';
-    process.env.KIDITEM_GIT_SHA = 'git';
-    process.env.AGENT_OPERATOR_MODEL = 'gpt-5';
+describe('AgentWorkController transport-only intake', () => {
+  it('forwards the REST root coordinate and leaves admission and launch to the common intake Module', async () => {
     const fixture = controllerFixture();
-    fixture.queries.activeVersion.mockResolvedValue(version());
-    fixture.commands.root.mockResolvedValue({
-      session: { id: sessionId, organizationId },
-      task: { id: taskId, organizationId, sessionId },
-      attempt: { id: attemptId, ordinal: 1 },
-    });
+    fixture.intake.startRoot.mockResolvedValue(rootAdmission());
 
     await expect(fixture.controller.start({ objective: 'Research backpacks' }, organizationId, user as never))
       .resolves.toMatchObject({ attempt: { id: attemptId } });
 
-    expect(fixture.commands.root).toHaveBeenCalledWith(expect.objectContaining({
-      cliVersion: '0.149.1',
-      reportedModel: 'gpt-5',
-    }));
-    expect(fixture.launch.start).toHaveBeenCalledWith(expect.objectContaining({
-      attemptId,
-      runtime: 'codex_cli',
-      profile: { model: 'gpt-5' },
-    }));
+    expect(fixture.intake.startRoot).toHaveBeenCalledWith({
+      principal: { organizationId, userId: user.id },
+      objective: 'Research backpacks',
+      completionCriteria: undefined,
+      input: undefined,
+    });
+    expect(fixture.commands.root).not.toHaveBeenCalled();
   });
 
-  it('starts a durable follow-up with only the model and code-owned Claude train in a clean legacy runtime environment', async () => {
-    process.env.KIDITEM_APPLICATION_VERSION = 'app';
-    process.env.KIDITEM_GIT_SHA = 'git';
-    process.env.AGENT_OPERATOR_MODEL = 'claude-model';
+  it('forwards the REST continuation coordinate and leaves immutable version resolution to the common intake Module', async () => {
     const fixture = controllerFixture();
-    fixture.queries.taskVersion.mockResolvedValue(version({ runtimeType: 'claude_cli' }));
-    fixture.queries.continuationContext.mockResolvedValue({
-      prompt: 'Continue with durable context',
-      input: { prompt: 'Continue with durable context', resourceRefs: [], operationRefs: [] },
-    });
-    fixture.commands.followUp.mockResolvedValue({ attemptId, sessionId, taskId, ordinal: 2 });
+    fixture.intake.continue.mockResolvedValue({ attemptId, sessionId, taskId, ordinal: 2 });
 
     await expect(fixture.controller.continue(
       sessionId,
@@ -63,44 +37,39 @@ describe('AgentWorkController Host Runner admission', () => {
       user as never,
     )).resolves.toMatchObject({ attemptId });
 
-    expect(fixture.commands.followUp).toHaveBeenCalledWith(expect.objectContaining({
-      cliVersion: '2.1.241',
-      reportedModel: 'claude-model',
-    }));
-    expect(fixture.launch.start).toHaveBeenCalledWith(expect.objectContaining({
-      attemptId,
-      runtime: 'claude_cli',
-      profile: { model: 'claude-model' },
-      prompt: 'Continue with durable context',
-    }));
+    expect(fixture.intake.continue).toHaveBeenCalledWith({
+      principal: { organizationId, userId: user.id },
+      sessionId,
+      taskId,
+      predecessorAttemptId,
+      prompt: 'Continue',
+      reopen: undefined,
+    });
+    expect(fixture.commands.followUp).not.toHaveBeenCalled();
   });
 });
 
 function controllerFixture() {
   const queries = {
-    activeVersion: vi.fn(),
-    taskVersion: vi.fn(),
-    continuationContext: vi.fn(),
+    projection: vi.fn(),
+    liveAttempt: vi.fn(),
   };
-  const commands = { root: vi.fn(), followUp: vi.fn() };
+  const commands = { root: vi.fn(), followUp: vi.fn(), transition: vi.fn(), decide: vi.fn(), delete: vi.fn() };
   const executor = { interrupt: vi.fn(async () => undefined) };
-  const launch = { start: vi.fn(async () => undefined) };
+  const intake = { startRoot: vi.fn(), continue: vi.fn() };
   const Controller = AgentWorkController as unknown as new (...args: unknown[]) => AgentWorkController;
   return {
-    controller: new Controller(queries, commands, executor, launch),
+    controller: new Controller(queries, commands, executor, intake),
     queries,
     commands,
-    launch,
+    intake,
   };
 }
 
-function version(overrides: { runtimeType?: string } = {}) {
+function rootAdmission() {
   return {
-    id: '618f4eb1-9078-7a1e-9514-b19b5732f5de',
-    agentDefinitionKey: 'operator',
-    runtimeType: 'codex_cli',
-    capabilityKeys: [],
-    instructionProfileRef: 'agent-config/prompts/agents/operator.md',
-    ...overrides,
+    session: { id: sessionId, organizationId },
+    task: { id: taskId, organizationId, sessionId },
+    attempt: { id: attemptId, ordinal: 1 },
   };
 }

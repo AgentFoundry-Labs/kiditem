@@ -1,4 +1,5 @@
-import type { AgentWorkTransactionPort, ReconciliationResult } from '../../port/out/work/agent-work-transaction.port';
+import type { ReconciliationResult } from '../../port/out/work/agent-work-persistence.types';
+import type { AgentWorkLifecyclePort } from '../../port/out/work/agent-work-lifecycle.port';
 
 export interface AgentAttemptRuntimeIdentity {
   applicationVersion: string;
@@ -10,7 +11,7 @@ export class AgentAttemptReconciler {
   private inFlight: Promise<ReconciliationResult> | null = null;
 
   constructor(
-    private readonly work: Pick<AgentWorkTransactionPort, 'reconcile'>,
+    private readonly work: AgentWorkLifecyclePort,
     private readonly capacity: { releaseAttempt(attemptId: string): void },
     private readonly runtime: AgentAttemptRuntimeIdentity,
     private readonly now: () => Date = () => new Date(),

@@ -10,6 +10,8 @@ import { AgentAttemptAdmissionService } from "../application/service/work/agent-
 import { AgentTaskDelegationService } from "../application/service/work/agent-task-delegation.service";
 import { AgentLiveMessageService } from "../application/service/work/agent-live-message.service";
 import { AgentCapabilityInvocationService } from "../application/service/work/agent-capability-invocation.service";
+import type { AgentWorkAdmissionPort } from "../application/port/out/work/agent-work-admission.port";
+import type { AgentWorkLifecyclePort } from "../application/port/out/work/agent-work-lifecycle.port";
 import { deriveOwnerIdempotencyKey } from '../../common/owner-idempotency-key';
 
 const organizationId = "b1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
@@ -821,7 +823,9 @@ describe("replacement Agent work transaction races", () => {
       data: { status: "completed", finishedAt: new Date() },
     });
     const capacity = new AgentAttemptCapacityService(1);
-    const admissions = new AgentAttemptAdmissionService(capacity, work, readyPreflight);
+    const admission: AgentWorkAdmissionPort = work;
+    const lifecycle: AgentWorkLifecyclePort = work;
+    const admissions = new AgentAttemptAdmissionService(capacity, admission, readyPreflight);
     const input = {
       organizationId,
       sessionId: root.session.id,
@@ -833,7 +837,7 @@ describe("replacement Agent work transaction races", () => {
     };
     const raced = await Promise.allSettled([
       admissions.followUp(input),
-      work.deleteTerminalSession({
+      lifecycle.deleteTerminalSession({
         organizationId,
         sessionId: root.session.id,
         deletedByUserId: userId,
@@ -853,7 +857,7 @@ describe("replacement Agent work transaction races", () => {
     } else {
       expect(await prisma.agentAttempt.count({ where: { taskId: root.task.id, status: { in: ["starting", "running"] } } })).toBe(1);
       await expect(
-        work.deleteTerminalSession({
+        lifecycle.deleteTerminalSession({
           organizationId,
           sessionId: root.session.id,
           deletedByUserId: userId,

@@ -1,5 +1,5 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { z } from 'zod';
 import {
   PURCHASE_ORDER_DRAFT_PORT,
@@ -9,7 +9,11 @@ import {
   PURCHASE_ORDER_SUBMISSION_PORT,
   type PurchaseOrderSubmissionPort,
 } from '../../../application/port/in/procurement/purchase-order-submission.port';
-import type { SupplyPurchaseOrderCapabilityPort } from '../../../application/port/in/capability/purchase-order.port';
+import type {
+  SupplyPurchaseOrderCapabilityPort,
+  SupplyPurchaseOrderDraftCapabilityInput,
+  SupplyPurchaseOrderSubmissionCapabilityInput,
+} from '../../../application/port/in/capability/purchase-order.port';
 
 const PurchaseOrderDraftInputSchema = z.object({
   recommendationArtifactId: z.string().uuid().optional(),
@@ -42,7 +46,7 @@ const PurchaseOrderSubmissionOutputSchema = z.object({
   externalOrderUrl: z.string().nullable(),
 });
 
-function recommendationFromInput(input: Record<string, unknown>) {
+function recommendationFromInput(input: SupplyPurchaseOrderDraftCapabilityInput) {
   const parsed = PurchaseOrderDraftInputSchema.parse(input);
   return {
     sellpiaInventorySkuId: parsed.sellpiaInventorySkuId,
@@ -57,7 +61,7 @@ function recommendationFromInput(input: Record<string, unknown>) {
 
 function purchaseOrderDraftIdempotencyKey(input: {
   requestId: string;
-  input: Record<string, unknown>;
+  input: SupplyPurchaseOrderDraftCapabilityInput;
 }): string {
   const source =
     typeof input.input.recommendationArtifactId === 'string'
@@ -72,7 +76,9 @@ function purchaseOrderDraftIdempotencyKey(input: {
   return `${input.requestId}:supply.create_purchase_order_draft:${source}`;
 }
 
-function purchaseOrderDraftRequestHash(value: Record<string, unknown>): string {
+function purchaseOrderDraftRequestHash(
+  value: ReturnType<typeof recommendationFromInput>,
+): string {
   return createHash('sha256')
     .update(JSON.stringify(Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)))))
     .digest('hex');
@@ -87,7 +93,9 @@ export class SupplyAgentCapabilityAdapter implements SupplyPurchaseOrderCapabili
     private readonly submissions: PurchaseOrderSubmissionPort,
   ) {}
 
-  async createPurchaseOrderDraft(input: Record<string, unknown>): Promise<{ orderId: string; status: string }> {
+  async createPurchaseOrderDraft(
+    input: SupplyPurchaseOrderDraftCapabilityInput,
+  ): Promise<{ orderId: string; status: string }> {
     const organizationId = z.string().uuid().parse(input.organizationId);
     const idempotencyKey = z.string().min(1).parse(input.idempotencyKey);
     const recommendation = recommendationFromInput(input);
@@ -100,7 +108,9 @@ export class SupplyAgentCapabilityAdapter implements SupplyPurchaseOrderCapabili
     return { orderId: result.orderId, status: result.status };
   }
 
-  async submitPurchaseOrder(input: Record<string, unknown>): Promise<{ orderId: string; status: string }> {
+  async submitPurchaseOrder(
+    input: SupplyPurchaseOrderSubmissionCapabilityInput,
+  ): Promise<{ orderId: string; status: string }> {
     const organizationId = z.string().uuid().parse(input.organizationId);
     if (typeof input.userId !== 'string' || input.userId.length === 0) {
       throw new UnauthorizedException('Purchase submission requires an authenticated actor.');

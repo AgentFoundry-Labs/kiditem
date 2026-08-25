@@ -9,10 +9,12 @@ import { SupplyModule } from "../supply/supply.module";
 import { SourcingAgentRuntimeModule } from "./sourcing-agent-runtime.module";
 import { SourcingShadowOperationModule } from "./sourcing-shadow-operation.module";
 import { SourcingFinalCapabilityAdapter } from './adapter/in/agent/sourcing-final-capability.adapter';
+import { SourcingCapabilityCompositionAdapter } from './adapter/in/agent/sourcing-capability-composition.adapter';
 import { SourcingScrapeSnapshotAdmissionGuard } from './adapter/in/agent/sourcing-scrape-snapshot-admission.guard';
 import { SourcingFinalDiscoveryCapabilityAdapter } from './adapter/in/agent/sourcing-final-discovery-capability.adapter';
 import { SourcingPlaywrightRuntimeHandler } from './adapter/out/runtime/sourcing-playwright-runtime.handler';
 import { SOURCING_FINAL_CAPABILITY_PORT } from './application/port/in/capability/sourcing-final-capability.port';
+import { SOURCING_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capability/sourcing-capability-composition.port';
 import { SOURCING_CAPABILITY_ADMISSION_PORT } from './application/port/in/capability/sourcing-capability-admission.port';
 import { SOURCING_FINAL_DISCOVERY_CAPABILITY_PORT } from './application/port/in/capability/sourcing-final-discovery-capability.port';
 import { SOURCING_BROWSER_SCRAPE_PORT } from './application/port/out/runtime/sourcing-browser-scrape.port';
@@ -175,6 +177,7 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
   providers: [
     SourcingService,
     SourcingFinalCapabilityAdapter,
+    SourcingCapabilityCompositionAdapter,
     SourcingScrapeSnapshotAdmissionGuard,
     SourcingFinalDiscoveryCapabilityAdapter,
     NaverKeywordResearchService,
@@ -348,6 +351,10 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
       useExisting: SourcingFinalCapabilityAdapter,
     },
     {
+      provide: SOURCING_CAPABILITY_COMPOSITION_PORT,
+      useExisting: SourcingCapabilityCompositionAdapter,
+    },
+    {
       provide: SOURCING_CAPABILITY_ADMISSION_PORT,
       useExisting: SourcingScrapeSnapshotAdmissionGuard,
     },
@@ -363,6 +370,7 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
   exports: [
     SourcingAgentRuntimeModule,
     SOURCING_FINAL_CAPABILITY_PORT,
+    SOURCING_CAPABILITY_COMPOSITION_PORT,
     SOURCING_CAPABILITY_ADMISSION_PORT,
   ],
 })

@@ -6,7 +6,9 @@ import { SupplierStatsModule } from './supplier-stats/supplier-stats.module';
 import { SellpiaSalesModule } from './sellpia-sales/sellpia-sales.module';
 import { SellpiaProductSalesModule } from './sellpia-product-sales/sellpia-product-sales.module';
 import { AnalyticsOwnerOverviewCapabilityAdapter } from './adapter/in/agent/analytics-overview-capability.adapter';
+import { AnalyticsCapabilityCompositionAdapter } from './adapter/in/agent/analytics-capability-composition.adapter';
 import { ANALYTICS_AGENT_OVERVIEW_CAPABILITY_PORT } from './dashboard/application/port/in/analytics-overview-capability.port';
+import { ANALYTICS_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capability/analytics-capability-composition.port';
 
 /**
  * Analytics owner root.
@@ -49,8 +51,10 @@ import { ANALYTICS_AGENT_OVERVIEW_CAPABILITY_PORT } from './dashboard/applicatio
   ],
   providers: [
     AnalyticsOwnerOverviewCapabilityAdapter,
+    AnalyticsCapabilityCompositionAdapter,
     { provide: ANALYTICS_AGENT_OVERVIEW_CAPABILITY_PORT, useExisting: AnalyticsOwnerOverviewCapabilityAdapter },
+    { provide: ANALYTICS_CAPABILITY_COMPOSITION_PORT, useExisting: AnalyticsCapabilityCompositionAdapter },
   ],
-  exports: [SellpiaProductSalesModule, ANALYTICS_AGENT_OVERVIEW_CAPABILITY_PORT],
+  exports: [SellpiaProductSalesModule, ANALYTICS_AGENT_OVERVIEW_CAPABILITY_PORT, ANALYTICS_CAPABILITY_COMPOSITION_PORT],
 })
 export class AnalyticsModule {}

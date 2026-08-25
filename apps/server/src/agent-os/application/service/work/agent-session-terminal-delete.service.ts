@@ -1,14 +1,11 @@
 import type {
-  AgentWorkTransactionPort,
   TerminalSessionDeleteInput,
-} from "../../port/out/work/agent-work-transaction.port";
+} from "../../port/out/work/agent-work-persistence.types";
+import type { AgentWorkLifecyclePort } from "../../port/out/work/agent-work-lifecycle.port";
 
 export class AgentSessionTerminalDeleteService {
   constructor(
-    private readonly transactions: Pick<
-      AgentWorkTransactionPort,
-      "deleteTerminalSession"
-    >,
+    private readonly transactions: AgentWorkLifecyclePort,
   ) {}
 
   delete(input: TerminalSessionDeleteInput): Promise<{ deleted: boolean }> {

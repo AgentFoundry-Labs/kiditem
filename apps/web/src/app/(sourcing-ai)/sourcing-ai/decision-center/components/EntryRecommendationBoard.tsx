@@ -8,12 +8,12 @@ import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
 import { isTerminalOperationStatus } from '@/hooks/useOperationRun';
 import { useAuth } from '@/hooks/useAuth';
+import { openInteraction } from '@/components/agent-interaction/interaction-surface-state';
 import {
   type EntryInterestKeywordStatus,
   type EntryRecommendation,
   type EntrySourceStatus,
 } from '../lib/entry-recommendation-api';
-import { useInteractionStore } from '@/components/agent-interaction/interaction-store';
 import {
   toEntryInterestKeywordStatuses,
   toEntryRecommendations,
@@ -52,10 +52,6 @@ export function EntryRecommendationBoard() {
   const organizationId = user?.organizationId ?? null;
   const [activeId, setActiveId] = useState<string | null>(null);
   const [interestFilter, setInterestFilter] = useState<InterestFilter>('all');
-  const setInteractionOpen = useInteractionStore((state) => state.setOpen);
-  const selectInteractionAgent = useInteractionStore((state) => state.selectAgent);
-  const selectInteractionSession = useInteractionStore((state) => state.selectSession);
-  const setInteractionDraft = useInteractionStore((state) => state.setDraft);
   const saveSelection = useSaveSourcingReviewSelection();
 
   const recommendationsQuery = useSourcingRecommendations('entry', { limit: LIMIT });
@@ -158,10 +154,11 @@ export function EntryRecommendationBoard() {
   const activeItem = items.find((item) => item.id === activeId) ?? null;
 
   const handleAsk = (question: string) => {
-    selectInteractionSession(null, null);
-    selectInteractionAgent('sourcing');
-    setInteractionDraft(question);
-    setInteractionOpen(true);
+    openInteraction({
+      agentDefinitionKey: 'sourcing',
+      sessionId: null,
+      draft: question,
+    });
   };
 
   const saveEntrySelection = (itemKey: string, state: 'neutral' | 'selected' | 'removed') => {

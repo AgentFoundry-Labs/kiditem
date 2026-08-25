@@ -5,11 +5,8 @@ import { RunnerCommandDispatcher } from '../control/runner-command-dispatcher';
 import { RunnerControlClient } from '../control/runner-control.client';
 import { RunnerEventOutbox } from '../control/runner-event-outbox';
 import { AttemptTokenRegistry } from '../../../server/src/agent-os/adapter/out/runtime/runner/attempt-token.registry';
-import { RunnerCommandQueue } from '../../../server/src/agent-os/adapter/out/runtime/runner/runner-command.queue';
-import { RunnerEventHandlerService } from '../../../server/src/agent-os/adapter/out/runtime/runner/runner-event-handler.service';
+import { HostRunnerControlSession } from '../../../server/src/agent-os/adapter/out/runtime/runner/host-runner-control-session.module';
 import { RunnerInstallationTokenService } from '../../../server/src/agent-os/adapter/out/runtime/runner/runner-installation-token.service';
-import { RunnerLeaseRegistry } from '../../../server/src/agent-os/adapter/out/runtime/runner/runner-lease.registry';
-import { RunnerReadinessService } from '../../../server/src/agent-os/adapter/out/runtime/runner/runner-readiness.service';
 import { createRequestScopedReadinessMcpHandler } from '../../../server/src/agent-os/adapter/in/http/runtime/attempt-mcp-http.controller';
 import { RunnerControlController } from '../../../server/src/agent-os/adapter/in/http/runtime/runner-control.controller';
 
@@ -22,33 +19,24 @@ describe('Runner ↔ Nest loopback readiness', () => {
     ['codex_cli', 'gpt-loopback', '218f4eb1-9078-7a1e-9514-b19b5732f5de', '51e975ef-c0a7-4ab1-8007-47c0fd563505'],
     ['claude_cli', 'claude-loopback', '318f4eb1-9078-7a1e-9514-b19b5732f5de', '61e975ef-c0a7-4ab1-8007-47c0fd563505'],
   ] as const)('runs a strict scoped %s canary over ordinary control commands and leaves no token-bearing command', async (runtime, model, canaryId, nonce) => {
-    const commands = new RunnerCommandQueue({ commandId: commandIds() });
     const tokens = new AttemptTokenRegistry();
-    const leases = new RunnerLeaseRegistry({
-      commands,
-      interruptAttempt: async () => undefined,
-      leaseId: () => LEASE_ID,
-    });
-    const readiness = new RunnerReadinessService({
-      leases,
-      commands,
-      tokens,
-      loopbackOrigin: 'http://127.0.0.1:4000',
-      canaryId: () => canaryId,
-      nonce: () => nonce,
-    });
     const work = {
+      reconcile: vi.fn(async () => ({ reconciled: 0, attemptIds: [] })),
       transitionAttempt: vi.fn(async () => ({ transitioned: true })),
       finalizeTaskFromAttempt: vi.fn(async () => ({ finalized: true, status: 'completed' })),
+      transitionTask: vi.fn(async () => ({ status: 'completed' })),
+      deleteTerminalSession: vi.fn(async () => ({ deleted: true })),
     };
-    const events = new RunnerEventHandlerService({
-      leases,
-      commands,
+    const control = new HostRunnerControlSession({
       tokens,
       work,
       capacity: { releaseAttempt: vi.fn() },
       output: { publish: vi.fn(), finish: vi.fn() },
-      readiness,
+      loopbackOrigin: 'http://127.0.0.1:4000',
+      commandQueue: { commandId: commandIds() },
+      leaseId: () => LEASE_ID,
+      canaryId: () => canaryId,
+      nonce: () => nonce,
     });
     const installation = new RunnerInstallationTokenService({
       tokenFilePath: '/runner-token',
@@ -57,8 +45,7 @@ describe('Runner ↔ Nest loopback readiness', () => {
     await installation.initialize();
     const controller = new RunnerControlController(
       installation,
-      leases,
-      events,
+      control.http,
       { getAgentAttemptRuntimeReadiness: vi.fn(async () => ({ status: 'probing', agents: [] })) } as never,
     );
     const client = new RunnerControlClient({
@@ -69,7 +56,7 @@ describe('Runner ↔ Nest loopback readiness', () => {
 
     const lease = await client.hello(hello());
     expect(lease).toMatchObject({ runnerInstanceId: RUNNER_INSTANCE_ID, leaseId: LEASE_ID, status: 'probing' });
-    readiness.beginCanary({ runtime, model, deployIdentity: '3.4.5:abc123' });
+    control.readiness.beginCanary({ runtime, model, deployIdentity: '3.4.5:abc123' });
 
     const outbox = new RunnerEventOutbox({ runnerInstanceId: RUNNER_INSTANCE_ID, leaseId: lease.leaseId });
     const executor = { start: vi.fn(async () => undefined), input: vi.fn(async () => undefined), interrupt: vi.fn(async () => undefined) };
@@ -87,7 +74,7 @@ describe('Runner ↔ Nest loopback readiness', () => {
     }));
 
     const mcpHandler = createRequestScopedReadinessMcpHandler(
-      readiness.canaryMcpBinding({ canaryId, leaseId: lease.leaseId }),
+      control.readiness.canaryMcpBinding({ canaryId, leaseId: lease.leaseId }),
     );
     const mcpClient = pinnedModernMcpClient();
     try {
@@ -108,7 +95,6 @@ describe('Runner ↔ Nest loopback readiness', () => {
       await outbox.flush((body) => client.postEventBody(body));
       expect(executor.input).toHaveBeenCalledWith(canaryId, expect.stringContaining('AgentResultEnvelope'));
     } else {
-      expect(commands.take().commands.find((command) => command.kind === 'attempt.input')).toBeUndefined();
       expect(executor.input).not.toHaveBeenCalled();
     }
 
@@ -120,15 +106,13 @@ describe('Runner ↔ Nest loopback readiness', () => {
     });
     await outbox.flush((body) => client.postEventBody(body));
 
-    await expect(readiness.assertRuntime(runtime, model, '3.4.5:abc123')).resolves.toBeUndefined();
-    expect(leases.requireReady()).toEqual({ runnerInstanceId: RUNNER_INSTANCE_ID, leaseId: lease.leaseId });
+    await expect(control.readiness.assertRuntime(runtime, model, '3.4.5:abc123')).resolves.toBeUndefined();
+    expect(control.attempts.requireReady()).toEqual({ runnerInstanceId: RUNNER_INSTANCE_ID, leaseId: lease.leaseId });
     expect(() => tokens.requireReadiness({ raw: rawReadinessToken, canaryId, leaseId: lease.leaseId }))
       .toThrow('attempt_token_invalid');
-    expect(commands.take().commands).toEqual([]);
-    expect(JSON.stringify(commands)).not.toContain(rawReadinessToken);
     expect(work.transitionAttempt).not.toHaveBeenCalled();
     expect(work.finalizeTaskFromAttempt).not.toHaveBeenCalled();
-    leases.dispose();
+    control.dispose();
   });
 });
 

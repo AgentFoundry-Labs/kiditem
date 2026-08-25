@@ -53,12 +53,18 @@ describe('KID-25 owner capability boundary', () => {
       'channels/adapter/in/agent/channels-wing-thumbnail-capability.adapter.ts',
       'supply/adapter/in/agent/supply-agent-capability.adapter.ts',
       'analytics/adapter/in/agent/analytics-overview-capability.adapter.ts',
+      'sourcing/adapter/in/agent/sourcing-capability-composition.adapter.ts',
+      'products/adapter/in/agent/products-capability-composition.adapter.ts',
+      'channels/adapter/in/agent/channels-capability-composition.adapter.ts',
+      'supply/adapter/in/agent/supply-capability-composition.adapter.ts',
+      'analytics/adapter/in/agent/analytics-capability-composition.adapter.ts',
     ];
     for (const file of ownerAdapters) {
       const path = resolve(serverRoot, file);
       expect(existsSync(path), `missing owner adapter: ${file}`).toBe(true);
       const source = readFileSync(path, 'utf8');
       expect(source).not.toMatch(/AgentRun|AGENT_RUNNER_PORT|AgentCapabilityRegistry/);
+      expect(source).not.toContain('agent-os/application');
     }
   });
 });

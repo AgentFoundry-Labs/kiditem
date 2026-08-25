@@ -28,6 +28,23 @@ import { FinalCapabilityCatalogRegistrar } from './agent-os/application/service/
 import { SOURCING_CAPABILITY_ADMISSION_PORT, type SourcingCapabilityAdmissionPort } from './sourcing/application/port/in/capability/sourcing-capability-admission.port';
 import { AGENT_WORK_REPOSITORY_PORT } from './agent-os/application/port/out/work/agent-work-repository.port';
 import { AGENT_WORK_QUERY_REPOSITORY_PORT } from './agent-os/application/port/out/work/agent-work-query-repository.port';
+import {
+  AGENT_WORK_PERSISTENCE_PORT_PROVIDERS,
+} from './agent-os/adapter/out/transaction/work/agent-work-persistence.providers';
+import {
+  AGENT_WORK_ADMISSION_PORT,
+} from './agent-os/application/port/out/work/agent-work-admission.port';
+import {
+  AGENT_WORK_INVOCATION_APPROVAL_PORT,
+  type AgentWorkInvocationApprovalPort,
+} from './agent-os/application/port/out/work/agent-work-invocation-approval.port';
+import {
+  AGENT_WORK_LIFECYCLE_PORT,
+  type AgentWorkLifecyclePort,
+} from './agent-os/application/port/out/work/agent-work-lifecycle.port';
+import {
+  AGENT_WORK_MUTATION_PORT,
+} from './agent-os/application/port/out/work/agent-work-mutation.port';
 
 /** Capability composition shared by API and worker roots. */
 @Module({
@@ -35,19 +52,20 @@ import { AGENT_WORK_QUERY_REPOSITORY_PORT } from './agent-os/application/port/ou
   providers: [
     FinalCapabilityCatalogRegistrar,
     { provide: PrismaAgentWorkTransaction, inject: [PrismaService, OPERATION_RUNNER_PORT], useFactory: (prisma: PrismaService, operations: OperationRunnerPort) => new PrismaAgentWorkTransaction(prisma, operations) },
+    ...AGENT_WORK_PERSISTENCE_PORT_PROVIDERS,
     { provide: PrismaAgentWorkRepository, inject: [PrismaService], useFactory: (prisma: PrismaService) => new PrismaAgentWorkRepository(prisma) },
     { provide: AgentVersionPublisher, inject: [PrismaService], useFactory: (prisma: PrismaService) => new AgentVersionPublisher(prisma) },
     { provide: AgentVersionPublicationBootstrap, inject: [AgentVersionPublisher], useFactory: (publisher: AgentVersionPublisher) => new AgentVersionPublicationBootstrap(publisher) },
     { provide: AGENT_WORK_REPOSITORY_PORT, useExisting: PrismaAgentWorkRepository },
     { provide: AGENT_WORK_QUERY_REPOSITORY_PORT, useExisting: PrismaAgentWorkRepository },
-    { provide: AgentCapabilityInvocationService, inject: [PrismaAgentWorkTransaction, AgentCapabilityRegistry, SOURCING_CAPABILITY_ADMISSION_PORT], useFactory: (work: PrismaAgentWorkTransaction, capabilities: AgentCapabilityRegistry, sourcing: SourcingCapabilityAdmissionPort) => new AgentCapabilityInvocationService(work, capabilities, undefined, sourcing) },
-    { provide: AgentTaskLifecycleService, inject: [PrismaAgentWorkTransaction], useFactory: (work: PrismaAgentWorkTransaction) => new AgentTaskLifecycleService(work) },
-    { provide: AgentCapabilityApprovalService, inject: [PrismaAgentWorkTransaction], useFactory: (work: PrismaAgentWorkTransaction) => new AgentCapabilityApprovalService(work) },
-    { provide: AgentSessionTerminalDeleteService, inject: [PrismaAgentWorkTransaction], useFactory: (work: PrismaAgentWorkTransaction) => new AgentSessionTerminalDeleteService(work) },
+    { provide: AgentCapabilityInvocationService, inject: [AGENT_WORK_INVOCATION_APPROVAL_PORT, AgentCapabilityRegistry, SOURCING_CAPABILITY_ADMISSION_PORT], useFactory: (work: AgentWorkInvocationApprovalPort, capabilities: AgentCapabilityRegistry, sourcing: SourcingCapabilityAdmissionPort) => new AgentCapabilityInvocationService(work, capabilities, undefined, sourcing) },
+    { provide: AgentTaskLifecycleService, inject: [AGENT_WORK_LIFECYCLE_PORT], useFactory: (work: AgentWorkLifecyclePort) => new AgentTaskLifecycleService(work) },
+    { provide: AgentCapabilityApprovalService, inject: [AGENT_WORK_INVOCATION_APPROVAL_PORT], useFactory: (work: AgentWorkInvocationApprovalPort) => new AgentCapabilityApprovalService(work) },
+    { provide: AgentSessionTerminalDeleteService, inject: [AGENT_WORK_LIFECYCLE_PORT], useFactory: (work: AgentWorkLifecyclePort) => new AgentSessionTerminalDeleteService(work) },
     AgentWorkProjectionService,
     AgentWorkQueryService,
     { provide: AGENT_WORK_QUERY_PORT, useExisting: AgentWorkQueryService },
   ],
-  exports: [PrismaAgentWorkTransaction, PrismaAgentWorkRepository, AgentCapabilityInvocationService, AgentTaskLifecycleService, AgentCapabilityApprovalService, AgentSessionTerminalDeleteService, AgentWorkProjectionService, AGENT_WORK_QUERY_PORT, AgentOsCapabilityModule],
+  exports: [AGENT_WORK_ADMISSION_PORT, AGENT_WORK_INVOCATION_APPROVAL_PORT, AGENT_WORK_LIFECYCLE_PORT, AGENT_WORK_MUTATION_PORT, PrismaAgentWorkRepository, AgentCapabilityInvocationService, AgentTaskLifecycleService, AgentCapabilityApprovalService, AgentSessionTerminalDeleteService, AgentWorkProjectionService, AGENT_WORK_QUERY_PORT, AgentOsCapabilityModule],
 })
 export class AgentWorkCapabilityApplicationModule {}

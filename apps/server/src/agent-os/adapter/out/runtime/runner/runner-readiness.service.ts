@@ -42,7 +42,7 @@ type ActiveCanary = {
 export interface RunnerReadinessServiceOptions {
   leases: RunnerLeasePort;
   commands: Pick<RunnerCommandQueue, 'enqueueInput' | 'enqueueStart'>;
-  tokens: Pick<AttemptTokenRegistry, 'issueReadiness' | 'revokeLease' | 'revokeReadiness'>;
+  tokens: Pick<AttemptTokenRegistry, 'issueReadiness' | 'revokeReadiness'>;
   loopbackOrigin: string;
   now?: () => Date;
   canaryId?: () => string;
@@ -71,32 +71,22 @@ export class RunnerReadinessService {
   private readonly verified = new Map<string, VerifiedCanary>();
   private readonly activeCanaries = new Map<string, ActiveCanary>();
   private readonly canaryByIdentity = new Map<string, string>();
-  private readonly commands: Pick<RunnerCommandQueue, 'enqueueInput' | 'enqueueStart'> | null;
-  private readonly tokens: Pick<AttemptTokenRegistry, 'issueReadiness' | 'revokeLease' | 'revokeReadiness'> | null;
-  private readonly origin: URL | null;
+  private readonly commands: Pick<RunnerCommandQueue, 'enqueueInput' | 'enqueueStart'>;
+  private readonly tokens: Pick<AttemptTokenRegistry, 'issueReadiness' | 'revokeReadiness'>;
+  private readonly origin: URL;
   private readonly now: () => Date;
   private readonly createCanaryId: () => string;
   private readonly createNonce: () => string;
   private readonly leases: RunnerLeasePort;
 
-  constructor(input: RunnerLeasePort | RunnerReadinessServiceOptions) {
-    if ('leases' in input) {
-      this.leases = input.leases;
-      this.commands = input.commands;
-      this.tokens = input.tokens;
-      this.origin = requiredLoopbackOrigin(input.loopbackOrigin);
-      this.now = input.now ?? (() => new Date());
-      this.createCanaryId = input.canaryId ?? randomUUID;
-      this.createNonce = input.nonce ?? randomUUID;
-      return;
-    }
-    this.leases = input;
-    this.commands = null;
-    this.tokens = null;
-    this.origin = null;
-    this.now = () => new Date();
-    this.createCanaryId = randomUUID;
-    this.createNonce = randomUUID;
+  constructor(input: RunnerReadinessServiceOptions) {
+    this.leases = input.leases;
+    this.commands = input.commands;
+    this.tokens = input.tokens;
+    this.origin = requiredLoopbackOrigin(input.loopbackOrigin);
+    this.now = input.now ?? (() => new Date());
+    this.createCanaryId = input.canaryId ?? randomUUID;
+    this.createNonce = input.nonce ?? randomUUID;
   }
 
   /**
@@ -114,7 +104,6 @@ export class RunnerReadinessService {
     const commands = this.commands;
     const tokens = this.tokens;
     const origin = this.origin;
-    if (!commands || !tokens || !origin) throw new Error('runner_readiness_canary_unavailable');
 
     const canaryId = this.createCanaryId();
     const nonce = this.createNonce();
@@ -180,7 +169,6 @@ export class RunnerReadinessService {
       state.probeAccepted = true;
       return;
     }
-    if (!this.commands) throw new Error('runner_readiness_canary_unavailable');
     const command = this.commands.enqueueInput({
       attemptId: state.canaryId,
       input: 'The readiness probe succeeded. Complete now with only a valid AgentResultEnvelope JSON object.',
@@ -305,7 +293,6 @@ export class RunnerReadinessService {
   }
 
   private completeCanary(state: ActiveCanary): void {
-    if (!this.tokens) throw new Error('runner_readiness_canary_unavailable');
     this.tokens.revokeReadiness(state.canaryId);
     this.recordVerifiedCanary({
       runnerInstanceId: state.runnerInstanceId,
@@ -318,7 +305,7 @@ export class RunnerReadinessService {
   }
 
   private failCanary(state: ActiveCanary): void {
-    this.tokens?.revokeReadiness(state.canaryId);
+    this.tokens.revokeReadiness(state.canaryId);
     this.removeCanary(state);
     for (const [key, verified] of this.verified) {
       if (verified.runnerInstanceId === state.runnerInstanceId && verified.leaseId === state.leaseId) {

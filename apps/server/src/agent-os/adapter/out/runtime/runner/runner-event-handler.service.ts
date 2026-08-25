@@ -1,14 +1,14 @@
-import type { RunnerEventBatch } from '@kiditem/shared/agent-runtime';
-import type { AgentResultEnvelope } from '@kiditem/shared/agent-interaction';
-import type {
-  AgentWorkTransactionPort,
-  AttemptLifecycleTransitionInput,
-  ReconciliationResult,
-} from '../../../../application/port/out/work/agent-work-transaction.port';
 import { AttemptTokenRegistry } from './attempt-token.registry';
 import { RunnerCommandQueue } from './runner-command.queue';
 import { RunnerLeaseRegistry } from './runner-lease.registry';
 import type { RunnerReadinessService } from './runner-readiness.service';
+import type { RunnerEventBatch } from '@kiditem/shared/agent-runtime';
+import type { AgentResultEnvelope } from '@kiditem/shared/agent-interaction';
+import type { AgentWorkLifecyclePort } from '../../../../application/port/out/work/agent-work-lifecycle.port';
+import type {
+  AttemptLifecycleTransitionInput,
+  ReconciliationResult,
+} from '../../../../application/port/out/work/agent-work-persistence.types';
 
 type FutureOutput = {
   publish(input: { attemptId: string; output: string }): void;
@@ -43,7 +43,7 @@ export interface RunnerEventHandlerServiceOptions {
   leases: RunnerLeaseRegistry;
   commands: RunnerCommandQueue;
   tokens: AttemptTokenRegistry;
-  work: Pick<AgentWorkTransactionPort, 'transitionAttempt' | 'finalizeTaskFromAttempt'>;
+  work: Pick<AgentWorkLifecyclePort, 'transitionAttempt' | 'finalizeTaskFromAttempt'>;
   capacity: { releaseAttempt(attemptId: string): void };
   output: FutureOutput;
   readiness?: Pick<RunnerReadinessService, 'handleRunnerEvent'>;

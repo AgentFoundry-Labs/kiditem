@@ -2,15 +2,18 @@
 
 import { useEffect } from 'react';
 import { AgentInteractionSurface } from './AgentInteractionSurface';
-import { useInteractionStore } from './interaction-store';
+import {
+  closeInteraction,
+  openInteraction,
+  useInteractionSurfaceState,
+} from './interaction-surface-state';
 
 export function AgentInteractionPanel({ defaultOpen = false }: { defaultOpen?: boolean }) {
-  const isOpen = useInteractionStore((state) => state.isOpen);
-  const setOpen = useInteractionStore((state) => state.setOpen);
+  const isOpen = useInteractionSurfaceState((state) => state.isOpen);
 
   useEffect(() => {
-    if (defaultOpen) setOpen(true);
-  }, [defaultOpen, setOpen]);
+    if (defaultOpen) openInteraction();
+  }, [defaultOpen]);
 
   if (!isOpen) return null;
 
@@ -26,7 +29,7 @@ export function AgentInteractionPanel({ defaultOpen = false }: { defaultOpen?: b
         type="button"
         aria-label="AgentOS 대화 닫기"
         className="absolute right-3 top-3 z-10 rounded-md px-2 py-1 text-sm text-muted-foreground"
-        onClick={() => setOpen(false)}
+        onClick={closeInteraction}
       >
         닫기
       </button>

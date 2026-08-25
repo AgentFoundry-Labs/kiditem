@@ -2,24 +2,31 @@ import { Module } from '@nestjs/common';
 import { AgentOsWorkerModule } from './agent-os/agent-os-worker.module';
 import { AgentWorkCapabilityApplicationModule } from './agent-work-capability-application.module';
 import { AgentCapabilityRegistry } from './agent-os/application/service/agent-capability-registry.service';
-import { PrismaAgentWorkTransaction } from './agent-os/adapter/out/transaction/work/prisma-agent-work.transaction';
 import { PrismaAgentWorkRepository } from './agent-os/adapter/out/repository/work/prisma-agent-work.repository';
 import { AgentApprovalExpiryService } from './agent-os/application/service/work/agent-approval-expiry.service';
 import { AgentMutationDispatcherService } from './agent-os/application/service/work/agent-mutation-dispatcher.service';
 import { AgentWorkPollerService } from './agent-os/application/service/work/agent-work-poller.service';
+import {
+  AGENT_WORK_INVOCATION_APPROVAL_PORT,
+  type AgentWorkInvocationApprovalPort,
+} from './agent-os/application/port/out/work/agent-work-invocation-approval.port';
+import {
+  AGENT_WORK_MUTATION_PORT,
+  type AgentWorkMutationPort,
+} from './agent-os/application/port/out/work/agent-work-mutation.port';
 
 @Module({
   imports: [AgentWorkCapabilityApplicationModule, AgentOsWorkerModule],
   providers: [
     {
       provide: AgentApprovalExpiryService,
-      inject: [PrismaAgentWorkTransaction],
-      useFactory: (work: PrismaAgentWorkTransaction) => new AgentApprovalExpiryService(work),
+      inject: [AGENT_WORK_INVOCATION_APPROVAL_PORT],
+      useFactory: (work: AgentWorkInvocationApprovalPort) => new AgentApprovalExpiryService(work),
     },
     {
       provide: AgentMutationDispatcherService,
-      inject: [PrismaAgentWorkTransaction, AgentCapabilityRegistry],
-      useFactory: (work: PrismaAgentWorkTransaction, capabilities: AgentCapabilityRegistry) =>
+      inject: [AGENT_WORK_MUTATION_PORT, AgentCapabilityRegistry],
+      useFactory: (work: AgentWorkMutationPort, capabilities: AgentCapabilityRegistry) =>
         new AgentMutationDispatcherService(work, capabilities, currentWorkRuntimeIdentity()),
     },
     {

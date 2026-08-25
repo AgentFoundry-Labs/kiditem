@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
-import type { CapabilityDefinition } from "../../domain/capability/capability-definition";
 import { AgentCapabilityRegistry } from "./agent-capability-registry.service";
+import type { CapabilityDefinition } from "../../domain/capability/capability-definition";
 
 const definition = (
   overrides: Partial<CapabilityDefinition> = {},
@@ -28,6 +28,42 @@ const implementation = (capabilityKey = "products.inspect") => ({
 });
 
 describe("AgentCapabilityRegistry final contracts", () => {
+  it("registers a definition and its owner implementation as one composition unit", () => {
+    const registry = new AgentCapabilityRegistry();
+
+    registry.registerComposition({
+      definition: definition(),
+      implementation: {
+        capabilityKey: "products.inspect",
+        ownerInputPort: "products.inspect",
+        invoke: async () => ({}),
+      },
+    });
+
+    expect(registry.resolveDefinition("products.inspect")).toMatchObject({
+      ownerInputPort: "products.inspect",
+    });
+    expect(registry.resolveImplementation("products.inspect")).toMatchObject({
+      capabilityKey: "products.inspect",
+    });
+    expect(() => registry.assertFinalCatalog()).not.toThrow();
+  });
+
+  it("rejects a composition whose injected owner port does not match its definition", () => {
+    const registry = new AgentCapabilityRegistry();
+
+    expect(() =>
+      registry.registerComposition({
+        definition: definition(),
+        implementation: {
+          capabilityKey: "products.inspect",
+          ownerInputPort: "products.write",
+          invoke: async () => ({}),
+        },
+      }),
+    ).toThrow("owner input port");
+  });
+
   it("validates exactly one final definition and implementation per capability", () => {
     const registry = new AgentCapabilityRegistry();
     registry.registerDefinition(definition());

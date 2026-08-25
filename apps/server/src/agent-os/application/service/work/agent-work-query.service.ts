@@ -98,7 +98,13 @@ async function projectTask(
   const activeOperation = operationRefs.some((reference) => isActiveOperation(reference.status));
   const child = all.some((candidate) => candidate.parentTaskId === task.id && candidate.status === 'open');
   const presentation = status === 'failed' ? 'error' : status !== 'open' ? 'terminal' : approval ? 'awaiting_approval' : mutation || activeOperation ? 'awaiting_operation' : child ? 'awaiting_child' : live ? 'running' : result?.needsInput ? 'needs_input' : 'needs_continue';
-  return { id: task.id, parentTaskId: task.parentTaskId, objective: task.objective, completionCriteria: task.completionCriteria, status, latestAttempt: latest && { id: latest.id, ordinal: latest.ordinal, status: latest.status, result: latest.result, error: latest.error }, approval: approval && { id: approval.id, invocationId: approval.invocationId, inputHash: approval.inputHash, status: approval.status, expiresAt: approval.expiresAt }, summary: typeof result?.summary === 'string' ? result.summary : null, error: result?.error ?? latest?.error ?? null, operationRefs, resourceRefs, presentation };
+  const assignedAgentVersion = task.assignedAgentVersion && typeof task.assignedAgentVersion === 'object'
+    ? task.assignedAgentVersion as Record<string, unknown>
+    : null;
+  const agentDefinitionKey = typeof assignedAgentVersion?.agentDefinitionKey === 'string'
+    ? assignedAgentVersion.agentDefinitionKey
+    : null;
+  return { id: task.id, parentTaskId: task.parentTaskId, agentDefinitionKey, objective: task.objective, completionCriteria: task.completionCriteria, status, latestAttempt: latest && { id: latest.id, ordinal: latest.ordinal, status: latest.status, result: latest.result, error: latest.error }, approval: approval && { id: approval.id, invocationId: approval.invocationId, inputHash: approval.inputHash, status: approval.status, expiresAt: approval.expiresAt }, summary: typeof result?.summary === 'string' ? result.summary : null, error: result?.error ?? latest?.error ?? null, operationRefs, resourceRefs, presentation };
 }
 
 async function currentOperationRefs(

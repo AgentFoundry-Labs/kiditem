@@ -2,11 +2,15 @@ import "reflect-metadata";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { ChannelsFinalCapabilityAdapter } from "../../channels/adapter/in/agent/channels-final-capability.adapter";
+import { ChannelsCapabilityCompositionAdapter } from "../../channels/adapter/in/agent/channels-capability-composition.adapter";
 import { ChannelsFinalCapabilityModule } from "../../channels/channels-final-capability.module";
 import { CHANNELS_FINAL_CAPABILITY_PORT } from "../../channels/application/port/in/capability/channels-final-capability.port";
+import { CHANNELS_CAPABILITY_COMPOSITION_PORT } from "../../channels/application/port/in/capability/channels-capability-composition.port";
 import { SourcingFinalCapabilityAdapter } from "../adapter/in/agent/sourcing-final-capability.adapter";
+import { SourcingCapabilityCompositionAdapter } from "../adapter/in/agent/sourcing-capability-composition.adapter";
 import { SourcingFinalDiscoveryCapabilityAdapter } from "../adapter/in/agent/sourcing-final-discovery-capability.adapter";
 import { SOURCING_FINAL_CAPABILITY_PORT } from "../application/port/in/capability/sourcing-final-capability.port";
+import { SOURCING_CAPABILITY_COMPOSITION_PORT } from "../application/port/in/capability/sourcing-capability-composition.port";
 import { SOURCING_FINAL_DISCOVERY_CAPABILITY_PORT } from "../application/port/in/capability/sourcing-final-discovery-capability.port";
 import { SourcingModule } from "../sourcing.module";
 
@@ -34,10 +38,15 @@ describe("Sourcing final capability wiring", () => {
     const entries = providers(SourcingModule);
 
     expect(entries).toContain(SourcingFinalCapabilityAdapter);
+    expect(entries).toContain(SourcingCapabilityCompositionAdapter);
     expect(entries).toContain(SourcingFinalDiscoveryCapabilityAdapter);
     expect(binding(entries, SOURCING_FINAL_CAPABILITY_PORT)).toEqual({
       provide: SOURCING_FINAL_CAPABILITY_PORT,
       useExisting: SourcingFinalCapabilityAdapter,
+    });
+    expect(binding(entries, SOURCING_CAPABILITY_COMPOSITION_PORT)).toEqual({
+      provide: SOURCING_CAPABILITY_COMPOSITION_PORT,
+      useExisting: SourcingCapabilityCompositionAdapter,
     });
     expect(binding(entries, SOURCING_FINAL_DISCOVERY_CAPABILITY_PORT)).toEqual({
       provide: SOURCING_FINAL_DISCOVERY_CAPABILITY_PORT,
@@ -45,7 +54,7 @@ describe("Sourcing final capability wiring", () => {
     });
   });
 
-  it("keeps Agent OS composition on incoming ports rather than concrete Sourcing services or runtime handlers", () => {
+  it("keeps the Sourcing composition Adapter on its incoming port rather than concrete services or runtime handlers", () => {
     const finalAdapter = readFileSync(
       new URL(
         "../adapter/in/agent/sourcing-final-capability.adapter.ts",
@@ -53,19 +62,20 @@ describe("Sourcing final capability wiring", () => {
       ),
       "utf8",
     );
-    const registrar = readFileSync(
+    const composition = readFileSync(
       new URL(
-        "../../agent-os/application/service/final-capability-catalog-registrar.service.ts",
+        "../adapter/in/agent/sourcing-capability-composition.adapter.ts",
         import.meta.url,
       ),
       "utf8",
     );
 
     expect(finalAdapter).not.toContain("agent-os/application/service");
-    expect(registrar).toContain("SOURCING_FINAL_CAPABILITY_PORT");
-    expect(registrar).not.toContain("SourcingService");
-    expect(registrar).not.toContain("SourcingPlaywrightRuntimeHandler");
-    expect(registrar).not.toContain("PrismaService");
+    expect(composition).toContain("SOURCING_FINAL_CAPABILITY_PORT");
+    expect(composition).not.toContain("agent-os/application/service");
+    expect(composition).not.toContain("SourcingService");
+    expect(composition).not.toContain("SourcingPlaywrightRuntimeHandler");
+    expect(composition).not.toContain("PrismaService");
   });
 
   it("keeps canonical Channels mutations behind the Channels-owned final port", () => {
@@ -73,9 +83,14 @@ describe("Sourcing final capability wiring", () => {
     const sourcingEntries = providers(SourcingModule);
 
     expect(channelsEntries).toContain(ChannelsFinalCapabilityAdapter);
+    expect(channelsEntries).toContain(ChannelsCapabilityCompositionAdapter);
     expect(binding(channelsEntries, CHANNELS_FINAL_CAPABILITY_PORT)).toEqual({
       provide: CHANNELS_FINAL_CAPABILITY_PORT,
       useExisting: ChannelsFinalCapabilityAdapter,
+    });
+    expect(binding(channelsEntries, CHANNELS_CAPABILITY_COMPOSITION_PORT)).toEqual({
+      provide: CHANNELS_CAPABILITY_COMPOSITION_PORT,
+      useExisting: ChannelsCapabilityCompositionAdapter,
     });
     expect(sourcingEntries).not.toContain(ChannelsFinalCapabilityAdapter);
     expect(

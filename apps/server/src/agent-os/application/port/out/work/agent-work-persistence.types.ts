@@ -11,9 +11,6 @@ import type {
 } from "../../../../domain/capability/capability-definition";
 import type { OrganizationScopedId } from "./agent-work-repository.port";
 
-export const AGENT_WORK_TRANSACTION_PORT = Symbol(
-  "AGENT_WORK_TRANSACTION_PORT",
-);
 export interface AttemptSnapshot {
   input: unknown;
   applicationVersion: string;
@@ -21,6 +18,7 @@ export interface AttemptSnapshot {
   cliVersion: string;
   reportedModel?: string;
 }
+
 export interface AdmitAttemptInput extends AttemptSnapshot {
   organizationId: string;
   sessionId: string;
@@ -30,12 +28,14 @@ export interface AdmitAttemptInput extends AttemptSnapshot {
   /** Command intent only; never persisted as Task state. */
   intent?: "follow_up" | "retry" | "reopen";
 }
+
 export interface AdmitAttemptResult {
   attemptId: string;
   taskId: string;
   sessionId: string;
   ordinal: number;
 }
+
 export interface AdmitRootAttemptInput extends AttemptSnapshot {
   organizationId: string;
   createdByUserId: string;
@@ -45,11 +45,13 @@ export interface AdmitRootAttemptInput extends AttemptSnapshot {
   inputResourceRefs: unknown[];
   sessionId?: string;
 }
+
 export interface AdmitRootAttemptResult {
   session: OrganizationScopedId;
   task: OrganizationScopedId & { sessionId: string };
   attempt: { id: string; ordinal: number };
 }
+
 export interface DelegateTaskInput extends AttemptSnapshot {
   organizationId: string;
   sessionId: string;
@@ -63,11 +65,13 @@ export interface DelegateTaskInput extends AttemptSnapshot {
   idempotencyKey: string;
   requestHash: string;
 }
+
 export interface DelegateTaskResult {
   childTaskId: string;
   firstAttemptId: string;
   replayed: boolean;
 }
+
 export interface InvocationAuthorizationInput {
   organizationId: string;
   sessionId: string;
@@ -94,6 +98,7 @@ export interface InvocationAuthorizationInput {
     createdAt: Date;
   };
 }
+
 export interface InvocationAuthorizationResult {
   invocationId: string;
   approvalId: string | null;
@@ -104,6 +109,7 @@ export interface InvocationAuthorizationResult {
   authorizingGitSha: string;
   runtimeType: string;
 }
+
 export interface ApprovalDecisionInput {
   organizationId: string;
   sessionId: string;
@@ -115,10 +121,12 @@ export interface ApprovalDecisionInput {
   decisionReason?: string;
   decidedAt: Date;
 }
+
 export interface ApprovalDecisionResult {
   approvalStatus: "approved" | "rejected";
   invocationStatus: AgentCapabilityInvocationStatus;
 }
+
 export interface ApprovalExpiryInput {
   organizationId: string;
   sessionId: string;
@@ -127,11 +135,13 @@ export interface ApprovalExpiryInput {
   inputHash: string;
   expiredAt: Date;
 }
+
 export interface MutationClaimInput {
   workerId: string;
   claimedAt: Date;
   leaseExpiresAt: Date;
 }
+
 export interface MutationWorkSnapshot {
   invocationId: string;
   organizationId: string;
@@ -159,6 +169,7 @@ export interface MutationWorkSnapshot {
   leaseOwner: string;
   leaseExpiresAt: Date;
 }
+
 export interface MutationFinalizeInput {
   organizationId: string;
   invocationId: string;
@@ -168,6 +179,7 @@ export interface MutationFinalizeInput {
   error?: { code: string; message: string };
   finishedAt: Date;
 }
+
 /** Completion fence for a process-local read invocation. */
 export interface InlineInvocationFinalizeInput {
   organizationId: string;
@@ -177,20 +189,24 @@ export interface InlineInvocationFinalizeInput {
   error?: { code: string; message: string };
   finishedAt: Date;
 }
+
 export interface ReconciliationInput {
   applicationVersion: string;
   authorizingGitSha: string;
   now: Date;
 }
+
 export interface ReconciliationResult {
   reconciled: number;
   attemptIds: string[];
 }
+
 export interface TerminalSessionDeleteInput {
   organizationId: string;
   sessionId: string;
   deletedByUserId: string;
 }
+
 export interface TaskLifecycleTransitionInput {
   organizationId: string;
   sessionId: string;
@@ -199,6 +215,7 @@ export interface TaskLifecycleTransitionInput {
   to: "completed" | "failed" | "cancelled";
   at: Date;
 }
+
 export interface AttemptLifecycleTransitionInput {
   attemptId: string;
   from: "starting" | "running";
@@ -207,53 +224,8 @@ export interface AttemptLifecycleTransitionInput {
   result?: AgentResultEnvelope;
   error?: { code: string; message: string };
 }
+
 export interface FinalizeTaskFromAttemptInput {
   attemptId: string;
   at: Date;
-}
-
-/** Future atomic command shapes; Task 1 intentionally implements admission only. */
-export interface AgentWorkTransactionPort {
-  admitRootAttempt(
-    input: AdmitRootAttemptInput,
-  ): Promise<AdmitRootAttemptResult>;
-  /** Locks Session before Task and creates an immutable successor attempt. */
-  admitAttempt(input: AdmitAttemptInput): Promise<AdmitAttemptResult>;
-  /** Fast exact replay lookup; delegateTask remains the atomic authority. */
-  findDelegationReplay(
-    input: Pick<
-      DelegateTaskInput,
-      | "organizationId"
-      | "sessionId"
-      | "parentTaskId"
-      | "delegatingAttemptId"
-      | "requestedByUserId"
-      | "idempotencyKey"
-      | "requestHash"
-    >,
-  ): Promise<DelegateTaskResult | null>;
-  delegateTask(input: DelegateTaskInput): Promise<DelegateTaskResult>;
-  authorizeInvocation(
-    input: InvocationAuthorizationInput,
-  ): Promise<InvocationAuthorizationResult>;
-  decideApproval(input: ApprovalDecisionInput): Promise<ApprovalDecisionResult>;
-  expireApproval(input: ApprovalExpiryInput): Promise<{ won: boolean }>;
-  claimMutation(
-    input: MutationClaimInput,
-  ): Promise<MutationWorkSnapshot | null>;
-  finalizeMutation(input: MutationFinalizeInput): Promise<{ won: boolean }>;
-  /** Reads run in the live Attempt, but their result remains durable. */
-  finalizeInlineInvocation(
-    input: InlineInvocationFinalizeInput,
-  ): Promise<{ won: boolean }>;
-  reconcile(input: ReconciliationInput): Promise<ReconciliationResult>;
-  transitionTask(
-    input: TaskLifecycleTransitionInput,
-  ): Promise<{ status: string }>;
-  deleteTerminalSession(
-    input: TerminalSessionDeleteInput,
-  ): Promise<{ deleted: boolean }>;
-  transitionAttempt(input: AttemptLifecycleTransitionInput): Promise<{ transitioned: boolean }>;
-  /** Terminalizes business work only from a validated, quiescent Attempt result. */
-  finalizeTaskFromAttempt(input: FinalizeTaskFromAttemptInput): Promise<{ finalized: boolean; status: string | null }>;
 }

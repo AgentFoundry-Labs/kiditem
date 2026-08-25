@@ -8,8 +8,6 @@ import { defer, from, merge, switchMap, type Observable } from 'rxjs';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../../auth/auth.types';
-import { AGENT_WORK_QUERY_PORT, type AgentWorkQueryPort } from '../../../../application/port/in/work/agent-work-query.port';
-import { AGENT_WORK_COMMAND_PORT, type AgentWorkCommandPort } from '../../../../application/port/in/work/agent-work-command.port';
 import {
   LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT,
   type LiveAttemptExecutionCapabilityPort,
@@ -19,25 +17,23 @@ import {
   type LiveAttemptFutureOutputCapabilityPort,
 } from '../../../../application/port/in/capability/live-attempt-future-output.capability.port';
 import {
-  AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT,
-  type AgentAttemptLaunchCapabilityPort,
-} from '../../../../application/port/in/capability/agent-attempt-launch.capability.port';
-import { attemptRuntimeVersion } from '@kiditem/shared/agent-runtime';
-import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
+  AGENT_WORK_INTAKE_PORT,
+  AgentWorkIntakeError,
+  type AgentWorkIntakePort,
+} from '../../../../application/port/in/work/agent-work-intake.port';
+import { AGENT_DEFINITIONS } from '../../../../domain/agent-definition.registry';
 import { CopilotAgentRunner, CopilotSseRuntime, createCopilotRuntimeHandler } from './copilotkit-v2-runtime';
 
 /** Incoming CopilotKit OSS adapter. It has no durable transcript store. */
 @Controller('copilotkit')
 export class AgentWorkCopilotKitController {
   constructor(
-    @Inject(AGENT_WORK_QUERY_PORT) private readonly queries: AgentWorkQueryPort,
-    @Inject(AGENT_WORK_COMMAND_PORT) private readonly commands: AgentWorkCommandPort,
     @Inject(LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT)
     private readonly executor: LiveAttemptExecutionCapabilityPort,
     @Inject(LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT)
     private readonly live: LiveAttemptFutureOutputCapabilityPort,
-    @Inject(AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT)
-    private readonly launch: AgentAttemptLaunchCapabilityPort,
+    @Inject(AGENT_WORK_INTAKE_PORT)
+    private readonly intake: AgentWorkIntakePort,
   ) {}
 
   @All(['', '*path'])
@@ -46,8 +42,11 @@ export class AgentWorkCopilotKitController {
     request.once('aborted', () => disconnected.abort());
     response.once('close', () => { if (!response.writableEnded) disconnected.abort(); });
     const runner = new FutureOnlyRunner(this.executor, this.live);
-    const agent = new DurableWorkAgent({ organizationId, userId: user.id }, this.queries, this.commands, this.launch);
-    const runtime = new CopilotSseRuntime({ agents: { operator: agent } as never, runner, forwardHeaders: { allow: ['cookie'], deny: ['authorization'], denyPrefixes: ['x-'] } });
+    const agents = Object.fromEntries(AGENT_DEFINITIONS.map(({ key }) => [
+      key,
+      new DurableWorkAgent({ organizationId, userId: user.id }, key, this.intake),
+    ]));
+    const runtime = new CopilotSseRuntime({ agents: agents as never, runner, forwardHeaders: { allow: ['cookie'], deny: ['authorization'], denyPrefixes: ['x-'] } });
     const handler = createCopilotRuntimeHandler({ runtime, basePath: '/api/copilotkit', activateChannels: false });
     let result: globalThis.Response;
     try { result = await handler(toFetchRequest(request, disconnected.signal)); } catch (error) { if (disconnected.signal.aborted || response.destroyed) return; throw error; }
@@ -58,35 +57,43 @@ export class AgentWorkCopilotKitController {
 }
 
 export class DurableWorkAgent extends AbstractAgent {
-  constructor(private readonly principal: { organizationId: string; userId: string }, private readonly queries: AgentWorkQueryPort, private readonly commands: AgentWorkCommandPort, private readonly launch: AgentAttemptLaunchCapabilityPort) { super({ agentId: 'operator', description: 'KidItem Operator' }); this.run = this.run.bind(this); }
+  constructor(
+    private readonly principal: { organizationId: string; userId: string },
+    private readonly agentDefinitionKey: string,
+    private readonly intake: AgentWorkIntakePort,
+  ) { super({ agentId: agentDefinitionKey, description: `KidItem ${agentDefinitionKey}` }); this.run = this.run.bind(this); }
+
   override run(input: RunAgentInput): Observable<BaseEvent> {
     return defer(async () => {
       if (!isUuid(input.threadId)) throw new BadRequestException('copilotkit_thread_id_invalid');
       const final = input.messages.at(-1);
       if (!final || final.role !== 'user' || typeof final.content !== 'string' || !final.content.trim()) throw new BadRequestException('copilotkit_objective_required');
-      const version = await this.queries.activeVersion('operator');
-      if (!version) throw new BadRequestException('operator_agent_version_not_found');
-      const runtime = requiredRuntimeConfig(version.agentDefinitionKey);
-      const runtimeType = supportedRuntime(version.runtimeType);
-      const admitted = await this.admitForThread(input.threadId, final.content.trim(), version, runtime, runtimeType);
-      await this.launch.start({ attemptId: admitted.attemptId, runtime: runtimeType, profile: runtime, prompt: admitted.prompt, instructionProfileRef: version.instructionProfileRef, sessionId: admitted.sessionId, taskId: admitted.taskId, agentVersionId: version.id, organizationId: this.principal.organizationId, userId: this.principal.userId, capabilityKeys: Array.isArray(version.capabilityKeys) ? version.capabilityKeys.filter((key): key is string => typeof key === 'string') : [], output: { threadId: input.threadId, runId: input.runId } });
+      try {
+        await this.intake.startThread({
+          principal: this.principal,
+          sessionId: input.threadId,
+          agentDefinitionKey: this.agentDefinitionKey,
+          prompt: final.content.trim(),
+          output: { threadId: input.threadId, runId: input.runId },
+        });
+      } catch (error) {
+        if (error instanceof AgentWorkIntakeError) throw new BadRequestException(error.code);
+        throw error;
+      }
       return [{ type: EventType.RUN_STARTED, threadId: input.threadId, runId: input.runId }];
     }).pipe(switchMap((events) => from(events))) as Observable<BaseEvent>;
   }
-  private async admitForThread(threadId: string, prompt: string, version: { id: string }, runtime: { model: string }, runtimeType: 'codex_cli' | 'claude_cli') {
-    try {
-      const root = await this.commands.root({ organizationId: this.principal.organizationId, createdByUserId: this.principal.userId, assignedAgentVersionId: version.id, objective: prompt, completionCriteria: 'Provide a concise durable result.', inputResourceRefs: [], input: { prompt }, sessionId: threadId, applicationVersion: requiredEnvironment('KIDITEM_APPLICATION_VERSION'), authorizingGitSha: requiredEnvironment('KIDITEM_GIT_SHA'), cliVersion: attemptRuntimeVersion(runtimeType), reportedModel: runtime.model });
-      return { attemptId: root.attempt.id, sessionId: root.session.id, taskId: root.task.id, prompt };
-    } catch (error) {
-      if (!(error instanceof AgentOsRuntimeError) || error.code !== 'root_task_already_exists') throw error;
-      const predecessor = await this.queries.threadContinuation({ sessionId: threadId, organizationId: this.principal.organizationId, userId: this.principal.userId });
-      if (!predecessor?.terminal) throw error;
-      const context = await this.queries.continuationContext({ organizationId: this.principal.organizationId, userId: this.principal.userId, sessionId: threadId, taskId: predecessor.taskId, prompt });
-      const followUp = await this.commands.followUp({ organizationId: this.principal.organizationId, sessionId: threadId, taskId: predecessor.taskId, requestedByUserId: this.principal.userId, predecessorAttemptId: predecessor.predecessorAttemptId, intent: 'follow_up', input: context.input, applicationVersion: requiredEnvironment('KIDITEM_APPLICATION_VERSION'), authorizingGitSha: requiredEnvironment('KIDITEM_GIT_SHA'), cliVersion: attemptRuntimeVersion(runtimeType), reportedModel: runtime.model });
-      return { attemptId: followUp.attemptId, sessionId: followUp.sessionId, taskId: followUp.taskId, prompt: context.prompt };
-    }
+
+  override clone(): DurableWorkAgent {
+    const clone = super.clone() as DurableWorkAgent;
+    Object.assign(clone, {
+      principal: this.principal,
+      agentDefinitionKey: this.agentDefinitionKey,
+      intake: this.intake,
+    });
+    clone.run = clone.run.bind(clone);
+    return clone;
   }
-  override clone(): DurableWorkAgent { const clone = super.clone() as DurableWorkAgent; Object.assign(clone, { principal: this.principal, queries: this.queries, commands: this.commands, launch: this.launch }); clone.run = clone.run.bind(clone); return clone; }
 }
 
 class FutureOnlyRunner extends CopilotAgentRunner {
@@ -112,9 +119,6 @@ class FutureOnlyRunner extends CopilotAgentRunner {
   }
 }
 
-function requiredEnvironment(name: string): string { const value = process.env[name]?.trim(); if (!value) throw new Error(`missing_required_configuration:${name}`); return value; }
 function isUuid(value: string): boolean { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
-function requiredRuntimeConfig(definitionKey: string): { model: string } { return { model: requiredEnvironment(`AGENT_${definitionKey.toUpperCase()}_MODEL`) }; }
-function supportedRuntime(value: string): 'codex_cli' | 'claude_cli' { if (value !== 'codex_cli' && value !== 'claude_cli') throw new Error('attempt_runtime_not_supported'); return value; }
 function toFetchRequest(request: ExpressRequest, signal: AbortSignal): globalThis.Request { const url = new URL(request.originalUrl, `${request.protocol}://${request.get('host')}`); const headers = new Headers(); for (const [name, value] of Object.entries(request.headers)) { if (Array.isArray(value)) value.forEach((entry) => headers.append(name, entry)); else if (value !== undefined) headers.set(name, value); } const init: RequestInit = { method: request.method, headers, signal }; if (request.method !== 'GET' && request.method !== 'HEAD') { const contentType = request.header('content-type') ?? ''; const declared = request.header('content-length') !== undefined || request.header('transfer-encoding') !== undefined || Object.keys(request.body ?? {}).length > 0; if (declared && !contentType.toLowerCase().includes('application/json')) throw new BadRequestException('copilotkit_json_body_required'); if (declared) { const body = JSON.stringify(request.body ?? {}); if (Buffer.byteLength(body, 'utf8') > 1_048_576) throw new BadRequestException('copilotkit_body_too_large'); init.body = body; } } return new globalThis.Request(url, init); }
 function copyHeaders(response: ExpressResponse, headers: Headers): void { headers.forEach((value, key) => response.setHeader(key, value)); if (headers.get('content-type')?.toLowerCase().includes('text/event-stream')) { response.setHeader('Cache-Control', 'no-cache, no-transform'); response.setHeader('Content-Encoding', 'identity'); response.setHeader('X-Accel-Buffering', 'no'); response.flushHeaders(); } }
