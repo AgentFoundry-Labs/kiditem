@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { RunnerInterruptCommand } from '@kiditem/shared/agent-runtime';
 import type { LiveAttemptMcpBinding } from '../../../../application/port/in/capability/live-attempt-execution.capability.port';
 import type { HostRunnerControlAttemptPort } from './host-runner-control-session.module';
 import { HostRunnerAttemptExecutorService } from './host-runner-attempt-executor.service';
@@ -99,15 +98,8 @@ function controlRecorder(input: {
     startBusiness(command) {
       input.starts?.push(command);
     },
-    interrupt(command): RunnerInterruptCommand {
+    async interrupt(command): Promise<void> {
       input.interrupts?.push(command);
-      return {
-        kind: 'attempt.interrupt',
-        commandId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
-        attemptId: command.attemptId,
-        deadlineAt: command.deadlineAt.toISOString(),
-        commandHash: 'hash',
-      };
     },
   };
 }

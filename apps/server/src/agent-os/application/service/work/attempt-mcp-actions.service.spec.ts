@@ -294,11 +294,21 @@ describe('AttemptMcpActionsService', () => {
 
     await expect(service.child({ binding, action: 'status', childTaskId: 'child' }))
       .resolves.toEqual({ childTaskId: 'child', attemptId: 'child-attempt', status: 'open', attemptStatus: 'running', terminal: false });
-    await expect(service.child({ binding, action: 'message', childTaskId: 'child', message: 'continue' }))
+    await expect(service.child({
+      binding,
+      action: 'message',
+      childTaskId: 'child',
+      message: 'continue',
+      turnId: 'mcp-7f8eb2c6d1',
+    }))
       .resolves.toEqual({ childTaskId: 'child', status: 'open' });
     await expect(service.child({ binding, action: 'interrupt', childTaskId: 'child' }))
       .resolves.toEqual({ childTaskId: 'child', status: 'open' });
-    expect(controls.send).toHaveBeenCalledWith({ attemptId: 'child-attempt', message: 'continue' });
+    expect(controls.send).toHaveBeenCalledWith({
+      attemptId: 'child-attempt',
+      message: 'continue',
+      turnId: 'mcp-7f8eb2c6d1',
+    });
     expect(controls.interrupt).toHaveBeenCalledWith({ attemptId: 'child-attempt' });
   });
 

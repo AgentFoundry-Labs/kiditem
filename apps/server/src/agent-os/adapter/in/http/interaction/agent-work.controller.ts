@@ -70,14 +70,14 @@ export class AgentWorkController {
 
   @Post('sessions/:sessionId/tasks/:taskId/cancel')
   async cancel(@Param('sessionId') sessionId: string, @Param('taskId') taskId: string, @CurrentOrganization() organizationId: string, @CurrentUser() user: AuthUser) {
-    const live = await this.queries.liveAttempt({ organizationId, sessionId, taskId, userId: user.id });
     const transitioned = await this.commands.transition({ organizationId, sessionId, taskId, requestedByUserId: user.id, to: 'cancelled', at: new Date() });
-    // The durable transaction wins first. Only the current Host Runner-owned
-    // live Attempt is interrupted; ready/executing worker mutations keep running.
-    if (live) {
-      try { await this.executor.interrupt(live.id); } catch { /* terminal race after durable cancellation */ }
-    }
-    return transitioned;
+    // The locked durable transition names every live Attempt it actually
+    // cancelled. Cleanup is intentionally idempotent: terminal races may
+    // already have revoked a token, but one failure must not skip another ID.
+    await Promise.all((transitioned.cancelledAttemptIds ?? []).map(async (attemptId) => {
+      try { await this.executor.interrupt(attemptId); } catch { /* terminal race after durable cancellation */ }
+    }));
+    return { status: transitioned.status };
   }
 
   @Post('sessions/:sessionId/approvals/:approvalId')

@@ -60,6 +60,7 @@ describe('RunnerLeaseRegistry', () => {
       });
       const input = commands.enqueueInput({
         attemptId,
+        turnId: 'turn-live-follow-up',
         input: 'live business follow-up',
         deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
       });
@@ -106,6 +107,7 @@ describe('RunnerLeaseRegistry', () => {
     });
     commands.enqueueInput({
       attemptId,
+      turnId: 'turn-fenced-generation',
       input: 'must never cross the lost generation',
       deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
     });
@@ -202,6 +204,7 @@ describe('RunnerLeaseRegistry', () => {
     commands.acknowledge({ commandId: start.commandId, attemptId, commandHash: start.commandHash });
     const input = commands.enqueueInput({
       attemptId,
+      turnId: 'turn-readiness-second-input',
       input: 'readiness second input',
       deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
     });
@@ -286,7 +289,7 @@ describe('RunnerLeaseRegistry', () => {
       const registry = registryFor({ commands, interruptAttempt: vi.fn(async () => loss) });
       const prior = registry.hello(hello());
       await deliverAttempt(registry, commands, prior.leaseId);
-      commands.enqueueInput({ attemptId, input: 'do not cross leases', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+      commands.enqueueInput({ attemptId, turnId: 'turn-replacement-fence', input: 'do not cross leases', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
 
       const replacement = registry.hello(hello({ runnerInstanceId: replacementInstanceId }));
       const replacementPoll = registry.poll({ runnerInstanceId: replacementInstanceId, leaseId: replacement.leaseId });
@@ -316,7 +319,7 @@ describe('RunnerLeaseRegistry', () => {
     registry.dispose();
   });
 
-  it('allows one outstanding poll, returns 204-equivalent null after twenty seconds, and expires the lease at thirty', async () => {
+  it('allows one outstanding poll, returns 204-equivalent null after twenty seconds, and expires thirty seconds after that response', async () => {
     vi.useFakeTimers();
     const interrupts = vi.fn(async () => undefined);
     const commands = new RunnerCommandQueue({ commandId: () => '818f4eb1-9078-7a1e-9514-b19b5732f5de' });
@@ -331,11 +334,40 @@ describe('RunnerLeaseRegistry', () => {
     await vi.advanceTimersByTimeAsync(20_000);
     await expect(pending).resolves.toEqual({ commands: [] });
     expect(registry.isValid({ runnerInstanceId: instanceId, leaseId: lease.leaseId })).toBe(true);
-    await vi.advanceTimersByTimeAsync(10_001);
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(registry.isValid({ runnerInstanceId: instanceId, leaseId: lease.leaseId })).toBe(true);
+    await vi.advanceTimersByTimeAsync(2);
     expect(registry.isValid({ runnerInstanceId: instanceId, leaseId: lease.leaseId })).toBe(false);
     expect(interrupts).toHaveBeenCalledWith(attemptId);
     registry.dispose();
     vi.useRealTimers();
+  });
+
+  it('renews a late long-poll lease only when its command response is settled', async () => {
+    vi.useFakeTimers();
+    try {
+      const commands = new RunnerCommandQueue({ commandId: () => '838f4eb1-9078-7a1e-9514-b19b5732f5de' });
+      const registry = registryFor({ commands });
+      const lease = registry.hello(hello());
+      registry.markReady({ runnerInstanceId: instanceId, leaseId: lease.leaseId });
+      const pending = registry.poll({ runnerInstanceId: instanceId, leaseId: lease.leaseId });
+
+      await vi.advanceTimersByTimeAsync(19_900);
+      const start = commands.enqueueStart({
+        launch: launchSpec(),
+        deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+        leaseGeneration: registry.generationForLease({ runnerInstanceId: instanceId, leaseId: lease.leaseId }),
+      });
+      await expect(pending).resolves.toEqual({ commands: [start] });
+
+      await vi.advanceTimersByTimeAsync(29_900);
+      expect(registry.isValid({ runnerInstanceId: instanceId, leaseId: lease.leaseId })).toBe(true);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(registry.isValid({ runnerInstanceId: instanceId, leaseId: lease.leaseId })).toBe(false);
+      registry.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('validates continuous event posts without extending the command-poll lease', async () => {

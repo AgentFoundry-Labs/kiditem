@@ -357,6 +357,7 @@ describe("replacement Agent work transaction races", () => {
       sessionId: root.session.id,
       taskId: root.task.id,
       attemptId: root.attempt.id,
+      turnId: "test-turn-live-message",
       content: "continue",
     };
     await messages.send(input);
@@ -379,6 +380,38 @@ describe("replacement Agent work transaction races", () => {
       });
     }
     expect(delivery.deliver).toHaveBeenCalledTimes(1);
+  });
+
+  it("matrix 5a: an owned thread resolves its latest exact Attempt and immutable Agent pin before live input or successor admission", async () => {
+    const version = await createVersion({ agentDefinitionKey: "admission_race_test_sourcing" });
+    const root = await liveRoot(version);
+
+    await expect(repository.threadContinuation({
+      organizationId,
+      userId,
+      sessionId: root.session.id,
+    })).resolves.toEqual({
+      taskId: root.task.id,
+      predecessorAttemptId: root.attempt.id,
+      terminal: false,
+      agentDefinitionKey: "admission_race_test_sourcing",
+    });
+
+    await prisma.agentAttempt.update({
+      where: { id: root.attempt.id },
+      data: { status: "succeeded", finishedAt: new Date() },
+    });
+
+    await expect(repository.threadContinuation({
+      organizationId,
+      userId,
+      sessionId: root.session.id,
+    })).resolves.toEqual({
+      taskId: root.task.id,
+      predecessorAttemptId: root.attempt.id,
+      terminal: true,
+      agentDefinitionKey: "admission_race_test_sourcing",
+    });
   });
 
   it("matrix 6: live-parent delegation is atomic, pinned, idempotent, and capacity-safe on conflict", async () => {
@@ -738,7 +771,7 @@ describe("replacement Agent work transaction races", () => {
     await expect(work.admitAttempt({ ...snapshot, organizationId, sessionId: root.session.id, taskId: root.task.id, requestedByUserId: userId, predecessorAttemptId: root.attempt.id }))
       .rejects.toMatchObject({ code: "task_not_open" });
     const delivery = { deliver: vi.fn() };
-    await expect(new AgentLiveMessageService(delivery, repository).send({ organizationId, requestedByUserId: userId, sessionId: root.session.id, taskId: root.task.id, attemptId: root.attempt.id, content: "continue" }))
+    await expect(new AgentLiveMessageService(delivery, repository).send({ organizationId, requestedByUserId: userId, sessionId: root.session.id, taskId: root.task.id, attemptId: root.attempt.id, turnId: "test-turn-cancelled-message", content: "continue" }))
       .rejects.toMatchObject({ code: "task_cancelled" });
     expect(delivery.deliver).not.toHaveBeenCalled();
   });

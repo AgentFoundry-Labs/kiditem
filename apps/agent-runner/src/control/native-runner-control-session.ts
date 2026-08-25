@@ -89,6 +89,14 @@ export class NativeRunnerControlSession implements NativeRunnerControlSessionPor
     try {
       for (;;) {
         try {
+          // Runner command acknowledgement and lifecycle events are the
+          // boundary between local process execution and Nest ownership. Do
+          // not poll or redispatch while an event batch is awaiting its exact
+          // acknowledgement; RunnerEventOutbox retries its stable body.
+          if (this.outbox.hasPending()) {
+            await deadline.race(this.flush());
+            continue;
+          }
           const commands = await deadline.race(this.options.client.poll({
             kind: 'poll',
             runnerInstanceId: this.options.runnerInstanceId,

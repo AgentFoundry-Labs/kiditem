@@ -216,6 +216,15 @@ export interface TaskLifecycleTransitionInput {
   at: Date;
 }
 
+/**
+ * Cancellation returns only the live Attempts changed by its locked durable
+ * transaction. The Host Runner cleanup path consumes these IDs after commit.
+ */
+export interface TaskLifecycleTransitionResult {
+  status: string;
+  cancelledAttemptIds?: string[];
+}
+
 export interface AttemptLifecycleTransitionInput {
   attemptId: string;
   from: "starting" | "running";

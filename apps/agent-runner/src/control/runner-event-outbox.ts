@@ -47,6 +47,11 @@ export class RunnerEventOutbox {
     return this.snapshot()?.body ?? null;
   }
 
+  /** Prevents command delivery from passing an unacknowledged control event. */
+  hasPending(): boolean {
+    return this.inFlight !== null || this.events.length > 0;
+  }
+
   nextEventSeq(): number { return this.eventSeq; }
 
   flush(send: (body: string) => Promise<unknown>): Promise<void> {

@@ -113,3 +113,16 @@ export async function lockTask(
   if (!rows[0]) throw rejectAgentWork("task_not_found");
   return rows[0];
 }
+
+/** Locks the CLI lifecycle row shared by terminalization and inline completion. */
+export async function lockAttempt(
+  tx: AgentWorkTransaction,
+  organizationId: string,
+  attemptId: string,
+): Promise<{ id: string; status: string } | null> {
+  const rows = await tx.$queryRaw<{ id: string; status: string }[]>`
+    SELECT id, status FROM agent_attempts
+    WHERE id = ${attemptId}::uuid AND organization_id = ${organizationId}::uuid
+    FOR UPDATE`;
+  return rows[0] ?? null;
+}

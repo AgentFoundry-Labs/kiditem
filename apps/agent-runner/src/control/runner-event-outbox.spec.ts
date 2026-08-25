@@ -7,6 +7,16 @@ const leaseId = '22222222-2222-4222-8222-222222222222';
 const attemptId = '33333333-3333-4333-8333-333333333333';
 
 describe('RunnerEventOutbox', () => {
+  it('reports an unsent or in-flight event batch as pending', async () => {
+    const outbox = new RunnerEventOutbox({ runnerInstanceId, leaseId });
+
+    expect(outbox.hasPending()).toBe(false);
+    outbox.enqueue({ kind: 'attempt.started', attemptId });
+    expect(outbox.hasPending()).toBe(true);
+    await outbox.flush(async (body) => ({ eventSeq: JSON.parse(body).eventSeq, accepted: true }));
+    expect(outbox.hasPending()).toBe(false);
+  });
+
   it('keeps one event batch in flight and retries the byte-identical body before advancing sequence', async () => {
     const outbox = new RunnerEventOutbox({ runnerInstanceId, leaseId });
     outbox.enqueue({ kind: 'attempt.started', attemptId });

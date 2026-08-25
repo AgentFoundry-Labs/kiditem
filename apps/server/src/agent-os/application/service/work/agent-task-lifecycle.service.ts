@@ -1,5 +1,6 @@
 import type {
   TaskLifecycleTransitionInput,
+  TaskLifecycleTransitionResult,
 } from "../../port/out/work/agent-work-persistence.types";
 import type { AgentWorkLifecyclePort } from "../../port/out/work/agent-work-lifecycle.port";
 
@@ -9,7 +10,7 @@ export class AgentTaskLifecycleService {
     private readonly transactions: AgentWorkLifecyclePort,
   ) {}
 
-  transition(input: TaskLifecycleTransitionInput): Promise<{ status: string }> {
+  transition(input: TaskLifecycleTransitionInput): Promise<TaskLifecycleTransitionResult> {
     return this.transactions.transitionTask(input);
   }
 }

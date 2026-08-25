@@ -15,6 +15,18 @@ export type AgentWorkIntakeOutput = Readonly<{
   runId: string;
 }>;
 
+/**
+ * Exact admission evidence for a Copilot thread turn. A live input remains a
+ * process-memory Runner control command; the Session/Task/Attempt coordinate
+ * is the durable evidence that the browser can reconcile after its ACK.
+ */
+export type AgentWorkThreadAdmission = Readonly<{
+  kind: 'root' | 'successor' | 'live_input';
+  sessionId: string;
+  taskId: string;
+  attemptId: string;
+}>;
+
 /** Application-level admission errors that an incoming Adapter renders for its transport. */
 export class AgentWorkIntakeError extends Error {
   constructor(public readonly code: string) {
@@ -50,6 +62,8 @@ export interface AgentWorkIntakePort {
     sessionId: string;
     agentDefinitionKey: string;
     prompt: string;
+    /** Caller-owned logical message coordinate; reuse only for an exact retry. */
+    messageCommandKey: string;
     output: AgentWorkIntakeOutput;
-  }): Promise<Pick<AdmitAttemptResult, 'attemptId' | 'sessionId' | 'taskId'>>;
+  }): Promise<AgentWorkThreadAdmission>;
 }

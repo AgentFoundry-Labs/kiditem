@@ -50,7 +50,10 @@ export class RunnerCommandDispatcher {
       this.reject(command, 'invalid_state'); return;
     }
     if (state?.appliedCommandHashes.get(command.commandId) === command.commandHash) {
-      this.ack(command); return;
+      // The original ACK stays in the ordered outbox until Nest accepts it.
+      // Re-enqueueing one here would grow a failed outbox and eventually crowd
+      // out terminal control state without changing the already-applied work.
+      return;
     }
     if (state?.appliedCommandHashes.has(command.commandId)) {
       this.reject(command, 'conflict'); return;

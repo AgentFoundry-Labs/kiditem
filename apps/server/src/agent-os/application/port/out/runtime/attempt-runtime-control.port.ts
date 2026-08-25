@@ -4,6 +4,7 @@ export const ATTEMPT_RUNTIME_CONTROL_PORT = Symbol(
 );
 
 export interface AttemptRuntimeControlPort {
-  send(input: { attemptId: string; message: string }): Promise<void>;
+  /** Exact opaque source-turn identity; never persisted or forwarded to the CLI. */
+  send(input: { attemptId: string; turnId: string; message: string }): Promise<void>;
   interrupt(input: { attemptId: string }): Promise<void>;
 }

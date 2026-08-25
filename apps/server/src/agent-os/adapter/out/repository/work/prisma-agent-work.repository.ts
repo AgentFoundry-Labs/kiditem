@@ -62,9 +62,26 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort, Agent
   }
 
   async threadContinuation(input: { organizationId: string; userId: string; sessionId: string }) {
-    const task = await this.prisma.agentTask.findFirst({ where: { sessionId: input.sessionId, organizationId: input.organizationId, parentTaskId: null, session: { createdByUserId: input.userId } }, include: { attempts: { orderBy: { ordinal: 'desc' }, take: 1 } } });
+    const task = await this.prisma.agentTask.findFirst({
+      where: {
+        sessionId: input.sessionId,
+        organizationId: input.organizationId,
+        parentTaskId: null,
+        session: { createdByUserId: input.userId },
+      },
+      select: {
+        id: true,
+        assignedAgentVersion: { select: { agentDefinitionKey: true } },
+        attempts: { orderBy: { ordinal: 'desc' }, take: 1 },
+      },
+    });
     const predecessor = task?.attempts[0] ?? null;
-    return task && predecessor ? { taskId: task.id, predecessorAttemptId: predecessor.id, terminal: ['succeeded', 'failed', 'process_interrupted', 'cancelled'].includes(predecessor.status) } : null;
+    return task && predecessor ? {
+      taskId: task.id,
+      predecessorAttemptId: predecessor.id,
+      terminal: ['succeeded', 'failed', 'process_interrupted', 'cancelled'].includes(predecessor.status),
+      agentDefinitionKey: task.assignedAgentVersion.agentDefinitionKey,
+    } : null;
   }
 
   async findDelegationReplay(input: {

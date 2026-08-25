@@ -6,6 +6,7 @@ import type {
   ApprovalDecisionInput,
   ApprovalDecisionResult,
   TaskLifecycleTransitionInput,
+  TaskLifecycleTransitionResult,
   TerminalSessionDeleteInput,
 } from '../../out/work/agent-work-persistence.types';
 
@@ -16,6 +17,6 @@ export interface AgentWorkCommandPort {
   root(input: AdmitRootAttemptInput): Promise<AdmitRootAttemptResult>;
   followUp(input: AdmitAttemptInput): Promise<AdmitAttemptResult>;
   decide(input: ApprovalDecisionInput): Promise<ApprovalDecisionResult>;
-  transition(input: TaskLifecycleTransitionInput): Promise<{ status: string }>;
+  transition(input: TaskLifecycleTransitionInput): Promise<TaskLifecycleTransitionResult>;
   delete(input: TerminalSessionDeleteInput): Promise<{ deleted: boolean }>;
 }

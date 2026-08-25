@@ -163,9 +163,11 @@ export class RunnerLeaseRegistry {
   async poll(input: { runnerInstanceId: string; leaseId: string }): Promise<RunnerCommandBatch> {
     const lease = this.require(input);
     if (this.pending) throw new Error('runner_poll_conflict');
-    this.touch(lease);
     const available = this.takeForLease(lease);
-    if (available.commands.length) return available;
+    if (available.commands.length) {
+      this.touch(lease);
+      return available;
+    }
     return new Promise<RunnerCommandBatch>((resolve) => {
       const timeout = setTimeout(() => this.settlePending({ commands: [] }), RUNNER_EMPTY_POLL_MS);
       this.pending = { leaseId: lease.leaseId, resolve, timeout };
@@ -267,6 +269,17 @@ export class RunnerLeaseRegistry {
     if (!pending) return;
     this.pending = null;
     clearTimeout(pending.timeout);
+    const active = this.active;
+    if (
+      active
+      && active.leaseId === pending.leaseId
+      && this.isValid({ runnerInstanceId: active.runnerInstanceId, leaseId: active.leaseId })
+    ) {
+      // The Runner resets its request timer only when this response is
+      // received. Renew the same active lease at the matching response edge,
+      // never at long-poll request admission.
+      this.touch(active);
+    }
     pending.resolve(batch);
   }
 

@@ -220,9 +220,11 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
     if (!child.attemptId) throw new Error('attempt_mcp_child_not_started');
     if (input.action === 'message') {
       assertMessageable(child);
+      if (!input.turnId) throw new AgentOsRuntimeError('attempt_mcp_message_turn_missing', 'attempt_mcp_message_turn_missing');
       await this.controls.send({
         attemptId: child.attemptId,
         message: input.message ?? '',
+        turnId: input.turnId,
       });
       return { childTaskId: child.childTaskId, status: child.taskStatus };
     }

@@ -171,6 +171,7 @@ export class RunnerReadinessService {
     }
     const command = this.commands.enqueueInput({
       attemptId: state.canaryId,
+      turnId: `readiness-${state.canaryId}`,
       input: 'The readiness probe succeeded. Complete now with only a valid AgentResultEnvelope JSON object.',
       deadlineAt: state.deadlineAt,
     });

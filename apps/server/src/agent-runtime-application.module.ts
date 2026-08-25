@@ -27,7 +27,10 @@ import {
   LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT,
   type LiveAttemptExecutionCapabilityPort,
 } from './agent-os/application/port/in/capability/live-attempt-execution.capability.port';
-import { LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT } from './agent-os/application/port/in/capability/live-attempt-future-output.capability.port';
+import {
+  LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT,
+  type LiveAttemptFutureOutputCapabilityPort,
+} from './agent-os/application/port/in/capability/live-attempt-future-output.capability.port';
 import {
   ATTEMPT_MCP_ACTIONS_PORT,
   type AttemptMcpActionsPort,
@@ -193,7 +196,11 @@ import { PrismaService } from './prisma/prisma.service';
       inject: [ATTEMPT_RUNTIME_CONTROL_PORT, PrismaAgentWorkRepository],
       useFactory: (controls: AttemptRuntimeControlPort, work: PrismaAgentWorkRepository) =>
         new AgentLiveMessageService({
-          deliver: async (input) => controls.send({ attemptId: input.attemptId, message: input.content }),
+          deliver: async (input) => controls.send({
+            attemptId: input.attemptId,
+            turnId: input.turnId,
+            message: input.content,
+          }),
         }, work),
     },
     {
@@ -233,12 +240,20 @@ import { PrismaService } from './prisma/prisma.service';
     { provide: AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT, useExisting: AgentAttemptLaunchService },
     {
       provide: AGENT_WORK_INTAKE_PORT,
-      inject: [AGENT_WORK_QUERY_PORT, AGENT_WORK_COMMAND_PORT, AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT],
+      inject: [
+        AGENT_WORK_QUERY_PORT,
+        AGENT_WORK_COMMAND_PORT,
+        AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT,
+        AgentLiveMessageService,
+        LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT,
+      ],
       useFactory: (
         queries: AgentWorkQueryPort,
         commands: AgentWorkCommandPort,
         launch: AgentAttemptLaunchCapabilityPort,
-      ): AgentWorkIntakePort => createAgentWorkIntake(queries, commands, launch),
+        liveMessages: AgentLiveMessageService,
+        futureOutput: LiveAttemptFutureOutputCapabilityPort,
+      ): AgentWorkIntakePort => createAgentWorkIntake(queries, commands, launch, liveMessages, futureOutput),
     },
     {
       provide: AgentDelegatedAttemptStarterService,

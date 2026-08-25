@@ -51,7 +51,7 @@ export class HostRunnerAttemptExecutorService implements LiveAttemptExecutionCap
   }
 
   async interrupt(attemptId: string): Promise<void> {
-    this.options.control.interrupt({ attemptId, deadlineAt: this.now() });
+    await this.options.control.interrupt({ attemptId, deadlineAt: this.now() });
   }
 }
 

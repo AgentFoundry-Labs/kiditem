@@ -1,4 +1,4 @@
-import { All, BadRequestException, Controller, Inject, Req, Res } from '@nestjs/common';
+import { All, BadRequestException, ConflictException, Controller, Inject, Req, Res } from '@nestjs/common';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
@@ -22,6 +22,7 @@ import {
   type AgentWorkIntakePort,
 } from '../../../../application/port/in/work/agent-work-intake.port';
 import { AGENT_DEFINITIONS } from '../../../../domain/agent-definition.registry';
+import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
 import { CopilotAgentRunner, CopilotSseRuntime, createCopilotRuntimeHandler } from './copilotkit-v2-runtime';
 
 /** Incoming CopilotKit OSS adapter. It has no durable transcript store. */
@@ -68,19 +69,31 @@ export class DurableWorkAgent extends AbstractAgent {
       if (!isUuid(input.threadId)) throw new BadRequestException('copilotkit_thread_id_invalid');
       const final = input.messages.at(-1);
       if (!final || final.role !== 'user' || typeof final.content !== 'string' || !final.content.trim()) throw new BadRequestException('copilotkit_objective_required');
+      const messageCommandKey = finalUserMessageCommandKey(final);
       try {
-        await this.intake.startThread({
+        const admission = await this.intake.startThread({
           principal: this.principal,
           sessionId: input.threadId,
           agentDefinitionKey: this.agentDefinitionKey,
           prompt: final.content.trim(),
+          messageCommandKey,
           output: { threadId: input.threadId, runId: input.runId },
         });
-      } catch (error) {
-        if (error instanceof AgentWorkIntakeError) throw new BadRequestException(error.code);
-        throw error;
-      }
-      return [{ type: EventType.RUN_STARTED, threadId: input.threadId, runId: input.runId }];
+        return [
+          { type: EventType.RUN_STARTED, threadId: input.threadId, runId: input.runId },
+          {
+            type: EventType.CUSTOM,
+            name: 'kiditem.agent_work_admission',
+            value: admission,
+          },
+        ];
+        } catch (error) {
+          if (error instanceof AgentWorkIntakeError) throw new BadRequestException(error.code);
+          if (error instanceof AgentOsRuntimeError && error.code === 'runner_input_command_conflict') {
+            throw new ConflictException(error.code);
+          }
+          throw error;
+        }
     }).pipe(switchMap((events) => from(events))) as Observable<BaseEvent>;
   }
 
@@ -96,7 +109,7 @@ export class DurableWorkAgent extends AbstractAgent {
   }
 }
 
-class FutureOnlyRunner extends CopilotAgentRunner {
+export class FutureOnlyRunner extends CopilotAgentRunner {
   constructor(private readonly executor: LiveAttemptExecutionCapabilityPort, private readonly live: LiveAttemptFutureOutputCapabilityPort) { super(); }
   run(request: { threadId: string; agent: { run(input: unknown): Observable<BaseEvent> }; input: unknown }): Observable<BaseEvent> {
     const runId = (request.input as { runId?: unknown }).runId;
@@ -120,5 +133,11 @@ class FutureOnlyRunner extends CopilotAgentRunner {
 }
 
 function isUuid(value: string): boolean { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
+function finalUserMessageCommandKey(message: { id?: unknown }): string {
+  if (typeof message.id !== 'string') throw new BadRequestException('copilotkit_message_command_key_required');
+  const key = message.id.trim();
+  if (!key || key.length > 256) throw new BadRequestException('copilotkit_message_command_key_required');
+  return key;
+}
 function toFetchRequest(request: ExpressRequest, signal: AbortSignal): globalThis.Request { const url = new URL(request.originalUrl, `${request.protocol}://${request.get('host')}`); const headers = new Headers(); for (const [name, value] of Object.entries(request.headers)) { if (Array.isArray(value)) value.forEach((entry) => headers.append(name, entry)); else if (value !== undefined) headers.set(name, value); } const init: RequestInit = { method: request.method, headers, signal }; if (request.method !== 'GET' && request.method !== 'HEAD') { const contentType = request.header('content-type') ?? ''; const declared = request.header('content-length') !== undefined || request.header('transfer-encoding') !== undefined || Object.keys(request.body ?? {}).length > 0; if (declared && !contentType.toLowerCase().includes('application/json')) throw new BadRequestException('copilotkit_json_body_required'); if (declared) { const body = JSON.stringify(request.body ?? {}); if (Buffer.byteLength(body, 'utf8') > 1_048_576) throw new BadRequestException('copilotkit_body_too_large'); init.body = body; } } return new globalThis.Request(url, init); }
 function copyHeaders(response: ExpressResponse, headers: Headers): void { headers.forEach((value, key) => response.setHeader(key, value)); if (headers.get('content-type')?.toLowerCase().includes('text/event-stream')) { response.setHeader('Cache-Control', 'no-cache, no-transform'); response.setHeader('Content-Encoding', 'identity'); response.setHeader('X-Accel-Buffering', 'no'); response.flushHeaders(); } }

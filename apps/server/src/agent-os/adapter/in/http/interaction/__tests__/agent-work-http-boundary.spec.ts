@@ -35,7 +35,7 @@ describe('Agent Work HTTP boundary', () => {
     expect(copilot).not.toContain('agents: { operator:');
   });
 
-  it('exposes only the six code-owned Agent definitions to CopilotKit and keeps thread admission in the intake Module', () => {
+  it('exposes only the six code-owned Agent definitions to CopilotKit and routes an existing live thread through the intake Module', () => {
     const source = readFileSync(resolve(__dirname, '../../../../../application/service/work/agent-work-intake.module.ts'), 'utf8');
     expect(AGENT_DEFINITIONS.map((definition) => definition.key)).toEqual([
       'operator',
@@ -46,9 +46,12 @@ describe('Agent Work HTTP boundary', () => {
       'advertising',
     ]);
     expect(source).toContain('agent_definition_not_supported');
+    expect(source).toContain("agent_thread_agent_mismatch");
     expect(source).toContain('sessionId: input.sessionId');
     expect(source).toContain('this.queries.threadContinuation');
-    expect(source).toContain('if (!predecessor?.terminal) throw error');
+    expect(source).toContain('this.liveMessages.send');
+    expect(source).toContain("kind: 'live_input'");
+    expect(source).toContain('this.futureOutput.bind');
     expect(source).not.toContain('conversation/replay');
   });
 
@@ -74,6 +77,7 @@ describe('Agent Work HTTP boundary', () => {
     expect(runtimeModule).not.toContain('RunnerCommandQueue');
     expect(runtimeModule).toContain('provide: AGENT_WORK_COMMAND_PORT');
     expect(runtimeModule).toContain('provide: AGENT_WORK_INTAKE_PORT');
+    expect(runtimeModule).toContain('AgentLiveMessageService');
     expect(runtimeModule).toContain('provide: LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT');
     expect(runtimeModule).toContain('useExisting: HostRunnerAttemptExecutorService');
     expect(runtimeModule).toContain('provide: LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT');

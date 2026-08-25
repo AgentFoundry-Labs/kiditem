@@ -1,18 +1,20 @@
 import { attemptRuntimeVersion } from '@kiditem/shared/agent-runtime';
 import { AGENT_DEFINITIONS } from '../../../domain/agent-definition.registry';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
+import {
+  AgentWorkIntakeError,
+  type AgentWorkIntakePort,
+  type AgentWorkIntakePrincipal,
+  type AgentWorkIntakeOutput,
+  type AgentWorkThreadAdmission,
+} from '../../port/in/work/agent-work-intake.port';
 import type {
   AgentAttemptLaunchCapabilityPort,
 } from '../../port/in/capability/agent-attempt-launch.capability.port';
 import type {
   AgentWorkCommandPort,
 } from '../../port/in/work/agent-work-command.port';
-import {
-  AgentWorkIntakeError,
-  type AgentWorkIntakePort,
-  type AgentWorkIntakePrincipal,
-  type AgentWorkIntakeOutput,
-} from '../../port/in/work/agent-work-intake.port';
+import type { LiveAttemptFutureOutputCapabilityPort } from '../../port/in/capability/live-attempt-future-output.capability.port';
 import type {
   AgentWorkQueryPort,
 } from '../../port/in/work/agent-work-query.port';
@@ -32,6 +34,20 @@ type LaunchContext = Readonly<{
   cliVersion: string;
 }>;
 
+type AgentLiveMessageSender = Readonly<{
+  send(input: {
+    organizationId: string;
+    requestedByUserId: string;
+    sessionId: string;
+    taskId: string;
+    attemptId: string;
+    content: string;
+    turnId: string;
+  }): Promise<void>;
+}>;
+
+type ThreadContinuation = NonNullable<Awaited<ReturnType<AgentWorkQueryPort['threadContinuation']>>>;
+
 /**
  * A deep application Module, not a Nest module. Incoming Adapters provide a
  * principal and coordinate; this Module retains all Agent Work intake policy.
@@ -44,7 +60,9 @@ export class AgentWorkIntakeModule implements AgentWorkIntakePort {
     >,
     private readonly commands: Pick<AgentWorkCommandPort, 'root' | 'followUp'>,
     private readonly launch: AgentAttemptLaunchCapabilityPort,
-    private readonly environment: NodeJS.ProcessEnv = process.env,
+    private readonly environment: NodeJS.ProcessEnv,
+    private readonly liveMessages: AgentLiveMessageSender,
+    private readonly futureOutput: Pick<LiveAttemptFutureOutputCapabilityPort, 'bind'>,
   ) {}
 
   async startRoot(input: {
@@ -125,11 +143,19 @@ export class AgentWorkIntakeModule implements AgentWorkIntakePort {
     sessionId: string;
     agentDefinitionKey: string;
     prompt: string;
+    messageCommandKey: string;
     output: AgentWorkIntakeOutput;
-  }): Promise<Pick<AdmitAttemptResult, 'attemptId' | 'sessionId' | 'taskId'>> {
+  }): Promise<AgentWorkThreadAdmission> {
     const agentDefinitionKey = this.supportedAgentDefinition(input.agentDefinitionKey);
-    const rootContext = await this.activeLaunchContext(agentDefinitionKey);
+    const existing = await this.queries.threadContinuation({
+      organizationId: input.principal.organizationId,
+      userId: input.principal.userId,
+      sessionId: input.sessionId,
+    });
+    if (existing) return this.submitExistingThread(input, agentDefinitionKey, existing);
+
     try {
+      const rootContext = await this.activeLaunchContext(agentDefinitionKey);
       const admitted = await this.commands.root({
         organizationId: input.principal.organizationId,
         createdByUserId: input.principal.userId,
@@ -153,7 +179,12 @@ export class AgentWorkIntakeModule implements AgentWorkIntakePort {
         prompt: input.prompt,
         output: input.output,
       });
-      return { attemptId: admitted.attempt.id, sessionId: admitted.session.id, taskId: admitted.task.id };
+      return {
+        kind: 'root',
+        attemptId: admitted.attempt.id,
+        sessionId: admitted.session.id,
+        taskId: admitted.task.id,
+      };
     } catch (error) {
       if (!(error instanceof AgentOsRuntimeError) || error.code !== 'root_task_already_exists') throw error;
       const predecessor = await this.queries.threadContinuation({
@@ -161,16 +192,83 @@ export class AgentWorkIntakeModule implements AgentWorkIntakePort {
         userId: input.principal.userId,
         sessionId: input.sessionId,
       });
-      if (!predecessor?.terminal) throw error;
-      const successorContext = await this.taskLaunchContext(input.principal, input.sessionId, predecessor.taskId);
-      const continuation = await this.queries.continuationContext({
-        organizationId: input.principal.organizationId,
-        userId: input.principal.userId,
+      if (!predecessor) throw error;
+      return this.submitExistingThread(input, agentDefinitionKey, predecessor);
+    }
+  }
+
+  private async submitExistingThread(
+    input: {
+      principal: AgentWorkIntakePrincipal;
+      sessionId: string;
+      agentDefinitionKey: string;
+      prompt: string;
+      messageCommandKey: string;
+      output: AgentWorkIntakeOutput;
+    },
+    agentDefinitionKey: string,
+    predecessor: ThreadContinuation,
+    recoverStaleLiveAttempt = true,
+  ): Promise<AgentWorkThreadAdmission> {
+    if (predecessor.agentDefinitionKey !== agentDefinitionKey) {
+      throw new AgentWorkIntakeError('agent_thread_agent_mismatch');
+    }
+    if (!predecessor.terminal) {
+      // The sender rechecks the exact Session/Task/Attempt/user/live fence and
+      // resolves only after the Runner command queue accepted attempt.input.
+      try {
+        await this.liveMessages.send({
+          organizationId: input.principal.organizationId,
+          requestedByUserId: input.principal.userId,
+          sessionId: input.sessionId,
+          taskId: predecessor.taskId,
+          attemptId: predecessor.predecessorAttemptId,
+          content: input.prompt,
+          turnId: input.messageCommandKey,
+        });
+      } catch (error) {
+        // A terminal event may win between the authoritative read and the
+        // Runner queue admission. Re-read once: a newly terminal predecessor
+        // follows the normal immutable-successor path; a different live
+        // Attempt is never sent a duplicate instruction speculatively.
+        if (recoverStaleLiveAttempt && error instanceof AgentOsRuntimeError && error.code === 'attempt_not_live') {
+          const latest = await this.queries.threadContinuation({
+            organizationId: input.principal.organizationId,
+            userId: input.principal.userId,
+            sessionId: input.sessionId,
+          });
+          if (latest?.terminal) {
+            return this.submitExistingThread(input, agentDefinitionKey, latest, false);
+          }
+        }
+        throw error;
+      }
+      // Rebind only after enqueue ACK. If a terminal event won this narrow
+      // interval, the channel closes the pending stream instead. The input
+      // remains its original live admission: it may already have reached the
+      // Runner, so creating a successor here would duplicate user work.
+      this.futureOutput.bind({
+        attemptId: predecessor.predecessorAttemptId,
+        threadId: input.output.threadId,
+        runId: input.output.runId,
+      });
+      return {
+        kind: 'live_input',
+        attemptId: predecessor.predecessorAttemptId,
         sessionId: input.sessionId,
         taskId: predecessor.taskId,
-        prompt: input.prompt,
-      });
-      const admitted = await this.commands.followUp({
+      };
+    }
+
+    const successorContext = await this.taskLaunchContext(input.principal, input.sessionId, predecessor.taskId);
+    const continuation = await this.queries.continuationContext({
+      organizationId: input.principal.organizationId,
+      userId: input.principal.userId,
+      sessionId: input.sessionId,
+      taskId: predecessor.taskId,
+      prompt: input.prompt,
+    });
+    const admitted = await this.commands.followUp({
         organizationId: input.principal.organizationId,
         sessionId: input.sessionId,
         taskId: predecessor.taskId,
@@ -183,17 +281,21 @@ export class AgentWorkIntakeModule implements AgentWorkIntakePort {
         cliVersion: successorContext.cliVersion,
         reportedModel: successorContext.profile.model,
       });
-      await this.launchAttempt({
-        context: successorContext,
-        attemptId: admitted.attemptId,
-        sessionId: admitted.sessionId,
-        taskId: admitted.taskId,
-        principal: input.principal,
-        prompt: continuation.prompt,
-        output: input.output,
-      });
-      return admitted;
-    }
+    await this.launchAttempt({
+      context: successorContext,
+      attemptId: admitted.attemptId,
+      sessionId: admitted.sessionId,
+      taskId: admitted.taskId,
+      principal: input.principal,
+      prompt: continuation.prompt,
+      output: input.output,
+    });
+    return {
+      kind: 'successor',
+      attemptId: admitted.attemptId,
+      sessionId: admitted.sessionId,
+      taskId: admitted.taskId,
+    };
   }
 
   private async activeLaunchContext(agentDefinitionKey: string): Promise<LaunchContext> {
@@ -275,8 +377,10 @@ export function createAgentWorkIntake(
   queries: AgentWorkQueryPort,
   commands: AgentWorkCommandPort,
   launch: AgentAttemptLaunchCapabilityPort,
+  liveMessages: AgentLiveMessageSender,
+  futureOutput: Pick<LiveAttemptFutureOutputCapabilityPort, 'bind'>,
 ): AgentWorkIntakePort {
-  return new AgentWorkIntakeModule(queries, commands, launch);
+  return new AgentWorkIntakeModule(queries, commands, launch, process.env, liveMessages, futureOutput);
 }
 
 function requiredEnvironment(environment: NodeJS.ProcessEnv, name: string): string {

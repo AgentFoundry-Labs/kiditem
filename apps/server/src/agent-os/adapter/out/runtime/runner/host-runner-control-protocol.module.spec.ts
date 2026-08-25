@@ -7,6 +7,9 @@ import {
   HostRunnerControlSession,
   type HostRunnerControlSessionPort,
 } from './host-runner-control-session.module';
+import { HostRunnerAttemptExecutorService } from './host-runner-attempt-executor.service';
+import { HostRunnerAttemptControlAdapter } from './host-runner-attempt-control.adapter';
+import { AgentLiveMessageService } from '../../../../application/service/work/agent-live-message.service';
 import type { AttemptLaunchSpec, RunnerEventBatch, RunnerHello } from '@kiditem/shared/agent-runtime';
 
 const runnerInstanceId = '018f4eb1-9078-7a1e-9514-b19b5732f5de';
@@ -90,6 +93,123 @@ describe('HostRunnerControlSession', () => {
     expect(fixture.work.finalizeTaskFromAttempt).toHaveBeenCalledWith({ attemptId, at: expect.any(Date) });
     expect(fixture.capacity.releaseAttempt).toHaveBeenCalledWith(attemptId);
     fixture.control.dispose();
+  });
+
+  it('terminalizes a cancelled pre-start Attempt before a launch token or command can survive', async () => {
+    vi.useFakeTimers();
+    const fixture = createFixture();
+    try {
+      const lease = ready(fixture);
+      fixture.work.transitionAttempt.mockResolvedValue({ transitioned: false });
+      const executor = new HostRunnerAttemptExecutorService({
+        admission: { assert: async () => undefined },
+        prompts: { resolve: async ({ prompt }: { prompt: string }) => prompt },
+        control: fixture.control.attempts,
+        loopbackOrigin: 'http://127.0.0.1:4000',
+        now: () => new Date('2026-08-25T00:00:00.000Z'),
+      });
+
+      await expect(executor.interrupt(attemptId)).resolves.toBeUndefined();
+
+      expect(fixture.work.transitionAttempt).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        attemptId,
+        from: 'running',
+        to: 'process_interrupted',
+      }));
+      expect(fixture.work.transitionAttempt).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        attemptId,
+        from: 'starting',
+        to: 'process_interrupted',
+      }));
+      expect(fixture.work.finalizeTaskFromAttempt).toHaveBeenCalledWith({ attemptId, at: expect.any(Date) });
+      expect(fixture.capacity.releaseAttempt).toHaveBeenCalledTimes(1);
+      expect(fixture.tokens.size).toBe(0);
+      expect(() => fixture.control.attempts.startBusiness({
+        launch: launch(attemptId),
+        binding: binding(attemptId),
+        deadlineAt: deadline,
+      })).toThrow('attempt_terminal');
+      expect(fixture.tokens.size).toBe(0);
+
+      const pending = fixture.control.http.poll({ kind: 'poll', runnerInstanceId, leaseId: lease.leaseId });
+      await vi.advanceTimersByTimeAsync(20_000);
+      await expect(pending).resolves.toEqual({ commands: [] });
+    } finally {
+      fixture.control.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps a started Attempt on the at-least-once interrupt command path', async () => {
+    const fixture = createFixture();
+    try {
+      const lease = ready(fixture);
+      fixture.control.attempts.startBusiness({ launch: launch(attemptId), binding: binding(attemptId), deadlineAt: deadline });
+
+      await fixture.control.attempts.interrupt({ attemptId, deadlineAt: deadline });
+      await fixture.control.attempts.interrupt({ attemptId, deadlineAt: deadline });
+
+      await expect(fixture.control.http.poll({ kind: 'poll', runnerInstanceId, leaseId: lease.leaseId })).resolves.toMatchObject({
+        commands: [
+          { kind: 'attempt.start', attemptId },
+          { kind: 'attempt.interrupt', attemptId },
+        ],
+      });
+      expect(fixture.work.transitionAttempt).not.toHaveBeenCalled();
+      expect(fixture.work.finalizeTaskFromAttempt).not.toHaveBeenCalled();
+      expect(fixture.capacity.releaseAttempt).not.toHaveBeenCalled();
+    } finally {
+      fixture.control.dispose();
+    }
+  });
+
+  it('preserves a caller-owned live-message key through service, control, and queue without coalescing a later identical turn', async () => {
+    const fixture = createFixture();
+    try {
+      const lease = ready(fixture);
+      fixture.control.attempts.startBusiness({ launch: launch(attemptId), binding: binding(attemptId), deadlineAt: deadline });
+      const controls = new HostRunnerAttemptControlAdapter({
+        control: fixture.control.attempts,
+        now: () => new Date('2026-08-25T00:00:00.000Z'),
+      });
+      const messages = new AgentLiveMessageService({
+        deliver: async (input) => controls.send({
+          attemptId: input.attemptId,
+          turnId: input.turnId,
+          message: input.content,
+        }),
+      }, {
+        loadLiveAttempt: vi.fn(async () => ({ taskStatus: 'open', live: true })),
+      } as never);
+      const message = {
+        organizationId: 'organization-id',
+        requestedByUserId: 'user-id',
+        sessionId: 'session-id',
+        taskId: 'task-id',
+        attemptId,
+        content: 'Continue with the same product.',
+      };
+
+      await messages.send({ ...message, turnId: 'logical-message-1' });
+      await messages.send({ ...message, turnId: 'logical-message-1' });
+      await messages.send({ ...message, turnId: 'logical-message-2' });
+      await expect(messages.send({
+        ...message,
+        turnId: 'logical-message-1',
+        content: 'Changed content for the same logical message.',
+      })).rejects.toThrow('runner_input_command_conflict');
+
+      await expect(fixture.control.http.poll({ kind: 'poll', runnerInstanceId, leaseId: lease.leaseId }))
+        .resolves.toMatchObject({
+          commands: [
+            { kind: 'attempt.start', attemptId },
+            { kind: 'attempt.input', attemptId, input: 'Continue with the same product.' },
+            { kind: 'attempt.input', attemptId, input: 'Continue with the same product.' },
+          ],
+        });
+    } finally {
+      fixture.control.dispose();
+    }
   });
 
   it('keeps the first start deadline when a launch adapter retries the same Attempt', async () => {
@@ -280,8 +400,9 @@ function createFixture(overrides: Partial<Pick<ConstructorParameters<typeof Host
   };
   const capacity = { releaseAttempt: vi.fn() };
   const output = { publish: vi.fn(), finish: vi.fn() };
+  const tokens = new AttemptTokenRegistry({ randomBytes, now: () => new Date('2026-08-25T00:00:00.000Z') });
   const control = new HostRunnerControlSession({
-    tokens: new AttemptTokenRegistry({ randomBytes, now: () => new Date('2026-08-25T00:00:00.000Z') }),
+    tokens,
     work,
     capacity,
     output,
@@ -290,7 +411,7 @@ function createFixture(overrides: Partial<Pick<ConstructorParameters<typeof Host
     now: () => new Date('2026-08-25T00:00:00.000Z'),
     ...overrides,
   });
-  return { control, work, capacity, output };
+  return { control, work, capacity, output, tokens };
 }
 
 function ready(fixture: ReturnType<typeof createFixture>) {

@@ -53,5 +53,7 @@ export interface AttemptMcpActionsPort {
     action: 'status' | 'wait' | 'result' | 'message' | 'interrupt';
     childTaskId: string;
     message?: string;
+    /** Per-tool-request opaque identity for process-memory live input replay. */
+    turnId?: string;
   }): Promise<unknown>;
 }

@@ -9,6 +9,7 @@ import {
   lockSession,
   lockSessionOwner,
   lockedOwnedSession,
+  lockAttempt,
   lockTask,
   rejectAgentWork as rejection,
   type AgentWorkTransaction,
@@ -33,6 +34,7 @@ import type {
   InvocationAuthorizationInput,
   InvocationAuthorizationResult,
   TaskLifecycleTransitionInput,
+  TaskLifecycleTransitionResult,
   AttemptLifecycleTransitionInput,
   TerminalSessionDeleteInput,
   FinalizeTaskFromAttemptInput,
@@ -388,7 +390,6 @@ export class PrismaAgentWorkTransaction
         input.sessionId,
         input.taskId,
       );
-      if (task.status !== "open") throw rejection("task_not_open");
       const attempt = await tx.agentAttempt.findFirst({
         where: {
           id: input.attemptId,
@@ -398,8 +399,7 @@ export class PrismaAgentWorkTransaction
           agentVersionId: input.agentVersionId,
         },
       });
-      if (!attempt || !["starting", "running"].includes(attempt.status))
-        throw rejection("attempt_not_live");
+      if (!attempt) throw rejection("attempt_not_live");
       if (
         attempt.agentVersionId !== task.assigned_agent_version_id ||
         input.agentVersionId !== task.assigned_agent_version_id
@@ -435,6 +435,9 @@ export class PrismaAgentWorkTransaction
         throw rejection("capability_routing_denied");
       const existing = await findIdempotentInvocation(tx, input);
       if (existing) return replayInvocation(existing, input);
+      if (task.status !== "open") throw rejection("task_not_open");
+      if (!["starting", "running"].includes(attempt.status))
+        throw rejection("attempt_not_live");
       const invocation = await tx.agentCapabilityInvocation.create({
         data: {
           organizationId: input.organizationId,
@@ -762,25 +765,43 @@ export class PrismaAgentWorkTransaction
   async finalizeInlineInvocation(
     input: InlineInvocationFinalizeInput,
   ): Promise<{ won: boolean }> {
-    const updated = await this.prisma.agentCapabilityInvocation.updateMany({
-      where: {
-        id: input.invocationId,
-        organizationId: input.organizationId,
-        status: "authorized",
-        canonicalInput: { equals: Prisma.DbNull },
-      },
-      data: {
-        status: input.outcome,
-        ...(input.result === undefined
-          ? {}
-          : { result: input.result as Prisma.InputJsonValue }),
-        ...(input.error === undefined
-          ? {}
-          : { error: input.error as Prisma.InputJsonValue }),
-        finishedAt: input.finishedAt,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const invocation = await tx.agentCapabilityInvocation.findFirst({
+        where: {
+          id: input.invocationId,
+          organizationId: input.organizationId,
+        },
+        select: { attemptId: true },
+      });
+      if (!invocation) return { won: false };
+      const attempt = await lockAttempt(
+        tx,
+        input.organizationId,
+        invocation.attemptId,
+      );
+      if (!attempt || !["starting", "running"].includes(attempt.status)) {
+        return { won: false };
+      }
+      const updated = await tx.agentCapabilityInvocation.updateMany({
+        where: {
+          id: input.invocationId,
+          organizationId: input.organizationId,
+          status: "authorized",
+          canonicalInput: { equals: Prisma.DbNull },
+        },
+        data: {
+          status: input.outcome,
+          ...(input.result === undefined
+            ? {}
+            : { result: input.result as Prisma.InputJsonValue }),
+          ...(input.error === undefined
+            ? {}
+            : { error: input.error as Prisma.InputJsonValue }),
+          finishedAt: input.finishedAt,
+        },
+      });
+      return { won: updated.count === 1 };
     });
-    return { won: updated.count === 1 };
   }
 
   /** API boot recovery terminalizes only prior in-process reads and attempts. */
@@ -792,38 +813,33 @@ export class PrismaAgentWorkTransaction
         },
         select: { id: true },
       });
-      if (!attempts.length) return { reconciled: 0, attemptIds: [] };
       const attemptIds = attempts.map((attempt) => attempt.id);
-      await tx.agentAttempt.updateMany({
-        where: { id: { in: attemptIds }, status: { in: ['starting', 'running'] } },
-        data: { status: 'process_interrupted', finishedAt: input.now },
-      });
-      const invocations = await tx.agentCapabilityInvocation.findMany({
-        where: { attemptId: { in: attemptIds }, status: { in: ['authorized', 'executing'] } },
-        select: { id: true, effects: true },
-      });
-      const inlineReads = invocations
-        .filter((invocation) => isReadOnlyEffects(invocation.effects))
-        .map((invocation) => invocation.id);
-      if (inlineReads.length) {
-        await tx.agentCapabilityInvocation.updateMany({
-          where: { id: { in: inlineReads }, status: { in: ['authorized', 'executing'] } },
-          data: {
-            status: 'failed',
-            error: { code: 'process_interrupted', message: 'Inline read was interrupted before completion.' },
-            finishedAt: input.now,
-            leaseOwner: null,
-            leaseExpiresAt: null,
-          },
+      if (attemptIds.length) {
+        await tx.agentAttempt.updateMany({
+          where: { id: { in: attemptIds }, status: { in: ['starting', 'running'] } },
+          data: { status: 'process_interrupted', finishedAt: input.now },
         });
       }
+      const invocations = await tx.agentCapabilityInvocation.findMany({
+        where: {
+          status: { in: ['authorized', 'executing'] },
+          attempt: {
+            status: { in: ['succeeded', 'failed', 'process_interrupted', 'cancelled'] },
+          },
+        },
+        select: { id: true, effects: true },
+      });
+      await failInlineReadInvocations(tx, invocations, {
+        error: { code: 'process_interrupted', message: 'Inline read was interrupted before completion.' },
+        finishedAt: input.now,
+      });
       return { reconciled: attemptIds.length, attemptIds };
     });
   }
 
   async transitionTask(
     input: TaskLifecycleTransitionInput,
-  ): Promise<{ status: string }> {
+  ): Promise<TaskLifecycleTransitionResult> {
     return this.prisma.$transaction(async (tx) => {
       await assertActiveMembership(
         tx,
@@ -842,12 +858,17 @@ export class PrismaAgentWorkTransaction
         input.sessionId,
         input.taskId,
       );
+      let cancelledAttemptIds: string[] | undefined;
       if (input.to === "cancelled") {
         if (task.status !== "open") throw rejection("task_not_open");
-        await tx.agentAttempt.updateMany({
-          where: { taskId: task.id, status: { in: ["starting", "running"] } },
-          data: { status: "cancelled", finishedAt: input.at },
-        });
+        const cancelledAttempts = await tx.$queryRaw<{ id: string }[]>`
+          UPDATE agent_attempts
+          SET status = 'cancelled', finished_at = ${input.at}
+          WHERE task_id = ${task.id}::uuid
+            AND organization_id = ${input.organizationId}::uuid
+            AND status IN ('starting', 'running')
+          RETURNING id`;
+        cancelledAttemptIds = cancelledAttempts.map((attempt) => attempt.id);
         await tx.agentCapabilityApproval.updateMany({
           where: {
             sessionId: input.sessionId,
@@ -913,27 +934,66 @@ export class PrismaAgentWorkTransaction
         where: { id: task.id, organizationId: input.organizationId },
         data: { status: input.to, finishedAt: input.at },
       });
-      return { status: input.to };
+      return {
+        status: input.to,
+        ...(cancelledAttemptIds === undefined ? {} : { cancelledAttemptIds }),
+      };
     });
   }
 
   async transitionAttempt(input: AttemptLifecycleTransitionInput): Promise<{ transitioned: boolean }> {
-    const updated = await this.prisma.agentAttempt.updateMany({
-      where: { id: input.attemptId, status: input.from },
-      data: {
-        status: input.to,
-        ...(input.to === 'running' ? { startedAt: input.at } : { finishedAt: input.at }),
-        ...(input.result ? { result: input.result as Prisma.InputJsonValue } : {}),
-        ...(input.error ? { error: input.error as Prisma.InputJsonValue } : {}),
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.agentAttempt.updateMany({
+        where: { id: input.attemptId, status: input.from },
+        data: {
+          status: input.to,
+          ...(input.to === 'running' ? { startedAt: input.at } : { finishedAt: input.at }),
+          ...(input.result ? { result: input.result as Prisma.InputJsonValue } : {}),
+          ...(input.error ? { error: input.error as Prisma.InputJsonValue } : {}),
+        },
+      });
+      if (updated.count !== 1 || input.to === 'running') {
+        return { transitioned: updated.count === 1 };
+      }
+      const invocations = await tx.agentCapabilityInvocation.findMany({
+        where: {
+          attemptId: input.attemptId,
+          status: { in: ['authorized', 'executing'] },
+        },
+        select: { id: true, effects: true },
+      });
+      await failInlineReadInvocations(tx, invocations, {
+        error: {
+          code: 'attempt_terminalized',
+          message: 'Inline read was interrupted because its Attempt terminalized.',
+        },
+        finishedAt: input.at,
+      });
+      return { transitioned: true };
     });
-    return { transitioned: updated.count === 1 };
   }
 
   async finalizeTaskFromAttempt(input: FinalizeTaskFromAttemptInput): Promise<{ finalized: boolean; status: string | null }> {
     return this.prisma.$transaction(async (tx) => {
-      const attempt = await tx.agentAttempt.findFirst({ where: { id: input.attemptId }, include: { task: true } });
-      if (!attempt || attempt.task.status !== 'open' || !['succeeded', 'failed'].includes(attempt.status)) return { finalized: false, status: null };
+      const coordinate = await tx.agentAttempt.findFirst({
+        where: { id: input.attemptId },
+        select: { organizationId: true, sessionId: true, taskId: true },
+      });
+      if (!coordinate) return { finalized: false, status: null };
+      // Keep the same Session -> Task order as successor admission. The Task
+      // lock spans every finalization fence, so a new Attempt cannot appear
+      // after the latest/live checks but before the terminal Task update.
+      await lockSession(tx, coordinate.organizationId, coordinate.sessionId);
+      const task = await lockTask(tx, coordinate.organizationId, coordinate.sessionId, coordinate.taskId);
+      const attempt = await tx.agentAttempt.findFirst({
+        where: {
+          id: input.attemptId,
+          organizationId: coordinate.organizationId,
+          sessionId: coordinate.sessionId,
+          taskId: coordinate.taskId,
+        },
+      });
+      if (!attempt || task.status !== 'open' || !['succeeded', 'failed'].includes(attempt.status)) return { finalized: false, status: null };
       const result = AgentResultEnvelopeSchema.safeParse(attempt.result);
       if (!result.success || !['completed', 'failed'].includes(result.data.outcome)) return { finalized: false, status: null };
       const latest = await tx.agentAttempt.findFirst({ where: { taskId: attempt.taskId }, orderBy: { ordinal: 'desc' }, select: { id: true } });
@@ -955,8 +1015,15 @@ export class PrismaAgentWorkTransaction
         // successor rather than inferring completion from stale envelopes.
         if (!this.operations) return { finalized: false, status: null };
         try {
-          const runs = await Promise.all([...new Set(operationIds)].slice(0, 50).map((id) => this.operations!.get(attempt.organizationId, id)));
-          if (runs.some((run) => !['succeeded', 'failed', 'cancelled', 'skipped'].includes(run.status))) return { finalized: false, status: null };
+          const uniqueOperationIds = [...new Set(operationIds)];
+          for (let index = 0; index < uniqueOperationIds.length; index += 50) {
+            const runs = await Promise.all(uniqueOperationIds
+              .slice(index, index + 50)
+              .map((id) => this.operations!.get(attempt.organizationId, id)));
+            if (runs.some((run) => !run || !['succeeded', 'failed', 'cancelled', 'skipped'].includes(run.status))) {
+              return { finalized: false, status: null };
+            }
+          }
         } catch { return { finalized: false, status: null }; }
       }
       const status = result.data.outcome === 'completed' ? 'completed' : 'failed';
@@ -1102,6 +1169,33 @@ function isReadOnlyEffects(effects: unknown): boolean {
       (effect) => typeof effect === "string" && readOnlyEffects.has(effect),
     )
   );
+}
+
+async function failInlineReadInvocations(
+  tx: AgentWorkTransaction,
+  invocations: readonly { id: string; effects: unknown }[],
+  input: {
+    error: { code: string; message: string };
+    finishedAt: Date;
+  },
+): Promise<void> {
+  const invocationIds = invocations
+    .filter((invocation) => isReadOnlyEffects(invocation.effects))
+    .map((invocation) => invocation.id);
+  if (!invocationIds.length) return;
+  await tx.agentCapabilityInvocation.updateMany({
+    where: {
+      id: { in: invocationIds },
+      status: { in: ['authorized', 'executing'] },
+    },
+    data: {
+      status: 'failed',
+      error: input.error,
+      finishedAt: input.finishedAt,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+    },
+  });
 }
 
 async function mutationContextStatus(

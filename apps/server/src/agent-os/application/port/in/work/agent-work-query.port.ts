@@ -17,7 +17,13 @@ export interface AgentWorkQueryPort {
     instructionProfileRef: string;
   } | null>;
   liveAttempt(input: { organizationId: string; userId: string; sessionId: string; taskId: string; attemptId?: string }): Promise<{ id: string } | null>;
-  threadContinuation(input: { organizationId: string; userId: string; sessionId: string }): Promise<{ taskId: string; predecessorAttemptId: string; terminal: boolean } | null>;
+  threadContinuation(input: { organizationId: string; userId: string; sessionId: string }): Promise<{
+    taskId: string;
+    predecessorAttemptId: string;
+    terminal: boolean;
+    /** Immutable Task snapshot pin; an incoming Agent key may not cross it. */
+    agentDefinitionKey: string;
+  } | null>;
   /** A bounded, transcript-free durable context for one immutable successor Attempt. */
   continuationContext(input: { organizationId: string; userId: string; sessionId: string; taskId: string; prompt: string }): Promise<{ prompt: string; input: { prompt: string; resourceRefs: unknown[]; operationRefs: unknown[] } }>;
 }

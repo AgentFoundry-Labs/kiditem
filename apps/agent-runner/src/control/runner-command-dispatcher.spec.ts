@@ -9,6 +9,27 @@ const runnerInstanceId = '11111111-1111-4111-8111-111111111111';
 const leaseId = '22222222-2222-4222-8222-222222222222';
 
 describe('RunnerCommandDispatcher', () => {
+  it('does not append a second acknowledgement when the exact command is redelivered before its first acknowledgement flushes', async () => {
+    let starts = 0;
+    const dispatcher = new RunnerCommandDispatcher({
+      executor: {
+        start: async () => { starts += 1; },
+        input: async () => undefined,
+        interrupt: async () => undefined,
+      },
+      outbox: new RunnerEventOutbox({ runnerInstanceId, leaseId }),
+    });
+    const start = startCommand();
+
+    await dispatcher.dispatch(start);
+    dispatcher.outbox.peekBody();
+    await dispatcher.dispatch(start);
+    await dispatcher.outbox.flush(async (body) => ({ eventSeq: JSON.parse(body).eventSeq, accepted: true }));
+
+    expect(starts).toBe(1);
+    expect(dispatcher.outbox.peekBody()).toBeNull();
+  });
+
   it('installs one start process and returns a conflict instead of starting a drifted duplicate', async () => {
     const starts: AttemptLaunchSpec[] = [];
     const dispatcher = new RunnerCommandDispatcher({

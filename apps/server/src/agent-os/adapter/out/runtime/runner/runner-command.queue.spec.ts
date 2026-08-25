@@ -62,17 +62,23 @@ describe('RunnerCommandQueue', () => {
     })).toThrow('runner_start_command_conflict');
   });
 
-  it('keeps input and interrupt commands idempotent without coalescing different inputs', () => {
+  it('keys live input idempotency by exact turn and rejects content drift without coalescing a later identical turn', () => {
     const queue = new RunnerCommandQueue({ commandId: fixedCommandIds() });
     queue.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z'), leaseGeneration: 1 });
-    const firstInput = queue.enqueueInput({ attemptId, input: 'continue', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
-    const retry = queue.enqueueInput({ attemptId, input: 'continue', deadlineAt: new Date('2026-08-24T00:11:00.000Z') });
-    const nextInput = queue.enqueueInput({ attemptId, input: 'change focus', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    const firstInput = queue.enqueueInput({ attemptId, turnId: 'agui-run-1', input: 'continue', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    const retry = queue.enqueueInput({ attemptId, turnId: 'agui-run-1', input: 'continue', deadlineAt: new Date('2026-08-24T00:11:00.000Z') });
+    const nextInput = queue.enqueueInput({ attemptId, turnId: 'agui-run-2', input: 'continue', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
     const interrupt = queue.enqueueInterrupt({ attemptId, deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
     const interruptRetry = queue.enqueueInterrupt({ attemptId, deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
 
     expect(retry).toEqual(firstInput);
     expect(nextInput.commandId).not.toBe(firstInput.commandId);
+    expect(() => queue.enqueueInput({
+      attemptId,
+      turnId: 'agui-run-1',
+      input: 'change focus',
+      deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+    })).toThrow('runner_input_command_conflict');
     expect(interruptRetry).toEqual(interrupt);
   });
 
@@ -90,10 +96,11 @@ describe('RunnerCommandQueue', () => {
   it('applies backpressure before an all-active queue exceeds its hard bound', () => {
     const queue = new RunnerCommandQueue({ commandId: fixedCommandIds(), maxEntries: 2 });
     queue.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z'), leaseGeneration: 1 });
-    queue.enqueueInput({ attemptId, input: 'first', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    queue.enqueueInput({ attemptId, turnId: 'turn-first', input: 'first', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
 
     expect(() => queue.enqueueInput({
       attemptId,
+      turnId: 'turn-second',
       input: 'second',
       deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
     })).toThrow('runner_command_backpressure');
@@ -105,17 +112,19 @@ describe('RunnerCommandQueue', () => {
     const queue = new RunnerCommandQueue({ commandId: fixedCommandIds(), maxEntries: 1 });
     const start = queue.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z'), leaseGeneration: 1 });
     queue.acknowledge({ commandId: start.commandId, attemptId, commandHash: start.commandHash });
-    const first = queue.enqueueInput({ attemptId, input: 'first', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    const first = queue.enqueueInput({ attemptId, turnId: 'turn-first', input: 'first', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
     queue.acknowledge({ commandId: first.commandId, attemptId, commandHash: first.commandHash });
 
     const second = queue.enqueueInput({
       attemptId,
+      turnId: 'turn-second',
       input: 'second',
       deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
     });
 
     expect(queue.enqueueInput({
       attemptId,
+      turnId: 'turn-first',
       input: 'first',
       deadlineAt: new Date('2026-08-24T00:11:00.000Z'),
     })).toEqual(first);
@@ -157,7 +166,7 @@ describe('RunnerCommandQueue', () => {
       deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
       leaseGeneration: 1,
     });
-    const input = queue.enqueueInput({ attemptId, input: 'old live input', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    const input = queue.enqueueInput({ attemptId, turnId: 'turn-old', input: 'old live input', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
     const interrupt = queue.enqueueInterrupt({ attemptId, deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
 
     expect(queue.fenceLeaseGeneration(1)).toEqual([attemptId]);
@@ -166,7 +175,7 @@ describe('RunnerCommandQueue', () => {
     expect(queue.has(start.commandId)).toBe(false);
     expect(queue.has(input.commandId)).toBe(false);
     expect(queue.has(interrupt.commandId)).toBe(false);
-    expect(() => queue.enqueueInput({ attemptId, input: 'stale input', deadlineAt: new Date('2026-08-24T00:10:00.000Z') }))
+    expect(() => queue.enqueueInput({ attemptId, turnId: 'turn-stale', input: 'stale input', deadlineAt: new Date('2026-08-24T00:10:00.000Z') }))
       .toThrow('attempt_generation_fenced');
     expect(() => queue.enqueueInterrupt({ attemptId, deadlineAt: new Date('2026-08-24T00:10:00.000Z') }))
       .toThrow('attempt_generation_fenced');

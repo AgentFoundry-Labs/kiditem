@@ -13,7 +13,6 @@ import type {
   RunnerEventBatch,
   RunnerHello,
   RunnerInputCommand,
-  RunnerInterruptCommand,
   RunnerLeaseResponse,
   RunnerPoll,
 } from '@kiditem/shared/agent-runtime';
@@ -43,8 +42,8 @@ export interface HostRunnerControlAttemptPort {
     binding: AttemptMcpBinding;
     deadlineAt: Date;
   }): void;
-  sendInput(input: { attemptId: string; input: string; deadlineAt: Date }): RunnerInputCommand;
-  interrupt(input: { attemptId: string; deadlineAt: Date }): RunnerInterruptCommand;
+  sendInput(input: { attemptId: string; turnId: string; input: string; deadlineAt: Date }): RunnerInputCommand;
+  interrupt(input: { attemptId: string; deadlineAt: Date }): Promise<void>;
 }
 
 export interface HostRunnerControlReadinessPort {
@@ -210,9 +209,20 @@ export class HostRunnerControlSession implements HostRunnerControlSessionPort {
     }
   }
 
-  private interrupt(input: { attemptId: string; deadlineAt: Date }): RunnerInterruptCommand {
+  private async interrupt(input: { attemptId: string; deadlineAt: Date }): Promise<void> {
+    if (this.commands.hasStartedAttempt(input.attemptId)) {
+      this.tokens.revokeAttempt(input.attemptId);
+      this.commands.enqueueInterrupt(input);
+      return;
+    }
+
+    // A task cancellation can win after durable admission but before this
+    // session received startBusiness. Fence its local queue synchronously so a
+    // later start cannot launch a raw-token-bearing command while the durable
+    // lifecycle cleanup is awaiting its transaction.
     this.tokens.revokeAttempt(input.attemptId);
-    return this.commands.enqueueInterrupt(input);
+    this.commands.markTerminal(input.attemptId);
+    await this.eventLifecycle.interruptAttempt(input.attemptId);
   }
 }
 

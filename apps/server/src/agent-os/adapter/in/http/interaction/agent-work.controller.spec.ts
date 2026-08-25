@@ -47,6 +47,26 @@ describe('AgentWorkController transport-only intake', () => {
     });
     expect(fixture.commands.followUp).not.toHaveBeenCalled();
   });
+
+  it('interrupts every Attempt atomically cancelled by the durable transition without trusting a stale pre-read', async () => {
+    const fixture = controllerFixture();
+    fixture.queries.liveAttempt.mockResolvedValue(null);
+    fixture.commands.transition.mockResolvedValue({
+      status: 'cancelled',
+      cancelledAttemptIds: [attemptId, predecessorAttemptId],
+    });
+    fixture.executor.interrupt
+      .mockRejectedValueOnce(new Error('already_terminal'))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(fixture.controller.cancel(sessionId, taskId, organizationId, user as never))
+      .resolves.toEqual({ status: 'cancelled' });
+
+    expect(fixture.queries.liveAttempt).not.toHaveBeenCalled();
+    expect(fixture.executor.interrupt).toHaveBeenCalledTimes(2);
+    expect(fixture.executor.interrupt).toHaveBeenNthCalledWith(1, attemptId);
+    expect(fixture.executor.interrupt).toHaveBeenNthCalledWith(2, predecessorAttemptId);
+  });
 });
 
 function controllerFixture() {
@@ -62,6 +82,7 @@ function controllerFixture() {
     controller: new Controller(queries, commands, executor, intake),
     queries,
     commands,
+    executor,
     intake,
   };
 }

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AttemptLaunchSpec, RunnerCommandBatch } from '@kiditem/shared/agent-runtime';
+import type { AttemptLaunchSpec, RunnerCommandBatch, RunnerEvent } from '@kiditem/shared/agent-runtime';
 import { RunnerControlHttpError } from './runner-control.client';
 import { NativeRunnerControlSession, type RunnerControlTransport } from './native-runner-control-session';
 
@@ -103,6 +103,60 @@ describe('NativeRunnerControlSession', () => {
 
     expect(client.abortInFlight).toHaveBeenCalledOnce();
     await expect(running).rejects.toThrow('runner_lease_lost');
+    expect(executor.shutdown).toHaveBeenCalledOnce();
+  });
+
+  it('holds a failed event outbox ahead of polling or redispatch and fails closed at the control deadline', async () => {
+    vi.useFakeTimers();
+    let successfulPoll: (() => void) | undefined;
+    let polls = 0;
+    const posted: string[] = [];
+    const client: RunnerControlTransport = {
+      poll: vi.fn(() => {
+        polls += 1;
+        if (polls <= 2) {
+          successfulPoll?.();
+          return Promise.resolve({ commands: [start()] });
+        }
+        return new Promise<RunnerCommandBatch | null>(() => undefined);
+      }),
+      postEventBody: vi.fn(async (body: string) => {
+        posted.push(body);
+        throw new RunnerControlHttpError(503);
+      }),
+      onSuccessfulCommandPoll: (listener) => {
+        successfulPoll = listener;
+        return () => { successfulPoll = undefined; };
+      },
+      abortInFlight: vi.fn(),
+    };
+    const executor = execution();
+    const protocol = new NativeRunnerControlSession({
+      client,
+      runnerInstanceId,
+      leaseId,
+      executor,
+      flushIntervalMs: 10_000,
+    });
+    const running = protocol.run();
+    void running.catch(() => undefined);
+
+    await vi.advanceTimersByTimeAsync(0);
+    protocol.emit({ kind: 'attempt.terminal', attemptId, terminalReason: 'success' });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    const outbox = (protocol as unknown as { outbox: { events: RunnerEvent[] } }).outbox;
+    expect(polls).toBe(1);
+    expect(executor.start).toHaveBeenCalledOnce();
+    expect(outbox.events).toContainEqual({ kind: 'attempt.terminal', attemptId, terminalReason: 'success' });
+    expect(outbox.events.filter((event) => event.kind === 'command_ack')).toHaveLength(1);
+    expect(posted.length).toBeGreaterThan(0);
+    expect(new Set(posted).size).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(29_000);
+
+    await expect(running).rejects.toThrow('runner_lease_lost');
+    expect(client.abortInFlight).toHaveBeenCalledOnce();
     expect(executor.shutdown).toHaveBeenCalledOnce();
   });
 

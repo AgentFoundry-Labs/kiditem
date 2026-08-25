@@ -4,6 +4,7 @@ import type {
   ReconciliationInput,
   ReconciliationResult,
   TaskLifecycleTransitionInput,
+  TaskLifecycleTransitionResult,
   TerminalSessionDeleteInput,
 } from "./agent-work-persistence.types";
 
@@ -17,7 +18,7 @@ export interface AgentWorkLifecyclePort {
   reconcile(input: ReconciliationInput): Promise<ReconciliationResult>;
   transitionTask(
     input: TaskLifecycleTransitionInput,
-  ): Promise<{ status: string }>;
+  ): Promise<TaskLifecycleTransitionResult>;
   transitionAttempt(
     input: AttemptLifecycleTransitionInput,
   ): Promise<{ transitioned: boolean }>;

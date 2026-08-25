@@ -9,13 +9,55 @@ import {
   quietDefaultClient,
   transportFor,
 } from './__tests__/attempt-mcp-modern-fixture';
-import { createKidItemAgentOsMcpServer } from './kiditem-agent-os-mcp-server';
+import { createKidItemAgentOsMcpServer, mcpToolTurnId } from './kiditem-agent-os-mcp-server';
 import { createRequestScopedAttemptMcpHandler } from '../http/runtime/attempt-mcp-http.controller';
 import { AgentCapabilityRegistry } from '../../../application/service/agent-capability-registry.service';
 import { AttemptMcpActionsService } from '../../../application/service/work/attempt-mcp-actions.service';
 import { FINAL_CAPABILITY_DEFINITIONS } from '../../../domain/catalog/final-capability.catalog';
 
 describe('KidItem Agent OS MCP v2 server factory', () => {
+  it('derives a bounded opaque live-input identity from the logical message command key', () => {
+    expect(mcpToolTurnId('child-message-key-1')).toBe(mcpToolTurnId('child-message-key-1'));
+    expect(mcpToolTurnId('child-message-key-1')).not.toBe(mcpToolTurnId('child-message-key-2'));
+    expect(mcpToolTurnId('child-message-key-1')).toMatch(/^mcp-[a-f0-9]{64}$/);
+  });
+
+  it('uses the logical child-message key instead of transport request identity for exact replay', async () => {
+    const child = vi.fn(async () => ({ status: 'open' }));
+    const handler = createMcpHandler(
+      () => createKidItemAgentOsMcpServer(attemptMcpActions({ child }), ATTEMPT_MCP_TEST_BINDING),
+      { legacy: 'reject' },
+    );
+    const client = pinnedModernClient();
+
+    try {
+      await client.connect(transportFor(handler));
+      await client.callTool({
+        name: 'child_message',
+        arguments: { childTaskId: '018f4eb1-9078-7a1e-9514-b19b5732f5de', message: 'Continue', messageCommandKey: 'child-message-key-1' },
+      });
+      await client.callTool({
+        name: 'child_message',
+        arguments: { childTaskId: '018f4eb1-9078-7a1e-9514-b19b5732f5de', message: 'Continue', messageCommandKey: 'child-message-key-1' },
+      });
+      await client.callTool({
+        name: 'child_message',
+        arguments: { childTaskId: '018f4eb1-9078-7a1e-9514-b19b5732f5de', message: 'Continue', messageCommandKey: 'child-message-key-2' },
+      });
+
+      expect(child).toHaveBeenCalledTimes(3);
+      const [first, second, third] = child.mock.calls.map(([input]) => input as { turnId: string; action: string });
+      expect(first).toMatchObject({ action: 'message', turnId: expect.stringMatching(/^mcp-[a-f0-9]{64}$/) });
+      expect(second).toMatchObject({ action: 'message', turnId: expect.stringMatching(/^mcp-[a-f0-9]{64}$/) });
+      expect(third).toMatchObject({ action: 'message', turnId: expect.stringMatching(/^mcp-[a-f0-9]{64}$/) });
+      expect(second.turnId).toBe(first.turnId);
+      expect(third.turnId).not.toBe(first.turnId);
+    } finally {
+      await client.close();
+      await handler.close();
+    }
+  });
+
   it('serves the exact eleven strict tools and output schemas over a pinned modern HTTP client', async () => {
     const actions = attemptMcpActions();
     const handler = createMcpHandler((context) => {

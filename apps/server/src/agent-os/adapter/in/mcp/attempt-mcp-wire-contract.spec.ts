@@ -37,7 +37,7 @@ describe('Attempt MCP v2 wire contract', () => {
       child_status: { childTaskId: '018f4eb1-9078-7a1e-9514-b19b5732f5de' },
       child_wait: { childTaskId: '018f4eb1-9078-7a1e-9514-b19b5732f5de' },
       child_result: { childTaskId: '018f4eb1-9078-7a1e-9514-b19b5732f5de' },
-      child_message: { childTaskId: '018f4eb1-9078-7a1e-9514-b19b5732f5de', message: 'Please continue.' },
+      child_message: { childTaskId: '018f4eb1-9078-7a1e-9514-b19b5732f5de', message: 'Please continue.', messageCommandKey: 'child-message-key-1' },
       child_interrupt: { childTaskId: '018f4eb1-9078-7a1e-9514-b19b5732f5de' },
     };
 
@@ -45,6 +45,16 @@ describe('Attempt MCP v2 wire contract', () => {
       expect(AttemptMcpWireInputSchemas[name].safeParse({ ...valid[name], forged: true }).success)
         .toBe(false);
     }
+  });
+
+  it('requires a bounded caller-owned message command key for exact child-message replay', () => {
+    const schema = AttemptMcpWireInputSchemas.child_message;
+    const common = { childTaskId: '018f4eb1-9078-7a1e-9514-b19b5732f5de', message: 'Please continue.' };
+
+    expect(schema.safeParse(common).success).toBe(false);
+    expect(schema.safeParse({ ...common, messageCommandKey: 'child-message-key-1' }).success).toBe(true);
+    expect(schema.safeParse({ ...common, messageCommandKey: '   ' }).success).toBe(false);
+    expect(schema.safeParse({ ...common, messageCommandKey: 'x'.repeat(257) }).success).toBe(false);
   });
 
   it('requires delegation capability and input together', () => {

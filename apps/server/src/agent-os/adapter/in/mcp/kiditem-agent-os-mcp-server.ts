@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/server';
 import type {
   AttemptMcpActionsPort,
@@ -78,7 +78,7 @@ function registerChildTools(
   actions: AttemptMcpActionsPort,
   binding: AttemptMcpBinding,
 ): void {
-  for (const action of ['status', 'wait', 'result', 'message', 'interrupt'] as const) {
+  for (const action of ['status', 'wait', 'result'] as const) {
     server.registerTool(`child_${action}`, {
       description: 'Inspect, wait for, or control an exact delegated child Task.',
       inputSchema: AttemptMcpWireInputSchemas[`child_${action}`],
@@ -90,6 +90,35 @@ function registerChildTools(
       ...(input.message === undefined ? {} : { message: input.message }),
     })));
   }
+  server.registerTool('child_message', {
+    description: 'Send one child message with a new opaque messageCommandKey; reuse that key only for an exact retry.',
+    inputSchema: AttemptMcpWireInputSchemas.child_message,
+    outputSchema: AttemptMcpToolResultSchema,
+  }, (input) => attemptMcpToolResult(() => actions.child({
+    binding,
+    action: 'message',
+    childTaskId: input.childTaskId,
+    message: input.message,
+    turnId: mcpToolTurnId(input.messageCommandKey),
+  })));
+  server.registerTool('child_interrupt', {
+    description: 'Inspect, wait for, or control an exact delegated child Task.',
+    inputSchema: AttemptMcpWireInputSchemas.child_interrupt,
+    outputSchema: AttemptMcpToolResultSchema,
+  }, (input) => attemptMcpToolResult(() => actions.child({
+    binding,
+    action: 'interrupt',
+    childTaskId: input.childTaskId,
+  })));
+}
+
+/**
+ * The caller-owned logical key distinguishes an exact retry from a new tool
+ * call even when the transport legally reuses JSON-RPC request IDs. Hash it
+ * so raw MCP arguments never become retained queue control state.
+ */
+export function mcpToolTurnId(messageCommandKey: string): string {
+  return `mcp-${createHash('sha256').update(`child-message:${messageCommandKey}`).digest('hex')}`;
 }
 
 function immutableBinding(binding: AttemptMcpBinding): AttemptMcpBinding {

@@ -9,5 +9,7 @@ export interface AgentLiveMessagePort {
     taskId: string;
     attemptId: string;
     content: string;
+    /** Opaque source-turn coordinate; process-memory queue idempotency only. */
+    turnId: string;
   }): Promise<void>;
 }

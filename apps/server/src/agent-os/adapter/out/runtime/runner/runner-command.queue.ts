@@ -9,6 +9,7 @@ import {
   type RunnerInterruptCommand,
   type RunnerStartCommand,
 } from '@kiditem/shared/agent-runtime';
+import { AguiRunIdSchema } from '@kiditem/shared/identifiers';
 
 export const RUNNER_COMMAND_QUEUE_MAX_ENTRIES = 1_024;
 
@@ -126,16 +127,29 @@ export class RunnerCommandQueue {
     return command;
   }
 
-  enqueueInput(input: { attemptId: string; input: string; deadlineAt: Date }): RunnerInputCommand {
+  enqueueInput(input: { attemptId: string; turnId: string; input: string; deadlineAt: Date }): RunnerInputCommand {
     this.assertNotTerminal(input.attemptId);
     const leaseGeneration = this.requireAttemptGeneration(input.attemptId);
-    const key = `input\u0000${input.attemptId}\u0000${hash(input.input)}`;
+    const turnId = canonicalTurnId(input.turnId);
+    const content = canonicalInput(input.input);
+    const contentFingerprint = hash(content);
+    const key = `input\u0000${input.attemptId}\u0000${turnId}`;
     const existing = this.idempotentCommand(key);
-    if (existing?.kind === 'attempt.input') return existing;
-    const fingerprint = hash({ kind: 'attempt.input', attemptId: input.attemptId, input: input.input, deadlineAt: input.deadlineAt.toISOString(), leaseGeneration });
+    if (existing?.kind === 'attempt.input') {
+      if (hash(existing.input) !== contentFingerprint) throw new Error('runner_input_command_conflict');
+      return existing;
+    }
+    const fingerprint = hash({
+      kind: 'attempt.input',
+      attemptId: input.attemptId,
+      turnId,
+      contentFingerprint,
+      deadlineAt: input.deadlineAt.toISOString(),
+      leaseGeneration,
+    });
     const command: RunnerInputCommand = {
       kind: 'attempt.input', commandId: this.createCommandId(), attemptId: input.attemptId,
-      deadlineAt: input.deadlineAt.toISOString(), commandHash: fingerprint, input: input.input,
+      deadlineAt: input.deadlineAt.toISOString(), commandHash: fingerprint, input: content,
     };
     this.add(command, key);
     return command;
@@ -385,6 +399,18 @@ function assertLeaseGeneration(value: number): void {
 
 function assertReplayFingerprint(value: string): void {
   if (!/^[a-f0-9]{64}$/.test(value)) throw new Error('runner_start_replay_fingerprint_invalid');
+}
+
+function canonicalTurnId(value: string): string {
+  const parsed = AguiRunIdSchema.safeParse(value);
+  if (!parsed.success || !parsed.data.trim()) throw new Error('attempt_input_turn_invalid');
+  return parsed.data;
+}
+
+function canonicalInput(value: string): string {
+  const input = value.trim();
+  if (!input || input.length > 24_000) throw new Error('attempt_input_invalid');
+  return input;
 }
 
 function immutableLaunch(launch: AttemptLaunchSpec): AttemptLaunchSpec {

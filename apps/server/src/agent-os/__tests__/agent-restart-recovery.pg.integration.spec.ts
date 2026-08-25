@@ -168,6 +168,37 @@ describe('same-SHA Agent work restart recovery', () => {
     });
   });
 
+  it('sweeps an authorized inline read left under an already terminal Attempt during restart recovery', async () => {
+    const admitted = await root();
+    const read = await invocation(admitted, 'authorized', ['read'], 'terminal-inline-read');
+    const mutation = await invocation(admitted, 'ready', ['db_write'], 'terminal-durable-mutation');
+    await prisma.agentAttempt.update({
+      where: { id: admitted.attempt.id },
+      data: { status: 'failed', finishedAt: new Date('2030-01-01T00:00:00.000Z') },
+    });
+
+    await expect(work.reconcile({
+      applicationVersion: '1.0.0',
+      authorizingGitSha: gitSha,
+      now: new Date('2030-01-01T00:00:01.000Z'),
+    })).resolves.toEqual({ reconciled: 0, attemptIds: [] });
+
+    await expect(prisma.agentCapabilityInvocation.findMany({
+      where: { id: { in: [read.id, mutation.id] } },
+      select: { id: true, status: true, error: true },
+    })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: read.id,
+        status: 'failed',
+        error: {
+          code: 'process_interrupted',
+          message: 'Inline read was interrupted before completion.',
+        },
+      }),
+      expect.objectContaining({ id: mutation.id, status: 'ready', error: null }),
+    ]));
+  });
+
   it('keeps an already-ready mutation claimable after Task cancellation while rejecting a new attempt admission', async () => {
     const admitted = await root();
     const ready = await invocation(admitted, 'ready', ['db_write'], 'cancelled-ready');

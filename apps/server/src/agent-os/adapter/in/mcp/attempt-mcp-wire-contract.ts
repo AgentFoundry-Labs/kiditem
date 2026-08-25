@@ -24,6 +24,12 @@ const ChildInputSchema = z4.object({
   childTaskId: z4.string().uuid(),
   message: z4.string().min(1).max(4_000).optional(),
 }).strict();
+const ChildMessageCommandKeySchema = z4.string()
+  .trim()
+  .min(1)
+  .max(256)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/)
+  .describe('Opaque logical message key. Generate a new value for a new message and reuse it only for an exact retry.');
 
 export const AttemptMcpWireInputSchemas = {
   capability_catalog_search: z4.object({
@@ -52,7 +58,10 @@ export const AttemptMcpWireInputSchemas = {
   child_status: ChildInputSchema,
   child_wait: ChildInputSchema,
   child_result: ChildInputSchema,
-  child_message: ChildInputSchema,
+  child_message: ChildInputSchema.extend({
+    message: z4.string().min(1).max(4_000),
+    messageCommandKey: ChildMessageCommandKeySchema,
+  }).strict(),
   child_interrupt: ChildInputSchema,
 } as const;
 

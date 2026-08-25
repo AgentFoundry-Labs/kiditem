@@ -15,6 +15,7 @@ export class AgentLiveMessageService {
     taskId: string;
     attemptId: string;
     content: string;
+    turnId: string;
   }): Promise<void> {
     const access = await this.work.loadLiveAttempt(input);
     if (!access)
@@ -33,6 +34,7 @@ export class AgentLiveMessageService {
       taskId: input.taskId,
       attemptId: input.attemptId,
       content: input.content,
+      turnId: input.turnId,
     });
   }
 }
