@@ -1,6 +1,6 @@
 # CopilotKit OSS Platform Matrix
 
-Evidence was captured on 2026-08-13 (Asia/Seoul). Foundation Task 1 replaces
+Release-train evidence was refreshed on 2026-08-26 (Asia/Seoul). Foundation Task 1 replaces
 the obsolete Enterprise-oriented lock with the machine-readable source of
 truth at `deploy/copilotkit/platform-lock.json`.
 
@@ -8,7 +8,7 @@ truth at `deploy/copilotkit/platform-lock.json`.
 
 | Surface | Lock | Evidence and current conclusion |
 |---|---:|---|
-| CopilotKit OSS Runtime and React v2 | `1.67.1` | The public npm registry returns Runtime and React Core `1.67.1`; React Core publishes `./v2`, `./v2/context`, and `./v2/headless`. Runtime declares `@ag-ui/client`, `@ag-ui/core`, and `@ag-ui/encoder` at exactly `0.0.57`. No Enterprise endpoint or project credential is part of the selected path. |
+| CopilotKit OSS Runtime and React v2 | `1.69.0` | The public npm registry returns Runtime and React Core `1.69.0`; React Core publishes `./v2`, `./v2/context`, and `./v2/headless`. Runtime declares `@ag-ui/client`, `@ag-ui/core`, and `@ag-ui/encoder` at exactly `0.0.57`. No Enterprise endpoint or project credential is part of the selected path. |
 | AG-UI client, core, and encoder | `0.0.57` | The public npm registry returns the three public packages and tarballs. `@ag-ui/client` supplies `HttpAgent`, event streaming, state tracking, subscribers, and middleware for a KidItem-owned AG-UI endpoint. |
 | Runtime prerequisites | Node `>=22 <23`; PostgreSQL as the repository train | Node matches KidItem's root engine contract. Conversation durability, replay, retention, and locking use KidItem's Prisma/PostgreSQL and Operations contracts rather than a CopilotKit platform datastore. |
 | Source lineage | fork `AgentFoundry-Labs/CopilotKit`; upstream `CopilotKit/CopilotKit` | GitHub reports the fork as public and a direct fork of canonical upstream. At capture it was at `7fd4c5ee782a9fd4fe7e662c304920bd453d2490`: ahead `0`, behind `2`, status `behind`. The fork is research and bounded patch-review lineage, never a floating runtime dependency. |
@@ -23,16 +23,28 @@ gh api repos/AgentFoundry-Labs/CopilotKit/compare/CopilotKit:main...main
   status=behind ahead_by=0 behind_by=2
   merge_base=7fd4c5ee782a9fd4fe7e662c304920bd453d2490
 
-npm view @copilotkit/runtime@1.67.1 dependencies --json
-  @copilotkit/shared=1.67.1
+npm view @copilotkit/runtime@1.69.0 dependencies --json
+  @copilotkit/shared=1.69.0
   @ag-ui/client=0.0.57 @ag-ui/core=0.0.57 @ag-ui/encoder=0.0.57
 
-npm view @copilotkit/react-core@1.67.1 version --json
-  1.67.1
+npm view @copilotkit/react-core@1.69.0 version --json
+  1.69.0
 
 npm view @ag-ui/client@0.0.57 version --json
   0.0.57
+
+npm ls @copilotkit/react-core @copilotkit/runtime @copilotkit/shared
+  react-core=1.69.0 runtime=1.69.0 shared=1.69.0 (deduped)
 ```
+
+The installed 1.69.0 declarations compile the Task 5 public integration
+surface: `createCopilotRuntimeHandler` with single-route mode,
+`createCopilotNodeHandler`, `CopilotKit`, `useAgent`, `useCopilotKit`, and
+`CopilotKitProps` with the same-origin runtime URL. Runtime imports report
+`VERSION=1.69.0`; the Nest build and Next production build both pass against
+the installed packages. React v2 intentionally imports its stylesheet, so its
+executable compatibility gate is the Next build rather than a bare Node ESM
+import.
 
 Public source at the captured fork commit demonstrates the interaction
 contracts needed by this program:
@@ -77,6 +89,6 @@ must also prove:
 - exact-package upgrade canaries against retained KidItem event fixtures.
 
 Across the root, server, and web manifests, every direct CopilotKit declaration
-is now exact-pinned at `1.67.1` and every direct AG-UI declaration at `0.0.57`.
+is now exact-pinned at `1.69.0` and every direct AG-UI declaration at `0.0.57`.
 The OSS source of truth is `deploy/copilotkit/platform-lock.json`, and
 `npm run check:copilotkit-train` passes against the normalized workspace.

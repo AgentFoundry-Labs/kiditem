@@ -11,7 +11,7 @@ import {
 import { analyzeInventory } from '../check-script-inventory.mjs';
 
 const lock = Object.freeze({
-  copilotKit: '1.67.1',
+  copilotKit: '1.69.0',
   agUi: '0.0.57',
   node: '>=22 <23',
   fork: 'AgentFoundry-Labs/CopilotKit',
@@ -79,19 +79,19 @@ function validWorkspaceManifests() {
     'package.json': {
       dependencies: { '@ag-ui/client': '0.0.57' },
       devDependencies: {
-        '@copilotkit/react-core': '1.67.1',
-        '@copilotkit/react-ui': '1.67.1',
-        '@copilotkit/runtime': '1.67.1',
+        '@copilotkit/react-core': '1.69.0',
+        '@copilotkit/react-ui': '1.69.0',
+        '@copilotkit/runtime': '1.69.0',
       },
     },
     'apps/web/package.json': {
       dependencies: {
-        '@copilotkit/react-core': '1.67.1',
-        '@copilotkit/react-ui': '1.67.1',
+        '@copilotkit/react-core': '1.69.0',
+        '@copilotkit/react-ui': '1.69.0',
       },
     },
     'apps/server/package.json': {
-      dependencies: { '@copilotkit/runtime': '1.67.1' },
+      dependencies: { '@copilotkit/runtime': '1.69.0' },
     },
   };
 }
@@ -144,10 +144,10 @@ test('accepts the exact locked CopilotKit and AG-UI package train', () => {
   assert.doesNotThrow(() =>
     assertPackageTrain(
       {
-        '@copilotkit/react-core': '1.67.1',
-        '@copilotkit/react-ui': '1.67.1',
-        '@copilotkit/runtime': '1.67.1',
-        '@copilotkit/shared': '1.67.1',
+        '@copilotkit/react-core': '1.69.0',
+        '@copilotkit/react-ui': '1.69.0',
+        '@copilotkit/runtime': '1.69.0',
+        '@copilotkit/shared': '1.69.0',
         '@ag-ui/client': '0.0.57',
         '@ag-ui/core': '0.0.57',
         '@ag-ui/encoder': '0.0.57',
@@ -162,8 +162,8 @@ test('rejects ranges and mixed package versions', () => {
     () =>
       assertPackageTrain(
         {
-          '@copilotkit/react-core': '^1.67.1',
-          '@copilotkit/runtime': '1.67.1',
+          '@copilotkit/react-core': '^1.69.0',
+          '@copilotkit/runtime': '1.69.0',
           '@ag-ui/client': '0.0.57',
           '@ag-ui/core': '0.0.57',
         },
@@ -176,7 +176,7 @@ test('rejects ranges and mixed package versions', () => {
     () =>
       assertPackageTrain(
         {
-          '@copilotkit/react-core': '1.67.1',
+          '@copilotkit/react-core': '1.69.0',
           '@copilotkit/runtime': '1.66.2',
           '@ag-ui/client': '0.0.57',
           '@ag-ui/core': '0.0.57',
@@ -201,20 +201,20 @@ test('rejects ranges and mixed package versions', () => {
 
 test('keeps the temporary React UI dependency exact-pinned', () => {
   assert.doesNotThrow(() =>
-    assertPackageTrain({ '@copilotkit/react-ui': '1.67.1' }, lock),
+    assertPackageTrain({ '@copilotkit/react-ui': '1.69.0' }, lock),
   );
   assert.throws(
-    () => assertPackageTrain({ '@copilotkit/react-ui': '^1.67.1' }, lock),
+    () => assertPackageTrain({ '@copilotkit/react-ui': '^1.69.0' }, lock),
     /must equal exact locked version/,
   );
 });
 
 test('checkWorkspace scans all configured manifests and identifies the failing group', (t) => {
   const cases = [
-    ['package.json', 'dependencies', '@copilotkit/react-core', '^1.67.1'],
-    ['apps/web/package.json', 'devDependencies', '@copilotkit/react-core', '^1.67.1'],
-    ['apps/server/package.json', 'overrides', '@copilotkit/react-core', '^1.67.1'],
-    ['package.json', 'optionalDependencies', '@copilotkit/runtime', '^1.67.1'],
+    ['package.json', 'dependencies', '@copilotkit/react-core', '^1.69.0'],
+    ['apps/web/package.json', 'devDependencies', '@copilotkit/react-core', '^1.69.0'],
+    ['apps/server/package.json', 'overrides', '@copilotkit/react-core', '^1.69.0'],
+    ['package.json', 'optionalDependencies', '@copilotkit/runtime', '^1.69.0'],
     ['package.json', 'peerDependencies', '@ag-ui/client', '0.0.56'],
   ];
 
@@ -237,8 +237,8 @@ test('checkWorkspace scans all configured manifests and identifies the failing g
 test('duplicate declarations cannot mask an invalid package range', (t) => {
   const rootDir = createWorkspace(t, {
     'package.json': {
-      dependencies: { '@copilotkit/runtime': '^1.67.1' },
-      devDependencies: { '@copilotkit/runtime': '1.67.1' },
+      dependencies: { '@copilotkit/runtime': '^1.69.0' },
+      devDependencies: { '@copilotkit/runtime': '1.69.0' },
     },
   });
 
@@ -269,7 +269,7 @@ test('nested overrides are recursively inspected', (t) => {
     'package.json': {
       overrides: {
         'parent-package': {
-          '@copilotkit/react-ui': '^1.67.1',
+          '@copilotkit/react-ui': '^1.69.0',
         },
       },
     },
@@ -285,7 +285,7 @@ test('target override objects validate their dot self version', (t) => {
   const exactRoot = createWorkspace(t, {
     'package.json': {
       overrides: {
-        '@copilotkit/runtime': { '.': '1.67.1' },
+        '@copilotkit/runtime': { '.': '1.69.0' },
         '@ag-ui/core': { '.': '0.0.57' },
       },
     },
@@ -295,7 +295,7 @@ test('target override objects validate their dot self version', (t) => {
   const rangedRoot = createWorkspace(t, {
     'package.json': {
       overrides: {
-        '@copilotkit/runtime': { '.': '^1.67.1' },
+        '@copilotkit/runtime': { '.': '^1.69.0' },
       },
     },
   });
@@ -395,7 +395,7 @@ test('ignores documentation, tests, and transitive lockfile package names', (t) 
 test('missing optional workspace manifests are allowed', (t) => {
   const rootDir = createWorkspace(t, {
     'package.json': {
-      dependencies: { '@copilotkit/react-core': '1.67.1' },
+      dependencies: { '@copilotkit/react-core': '1.69.0' },
     },
   });
 

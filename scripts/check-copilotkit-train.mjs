@@ -7,7 +7,7 @@ const PLATFORM_LOCK_PATH =
   'deploy/copilotkit/platform-lock.json';
 
 const EXPECTED_PLATFORM_LOCK = Object.freeze({
-  copilotKit: '1.67.1',
+  copilotKit: '1.69.0',
   agUi: '0.0.57',
   node: '>=22 <23',
   fork: 'AgentFoundry-Labs/CopilotKit',

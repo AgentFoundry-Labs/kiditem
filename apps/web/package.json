@@ -12,7 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@copilotkit/react-core": "1.67.1",
+    "@copilotkit/react-core": "1.69.0",
     "@grapesjs/react": "^2.0.0",
     "@kiditem/shared": "*",
     "@kiditem/templates": "*",
