@@ -1,9 +1,9 @@
 import { readFile, rm, stat } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  createEphemeralRunnerInstallationToken,
+  createEphemeralGatewayInstallationToken,
   createPostgresGlobalSetup,
-  type EphemeralRunnerInstallationToken,
+  type EphemeralGatewayInstallationToken,
   type PostgresGlobalSetupDependencies,
 } from '../postgres-global-setup';
 
@@ -22,10 +22,10 @@ function createStartedPostgres(databaseUrl: string) {
   return { container, stop };
 }
 
-function createRunnerInstallationToken() {
-  const token: EphemeralRunnerInstallationToken = {
-    directory: '/tmp/kiditem-integration-runner-token-123',
-    filePath: '/tmp/kiditem-integration-runner-token-123/installation-token',
+function createGatewayInstallationToken() {
+  const token: EphemeralGatewayInstallationToken = {
+    directory: '/tmp/kiditem-integration-gateway-token-123',
+    filePath: '/tmp/kiditem-integration-gateway-token-123/installation-token',
   };
   return {
     token,
@@ -37,24 +37,24 @@ function createRunnerInstallationToken() {
 function setupDependencies(
   startPostgres: () => Promise<StartedPostgres>,
   pushSchema: (databaseUrl: string) => void | Promise<void>,
-  runnerToken = createRunnerInstallationToken(),
+  gatewayToken = createGatewayInstallationToken(),
 ) {
   const dependencies = {
     startPostgres,
     pushSchema,
-    createRunnerInstallationToken: runnerToken.createToken,
-    removeRunnerInstallationToken: runnerToken.removeToken,
+    createGatewayInstallationToken: gatewayToken.createToken,
+    removeGatewayInstallationToken: gatewayToken.removeToken,
   } satisfies PostgresGlobalSetupDependencies;
   return {
-    token: runnerToken.token,
-    createToken: runnerToken.createToken,
-    removeToken: runnerToken.removeToken,
+    token: gatewayToken.token,
+    createToken: gatewayToken.createToken,
+    removeToken: gatewayToken.removeToken,
     dependencies,
   };
 }
 
 describe('Postgres integration global setup orchestration', () => {
-  it('creates an installation token and provides only its path after the schema is ready', async () => {
+  it('creates an installation token and provides hermetic runtime values after the schema is ready', async () => {
     const databaseUrl = 'postgresql://kiditem_test:secret@localhost:6543/kiditem_test';
     const events: string[] = [];
     const { container } = createStartedPostgres(databaseUrl);
@@ -62,17 +62,17 @@ describe('Postgres integration global setup orchestration', () => {
     const pushSchema = vi.fn(async (url: string) => {
       events.push(`push:${url}`);
     });
-    const runnerToken = createRunnerInstallationToken();
-    runnerToken.createToken.mockImplementation(async () => {
+    const gatewayToken = createGatewayInstallationToken();
+    gatewayToken.createToken.mockImplementation(async () => {
       events.push('token:create');
-      return runnerToken.token;
+      return gatewayToken.token;
     });
     const { dependencies, token, createToken } = setupDependencies(
       startPostgres,
       pushSchema,
-      runnerToken,
+      gatewayToken,
     );
-    const provide = vi.fn((key: 'databaseUrl' | 'runnerInstallationTokenFile', value: string) => {
+    const provide = vi.fn((key: 'databaseUrl' | 'gatewayInstallationTokenFile' | 'webOrigin', value: string) => {
       events.push(`provide:${key}:${value}`);
     });
 
@@ -82,16 +82,18 @@ describe('Postgres integration global setup orchestration', () => {
     expect(pushSchema).toHaveBeenCalledWith(databaseUrl);
     expect(createToken).toHaveBeenCalledTimes(1);
     expect(provide).toHaveBeenCalledWith('databaseUrl', databaseUrl);
-    expect(provide).toHaveBeenCalledWith('runnerInstallationTokenFile', token.filePath);
+    expect(provide).toHaveBeenCalledWith('gatewayInstallationTokenFile', token.filePath);
+    expect(provide).toHaveBeenCalledWith('webOrigin', 'http://127.0.0.1:3000');
     expect(events).toEqual([
       'token:create',
       `push:${databaseUrl}`,
       `provide:databaseUrl:${databaseUrl}`,
-      `provide:runnerInstallationTokenFile:${token.filePath}`,
+      `provide:gatewayInstallationTokenFile:${token.filePath}`,
+      'provide:webOrigin:http://127.0.0.1:3000',
     ]);
 
     await teardown();
-    expect(runnerToken.removeToken).toHaveBeenCalledWith(token);
+    expect(gatewayToken.removeToken).toHaveBeenCalledWith(token);
   });
 
   it('stops the container and removes the token when schema setup fails', async () => {
@@ -99,20 +101,20 @@ describe('Postgres integration global setup orchestration', () => {
     const { container, stop } = createStartedPostgres(databaseUrl);
     const setupError = new Error('schema push failed');
     const provide = vi.fn();
-    const runnerToken = createRunnerInstallationToken();
+    const gatewayToken = createGatewayInstallationToken();
     const { dependencies, token } = setupDependencies(
       vi.fn(async () => container),
       vi.fn(async () => {
         throw setupError;
       }),
-      runnerToken,
+      gatewayToken,
     );
     const setup = createPostgresGlobalSetup(dependencies);
 
     await expect(setup({ provide })).rejects.toBe(setupError);
 
     expect(stop).toHaveBeenCalledTimes(1);
-    expect(runnerToken.removeToken).toHaveBeenCalledWith(token);
+    expect(gatewayToken.removeToken).toHaveBeenCalledWith(token);
     expect(provide).not.toHaveBeenCalled();
   });
 
@@ -127,14 +129,14 @@ describe('Postgres integration global setup orchestration', () => {
     });
     container.stop = stop;
     const provide = vi.fn();
-    const runnerToken = createRunnerInstallationToken();
-    runnerToken.removeToken.mockRejectedValueOnce(tokenCleanupError);
+    const gatewayToken = createGatewayInstallationToken();
+    gatewayToken.removeToken.mockRejectedValueOnce(tokenCleanupError);
     const { dependencies, token } = setupDependencies(
       vi.fn(async () => container),
       vi.fn(async () => {
         throw setupError;
       }),
-      runnerToken,
+      gatewayToken,
     );
     const setup = createPostgresGlobalSetup(dependencies);
 
@@ -152,37 +154,37 @@ describe('Postgres integration global setup orchestration', () => {
       tokenCleanupError,
     ]);
     expect(stop).toHaveBeenCalledTimes(1);
-    expect(runnerToken.removeToken).toHaveBeenCalledWith(token);
+    expect(gatewayToken.removeToken).toHaveBeenCalledWith(token);
     expect(provide).not.toHaveBeenCalled();
   });
 
   it('removes the exact token directory when starting the container fails', async () => {
     const startError = new Error('container start failed');
-    const runnerToken = createRunnerInstallationToken();
+    const gatewayToken = createGatewayInstallationToken();
     const { dependencies, token } = setupDependencies(
       vi.fn(async () => {
         throw startError;
       }),
       vi.fn(),
-      runnerToken,
+      gatewayToken,
     );
 
     await expect(createPostgresGlobalSetup(dependencies)({ provide: vi.fn() }))
       .rejects.toBe(startError);
 
-    expect(runnerToken.removeToken).toHaveBeenCalledTimes(1);
-    expect(runnerToken.removeToken).toHaveBeenCalledWith(token);
+    expect(gatewayToken.removeToken).toHaveBeenCalledTimes(1);
+    expect(gatewayToken.removeToken).toHaveBeenCalledWith(token);
   });
 
   it('returns a teardown that stops the started container and removes the exact token directory', async () => {
     const { container, stop } = createStartedPostgres(
       'postgresql://kiditem_test:secret@localhost:6543/kiditem_test',
     );
-    const runnerToken = createRunnerInstallationToken();
+    const gatewayToken = createGatewayInstallationToken();
     const { dependencies, token } = setupDependencies(
       vi.fn(async () => container),
       vi.fn(),
-      runnerToken,
+      gatewayToken,
     );
     const setup = createPostgresGlobalSetup(dependencies);
 
@@ -192,11 +194,11 @@ describe('Postgres integration global setup orchestration', () => {
     await teardown();
 
     expect(stop).toHaveBeenCalledTimes(1);
-    expect(runnerToken.removeToken).toHaveBeenCalledWith(token);
+    expect(gatewayToken.removeToken).toHaveBeenCalledWith(token);
   });
 
   it('creates a 32-byte unpadded base64url token in a private ephemeral file', async () => {
-    const token = await createEphemeralRunnerInstallationToken();
+    const token = await createEphemeralGatewayInstallationToken();
     try {
       const raw = await readFile(token.filePath, 'utf8');
       expect(raw).toMatch(/^[A-Za-z0-9_-]{43}$/);

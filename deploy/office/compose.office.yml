@@ -17,7 +17,7 @@ x-server-environment: &server-environment
   CHANNEL_CREDENTIALS_ENCRYPTION_KEY: ${CHANNEL_CREDENTIALS_ENCRYPTION_KEY}
   SOURCING_PLAYWRIGHT_CDP_ENDPOINT: ${SOURCING_PLAYWRIGHT_CDP_ENDPOINT}
   # API admission and worker-owned durable mutation recovery fence work to the
-  # immutable bundle identity. Provider credentials stay with the native Runner.
+  # immutable bundle identity. Provider credentials stay with the native Gateway.
   KIDITEM_APPLICATION_VERSION: ${KIDITEM_APPLICATION_VERSION:?KIDITEM_APPLICATION_VERSION must come from the immutable deployment manifest}
   KIDITEM_GIT_SHA: ${KIDITEM_GIT_SHA:?KIDITEM_GIT_SHA must come from the immutable deployment manifest}
 
@@ -85,7 +85,9 @@ services:
       replicas: 1
     environment:
       <<: *server-environment
-      KIDITEM_AGENT_RUNNER_TOKEN_FILE: /run/secrets/agent_runner_token
+      KIDITEM_AGENT_GATEWAY_TOKEN_FILE: /run/secrets/agent_gateway_token
+      MCP_SDK_GENERATION: v2
+      MCP_PROTOCOL_NEGOTIATION: auto
       AGENT_CLI_MAX_CONCURRENCY: ${AGENT_CLI_MAX_CONCURRENCY:-4}
       AGENT_OPERATOR_MODEL: ${AGENT_OPERATOR_MODEL:?AGENT_OPERATOR_MODEL is required}
       AGENT_SOURCING_MODEL: ${AGENT_SOURCING_MODEL:?AGENT_SOURCING_MODEL is required}
@@ -105,7 +107,7 @@ services:
     ports:
       - "127.0.0.1:4000:4000"
     secrets:
-      - agent_runner_token
+      - agent_gateway_token
     stop_grace_period: 10s
     restart: unless-stopped
     healthcheck:
@@ -179,5 +181,5 @@ volumes:
     name: kiditem_minio-data
 
 secrets:
-  agent_runner_token:
-    file: ${KIDITEM_AGENT_RUNNER_TOKEN_FILE:?protected Runner token file required}
+  agent_gateway_token:
+    file: ${KIDITEM_AGENT_GATEWAY_TOKEN_FILE:?protected Gateway token file required}

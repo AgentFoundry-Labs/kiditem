@@ -49,14 +49,14 @@ describe('integration test runtime contract', () => {
     expect(packageJson.devDependencies).toHaveProperty('@testcontainers/postgresql');
   });
 
-  it('keeps PR checks to hygiene plus the required native Windows Runner package boundary', () => {
+  it('keeps PR checks to hygiene plus the required native Windows Gateway package boundary', () => {
     const prWorkflowSource = readRepoFile('.github/workflows/pr-checks.yml');
     const prJobSource = readWorkflowJobSource(prWorkflowSource, 'pr-hygiene');
-    const runnerPackageJob = readWorkflowJobSource(prWorkflowSource, 'windows_runner_package');
+    const gatewayPackageJob = readWorkflowJobSource(prWorkflowSource, 'windows_gateway_package');
 
     expect(readWorkflowJobNames(prWorkflowSource)).toEqual([
       'pr-hygiene',
-      'windows_runner_package',
+      'windows_gateway_package',
     ]);
     expect(prJobSource).toContain('runs-on: ubuntu-latest');
     expect(prJobSource).toContain('run: git diff --check "${BASE_SHA}...HEAD"');
@@ -64,13 +64,13 @@ describe('integration test runtime contract', () => {
     expect(prJobSource).not.toContain('actions/setup-node');
     expect(prJobSource).not.toContain('npm ci');
     expect(prJobSource).not.toContain('npm run build');
-    expect(runnerPackageJob).toContain('runs-on: windows-latest');
-    expect(runnerPackageJob).toContain('node-version: 22');
-    expect(runnerPackageJob).toContain('npm ci');
-    expect(runnerPackageJob).toContain('npm run build --workspace=packages/shared');
-    expect(runnerPackageJob).toContain('npm run build --workspace=apps/agent-runner');
-    expect(runnerPackageJob).toContain('dotnet publish apps/agent-runner/windows/KidItem.JobRunner/KidItem.JobRunner.csproj');
-    expect(runnerPackageJob).toContain('npm pack --workspace=apps/agent-runner --dry-run');
+    expect(gatewayPackageJob).toContain('runs-on: windows-latest');
+    expect(gatewayPackageJob).toContain('node-version: 22');
+    expect(gatewayPackageJob).toContain('npm ci');
+    expect(gatewayPackageJob).toContain('npm run build --workspace=packages/shared');
+    expect(gatewayPackageJob).toContain('npm run build --workspace=apps/agent-gateway');
+    expect(gatewayPackageJob).toContain('dotnet publish apps/agent-gateway/windows/KidItem.JobRunner/KidItem.JobRunner.csproj');
+    expect(gatewayPackageJob).toContain('npm pack --workspace=apps/agent-gateway --dry-run');
     expect(prWorkflowSource).not.toContain('test:integration');
 
     const developWorkflowSource = readRepoFile(

@@ -63,28 +63,34 @@ integration/E2E/scanner 가 이미 보호하는 중복 테스트는 아래
 때문에 `*.test.ts` 도 실행되지만, 새 테스트는 주변 route 가 이미 `*.test.ts`
 를 쓰는 경우가 아니면 `*.spec.ts` 를 우선한다.
 
-## Agent OS Host Runner boundary
+## Agent OS native Gateway boundary
 
-KID-25의 Agent runtime은 테스트에서 세 경계를 따로 증명한다.
+KID-25의 provider-native runtime은 다음 경계를 따로 증명한다.
 
-- `scripts/check-agent-os-contraction.mjs --enforce`는 API-owned provider
-  execution, legacy transport, stale current runbook, active
-  secret/credential persistence, and ephemeral Runner control-state persistence를
-  막는다.
-- `apps/server/src/agent-os` focused tests는 durable admission, token/lease
-  replay, modern-only MCP `2026-07-28`, and same-SHA restart recovery를 다룬다.
-- `apps/agent-runner` tests는 strict long-poll/event contracts, per-Attempt
-  cleanup, provider command isolation, and macOS/Windows supervision을 다룬다.
-  Codex의 `approvalPolicy: never`/`:danger-full-access`와 Claude의
-  `bypassPermissions`를 명시적으로 검증하고, workspace-only 또는 prompting
-  설정은 fail-closed여야 한다. Host DB/Nest/business/Runner control secrets는
-  provider 환경이나 로그로 전달되지 않아야 한다.
+- `scripts/check-agent-os-contraction.mjs --enforce`는 하나의
+  `CapabilityInvocation` 모델, 정확한 Agent/domain/capability/MCP 수, active
+  credential·secret 비영속, ephemeral Gateway control-state 비영속을 고정한다.
+- `apps/server/src/agent-os` focused tests는 authenticated conversation facade,
+  exact-input approval, request-key idempotency, stateless MCP `2026-07-28`,
+  owner-domain port dispatch를 검증한다. Real PostgreSQL race suite는 같은 입력
+  replay, 다른 입력 conflict, concurrent approval, ambiguous owner 결과를
+  실제 unique/conditional-write 경계에서 증명한다.
+- `apps/agent-gateway` tests는 outbound long-poll/event 계약, provider-local
+  conversation/history, active-turn cleanup, explicit model/effort, macOS
+  process supervision과 deterministic Windows 계약을 다룬다. Provider login과
+  history는 host account가 소유하며 Nest, DB, worker, 브라우저로 복사하지 않는다.
+- `npm run qa:agent-os:clean-cutover`는 자체 Testcontainer만 대상으로 legacy
+  rows를 버리고 one-model schema를 적용한다. 개발/Office DB, `--force-reset`,
+  검증되지 않은 URL은 거절한다. `--serve-browser-qa`는 기존 deterministic
+  auth/business seed를 JSON argument 배열로 지정한
+  `KIDITEM_BROWSER_QA_SEED_COMMAND`가 없으면 container 시작 전 fail-closed한다.
 
-Normal CI never requires a live provider login. A manually enabled real-CLI
-canary runs only on the Host Runner, requires explicit model values, and must
-leave the API non-ready if the provider cannot complete the strict direct-MCP
-canary. It must not print provider credentials, Attempt tokens, prompts, or raw
-provider payloads.
+Normal CI는 live provider login을 요구하지 않는다. macOS executable QA에서는
+host의 기존 Codex login으로 canary와 대화 흐름을 확인한다. Claude live reply와
+Windows native process/ACL/Job Object/Task Scheduler 실행은 현재 명시적 deferred
+항목이며, deterministic contract 검증을 통과했다는 사실과 혼동하지 않는다.
+어떤 QA도 provider credential, installation bearer, prompt, canonical mutation
+input, raw provider payload를 출력하거나 저장하면 안 된다.
 
 ## Mock / test double 정책
 
@@ -202,16 +208,22 @@ npm run test:integration -- src/inventory/__tests__/inventory-flow.pg.integratio
 
 ### Agent interaction cross-process acceptance
 
-The final six-model Agent OS has no replay transcript or browser-owned session
-graph, so the deleted legacy browser harness is not an acceptance authority.
-`npm run smoke:interaction-os` builds the production Nest and Next artifacts and
-locks the Attempt process boundary, admission, readiness, and restart-recovery
-contracts. Real PostgreSQL integration specs verify durable Task, Invocation,
-Approval, Operation, idempotency, and organization fences against their own
-isolated Testcontainers database. Release acceptance additionally boots the
-compiled Nest API and worker against an explicitly named disposable PostgreSQL
-17 database, verifies the authenticated same-origin `/api/copilotkit` boundary,
-and shuts both processes down cleanly.
+Final Agent OS에는 generic Task, Attempt, KidItem-owned transcript 또는 browser-owned
+session graph가 없다. `npm run smoke:interaction-os`는 Gateway readiness,
+conversation create/history, 정확히 다섯 MCP tool, 한 read invocation, 실행하지
+않는 approval-pending mutation까지 실제 HTTP sequence로 확인한다. Real
+PostgreSQL integration specs는 durable `CapabilityInvocation`, exact-input
+approval, owner idempotency, Operation, organization fence를 독립 Testcontainer에서
+검증한다.
+
+Release acceptance는 `npm run qa:agent-os:clean-cutover`의 명시적으로 격리된
+PostgreSQL 17에 compiled API, Operations worker, Web을 부팅하고 native macOS
+Gateway를 별도 host process로 연결한다. 브라우저 QA는 same-origin
+`/api/copilotkit`, provider history reload, Agent-fixed Sourcing entry, direct
+read, provider-native delegation, approval 후 explicit retry, Operation card,
+interrupt/restart/no-auto-turn, four-active-turn cap, conversation deletion의
+business-record 비연쇄 삭제, nginx internal-route 404를 확인한 뒤 모든 process와
+QA container를 종료한다.
 
 ### Tier 3 추가 시 체크리스트
 

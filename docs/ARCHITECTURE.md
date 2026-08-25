@@ -17,13 +17,13 @@ apps/server
   -> Coupang Wing / channel providers
   -> Gemini / image providers
   -> Chromium detail-page image rendering
-  -> Agent OS durable authority + Runner admission + MCP v2 HTTP
+  -> Agent OS CapabilityInvocation admission + CopilotKit + private MCP v2
   -> TS Playwright sourcing browser runtime
   -> Python worker/tools for analysis-heavy sourcing helpers
 
-Native host apps/agent-runner (macOS development, Windows Office)
-  -> HTTP command long-poll + idempotent event POST -> Nest loopback
-  -> per-Attempt Codex/Claude CLI process supervision
+Native host apps/agent-gateway (macOS development, Windows Office)
+  -> HTTP command long-poll + bounded event POST -> Nest private route
+  -> provider conversation/history + Codex/Claude process supervision
   -> Codex/Claude MCP v2 Streamable HTTP -> Nest loopback
 
 Company Chrome extension
@@ -34,40 +34,35 @@ The Nest backend has static process roots; an environment flag never decides
 whether a process owns Operations:
 
 ```text
-main.ts           -> ApiApplicationModule         -> HTTP + owner domains + Operations
-worker.ts         -> AgentWorkerApplicationModule -> durable mutation runtime only
-apps/agent-runner -> native host process           -> disposable CLI supervision only
+main.ts            -> ApiApplicationModule         -> HTTP + owner domains + Operations
+worker.ts          -> AgentWorkerApplicationModule -> Operations worker only
+apps/agent-gateway -> native host process           -> provider conversations/CLI only
 ```
 
 `AgentOsInteractionHttpModule` is the API-only Nest incoming adapter for
-CopilotKit. It composes controller-free Agent Work ports and the DB-fenced MCP
-executor; there is no gateway, legacy AgentRun lane, credential broker, or
-internal signing boundary. A native Host Runner polls Nest for strict structured
-commands and posts bounded idempotent events; it exposes no inbound listener
-and never accepts a raw shell command. Runner-spawned Codex/Claude processes
-call the loopback-only Nest MCP v2 Streamable HTTP adapter with one short-lived
-Attempt bearer token. The adapter revalidates Session/Task/Attempt authority
-and active Operation binding from the database on every tool call. It exposes
-exactly eleven transport tools: `capability_catalog_search`,
-`capability_invoke`; `invocation_status`, `invocation_wait`,
-`invocation_result`; `delegate_to_agent`; and `child_status`, `child_wait`,
-`child_result`, `child_message`, `child_interrupt`. Those tools expose the
-complete policy-registered catalog of 18 CapabilityDefinitions, including all
-ten Sourcing capabilities.
-Cross-domain reads receive an execution-scoped grant; cross-domain mutations
-delegate to the explicitly selected owner Agent. A mutation retains its exact
-execution-derived idempotency key, and its `approvalRisk` determines whether it
-waits for HITL; high-risk capabilities are discoverable rather than hidden.
-The MCP adapter cannot create Tasks or Operations directly.
+CopilotKit and authenticated conversation APIs. A native Agent Gateway polls
+Nest for structured commands and posts bounded events; it exposes no inbound
+listener and never accepts a raw shell command. Gateway-spawned Codex/Claude
+processes call the private Nest MCP v2 Streamable HTTP adapter with one
+short-lived in-memory execution binding. The adapter revalidates that binding
+for every request and exposes exactly five tools: `capability_catalog_search`,
+`capability_invoke`, `invocation_status`, `operation_status`, and
+`readiness_probe`. Those tools expose the 17 code-owned
+CapabilityDefinitions, including all ten Sourcing capabilities.
+
+A cross-domain read may be invoked directly; a mutation is owned by the
+explicitly selected domain Agent profile and retains the caller request key at
+the final owner boundary. `approvalRisk` determines whether exact input must be
+confirmed. Approval stores no separate role/grant model and only permits the
+provider to retry the same request. The MCP adapter never writes owner rows or
+creates Operations except through the selected owner capability.
 
 Production supports exactly one API instance. API replicas, rolling overlap,
-and overlapping lifecycle ownership are unsupported. One native Runner owns
-host CLI process trees; the worker owns durable Operation and mutation
-execution and never spawns a provider CLI. Runner loss or API restart kills
-live host processes and terminalizes their affected Attempts as
-`process_interrupted`; recovery never creates a successor or resumes provider
-history. Only an authenticated explicit Continue or Reopen creates an
-immutable successor Attempt.
+and overlapping lifecycle ownership are unsupported. One native Gateway owns
+provider conversations and host CLI process trees; the worker owns durable
+Operations and never spawns a provider CLI. Gateway or API restart ends live
+turns and clears commands/bindings without replay, automatic Continue, or
+durable provider-session recovery. The user sends a normal new message.
 
 Frontend code never talks to the database directly. All app data flows through
 NestJS APIs and shared Zod contracts from `@kiditem/shared`.
@@ -96,14 +91,14 @@ dashboard button ─┐
                   ├─> shared manual action -> extension + owner API/sink
 domain button ────┘
 
-schedule / agent request -> operations
+schedule / capability request -> operations
                             -> owner operation adapter
                             -> owner input port
                                | automation workflow port
-                               | agent-os task-execution port
+                               | owner capability port
                                | ai direct-job port
 
-automation -X-> agent-os
+automation -X-> provider conversation
 operations -X-> agent capability registry
 ```
 
@@ -262,10 +257,19 @@ their implementation structures are listed in the Backend Implementation Map.
 
 | Path | Kind | Ownership / Surfaces |
 |---|---|---|
+| `apps/agent-gateway/src/__tests__` | Test Support | Cross-component native Gateway contracts. |
+| `apps/agent-gateway/src/config` | Platform Support | Strict absolute-path Gateway config and installation-token reader. |
+| `apps/agent-gateway/src/control` | Platform | Outbound long-poll, bounded event outbox, command dispatch, and control-loss shutdown. |
+| `apps/agent-gateway/src/conversation` | Platform | Bounded conversation descriptors and provider conversation routing. |
+| `apps/agent-gateway/src/platform` | Platform Support | macOS and Windows process supervision. |
+| `apps/agent-gateway/src/profile` | Platform | Five Agent instruction profiles plus general chat. |
+| `apps/agent-gateway/src/provider` | Platform | Codex app-server and Claude CLI conversation/history adapters. |
+| `apps/agent-gateway/src/security` | Platform Support | Provider environment and local-path redaction/validation. |
+| `apps/agent-gateway/src/turn` | Platform | Four-slot process-local active-turn registry. |
 | `apps/server/src/__tests__` | Test Support | Cross-root static architecture and process-composition policy checks. |
 | `apps/server/src/activity-events` | Owner Capability | Activity event read endpoint. |
 | `apps/server/src/advertising` | Owner Domain | Coupang ad operations, scrape ingest, authoritative exact-day profitability spend refresh/read evidence, daily facts, and strategy/action generation. |
-| `apps/server/src/agent-os` | Platform | Agent catalog, queue, runtime, policy, cost, and observability. |
+| `apps/server/src/agent-os` | Platform | Agent/profile registry, transient Gateway control, conversation facade, stateless MCP, and durable capability admission. |
 | `apps/server/src/ai` | Owner Domain | Image/text/detail-page/thumbnail AI providers, durable direct-job execution, content-workspace ownership/branching, and Agent OS output boundaries. |
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
@@ -299,7 +303,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/activity-events` | Flat | module/controller/service/`dto/`. |
 | `apps/server/src/advertising` | Hexagonal | port/adapter lanes complete; new ingest, daily-fact, and ad-action behavior uses `adapter/out/repository/` + `application/port/out/*` ports; architecture spec freezes invariants. |
 | `apps/server/src/advertising/services` | Flat | compatibility facade lane only; no new business logic. |
-| `apps/server/src/agent-os` | Hexagonal | lane-first/capability-second runtime, queue, repository, transaction, policy, and event boundaries behind ports/adapters. |
+| `apps/server/src/agent-os` | Hexagonal | Capability admission, transient Gateway control/conversation, MCP, repository, and owner composition boundaries behind ports/adapters. The two cross-cutting contracts `application/port/out/capability-invocation.repository.port.ts` and `application/port/out/gateway-conversation.port.ts` are exact direct-port exceptions fixed by the approved KID-25 plan; every new outgoing port still requires an explicit lane directory. |
 | `apps/server/src/ai` | Hexagonal | provider, runtime handler, bridge, sink, media, fetch, and storage boundaries behind ports/adapters. |
 | `apps/server/src/analytics/dashboard` | Hexagonal | port/adapter lanes complete; 8 outgoing ports + repository adapters cover Prisma reads, application services are Prisma-free, architecture + module wiring specs freeze invariants. |
 | `apps/server/src/analytics/statistics` | Flat | Overview, product, category, grade, Pareto, and repurchase read service. |
@@ -355,10 +359,11 @@ domain's canonical mutation.
 
 A capability represents an independently useful business intent, not every
 domain service method. Definitions retain precise effects, approval risk, and
-idempotency metadata. Cross-domain routing is intentionally simple: reads may
-run under an execution-scoped grant, while `db_write`, `external_write`, and
-`job_enqueue` work delegates to a selected Agent responsible for the owner
-domain. Mutation capabilities require owner-enforced idempotency. Do not
+idempotency metadata. Cross-domain routing is intentionally simple: the current
+conversation Agent may run reads directly, while `db_write`, `external_write`,
+and `job_enqueue` work is delegated through a provider-native explicitly
+selected Agent profile responsible for the owner domain. No separate grant
+record is created. Mutation capabilities require owner-enforced idempotency. Do not
 reintroduce legacy `kind`, `visibility`, monetary `cost`, or
 resource/tool/workflow/sink categories.
 
@@ -999,71 +1004,55 @@ in the [Sourcing Intelligence Phase 0–1 runbook](runbooks/sourcing-intelligenc
 
 Agent OS is the single-node backend execution boundary under
 `apps/server/src/agent-os/`; its schema ownership is in `prisma/AGENTS.md`.
-The persistence graph is exactly `AgentVersion`, `AgentSession`, `AgentTask`,
-`AgentAttempt`, `AgentCapabilityInvocation`, and
-`AgentCapabilityApproval`. A Task owns only the business lifecycle
-`open | completed | failed | cancelled`; approval, Operation, child-Task, and
-Continue waits are derived from their current records.
+Its only persistence model is `CapabilityInvocation`, which stores exact
+request-driven mutation admission, approval fields, and the idempotent
+result/error. Agent definitions and capability manifests are code-owned.
+Provider conversations/history are host-local, and long work remains an
+Operations-owned `OperationRun`.
 
 The browser reaches the Nest CopilotKit incoming adapter at same-origin
-`/api/copilotkit`. The API authorizes the current user, admits work, and sends
-only strict structured commands to the native Host Runner. The Runner is the
-only process that starts Codex/Claude Attempts; each Attempt reaches the Nest
-MCP adapter directly through loopback Streamable HTTP. The worker recovers
-durable mutation/Operation state, but never receives a CLI login profile or
-imports the HTTP adapter. Provider session/history is never resumed; only an
-authenticated explicit Continue or Reopen starts a new immutable Attempt from
-durable KidItem state.
+`/api/copilotkit`. The API authorizes the current user and sends only structured
+conversation commands to the native Agent Gateway. The Gateway is the only
+process that starts Codex/Claude and owns provider conversation descriptors and
+history. Each live turn reaches the Nest MCP adapter through private Streamable
+HTTP. The worker executes durable Operations but never receives a CLI login
+profile or imports the HTTP adapter. A restart ends the live turn without
+replay; a later normal user message starts new reasoning against provider-local
+history.
 
-The runtime keeps five stateful boundaries deep and leaves data-only contracts
-flat:
+The runtime keeps only the boundaries that own live correctness:
 
-- one API-side `HostRunnerControlSession` owns lease generation, command
-  delivery/ACK, event fencing, readiness/canary state, terminal cleanup, token
-  revocation, and lease-loss recovery; HTTP, MCP, live-input, and launch code
-  receive narrow views of that same session;
-- one native `NativeRunnerControlSession` owns polling, command dispatch,
-  event outbox retry, control-loss deadline, and shutdown, while the HTTP client
-  and CLI process supervisor remain adapters;
-- one `AgentWorkIntakePort` owns AgentVersion selection, explicit runtime/model
-  resolution, root admission plus explicit Continue/Reopen successor admission,
-  and launch context for both REST and CopilotKit;
-- one ephemeral interaction-state module owns the selected Agent, one-time
-  draft, durable session URL coordinate, and new/select/close actions; a loaded
-  Session is pinned to its root Task's immutable Agent definition;
-- four persistence interfaces separate admission, invocation/approval,
-  mutation, and lifecycle/recovery callers while sharing one Prisma atomicity
-  implementation and its lock ordering.
+- one API-side Gateway control session owns command delivery, event fencing,
+  readiness, active-turn cleanup, and short-lived execution bindings;
+- one native Gateway control session owns polling, command dispatch, bounded
+  event retry, control-loss shutdown, and provider process trees;
+- one authenticated conversation facade owner-fences create/list/history/
+  rename/delete and live turn input/interrupt without persisting transcripts;
+- one request-driven CapabilityInvocation repository owns request-key
+  uniqueness, input-drift conflict, exact approval, and result replay.
 
 Owner domains pair their own `CapabilityDefinition`, incoming port, and
 implementation in owner-local composition adapters. Agent OS only aggregates
 those compositions and rejects duplicate, missing, unexpected, or mismatched
-registrations. The 18-entry catalog, Zod schemas, and Host Runner wire DTOs stay
+registrations. The 17-entry catalog, Zod schemas, and Gateway wire DTOs stay
 flat declarations; wrapping them in stateful service classes would add no
 invariant ownership.
 
 Each public capability is defined by its owner domain with strict business Zod
-input/output contracts. Agent OS aggregates definitions, applies execution
-grants and admission/HITL policy, and calls the owner-domain incoming port. An
-owner implementation may use AI, DB, an external provider, or an Operation;
-Agent OS does not write owner-domain canonical rows. Deterministic workflows
-remain native workflows and do not create Agent work merely for bookkeeping.
+input/output contracts. Agent OS aggregates definitions, applies exact
+request/HITL admission, and calls the owner-domain incoming port. There is no
+ephemeral grant or database Agent version. An owner implementation may use AI,
+DB, an external provider, or an Operation; Agent OS does not write owner-domain
+canonical rows. Deterministic workflows remain native workflows and do not
+create provider conversations merely for bookkeeping.
 
-Official Codex/Claude execution uses only the dedicated Host Runner service
-account's persisted local login. KidItem does not issue, copy, or inject
-provider credentials, runtime handles, or provider-session identifiers. The API
-keeps admission closed until the Runner proves the required runtime/version,
-model, deployment identity, direct MCP contract, and login readiness. Agent
-versions snapshot domains/capabilities and runtime profile, while model
-selection is explicit deployment configuration.
-
-Provider login reuse follows the host platform instead of a KidItem credential
-broker. macOS Claude execution preserves that account's exact `HOME`/`USER`
-identity so the CLI can use its Keychain while Attempt settings and history
-remain isolated. Windows Claude execution validates and same-volume hard-links
-only the account-owned `.claude/.credentials.json` into the disposable config
-root. Codex similarly references only its account-owned `auth.json`; no path
-reads, copies, logs, or durably persists credential bytes.
+Official Codex/Claude execution uses only the dedicated Agent Gateway service
+account's persisted local login. KidItem does not issue, copy, inject, log, or
+persist provider credentials. The API remains unavailable until the Gateway
+proves the required runtime/version, model/effort matrix, MCP contract, and
+login readiness. Conversation runtime is fixed at creation; the user explicitly
+selects model and effort for each turn. Provider credential and history bytes
+remain owned by the host account/provider runtime on both macOS and Windows.
 
 ## Verification Baseline
 

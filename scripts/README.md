@@ -23,7 +23,6 @@ npm run test:scripts
 | `scripts/bootstrap-authoritative-inventory-dev.ts` | verified-local DB bootstrap for the Sellpia-authoritative inventory baseline; requires `--coupang-vendor-id` and creates only organization and Wing/Rocket account metadata | `npm run inventory:bootstrap:dev`, `docs/runbooks/sellpia-rocket-inventory-sync.md` |
 | `scripts/check-agent-os-contraction.mjs` | Enforced Agent OS clean-contraction guard for legacy runtime, transcript, and retired model surfaces | `npm run check:agent-os-contraction -- --enforce` |
 | `scripts/check-agent-os-hexagonal.mjs` | AgentOS lane-first/capability-second dependency, input-port placement, and official module-size contract scanner; intentionally standalone until the KID-25 migration removes its live baseline violations | `npm run check:agent-os-hexagonal` |
-| `scripts/check-agent-session-deletion.mjs` | live complete-deletion contraction guard for retired lifecycle concepts, raw artifact references, duplicate deletion schedulers, lifecycle write fences, and session-owned OperationRuns | `npm run check:agent-session-deletion` |
 | `scripts/check-agents-hygiene.mjs` | AGENTS/CLAUDE instruction hygiene gate | `npm run check:agents-hygiene` |
 | `scripts/check-copilotkit-train.mjs` | exact CopilotKit v2 and AG-UI platform-train guard | `npm run check:copilotkit-train` |
 | `scripts/check-directory-architecture.mjs` | docs/ARCHITECTURE directory map drift gate | `npm run check:directory-architecture` |
@@ -46,7 +45,8 @@ npm run test:scripts
 | `scripts/run-data-migrations.ts` | durable data migration runner; migration units live under root `VERSION` release folders such as `scripts/data-migrations/v0.1.0/`, record `data_migration_runs` ledger rows, and export/restore the hash-bound ledger baseline for an authoritative reset | `npm run data:migrate`, `docs/runbooks/release-train-versioning.md` |
 | `scripts/safe-prisma-db-push.mjs` | local `db:push` wrapper that blocks whole-schema `--force-reset`; the guarded production rebuild workflow keeps its direct Prisma entrypoint | `npm run db:push` |
 | `scripts/seed-order-collection-mall-accounts.ts` | confirmation-gated, organization-scoped order-collection mall credential seed; encrypts complete `ID/PW/URL` triples into `ChannelAccount` and never creates a runtime env fallback | `npm run seed:order-collection-malls`, `docs/runbooks/environment-variables.md` |
-| `scripts/smoke-interaction-os.mjs` | builds API/Web and runs future-only Attempt, readiness, and restart-recovery focused suites | `npm run smoke:interaction-os` |
+| `scripts/qa-agent-os-clean-cutover.mjs` | provisions a guarded isolated PostgreSQL cutover fixture, verifies the one-model schema, and can serve the macOS browser-QA stack without exposing database credentials | `npm run qa:agent-os:clean-cutover` |
+| `scripts/smoke-interaction-os.mjs` | exercises Gateway readiness, provider conversation/history, the five stateless MCP tools, one read, and one approval-pending mutation without executing it | `npm run smoke:interaction-os` |
 
 ## Support Files
 

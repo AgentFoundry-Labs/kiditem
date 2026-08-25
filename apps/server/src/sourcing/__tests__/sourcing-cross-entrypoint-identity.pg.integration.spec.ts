@@ -8,6 +8,7 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
+import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
 import { SourcingCollectionRepositoryAdapter } from '../adapter/out/repository/sourcing-collection.repository.adapter';
 import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-candidate.repository.adapter';
 import { SourcingFinalDiscoveryCapabilityAdapter } from '../adapter/in/agent/sourcing-final-discovery-capability.adapter';
@@ -140,12 +141,14 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
       new SourcingCollectionCoordinator(extensionCollections),
     );
     const snapshot = await agent.scrapeProductUrl({ sourceUrl: agentSourceUrl });
+    const requestHash = canonicalOwnerInputHash({ snapshot });
 
     const [agentResult, extensionResult] = await Promise.all([
       agent.ingestCandidate({
         organizationId: TEST_ORGANIZATION_ID,
         initiatingUserId: TEST_USER_ID,
         idempotencyKey: 'owner:attempt:cross-entrypoint-alibaba',
+        requestHash,
         snapshot,
       }),
       extension.ingestV1(

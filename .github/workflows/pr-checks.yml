@@ -33,8 +33,8 @@ jobs:
       - name: Check agent instruction hygiene
         run: node scripts/check-agents-hygiene.mjs
 
-  windows_runner_package:
-    name: Windows Runner package
+  windows_gateway_package:
+    name: Windows Gateway package
     runs-on: windows-latest
     permissions:
       contents: read
@@ -50,31 +50,33 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Build and package the native Runner
+      - name: Build and package the native Gateway
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           node --test scripts/__tests__/office-deployment-contract.test.mjs
-          node --test scripts/__tests__/office-runner-launcher.test.mjs
+          node --test scripts/__tests__/office-gateway-launcher.test.mjs
           $tokens = $null
           $parseErrors = $null
           [System.Management.Automation.Language.Parser]::ParseFile('deploy/office/apply-deployment.ps1', [ref]$tokens, [ref]$parseErrors) | Out-Null
           if ($parseErrors.Count -ne 0) { throw 'apply-deployment.ps1 failed PowerShell parser validation.' }
           npm ci
           npm run build --workspace=packages/shared
-          npm run build --workspace=apps/agent-runner
-          npm run prepack --workspace=apps/agent-runner
-          if ($LASTEXITCODE -ne 0) { throw 'Runner bundled runtime staging failed.' }
-          dotnet publish apps/agent-runner/windows/KidItem.JobRunner/KidItem.JobRunner.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP\\kiditem-job-runner"
-          dotnet publish apps/agent-runner/windows/KidItem.JobRunner.Fixture/KidItem.JobRunner.Fixture.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP\\kiditem-job-runner-fixture"
-          $env:KIDITEM_WINDOWS_JOB_RUNNER_PATH = (Join-Path $env:RUNNER_TEMP 'kiditem-job-runner\\KidItem.JobRunner.exe')
-          npm exec --workspace=apps/agent-runner vitest -- run
-          if ($LASTEXITCODE -ne 0) { throw 'Windows Runner tests failed.' }
-          npm run postpack --workspace=apps/agent-runner
-          if ($LASTEXITCODE -ne 0) { throw 'Runner bundled runtime cleanup failed.' }
+          npm run build --workspace=apps/agent-gateway
+          npm run prepack --workspace=apps/agent-gateway
+          if ($LASTEXITCODE -ne 0) { throw 'Gateway bundled runtime staging failed.' }
+          # Frozen Task 4 Windows sources still build the native JobRunner helper.
+          # The Office bundle is tested separately with the final AgentGateway names.
+          dotnet publish apps/agent-gateway/windows/KidItem.JobRunner/KidItem.JobRunner.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP\\kiditem-agent-gateway-native"
+          dotnet publish apps/agent-gateway/windows/KidItem.JobRunner.Fixture/KidItem.JobRunner.Fixture.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP\\kiditem-agent-gateway-native-fixture"
+          $env:KIDITEM_WINDOWS_JOB_RUNNER_PATH = (Join-Path $env:RUNNER_TEMP 'kiditem-agent-gateway-native\\KidItem.JobRunner.exe')
+          npm exec --workspace=apps/agent-gateway vitest -- run
+          if ($LASTEXITCODE -ne 0) { throw 'Windows Gateway tests failed.' }
+          npm run postpack --workspace=apps/agent-gateway
+          if ($LASTEXITCODE -ne 0) { throw 'Gateway bundled runtime cleanup failed.' }
           & pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/__tests__/office-windows-native-runtime.fixture.ps1 `
-            -JobRunnerPath (Join-Path $env:RUNNER_TEMP 'kiditem-job-runner\\KidItem.JobRunner.exe') `
-            -FixturePath (Join-Path $env:RUNNER_TEMP 'kiditem-job-runner-fixture\\KidItem.JobRunner.Fixture.exe') `
-            -RunnerEntrypoint (Resolve-Path 'apps/agent-runner/dist/main.cjs') `
+            -AgentGatewayPath (Join-Path $env:RUNNER_TEMP 'kiditem-agent-gateway-native\\KidItem.JobRunner.exe') `
+            -FixturePath (Join-Path $env:RUNNER_TEMP 'kiditem-agent-gateway-native-fixture\\KidItem.JobRunner.Fixture.exe') `
+            -GatewayEntrypoint (Resolve-Path 'apps/agent-gateway/dist/main.cjs') `
             -DeploymentScript (Resolve-Path 'deploy/office/apply-deployment.ps1')
-          npm pack --workspace=apps/agent-runner --dry-run
+          npm pack --workspace=apps/agent-gateway --dry-run

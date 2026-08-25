@@ -1,9 +1,9 @@
-# agent-os — Durable Local-CLI Work Platform
+# agent-os — Provider-Native Conversation And Capability Platform
 
-`src/agent-os/` owns the single-node Agent Work platform, not downstream
-business aggregates. The exact durable schema is six code-owned models:
-`AgentVersion`, `AgentSession`, `AgentTask`, `AgentAttempt`,
-`AgentCapabilityInvocation`, and `AgentCapabilityApproval`.
+`src/agent-os/` owns the single-node provider conversation adapter and exact
+capability-admission boundary, not downstream business aggregates. Its only
+durable model is `CapabilityInvocation`; provider conversations and history
+remain provider-local, while long deterministic work remains an `OperationRun`.
 
 ## Ownership And Direction
 
@@ -16,79 +16,53 @@ Agent
 ```
 
 - Capability definitions are domain-owned business intents with strict Zod
-  input/output, stable owner ports, implementation, and idempotency; Agent OS
+  input/output, stable owner ports, implementation, and idempotency. Agent OS
   aggregates and admits them but never writes owner-domain canonical rows.
 - Incoming HTTP/MCP adapters inject only capability-named input ports, never
-  concrete services. Agent OS may depend on an owner-domain incoming port;
-  owner domains never import Agent OS application service types.
-- MCP is a loopback-only Nest v2 Streamable HTTP adapter called directly by a
-  Host Runner-owned local CLI Attempt. It revalidates the exact database
-  Session/Task/Attempt/version/user/organization coordinate for every tool
-  call. It has no internal signing layer, provider credential, provider session,
-  durable MCP session, or direct Operations/repository bypass. It exposes
-  exactly 11 MCP tools over the 18-definition catalog, including ten Sourcing
-  capabilities.
-- Only the native `apps/agent-runner` process may spawn Codex/Claude. It polls
-  Nest for strict structured commands, posts bounded idempotent events, and
-  exposes no inbound listener or raw-shell surface. Worker executes durable
-  mutation/Operation recovery but has no CLI login profile. Windows Office runs
-  one Task Scheduler-managed Runner; macOS development starts it explicitly.
+  concrete owner services. Owner domains never import Agent OS application
+  service types.
+- MCP is a private Nest MCP v2 Streamable HTTP adapter called by the active
+  provider conversation. Every request revalidates one short-lived in-memory
+  execution binding. It has no durable MCP session, provider credential,
+  transcript store, internal signing layer, or repository bypass. The public
+  tool surface is exactly five tools over the 17-definition catalog, including
+  all ten Sourcing capabilities.
+- Only the native `apps/agent-gateway` process may spawn Codex/Claude. It polls
+  Nest for strict structured commands, posts bounded events, and exposes no
+  inbound listener or raw-shell surface. Windows Office runs one Task
+  Scheduler-managed Gateway; macOS development starts it explicitly.
 
 ## Lifecycle
 
-- `AgentTask` owns only `open | completed | failed | cancelled` business
-  lifecycle. `AgentAttempt` owns only `starting | running | succeeded | failed
-  | process_interrupted | cancelled` CLI process lifecycle. Do not add schema,
-  status, or continuation fields for interaction state.
-- Work reads return source facts, never a presentation aggregate: Task status,
-  latest Attempt, Approval and Invocation/Operation facts, child Tasks, and
-  bounded result/resource/operation references including structured
-  `result.needsInput` when present. The web derives its UI from those facts.
-- Continue is an explicit action, never a state or refresh side effect. It is
-  allowed only with no live Attempt and a non-cancelled Task; continuing a
-  completed or failed Task atomically reopens it before creating one immutable
-  Attempt. A cancelled Task requires explicit Reopen. No other event creates
-  reasoning.
-- Every CLI process uses a Runner-owned isolated per-Attempt home/workspace. It
-  may reference the dedicated host account's persisted login artifact through
-  the validated OS mechanism but never copies credential bytes into KidItem
-  persistence. Reasoning is trusted but disposable: Runner loss, API restart,
-  CLI exit, timeout, interruption, root/delegation replay, transport retry,
-  Approval decision, Operation completion, and child Task completion never
-  resume provider history or create/relaunch another Attempt.
-- The protected installation bearer identifies one Runner installation. A
-  cryptographically random per-Attempt bearer is short-lived, bound to one
-  Attempt, revoked on terminal state, and never persisted or logged as raw
-  control state.
+- A conversation fixes its provider runtime and optional code-owned Agent key.
+  Runtime, model, and reasoning effort are explicit; model/effort are selected
+  for every turn and never silently defaulted.
+- Conversation descriptors, transcripts, native subagents, and provider
+  history are Gateway/provider-local. Nest keeps only live owner correlation,
+  active turn streams, execution bindings, commands, and readiness in memory.
+- API or Gateway restart ends live turns. It never persists/replays a prompt,
+  resumes a provider run, synthesizes terminal database state, or starts
+  reasoning. The user sends a normal new message if more reasoning is needed.
+- The protected installation bearer identifies one Gateway installation.
+  Short-lived execution bindings authenticate MCP requests and correlate one
+  live turn; they grant no Agent/capability/delegation authority and are never
+  persisted or logged as raw control state.
 - A mutation requiring approval stores its exact canonical input/hash and
-  Approval durably before work can proceed. MCP returns a bounded current
-  result and the CLI exits; it never waits for or is woken by a later Approval,
-  Operation, or child completion. Approval may release only that admitted
-  deterministic mutation/Operation. Durable worker recovery continues or
-  retries ready/executing mutation work under its existing owner key, never
-  reasoning.
-- `AGENT_CLI_MAX_CONCURRENCY` is a process-local admission limit. There is no
-  organization quota, provider budget, distributed lock, or provider resume
-  contract in this release.
+  expiry on `CapabilityInvocation` before work can proceed. Approval only
+  authorizes a later explicit retry of that exact request; it never resumes a
+  provider turn or directly executes the owner mutation.
+- Same request key and canonical input replay one receipt/result; input drift
+  conflicts. Ambiguous owner outcomes remain pending for an explicit retry
+  under the same owner idempotency key.
 
 ## Interaction Boundary
 
-CopilotKit OSS is an API-local Nest incoming adapter at `/api/copilotkit`.
-Browser traffic is same-origin and authenticated by ordinary KidItem session
-auth. There is no interaction gateway, replay transcript service, or separate
-control plane. Live output and ordinary user-message/interrupt delivery exist
-only while the exact Attempt is running; database Task/Attempt and mutation
-records are the durable recovery authority.
-
-## Version Publication And Seed
-
-`AgentVersion` snapshots agent key, assigned domains, capability keys, runtime
-type, and instruction profile reference. It deliberately excludes models,
-policy overrides, credentials, and provider session/history. The API bootstrap
-and `npm run seed:agent-os` publish the six code-owned snapshots idempotently.
-The seed requires `DATABASE_URL` through PrismaPg and one explicit
-`AGENT_<TYPE>_MODEL` for each published version; it never falls back to
-`AGENT_DEFAULT_MODEL` or direct `AI_*` configuration.
+CopilotKit OSS 1.69 is an API-local Nest incoming adapter at
+`/api/copilotkit`. Browser traffic is same-origin and authenticated by ordinary
+KidItem session auth. Its runner is stateless: it stores/replays no transcript
+and cannot stop or connect to a process-global thread by raw thread ID. There
+is no interaction gateway application, replay service, Agent publication/seed,
+generic Task, or persistent provider session model.
 
 ## Verification
 
@@ -97,10 +71,10 @@ Run focused Agent OS tests first, then the backend boot gate:
 ```bash
 npm exec --workspace=apps/server vitest -- run src/agent-os
 npm run check:agent-os-contraction -- --enforce
+npm run check:agent-os-hexagonal
 npm run dev:server
 ```
 
-For schema/seed changes, use only an explicit disposable database; run
-`db:push`, `prisma generate`, `npm run seed:agent-os` twice, and confirm six
-active AgentVersions. Never run a destructive schema command against an Office
-or development database from an agent session.
+For schema changes, use only an explicit disposable database; run `db:push`,
+`prisma generate`, and the shared build. Never run a destructive schema command
+against an Office or development database from an agent session.

@@ -4,128 +4,77 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
-const IGNORED_PRODUCTION_DIRECTORIES = new Set([
+const IGNORED_DIRECTORIES = new Set([
   "__tests__",
-  "node_modules",
-  "dist",
   "coverage",
+  "dist",
+  "node_modules",
   ".next",
+]);
+const PRODUCTION_FILE_NAME =
+  /^(?:Dockerfile(?:\..+)?|.+\.(?:cjs|conf|cs|csproj|json|mjs|prisma|ps1|ts|tsx|ya?ml))$/;
+const TEST_FILE_NAME = /\.(?:spec|test)\.(?:cjs|mjs|ts|tsx)$/;
+const RETIRED_APPLICATIONS = [
+  "apps/agent-runner",
+  "apps/interaction-gateway",
+];
+const RETIRED_MODELS = new Set([
+  "AgentVersion",
+  "AgentSession",
+  "AgentTask",
+  "AgentAttempt",
+  "AgentCapabilityInvocation",
+  "AgentCapabilityApproval",
+  "CapabilityApproval",
+]);
+const AGENT_WORK_PRISMA = "prisma/models/agent-work.prisma";
+const AGENT_REGISTRY =
+  "apps/server/src/agent-os/domain/agent-definition.registry.ts";
+const DOMAIN_REGISTRY =
+  "apps/server/src/agent-os/domain/catalog/domain-definition.registry.ts";
+const MCP_WIRE =
+  "apps/server/src/agent-os/adapter/in/mcp/capability-mcp-wire-contract.ts";
+const CAPABILITY_SOURCE =
+  /^apps\/server\/src\/[^/]+\/domain\/capability\/[^/]+\.capabilities\.ts$/;
+const PROVIDER_CLI_PACKAGES = new Set([
+  "@anthropic-ai/claude-code",
+  "@openai/codex",
+]);
+const PROVIDER_CLI_METHODS = new Set([
+  "exec",
+  "execFile",
+  "execSync",
+  "fork",
+  "spawn",
 ]);
 
 export function productionFiles(directory) {
   if (!existsSync(directory)) return [];
   if (statSync(directory).isFile()) {
-    return /(?:\.(?:ts|tsx|mjs|prisma|json|conf|ya?ml|md)|\.env\.example|\.example)$/.test(
-      path.basename(directory),
-    )
+    const name = path.basename(directory);
+    return PRODUCTION_FILE_NAME.test(name) && !TEST_FILE_NAME.test(name)
       ? [directory]
       : [];
   }
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const absolute = path.join(directory, entry.name);
+    const absolutePath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      return IGNORED_PRODUCTION_DIRECTORIES.has(entry.name)
-        ? []
-        : productionFiles(absolute);
+      return IGNORED_DIRECTORIES.has(entry.name) ? [] : productionFiles(absolutePath);
     }
     return entry.isFile() &&
-      /(?:\.(?:ts|tsx|mjs|prisma|json|conf|ya?ml|md)|\.env\.example|\.example)$/.test(
-        entry.name,
-      ) &&
-      !/\.(?:spec|test)\.(?:ts|tsx|mjs)$/.test(entry.name)
-      ? [absolute]
+      PRODUCTION_FILE_NAME.test(entry.name) &&
+      !TEST_FILE_NAME.test(entry.name)
+      ? [absolutePath]
       : [];
   });
 }
 
-const SERVER_CHILD_PROCESS_ALLOWLIST = new Set([
-  "apps/server/src/ai/adapter/out/wing/playwriter-cli.ts",
-  "apps/server/src/orders/coupang-directship/coupang-directship.service.ts",
-  "apps/server/src/test-helpers/postgres-global-setup.ts",
-]);
-const SUPERSEDED_AGENT_OS_RUNTIME_SURFACES = new Set([
-  "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-proxy.ts",
-  "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-socket-server.spec.ts",
-  "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-socket-server.ts",
-  "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-stdio-to-uds.spec.ts",
-  "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-stdio-to-uds.ts",
-  "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-broker.service.ts",
-  "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-broker.spec.ts",
-  "apps/server/src/agent-os/adapter/out/runtime/attempt/agent-attempt-executor.service.ts",
-  "apps/server/src/agent-os/adapter/out/runtime/attempt/agent-attempt-process-registry.ts",
-  "apps/server/src/agent-os/adapter/out/runtime/attempt/agent-attempt-runtime.spec.ts",
-  "apps/server/src/agent-os/adapter/out/runtime/attempt/attempt-filesystem.service.ts",
-  "apps/server/src/agent-os/adapter/out/runtime/attempt/attempt-filesystem.service.spec.ts",
-  "apps/server/src/agent-os/adapter/out/runtime/attempt/attempt-live-control.registry.ts",
-  "apps/server/src/agent-os/adapter/out/runtime/attempt/codex-attempt.adapter.ts",
-  "apps/server/src/agent-os/adapter/out/runtime/attempt/claude-attempt.adapter.ts",
-  "apps/server/src/agent-os/adapter/out/runtime/attempt/codex-app-server-session.ts",
-  "apps/server/src/agent-os/adapter/out/runtime/attempt/codex-app-server-session.spec.ts",
-  "apps/server/src/agent-os/adapter/out/runtime/attempt/codex-attempt-isolation-canary.ts",
-  "apps/server/src/agent-os/adapter/out/runtime/attempt/codex-attempt-isolation-canary.spec.ts",
-  "apps/server/src/agent-os/adapter/out/runtime/attempt/agent-result-output-schema.ts",
-  "apps/server/src/agent-os/application/service/work/agent-runtime-directory-reconciler.service.ts",
-]);
-const SUPERSEDED_AGENT_MCP_APPLICATION_ROOT =
-  "apps/server/src/agent-mcp-application.module.ts";
-const CURRENT_HOST_RUNNER_DOCUMENTS = new Set([
-  "AGENTS.md",
-  "apps/server/src/agent-os/AGENTS.md",
-  "docs/ARCHITECTURE.md",
-  "docs/TESTING.md",
-  "docs/runbooks/deployment-architecture.md",
-  "docs/runbooks/environment-variables.md",
-  "docs/runbooks/interaction-platform.md",
-  "docs/runbooks/office-deploy.md",
-  "docs/runbooks/agent-os-clean-cutover.md",
-]);
-const RAW_LAUNCH_AUTHORITY_FIELD_NAMES = new Set([
-  "command",
-  "executable",
-  "shell",
-  "args",
-  "env",
-  "cwd",
-  "path",
-  "loginhome",
-  "organization",
-  "organizationid",
-  "organizationauthority",
-  "user",
-  "userid",
-  "userauthority",
-  "session",
-  "sessionid",
-  "sessionauthority",
-]);
-const ACTIVE_SECRET_WORDS = new Set([
-  "secret",
-  "credential",
-  "credentials",
-  "password",
-  "passphrase",
-]);
-const ACTIVE_SECRET_COMPOSITES = [
-  "accesstoken",
-  "bearertoken",
-  "oauthtoken",
-  "apitoken",
-  "apikey",
-  "privatekey",
-  "refreshtoken",
-  "connectionstring",
-  "connectionurl",
-  "connectiondsn",
-];
-const EPHEMERAL_RUNNER_CONTROL_FIELD_PREFIX =
-  /^(?:runner|lease|command|event|process|poll|ack(?:nowledg)?|control|attempttoken|(?:provider|codex|claude)(?:session|history|resume))/;
-
-function sourceFile(filePath, source) {
+function parseSource(filePath, source) {
   return ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true);
 }
 
-function normalizedName(name) {
-  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+function normalizedName(value) {
+  return value.replace(/[^a-z0-9]/gi, "").toLowerCase();
 }
 
 function propertyName(node) {
@@ -139,581 +88,347 @@ function propertyName(node) {
   return null;
 }
 
-function propertyNameWords(name) {
-  return name
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .split(/[^A-Za-z0-9]+/)
-    .filter(Boolean)
-    .map((word) => word.toLowerCase());
-}
-
-function isActiveSecretOrCredentialName(name) {
-  const normalized = normalizedName(name);
-  return (
-    propertyNameWords(name).some((word) => ACTIVE_SECRET_WORDS.has(word)) ||
-    ACTIVE_SECRET_COMPOSITES.some((composite) => normalized.includes(composite))
-  );
-}
-
-function isRawLaunchFieldName(name) {
-  return (
-    RAW_LAUNCH_AUTHORITY_FIELD_NAMES.has(normalizedName(name)) ||
-    isActiveSecretOrCredentialName(name)
-  );
-}
-
-function attemptMcpPackageFindings(source) {
-  let manifest;
-  try {
-    manifest = JSON.parse(source);
-  } catch {
-    return ["MCP dependency manifest invalid"];
-  }
-  const dependencies = manifest.dependencies ?? {};
-  const devDependencies = manifest.devDependencies ?? {};
-  const direct = { ...dependencies, ...devDependencies };
-  const findings = [];
-  if (dependencies["@modelcontextprotocol/server"] !== "2.0.0")
-    findings.push("MCP v2 server runtime dependency pin");
-  if (devDependencies["@modelcontextprotocol/client"] !== "2.0.0")
-    findings.push("MCP v2 client development dependency pin");
-  if ("@modelcontextprotocol/sdk" in direct)
-    findings.push("MCP v1 SDK direct dependency");
-  if ("@modelcontextprotocol/core" in direct)
-    findings.push("MCP core direct dependency");
-  if ("@anthropic-ai/claude-code" in direct || "@openai/codex" in direct)
-    findings.push("API-owned provider CLI dependency");
-  if (dependencies["zod-v4"] !== "npm:zod@4.4.3")
-    findings.push("MCP Zod v4 runtime dependency pin");
-  if (
-    dependencies.zod !== "^3.25.0" ||
-    dependencies["zod-to-json-schema"] !== "^3.25.2"
-  )
-    findings.push("MCP Zod 3 compatibility dependency range");
-  return findings;
-}
-
-function prismaModelBlocks(source) {
-  return [...source.matchAll(/model\s+(\w+)\s*\{([\s\S]*?)\}/g)].map(
-    ([, name, body]) => ({ name, body }),
-  );
-}
-
-function prismaFieldNames(body) {
-  return body
-    .split(/\r?\n/)
-    .map((line) => line.trim().match(/^([A-Za-z][A-Za-z0-9_]*)\s+/)?.[1])
-    .filter(Boolean);
-}
-
-function isAgentOsPersistenceModel(filePath, name) {
-  return (
-    filePath === "prisma/models/agent-work.prisma" &&
-    normalizedName(name).startsWith("agent")
-  );
-}
-
-function isRunnerControlModel(name) {
-  const normalized = normalizedName(name);
-  return (
-    normalized === "agentattempt" ||
-    normalized.startsWith("agentruntime") ||
-    normalized.startsWith("runner")
-  );
-}
-
-function isDedicatedRunnerControlModel(name) {
-  return normalizedName(name).startsWith("runner");
-}
-
-function isEphemeralRunnerControlName(normalized) {
-  return EPHEMERAL_RUNNER_CONTROL_FIELD_PREFIX.test(normalized);
-}
-
-function persistedAgentOsStateFindings(filePath, source) {
-  if (!/^prisma\/models\/.+\.prisma$/.test(filePath)) {
-    return { hasActiveSecretOrCredential: false, hasEphemeralRunnerControl: false };
-  }
-
-  let hasActiveSecretOrCredential = false;
-  let hasEphemeralRunnerControl = false;
-  for (const { name, body } of prismaModelBlocks(source)) {
-    if (isDedicatedRunnerControlModel(name)) hasEphemeralRunnerControl = true;
-    for (const field of prismaFieldNames(body)) {
-      if (
-        isAgentOsPersistenceModel(filePath, name) &&
-        isActiveSecretOrCredentialName(field)
-      ) {
-        hasActiveSecretOrCredential = true;
-      }
-      if (
-        isRunnerControlModel(name) &&
-        isEphemeralRunnerControlName(normalizedName(field))
-      ) {
-        hasEphemeralRunnerControl = true;
-      }
-    }
-  }
-  return { hasActiveSecretOrCredential, hasEphemeralRunnerControl };
-}
-
-function isForbiddenAgentDefinitionStateName(name) {
-  const normalized = normalizedName(name);
-  return (
-    normalized.startsWith("provider") ||
-    normalized.startsWith("model") ||
-    isActiveSecretOrCredentialName(name)
-  );
-}
-
-function hasForbiddenAgentVersionState(filePath, source) {
-  if (filePath !== "prisma/models/agent-work.prisma") return false;
-  return prismaModelBlocks(source).some(
-    ({ name, body }) =>
-      name === "AgentVersion" &&
-      prismaFieldNames(body).some(isForbiddenAgentDefinitionStateName),
-  );
-}
-
-function hasForbiddenCapabilityDefinitionState(filePath, source) {
-  if (!/(?:common|agent-os\/domain\/capability)\/capability-definition\.ts$/.test(filePath)) {
-    return false;
-  }
-  let found = false;
-  const visit = (node) => {
-    const type = ts.isInterfaceDeclaration(node)
-      ? node
-      : ts.isTypeAliasDeclaration(node) && ts.isTypeLiteralNode(node.type)
-        ? node.type
-        : null;
-    if (
-      type &&
-      ((ts.isInterfaceDeclaration(type) && type.name.text === "CapabilityDefinition") ||
-        (ts.isTypeLiteralNode(type) &&
-          ts.isTypeAliasDeclaration(node) &&
-          node.name.text === "CapabilityDefinition"))
-    ) {
-      const members = ts.isInterfaceDeclaration(type) ? type.members : type.members;
-      found ||= members.some(
-        (member) =>
-          ts.isPropertySignature(member) &&
-          member.name &&
-          propertyName(member.name) &&
-          isForbiddenAgentDefinitionStateName(propertyName(member.name)),
-      );
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile(filePath, source));
-  return found;
-}
-
-function literalUnionValues(node) {
-  if (ts.isLiteralTypeNode(node) && ts.isStringLiteral(node.literal)) {
-    return [node.literal.text];
-  }
-  if (ts.isUnionTypeNode(node)) return node.types.flatMap(literalUnionValues);
-  return [];
-}
-
-function hasDuplicateRuntimeContract(filePath, source) {
-  if (filePath.startsWith("packages/shared/src/agent-runtime/")) return false;
-  if (
-    /\b(?:export\s+)?const\s+ATTEMPT_RUNTIME_TRAIN\b/.test(source) ||
-    /\b(?:export\s+)?const\s+(?:RunnerPlatformSchema|AgentCliRuntimeSchema)\b/.test(
-      source,
-    ) ||
-    /\b(?:export\s+)?type\s+(?:AttemptRuntimeType|RunnerPlatform|AgentCliRuntime)\s*=/.test(
-      source,
-    ) ||
-    /z\.enum\s*\(\s*\[[^\]]*['"](?:macos|codex_cli)['"][^\]]*\]\s*\)/.test(source)
+function unwrap(node) {
+  let current = node;
+  while (
+    ts.isAsExpression(current) ||
+    ts.isTypeAssertionExpression(current) ||
+    ts.isParenthesizedExpression(current) ||
+    ts.isSatisfiesExpression(current)
   ) {
-    return true;
+    current = current.expression;
   }
-  let duplicate = false;
-  const visit = (node) => {
-    if (ts.isTypeAliasDeclaration(node)) {
-      const values = new Set(literalUnionValues(node.type));
-      duplicate ||=
-        (values.has("macos") && values.has("windows")) ||
-        (values.has("codex_cli") && values.has("claude_cli"));
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile(filePath, source));
-  return duplicate;
+  return current;
 }
 
-function isSchemaInitializer(node) {
-  if (ts.isIdentifier(node)) return node.text.endsWith("Schema");
-  if (!ts.isCallExpression(node)) return false;
-  const expression = node.expression;
-  return (
-    (ts.isPropertyAccessExpression(expression) &&
-      ts.isIdentifier(expression.expression) &&
-      expression.expression.text === "z") ||
-    (ts.isPropertyAccessExpression(expression) &&
-      expression.name.text.endsWith("Schema")) ||
-    (ts.isIdentifier(expression) && expression.text.endsWith("Schema"))
-  );
-}
-
-function hasRawLaunchField(filePath, source) {
-  let found = false;
-  const visit = (node) => {
-    if (ts.isPropertySignature(node)) {
-      const name = propertyName(node.name);
-      if (name && isRawLaunchFieldName(name)) found = true;
-    }
-    if (ts.isPropertyAssignment(node)) {
-      const name = propertyName(node.name);
-      if (name && isRawLaunchFieldName(name) && isSchemaInitializer(node.initializer)) {
-        found = true;
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile(filePath, source));
-  return found;
-}
-
-function isServerRunnerHttpIngressSurface(filePath) {
-  return filePath.startsWith(
-    "apps/server/src/agent-os/adapter/in/http/runtime/",
-  );
-}
-
-function isRunnerControlClientIngressSurface(filePath) {
-  return filePath === "apps/agent-runner/src/control/runner-control.client.ts";
-}
-
-function isRunnerIngressSurface(filePath) {
-  return (
-    isServerRunnerHttpIngressSurface(filePath) ||
-    isRunnerControlClientIngressSurface(filePath)
-  );
-}
-
-function isZodObjectDeclaration(node) {
-  if (!ts.isVariableDeclaration(node) || !node.initializer) return false;
-  let found = false;
-  const visit = (child) => {
-    if (
-      ts.isCallExpression(child) &&
-      ts.isPropertyAccessExpression(child.expression) &&
-      ts.isIdentifier(child.expression.expression) &&
-      child.expression.expression.text === "z" &&
-      child.expression.name.text === "object"
-    ) {
-      found = true;
-    }
-    ts.forEachChild(child, visit);
-  };
-  visit(node.initializer);
-  return found;
-}
-
-function isRunnerIngressDeclaration(node) {
-  return (
-    ts.isClassDeclaration(node) ||
-    ts.isInterfaceDeclaration(node) ||
-    ts.isTypeAliasDeclaration(node) ||
-    isZodObjectDeclaration(node)
-  );
-}
-
-function hasForbiddenIngressFieldInDeclaration(node) {
-  let found = false;
-  const visit = (child) => {
-    if (ts.isPropertySignature(child) || ts.isPropertyDeclaration(child)) {
-      const name = propertyName(child.name);
-      if (name && isRawLaunchFieldName(name)) found = true;
-    }
-    if (ts.isPropertyAssignment(child)) {
-      const name = propertyName(child.name);
-      if (name && isRawLaunchFieldName(name)) found = true;
-    }
-    ts.forEachChild(child, visit);
-  };
-  visit(node);
-  return found;
-}
-
-function hasDuplicateRunnerIngressContract(filePath, source) {
-  if (!isRunnerIngressSurface(filePath)) return false;
-  let found = false;
-  const visit = (node) => {
-    if (isRunnerIngressDeclaration(node) && hasForbiddenIngressFieldInDeclaration(node)) {
-      found = true;
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile(filePath, source));
-  return found;
-}
-
-function decoratorsFor(node) {
-  return node.modifiers?.filter(ts.isDecorator) ?? [];
-}
-
-function decoratorName(decorator) {
-  const expression = decorator.expression;
-  if (!ts.isCallExpression(expression)) return null;
-  if (ts.isIdentifier(expression.expression)) return expression.expression.text;
-  if (ts.isPropertyAccessExpression(expression.expression)) return expression.expression.name.text;
-  return null;
-}
-
-function staticDecoratorRoute(decorator) {
-  const expression = decorator.expression;
-  if (!ts.isCallExpression(expression)) return { dynamic: true, route: null };
-  if (expression.arguments.length === 0) return { dynamic: false, route: "" };
-  const [argument] = expression.arguments;
-  if (ts.isStringLiteral(argument) || ts.isNoSubstitutionTemplateLiteral(argument)) {
-    return { dynamic: false, route: argument.text };
-  }
-  return { dynamic: true, route: null };
-}
-
-function hasInternalAgentRuntimeRouteHint(value) {
-  return /(?:^|\/)internal\/agent-runtime(?:\/|$)/i.test(value);
-}
-
-function isRunnerControlControllerName(value) {
-  return /(?:runner|agentruntime)controller$/i.test(value);
-}
-
-function isCanonicalRunnerBasePath(value) {
-  return /^\/?internal\/agent-runtime(?:\/|$)/.test(value);
-}
-
-function effectiveNestRoute(base, method) {
-  const normalizedBase = base.replace(/^\/+|\/+$/g, "");
-  const normalizedMethod = method.replace(/^\/+|\/+$/g, "");
-  return `/${[normalizedBase, normalizedMethod].filter(Boolean).join("/")}`;
-}
-
-function hasInternalAgentRuntimeRouteOutsidePrefix(source) {
-  let found = false;
-  const visit = (node) => {
-    if (!ts.isClassDeclaration(node)) {
-      ts.forEachChild(node, visit);
-      return;
-    }
-
-    const controller = decoratorsFor(node).find(
-      (decorator) => decoratorName(decorator) === "Controller",
-    );
-    if (!controller) {
-      ts.forEachChild(node, visit);
-      return;
-    }
-    const methods = node.members.flatMap((member) =>
-      decoratorsFor(member)
-        .filter((decorator) => /^(?:All|Delete|Get|Patch|Post|Put)$/.test(decoratorName(decorator) ?? ""))
-        .map(staticDecoratorRoute),
-    );
-    const controllerRoute = controller ? staticDecoratorRoute(controller) : null;
-    const className = node.name?.text ?? "";
-    const hasStaticRunnerRoute = [controllerRoute, ...methods].some(
-      (route) =>
-        route &&
-        !route.dynamic &&
-        hasInternalAgentRuntimeRouteHint(route.route),
-    );
-    const isRunnerRouteContext =
-      isRunnerControlControllerName(className) || hasStaticRunnerRoute;
-
-    if (isRunnerRouteContext) {
-      if (
-        !controllerRoute ||
-        controllerRoute.dynamic ||
-        methods.some((route) => route.dynamic) ||
-        !isCanonicalRunnerBasePath(controllerRoute.route)
-      ) {
-        found = true;
-      } else {
-        found ||= methods.some(
-          (method) => !/^\/internal\/agent-runtime(?:\/|$)/.test(
-            effectiveNestRoute(controllerRoute.route, method.route),
-          ),
-        );
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile("runner-route.ts", source));
-  return found;
-}
-
-function hasCustomMcpRelay(filePath, source) {
-  let found = false;
+function variableArray(filePath, source, name) {
+  const parsed = parseSource(filePath, source);
+  let result = null;
   const visit = (node) => {
     if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      ts.isIdentifier(node.expression.expression) &&
-      node.expression.expression.text === "JSON" &&
-      node.expression.name.text === "stringify"
+      !result &&
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === name &&
+      node.initializer
     ) {
-      found ||= node.arguments.some((argument) => {
-        if (!ts.isObjectLiteralExpression(argument)) return false;
-        const keys = new Set(
-          argument.properties
-            .map((property) =>
-              ts.isPropertyAssignment(property) ||
-              ts.isShorthandPropertyAssignment(property)
-                ? propertyName(property.name)
-                : null,
-            )
-            .filter(Boolean),
-        );
-        return keys.has("tool") && keys.has("arguments");
-      });
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile(filePath, source));
-  return found;
-}
-
-function hasUdsOrStdioRelay(source) {
-  const hasStdioMcp = /\b(?:StdioServerTransport|serveStdio)\b/.test(source);
-  const hasNodeNetImport = /(?:from|require\()\s*['"](?:node:)?net['"]/.test(source);
-  const hasSocketEndpoint = /\b(?:socketPath|unix:|\.sock\b)/i.test(source);
-  const hasSocketLifecycle = /\b(?:createServer|createConnection|connect|listen)\s*\(/.test(source);
-  const hasProcessStdio = /\bprocess\.(?:stdin|stdout|stderr)\b/.test(source);
-  return (
-    hasStdioMcp ||
-    (hasSocketEndpoint && hasSocketLifecycle) ||
-    (hasNodeNetImport && (hasSocketEndpoint || hasProcessStdio))
-  );
-}
-
-function hasProcInspection(filePath, source) {
-  if (/(?:^|[^A-Za-z0-9_])\/proc\//.test(source)) return true;
-  let found = false;
-  const visit = (node) => {
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === "join" &&
-      ts.isStringLiteral(node.arguments[0]) &&
-      node.arguments[0].text === "/proc"
-    ) {
-      found = true;
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile(filePath, source));
-  return found;
-}
-
-function isRuntimeChildProcessImport(statement) {
-  if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
-    return false;
-  }
-  if (!/^(?:node:)?child_process$/.test(statement.moduleSpecifier.text)) return false;
-  const clause = statement.importClause;
-  if (!clause || clause.isTypeOnly) return false;
-  if (clause.name) return true;
-  const bindings = clause.namedBindings;
-  if (!bindings || ts.isNamespaceImport(bindings)) return true;
-  return bindings.elements.some((element) => !element.isTypeOnly);
-}
-
-function hasChildProcessBinding(filePath, source) {
-  const parsed = sourceFile(filePath, source);
-  if (parsed.statements.some(isRuntimeChildProcessImport)) return true;
-  let found = false;
-  const visit = (node) => {
-    if (
-      ts.isCallExpression(node) &&
-      node.arguments.length === 1 &&
-      ts.isStringLiteral(node.arguments[0]) &&
-      /^(?:node:)?child_process$/.test(node.arguments[0].text) &&
-      ((ts.isIdentifier(node.expression) && node.expression.text === "require") ||
-        node.expression.kind === ts.SyntaxKind.ImportKeyword)
-    ) {
-      found = true;
+      const initializer = unwrap(node.initializer);
+      if (ts.isArrayLiteralExpression(initializer)) result = initializer;
     }
     ts.forEachChild(node, visit);
   };
   visit(parsed);
-  return found;
+  return result;
 }
 
-const CHILD_PROCESS_PROVIDER_METHODS = new Set([
-  "spawn",
-  "exec",
-  "execFile",
-  "execSync",
-  "fork",
-]);
+function stringValues(array) {
+  if (!array) return [];
+  return array.elements.flatMap((element) => {
+    const value = unwrap(element);
+    return ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)
+      ? [value.text]
+      : [];
+  });
+}
 
-function isChildProcessModuleSpecifier(node) {
-  return (
-    ts.isStringLiteral(node) &&
-    /^(?:node:)?child_process$/.test(node.text)
+function modelBlocks(source) {
+  return [...source.matchAll(/\bmodel\s+([A-Za-z]\w*)\s*\{([\s\S]*?)\}/g)].map(
+    ([, name, body]) => ({ name, body }),
   );
 }
 
-function isChildProcessLoaderCall(node) {
-  return (
-    ts.isCallExpression(node) &&
-    node.arguments.length === 1 &&
-    isChildProcessModuleSpecifier(node.arguments[0]) &&
-    ((ts.isIdentifier(node.expression) && node.expression.text === "require") ||
-      node.expression.kind === ts.SyntaxKind.ImportKeyword)
+function fieldNames(body) {
+  return [...body.matchAll(/^\s*([A-Za-z]\w*)\s+\S+/gm)].map(
+    ([, name]) => name,
   );
 }
 
-function unwrapAwaitExpression(node) {
-  return ts.isAwaitExpression(node) ? node.expression : node;
+function secretField(name) {
+  const normalized = normalizedName(name);
+  return (
+    normalized === "bearer" ||
+    normalized.includes("secret") ||
+    normalized.includes("credential") ||
+    normalized.includes("password") ||
+    normalized.includes("passphrase") ||
+    normalized.includes("privatekey") ||
+    normalized.includes("accesstoken") ||
+    normalized.includes("bearertoken") ||
+    normalized.includes("refreshtoken") ||
+    normalized.includes("apikey")
+  );
 }
 
-function collectChildProcessBindings(parsed) {
-  const functions = new Set();
-  const namespaces = new Set();
-  const bindVariable = (name, initializer) => {
-    if (!isChildProcessLoaderCall(unwrapAwaitExpression(initializer))) return;
-    if (ts.isIdentifier(name)) {
-      namespaces.add(name.text);
-      return;
+function ephemeralGatewayField(name) {
+  const normalized = normalizedName(name);
+  return (
+    normalized.includes("provider") ||
+    normalized.includes("runtime") ||
+    normalized === "model" ||
+    normalized.includes("modelname") ||
+    normalized.includes("reportedmodel") ||
+    normalized.includes("effort") ||
+    normalized.includes("history") ||
+    normalized.includes("conversation") ||
+    normalized.includes("transcript") ||
+    normalized.includes("executionbinding") ||
+    normalized.includes("executiontoken") ||
+    normalized.includes("gatewaycommand") ||
+    normalized.includes("controlcommand") ||
+    normalized.includes("commandid") ||
+    normalized.includes("controlstate") ||
+    normalized.includes("activeturn")
+  );
+}
+
+function ephemeralGatewayModel(name) {
+  const normalized = normalizedName(name);
+  return (
+    normalized.includes("gateway") ||
+    normalized.includes("conversation") ||
+    normalized.includes("transcript") ||
+    normalized.includes("executionbinding") ||
+    normalized.includes("activeturn") ||
+    normalized.includes("providersession")
+  );
+}
+
+function prismaFindings(files) {
+  const prismaFiles = files.filter(
+    (file) =>
+      file.path.startsWith("prisma/models/") && file.path.endsWith(".prisma"),
+  );
+  const models = prismaFiles.flatMap((file) =>
+    modelBlocks(file.source).map((model) => ({ ...model, file })),
+  );
+  const hasAgentOsSchema = models.some(
+    (model) =>
+      model.file.path === AGENT_WORK_PRISMA ||
+      model.name === "CapabilityInvocation" ||
+      RETIRED_MODELS.has(model.name),
+  );
+  if (!hasAgentOsSchema) return [];
+
+  const findings = [];
+  const invocations = models.filter(
+    (model) => model.name === "CapabilityInvocation",
+  );
+  const agentWork = models.filter(
+    (model) => model.file.path === AGENT_WORK_PRISMA,
+  );
+  if (
+    invocations.length !== 1 ||
+    agentWork.length !== 1 ||
+    agentWork[0]?.name !== "CapabilityInvocation"
+  ) {
+    findings.push(
+      "prisma/models: Agent OS Prisma graph must contain exactly one CapabilityInvocation model (found " +
+        invocations.length +
+        ")",
+    );
+  }
+
+  for (const model of models) {
+    if (RETIRED_MODELS.has(model.name)) {
+      findings.push(
+        model.file.path +
+          ": retired Agent OS persistence model " +
+          model.name,
+      );
     }
-    if (!ts.isObjectBindingPattern(name)) return;
-    for (const element of name.elements) {
-      if (!ts.isIdentifier(element.name)) continue;
-      const importedName = propertyName(element.propertyName ?? element.name);
-      if (importedName && CHILD_PROCESS_PROVIDER_METHODS.has(importedName)) {
-        functions.add(element.name.text);
+    const agentOsModel =
+      model.file.path === AGENT_WORK_PRISMA ||
+      model.name === "CapabilityInvocation" ||
+      RETIRED_MODELS.has(model.name);
+    if (!agentOsModel) {
+      if (ephemeralGatewayModel(model.name)) {
+        findings.push(model.file.path + ": ephemeral Host Gateway control state");
+      }
+      continue;
+    }
+    const fields = fieldNames(model.body);
+    if (fields.some(secretField)) {
+      findings.push(model.file.path + ": active credentials or secrets");
+    }
+    if (fields.some(ephemeralGatewayField)) {
+      findings.push(
+        model.file.path + ": ephemeral Host Gateway control state",
+      );
+    }
+  }
+  return findings;
+}
+
+function agentCatalogFindings(file) {
+  const definitions = variableArray(file.path, file.source, "AGENT_DEFINITIONS");
+  const count = definitions
+    ? definitions.elements.filter((element) =>
+        ts.isObjectLiteralExpression(unwrap(element)),
+      ).length
+    : 0;
+  return count === 5
+    ? []
+    : [
+        file.path +
+          ": Agent registry must define exactly five Agents (found " +
+          count +
+          ")",
+      ];
+}
+
+function domainCatalogFindings(file) {
+  const count = stringValues(
+    variableArray(file.path, file.source, "DOMAIN_KEYS"),
+  ).length;
+  return count === 14
+    ? []
+    : [
+        file.path +
+          ": Domain registry must define exactly fourteen domains (found " +
+          count +
+          ")",
+      ];
+}
+
+function capabilityKeys(file) {
+  const parsed = parseSource(file.path, file.source);
+  const keys = [];
+  const visit = (node) => {
+    if (
+      ts.isPropertyAssignment(node) &&
+      propertyName(node.name) === "key"
+    ) {
+      const value = unwrap(node.initializer);
+      if (
+        (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) &&
+        /^[a-z_]+\.[a-z0-9_]+$/i.test(value.text)
+      ) {
+        keys.push(value.text);
       }
     }
+    ts.forEachChild(node, visit);
   };
+  visit(parsed);
+  return keys;
+}
+
+function capabilityCatalogFindings(files) {
+  const capabilityFiles = files.filter((file) => CAPABILITY_SOURCE.test(file.path));
+  if (capabilityFiles.length === 0) return [];
+  const keys = capabilityFiles.flatMap(capabilityKeys);
+  const sourcingCount = keys.filter((key) => key.startsWith("sourcing.")).length;
+  const findings = [];
+  if (keys.length !== 17) {
+    findings.push(
+      "apps/server/src: Capability catalog must define exactly seventeen definitions (found " +
+        keys.length +
+        ")",
+    );
+  }
+  if (sourcingCount !== 10) {
+    findings.push(
+      "apps/server/src: Sourcing capability catalog must define exactly ten definitions (found " +
+        sourcingCount +
+        ")",
+    );
+  }
+  return findings;
+}
+
+function mcpCatalogFindings(file) {
+  const toolCount = stringValues(
+    variableArray(file.path, file.source, "CAPABILITY_MCP_TOOL_NAMES"),
+  ).length;
+  const protocol = file.source.match(
+    /\bMCP_PROTOCOL_VERSION\s*=\s*["']([^"']+)["']/,
+  )?.[1];
+  const findings = [];
+  if (toolCount !== 5) {
+    findings.push(
+      file.path +
+        ": MCP surface must define exactly five MCP tools (found " +
+        toolCount +
+        ")",
+    );
+  }
+  if (protocol !== "2026-07-28") {
+    findings.push(
+      file.path +
+        ": MCP protocol must be 2026-07-28 (found " +
+        (protocol ?? "missing") +
+        ")",
+    );
+  }
+  return findings;
+}
+
+function agentOsSource(filePath) {
+  return filePath.startsWith("apps/server/src/agent-os/");
+}
+
+function retiredLifecycleName(filePath, source) {
+  return (
+    (agentOsSource(filePath) || filePath.startsWith("packages/shared/src/")) &&
+    /\b(?:AgentVersion|AgentSession|AgentTask|AgentAttempt|AgentCapabilityInvocation|AgentCapabilityApproval)\w*\b/.test(
+      source,
+    )
+  );
+}
+
+function sourceHas(pattern, filePath, source) {
+  return pattern.test(filePath + "\n" + source);
+}
+
+function hasProviderCliPackage(source) {
+  try {
+    const manifest = JSON.parse(source);
+    return [
+      manifest.dependencies,
+      manifest.devDependencies,
+      manifest.optionalDependencies,
+      manifest.peerDependencies,
+    ].some((dependencies) =>
+      Object.keys(dependencies ?? {}).some((name) =>
+        PROVIDER_CLI_PACKAGES.has(name),
+      ),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function providerCliLiteral(node) {
+  return (
+    (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
+    /^(?:codex|claude)(?:\.exe)?$/i.test(node.text)
+  );
+}
+
+function childProcessBindings(parsed) {
+  const functions = new Set();
+  const namespaces = new Set();
   const visit = (node) => {
     if (
       ts.isImportDeclaration(node) &&
-      isChildProcessModuleSpecifier(node.moduleSpecifier) &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      /^(?:node:)?child_process$/.test(node.moduleSpecifier.text) &&
       node.importClause &&
       !node.importClause.isTypeOnly
     ) {
-      const clause = node.importClause;
-      if (clause.name) namespaces.add(clause.name.text);
-      if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
-        namespaces.add(clause.namedBindings.name.text);
+      const bindings = node.importClause.namedBindings;
+      if (node.importClause.name) namespaces.add(node.importClause.name.text);
+      if (bindings && ts.isNamespaceImport(bindings)) {
+        namespaces.add(bindings.name.text);
       }
-      if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-        for (const element of clause.namedBindings.elements) {
-          if (element.isTypeOnly) continue;
-          const importedName = propertyName(element.propertyName ?? element.name);
-          if (importedName && CHILD_PROCESS_PROVIDER_METHODS.has(importedName)) {
-            functions.add(element.name.text);
+      if (bindings && ts.isNamedImports(bindings)) {
+        for (const item of bindings.elements) {
+          if (item.isTypeOnly) continue;
+          const imported = propertyName(item.propertyName ?? item.name);
+          if (imported && PROVIDER_CLI_METHODS.has(imported)) {
+            functions.add(item.name.text);
           }
         }
       }
-    }
-    if (ts.isVariableDeclaration(node) && node.initializer) {
-      bindVariable(node.name, node.initializer);
     }
     ts.forEachChild(node, visit);
   };
@@ -721,63 +436,33 @@ function collectChildProcessBindings(parsed) {
   return { functions, namespaces };
 }
 
-function isProviderCliLiteral(node) {
-  return (
-    (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
-    /^(?:codex|claude)(?:\.exe)?$/i.test(node.text)
-  );
-}
-
-function isChildProcessProviderCall(node, bindings) {
-  const expression = node.expression;
-  if (ts.isIdentifier(expression)) return bindings.functions.has(expression.text);
-  if (!ts.isPropertyAccessExpression(expression)) return false;
-  if (!CHILD_PROCESS_PROVIDER_METHODS.has(expression.name.text)) return false;
-  return (
-    (ts.isIdentifier(expression.expression) &&
-      bindings.namespaces.has(expression.expression.text)) ||
-    isChildProcessLoaderCall(expression.expression)
-  );
-}
-
-function isBunProviderSpawn(node) {
-  if (
-    !ts.isPropertyAccessExpression(node.expression) ||
-    !ts.isIdentifier(node.expression.expression) ||
-    node.expression.expression.text !== "Bun" ||
-    node.expression.name.text !== "spawn"
-  ) {
-    return false;
-  }
-  const [command] = node.arguments;
-  return (
-    ts.isArrayLiteralExpression(command) &&
-    command.elements.length > 0 &&
-    isProviderCliLiteral(command.elements[0])
-  );
-}
-
-function isProcessKillCall(node) {
-  return (
-    ts.isPropertyAccessExpression(node.expression) &&
-    ts.isIdentifier(node.expression.expression) &&
-    node.expression.expression.text === "process" &&
-    node.expression.name.text === "kill"
-  );
-}
-
-function hasProviderCliProcessOrKill(source) {
-  const parsed = sourceFile("provider-process.ts", source);
-  const bindings = collectChildProcessBindings(parsed);
+function hasProviderCliSpawn(filePath, source) {
+  const parsed = parseSource(filePath, source);
+  const bindings = childProcessBindings(parsed);
   let found = false;
   const visit = (node) => {
-    if (ts.isCallExpression(node)) {
-      found ||=
-        isProcessKillCall(node) ||
-        (isChildProcessProviderCall(node, bindings) &&
-          node.arguments.length > 0 &&
-          isProviderCliLiteral(node.arguments[0])) ||
-        isBunProviderSpawn(node);
+    if (ts.isCallExpression(node) && node.arguments.length > 0) {
+      const expression = node.expression;
+      const imported =
+        ts.isIdentifier(expression) && bindings.functions.has(expression.text);
+      const namespace =
+        ts.isPropertyAccessExpression(expression) &&
+        PROVIDER_CLI_METHODS.has(expression.name.text) &&
+        ts.isIdentifier(expression.expression) &&
+        bindings.namespaces.has(expression.expression.text);
+      if ((imported || namespace) && providerCliLiteral(node.arguments[0])) {
+        found = true;
+      }
+      if (
+        ts.isPropertyAccessExpression(expression) &&
+        ts.isIdentifier(expression.expression) &&
+        expression.expression.text === "Bun" &&
+        expression.name.text === "spawn" &&
+        ts.isArrayLiteralExpression(node.arguments[0]) &&
+        providerCliLiteral(node.arguments[0].elements[0])
+      ) {
+        found = true;
+      }
     }
     ts.forEachChild(node, visit);
   };
@@ -785,17 +470,35 @@ function hasProviderCliProcessOrKill(source) {
   return found;
 }
 
-function hasNginxInternalAgentRuntimeDenyBoundary(source) {
-  const location = /location\s+\^~\s+\/internal\/\s*\{/g;
+function imageSurface(filePath) {
+  return (
+    filePath === "apps/server/Dockerfile" ||
+    /^deploy\/docker\/[^/]*Dockerfile$/i.test(filePath)
+  );
+}
+
+function publicInternalRuntimeRoute(filePath, source) {
+  return (
+    filePath.startsWith("apps/server/src/") &&
+    /(?:["']\/?(?:api|public)\/internal\/agent-runtime|["']\/?internal\/agent-runtime(?:-public|\/public))/.test(
+      source,
+    )
+  );
+}
+
+function nginxDeniesInternalRoutes(source) {
+  const locations = /location\s+\^~\s+\/internal\/\s*\{/g;
   let match;
-  while ((match = location.exec(source))) {
-    const openBrace = source.indexOf("{", match.index);
+  while ((match = locations.exec(source))) {
+    const start = source.indexOf("{", match.index);
     let depth = 0;
-    for (let index = openBrace; index < source.length; index += 1) {
+    for (let index = start; index < source.length; index += 1) {
       if (source[index] === "{") depth += 1;
       if (source[index] === "}") depth -= 1;
       if (depth === 0) {
-        if (/\breturn\s+404\s*;/.test(source.slice(openBrace, index + 1))) return true;
+        if (/\breturn\s+404\s*;/.test(source.slice(start, index + 1))) {
+          return true;
+        }
         break;
       }
     }
@@ -803,207 +506,157 @@ function hasNginxInternalAgentRuntimeDenyBoundary(source) {
   return false;
 }
 
-function hasSupersededComposeCliHome(source) {
-  return /\b(?:KIDITEM_ATTEMPT_LOGIN_HOME|kiditem-cli-home)\b/i.test(source);
-}
-
-function hasApiImageProviderCliInstallation(source) {
-  return /(?:@openai\/codex|@anthropic-ai\/claude-code)/i.test(source);
-}
-
-function hasStaleCurrentHostRunnerDocumentation(filePath, source) {
-  if (!CURRENT_HOST_RUNNER_DOCUMENTS.has(filePath)) return false;
-  if (/\b(?:KIDITEM_ATTEMPT_LOGIN_HOME|kiditem-cli-home)\b/i.test(source)) {
-    return true;
-  }
-  if (/\b4401\b/.test(source)) return true;
-  if (/\bprivate MCP socket\b/i.test(source)) return true;
-  const normalized = source.replace(/\s+/g, " ");
-  return [
-    /\b(?:API|Nest(?:JS)?)\s+(?:process|service|container|root)\s+that\s+(?:may\s+)?(?:spawn|start|run|execute|supervise)\s+(?:a\s+)?(?:Codex|Claude|CLI)\b/i,
-    /\b(?:API|Nest(?:JS)?)(?:\s+(?:process|service|container|root))?\s+owns?\s+(?:an?\s+|the\s+)?(?:Codex|Claude|CLI)\b/i,
-    /\b(?:API|Nest(?:JS)?)[^.]{0,100}\bonly process root permitted to start\s+(?:a\s+)?(?:Codex|Claude|CLI)\b/i,
-    /\b(?:API|Nest(?:JS)?)\s+(?:process|service|container|root)[^.]{0,100}\b(?:owns?|runs?|executes?|supervises?)\b[^.]{0,80}\b(?:live\s+)?CLI(?:\/MCP)?\s+process/i,
-  ].some((pattern) => pattern.test(normalized));
-}
-
-function hasSupersededDirectMcpStatement(filePath, source) {
-  return (
-    /^apps\/server\/src\/agent-os\//.test(filePath) &&
-    /\b(?:private\s+MCP\s+socket|(?:incoming|MCP)\s+socket\s+adapter|socket\s+adapter)\b/i.test(
-      source,
-    )
-  );
-}
-
-function supersededRuntimeSurfaceFinding(filePath) {
-  if (filePath === SUPERSEDED_AGENT_MCP_APPLICATION_ROOT) {
-    return "superseded Agent MCP application root";
-  }
-  return SUPERSEDED_AGENT_OS_RUNTIME_SURFACES.has(filePath)
-    ? "superseded Agent OS runtime surface"
-    : null;
-}
-
-export function collectSupersededRuntimeInventoryFindings(root) {
-  return supersededRuntimeInventoryPaths()
-    .filter((relativePath) => existsSync(path.join(root, relativePath)))
-    .map((relativePath) => `${relativePath}: ${supersededRuntimeSurfaceFinding(relativePath)}`)
-    .sort();
-}
-
-export function supersededRuntimeInventoryPaths() {
-  return [
-    ...SUPERSEDED_AGENT_OS_RUNTIME_SURFACES,
-    SUPERSEDED_AGENT_MCP_APPLICATION_ROOT,
-  ].sort();
-}
-
-function findingsFor({ path: filePath, source }) {
+function findingsFor(file) {
+  const { path: filePath, source } = file;
   const findings = [];
-  const isAgentOsSource = /^apps\/server\/src\/agent-os\//.test(filePath);
-  const isServerSource = /^apps\/server\/src\//.test(filePath);
-  const supersededRuntimeSurface = supersededRuntimeSurfaceFinding(filePath);
-
-  if (supersededRuntimeSurface) findings.push(supersededRuntimeSurface);
-
-  if (filePath === "apps/server/package.json") {
-    findings.push(...attemptMcpPackageFindings(source));
+  if (
+    RETIRED_APPLICATIONS.some(
+      (retired) => filePath === retired || filePath.startsWith(retired + "/"),
+    )
+  ) {
+    findings.push("retired Agent runtime application");
   }
-  if (isAgentOsSource && /@modelcontextprotocol\/sdk(?:\/|["'])/.test(source)) {
-    findings.push("MCP v1 source import");
-  }
-  if (isAgentOsSource && /@modelcontextprotocol\/core(?:\/|["'])/.test(source)) {
-    findings.push("MCP core source import");
-  }
-  if (isServerSource && hasUdsOrStdioRelay(source)) {
-    findings.push("API-owned UDS/stdio relay");
-  }
-  if (isServerSource && hasCustomMcpRelay(filePath, source)) {
-    findings.push("API-owned MCP relay");
+  if (retiredLifecycleName(filePath, source)) {
+    findings.push("retired Agent OS lifecycle name");
   }
   if (
-    /^(?:apps\/server\/(?:\.env\.example|Dockerfile)|deploy\/office\/compose\.office\.yml|docker-compose(?:\.[^/]+)?\.ya?ml)$/.test(
+    agentOsSource(filePath) &&
+    sourceHas(
+      /(?:publish[-_]?agent[-_]?(?:version|definition)|agent[-_]?(?:version|definition)[-_]?publication)/i,
       filePath,
-    ) &&
-    /(?:KIDITEM_ATTEMPT_LOGIN_HOME|CODEX_HOME|CLAUDE_CONFIG_DIR|\b(?:codex|claude)\b[^\n]*(?:login|auth))/i.test(
       source,
     )
   ) {
-    findings.push("API login-home/provider-login configuration");
+    findings.push("retired Agent OS publication surface");
   }
   if (
-    isServerSource &&
-    /\b(?:KIDITEM_ATTEMPT_LOGIN_HOME|KIDITEM_ATTEMPT_CLI_VERSION)\b/.test(source)
+    /^apps\/server\/src\/agent-os\/adapter\/in\/http\//.test(filePath) &&
+    /(?:task|attempt)/i.test(filePath + "\n" + source)
   ) {
-    findings.push("API login-home/provider-login configuration");
+    findings.push("retired Task/Attempt route");
   }
   if (
-    filePath === "apps/server/Dockerfile" &&
-    /\b(?:codex|claude)\s+--version\b/i.test(source)
+    /(?:^|\/)seed[-_]?agent(?:[-_]?os)?\.(?:[cm]?js|ts)$/i.test(filePath) ||
+    /\bseedAgent(?:Os|Version|Definition)\b/.test(source)
   ) {
-    findings.push("API image provider CLI assertion");
+    findings.push("retired Agent OS seed surface");
   }
   if (
-    filePath === "apps/server/Dockerfile" &&
-    hasApiImageProviderCliInstallation(source)
+    agentOsSource(filePath) &&
+    sourceHas(
+      /(?:Capability|Execution|Agent)[-_]?Grant|grant(?:Capability|Execution|Agent)/,
+      filePath,
+      source,
+    )
   ) {
-    findings.push("API image provider CLI installation");
+    findings.push("retired capability grant surface");
   }
   if (
-    filePath === "deploy/office/compose.office.yml" &&
-    hasSupersededComposeCliHome(source)
+    agentOsSource(filePath) &&
+    /\b(?:Continue(?:Attempt|Task|Invocation)?|needs_continue|continue_attempt|continue[A-Z]\w*)\b/.test(
+      source,
+    )
   ) {
-    findings.push("superseded Compose CLI-home volume");
-  }
-  if (isServerSource) {
-    const hasProviderCliProcess = hasProviderCliProcessOrKill(source);
-    if (
-      hasProviderCliProcess ||
-      (!SERVER_CHILD_PROCESS_ALLOWLIST.has(filePath) &&
-        hasChildProcessBinding(filePath, source))
-    ) {
-      findings.push("API-owned CLI process supervision");
-    }
-  }
-  if (isServerSource && hasProcInspection(filePath, source)) {
-    findings.push("API runtime Linux peer-process inspection");
+    findings.push("retired Continue surface");
   }
   if (
-    filePath.startsWith("apps/agent-runner/") &&
-    /(?:\b(?:createServer|listen)\s*\(|\.listen\s*\()/i.test(source)
+    agentOsSource(filePath) &&
+    sourceHas(
+      /(?:mutation[-_ ]?dispatcher|MutationDispatcher|dispatchMutation)/i,
+      filePath,
+      source,
+    )
   ) {
-    findings.push("Runner inbound listener or LAN exposure");
+    findings.push("retired mutation dispatcher");
   }
   if (
-    filePath === "packages/shared/src/agent-runtime/control.ts" &&
-    hasRawLaunchField(filePath, source)
+    agentOsSource(filePath) &&
+    sourceHas(
+      /(?:approval[-_ ]?sweeper|ApprovalSweeper|sweep(?:Pending)?Approvals)/i,
+      filePath,
+      source,
+    )
   ) {
-    findings.push("Runner launch authority/secret field");
+    findings.push("retired approval sweeper");
   }
-  const persistedState = persistedAgentOsStateFindings(filePath, source);
-  if (persistedState.hasActiveSecretOrCredential) {
-    findings.push("active secret/credential persistence");
+  if (
+    agentOsSource(filePath) &&
+    sourceHas(
+      /(?:pending[-_ ]?invocation[-_ ]?(?:recovery|recover)|recover(?:Pending)?Invocation|resume(?:Pending)?Invocation)/i,
+      filePath,
+      source,
+    )
+  ) {
+    findings.push("pending Invocation recovery");
   }
-  if (persistedState.hasEphemeralRunnerControl) {
-    findings.push("ephemeral Runner control-state persistence");
+  if (filePath !== "scripts/check-agent-os-contraction.mjs" && /\b4401\b/.test(source)) {
+    findings.push("retired runtime port 4401");
   }
-  if (hasForbiddenAgentVersionState(filePath, source)) {
-    findings.push("provider/model state on AgentVersion");
+  if (filePath === "apps/server/package.json" && hasProviderCliPackage(source)) {
+    findings.push("API/worker provider CLI package");
   }
-  if (hasForbiddenCapabilityDefinitionState(filePath, source)) {
-    findings.push("provider/model state on CapabilityDefinition");
+  if (
+    filePath.startsWith("apps/server/src/") &&
+    hasProviderCliSpawn(filePath, source)
+  ) {
+    findings.push("API/worker provider CLI spawn");
   }
-  if (hasDuplicateRuntimeContract(filePath, source)) {
-    findings.push("duplicate runtime train/platform contract");
+  if (
+    imageSurface(filePath) &&
+    /(?:@openai\/codex|@anthropic-ai\/claude-code|\b(?:codex|claude)(?:\.exe)?\s+(?:--version|login|exec))/i.test(
+      source,
+    )
+  ) {
+    findings.push("API/worker image contains a provider CLI");
   }
-  if (hasDuplicateRunnerIngressContract(filePath, source)) {
-    findings.push("duplicate Runner control ingress contract");
-  }
-  if (isServerSource && hasInternalAgentRuntimeRouteOutsidePrefix(source)) {
-    findings.push("Agent runtime route outside internal prefix");
+  if (publicInternalRuntimeRoute(filePath, source)) {
+    findings.push("public internal runtime route");
   }
   if (
     filePath === "deploy/office/nginx.conf" &&
-    !hasNginxInternalAgentRuntimeDenyBoundary(source)
+    !nginxDeniesInternalRoutes(source)
   ) {
-    findings.push("nginx internal Agent runtime deny boundary");
+    findings.push("public internal runtime route");
   }
-  if (hasStaleCurrentHostRunnerDocumentation(filePath, source)) {
-    findings.push("stale current Host Runner documentation");
-  }
-  if (hasSupersededDirectMcpStatement(filePath, source)) {
-    findings.push("superseded direct-MCP statement");
-  }
-  return findings.map((finding) => `${filePath}: ${finding}`);
+  return findings.map((finding) => filePath + ": " + finding);
 }
 
 export function collectAgentOsContractionFindings(files) {
-  return files.flatMap(findingsFor);
+  const findings = files.flatMap(findingsFor);
+  findings.push(...prismaFindings(files));
+
+  const agents = files.find((file) => file.path === AGENT_REGISTRY);
+  if (agents) findings.push(...agentCatalogFindings(agents));
+
+  const domains = files.find((file) => file.path === DOMAIN_REGISTRY);
+  if (domains) findings.push(...domainCatalogFindings(domains));
+
+  findings.push(...capabilityCatalogFindings(files));
+
+  const mcp = files.find((file) => file.path === MCP_WIRE);
+  if (mcp) findings.push(...mcpCatalogFindings(mcp));
+
+  return [...new Set(findings)].sort();
 }
 
 export function contractionRoots(root) {
   return [
-    path.join(root, "apps/server/src"),
-    path.join(root, "apps/server/.env.example"),
+    path.join(root, "apps"),
     path.join(root, "apps/server/package.json"),
     path.join(root, "apps/server/Dockerfile"),
-    path.join(root, "apps/agent-runner"),
-    path.join(root, "packages/shared/src/agent-runtime"),
+    path.join(root, "packages/shared/src"),
     path.join(root, "prisma/models"),
-    path.join(root, "deploy/office/nginx.conf"),
-    path.join(root, "deploy/office/compose.office.yml"),
-    path.join(root, "docker-compose.yml"),
-    path.join(root, "AGENTS.md"),
-    path.join(root, "apps/server/src/agent-os/AGENTS.md"),
-    path.join(root, "docs/ARCHITECTURE.md"),
-    path.join(root, "docs/TESTING.md"),
-    path.join(root, "docs/runbooks/deployment-architecture.md"),
-    path.join(root, "docs/runbooks/environment-variables.md"),
-    path.join(root, "docs/runbooks/interaction-platform.md"),
-    path.join(root, "docs/runbooks/office-deploy.md"),
-    path.join(root, "docs/runbooks/agent-os-clean-cutover.md"),
+    path.join(root, "scripts"),
+    path.join(root, "deploy"),
+    path.join(root, ".github/workflows"),
+    path.join(root, "package.json"),
   ];
+}
+
+export function collectContractionInventoryFindings(root) {
+  return RETIRED_APPLICATIONS.filter((relativePath) =>
+    existsSync(path.join(root, relativePath)),
+  ).map((relativePath) => relativePath + ": retired Agent runtime application");
 }
 
 function main() {
@@ -1012,21 +665,26 @@ function main() {
     throw new Error("Use --report or --enforce");
   }
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  const findings = [...new Set([
-    ...collectAgentOsContractionFindings(
-      contractionRoots(root)
-        .flatMap(productionFiles)
-        .map((file) => ({
-          path: path.relative(root, file),
-          source: readFileSync(file, "utf8"),
-        })),
-    ),
-    ...collectSupersededRuntimeInventoryFindings(root),
-  ])].sort();
+  const absoluteFiles = [...new Set(contractionRoots(root).flatMap(productionFiles))];
+  const files = absoluteFiles.map((absolutePath) => ({
+    path: path.relative(root, absolutePath),
+    source: readFileSync(absolutePath, "utf8"),
+  }));
+  const findings = [
+    ...new Set([
+      ...collectAgentOsContractionFindings(files),
+      ...collectContractionInventoryFindings(root),
+    ]),
+  ].sort();
+
   console.log(
-    `check:agent-os-contraction ${mode.toUpperCase()} (${findings.length} findings)`,
+    "check:agent-os-contraction " +
+      mode.toUpperCase() +
+      " (" +
+      findings.length +
+      " findings)",
   );
-  for (const finding of findings) console.log(`- ${finding}`);
+  for (const finding of findings) console.log("- " + finding);
   if (mode === "enforce" && findings.length > 0) process.exitCode = 1;
 }
 

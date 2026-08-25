@@ -368,7 +368,7 @@ erDiagram
 | Organization | organization | referenced by external | Advertising | AdAction |
 | Organization | organization | referenced by external | Advertising | ExecutionWorker |
 | Organization | organization | referenced by external | Advertising | ScrapeTarget |
-| Organization | organization | referenced by external | AgentOS | AgentSession |
+| Organization | organization | referenced by external | AgentOS | CapabilityInvocation |
 | Organization | organization | referenced by external | AI | AiDirectJob |
 | Organization | organization | referenced by external | AI | ContentAsset |
 | Organization | organization | referenced by external | AI | ContentGeneration |
@@ -493,6 +493,7 @@ erDiagram
 | User | activeSyncOwner | referenced by external | Inventory | SellpiaInventoryState |
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
 | User | actorUser | referenced by external | System | Alert |
+| User | approvalDecidedByUser | referenced by external | AgentOS | CapabilityInvocation |
 | User | approvedByUser | referenced by external | AI | ProductPreparation |
 | User | assigneeUser | referenced by external | System | ActionTask |
 | User | claimedBy | referenced by external | AI | DetailPageImageRenderIntent |
@@ -506,10 +507,8 @@ erDiagram
 | User | createdByUser | referenced by external | AI | DetailPageRevision |
 | User | createdByUser | referenced by external | AI | ProductPreparation |
 | User | createdByUser | referenced by external | Sourcing | SourcingLaunchCandidate |
-| User | creator | referenced by external | AgentOS | AgentSession |
 | User | creator | referenced by external | Orders | SellpiaOrderTransmissionIntent |
-| User | decidedByUser | referenced by external | AgentOS | AgentCapabilityApproval |
-| User | initiatingUser | referenced by external | AgentOS | AgentCapabilityInvocation |
+| User | initiatingUser | referenced by external | AgentOS | CapabilityInvocation |
 | User | reconciler | referenced by external | Orders | SellpiaOrderTransmissionIntentReconciliation |
 | User | reconciler | referenced by external | Supply | PurchaseOrderSubmissionAttempt |
 | User | rejectedByUser | referenced by external | Sourcing | SourcingCandidate |

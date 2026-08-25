@@ -97,9 +97,9 @@ No direct/1688/status/read-or-compute paths. Cancellation never reactivates.
 ## Scrape Runtime
 
 `/api/sourcing/scrape-url` starts the Sourcing-owned `sourcing.scrape_url`
-Operation. Official AgentSession capabilities create one session-owned child
-Operation through `AGENT_SESSION_OWNED_OPERATION_PORT`; they never manufacture
-an AgentRun or fall back to the generic runner. The Operation handler calls
+Operation. Agent-facing capabilities enqueue the same owner Operation with the
+exact admitted idempotency key; they never manufacture provider runtime work or
+fall back to a generic runner. The Operation handler calls
 `SourcingPlaywrightRuntimeHandler`, which opens Playwright Chromium with a persistent
 profile and runs approved deterministic extractors, reusing
 `extensions/kiditem-os/content/sourcing/extractors/*` as reviewed reference
@@ -161,12 +161,14 @@ incoming ports. The exact ten are:
 - Operation-backed: `sourcing.scrapeUrlWorkflow`,
   `sourcing.refreshCollection`, `sourcing.collect_shadow_signals`.
 
-All ten are AgentVersion/MCP-discoverable with an exact context and grant.
-Required-idempotency mutations pass the exact owner key to the final Sourcing
-DB or Operation boundary. Agent OS only aggregates and routes them.
+All ten are discoverable through the code-owned registry and private MCP
+catalog. Required-idempotency mutations pass the exact owner key to the final
+Sourcing DB or Operation boundary. Agent OS only aggregates, admits, and routes
+them.
 
-The dashboard opens the shared Interaction Surface with the Sourcing agent;
-Sourcing owns no local assistant endpoint, transcript, or CLI subprocess path.
+The dashboard opens the shared conversation workspace with the fixed Sourcing
+Agent; Sourcing owns no local assistant endpoint, transcript, or CLI subprocess
+path.
 
 Agent OS and automation reach sourcing through incoming capability ports, not
 by importing sourcing application services.

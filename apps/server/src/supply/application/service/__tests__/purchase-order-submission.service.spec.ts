@@ -1,5 +1,6 @@
 import { AppException } from '@kiditem/shared/server-errors';
 import { describe, expect, it, vi } from 'vitest';
+import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import {
   PurchaseOrderCheckoutProviderFailedError,
 } from '../../port/out/runtime/purchase-order-checkout-runtime.port';
@@ -20,6 +21,41 @@ function snapshot() {
       quantity: 2,
       unitPriceCny: '22.80',
     }],
+  };
+}
+
+function submissionInput(input: {
+  organizationId?: string;
+  purchaseOrderId?: string;
+  idempotencyKey?: string;
+  userId?: string;
+  requestHash?: string;
+  externalOrderPlatform?: string | null;
+  externalOrderId?: string | null;
+  externalOrderUrl?: string | null;
+} = {}) {
+  const value = {
+    organizationId: 'org-1',
+    purchaseOrderId: ORDER_ID,
+    idempotencyKey: 'submit-1',
+    userId: 'user-1',
+    ...input,
+  };
+  const businessInput = {
+    purchaseOrderId: value.purchaseOrderId,
+    ...(value.externalOrderPlatform !== undefined && {
+      externalOrderPlatform: value.externalOrderPlatform,
+    }),
+    ...(value.externalOrderId !== undefined && {
+      externalOrderId: value.externalOrderId,
+    }),
+    ...(value.externalOrderUrl !== undefined && {
+      externalOrderUrl: value.externalOrderUrl,
+    }),
+  };
+  return {
+    ...value,
+    requestHash: value.requestHash ?? canonicalOwnerInputHash(businessInput),
   };
 }
 
@@ -95,15 +131,12 @@ function harness(options: { runtime?: boolean } = {}) {
 describe('PurchaseOrderSubmissionService', () => {
   it('allows preparation while stale but never enters ordered before the freshness gate', async () => {
     const { service, procurement, freshness, transaction } = harness();
-
-    await service.submit({
-      organizationId: 'org-1',
-      purchaseOrderId: ORDER_ID,
-      idempotencyKey: 'submit-1',
-      userId: 'user-1',
+    const input = submissionInput({
       externalOrderPlatform: 'MANUAL',
       externalOrderId: 'manual-1',
     });
+
+    await service.submit(input);
 
     expect(transaction.prepareDraft).toHaveBeenCalledWith({
       organizationId: 'org-1',
@@ -129,6 +162,7 @@ describe('PurchaseOrderSubmissionService', () => {
       purchaseOrderId: ORDER_ID,
       sellpiaInventorySkuIds: [SELLPIA_SKU_ID],
       idempotencyKey: 'submit-1',
+      requestHash: input.requestHash,
       userId: 'user-1',
       freshnessFence: '00000000-0000-4000-8000-000000000099',
       freshnessLastVerifiedAt: '2026-07-16T00:00:00.000Z',
@@ -145,12 +179,21 @@ describe('PurchaseOrderSubmissionService', () => {
   it('rejects a whitespace-only key before any draft mutation or lookup', async () => {
     const { service, procurement, freshness, transaction } = harness();
 
-    await expect(service.submit({
-      organizationId: 'org-1',
-      purchaseOrderId: ORDER_ID,
+    await expect(service.submit(submissionInput({
       idempotencyKey: '   ',
-      userId: 'user-1',
-    })).rejects.toThrow('idempotency');
+    }))).rejects.toThrow('idempotency');
+
+    expect(transaction.prepareDraft).not.toHaveBeenCalled();
+    expect(procurement.getPurchaseOrderCheckoutSnapshot).not.toHaveBeenCalled();
+    expect(freshness.assertFreshAndActive).not.toHaveBeenCalled();
+  });
+
+  it('rejects an owner request hash that does not bind the canonical business input', async () => {
+    const { service, procurement, freshness, transaction } = harness();
+
+    await expect(service.submit(submissionInput({
+      requestHash: canonicalOwnerInputHash({ purchaseOrderId: 'different-order' }),
+    }))).rejects.toThrow('canonical input');
 
     expect(transaction.prepareDraft).not.toHaveBeenCalled();
     expect(procurement.getPurchaseOrderCheckoutSnapshot).not.toHaveBeenCalled();
@@ -163,12 +206,9 @@ describe('PurchaseOrderSubmissionService', () => {
       new AppException(403, 'UNAUTHORIZED', 'inactive actor'),
     );
 
-    await expect(service.submit({
-      organizationId: 'org-1',
-      purchaseOrderId: ORDER_ID,
-      idempotencyKey: 'submit-1',
+    await expect(service.submit(submissionInput({
       userId: 'inactive-user',
-    })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    }))).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
 
     expect(procurement.getPurchaseOrderCheckoutSnapshot).not.toHaveBeenCalled();
     expect(transaction.prepare).not.toHaveBeenCalled();
@@ -180,12 +220,9 @@ describe('PurchaseOrderSubmissionService', () => {
       new AppException(422, 'PURCHASE_REFERENCE_INVALID', 'invalid reference'),
     );
 
-    await expect(service.submit({
+    await expect(service.submit(submissionInput({
       organizationId: 'other-org',
-      purchaseOrderId: ORDER_ID,
-      idempotencyKey: 'submit-1',
-      userId: 'user-1',
-    })).rejects.toMatchObject({ code: 'PURCHASE_REFERENCE_INVALID' });
+    }))).rejects.toMatchObject({ code: 'PURCHASE_REFERENCE_INVALID' });
 
     expect(procurement.getPurchaseOrderCheckoutSnapshot).not.toHaveBeenCalled();
     expect(transaction.prepare).not.toHaveBeenCalled();
@@ -194,12 +231,7 @@ describe('PurchaseOrderSubmissionService', () => {
   it('commits a prepared intent before calling the provider and forwards the same key', async () => {
     const { service, transaction, runtime } = harness({ runtime: true });
 
-    const result = await service.submit({
-      organizationId: 'org-1',
-      purchaseOrderId: ORDER_ID,
-      idempotencyKey: 'submit-1',
-      userId: 'user-1',
-    });
+    const result = await service.submit(submissionInput());
 
     expect(transaction.prepare).toHaveBeenCalledBefore(runtime.submit);
     expect(runtime.submit).toHaveBeenCalledWith({
@@ -243,12 +275,7 @@ describe('PurchaseOrderSubmissionService', () => {
       },
     });
 
-    await expect(service.submit({
-      organizationId: 'org-1',
-      purchaseOrderId: ORDER_ID,
-      idempotencyKey: 'submit-1',
-      userId: 'user-1',
-    })).rejects.toMatchObject({
+    await expect(service.submit(submissionInput())).rejects.toMatchObject({
       code: 'PURCHASE_SUBMISSION_RECONCILIATION_REQUIRED',
     });
     expect(runtime.submit).not.toHaveBeenCalled();
@@ -258,12 +285,7 @@ describe('PurchaseOrderSubmissionService', () => {
     const { service, transaction, runtime } = harness({ runtime: true });
     runtime.submit.mockRejectedValue(new Error('socket timed out after send'));
 
-    await expect(service.submit({
-      organizationId: 'org-1',
-      purchaseOrderId: ORDER_ID,
-      idempotencyKey: 'submit-1',
-      userId: 'user-1',
-    })).rejects.toMatchObject({
+    await expect(service.submit(submissionInput())).rejects.toMatchObject({
       code: 'PURCHASE_SUBMISSION_RECONCILIATION_REQUIRED',
     });
     expect(transaction.markProviderUnknown).toHaveBeenCalledWith({
@@ -286,12 +308,8 @@ describe('PurchaseOrderSubmissionService', () => {
       ),
     );
 
-    await expect(service.submit({
-      organizationId: 'org-1',
-      purchaseOrderId: ORDER_ID,
-      idempotencyKey: 'submit-1',
-      userId: 'user-1',
-    })).rejects.toThrow('1688 checkout provider failed with status 422.');
+    await expect(service.submit(submissionInput()))
+      .rejects.toThrow('1688 checkout provider failed with status 422.');
     expect(transaction.completeProviderFailure).toHaveBeenCalledWith({
       organizationId: 'org-1',
       purchaseOrderId: ORDER_ID,
@@ -329,12 +347,8 @@ describe('PurchaseOrderSubmissionService', () => {
       new AppException(409, 'SELLPIA_SYNC_REQUIRED', 'fresh snapshot required'),
     );
 
-    await expect(service.submit({
-      organizationId: 'org-1',
-      purchaseOrderId: ORDER_ID,
-      idempotencyKey: 'submit-1',
-      userId: 'user-1',
-    })).rejects.toMatchObject({ code: 'SELLPIA_SYNC_REQUIRED' });
+    await expect(service.submit(submissionInput()))
+      .rejects.toMatchObject({ code: 'SELLPIA_SYNC_REQUIRED' });
     expect(transaction.prepare).not.toHaveBeenCalled();
     expect(runtime.submit).not.toHaveBeenCalled();
   });

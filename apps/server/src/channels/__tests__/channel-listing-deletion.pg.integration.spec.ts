@@ -139,7 +139,8 @@ describe("ChannelListingDeletionOperation (PG integration)", () => {
       sourceCandidateId: candidateId,
       idempotencyKey: preparation.submissionKey,
       requestHash: "a".repeat(64),
-      ownerIdempotencyKey: "1".repeat(64),
+      ownerIdempotencyKey:
+        "capability-invocation:00000000-0000-4000-8000-000000000001",
     };
 
     const claims = await Promise.all([
@@ -173,7 +174,8 @@ describe("ChannelListingDeletionOperation (PG integration)", () => {
     await expect(
       registration.claimProviderWrite({
         ...input,
-        ownerIdempotencyKey: "2".repeat(64),
+        ownerIdempotencyKey:
+          "capability-invocation:00000000-0000-4000-8000-000000000002",
       }),
     ).rejects.toThrow("owner idempotency key conflicted");
   });
@@ -182,7 +184,8 @@ describe("ChannelListingDeletionOperation (PG integration)", () => {
     const registration = new MarketplaceRegistrationRepositoryAdapter(
       prisma as unknown as PrismaService,
     );
-    const ownerIdempotencyKey = "3".repeat(64);
+    const ownerIdempotencyKey =
+      "capability-invocation:00000000-0000-4000-8000-000000000003";
     const externalListingId = "16311428128";
     const input = {
       organizationId: TEST_ORGANIZATION_ID,
@@ -271,7 +274,8 @@ describe("ChannelListingDeletionOperation (PG integration)", () => {
     const registration = new MarketplaceRegistrationRepositoryAdapter(
       prisma as unknown as PrismaService,
     );
-    const ownerIdempotencyKey = "4".repeat(64);
+    const ownerIdempotencyKey =
+      "capability-invocation:00000000-0000-4000-8000-000000000004";
     const ownerRequestHash = "a".repeat(64);
     const ours = {
       organizationId: TEST_ORGANIZATION_ID,
@@ -338,7 +342,7 @@ describe("ChannelListingDeletionOperation (PG integration)", () => {
     ).resolves.toBe(1);
   });
 
-  it("requires canonical SHA-256 owner receipt identifiers before listing resolution", async () => {
+  it("requires a CapabilityInvocation owner key and canonical request hash before listing resolution", async () => {
     const registration = new MarketplaceRegistrationRepositoryAdapter(
       prisma as unknown as PrismaService,
     );
@@ -350,7 +354,8 @@ describe("ChannelListingDeletionOperation (PG integration)", () => {
       externalListingId: "16311428128",
       displayName: "Canonical receipt listing",
       ownerCapabilityKey: "channels.register_confirmed_listing" as const,
-      ownerIdempotencyKey: "5".repeat(64),
+      ownerIdempotencyKey:
+        "capability-invocation:00000000-0000-4000-8000-000000000005",
       ownerRequestHash: "a".repeat(64),
     };
 
@@ -358,7 +363,7 @@ describe("ChannelListingDeletionOperation (PG integration)", () => {
       prisma.$transaction((tx) =>
         registration.resolveProductRegistrationWithOwnerReceipt(tx, {
           ...input,
-          ownerIdempotencyKey: "not-a-canonical-sha256-key",
+          ownerIdempotencyKey: "not-a-capability-invocation-key",
         }),
       ),
     ).rejects.toThrow("Channels registration owner receipt is invalid");

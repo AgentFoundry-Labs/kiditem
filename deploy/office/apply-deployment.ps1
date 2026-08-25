@@ -2,7 +2,7 @@
 
 [CmdletBinding()]
 param(
-  [ValidateSet('Deploy', 'CutoverDeploy', 'Status', 'Rollback', 'RotateRunnerToken', 'InstallOrUpdateRunnerTask')]
+  [ValidateSet('Deploy', 'CutoverDeploy', 'Status', 'Rollback', 'RotateGatewayToken', 'InstallOrUpdateGatewayTask')]
   [string]$Operation = 'Status',
   [string]$ManifestPath,
   [string]$RepoRoot = 'C:\workspace\kiditem',
@@ -15,19 +15,19 @@ param(
   [switch]$ConfirmCutoverDeploy,
   [ValidateRange(30, 900)]
   [int]$HealthTimeoutSeconds = 300,
-  # Used only by -Operation InstallOrUpdateRunnerTask. The deployment never
+  # Used only by -Operation InstallOrUpdateGatewayTask. The deployment never
   # creates this local account or reads provider login material. Supply this
   # object from an interactive Get-Credential prompt or approved in-memory
   # secret provider, never from argv, an environment value, or an Office env.
-  [string]$RunnerServiceAccount = 'KidItemAgentRunner',
-  [pscredential]$RunnerTaskCredential
+  [string]$GatewayServiceAccount = 'KidItemAgentGateway',
+  [pscredential]$GatewayTaskCredential
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# This is a release-contract constant, deliberately not an operator or Runner
-# config input.  The Host Runner only admits descendants of this exact anchor.
+# This is a release-contract constant, deliberately not an operator or Gateway
+# config input.  The Host Gateway only admits descendants of this exact anchor.
 $script:OfficeRoot = 'C:\ProgramData\KidItem'
 $script:ComposePath = Join-Path $script:OfficeRoot 'compose.office.yml'
 $script:OfficeEnvPath = Join-Path $script:OfficeRoot '.env.office'
@@ -38,16 +38,16 @@ $script:PreviousManifestPath = Join-Path $script:DeploymentsRoot 'previous.json'
 $script:ComposeArgs = @()
 # Keep a configured domain identity intact.  A bare name is explicitly local
 # and is resolved to its SID before it is ever granted ACLs or scheduled.
-$script:RunnerServiceAccount = if ($RunnerServiceAccount -match '[\\@]') { $RunnerServiceAccount } else { "$env:COMPUTERNAME\$RunnerServiceAccount" }
-$script:RunnerServicePrincipal = $null
-$script:RunnerTaskName = 'KidItem Agent Runner'
-$script:RunnerRoot = Join-Path $script:OfficeRoot 'agent-runner'
-$script:RunnerReleasesRoot = Join-Path $script:RunnerRoot 'releases'
-$script:RunnerCurrentPointerPath = Join-Path $script:RunnerRoot 'current.json'
-$script:RunnerAttemptRoot = Join-Path $script:RunnerRoot 'attempts'
-$script:RunnerTokenPath = Join-Path $script:OfficeRoot 'secrets\agent-runner-token'
-$script:RunnerConfigName = 'runner-config.json'
-$script:RunnerLauncherPath = Join-Path $script:RunnerRoot 'runner-launcher.cjs'
+$script:GatewayServiceAccount = if ($GatewayServiceAccount -match '[\\@]') { $GatewayServiceAccount } else { "$env:COMPUTERNAME\$GatewayServiceAccount" }
+$script:GatewayServicePrincipal = $null
+$script:GatewayTaskName = 'KidItem Agent Gateway'
+$script:GatewayRoot = Join-Path $script:OfficeRoot 'agent-gateway'
+$script:GatewayReleasesRoot = Join-Path $script:GatewayRoot 'releases'
+$script:GatewayCurrentPointerPath = Join-Path $script:GatewayRoot 'current.json'
+$script:GatewayStateRoot = Join-Path $script:GatewayRoot 'state'
+$script:GatewayTokenPath = Join-Path $script:OfficeRoot 'secrets\agent-gateway-token'
+$script:GatewayConfigName = 'gateway-config.json'
+$script:GatewayLauncherPath = Join-Path $script:GatewayRoot 'gateway-launcher.cjs'
 
 function Assert-OfficeRootAnchor {
   # Do not accept a redirected ProgramData, UNC/device spelling, a different
@@ -199,18 +199,18 @@ function Read-DeploymentManifest {
   $manifest = $raw | ConvertFrom-Json
   Assert-ManifestShape -Value $manifest -Expected @(
     'schemaVersion', 'environment', 'sourceRef', 'gitSha', 'appVersion',
-    'apiImage', 'apiDigest', 'webImage', 'webDigest', 'runnerArtifact',
-    'runnerArtifactSha256', 'runnerRuntime', 'createdAt', 'workflowRunUrl'
+    'apiImage', 'apiDigest', 'webImage', 'webDigest', 'gatewayArtifact',
+    'gatewayArtifactSha256', 'gatewayRuntime', 'createdAt', 'workflowRunUrl'
   ) -Label 'deployment manifest'
   Assert-ManifestIntegerField -Value $manifest -Name 'schemaVersion'
   foreach ($name in @(
     'environment', 'sourceRef', 'gitSha', 'appVersion', 'apiImage', 'apiDigest',
-    'webImage', 'webDigest', 'runnerArtifact', 'runnerArtifactSha256', 'createdAt',
+    'webImage', 'webDigest', 'gatewayArtifact', 'gatewayArtifactSha256', 'createdAt',
     'workflowRunUrl'
   )) {
     Assert-ManifestStringField -Value $manifest -Name $name
   }
-  Assert-ManifestObjectField -Value $manifest -Name 'runnerRuntime'
+  Assert-ManifestObjectField -Value $manifest -Name 'gatewayRuntime'
 
   if ($manifest.schemaVersion -ne 2 -or $manifest.environment -ne 'office') {
     throw 'Deployment manifest must use schemaVersion 2 and environment office.'
@@ -242,7 +242,7 @@ function Read-DeploymentManifest {
   if ($manifest.webImage.Split('@')[1] -ne $manifest.webDigest) {
     throw 'Web image digest does not match webDigest.'
   }
-  Assert-RunnerManifest $manifest
+  Assert-GatewayManifest $manifest
 
   return [pscustomobject]@{ Manifest = $manifest; Raw = $raw }
 }
@@ -300,26 +300,26 @@ function Assert-ManifestObjectField {
   }
 }
 
-function Assert-RunnerManifest {
+function Assert-GatewayManifest {
   param([Parameter(Mandatory = $true)][object]$Manifest)
 
-  if ($Manifest.runnerArtifact -ne 'kiditem-agent-runner-windows-x64.zip') {
-    throw 'Runner artifact filename is not the approved immutable Windows archive.'
+  if ($Manifest.gatewayArtifact -ne 'kiditem-agent-gateway-windows-x64.zip') {
+    throw 'Gateway artifact filename is not the approved immutable Windows archive.'
   }
-  if ($Manifest.runnerArtifactSha256 -notmatch '^[0-9a-f]{64}$') {
-    throw 'Runner artifact SHA-256 must be lowercase 64-hex.'
+  if ($Manifest.gatewayArtifactSha256 -notmatch '^[0-9a-f]{64}$') {
+    throw 'Gateway artifact SHA-256 must be lowercase 64-hex.'
   }
-  Assert-ManifestObjectField -Value $Manifest -Name 'runnerRuntime'
-  Assert-RunnerRuntimeContract $Manifest.runnerRuntime
+  Assert-ManifestObjectField -Value $Manifest -Name 'gatewayRuntime'
+  Assert-GatewayRuntimeContract $Manifest.gatewayRuntime
 }
 
-function Assert-RunnerRuntimeContract {
+function Assert-GatewayRuntimeContract {
   param([Parameter(Mandatory = $true)][object]$Runtime)
 
   Assert-ManifestShape -Value $Runtime -Expected @(
     'schemaVersion', 'platform', 'nodeMajor', 'controlRevision',
     'cliContractIdentity', 'mcpProtocolRevision', 'codexVersion', 'claudeVersion'
-  ) -Label 'Runner runtime contract'
+  ) -Label 'Gateway runtime contract'
   foreach ($name in @('schemaVersion', 'nodeMajor')) {
     Assert-ManifestIntegerField -Value $Runtime -Name $name
   }
@@ -331,13 +331,13 @@ function Assert-RunnerRuntimeContract {
     $Runtime.schemaVersion -ne 1 -or
     $Runtime.platform -ne 'windows' -or
     $Runtime.nodeMajor -ne 22 -or
-    $Runtime.controlRevision -ne 'kiditem-runner-control-v1' -or
+    $Runtime.controlRevision -ne 'kiditem-gateway-control-v1' -or
     $Runtime.cliContractIdentity -ne 'office-cli-contract-v2' -or
     $Runtime.mcpProtocolRevision -ne '2026-07-28' -or
     $Runtime.codexVersion -ne '0.149.1' -or
     $Runtime.claudeVersion -ne '2.1.245'
   ) {
-    throw 'Runner runtime contract does not match the approved KID-25 Windows train.'
+    throw 'Gateway runtime contract does not match the approved KID-25 Windows train.'
   }
 }
 
@@ -369,7 +369,7 @@ function Assert-RuntimePrerequisites {
     Invoke-Checked docker volume inspect $volume *> $null
   }
 
-  Assert-RunnerInstallationPrerequisites
+  Assert-GatewayInstallationPrerequisites
 }
 
 function Get-OfficeEnvValue {
@@ -385,44 +385,44 @@ function Get-OfficeEnvValue {
   throw "Protected Office env file is missing $Name."
 }
 
-function Assert-RunnerInstallationPrerequisites {
-  Assert-RunnerServiceAccount | Out-Null
-  Initialize-RunnerStorage
-  $configuredTokenPath = Get-OfficeEnvValue 'KIDITEM_AGENT_RUNNER_TOKEN_FILE'
-  if ([System.IO.Path]::GetFullPath($configuredTokenPath) -ne [System.IO.Path]::GetFullPath($script:RunnerTokenPath)) {
-    throw "KIDITEM_AGENT_RUNNER_TOKEN_FILE must be the protected Office Runner token path."
+function Assert-GatewayInstallationPrerequisites {
+  Assert-GatewayServiceAccount | Out-Null
+  Initialize-GatewayStorage
+  $configuredTokenPath = Get-OfficeEnvValue 'KIDITEM_AGENT_GATEWAY_TOKEN_FILE'
+  if ([System.IO.Path]::GetFullPath($configuredTokenPath) -ne [System.IO.Path]::GetFullPath($script:GatewayTokenPath)) {
+    throw "KIDITEM_AGENT_GATEWAY_TOKEN_FILE must be the protected Office Gateway token path."
   }
-  if (-not (Test-Path -LiteralPath $script:RunnerTokenPath -PathType Leaf)) {
-    throw "Protected Host Runner token file is missing: $script:RunnerTokenPath"
+  if (-not (Test-Path -LiteralPath $script:GatewayTokenPath -PathType Leaf)) {
+    throw "Protected Host Gateway token file is missing: $script:GatewayTokenPath"
   }
 }
 
-function Resolve-RunnerServicePrincipal {
-  if ($null -ne $script:RunnerServicePrincipal) {
-    return $script:RunnerServicePrincipal
+function Resolve-GatewayServicePrincipal {
+  if ($null -ne $script:GatewayServicePrincipal) {
+    return $script:GatewayServicePrincipal
   }
   try {
-    $account = [System.Security.Principal.NTAccount]::new($script:RunnerServiceAccount)
+    $account = [System.Security.Principal.NTAccount]::new($script:GatewayServiceAccount)
     $sid = $account.Translate([System.Security.Principal.SecurityIdentifier])
     $canonical = $sid.Translate([System.Security.Principal.NTAccount]).Value
   }
   catch {
-    throw 'Pre-provisioned dedicated Host Runner principal cannot be resolved to an exact SID.'
+    throw 'Pre-provisioned dedicated Host Gateway principal cannot be resolved to an exact SID.'
   }
   if ($sid.Value -in @('S-1-5-18', 'S-1-5-19', 'S-1-5-20', 'S-1-5-32-544')) {
-    throw 'Host Runner principal must be a dedicated least-privilege user, not a built-in service or administrator.'
+    throw 'Host Gateway principal must be a dedicated least-privilege user, not a built-in service or administrator.'
   }
-  $script:RunnerServicePrincipal = [pscustomobject]@{
+  $script:GatewayServicePrincipal = [pscustomobject]@{
     Sid = $sid
     AccountName = $canonical
   }
-  return $script:RunnerServicePrincipal
+  return $script:GatewayServicePrincipal
 }
 
-function Assert-RunnerPrincipalIsLeastPrivilege {
+function Assert-GatewayPrincipalIsLeastPrivilege {
   param([Parameter(Mandatory = $true)][object]$Principal)
 
-  # These local built-in groups can bypass the dedicated Runner boundary.  The
+  # These local built-in groups can bypass the dedicated Gateway boundary.  The
   # deployment never changes group membership; it blocks until an operator
   # provisions an account outside them.
   foreach ($groupSid in @('S-1-5-32-544', 'S-1-5-32-547', 'S-1-5-32-548', 'S-1-5-32-551')) {
@@ -430,15 +430,15 @@ function Assert-RunnerPrincipalIsLeastPrivilege {
       $members = @(Get-LocalGroupMember -SID $groupSid -ErrorAction Stop)
     }
     catch {
-      throw 'Host Runner least-privilege group membership cannot be verified.'
+      throw 'Host Gateway least-privilege group membership cannot be verified.'
     }
     if (@($members | Where-Object { $_.SID -and $_.SID.Value -eq $Principal.Sid.Value }).Count -ne 0) {
-      throw 'Host Runner principal belongs to a prohibited high-privilege local group.'
+      throw 'Host Gateway principal belongs to a prohibited high-privilege local group.'
     }
   }
 }
 
-function Assert-RunnerPrincipalProfileAndBatchLogon {
+function Assert-GatewayPrincipalProfileAndBatchLogon {
   param([Parameter(Mandatory = $true)][object]$Principal)
 
   $profileKey = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$($Principal.Sid.Value)"
@@ -447,10 +447,10 @@ function Assert-RunnerPrincipalProfileAndBatchLogon {
     $profilePath = [Environment]::ExpandEnvironmentVariables([string]$profile.ProfileImagePath)
   }
   catch {
-    throw 'Host Runner principal does not have a provisioned user profile.'
+    throw 'Host Gateway principal does not have a provisioned user profile.'
   }
   if (-not $profilePath -or -not (Test-Path -LiteralPath $profilePath -PathType Container)) {
-    throw 'Host Runner principal does not have an accessible provisioned user profile.'
+    throw 'Host Gateway principal does not have an accessible provisioned user profile.'
   }
 
   $rightsExport = [System.IO.Path]::GetTempFileName()
@@ -458,11 +458,11 @@ function Assert-RunnerPrincipalProfileAndBatchLogon {
     Invoke-Checked secedit.exe /export /cfg $rightsExport /areas USER_RIGHTS
     $batchLine = Select-String -LiteralPath $rightsExport -Pattern '^SeBatchLogonRight\s*=\s*(.*)$' | Select-Object -First 1
     if ($null -eq $batchLine) {
-      throw 'Host Runner principal does not have the required SeBatchLogonRight assignment.'
+      throw 'Host Gateway principal does not have the required SeBatchLogonRight assignment.'
     }
     $assigned = @($batchLine.Matches[0].Groups[1].Value -split ',' | ForEach-Object { $_.Trim().TrimStart('*') })
     if ($assigned -notcontains $Principal.Sid.Value) {
-      throw 'Host Runner principal does not have the required SeBatchLogonRight assignment.'
+      throw 'Host Gateway principal does not have the required SeBatchLogonRight assignment.'
     }
   }
   finally {
@@ -470,58 +470,58 @@ function Assert-RunnerPrincipalProfileAndBatchLogon {
   }
 }
 
-function Assert-RunnerServiceAccount {
-  $principal = Resolve-RunnerServicePrincipal
+function Assert-GatewayServiceAccount {
+  $principal = Resolve-GatewayServicePrincipal
   try {
     $account = Get-CimInstance -ClassName Win32_UserAccount -Filter ("SID='{0}'" -f $principal.Sid.Value) -ErrorAction Stop
   }
   catch {
-    throw 'Pre-provisioned dedicated Host Runner user cannot be verified.'
+    throw 'Pre-provisioned dedicated Host Gateway user cannot be verified.'
   }
   if ($null -eq $account -or $account.Disabled) {
-    throw 'Pre-provisioned dedicated Host Runner user is missing or disabled.'
+    throw 'Pre-provisioned dedicated Host Gateway user is missing or disabled.'
   }
-  Assert-RunnerPrincipalIsLeastPrivilege $principal
-  Assert-RunnerPrincipalProfileAndBatchLogon $principal
+  Assert-GatewayPrincipalIsLeastPrivilege $principal
+  Assert-GatewayPrincipalProfileAndBatchLogon $principal
   return $principal
 }
 
-function Assert-RunnerTaskCredential {
+function Assert-GatewayTaskCredential {
   param([Parameter(Mandatory = $true)][object]$Principal)
 
-  if ($null -eq $RunnerTaskCredential -or [string]::IsNullOrWhiteSpace([string]$RunnerTaskCredential.UserName)) {
-    throw 'Host Runner task requires -RunnerTaskCredential from Get-Credential; never provide the password through argv, an environment value, or an Office env file.'
+  if ($null -eq $GatewayTaskCredential -or [string]::IsNullOrWhiteSpace([string]$GatewayTaskCredential.UserName)) {
+    throw 'Host Gateway task requires -GatewayTaskCredential from Get-Credential; never provide the password through argv, an environment value, or an Office env file.'
   }
   try {
-    $credentialSid = ([System.Security.Principal.NTAccount]::new([string]$RunnerTaskCredential.UserName)).Translate([System.Security.Principal.SecurityIdentifier])
+    $credentialSid = ([System.Security.Principal.NTAccount]::new([string]$GatewayTaskCredential.UserName)).Translate([System.Security.Principal.SecurityIdentifier])
   }
   catch {
-    throw 'Host Runner task credential username cannot be resolved to an exact SID.'
+    throw 'Host Gateway task credential username cannot be resolved to an exact SID.'
   }
   if ($credentialSid.Value -ne $Principal.Sid.Value) {
-    throw 'Host Runner task credential username does not match the configured dedicated principal SID.'
+    throw 'Host Gateway task credential username does not match the configured dedicated principal SID.'
   }
-  if ([string]::IsNullOrWhiteSpace($RunnerTaskCredential.GetNetworkCredential().Password)) {
-    throw 'Host Runner task credential password is empty.'
+  if ([string]::IsNullOrWhiteSpace($GatewayTaskCredential.GetNetworkCredential().Password)) {
+    throw 'Host Gateway task credential password is empty.'
   }
-  return $RunnerTaskCredential
+  return $GatewayTaskCredential
 }
 
-function Invoke-RunnerProtectedOwnerTakeover {
+function Invoke-GatewayProtectedOwnerTakeover {
   param([Parameter(Mandatory = $true)][string]$Path)
 
   # A poisoned owner can deny READ_CONTROL, which would make Get-Acl fail
   # before the deployment can replace the DACL. Take ownership of exactly this
   # known protected path first; the following exact DACL readback is still the
   # admission boundary and any failure aborts the deployment without starting
-  # the Runner from a partially repaired tree.
+  # the Gateway from a partially repaired tree.
   & takeown.exe /F $Path /A *> $null
   if ($LASTEXITCODE -ne 0) {
-    throw 'Host Runner protected path owner takeover failed.'
+    throw 'Host Gateway protected path owner takeover failed.'
   }
 }
 
-function Get-RunnerProtectionSpec {
+function Get-GatewayProtectionSpec {
   param(
     [Parameter(Mandatory = $true)][object]$Principal,
     [Parameter(Mandatory = $true)][bool]$Directory,
@@ -530,14 +530,14 @@ function Get-RunnerProtectionSpec {
   )
 
   try { $serviceSid = [System.Security.Principal.SecurityIdentifier]$Principal.Sid }
-  catch { throw 'Host Runner principal SID cannot be used to protect the runtime boundary.' }
+  catch { throw 'Host Gateway principal SID cannot be used to protect the runtime boundary.' }
   $systemSid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
   $administratorsSid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
   $rights = switch ($Mode) {
     'Read' { [System.Security.AccessControl.FileSystemRights]::Read }
     'ReadExecute' { [System.Security.AccessControl.FileSystemRights]::ReadAndExecute }
     'Write' { [System.Security.AccessControl.FileSystemRights]::FullControl }
-    default { throw 'Host Runner protection mode is invalid.' }
+    default { throw 'Host Gateway protection mode is invalid.' }
   }
   $none = [System.Security.AccessControl.InheritanceFlags]::None
   $children = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
@@ -550,7 +550,7 @@ function Get-RunnerProtectionSpec {
   )
 }
 
-function New-RunnerProtectionRule {
+function New-GatewayProtectionRule {
   param([Parameter(Mandatory = $true)][object]$Spec)
 
   return [System.Security.AccessControl.FileSystemAccessRule]::new(
@@ -562,7 +562,7 @@ function New-RunnerProtectionRule {
   )
 }
 
-function Assert-RunnerProtectedAcl {
+function Assert-GatewayProtectedAcl {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
     [Parameter(Mandatory = $true)][object]$Principal,
@@ -572,49 +572,49 @@ function Assert-RunnerProtectedAcl {
 
   $directory = Test-Path -LiteralPath $Path -PathType Container
   if (-not $directory -and -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-    throw "Host Runner protected path does not exist: $Path"
+    throw "Host Gateway protected path does not exist: $Path"
   }
-  $expected = @(Get-RunnerProtectionSpec -Principal $Principal -Directory $directory -Mode $Mode -Anchor:$Anchor)
+  $expected = @(Get-GatewayProtectionSpec -Principal $Principal -Directory $directory -Mode $Mode -Anchor:$Anchor)
   $administratorsSid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
   $security = Get-Acl -LiteralPath $Path -ErrorAction Stop
   $owner = $security.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
   if ($owner -ne $administratorsSid.Value) {
-    throw 'Host Runner protected path owner does not match the required Administrators SID.'
+    throw 'Host Gateway protected path owner does not match the required Administrators SID.'
   }
   $actual = @($security.Access)
   if ($actual.Count -ne $expected.Count) {
-    throw 'Host Runner protected path has an unexpected DACL entry count.'
+    throw 'Host Gateway protected path has an unexpected DACL entry count.'
   }
   $seen = @{}
   foreach ($rule in $actual) {
     if ($rule.IsInherited -or $rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) {
-      throw 'Host Runner protected path contains an inherited, deny, or unknown ACL entry.'
+      throw 'Host Gateway protected path contains an inherited, deny, or unknown ACL entry.'
     }
     $sid = $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
     if ($seen.ContainsKey($sid)) {
-      throw 'Host Runner protected path contains a duplicate ACL identity.'
+      throw 'Host Gateway protected path contains a duplicate ACL identity.'
     }
     $match = @($expected | Where-Object { $_.Sid.Value -eq $sid })
     if ($match.Count -ne 1 -or
         [int64]$rule.FileSystemRights -ne [int64]$match[0].Rights -or
         $rule.InheritanceFlags -ne $match[0].Inheritance -or
         $rule.PropagationFlags -ne [System.Security.AccessControl.PropagationFlags]::None) {
-      throw 'Host Runner protected path DACL does not match the exact runtime policy.'
+      throw 'Host Gateway protected path DACL does not match the exact runtime policy.'
     }
     $seen[$sid] = $true
   }
   foreach ($spec in $expected) {
     if (-not $seen.ContainsKey($spec.Sid.Value)) {
-      throw 'Host Runner protected path is missing a required DACL identity.'
+      throw 'Host Gateway protected path is missing a required DACL identity.'
     }
   }
 }
 
-function Set-RunnerProtectedAcl {
+function Set-GatewayProtectedAcl {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
     [ValidateSet('Read', 'ReadExecute', 'Write')][string]$Mode = 'Read',
-    # The fixed ProgramData\\KidItem anchor grants Runner traverse/read on the
+    # The fixed ProgramData\\KidItem anchor grants Gateway traverse/read on the
     # anchor itself, but deliberately does not propagate that grant to unrelated
     # Office files such as the Docker environment file.
     [switch]$Anchor,
@@ -623,16 +623,16 @@ function Set-RunnerProtectedAcl {
     [object]$Principal
   )
 
-  if ($null -eq $Principal) { $Principal = Assert-RunnerServiceAccount }
+  if ($null -eq $Principal) { $Principal = Assert-GatewayServiceAccount }
   $directory = Test-Path -LiteralPath $Path -PathType Container
   if (-not $directory -and -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-    throw "Host Runner protected path does not exist: $Path"
+    throw "Host Gateway protected path does not exist: $Path"
   }
-  $expected = @(Get-RunnerProtectionSpec -Principal $Principal -Directory $directory -Mode $Mode -Anchor:$Anchor)
-  Invoke-RunnerProtectedOwnerTakeover -Path $Path
+  $expected = @(Get-GatewayProtectionSpec -Principal $Principal -Directory $directory -Mode $Mode -Anchor:$Anchor)
+  Invoke-GatewayProtectedOwnerTakeover -Path $Path
   $security = Get-Acl -LiteralPath $Path -ErrorAction Stop
   if ($security -isnot [System.Security.AccessControl.FileSystemSecurity]) {
-    throw 'Host Runner protected path does not expose a filesystem security descriptor.'
+    throw 'Host Gateway protected path does not expose a filesystem security descriptor.'
   }
   # Discard inherited entries first, then remove every surviving explicit
   # entry by its exact rule. This is a replacement, never an additive grant.
@@ -641,39 +641,39 @@ function Set-RunnerProtectedAcl {
     [void]$security.RemoveAccessRuleSpecific($rule)
   }
   if (@($security.Access).Count -ne 0) {
-    throw 'Host Runner protected path retained an existing explicit ACL entry.'
+    throw 'Host Gateway protected path retained an existing explicit ACL entry.'
   }
   $administratorsSid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
   $security.SetOwner($administratorsSid)
   foreach ($spec in $expected) {
-    [void]$security.AddAccessRule((New-RunnerProtectionRule $spec))
+    [void]$security.AddAccessRule((New-GatewayProtectionRule $spec))
   }
   Set-Acl -LiteralPath $Path -AclObject $security -ErrorAction Stop
-  Assert-RunnerProtectedAcl -Path $Path -Principal $Principal -Mode $Mode -Anchor:$Anchor
+  Assert-GatewayProtectedAcl -Path $Path -Principal $Principal -Mode $Mode -Anchor:$Anchor
 }
 
-function Initialize-RunnerStorage {
+function Initialize-GatewayStorage {
   # C:\ProgramData itself normally grants Users container-create.  The fixed
   # KidItem anchor is the first deployment-owned boundary, so protect it before
-  # any Runner token/config/release descendant can inherit an unsafe writer.
+  # any Gateway token/config/release descendant can inherit an unsafe writer.
   Assert-OfficeRootAnchor
   New-Item -ItemType Directory -Path $script:OfficeRoot -Force | Out-Null
   Assert-OfficeRootAnchor
-  Set-RunnerProtectedAcl -Path $script:OfficeRoot -Mode ReadExecute -Anchor
+  Set-GatewayProtectedAcl -Path $script:OfficeRoot -Mode ReadExecute -Anchor
   Assert-OfficeRootAnchor
-  New-Item -ItemType Directory -Path $script:RunnerRoot -Force | Out-Null
-  Set-RunnerProtectedAcl -Path $script:RunnerRoot -Mode ReadExecute
-  foreach ($path in @($script:RunnerReleasesRoot, $script:RunnerAttemptRoot, (Split-Path -Parent $script:RunnerTokenPath))) {
+  New-Item -ItemType Directory -Path $script:GatewayRoot -Force | Out-Null
+  Set-GatewayProtectedAcl -Path $script:GatewayRoot -Mode ReadExecute
+  foreach ($path in @($script:GatewayReleasesRoot, $script:GatewayStateRoot, (Split-Path -Parent $script:GatewayTokenPath))) {
     New-Item -ItemType Directory -Path $path -Force | Out-Null
   }
-  Set-RunnerProtectedAcl -Path $script:RunnerReleasesRoot -Mode ReadExecute
-  Set-RunnerProtectedAcl -Path $script:RunnerAttemptRoot -Mode Write
-  Set-RunnerProtectedAcl -Path (Split-Path -Parent $script:RunnerTokenPath) -Mode Read
-  if (-not (Test-Path -LiteralPath $script:RunnerTokenPath -PathType Leaf)) {
-    Replace-RunnerInstallationToken
+  Set-GatewayProtectedAcl -Path $script:GatewayReleasesRoot -Mode ReadExecute
+  Set-GatewayProtectedAcl -Path $script:GatewayStateRoot -Mode Write
+  Set-GatewayProtectedAcl -Path (Split-Path -Parent $script:GatewayTokenPath) -Mode Read
+  if (-not (Test-Path -LiteralPath $script:GatewayTokenPath -PathType Leaf)) {
+    Replace-GatewayInstallationToken
   }
   else {
-    Set-RunnerProtectedAcl -Path $script:RunnerTokenPath -Mode Read
+    Set-GatewayProtectedAcl -Path $script:GatewayTokenPath -Mode Read
   }
 }
 
@@ -809,72 +809,72 @@ function Assert-RenderedManifestDeployment {
   }
 }
 
-function Assert-RunnerArtifact {
+function Assert-GatewayArtifact {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
     [Parameter(Mandatory = $true)][object]$Manifest
   )
 
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-    throw "Runner artifact is missing: $Path"
+    throw "Gateway artifact is missing: $Path"
   }
   $hash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
-  if ($hash -ne $Manifest.runnerArtifactSha256) {
-    throw 'Runner artifact SHA-256 does not match the immutable deployment manifest.'
+  if ($hash -ne $Manifest.gatewayArtifactSha256) {
+    throw 'Gateway artifact SHA-256 does not match the immutable deployment manifest.'
   }
 }
 
-function Get-ArchivedRunnerArtifact {
+function Get-ArchivedGatewayArtifact {
   param([Parameter(Mandatory = $true)][object]$Manifest)
 
   # Recovery never treats releases/<gitSha> as a source: that is a runnable
   # cache, not immutable evidence. The deployment bundle is the independently
   # hashed artifact retained for the release identity.
   $archiveRoot = Join-Path $script:DeploymentsRoot ("bundles\{0}" -f $Manifest.gitSha)
-  $artifact = Join-Path $archiveRoot $Manifest.runnerArtifact
-  Assert-RunnerArtifact $artifact $Manifest
+  $artifact = Join-Path $archiveRoot $Manifest.gatewayArtifact
+  Assert-GatewayArtifact $artifact $Manifest
   return $artifact
 }
 
-function Assert-RunnerPackageContents {
+function Assert-GatewayPackageContents {
   param(
     [Parameter(Mandatory = $true)][string]$ReleaseRoot,
     [Parameter(Mandatory = $true)][object]$Manifest
   )
 
-  $runtimePath = Join-Path $ReleaseRoot 'runner-runtime-contract.json'
+  $runtimePath = Join-Path $ReleaseRoot 'gateway-runtime-contract.json'
   $runtime = (Get-Content -LiteralPath $runtimePath -Raw | ConvertFrom-Json)
-  Assert-RunnerRuntimeContract $runtime
+  Assert-GatewayRuntimeContract $runtime
   foreach ($name in @('schemaVersion', 'platform', 'nodeMajor', 'controlRevision', 'cliContractIdentity', 'mcpProtocolRevision', 'codexVersion', 'claudeVersion')) {
-    if ($runtime.$name -ne $Manifest.runnerRuntime.$name) {
-      throw "Runner runtime contract field $name does not match the deployment manifest."
+    if ($runtime.$name -ne $Manifest.gatewayRuntime.$name) {
+      throw "Gateway runtime contract field $name does not match the deployment manifest."
     }
   }
   foreach ($path in @(
-    (Join-Path $ReleaseRoot 'agent-runner.tgz'),
-    (Join-Path $ReleaseRoot 'KidItem.JobRunner.exe'),
-    (Join-Path $ReleaseRoot 'package\\windows\\KidItem.JobRunner.exe'),
+    (Join-Path $ReleaseRoot 'agent-gateway.tgz'),
+    (Join-Path $ReleaseRoot 'KidItem.AgentGateway.exe'),
+    (Join-Path $ReleaseRoot 'package\\windows\\KidItem.AgentGateway.exe'),
     (Join-Path $ReleaseRoot 'package\\dist\\main.cjs'),
     (Join-Path $ReleaseRoot 'package\\node_modules\\@openai\\codex\\package.json'),
     (Join-Path $ReleaseRoot 'package\\node_modules\\@anthropic-ai\\claude-code\\package.json')
   )) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-      throw "Runner package is incomplete: $path"
+      throw "Gateway package is incomplete: $path"
     }
   }
   $codexPackage = Get-Content -LiteralPath (Join-Path $ReleaseRoot 'package\\node_modules\\@openai\\codex\\package.json') -Raw | ConvertFrom-Json
   $claudePackage = Get-Content -LiteralPath (Join-Path $ReleaseRoot 'package\\node_modules\\@anthropic-ai\\claude-code\\package.json') -Raw | ConvertFrom-Json
-  if ($codexPackage.version -ne $Manifest.runnerRuntime.codexVersion -or $claudePackage.version -ne $Manifest.runnerRuntime.claudeVersion) {
-    throw 'Bundled provider versions do not match the immutable Runner runtime contract.'
+  if ($codexPackage.version -ne $Manifest.gatewayRuntime.codexVersion -or $claudePackage.version -ne $Manifest.gatewayRuntime.claudeVersion) {
+    throw 'Bundled provider versions do not match the immutable Gateway runtime contract.'
   }
-  Assert-RunnerExtractionTree $ReleaseRoot
+  Assert-GatewayExtractionTree $ReleaseRoot
 }
 
-function Assert-RunnerArchiveEntryName {
+function Assert-GatewayArchiveEntryName {
   param([Parameter(Mandatory = $true)][string]$Entry)
 
   if ([string]::IsNullOrWhiteSpace($Entry)) {
-    throw 'Runner archive contains an empty path.'
+    throw 'Gateway archive contains an empty path.'
   }
   # Archive paths are protocol names, not native paths. Reject every form
   # which can become a rooted Windows path, traverse a parent, or name an ADS.
@@ -886,38 +886,38 @@ function Assert-RunnerArchiveEntryName {
     $Entry -match '(^|/)\.\.(/|$)' -or
     -not $Entry.StartsWith('package/')
   ) {
-    throw 'Runner package archive contains an unsafe path.'
+    throw 'Gateway package archive contains an unsafe path.'
   }
 }
 
-function Assert-RunnerArchiveEntries {
+function Assert-GatewayArchiveEntries {
   param([Parameter(Mandatory = $true)][string]$TarPath)
 
   $entries = @(& tar.exe -tf $TarPath)
   if ($LASTEXITCODE -ne 0) {
-    throw 'Runner package archive cannot be listed.'
+    throw 'Gateway package archive cannot be listed.'
   }
   $metadata = @(& tar.exe -tvf $TarPath)
   if ($LASTEXITCODE -ne 0 -or $metadata.Count -ne $entries.Count) {
-    throw 'Runner package archive metadata cannot be listed.'
+    throw 'Gateway package archive metadata cannot be listed.'
   }
   for ($index = 0; $index -lt $entries.Count; $index += 1) {
     $entry = [string]$entries[$index]
-    Assert-RunnerArchiveEntryName $entry
+    Assert-GatewayArchiveEntryName $entry
     $detail = [string]$metadata[$index]
     if ($detail.Length -lt 1 -or $detail[0] -notin @('-', 'd')) {
-      throw 'Runner package archive contains a non-regular entry.'
+      throw 'Gateway package archive contains a non-regular entry.'
     }
   }
 }
 
-function Assert-RunnerOuterArchiveEntries {
+function Assert-GatewayOuterArchiveEntries {
   param([Parameter(Mandatory = $true)][string]$ZipPath)
 
   Add-Type -AssemblyName System.IO.Compression.FileSystem
   $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
   try {
-    $expected = @('agent-runner.tgz', 'KidItem.JobRunner.exe', 'runner-runtime-contract.json')
+    $expected = @('agent-gateway.tgz', 'KidItem.AgentGateway.exe', 'gateway-runtime-contract.json')
     $entries = @()
     foreach ($entry in @($archive.Entries)) {
       $name = [string]$entry.FullName
@@ -929,16 +929,16 @@ function Assert-RunnerOuterArchiveEntries {
         $name.Contains(':') -or
         $name -match '(^|/)\.\.(/|$)'
       ) {
-        throw 'Runner archive contains an unsafe path.'
+        throw 'Gateway archive contains an unsafe path.'
       }
       $unixType = (([int64]$entry.ExternalAttributes -shr 16) -band 0xF000)
       if (($unixType -ne 0 -and $unixType -ne 0x8000) -or (($entry.ExternalAttributes -band 0x10) -ne 0)) {
-        throw 'Runner archive contains a non-regular entry.'
+        throw 'Gateway archive contains a non-regular entry.'
       }
       $entries += $name
     }
     if ($entries.Count -ne $expected.Count -or @(Compare-Object -ReferenceObject $expected -DifferenceObject $entries).Count -ne 0) {
-      throw 'Runner archive does not have the approved closed file set.'
+      throw 'Gateway archive does not have the approved closed file set.'
     }
   }
   finally {
@@ -946,7 +946,7 @@ function Assert-RunnerOuterArchiveEntries {
   }
 }
 
-function Test-RunnerPathWithinRoot {
+function Test-GatewayPathWithinRoot {
   param(
     [Parameter(Mandatory = $true)][string]$Root,
     [Parameter(Mandatory = $true)][string]$Candidate
@@ -962,12 +962,12 @@ function Test-RunnerPathWithinRoot {
   return $normalizedCandidate -eq $normalizedRoot -or $normalizedCandidate.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)
 }
 
-function Assert-RunnerExtractionTree {
+function Assert-GatewayExtractionTree {
   param([Parameter(Mandatory = $true)][string]$Root)
 
   $rootItem = Get-Item -LiteralPath $Root -Force -ErrorAction Stop
   if (-not $rootItem.PSIsContainer -or (($rootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
-    throw 'Runner extraction root is not a regular protected directory.'
+    throw 'Gateway extraction root is not a regular protected directory.'
   }
   $canonicalRoot = (Resolve-Path -LiteralPath $Root -ErrorAction Stop).ProviderPath
   $pending = [System.Collections.Generic.Queue[string]]::new()
@@ -977,88 +977,89 @@ function Assert-RunnerExtractionTree {
     foreach ($path in [System.IO.Directory]::GetFileSystemEntries($directory)) {
       $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
       if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-        throw 'Runner extraction contains a Windows reparse point.'
+        throw 'Gateway extraction contains a Windows reparse point.'
       }
       $canonical = (Resolve-Path -LiteralPath $path -ErrorAction Stop).ProviderPath
-      if (-not (Test-RunnerPathWithinRoot $canonicalRoot $canonical)) {
-        throw 'Runner canonical descendant escapes the candidate root.'
+      if (-not (Test-GatewayPathWithinRoot $canonicalRoot $canonical)) {
+        throw 'Gateway canonical descendant escapes the candidate root.'
       }
       if ($item.PSIsContainer) {
         $pending.Enqueue($canonical)
       }
       elseif (-not ($item -is [System.IO.FileInfo])) {
-        throw 'Runner extraction contains a non-regular filesystem entry.'
+        throw 'Gateway extraction contains a non-regular filesystem entry.'
       }
     }
   }
 }
 
-function New-RunnerRelease {
+function New-GatewayRelease {
   param(
     [Parameter(Mandatory = $true)][string]$ArtifactPath,
     [Parameter(Mandatory = $true)][object]$Manifest
   )
 
-  Initialize-RunnerStorage
-  Assert-RunnerArtifact $ArtifactPath $Manifest
-  $releaseRoot = Join-Path $script:RunnerReleasesRoot $Manifest.gitSha
-  if (Test-RunnerPathWithinRoot $releaseRoot $ArtifactPath) {
-    throw 'Runner release cannot be rehydrated from its mutable cached extraction.'
+  Initialize-GatewayStorage
+  Assert-GatewayArtifact $ArtifactPath $Manifest
+  $releaseRoot = Join-Path $script:GatewayReleasesRoot $Manifest.gitSha
+  if (Test-GatewayPathWithinRoot $releaseRoot $ArtifactPath) {
+    throw 'Gateway release cannot be rehydrated from its mutable cached extraction.'
   }
 
   # Never schedule a previously extracted release directory. Even if its outer
   # ZIP still hashes correctly, a prior ACL bug could have allowed a writer to
   # alter the expanded package. Stop first, construct a fresh candidate from
   # the immutable artifact, then replace the canonical version root.
-  Stop-RunnerScheduledTask
+  Stop-GatewayScheduledTask
   $candidateRoot = "$releaseRoot.candidate-$([guid]::NewGuid().ToString('N'))"
   $retiredRoot = $null
   $promoted = $false
   try {
     New-Item -ItemType Directory -Path $candidateRoot -Force | Out-Null
-    Copy-Item -LiteralPath $ArtifactPath -Destination (Join-Path $candidateRoot $Manifest.runnerArtifact) -Force
-    Assert-RunnerArtifact (Join-Path $candidateRoot $Manifest.runnerArtifact) $Manifest
-    Assert-RunnerOuterArchiveEntries (Join-Path $candidateRoot $Manifest.runnerArtifact)
-    Expand-Archive -LiteralPath (Join-Path $candidateRoot $Manifest.runnerArtifact) -DestinationPath $candidateRoot
-    Assert-RunnerExtractionTree $candidateRoot
-    $expectedOuterFiles = @('agent-runner.tgz', 'KidItem.JobRunner.exe', 'runner-runtime-contract.json')
+    Copy-Item -LiteralPath $ArtifactPath -Destination (Join-Path $candidateRoot $Manifest.gatewayArtifact) -Force
+    Assert-GatewayArtifact (Join-Path $candidateRoot $Manifest.gatewayArtifact) $Manifest
+    Assert-GatewayOuterArchiveEntries (Join-Path $candidateRoot $Manifest.gatewayArtifact)
+    Expand-Archive -LiteralPath (Join-Path $candidateRoot $Manifest.gatewayArtifact) -DestinationPath $candidateRoot
+    Assert-GatewayExtractionTree $candidateRoot
+    $expectedOuterFiles = @('agent-gateway.tgz', 'KidItem.AgentGateway.exe', 'gateway-runtime-contract.json')
     foreach ($name in $expectedOuterFiles) {
       if (-not (Test-Path -LiteralPath (Join-Path $candidateRoot $name) -PathType Leaf)) {
-        throw "Runner archive is missing required file: $name"
+        throw "Gateway archive is missing required file: $name"
       }
     }
-    Assert-RunnerArchiveEntries (Join-Path $candidateRoot 'agent-runner.tgz')
-    Invoke-Checked tar.exe -xf (Join-Path $candidateRoot 'agent-runner.tgz') -C $candidateRoot
-    Assert-RunnerExtractionTree $candidateRoot
+    Assert-GatewayArchiveEntries (Join-Path $candidateRoot 'agent-gateway.tgz')
+    Invoke-Checked tar.exe -xf (Join-Path $candidateRoot 'agent-gateway.tgz') -C $candidateRoot
+    Assert-GatewayExtractionTree $candidateRoot
     New-Item -ItemType Directory -Path (Join-Path $candidateRoot 'package\\windows') -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $candidateRoot 'KidItem.JobRunner.exe') -Destination (Join-Path $candidateRoot 'package\\windows\\KidItem.JobRunner.exe') -Force
-    Assert-RunnerPackageContents $candidateRoot $Manifest
+    Copy-Item -LiteralPath (Join-Path $candidateRoot 'KidItem.AgentGateway.exe') -Destination (Join-Path $candidateRoot 'package\\windows\\KidItem.AgentGateway.exe') -Force
+    Assert-GatewayPackageContents $candidateRoot $Manifest
 
     # The config survives promotion from the private extraction directory to
     # releases/<gitSha>, so bind it to the final immutable root up front.
     $runtimeRoot = Join-Path $releaseRoot 'package'
-    $runnerConfigPath = Join-Path $candidateRoot $script:RunnerConfigName
-    $runnerConfig = [ordered]@{
+    $gatewayConfigPath = Join-Path $candidateRoot $script:GatewayConfigName
+    $gatewayConfig = [ordered]@{
       controlOrigin = 'http://127.0.0.1:4000'
-      tokenFile = $script:RunnerTokenPath
-      attemptRoot = $script:RunnerAttemptRoot
+      tokenFile = $script:GatewayTokenPath
+      stateRoot = $script:GatewayStateRoot
       runtimeRoot = $runtimeRoot
+      workspace = $RepoRoot
     }
     # Windows PowerShell 5.1's Set-Content -Encoding UTF8 adds a BOM, while
     # the Node strict JSON parser deliberately rejects that control byte.
     $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-    [System.IO.File]::WriteAllText($runnerConfigPath, ($runnerConfig | ConvertTo-Json), $utf8NoBom)
-    Set-RunnerProtectedAcl -Path $candidateRoot -Mode ReadExecute
-    Set-RunnerProtectedAcl -Path (Join-Path $candidateRoot 'package') -Mode ReadExecute
-    Set-RunnerProtectedAcl -Path $runnerConfigPath -Mode Read
+    [System.IO.File]::WriteAllText($gatewayConfigPath, ($gatewayConfig | ConvertTo-Json), $utf8NoBom)
+    Set-GatewayProtectedAcl -Path $candidateRoot -Mode ReadExecute
+    Set-GatewayProtectedAcl -Path (Join-Path $candidateRoot 'package') -Mode ReadExecute
+    Set-GatewayProtectedAcl -Path $gatewayConfigPath -Mode Read
     if (Test-Path -LiteralPath $releaseRoot -PathType Container) {
       $retiredRoot = "$releaseRoot.retired-$([guid]::NewGuid().ToString('N'))"
       Move-Item -LiteralPath $releaseRoot -Destination $retiredRoot
     }
     Move-Item -LiteralPath $candidateRoot -Destination $releaseRoot
     $promoted = $true
-    Assert-RunnerArtifact (Join-Path $releaseRoot $Manifest.runnerArtifact) $Manifest
-    Assert-RunnerPackageContents $releaseRoot $Manifest
+    Assert-GatewayArtifact (Join-Path $releaseRoot $Manifest.gatewayArtifact) $Manifest
+    Assert-GatewayPackageContents $releaseRoot $Manifest
   }
   catch {
     Remove-Item -LiteralPath $candidateRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -1072,23 +1073,23 @@ function New-RunnerRelease {
   return $releaseRoot
 }
 
-function Get-RunnerCurrentRelease {
-  if (-not (Test-Path -LiteralPath $script:RunnerCurrentPointerPath -PathType Leaf)) {
+function Get-GatewayCurrentRelease {
+  if (-not (Test-Path -LiteralPath $script:GatewayCurrentPointerPath -PathType Leaf)) {
     return $null
   }
-  $pointer = Get-Content -LiteralPath $script:RunnerCurrentPointerPath -Raw | ConvertFrom-Json
+  $pointer = Get-Content -LiteralPath $script:GatewayCurrentPointerPath -Raw | ConvertFrom-Json
   if ($pointer.gitSha -notmatch '^[0-9a-f]{40}$' -or -not $pointer.releaseRoot) {
-    throw 'Current Runner release pointer is invalid.'
+    throw 'Current Gateway release pointer is invalid.'
   }
   $releaseRoot = [System.IO.Path]::GetFullPath([string]$pointer.releaseRoot)
-  $allowed = [System.IO.Path]::GetFullPath((Join-Path $script:RunnerReleasesRoot $pointer.gitSha))
+  $allowed = [System.IO.Path]::GetFullPath((Join-Path $script:GatewayReleasesRoot $pointer.gitSha))
   if ($releaseRoot -ne $allowed -or -not (Test-Path -LiteralPath $releaseRoot -PathType Container)) {
-    throw 'Current Runner release pointer escapes the protected releases root.'
+    throw 'Current Gateway release pointer escapes the protected releases root.'
   }
   return [pscustomobject]@{ GitSha = $pointer.gitSha; ReleaseRoot = $releaseRoot }
 }
 
-function Move-RunnerProtectedFile {
+function Move-GatewayProtectedFile {
   param(
     [Parameter(Mandatory = $true)][string]$Candidate,
     [Parameter(Mandatory = $true)][string]$Target
@@ -1107,62 +1108,62 @@ function Move-RunnerProtectedFile {
   Move-Item -LiteralPath $Candidate -Destination $Target
 }
 
-function Switch-RunnerCurrentRelease {
+function Switch-GatewayCurrentRelease {
   param(
     [Parameter(Mandatory = $true)][string]$ReleaseRoot,
     [Parameter(Mandatory = $true)][object]$Manifest
   )
 
-  Assert-RunnerArtifact (Join-Path $ReleaseRoot $Manifest.runnerArtifact) $Manifest
-  Assert-RunnerPackageContents $ReleaseRoot $Manifest
-  $candidate = "$script:RunnerCurrentPointerPath.candidate-$([guid]::NewGuid().ToString('N'))"
+  Assert-GatewayArtifact (Join-Path $ReleaseRoot $Manifest.gatewayArtifact) $Manifest
+  Assert-GatewayPackageContents $ReleaseRoot $Manifest
+  $candidate = "$script:GatewayCurrentPointerPath.candidate-$([guid]::NewGuid().ToString('N'))"
   $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
   $pointerJson = [ordered]@{
     gitSha = $Manifest.gitSha
     releaseRoot = [System.IO.Path]::GetFullPath($ReleaseRoot)
-    runnerArtifactSha256 = $Manifest.runnerArtifactSha256
+    gatewayArtifactSha256 = $Manifest.gatewayArtifactSha256
   } | ConvertTo-Json
   [System.IO.File]::WriteAllText($candidate, $pointerJson, $utf8NoBom)
-  Set-RunnerProtectedAcl -Path $candidate -Mode Read
-  Move-RunnerProtectedFile -Candidate $candidate -Target $script:RunnerCurrentPointerPath
+  Set-GatewayProtectedAcl -Path $candidate -Mode Read
+  Move-GatewayProtectedFile -Candidate $candidate -Target $script:GatewayCurrentPointerPath
 }
 
-function Install-RunnerLauncher {
+function Install-GatewayLauncher {
   # The scheduled task must remain stable across ordinary runtime releases.
   # The launcher resolves only the ACL-protected current pointer, then enters
-  # the matching immutable Runner release in the same Node process.
-  $source = Join-Path $PSScriptRoot 'runner-launcher.cjs'
+  # the matching immutable Gateway release in the same Node process.
+  $source = Join-Path $PSScriptRoot 'gateway-launcher.cjs'
   if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
-    throw "Office bundle is missing the stable Host Runner launcher: $source"
+    throw "Office bundle is missing the stable Host Gateway launcher: $source"
   }
-  Initialize-RunnerStorage
-  $candidate = "$script:RunnerLauncherPath.candidate-$([guid]::NewGuid().ToString('N'))"
+  Initialize-GatewayStorage
+  $candidate = "$script:GatewayLauncherPath.candidate-$([guid]::NewGuid().ToString('N'))"
   try {
     Copy-Item -LiteralPath $source -Destination $candidate -Force
-    Set-RunnerProtectedAcl -Path $candidate -Mode ReadExecute
-    Move-RunnerProtectedFile -Candidate $candidate -Target $script:RunnerLauncherPath
-    Assert-RunnerProtectedAcl -Path $script:RunnerLauncherPath -Mode ReadExecute
+    Set-GatewayProtectedAcl -Path $candidate -Mode ReadExecute
+    Move-GatewayProtectedFile -Candidate $candidate -Target $script:GatewayLauncherPath
+    Assert-GatewayProtectedAcl -Path $script:GatewayLauncherPath -Mode ReadExecute
   }
   finally {
     Remove-Item -LiteralPath $candidate -Force -ErrorAction SilentlyContinue
   }
 }
 
-function Register-RunnerScheduledTask {
+function Register-GatewayScheduledTask {
   param([Parameter(Mandatory = $true)][object]$Principal)
 
-  if (-not (Test-Path -LiteralPath $script:RunnerLauncherPath -PathType Leaf)) {
-    throw 'Host Runner task cannot be registered without the stable launcher.'
+  if (-not (Test-Path -LiteralPath $script:GatewayLauncherPath -PathType Leaf)) {
+    throw 'Host Gateway task cannot be registered without the stable launcher.'
   }
   $nodeExecutable = Join-Path $env:ProgramFiles 'nodejs\\node.exe'
   if (-not (Test-Path -LiteralPath $nodeExecutable -PathType Leaf)) {
     throw "Host Node 22 executable is missing: $nodeExecutable"
   }
-  $arguments = '"{0}" --current "{1}"' -f $script:RunnerLauncherPath, $script:RunnerCurrentPointerPath
-  $action = New-ScheduledTaskAction -Execute $nodeExecutable -Argument $arguments -WorkingDirectory $script:RunnerRoot
-  $taskCredential = Assert-RunnerTaskCredential -Principal $Principal
+  $arguments = '"{0}" --current "{1}"' -f $script:GatewayLauncherPath, $script:GatewayCurrentPointerPath
+  $action = New-ScheduledTaskAction -Execute $nodeExecutable -Argument $arguments -WorkingDirectory $script:GatewayRoot
+  $taskCredential = Assert-GatewayTaskCredential -Principal $Principal
   # Microsoft TASK_LOGON_S4U cannot access network resources or encrypted
-  # files. The Runner needs provider HTTPS and its dedicated account's login
+  # files. The Gateway needs provider HTTPS and its dedicated account's login
   # store, so register the task with TASK_LOGON_PASSWORD instead. The password
   # reaches the in-process ScheduledTasks cmdlet only and is never an external
   # process argument or log value.
@@ -1173,53 +1174,53 @@ function Register-RunnerScheduledTask {
   $taskPassword = $null
   try {
     $taskPassword = $taskCredential.GetNetworkCredential().Password
-    Register-ScheduledTask -TaskName $script:RunnerTaskName -InputObject $task -User $Principal.AccountName -Password $taskPassword -Force | Out-Null
+    Register-ScheduledTask -TaskName $script:GatewayTaskName -InputObject $task -User $Principal.AccountName -Password $taskPassword -Force | Out-Null
   }
   finally {
     $taskPassword = $null
   }
-  $registered = Get-ScheduledTask -TaskName $script:RunnerTaskName
-  Assert-RunnerScheduledTaskContract -Task $registered -Principal $Principal
+  $registered = Get-ScheduledTask -TaskName $script:GatewayTaskName
+  Assert-GatewayScheduledTaskContract -Task $registered -Principal $Principal
 }
 
-function Assert-RunnerScheduledTaskContract {
+function Assert-GatewayScheduledTaskContract {
   param(
     [Parameter(Mandatory = $true)][object]$Task,
     [Parameter(Mandatory = $true)][object]$Principal
   )
 
   $nodeExecutable = Join-Path $env:ProgramFiles 'nodejs\\node.exe'
-  $expectedArguments = '"{0}" --current "{1}"' -f $script:RunnerLauncherPath, $script:RunnerCurrentPointerPath
+  $expectedArguments = '"{0}" --current "{1}"' -f $script:GatewayLauncherPath, $script:GatewayCurrentPointerPath
   $actions = @($Task.Actions)
   if ($actions.Count -ne 1) {
-    throw 'Host Runner task must have exactly one constrained action.'
+    throw 'Host Gateway task must have exactly one constrained action.'
   }
   $action = $actions[0]
   if (
     ([System.IO.Path]::GetFullPath([string]$action.Execute) -ne [System.IO.Path]::GetFullPath($nodeExecutable)) -or
     ([string]$action.Arguments -ne $expectedArguments) -or
-    ([System.IO.Path]::GetFullPath([string]$action.WorkingDirectory) -ne [System.IO.Path]::GetFullPath($script:RunnerRoot))
+    ([System.IO.Path]::GetFullPath([string]$action.WorkingDirectory) -ne [System.IO.Path]::GetFullPath($script:GatewayRoot))
   ) {
-    throw 'Host Runner task action does not bind the stable protected launcher.'
+    throw 'Host Gateway task action does not bind the stable protected launcher.'
   }
   try {
     $registeredSid = ([System.Security.Principal.NTAccount]::new([string]$Task.Principal.UserId)).Translate([System.Security.Principal.SecurityIdentifier])
   }
   catch {
-    throw 'Host Runner task principal cannot be resolved to an exact SID.'
+    throw 'Host Gateway task principal cannot be resolved to an exact SID.'
   }
   if ($registeredSid.Value -ne $Principal.Sid.Value) {
-    throw 'Host Runner task principal does not match the configured dedicated principal SID.'
+    throw 'Host Gateway task principal does not match the configured dedicated principal SID.'
   }
   if ($Task.Principal.LogonType.ToString() -ne 'Password') {
-    throw 'Host Runner task must use Password logon.'
+    throw 'Host Gateway task must use Password logon.'
   }
   if ($Task.Principal.RunLevel.ToString() -ne 'Limited') {
-    throw 'Host Runner task must run at limited privilege.'
+    throw 'Host Gateway task must run at limited privilege.'
   }
   $triggers = @($Task.Triggers)
   if ($triggers.Count -ne 1 -or @($triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskBootTrigger' }).Count -ne 1) {
-    throw 'Host Runner task must have exactly one boot trigger.'
+    throw 'Host Gateway task must have exactly one boot trigger.'
   }
   if (
     -not $Task.Settings.StartWhenAvailable -or
@@ -1227,99 +1228,65 @@ function Assert-RunnerScheduledTaskContract {
     [string]$Task.Settings.RestartInterval -ne 'PT1M' -or
     [string]$Task.Settings.ExecutionTimeLimit -ne 'PT0S'
   ) {
-    throw 'Host Runner task settings do not match the constrained restart policy.'
+    throw 'Host Gateway task settings do not match the constrained restart policy.'
   }
 }
 
-function Stop-RunnerScheduledTask {
-  $task = Get-ScheduledTask -TaskName $script:RunnerTaskName -ErrorAction SilentlyContinue
+function Stop-GatewayScheduledTask {
+  $task = Get-ScheduledTask -TaskName $script:GatewayTaskName -ErrorAction SilentlyContinue
   if ($null -eq $task) { return }
-  try { Stop-ScheduledTask -TaskName $script:RunnerTaskName -ErrorAction Stop }
+  try { Stop-ScheduledTask -TaskName $script:GatewayTaskName -ErrorAction Stop }
   catch {
     # ScheduledTasks can fail transiently during a service restart.  The native
     # schtasks fallback still targets only the known constrained task.
     try {
-      & schtasks.exe /End /TN $script:RunnerTaskName *> $null
+      & schtasks.exe /End /TN $script:GatewayTaskName *> $null
       if ($LASTEXITCODE -ne 0) { throw 'schtasks.exe failed' }
     }
-    catch { throw 'Host Runner task could not be stopped.' }
+    catch { throw 'Host Gateway task could not be stopped.' }
   }
   $deadline = (Get-Date).AddSeconds(30)
   do {
-    $task = Get-ScheduledTask -TaskName $script:RunnerTaskName -ErrorAction SilentlyContinue
+    $task = Get-ScheduledTask -TaskName $script:GatewayTaskName -ErrorAction SilentlyContinue
     if ($null -eq $task -or $task.State.ToString() -ne 'Running') { return }
     Start-Sleep -Milliseconds 500
   } while ((Get-Date) -lt $deadline)
-  throw 'Host Runner task did not stop within 30 seconds.'
+  throw 'Host Gateway task did not stop within 30 seconds.'
 }
 
-function Start-RunnerScheduledTask {
-  $runnerPrincipal = Assert-RunnerServiceAccount
-  $task = Get-ScheduledTask -TaskName $script:RunnerTaskName -ErrorAction SilentlyContinue
+function Start-GatewayScheduledTask {
+  $gatewayPrincipal = Assert-GatewayServiceAccount
+  $task = Get-ScheduledTask -TaskName $script:GatewayTaskName -ErrorAction SilentlyContinue
   if ($null -eq $task) {
-    throw 'Host Runner task is missing. Run -Operation InstallOrUpdateRunnerTask before a normal runtime operation.'
+    throw 'Host Gateway task is missing. Run -Operation InstallOrUpdateGatewayTask before a normal runtime operation.'
   }
-  Assert-RunnerScheduledTaskContract -Task $task -Principal $runnerPrincipal
-  Start-ScheduledTask -TaskName $script:RunnerTaskName
+  Assert-GatewayScheduledTaskContract -Task $task -Principal $gatewayPrincipal
+  Start-ScheduledTask -TaskName $script:GatewayTaskName
 }
 
-function Install-OrUpdateRunnerTask {
+function Install-OrUpdateGatewayTask {
   # This is the only credentialed Task Scheduler operation. It is run during
   # initial host provisioning, a deliberate task-definition update, or after
   # the dedicated Windows account password changes. Normal release operations
   # only replace the immutable runtime/current pointer and restart this task.
-  Assert-RunnerInstallationPrerequisites
-  Install-RunnerLauncher
-  $runnerPrincipal = Assert-RunnerServiceAccount
-  Assert-RunnerTaskCredential -Principal $runnerPrincipal | Out-Null
-  Register-RunnerScheduledTask -Principal $runnerPrincipal
-  Write-Host 'Host Runner Task Scheduler registration updated. Run the normal deployment or token rotation to restart and verify the runtime.'
-}
-
-function Wait-ForAgentRuntimeReadiness {
-  $deadline = (Get-Date).AddSeconds($HealthTimeoutSeconds)
-  do {
-    $token = (Get-Content -LiteralPath $script:RunnerTokenPath -Raw).Trim()
-    if ($token -notmatch '^[A-Za-z0-9_-]{43}$') {
-      throw 'Protected Host Runner token has an invalid format.'
-    }
-    try {
-      $response = Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:4000/internal/agent-runtime/runner/readiness' -Headers @{ Authorization = "Bearer $token" } -TimeoutSec 15
-      $allAgentsReady = @($response.agents).Count -gt 0 -and @($response.agents | Where-Object { $_.status -ne 'ready' }).Count -eq 0
-      if (
-        $response.status -eq 'ready' -and
-        $allAgentsReady -and
-        $null -ne $response.runner -and
-        $response.runner.platform -eq 'windows' -and
-        $response.runner.nodeMajor -eq 22 -and
-        $response.runner.controlRevision -eq 'kiditem-runner-control-v1' -and
-        $response.runner.cliContractIdentity -eq 'office-cli-contract-v2' -and
-        $response.runner.mcpProtocolRevision -eq '2026-07-28' -and
-        $response.runner.runtimes.codex_cli.version -eq '0.149.1' -and
-        $response.runner.runtimes.claude_cli.version -eq '2.1.245'
-      ) {
-        return
-      }
-    }
-    catch {
-      # The native process and its canaries can take several polls to promote.
-      # Do not log the HTTP headers or error payload because they may contain a bearer.
-    }
-    Start-Sleep -Seconds 3
-  } while ((Get-Date) -lt $deadline)
-  throw "Host Runner did not reach full KID-25 readiness within $HealthTimeoutSeconds seconds."
+  Assert-GatewayInstallationPrerequisites
+  Install-GatewayLauncher
+  $gatewayPrincipal = Assert-GatewayServiceAccount
+  Assert-GatewayTaskCredential -Principal $gatewayPrincipal | Out-Null
+  Register-GatewayScheduledTask -Principal $gatewayPrincipal
+  Write-Host 'Host Gateway Task Scheduler registration updated. Run the normal deployment or token rotation to restart and verify the runtime.'
 }
 
 function Stop-OfficeRuntimeFailClosed {
   param([Parameter(Mandatory = $true)][string]$Reason)
 
   # Do not allow a failed restore to leave any public/API writer or native
-  # Runner process alive under a mixed token/config/release identity.  Every
+  # Gateway process alive under a mixed token/config/release identity.  Every
   # stop is attempted independently; errors are intentionally reduced to
   # component labels so neither bearer material nor provider output is logged.
   $failures = [System.Collections.Generic.List[string]]::new()
-  try { Stop-RunnerScheduledTask }
-  catch { $failures.Add('runner') }
+  try { Stop-GatewayScheduledTask }
+  catch { $failures.Add('gateway') }
   try {
     Set-ComposeArguments
     Invoke-Checked docker @script:ComposeArgs stop api worker web nginx
@@ -1346,18 +1313,17 @@ function Assert-CurrentOfficeReleaseIdentity {
   Set-ComposeArguments
   Invoke-Checked docker @script:ComposeArgs config --quiet
   Assert-RenderedManifestDeployment $manifest
-  $runner = Get-RunnerCurrentRelease
-  if ($null -eq $runner -or $runner.GitSha -ne $manifest.gitSha) {
-    throw 'Host Runner does not match the current Office manifest release identity.'
+  $gateway = Get-GatewayCurrentRelease
+  if ($null -eq $gateway -or $gateway.GitSha -ne $manifest.gitSha) {
+    throw 'Host Gateway does not match the current Office manifest release identity.'
   }
-  Assert-RunnerArtifact (Join-Path $runner.ReleaseRoot $manifest.runnerArtifact) $manifest
-  Assert-RunnerPackageContents $runner.ReleaseRoot $manifest
+  Assert-GatewayArtifact (Join-Path $gateway.ReleaseRoot $manifest.gatewayArtifact) $manifest
+  Assert-GatewayPackageContents $gateway.ReleaseRoot $manifest
   Wait-ForRuntime
-  Wait-ForAgentRuntimeReadiness
   Assert-SmokeTests
 }
 
-function New-RunnerInstallationToken {
+function New-GatewayInstallationToken {
   $bytes = New-Object byte[] 32
   $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
   try {
@@ -1369,23 +1335,23 @@ function New-RunnerInstallationToken {
   return [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
 }
 
-function Replace-RunnerInstallationToken {
-  $token = New-RunnerInstallationToken
+function Replace-GatewayInstallationToken {
+  $token = New-GatewayInstallationToken
   if ($token -notmatch '^[A-Za-z0-9_-]{43}$') {
-    throw 'Generated Host Runner token has an invalid format.'
+    throw 'Generated Host Gateway token has an invalid format.'
   }
-  $candidate = "$script:RunnerTokenPath.candidate-$([guid]::NewGuid().ToString('N'))"
+  $candidate = "$script:GatewayTokenPath.candidate-$([guid]::NewGuid().ToString('N'))"
   try {
     Set-Content -LiteralPath $candidate -Value $token -NoNewline -Encoding Ascii
-    Set-RunnerProtectedAcl -Path $candidate -Mode Read
-    Move-RunnerProtectedFile -Candidate $candidate -Target $script:RunnerTokenPath
+    Set-GatewayProtectedAcl -Path $candidate -Mode Read
+    Move-GatewayProtectedFile -Candidate $candidate -Target $script:GatewayTokenPath
   }
   finally {
     Remove-Item -LiteralPath $candidate -Force -ErrorAction SilentlyContinue
   }
 }
 
-function Rotate-RunnerToken {
+function Rotate-GatewayToken {
   param([Parameter(Mandatory = $true)][string]$ExpectedHead)
 
   if (-not (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf)) {
@@ -1394,52 +1360,50 @@ function Rotate-RunnerToken {
   $bundle = Read-DeploymentManifest $script:CurrentManifestPath
   $manifest = $bundle.Manifest
   if ($manifest.gitSha -ne $ExpectedHead) {
-    throw 'Runner token rotation is blocked because the current runtime does not match release/office HEAD.'
+    throw 'Gateway token rotation is blocked because the current runtime does not match release/office HEAD.'
   }
   Assert-RuntimePrerequisites
-  $currentRunner = Get-RunnerCurrentRelease
-  if ($null -eq $currentRunner -or $currentRunner.GitSha -ne $manifest.gitSha) {
-    throw 'Runner token rotation requires a current Runner release matching the deployed API/Web identity.'
+  $currentGateway = Get-GatewayCurrentRelease
+  if ($null -eq $currentGateway -or $currentGateway.GitSha -ne $manifest.gitSha) {
+    throw 'Gateway token rotation requires a current Gateway release matching the deployed API/Web identity.'
   }
-  $archivedRunnerArtifact = Get-ArchivedRunnerArtifact $manifest
-  $tokenBackup = "$script:RunnerTokenPath.rollback-$([guid]::NewGuid().ToString('N'))"
-  Copy-Item -LiteralPath $script:RunnerTokenPath -Destination $tokenBackup -Force
-  Set-RunnerProtectedAcl -Path $tokenBackup -Mode Read
+  $archivedGatewayArtifact = Get-ArchivedGatewayArtifact $manifest
+  $tokenBackup = "$script:GatewayTokenPath.rollback-$([guid]::NewGuid().ToString('N'))"
+  Copy-Item -LiteralPath $script:GatewayTokenPath -Destination $tokenBackup -Force
+  Set-GatewayProtectedAcl -Path $tokenBackup -Mode Read
   try {
     Set-ComposeArguments
-    Stop-RunnerScheduledTask
+    Stop-GatewayScheduledTask
     Invoke-Checked docker @script:ComposeArgs stop api worker
-    $rehydratedRunnerRelease = New-RunnerRelease -ArtifactPath $archivedRunnerArtifact -Manifest $manifest
-    Switch-RunnerCurrentRelease $rehydratedRunnerRelease $manifest
-    Install-RunnerLauncher
-    Replace-RunnerInstallationToken
+    $rehydratedGatewayRelease = New-GatewayRelease -ArtifactPath $archivedGatewayArtifact -Manifest $manifest
+    Switch-GatewayCurrentRelease $rehydratedGatewayRelease $manifest
+    Install-GatewayLauncher
+    Replace-GatewayInstallationToken
     Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api worker web nginx
     Wait-ForRuntime
-    Start-RunnerScheduledTask
-    Wait-ForAgentRuntimeReadiness
+    Start-GatewayScheduledTask
     Assert-CurrentOfficeReleaseIdentity
   }
   catch {
     $rotationError = $_
     try {
-      Stop-RunnerScheduledTask
-      $restoreCandidate = "$script:RunnerTokenPath.restore-$([guid]::NewGuid().ToString('N'))"
+      Stop-GatewayScheduledTask
+      $restoreCandidate = "$script:GatewayTokenPath.restore-$([guid]::NewGuid().ToString('N'))"
       Copy-Item -LiteralPath $tokenBackup -Destination $restoreCandidate -Force
-      Set-RunnerProtectedAcl -Path $restoreCandidate -Mode Read
-      Move-RunnerProtectedFile -Candidate $restoreCandidate -Target $script:RunnerTokenPath
-      $recoveredRunnerRelease = New-RunnerRelease -ArtifactPath $archivedRunnerArtifact -Manifest $manifest
-      Switch-RunnerCurrentRelease $recoveredRunnerRelease $manifest
-      Install-RunnerLauncher
+      Set-GatewayProtectedAcl -Path $restoreCandidate -Mode Read
+      Move-GatewayProtectedFile -Candidate $restoreCandidate -Target $script:GatewayTokenPath
+      $recoveredGatewayRelease = New-GatewayRelease -ArtifactPath $archivedGatewayArtifact -Manifest $manifest
+      Switch-GatewayCurrentRelease $recoveredGatewayRelease $manifest
+      Install-GatewayLauncher
       Set-ComposeArguments
       Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api worker web nginx
       Wait-ForRuntime
-      Start-RunnerScheduledTask
-      Wait-ForAgentRuntimeReadiness
+      Start-GatewayScheduledTask
       Assert-CurrentOfficeReleaseIdentity
     }
     catch {
-      Stop-OfficeRuntimeFailClosed 'Runner token rotation rollback also failed'
-      throw [System.InvalidOperationException]::new('Runner token rotation failed and rollback could not restore one coherent release identity; runtime was fail-closed.', $rotationError.Exception)
+      Stop-OfficeRuntimeFailClosed 'Gateway token rotation rollback also failed'
+      throw [System.InvalidOperationException]::new('Gateway token rotation failed and rollback could not restore one coherent release identity; runtime was fail-closed.', $rotationError.Exception)
     }
     throw $rotationError
   }
@@ -1451,12 +1415,12 @@ function Rotate-RunnerToken {
 function Restore-Transaction {
   param([Parameter(Mandatory = $true)][string]$BackupRoot)
 
-  Stop-RunnerScheduledTask
+  Stop-GatewayScheduledTask
   if (-not (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf)) {
     throw 'No prior Office manifest exists for a coherent rollback.'
   }
   $previousManifest = (Read-DeploymentManifest $script:CurrentManifestPath).Manifest
-  $previousArtifact = Get-ArchivedRunnerArtifact $previousManifest
+  $previousArtifact = Get-ArchivedGatewayArtifact $previousManifest
   $restored = $false
   foreach ($name in @('compose.office.yml', 'nginx.conf', '.env.office.deploy')) {
     $backup = Join-Path $BackupRoot $name
@@ -1469,32 +1433,31 @@ function Restore-Transaction {
       Remove-Item -LiteralPath $target -Force
     }
   }
-  $runnerPointerBackup = Join-Path $BackupRoot 'runner-current.json'
-  if (Test-Path -LiteralPath $runnerPointerBackup -PathType Leaf) {
-    $restorePointer = "$script:RunnerCurrentPointerPath.restore-$([guid]::NewGuid().ToString('N'))"
+  $gatewayPointerBackup = Join-Path $BackupRoot 'gateway-current.json'
+  if (Test-Path -LiteralPath $gatewayPointerBackup -PathType Leaf) {
+    $restorePointer = "$script:GatewayCurrentPointerPath.restore-$([guid]::NewGuid().ToString('N'))"
     try {
-      Copy-Item -LiteralPath $runnerPointerBackup -Destination $restorePointer -Force
-      Set-RunnerProtectedAcl -Path $restorePointer -Mode Read
-      Move-RunnerProtectedFile -Candidate $restorePointer -Target $script:RunnerCurrentPointerPath
+      Copy-Item -LiteralPath $gatewayPointerBackup -Destination $restorePointer -Force
+      Set-GatewayProtectedAcl -Path $restorePointer -Mode Read
+      Move-GatewayProtectedFile -Candidate $restorePointer -Target $script:GatewayCurrentPointerPath
     }
     finally {
       Remove-Item -LiteralPath $restorePointer -Force -ErrorAction SilentlyContinue
     }
   }
-  elseif (Test-Path -LiteralPath $script:RunnerCurrentPointerPath -PathType Leaf) {
-    Remove-Item -LiteralPath $script:RunnerCurrentPointerPath -Force
+  elseif (Test-Path -LiteralPath $script:GatewayCurrentPointerPath -PathType Leaf) {
+    Remove-Item -LiteralPath $script:GatewayCurrentPointerPath -Force
   }
   if (-not $restored) {
     throw 'No prior Office deployment files exist for a coherent rollback.'
   }
-  $previousRunnerRelease = New-RunnerRelease -ArtifactPath $previousArtifact -Manifest $previousManifest
-  Switch-RunnerCurrentRelease $previousRunnerRelease $previousManifest
-  Install-RunnerLauncher
+  $previousGatewayRelease = New-GatewayRelease -ArtifactPath $previousArtifact -Manifest $previousManifest
+  Switch-GatewayCurrentRelease $previousGatewayRelease $previousManifest
+  Install-GatewayLauncher
   Set-ComposeArguments
   Invoke-Checked docker @script:ComposeArgs up --detach --no-build api worker web nginx
   Wait-ForRuntime
-  Start-RunnerScheduledTask
-  Wait-ForAgentRuntimeReadiness
+  Start-GatewayScheduledTask
   Assert-CurrentOfficeReleaseIdentity
   Write-Warning 'Previous office runtime files were restored after deployment failure.'
 }
@@ -1529,29 +1492,29 @@ function Install-Deployment {
   $sourceRoot = Split-Path -Parent (Resolve-Path -LiteralPath $TargetManifestPath)
   $sourceCompose = Join-Path $sourceRoot 'compose.office.yml'
   $sourceNginx = Join-Path $sourceRoot 'nginx.conf'
-  $sourceRunnerArtifact = Join-Path $sourceRoot $manifest.runnerArtifact
+  $sourceGatewayArtifact = Join-Path $sourceRoot $manifest.gatewayArtifact
   if (
     -not (Test-Path -LiteralPath $sourceCompose -PathType Leaf) -or
     -not (Test-Path -LiteralPath $sourceNginx -PathType Leaf) -or
-    -not (Test-Path -LiteralPath $sourceRunnerArtifact -PathType Leaf)
+    -not (Test-Path -LiteralPath $sourceGatewayArtifact -PathType Leaf)
   ) {
     $sourceRoot = Join-Path $script:DeploymentsRoot ("bundles\{0}" -f $manifest.gitSha)
     $sourceCompose = Join-Path $sourceRoot 'compose.office.yml'
     $sourceNginx = Join-Path $sourceRoot 'nginx.conf'
-    $sourceRunnerArtifact = Join-Path $sourceRoot $manifest.runnerArtifact
+    $sourceGatewayArtifact = Join-Path $sourceRoot $manifest.gatewayArtifact
   }
   if (
     -not (Test-Path -LiteralPath $sourceCompose -PathType Leaf) -or
     -not (Test-Path -LiteralPath $sourceNginx -PathType Leaf) -or
-    -not (Test-Path -LiteralPath $sourceRunnerArtifact -PathType Leaf)
+    -not (Test-Path -LiteralPath $sourceGatewayArtifact -PathType Leaf)
   ) {
-    throw "No archived Compose/nginx/Runner bundle exists for manifest SHA $($manifest.gitSha)."
+    throw "No archived Compose/nginx/Gateway bundle exists for manifest SHA $($manifest.gitSha)."
   }
   if (Select-String -LiteralPath $sourceCompose -Pattern '^\s*build\s*:' -Quiet) {
     throw 'Office Compose contains a local build section; only immutable pulled images are allowed.'
   }
-  Assert-RunnerArtifact $sourceRunnerArtifact $manifest
-  $runnerReleaseRoot = $null
+  Assert-GatewayArtifact $sourceGatewayArtifact $manifest
+  $gatewayReleaseRoot = $null
 
   New-Item -ItemType Directory -Path $script:OfficeRoot -Force | Out-Null
   New-Item -ItemType Directory -Path $script:DeploymentsRoot -Force | Out-Null
@@ -1567,10 +1530,10 @@ function Install-Deployment {
       Copy-Item -LiteralPath $existing -Destination $backup -Force
     }
   }
-  $runnerPointerBackup = Join-Path $backupRoot 'runner-current.json'
-  Remove-Item -LiteralPath $runnerPointerBackup -Force -ErrorAction SilentlyContinue
-  if (Test-Path -LiteralPath $script:RunnerCurrentPointerPath -PathType Leaf) {
-    Copy-Item -LiteralPath $script:RunnerCurrentPointerPath -Destination $runnerPointerBackup -Force
+  $gatewayPointerBackup = Join-Path $backupRoot 'gateway-current.json'
+  Remove-Item -LiteralPath $gatewayPointerBackup -Force -ErrorAction SilentlyContinue
+  if (Test-Path -LiteralPath $script:GatewayCurrentPointerPath -PathType Leaf) {
+    Copy-Item -LiteralPath $script:GatewayCurrentPointerPath -Destination $gatewayPointerBackup -Force
   }
 
   $candidateDeployEnv = Join-Path $script:OfficeRoot '.env.office.deploy.candidate'
@@ -1582,8 +1545,8 @@ function Install-Deployment {
     Set-ComposeArguments
     Invoke-Checked docker @script:ComposeArgs config --quiet
     Assert-RenderedManifestDeployment $manifest
-    $runnerReleaseRoot = New-RunnerRelease -ArtifactPath $sourceRunnerArtifact -Manifest $manifest
-    Install-RunnerLauncher
+    $gatewayReleaseRoot = New-GatewayRelease -ArtifactPath $sourceGatewayArtifact -Manifest $manifest
+    Install-GatewayLauncher
     if ($ApplySchema) {
       Write-Warning 'Stopping application containers before the approved Prisma schema push. Runtime rollback cannot undo schema changes.'
       Invoke-Checked docker @script:ComposeArgs stop api worker web nginx
@@ -1597,9 +1560,8 @@ function Install-Deployment {
     }
     Invoke-Checked docker @script:ComposeArgs up --detach --no-build api worker web nginx
     Wait-ForRuntime
-    Switch-RunnerCurrentRelease $runnerReleaseRoot $manifest
-    Start-RunnerScheduledTask
-    Wait-ForAgentRuntimeReadiness
+    Switch-GatewayCurrentRelease $gatewayReleaseRoot $manifest
+    Start-GatewayScheduledTask
     Assert-SmokeTests
   }
   catch {
@@ -1629,15 +1591,15 @@ function Install-Deployment {
   $bundle.Raw | Set-Content -LiteralPath (Join-Path $archiveRoot 'office-deployment.json') -Encoding UTF8
   $archivedCompose = Join-Path $archiveRoot 'compose.office.yml'
   $archivedNginx = Join-Path $archiveRoot 'nginx.conf'
-  $archivedRunnerArtifact = Join-Path $archiveRoot $manifest.runnerArtifact
+  $archivedGatewayArtifact = Join-Path $archiveRoot $manifest.gatewayArtifact
   if (([System.IO.Path]::GetFullPath($sourceCompose)) -ne ([System.IO.Path]::GetFullPath($archivedCompose))) {
     Copy-Item -LiteralPath $sourceCompose -Destination $archivedCompose -Force
   }
   if (([System.IO.Path]::GetFullPath($sourceNginx)) -ne ([System.IO.Path]::GetFullPath($archivedNginx))) {
     Copy-Item -LiteralPath $sourceNginx -Destination $archivedNginx -Force
   }
-  if (([System.IO.Path]::GetFullPath($sourceRunnerArtifact)) -ne ([System.IO.Path]::GetFullPath($archivedRunnerArtifact))) {
-    Copy-Item -LiteralPath $sourceRunnerArtifact -Destination $archivedRunnerArtifact -Force
+  if (([System.IO.Path]::GetFullPath($sourceGatewayArtifact)) -ne ([System.IO.Path]::GetFullPath($archivedGatewayArtifact))) {
+    Copy-Item -LiteralPath $sourceGatewayArtifact -Destination $archivedGatewayArtifact -Force
   }
 
   Write-Host "Office deployment complete: $($manifest.gitSha) ($($manifest.appVersion))"
@@ -1661,9 +1623,9 @@ function Show-OfficeStatus {
     Write-Host "Current API image: $($current.Manifest.apiImage)"
     Write-Host "Current web image: $($current.Manifest.webImage)"
   }
-  $runner = Get-RunnerCurrentRelease
-  if ($null -ne $runner) {
-    Write-Host "Current Host Runner SHA: $($runner.GitSha)"
+  $gateway = Get-GatewayCurrentRelease
+  if ($null -ne $gateway) {
+    Write-Host "Current Host Gateway SHA: $($gateway.GitSha)"
   }
   Invoke-Checked docker system df
 }
@@ -1710,11 +1672,11 @@ switch ($Operation) {
     }
     Install-Deployment $script:PreviousManifestPath $head -AllowAncestor
   }
-  'RotateRunnerToken' {
-    Rotate-RunnerToken $head
-    Write-Host 'Host Runner installation bearer rotated and full readiness reverified.'
+  'RotateGatewayToken' {
+    Rotate-GatewayToken $head
+    Write-Host 'Host Gateway installation bearer rotated and full readiness reverified.'
   }
-  'InstallOrUpdateRunnerTask' {
-    Install-OrUpdateRunnerTask
+  'InstallOrUpdateGatewayTask' {
+    Install-OrUpdateGatewayTask
   }
 }

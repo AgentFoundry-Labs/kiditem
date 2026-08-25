@@ -2,24 +2,22 @@
 
 `src/rules/` owns business rule definitions, thresholds, evaluation result
 post-processing, activity events, critical alerts, and panel emits. Actual rule
-evaluation is asynchronous Agent OS work.
+evaluation is deterministic Operations work.
 
 ## Owned Surfaces
 
 - Rule evaluation enqueue: `POST /api/rules/evaluate`
 - Evaluation status polling: `GET /api/rules/evaluate/status/:requestId`
 - Rule list/update: `GET /api/rules`, `PATCH /api/rules/:id`
-- Threshold suggestion: `GET /api/rules/suggest-thresholds`
 - Rule summary: `GET /api/rules/summary`
 
-`GET/PATCH /api/rules/schedule` is removed. Reintroduce scheduling only through
-a new Agent OS schedule surface and scoped plan.
+`GET/PATCH /api/rules/schedule` and threshold-suggestion Agent runtime routes
+are removed. Reintroduce scheduling only through Operations and a scoped plan.
 
 ## Main Data Models
 
 - `BusinessRule` stores rule definitions and thresholds.
 - `OperationRun` stores deterministic rule-evaluation execution state.
-- Official AgentSession/task/execution resources store threshold-suggestion judgment state.
 - `ActivityEvent`, `Alert`, and panel events are projections of results.
 
 ## Evaluation Flow
@@ -33,24 +31,13 @@ POST /api/rules/evaluate
   -> healthScore update + ActivityEvent + Alert + panel emit
 ```
 
-Threshold suggestion is human-originated judgment only:
-
-```text
-GET /api/rules/suggest-thresholds
-  -> RULES_JUDGMENT_PORT
-  -> Agent OS official judgment submission
-  -> canonical session/task/execution/operation resources
-```
-
-Suggestions require an authenticated actor. Scheduled work must use the
-Rules-owned Operation; Rules does not create generic runtime work.
+Scheduled work must use the Rules-owned Operation; Rules does not create
+provider conversations or generic runtime work.
 
 ## Cross-Domain Ports
 
 - Rules evaluation starts through `OPERATION_RUNNER_PORT`; status reads use the
   same organization-scoped owner Operation.
-- Rules threshold judgment uses `RULES_JUDGMENT_PORT`; its adapter alone may
-  inject `AGENT_JUDGMENT_SUBMISSION_PORT`.
 - Rules result application is published as `APPLY_RULES_EVALUATION_PORT` and
   receives the owner Operation identity, never legacy run/request identity.
 - Operation-alert lifecycle writes go through `RULES_OPERATION_ALERT_PORT`.

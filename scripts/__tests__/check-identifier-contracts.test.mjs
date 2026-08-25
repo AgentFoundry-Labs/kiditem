@@ -14,30 +14,17 @@ function writeText(rootDir, relativePath, source) {
 function createFixture() {
   const rootDir = mkdtempSync(path.join(tmpdir(), 'kiditem-identifier-contracts-'));
   writeText(rootDir, 'packages/shared/src/identifiers/index.ts', [
-    'export const AgentSessionNameSchema = z.string();',
-    'export const AgentSessionTaskNameSchema = z.string();',
-    'export const AgentExecutionNameSchema = z.string();',
+    'export const OperationRunNameSchema = z.string();',
   ].join('\n'));
   writeText(rootDir, 'packages/shared/src/agent-interaction/index.ts', 'export const Ready = true;\n');
   writeText(rootDir, 'apps/server/src/agent-os/domain/operation/operation.ts', [
     'export const Input = z.object({',
-    '  session: AgentSessionNameSchema,',
-    '  task: AgentSessionTaskNameSchema,',
-    '  execution: AgentExecutionNameSchema,',
+    '  operation: OperationRunNameSchema,',
     '});',
   ].join('\n'));
   writeText(rootDir, 'apps/server/src/operations/handler.ts', 'export const handler = true;\n');
-  writeText(rootDir, 'prisma/models/agents.prisma', [
-    'model AgentSession {',
-    '  id String @id',
-    '}',
-    'model AgentSessionTask {',
-    '  id String @id',
-    '}',
-    'model AgentExecution {',
-    '  id String @id',
-    '}',
-    'model AgentConversationEvent {',
+  writeText(rootDir, 'prisma/models/agent-work.prisma', [
+    'model CapabilityInvocation {',
     '  id String @id',
     '}',
   ].join('\n'));
@@ -63,11 +50,11 @@ function expectViolation(relativePath, source, pattern) {
   }
 }
 
-test('rejects raw storage IDs and identifier conflation in public contracts', () => {
+test('rejects raw execution bindings and request-key conflation in public contracts', () => {
   expectViolation(
     'apps/server/src/agent-os/domain/operation/operation.ts',
-    'export const Input = z.object({ sessionId: z.string().uuid() });',
-    /raw storage identifier sessionId/i,
+    'export const Input = z.object({ executionId: z.string().uuid() });',
+    /non-public identifier executionId/i,
   );
   expectViolation(
     'packages/shared/src/identifiers/index.ts',
@@ -76,31 +63,17 @@ test('rejects raw storage IDs and identifier conflation in public contracts', ()
   );
   expectViolation(
     'packages/shared/src/agent-interaction/index.ts',
-    'const session = unsafeValue as AgentSessionName;',
+    'const operation = unsafeValue as OperationRunName;',
     /unchecked resource-name cast/i,
   );
   expectViolation(
     'apps/server/src/agent-os/domain/operation/operation.ts',
-    'const command = { idempotencyKey: input.requestId };',
+    'const command = { requestKey: input.requestId };',
     /request ID reused as idempotency/i,
   );
 });
 
-test('rejects non-sequence conversation ordering, duplicate names, and Operations registry imports', () => {
-  expectViolation(
-    'apps/server/src/agent-os/adapter/out/repository/prisma-agent-interaction.repository.ts',
-    'events.sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());',
-    /timestamp sorting.*conversation order/i,
-  );
-  expectViolation(
-    'prisma/models/agents.prisma', [
-      'model AgentSession {',
-      '  id String @id',
-      '  name String',
-      '}',
-    ].join('\n'),
-    /redundant persisted resource name/i,
-  );
+test('rejects Operations registry imports', () => {
   expectViolation(
     'apps/server/src/operations/handler.ts',
     "import { AgentCapabilityRegistry } from '../agent-os/application/service/agent-capability-registry.service';",
@@ -108,7 +81,7 @@ test('rejects non-sequence conversation ordering, duplicate names, and Operation
   );
 });
 
-test('allows owner-private IDs, external protocol IDs, and canonical public names', () => {
+test('allows owner-private bindings, protocol IDs, and canonical public names', () => {
   const rootDir = createFixture();
   try {
     writeText(rootDir, 'apps/server/src/agent-os/application/port/out/repository/private.ts', [
@@ -121,8 +94,8 @@ test('allows owner-private IDs, external protocol IDs, and canonical public name
       'export const Wire = z.object({',
       '  copilotThreadId: z.string(),',
       '  aguiRunId: z.string(),',
-      '  session: AgentSessionNameSchema,',
-      '  execution: AgentExecutionNameSchema,',
+      '  operation: OperationRunNameSchema,',
+      '  requestKey: z.string(),',
       '});',
     ].join('\n'));
     assert.doesNotThrow(() => checkIdentifierContracts(rootDir));

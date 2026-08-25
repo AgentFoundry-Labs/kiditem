@@ -11,9 +11,6 @@ const PUBLIC_CONTRACT_ROOTS = Object.freeze([
 ]);
 
 const OPERATIONS_SOURCE_ROOT = 'apps/server/src/operations';
-const INTERACTION_REPOSITORY_PATH =
-  'apps/server/src/agent-os/adapter/out/repository/prisma-agent-interaction.repository.ts';
-const AGENT_SCHEMA_PATH = 'prisma/models/agents.prisma';
 const SOURCE_FILE_PATTERN = /\.(?:[cm]?[jt]sx?|py)$/;
 const EXCLUDED_DIRECTORY_NAMES = new Set([
   '.git',
@@ -26,17 +23,8 @@ const EXCLUDED_DIRECTORY_NAMES = new Set([
   'node_modules',
   '__tests__',
 ]);
-const RAW_PUBLIC_IDENTIFIER_FIELDS = Object.freeze([
-  'agentVersionId',
+const NON_PUBLIC_IDENTIFIER_FIELDS = Object.freeze([
   'executionId',
-  'policySnapshotId',
-  'sessionId',
-  'sessionTaskId',
-  'taskId',
-]);
-const SESSION_GRAPH_MODELS = Object.freeze([
-  'AgentSession',
-  'AgentConversationEvent',
 ]);
 
 function toRepoPath(relativePath) {
@@ -73,13 +61,13 @@ function listSourceFiles(rootDir, relativeRoot) {
 
 function publicContractViolations(relativePath, source) {
   const violations = [];
-  const rawFieldPattern = new RegExp(
-    `\\b(${RAW_PUBLIC_IDENTIFIER_FIELDS.join('|')})\\s*:\\s*z\\.`,
+  const nonPublicIdentifierPattern = new RegExp(
+    `\\b(${NON_PUBLIC_IDENTIFIER_FIELDS.join('|')})\\s*:\\s*z\\.`,
     'g',
   );
-  for (const match of source.matchAll(rawFieldPattern)) {
+  for (const match of source.matchAll(nonPublicIdentifierPattern)) {
     violations.push(
-      `${relativePath}:${lineNumberAt(source, match.index)}: raw storage identifier ${match[1]} in a public contract; use a canonical resource name or digest`,
+      `${relativePath}:${lineNumberAt(source, match.index)}: non-public identifier ${match[1]} in a public contract; use a canonical resource name or digest`,
     );
   }
   const genericId = /\bexport\s+(?:type|interface)\s+Id\b/g;
@@ -89,53 +77,17 @@ function publicContractViolations(relativePath, source) {
     );
   }
   const uncheckedNameCast =
-    /\bas\s+(?:AgentSessionName|AgentConversationEventName|OperationRunName)\b/g;
+    /\bas\s+OperationRunName\b/g;
   for (const match of source.matchAll(uncheckedNameCast)) {
     violations.push(
       `${relativePath}:${lineNumberAt(source, match.index)}: unchecked resource-name cast is forbidden; parse the name`,
     );
   }
   const requestIdReuse =
-    /\b(?:idempotencyKey|id|sessionId|taskId|executionId)\s*:\s*(?:input\.)?requestId\b/g;
+    /\b(?:idempotencyKey|id|executionId|requestKey)\s*:\s*(?:input\.)?requestId\b/g;
   for (const match of source.matchAll(requestIdReuse)) {
     violations.push(
       `${relativePath}:${lineNumberAt(source, match.index)}: request ID reused as idempotency or resource identity`,
-    );
-  }
-  return violations;
-}
-
-function interactionOrderingViolations(relativePath, source) {
-  const violations = [];
-  const timestampSort = /\.sort\s*\(\s*\([^)]*\)\s*=>[\s\S]{0,240}?(?:createdAt|updatedAt)/g;
-  for (const match of source.matchAll(timestampSort)) {
-    violations.push(
-      `${relativePath}:${lineNumberAt(source, match.index)}: timestamp sorting cannot define canonical conversation order; use sequence`,
-    );
-  }
-  const idSort = /\.sort\s*\(\s*\([^)]*\)\s*=>[\s\S]{0,240}?\.id\b/g;
-  for (const match of source.matchAll(idSort)) {
-    violations.push(
-      `${relativePath}:${lineNumberAt(source, match.index)}: UUID sorting cannot define canonical conversation order; use sequence`,
-    );
-  }
-  return violations;
-}
-
-function schemaModelBlock(schemaSource, model) {
-  const expression = new RegExp(`^\\s*model\\s+${model}\\s*\\{([\\s\\S]*?)^\\s*\\}`, 'm');
-  return expression.exec(schemaSource)?.[1] ?? null;
-}
-
-function schemaViolations(schemaSource) {
-  const violations = [];
-  for (const model of SESSION_GRAPH_MODELS) {
-    const block = schemaModelBlock(schemaSource, model);
-    if (!block) continue;
-    const name = /^\s*name\s+\S+/m.exec(block);
-    if (!name) continue;
-    violations.push(
-      `${AGENT_SCHEMA_PATH}:${lineNumberAt(schemaSource, schemaSource.indexOf(name[0]))}: ${model} has a redundant persisted resource name`,
     );
   }
   return violations;
@@ -156,21 +108,6 @@ export function checkIdentifierContracts(rootDir) {
       const source = readFileSync(path.join(rootDir, relativePath), 'utf8');
       violations.push(...publicContractViolations(relativePath, source));
     }
-  }
-
-  const interactionRepository = path.join(rootDir, INTERACTION_REPOSITORY_PATH);
-  if (existsSync(interactionRepository)) {
-    violations.push(
-      ...interactionOrderingViolations(
-        INTERACTION_REPOSITORY_PATH,
-        readFileSync(interactionRepository, 'utf8'),
-      ),
-    );
-  }
-
-  const schemaPath = path.join(rootDir, AGENT_SCHEMA_PATH);
-  if (existsSync(schemaPath)) {
-    violations.push(...schemaViolations(readFileSync(schemaPath, 'utf8')));
   }
 
   for (const relativePath of listSourceFiles(rootDir, OPERATIONS_SOURCE_ROOT)) {

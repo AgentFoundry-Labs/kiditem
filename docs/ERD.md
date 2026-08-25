@@ -25,7 +25,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Domain | Models |
 |---|---:|
 | [Advertising](erd/advertising.md) | 5 |
-| [AgentOS](erd/agentos.md) | 6 |
+| [AgentOS](erd/agentos.md) | 1 |
 | [AI](erd/ai.md) | 22 |
 | [Automation](erd/automation.md) | 2 |
 | [Channels](erd/channels.md) | 22 |
@@ -46,12 +46,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ExecutionTask | Advertising | `execution_tasks` | - |
 | ExecutionWorker | Advertising | `execution_workers` | - |
 | ScrapeTarget | Advertising | `scrape_targets` | - |
-| AgentAttempt | AgentOS | `agent_attempts` | One immutable local CLI process attempt. |
-| AgentCapabilityApproval | AgentOS | `agent_capability_approvals` | One immutable human decision for one mutation invocation. |
-| AgentCapabilityInvocation | AgentOS | `agent_capability_invocations` | Exact capability authorization and mutation work item. |
-| AgentSession | AgentOS | `agent_work_sessions` | User-visible work grouping and terminal deletion boundary. |
-| AgentTask | AgentOS | `agent_work_tasks` | Root or delegated durable work responsibility. |
-| AgentVersion | AgentOS | `agent_work_versions` | Immutable code-owned agent definition version. |
+| CapabilityInvocation | AgentOS | `capability_invocations` | Exact request-driven mutation admission and replay receipt. |
 | AiDirectJob | AI | `ai_direct_jobs` | Durable queue and projection checkpoint for direct thumbnail, detail-page, and image-edit model work. |
 | ContentAsset | AI | `content_assets` | Organization-scoped managed media with optional generation-group provenance. |
 | ContentGeneration | AI | `content_generations` | - |
@@ -249,113 +244,6 @@ erDiagram
     DateTime executedAt
     DateTime createdAt
   }
-  AgentAttempt {
-    String id PK
-    String organizationId FK
-    String sessionId FK
-    String taskId FK,UK
-    String agentVersionId FK
-    Int ordinal
-    String predecessorAttemptId FK
-    Json input
-    String runtimeType
-    String instructionProfileRef
-    String applicationVersion
-    String authorizingGitSha
-    String cliVersion
-    String reportedModel
-    String status
-    Json result
-    Json error
-    Int inputTokens
-    Int outputTokens
-    DateTime startedAt
-    DateTime finishedAt
-    DateTime createdAt
-  }
-  AgentCapabilityApproval {
-    String id PK
-    String organizationId FK
-    String sessionId FK
-    String invocationId FK,UK
-    String inputHash
-    String status
-    DateTime expiresAt
-    String decidedByUserId FK
-    String decisionReason
-    DateTime createdAt
-    DateTime decidedAt
-  }
-  AgentCapabilityInvocation {
-    String id PK
-    String organizationId FK
-    String sessionId FK
-    String taskId FK
-    String attemptId FK
-    String agentVersionId FK
-    String initiatingUserId FK
-    String capabilityKey
-    String ownerDomain
-    String authorizationKind
-    DateTime authorizationExpiresAt
-    String inputHash
-    Json canonicalInput
-    Json effects
-    String approvalRisk
-    String idempotencyRequirement
-    String ownerIdempotencyKey
-    String applicationVersion
-    String authorizingGitSha
-    String capabilityContractFingerprint
-    String runtimeType
-    String reportedModel
-    String status
-    String leaseOwner
-    DateTime leaseExpiresAt
-    Int attemptCount
-    Json result
-    Json error
-    DateTime createdAt
-    DateTime updatedAt
-    DateTime finishedAt
-  }
-  AgentSession {
-    String id PK
-    String organizationId FK
-    String createdByUserId FK
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  AgentTask {
-    String id PK
-    String organizationId FK
-    String sessionId FK,UK
-    String parentTaskId FK
-    String assignedAgentVersionId FK
-    String objective
-    String completionCriteria
-    Json inputResourceRefs
-    String status
-    String delegatedFromAttemptId FK
-    String delegationIdempotencyKey
-    String delegationRequestHash
-    DateTime createdAt
-    DateTime updatedAt
-    DateTime finishedAt
-  }
-  AgentVersion {
-    String id PK
-    String agentDefinitionKey UK
-    Int version
-    Json assignedDomains
-    Json capabilityKeys
-    String runtimeType
-    String instructionProfileRef
-    String manifestHash
-    DateTime activatedAt
-    DateTime retiredAt
-    DateTime createdAt
-  }
   AiDirectJob {
     String id PK
     String organizationId FK
@@ -449,6 +337,29 @@ erDiagram
     DateTime deletedAt
     DateTime createdAt
     DateTime updatedAt
+  }
+  CapabilityInvocation {
+    String id PK
+    String organizationId FK
+    String initiatingUserId FK
+    String capabilityKey
+    String actingAgentKey
+    String requestKey
+    Json canonicalInput
+    String inputHash
+    String status
+    String approvalStatus
+    String approvalInputHash
+    DateTime approvalRequestedAt
+    DateTime approvalExpiresAt
+    String approvalDecidedByUserId FK
+    String approvalDecisionReason
+    DateTime approvalDecidedAt
+    Json result
+    Json error
+    DateTime createdAt
+    DateTime updatedAt
+    DateTime finishedAt
   }
   CategoryMapping {
     String id PK
@@ -1644,6 +1555,7 @@ erDiagram
     String organizationId FK
     String purchaseOrderId FK
     String idempotencyKey
+    String requestHash
     BigInt freshnessGeneration
     String status
     String providerReference
@@ -2797,20 +2709,6 @@ erDiagram
   }
   ActionTask o|--o{ Alert : "actionTask"
   AdAction ||--o{ ExecutionTask : "action"
-  AgentAttempt o|--o{ AgentAttempt : "predecessor"
-  AgentAttempt ||--o{ AgentCapabilityInvocation : "attempt"
-  AgentAttempt o|--o{ AgentTask : "delegatedFromAttempt"
-  AgentCapabilityInvocation ||--|| AgentCapabilityApproval : "invocation"
-  AgentSession ||--o{ AgentAttempt : "session"
-  AgentSession ||--o{ AgentCapabilityApproval : "session"
-  AgentSession ||--o{ AgentCapabilityInvocation : "session"
-  AgentSession ||--o{ AgentTask : "session"
-  AgentTask ||--o{ AgentAttempt : "task"
-  AgentTask ||--o{ AgentCapabilityInvocation : "task"
-  AgentTask o|--o{ AgentTask : "parent"
-  AgentVersion ||--o{ AgentAttempt : "agentVersion"
-  AgentVersion ||--o{ AgentCapabilityInvocation : "agentVersion"
-  AgentVersion ||--o{ AgentTask : "assignedAgentVersion"
   CandidateImage o|--o{ ThumbnailGenerationInputImage : "candidateImage"
   ChannelAccount ||--o{ ChannelAccountDailyKpiSnapshot : "channelAccount"
   ChannelAccount ||--o{ ChannelAdTargetDailySnapshot : "channelAccount"
@@ -2909,11 +2807,11 @@ erDiagram
   Organization ||--o{ ActionTask : "organization"
   Organization ||--o{ ActivityEvent : "organization"
   Organization ||--o{ AdAction : "organization"
-  Organization ||--o{ AgentSession : "organization"
   Organization ||--o{ AiDirectJob : "organization"
   Organization ||--o{ Alert : "organization"
   Organization ||--o{ BusinessRule : "organization"
   Organization ||--o{ CandidateImage : "organization"
+  Organization ||--o{ CapabilityInvocation : "organization"
   Organization ||--o{ CategoryMapping : "organization"
   Organization ||--o{ ChannelAccount : "organization"
   Organization ||--o{ ChannelAccountDailyKpiSnapshot : "organization"
@@ -3119,11 +3017,10 @@ erDiagram
   ThumbnailGenerationCandidate o|--o{ ThumbnailGenerationInputImage : "sourceThumbnailCandidate"
   ThumbnailTracking ||--o{ ThumbnailTrackingDailySnapshot : "tracking"
   User o|--o{ ActionTask : "assigneeUser"
-  User o|--o{ AgentCapabilityApproval : "decidedByUser"
-  User ||--o{ AgentCapabilityInvocation : "initiatingUser"
-  User ||--o{ AgentSession : "creator"
   User o|--o{ Alert : "actorUser"
   User ||--o{ AuthSession : "user"
+  User o|--o{ CapabilityInvocation : "approvalDecidedByUser"
+  User ||--o{ CapabilityInvocation : "initiatingUser"
   User o|--o{ ChannelListingDeletionOperation : "requestedByUser"
   User o|--o{ ContentAsset : "createdByUser"
   User o|--o{ ContentGeneration : "triggeredByUser"

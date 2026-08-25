@@ -96,6 +96,7 @@ erDiagram
     String organizationId FK
     String purchaseOrderId FK
     String idempotencyKey
+    String requestHash
     BigInt freshnessGeneration
     String status
     String providerReference

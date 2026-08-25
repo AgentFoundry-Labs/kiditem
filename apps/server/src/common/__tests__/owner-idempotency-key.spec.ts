@@ -1,17 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canonicalOwnerInputHash,
   canonicalizeOwnerInput,
-  deriveOwnerIdempotencyKey,
 } from '../owner-idempotency-key';
 
 describe('owner idempotency key', () => {
-  it('uses canonical object order for the same Attempt capability and input', () => {
-    expect(deriveOwnerIdempotencyKey({
-      attemptId: 'attempt-1', capabilityKey: 'sourcing.refreshValidation',
-      input: { recommendationRunId: 'run-1', nested: { b: 2, a: 1 } },
-    })).toBe(deriveOwnerIdempotencyKey({
-      attemptId: 'attempt-1', capabilityKey: 'sourcing.refreshValidation',
-      input: { nested: { a: 1, b: 2 }, recommendationRunId: 'run-1' },
+  it('uses canonical object order for the same owner input', () => {
+    expect(canonicalOwnerInputHash({
+      recommendationRunId: 'run-1', nested: { b: 2, a: 1 },
+    })).toBe(canonicalOwnerInputHash({
+      nested: { a: 1, b: 2 }, recommendationRunId: 'run-1',
     }));
   });
 

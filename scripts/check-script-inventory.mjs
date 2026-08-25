@@ -7,7 +7,6 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'bootstrap-authoritative-inventory-dev.ts',
   'check-agent-os-contraction.mjs',
   'check-agent-os-hexagonal.mjs',
-  'check-agent-session-deletion.mjs',
   'check-agents-hygiene.mjs',
   'check-copilotkit-train.mjs',
   'check-directory-architecture.mjs',
@@ -27,6 +26,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'dev-data.ts',
   'generate-prisma-erd.mjs',
   'manage-extension-release.mjs',
+  'qa-agent-os-clean-cutover.mjs',
   'run-data-migrations.ts',
   'safe-prisma-db-push.mjs',
   'seed-order-collection-mall-accounts.ts',
@@ -88,10 +88,10 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
     missingPackageHooks.push('check:agent-os-contraction');
   }
   if (
-    packageScripts['check:agent-session-deletion'] !==
-    'node scripts/check-agent-session-deletion.mjs'
+    packageScripts['qa:agent-os:clean-cutover'] !==
+    'node scripts/qa-agent-os-clean-cutover.mjs'
   ) {
-    missingPackageHooks.push('check:agent-session-deletion');
+    missingPackageHooks.push('qa:agent-os:clean-cutover');
   }
   if (!packageScripts['check:scripts-inventory']) {
     missingPackageHooks.push('check:scripts-inventory');
@@ -116,9 +116,6 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   }
   if (!packageScripts['check:conventions']?.includes('check:scripts-inventory')) {
     missingPackageHooks.push('check:conventions -> check:scripts-inventory');
-  }
-  if (!packageScripts['check:conventions']?.includes('check:agent-session-deletion')) {
-    missingPackageHooks.push('check:conventions -> check:agent-session-deletion');
   }
   if (!packageScripts['check:conventions']?.includes('check:schema-artifact-sync')) {
     missingPackageHooks.push('check:conventions -> check:schema-artifact-sync');

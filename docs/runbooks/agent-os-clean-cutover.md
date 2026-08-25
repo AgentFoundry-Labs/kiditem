@@ -9,10 +9,10 @@ at a developer database, a NAS, or an unverified Docker context.
 
 - The immutable `office-deployment.json` has been reviewed and its `appVersion`
   and full `gitSha` match the downloaded bundle.
-- The same bundle contains the manifest-named Windows Host Runner archive and
-  its runtime contract. The pre-provisioned `KidItemAgentRunner` service account
+- The same bundle contains the manifest-named Windows Agent Gateway archive and
+  its runtime contract. The pre-provisioned `KidItemAgentGateway` service account
   has completed provider login; this runbook never reads or copies that login.
-  The explicit `InstallOrUpdateRunnerTask` operation has already registered the
+  The explicit `InstallOrUpdateGatewayTask` operation has already registered the
   non-S4U task for this host (or will be run separately after a Windows account
   password change). Its credential must not be put in an argument string, env
   file, or log, and is not needed for this cutover deployment.
@@ -69,11 +69,11 @@ foreach ($name in @('api','worker')) {
   if ($service.environment.KIDITEM_GIT_SHA -ne $manifest.gitSha) { throw "Rendered $name KIDITEM_GIT_SHA does not match manifest git SHA." }
 }
 if ($rendered.services.web.image -ne $manifest.webImage) { throw 'Rendered web image does not match manifest web image.' }
-# Stop the native Runner before application writers. The Runner owns all live
-# provider process trees, so no Attempt may outlive this maintenance boundary.
-$runnerTask = Get-ScheduledTask -TaskName 'KidItem Agent Runner' -ErrorAction SilentlyContinue
-if ($null -ne $runnerTask -and $runnerTask.State.ToString() -eq 'Running') {
-  Stop-ScheduledTask -TaskName 'KidItem Agent Runner'
+# Stop the native Gateway before application writers. It owns live provider
+# turns, and cutover never resumes or automatically restarts one.
+$gatewayTask = Get-ScheduledTask -TaskName 'KidItem Agent Gateway' -ErrorAction SilentlyContinue
+if ($null -ne $gatewayTask -and $gatewayTask.State.ToString() -eq 'Running') {
+  Stop-ScheduledTask -TaskName 'KidItem Agent Gateway'
 }
 
 # Stop every application writer. Keep PostgreSQL and MinIO running.
@@ -118,13 +118,13 @@ try {
   if ($LASTEXITCODE -ne 0 -or $pendingMutations -ne '0') { throw 'Pending CapabilityInvocations exist after schema cutover; writers remain stopped.' }
 
   # The schema is already applied above. CutoverDeploy installs the matching
-  # Host Runner archive, switches its protected current pointer, restarts the
+  # Agent Gateway archive, switches its protected current pointer, restarts the
   # existing constrained Password-logon Task Scheduler entry, and proves full
-  # API/Runner readiness before business Attempts can be admitted.
+  # API/Gateway readiness before a user can start a new provider turn.
   # Its explicit confirmation selects the fail-closed path: it never starts a
   # prior application runtime against this contracted schema.
   & "$bundle\apply-deployment.ps1" -Operation CutoverDeploy -ConfirmCutoverDeploy -ManifestPath "$bundle\office-deployment.json"
-  if ($LASTEXITCODE -ne 0) { throw 'API/Host Runner start failed.' }
+  if ($LASTEXITCODE -ne 0) { throw 'API/Agent Gateway start failed.' }
   & "$bundle\apply-deployment.ps1" -Operation Status
   if ($LASTEXITCODE -ne 0) { throw 'Office status check failed.' }
   Invoke-WebRequest -UseBasicParsing http://127.0.0.1/login | Out-Null

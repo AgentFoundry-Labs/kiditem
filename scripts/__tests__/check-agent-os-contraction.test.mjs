@@ -1,821 +1,349 @@
 import assert from "node:assert/strict";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path, { join } from "node:path";
 import test from "node:test";
+
 import {
   collectAgentOsContractionFindings,
-  collectSupersededRuntimeInventoryFindings,
+  collectContractionInventoryFindings,
   contractionRoots,
   productionFiles,
-  supersededRuntimeInventoryPaths,
 } from "../check-agent-os-contraction.mjs";
 
-test("limits enforcement to final native Runner boundaries", () => {
-  const root = "/workspace/kiditem";
-  assert.deepEqual(
-    contractionRoots(root).map((directory) => path.relative(root, directory)),
+const AGENT_KEYS = [
+  "sourcing",
+  "merchandising",
+  "supply",
+  "channel_operations",
+  "advertising",
+];
+
+const DOMAIN_KEYS = [
+  "advertising",
+  "agent_os",
+  "ai",
+  "analytics",
+  "automation",
+  "channels",
+  "finance",
+  "inventory",
+  "orders",
+  "operations",
+  "products",
+  "rules",
+  "sourcing",
+  "supply",
+];
+
+const CAPABILITY_FILES = [
+  [
+    "apps/server/src/analytics/domain/capability/analytics.capabilities.ts",
+    ["analytics.read_overview"],
+  ],
+  [
+    "apps/server/src/channels/domain/capability/channels.capabilities.ts",
     [
-      "apps/server/src",
-      "apps/server/.env.example",
-      "apps/server/package.json",
-      "apps/server/Dockerfile",
-      "apps/agent-runner",
-      "packages/shared/src/agent-runtime",
-      "prisma/models",
-      "deploy/office/nginx.conf",
-      "deploy/office/compose.office.yml",
-      "docker-compose.yml",
-      "AGENTS.md",
-      "apps/server/src/agent-os/AGENTS.md",
-      "docs/ARCHITECTURE.md",
-      "docs/TESTING.md",
-      "docs/runbooks/deployment-architecture.md",
-      "docs/runbooks/environment-variables.md",
-      "docs/runbooks/interaction-platform.md",
-      "docs/runbooks/office-deploy.md",
-      "docs/runbooks/agent-os-clean-cutover.md",
+      "channels.register_confirmed_listing",
+      "channels.submit_coupang_listing",
+      "channels.submit_wing_thumbnail",
     ],
-  );
+  ],
+  [
+    "apps/server/src/products/domain/capability/products.capabilities.ts",
+    ["products.create_listing_generation_package"],
+  ],
+  [
+    "apps/server/src/sourcing/domain/capability/sourcing.capabilities.ts",
+    [
+      "sourcing.duplicate_check",
+      "sourcing.scrape_product_url",
+      "sourcing.ingest_candidate",
+      "sourcing.scrape_url_workflow",
+      "sourcing.retrieve_workspace_evidence",
+      "sourcing.inspect_recommendation_run",
+      "sourcing.refresh_collection",
+      "sourcing.refresh_validation",
+      "sourcing.create_review_batch",
+      "sourcing.collect_shadow_signals",
+    ],
+  ],
+  [
+    "apps/server/src/supply/domain/capability/supply.capabilities.ts",
+    ["supply.create_purchase_order_draft", "supply.submit_purchase_order"],
+  ],
+];
+
+function capabilitySource(keys) {
+  return `export const DEFINITIONS = [${keys
+    .map((key) => `{ key: '${key}' }`)
+    .join(",")}];`;
+}
+
+function finalContractFiles() {
+  return [
+    {
+      path: "prisma/models/agent-work.prisma",
+      source: [
+        "model CapabilityInvocation {",
+        "  id String @id",
+        "  organizationId String",
+        "  requestKey String",
+        "  @@unique([organizationId, requestKey])",
+        "}",
+      ].join("\n"),
+    },
+    {
+      path: "apps/server/src/agent-os/domain/agent-definition.registry.ts",
+      source: `export const AGENT_DEFINITIONS = [${AGENT_KEYS.map(
+        (key) => `{ key: '${key}', assignedDomains: [] }`,
+      ).join(",")}];`,
+    },
+    {
+      path: "apps/server/src/agent-os/domain/catalog/domain-definition.registry.ts",
+      source: `export const DOMAIN_KEYS = [${DOMAIN_KEYS.map((key) => `'${key}'`).join(",")}];`,
+    },
+    ...CAPABILITY_FILES.map(([path, keys]) => ({ path, source: capabilitySource(keys) })),
+    {
+      path: "apps/server/src/agent-os/adapter/in/mcp/capability-mcp-wire-contract.ts",
+      source: [
+        "export const MCP_PROTOCOL_VERSION = '2026-07-28';",
+        "export const CAPABILITY_MCP_TOOL_NAMES = [",
+        "  'capability_catalog_search',",
+        "  'capability_invoke',",
+        "  'invocation_status',",
+        "  'operation_status',",
+        "  'readiness_probe',",
+        "];",
+      ].join("\n"),
+    },
+  ];
+}
+
+function expectFinding(findings, text) {
+  assert.ok(findings.some((finding) => finding.includes(text)), text);
+}
+
+test("limits the clean-cutover scan to current production roots", () => {
+  const root = "/workspace/kiditem";
+  const roots = contractionRoots(root).map((entry) => path.relative(root, entry));
+
+  for (const required of [
+    "apps",
+    "apps/server/package.json",
+    "apps/server/Dockerfile",
+    "packages/shared/src",
+    "prisma/models",
+    "deploy",
+    ".github/workflows",
+    "package.json",
+  ]) {
+    assert.ok(roots.includes(required), required);
+  }
+  assert.equal(roots.some((entry) => entry.startsWith("docs/")), false);
 });
 
-test("ignores dependency and generated descendants while retaining repo-owned Runner source", () => {
+test("ignores test, dependency, and generated descendants", () => {
   const root = mkdtempSync(join(tmpdir(), "kiditem-agent-os-contraction-"));
-  const runnerRoot = join(root, "apps/agent-runner");
-  const forbiddenSource =
-    "import { createServer } from 'node:http'; createServer(() => {}).listen(4000);\n";
-  const ownedSource = join(runnerRoot, "src/legacy-runner.ts");
-  const ignoredSources = [
-    join(runnerRoot, "node_modules/example/legacy-runner.ts"),
-    join(runnerRoot, "dist/legacy-runner.ts"),
-    join(runnerRoot, "coverage/legacy-runner.ts"),
-    join(runnerRoot, ".next/server/legacy-runner.ts"),
-  ];
-
+  const sourceRoot = join(root, "apps/server/src/agent-os");
   try {
-    for (const file of [ownedSource, ...ignoredSources]) {
-      mkdirSync(path.dirname(file), { recursive: true });
-      writeFileSync(file, forbiddenSource);
+    for (const relative of [
+      "current.ts",
+      "current.definition.ts",
+      "__tests__/legacy.ts",
+      "node_modules/example/legacy.ts",
+      "dist/legacy.ts",
+      "coverage/legacy.ts",
+    ]) {
+      const target = join(sourceRoot, relative);
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, "export const source = true;\n");
     }
 
-    const files = productionFiles(runnerRoot).map((file) => ({
-      path: path.relative(root, file),
-      source: readFileSync(file, "utf8"),
-    }));
-
-    assert.deepEqual(files.map((file) => file.path), [
-      "apps/agent-runner/src/legacy-runner.ts",
-    ]);
-    assert.deepEqual(collectAgentOsContractionFindings(files), [
-      "apps/agent-runner/src/legacy-runner.ts: Runner inbound listener or LAN exposure",
-    ]);
+    assert.deepEqual(
+      productionFiles(sourceRoot)
+        .map((file) => path.relative(root, file))
+        .sort(),
+      [
+        "apps/server/src/agent-os/current.definition.ts",
+        "apps/server/src/agent-os/current.ts",
+      ],
+    );
   } finally {
     rmSync(root, { force: true, recursive: true });
   }
 });
 
-test("freezes the API MCP dependency train and excludes provider CLIs", () => {
-  const correct = JSON.stringify({
-    dependencies: {
-      "@modelcontextprotocol/server": "2.0.0",
-      "zod-v4": "npm:zod@4.4.3",
-      zod: "^3.25.0",
-      "zod-to-json-schema": "^3.25.2",
-    },
-    devDependencies: { "@modelcontextprotocol/client": "2.0.0" },
-  });
-  assert.deepEqual(
-    collectAgentOsContractionFindings([{ path: "apps/server/package.json", source: correct }]),
-    [],
-  );
+test("accepts the exact final one-model catalog and MCP contract", () => {
+  assert.deepEqual(collectAgentOsContractionFindings(finalContractFiles()), []);
+});
 
+test("requires exactly one CapabilityInvocation Prisma model", () => {
+  const findings = collectAgentOsContractionFindings([
+    {
+      path: "prisma/models/agent-work.prisma",
+      source: "model CapabilityInvocation { id String @id }\nmodel AgentTask { id String @id }",
+    },
+    {
+      path: "prisma/models/agents.prisma",
+      source: "model CapabilityInvocation { id String @id }",
+    },
+  ]);
+
+  expectFinding(findings, "exactly one CapabilityInvocation");
+  expectFinding(findings, "retired Agent OS persistence model");
+});
+
+test("rejects retired Agent OS lifecycle, publication, and recovery surfaces", () => {
+  const findings = collectAgentOsContractionFindings([
+    {
+      path: "packages/shared/src/identifiers/index.ts",
+      source: "export type AgentSessionId = string; export type AgentAttemptId = string;",
+    },
+    {
+      path: "apps/server/src/agent-os/application/service/publish-agent-version.service.ts",
+      source: "export function publishAgentVersion() {}",
+    },
+    {
+      path: "apps/server/src/agent-os/adapter/in/http/interaction/task.controller.ts",
+      source: "@Controller('agent-os/tasks') export class TaskController {}",
+    },
+    {
+      path: "scripts/seed-agent-os.ts",
+      source: "export const seedAgentOs = true;",
+    },
+    {
+      path: "apps/server/src/agent-os/application/service/capability-grant.service.ts",
+      source: "export class CapabilityGrantService {}",
+    },
+    {
+      path: "apps/server/src/agent-os/application/service/mutation-dispatcher.service.ts",
+      source: "export class MutationDispatcher {}",
+    },
+    {
+      path: "apps/server/src/agent-os/application/service/approval-sweeper.service.ts",
+      source: "export class ApprovalSweeper {}",
+    },
+    {
+      path: "apps/server/src/agent-os/application/service/pending-invocation-recovery.service.ts",
+      source: "export function recoverPendingInvocation() {}",
+    },
+  ]);
+
+  for (const category of [
+    "retired Agent OS lifecycle name",
+    "retired Agent OS publication surface",
+    "retired Task/Attempt route",
+    "retired Agent OS seed surface",
+    "retired capability grant surface",
+    "retired mutation dispatcher",
+    "retired approval sweeper",
+    "pending Invocation recovery",
+  ]) {
+    expectFinding(findings, category);
+  }
+});
+
+test("uses general persistence categories for secrets and Host Gateway state", () => {
+  const findings = collectAgentOsContractionFindings([
+    {
+      path: "prisma/models/agent-work.prisma",
+      source: [
+        "model CapabilityInvocation {",
+        "  id String @id",
+        "  signingSecret String",
+        "  bearer String",
+        "  providerConversationRef String",
+        "}",
+      ].join("\n"),
+    },
+    {
+      path: "prisma/models/system.prisma",
+      source: [
+        "model GatewayControlState {",
+        "  id String @id",
+        "  commandId String",
+        "}",
+      ].join("\n"),
+    },
+  ]);
+
+  expectFinding(findings, "active credentials or secrets");
+  expectFinding(findings, "ephemeral Host Gateway control state");
+});
+
+test("enforces final Agent, domain, capability, and MCP cardinalities", () => {
+  const files = finalContractFiles();
+  const agentRegistry = files.find((file) => file.path.endsWith("agent-definition.registry.ts"));
+  const domains = files.find((file) => file.path.endsWith("domain-definition.registry.ts"));
+  const mcp = files.find((file) => file.path.endsWith("capability-mcp-wire-contract.ts"));
+
+  agentRegistry.source = "export const AGENT_DEFINITIONS = [{ key: 'sourcing', assignedDomains: [] }];";
+  domains.source = "export const DOMAIN_KEYS = ['sourcing'];";
+  mcp.source = "export const MCP_PROTOCOL_VERSION = '2025-01-01'; export const CAPABILITY_MCP_TOOL_NAMES = ['one'];";
+
+  const findings = collectAgentOsContractionFindings(files);
+  expectFinding(findings, "exactly five Agents");
+  expectFinding(findings, "exactly fourteen domains");
+  expectFinding(findings, "exactly five MCP tools");
+  expectFinding(findings, "MCP protocol must be 2026-07-28");
+});
+
+test("keeps provider CLIs out of the API and worker image surfaces", () => {
   const findings = collectAgentOsContractionFindings([
     {
       path: "apps/server/package.json",
-      source: JSON.stringify({
-        dependencies: {
-          "@modelcontextprotocol/server": "^2.0.0",
-          "@modelcontextprotocol/sdk": "1.19.1",
-          "@modelcontextprotocol/core": "2.0.0",
-          "@anthropic-ai/claude-code": "^2.1.245",
-          "@openai/codex": "0.149.0",
-          "zod-v4": "npm:zod@4.4.0",
-        },
-        devDependencies: { "@modelcontextprotocol/client": "^2.0.0" },
-      }),
-    },
-  ]);
-  for (const category of [
-    "MCP v2 server runtime dependency pin",
-    "MCP v2 client development dependency pin",
-    "MCP v1 SDK direct dependency",
-    "MCP core direct dependency",
-    "API-owned provider CLI dependency",
-    "MCP Zod v4 runtime dependency pin",
-  ]) {
-    assert.ok(findings.includes(`apps/server/package.json: ${category}`), category);
-  }
-});
-
-test("keeps AgentVersion and capability definitions free of provider and model state", () => {
-  const findings = collectAgentOsContractionFindings([
-    {
-      path: "prisma/models/agent-work.prisma",
-      source: "model AgentVersion { providerName String modelName String }",
+      source: JSON.stringify({ dependencies: { "@openai/codex": "1.0.0" } }),
     },
     {
-      path: "apps/server/src/common/capability-definition.ts",
-      source: "export interface CapabilityDefinition { providerName: string; modelName: string; }",
-    },
-  ]);
-  for (const category of [
-    "provider/model state on AgentVersion",
-    "provider/model state on CapabilityDefinition",
-  ]) {
-    assert.ok(findings.some((finding) => finding.endsWith(`: ${category}`)), category);
-  }
-});
-
-test("rejects API-owned transport, relay, process, and deployment boundaries", () => {
-  const findings = collectAgentOsContractionFindings([
-    {
-      path: "apps/server/src/agent-os/adapter/in/mcp/runner-transport.ts",
-      source:
-        "import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'; import { Protocol } from '@modelcontextprotocol/core'; new StdioServerTransport();",
-    },
-    {
-      path: "apps/server/src/agent-os/adapter/in/mcp/runner-relay.ts",
-      source:
-        "import { connect } from 'node:net'; connect('/tmp/runner.sock'); JSON.stringify({ tool: request.tool, arguments: request.arguments });",
-    },
-    {
-      path: "deploy/office/compose.office.yml",
-      source: "KIDITEM_ATTEMPT_LOGIN_HOME: /var/lib/kiditem-cli\ncommand: [\"codex\", \"login\"]",
-    },
-    {
-      path: "apps/server/src/agent-os/adapter/in/http/interaction/agent-work.controller.ts",
-      source:
-        "const loginHome = requiredEnvironment('KIDITEM_ATTEMPT_LOGIN_HOME'); const cliVersion = requiredEnvironment('KIDITEM_ATTEMPT_CLI_VERSION');",
+      path: "apps/server/src/agent-os/adapter/out/runtime/launch.ts",
+      source: "import { spawn } from 'node:child_process'; spawn('claude', []);",
     },
     {
       path: "apps/server/Dockerfile",
-      source: "RUN codex --version && claude --version",
-    },
-    {
-      path: "apps/server/src/ai/adapter/out/provider/native-runner.ts",
-      source: "import { execFile } from 'node:child_process'; execFile('codex', []);",
-    },
-    {
-      path: "apps/server/src/agent-os/adapter/out/runtime/attempt/peer.ts",
-      source: "path.join('/proc', String(process.pid), 'status');",
-    },
-    {
-      path: "apps/agent-runner/src/listener.ts",
-      source: "http.createServer(handler).listen('0.0.0.0');",
-    },
-  ]);
-  for (const category of [
-    "MCP v1 source import",
-    "MCP core source import",
-    "API-owned UDS/stdio relay",
-    "API-owned MCP relay",
-    "API login-home/provider-login configuration",
-    "API image provider CLI assertion",
-    "API-owned CLI process supervision",
-    "API runtime Linux peer-process inspection",
-    "Runner inbound listener or LAN exposure",
-  ]) {
-    assert.ok(findings.some((finding) => finding.endsWith(`: ${category}`)), category);
-  }
-});
-
-test("rejects legacy Runner login and CLI version environment reads in production server source", () => {
-  const findings = collectAgentOsContractionFindings([
-    {
-      path: "apps/server/src/agent-os/adapter/in/http/interaction/agent-work.controller.ts",
-      source:
-        "const loginHome = requiredEnvironment('KIDITEM_ATTEMPT_LOGIN_HOME'); const cliVersion = requiredEnvironment('KIDITEM_ATTEMPT_CLI_VERSION');",
+      source: "RUN npm install --global @anthropic-ai/claude-code",
     },
   ]);
 
-  assert.ok(
-    findings.some((finding) =>
-      finding.endsWith(": API login-home/provider-login configuration"),
-    ),
-  );
+  expectFinding(findings, "API/worker provider CLI package");
+  expectFinding(findings, "API/worker provider CLI spawn");
+  expectFinding(findings, "API/worker image contains a provider CLI");
 });
 
-test("does not confuse unrelated server code with native Runner ownership", () => {
-  assert.deepEqual(
-    collectAgentOsContractionFindings([
-      {
-        path: "apps/server/src/agent-os/application/service/matcher.ts",
-        source: "const matched = /kiditem/.exec(input);",
-      },
-      {
-        path: "apps/server/src/ai/adapter/out/wing/playwriter-cli.ts",
-        source: "import { execFile } from 'node:child_process';",
-      },
-      {
-        path: "apps/agent-runner/src/runner-client.ts",
-        source: "await fetch('http://127.0.0.1:4000/internal/agent-runtime/runner/commands:poll');",
-      },
-    ]),
-    [],
-  );
-});
-
-test("rejects current launch ingress execution, authority, and active-secret fields", () => {
-  const rawLaunchFields = [
-    "command",
-    "executable",
-    "shell",
-    "args",
-    "env",
-    "cwd",
-    "path",
-    "loginHome",
-    "organizationId",
-    "organizationAuthority",
-    "userId",
-    "userAuthority",
-    "sessionId",
-    "sessionAuthority",
-    "signingSecret",
-    "runnerCredential",
-    "integrationPassword",
-    "runnerPassphrase",
-    "runnerAccessToken",
-    "runnerBearerToken",
-    "runnerOAuthToken",
-    "runnerApiToken",
-    "runnerApiKey",
-    "runnerPrivateKey",
-    "refreshToken",
-    "connectionString",
-    "connectionUrl",
-    "connectionDsn",
-  ];
-
-  for (const field of rawLaunchFields) {
-    const findings = collectAgentOsContractionFindings([
-      {
-        path: "packages/shared/src/agent-runtime/control.ts",
-        source: `const AttemptLaunchSpecSchema = z.object({ ${field}: z.string() });`,
-      },
-    ]);
-    assert.ok(
-      findings.includes(
-        "packages/shared/src/agent-runtime/control.ts: Runner launch authority/secret field",
-      ),
-      field,
-    );
-  }
-
-  assert.deepEqual(
-    collectAgentOsContractionFindings([
-      {
-        path: "packages/shared/src/agent-runtime/control.ts",
-        source:
-          "const AttemptLaunchSpecSchema = z.object({ attemptToken: z.string(), eventHash: z.string() });",
-      },
-      {
-        path: "packages/shared/src/agent-runtime/runtime-train.ts",
-        source: "const nonIngressMetadata = { signingSecret: 'not a schema' };",
-      },
-    ]),
-    [],
-  );
-});
-
-test("rejects ephemeral Runner state and active secrets only in scoped Prisma surfaces", () => {
-  const controlFields = [
-    "runnerLeaseId",
-    "runnerCommandId",
-    "runnerEventSeq",
-    "runnerPollState",
-    "attemptToken",
-    "leaseExpiresAt",
-    "leaseExpiry",
-    "leaseDeadline",
-    "leaseTtlMs",
-    "commandPayload",
-    "commandBatch",
-    "commandAck",
-    "commandAcknowledgement",
-    "eventBatch",
-    "eventAck",
-    "eventAcknowledgement",
-    "pollPayload",
-    "controlState",
-    "runnerProcessId",
-    "processHandle",
-    "processIdentity",
-    "attemptTokenDigest",
-    "acknowledgedAt",
-    "leaseOwner",
-    "commandHash",
-    "eventBodyHash",
-    "processExitCode",
-    "leaseRenewedAt",
-    "claudeSessionId",
-    "signingSecret",
-    "runnerCredential",
-    "refreshToken",
-  ];
-
-  for (const field of controlFields) {
-    const findings = collectAgentOsContractionFindings([
-      {
-        path: "prisma/models/agent-work.prisma",
-        source: [
-          "model AgentAttempt {",
-          "  id String @id",
-          `  ${field} String`,
-          "}",
-        ].join("\n"),
-      },
-    ]);
-    const category = /(?:secret|credential|refreshToken)$/i.test(field)
-      ? "active secret/credential persistence"
-      : "ephemeral Runner control-state persistence";
-    assert.ok(
-      findings.includes(`prisma/models/agent-work.prisma: ${category}`),
-      field,
-    );
-  }
-
+test("rejects retired applications, port 4401, and public internal runtime routes", () => {
   const findings = collectAgentOsContractionFindings([
     {
-      path: "prisma/models/system.prisma",
-      source: "model RunnerState { runnerLeaseId String }",
-    },
-    {
-      path: "prisma/models/agent-work.prisma",
-      source: "model AgentVersion { signingSecret String }",
-    },
-    {
-      path: "prisma/models/agent-work.prisma",
-      source: "model RunnerProcess { id String @id }",
-    },
-  ]);
-  for (const category of [
-    "active secret/credential persistence",
-    "ephemeral Runner control-state persistence",
-  ]) {
-    assert.ok(findings.some((finding) => finding.endsWith(`: ${category}`)), category);
-  }
-
-  assert.deepEqual(
-    collectAgentOsContractionFindings([
-      {
-        path: "prisma/models/runner-control.prisma",
-        source: "model RunnerProcess { id String @id }",
-      },
-    ]),
-    ["prisma/models/runner-control.prisma: ephemeral Runner control-state persistence"],
-    "a dedicated Runner process model is always ephemeral control state",
-  );
-
-  assert.deepEqual(
-    collectAgentOsContractionFindings([
-      {
-        path: "prisma/models/system.prisma",
-        source: "model OperationLease { leaseExpiresAt DateTime? eventHash String }",
-      },
-      {
-        path: "prisma/models/product.prisma",
-        source: "model Product { signingSecret String }",
-      },
-      {
-        path: "prisma/models/agent-work.prisma",
-        source:
-          "model AgentCapabilityInvocation { leaseOwner String? leaseExpiresAt DateTime? }",
-      },
-      {
-        path: "prisma/models/operations.prisma",
-        source: "model Operation { leaseOwner String? leaseExpiresAt DateTime? }",
-      },
-    ]),
-    [],
-  );
-});
-
-test("rejects stale direct-MCP socket wording in current production code", () => {
-  const findings = collectAgentOsContractionFindings([
-    {
-      path: "apps/server/src/agent-os/application/service/work/attempt-mcp-actions.service.ts",
-      source: "/** The incoming socket adapter sees only its input port. */",
-    },
-  ]);
-
-  assert.ok(
-    findings.includes(
-      "apps/server/src/agent-os/application/service/work/attempt-mcp-actions.service.ts: superseded direct-MCP statement",
-    ),
-  );
-});
-
-test("rejects duplicate runtime contracts outside the shared subpath", () => {
-  const findings = collectAgentOsContractionFindings([
-    {
-      path: "apps/server/src/agent-os/domain/execution/runtime-contract.ts",
-      source: [
-        "type HostPlatform = 'macos' | 'windows';",
-        "type ProviderRuntime = 'codex_cli' | 'claude_cli';",
-      ].join("\n"),
-    },
-  ]);
-  assert.ok(
-    findings.includes(
-      "apps/server/src/agent-os/domain/execution/runtime-contract.ts: duplicate runtime train/platform contract",
-    ),
-  );
-});
-
-test("accepts only canonical internal Runner controller prefixes", () => {
-  for (const route of [
-    "internal/agent-runtime/commands",
-    "/internal/agent-runtime/events",
-  ]) {
-    assert.deepEqual(
-      collectAgentOsContractionFindings([
-        {
-          path: "apps/server/src/agent-os/adapter/in/http/control/runner.controller.ts",
-          source: `@Controller('${route}') export class RunnerController {}`,
-        },
-      ]),
-      [],
-      route,
-    );
-  }
-
-  for (const route of [
-    "/api/agent-runtime/commands",
-    "internal/agent-runtime-lan/events",
-    "/api/internal/agent-runtime/events",
-    "/internal/agent-runtime-public/events",
-  ]) {
-    const findings = collectAgentOsContractionFindings([
-      {
-        path: "apps/server/src/agent-os/adapter/in/http/control/runner.controller.ts",
-        source: `@Controller('${route}') export class RunnerController {}`,
-      },
-    ]);
-    assert.ok(
-      findings.includes(
-        "apps/server/src/agent-os/adapter/in/http/control/runner.controller.ts: Agent runtime route outside internal prefix",
-      ),
-      route,
-    );
-  }
-});
-
-test("composes static Nest controller and method paths for Runner routes", () => {
-  const accepted = [
-    [
-      "source-relative",
-      "@Controller('internal/agent-runtime') export class RunnerController { @Post('runner/events') post() {} }",
-    ],
-    [
-      "fully-qualified",
-      "@Controller('/internal/agent-runtime') export class RunnerController { @Post('runner/events') post() {} }",
-    ],
-  ];
-
-  for (const [name, source] of accepted) {
-    assert.deepEqual(
-      collectAgentOsContractionFindings([
-        {
-          path: "apps/server/src/agent-os/adapter/in/http/control/runner.controller.ts",
-          source,
-        },
-      ]),
-      [],
-      name,
-    );
-  }
-
-  assert.deepEqual(
-    collectAgentOsContractionFindings([
-      {
-        path: "apps/server/src/readiness/readiness.controller.ts",
-        source:
-          "@Controller('readiness') export class ReadinessController { @Get('agent-runtime') status() {} }",
-      },
-      {
-        path: "apps/server/src/agent-os/adapter/in/http/interaction/copilotkit.controller.ts",
-        source:
-          "@Controller('copilotkit') export class AgentWorkCopilotKitController { @All('*path') handle() {} } class FutureOnlyRunner {}",
-      },
-      {
-        path: "apps/server/src/ai/adapter/out/wing/wing-automation-runner.ts",
-        source: "export class WingAutomationRunner { run() {} }",
-      },
-    ]),
-    [],
-    "unrelated readiness, CopilotKit, and business runner names are not Runner control routes",
-  );
-
-  for (const [name, source] of [
-    [
-      "public controller with an internal method path",
-      "@Controller('public') export class RunnerController { @Post('internal/agent-runtime/poll') poll() {} }",
-    ],
-    [
-      "dynamic method path",
-      "@Controller('internal/agent-runtime') export class RunnerController { @Post(path) poll() {} }",
-    ],
-    [
-      "dynamic controller path",
-      "@Controller(prefix) export class RunnerController { @Post('runner/events') post() {} }",
-    ],
-  ]) {
-    const findings = collectAgentOsContractionFindings([
-      {
-        path: "apps/server/src/agent-os/adapter/in/http/control/runner.controller.ts",
-        source,
-      },
-    ]);
-    assert.ok(
-      findings.includes(
-        "apps/server/src/agent-os/adapter/in/http/control/runner.controller.ts: Agent runtime route outside internal prefix",
-      ),
-      name,
-    );
-  }
-});
-
-test("rejects raw fields in every concrete Runner control ingress declaration", () => {
-  const ingressFixtures = [
-    {
-      path: "apps/server/src/agent-os/adapter/in/http/runtime/start-attempt.dto.ts",
-      source: "export class StartAttemptDto { command!: string; }",
-    },
-    {
-      path: "apps/server/src/agent-os/adapter/in/http/runtime/poll-input.ts",
-      source: "export interface PollInput { refreshToken: string; }",
-    },
-    {
-      path: "apps/server/src/agent-os/adapter/in/http/runtime/event-input.ts",
-      source: "export type EventInput = { executable: string };",
-    },
-    {
-      path: "apps/agent-runner/src/control/runner-control.client.ts",
-      source: "export const StartAttemptDto = z.object({ env: z.string() }).strict();",
-    },
-  ];
-
-  for (const fixture of ingressFixtures) {
-    assert.ok(
-      collectAgentOsContractionFindings([fixture]).includes(
-        `${fixture.path}: duplicate Runner control ingress contract`,
-      ),
-      fixture.path,
-    );
-  }
-
-  assert.deepEqual(
-    collectAgentOsContractionFindings([
-      {
-        path: "apps/server/src/agent-os/adapter/in/http/interaction/legacy.dto.ts",
-        source: "export interface StartAttemptDto { command: string; }",
-      },
-      {
-        path: "apps/agent-runner/src/control/runner-command-dispatcher.ts",
-        source: "const launch = { executable: 'codex', args: [], env: {} };",
-      },
-      {
-        path: "apps/agent-runner/src/provider/provider-command.ts",
-        source: "const launch = { executable: 'codex', args: [], env: {} };",
-      },
-    ]),
-    [],
-    "only concrete Runner control ingress paths define the shared boundary",
-  );
-});
-
-test("enforces API-wide relay, proc, and dynamic child-process ownership", () => {
-  const findings = collectAgentOsContractionFindings([
-    {
-      path: "apps/server/src/ai/adapter/out/provider/relay.ts",
-      source: "JSON.stringify({ tool: request.tool, arguments: request.arguments });",
-    },
-    {
-      path: "apps/server/src/ai/adapter/out/provider/peer-inspection.ts",
-      source: "path.join('/proc', String(process.pid), 'status');",
-    },
-    {
-      path: "apps/server/src/ai/adapter/out/provider/dynamic-process.ts",
-      source: "const childProcess = await import('node:child_process');",
-    },
-    {
-      path: "apps/server/src/ai/adapter/out/provider/required-process.ts",
-      source: "const childProcess = require('node:child_process');",
-    },
-  ]);
-
-  for (const [filePath, category] of [
-    ["apps/server/src/ai/adapter/out/provider/relay.ts", "API-owned MCP relay"],
-    [
-      "apps/server/src/ai/adapter/out/provider/peer-inspection.ts",
-      "API runtime Linux peer-process inspection",
-    ],
-    [
-      "apps/server/src/ai/adapter/out/provider/dynamic-process.ts",
-      "API-owned CLI process supervision",
-    ],
-    [
-      "apps/server/src/ai/adapter/out/provider/required-process.ts",
-      "API-owned CLI process supervision",
-    ],
-  ]) {
-    assert.ok(findings.includes(`${filePath}: ${category}`), filePath);
-  }
-});
-
-test("rejects provider CLI launches and process kills even in child-process allowlists", () => {
-  const allowlistedPath = "apps/server/src/ai/adapter/out/wing/playwriter-cli.ts";
-  const providerProcessFixtures = [
-    "import { spawn } from 'node:child_process'; spawn('codex', []);",
-    "import { execFile as launch } from 'node:child_process'; launch('claude.exe', []);",
-    "import * as childProcess from 'node:child_process'; childProcess.exec('codex');",
-    "const { fork: launch } = require('node:child_process'); launch('claude');",
-    "Bun.spawn(['codex']);",
-    "process.kill(1234);",
-  ];
-
-  for (const source of providerProcessFixtures) {
-    assert.ok(
-      collectAgentOsContractionFindings([{ path: allowlistedPath, source }]).includes(
-        `${allowlistedPath}: API-owned CLI process supervision`,
-      ),
-      source,
-    );
-  }
-
-  assert.deepEqual(
-    collectAgentOsContractionFindings([
-      {
-        path: allowlistedPath,
-        source: "import { execFile } from 'node:child_process'; execFile('python3', []);",
-      },
-      {
-        path: "apps/server/src/ai/adapter/out/provider/matcher.ts",
-        source: "const match = /provider/.exec('codex');",
-      },
-    ]),
-    [],
-    "unrelated executable calls and regular-expression exec are not provider process ownership",
-  );
-});
-
-test("requires an nginx deny boundary for internal Runner routes", () => {
-  assert.deepEqual(
-    collectAgentOsContractionFindings([
-      {
-        path: "deploy/office/nginx.conf",
-        source: "location ^~ /internal/ { return 404; }",
-      },
-    ]),
-    [],
-  );
-  assert.ok(
-    collectAgentOsContractionFindings([
-      {
-        path: "deploy/office/nginx.conf",
-        source: "location /internal/ { proxy_pass http://kiditem_api; }",
-      },
-    ]).includes("deploy/office/nginx.conf: nginx internal Agent runtime deny boundary"),
-  );
-  assert.ok(
-    collectAgentOsContractionFindings([
-      {
-        path: "deploy/office/nginx.conf",
-        source:
-          "location ^~ /internal/ { proxy_pass http://kiditem_api; }\nlocation / { return 404; }",
-      },
-    ]).includes("deploy/office/nginx.conf: nginx internal Agent runtime deny boundary"),
-    "a return in a later nginx location must not satisfy the internal route deny",
-  );
-});
-
-test("rejects superseded runtime inventory and stale current Host Runner statements", () => {
-  const findings = collectAgentOsContractionFindings([
-    {
-      path: "apps/server/src/agent-os/adapter/out/runtime/attempt/agent-result-output-schema.ts",
+      path: "apps/agent-runner/src/main.ts",
       source: "export const legacy = true;",
     },
     {
-      path: "apps/server/src/agent-mcp-application.module.ts",
-      source: "export class AgentMcpApplicationModule {}",
-    },
-    {
-      path: "apps/server/Dockerfile",
-      source: "RUN npm install --global @openai/codex",
+      path: "apps/interaction-gateway/src/main.ts",
+      source: "export const legacy = true;",
     },
     {
       path: "deploy/office/compose.office.yml",
-      source: "volumes:\n  - kiditem-cli-home:/var/lib/kiditem-cli",
+      source: "ports: ['4401:4401']",
     },
     {
-      path: "docs/ARCHITECTURE.md",
-      source: "The API owns a Codex process and its private MCP socket.",
-    },
-    {
-      path: "docs/runbooks/environment-variables.md",
-      source: "KIDITEM_ATTEMPT_LOGIN_HOME is required by the API.",
-    },
-    {
-      path: "prisma/models/agent-work.prisma",
-      source: [
-        "model AgentCapabilityInvocation {",
-        "  providerCredential String",
-        "}",
-        "model AgentAttempt {",
-        "  commandPayload String",
-        "}",
-      ].join("\n"),
+      path: "apps/server/src/agent-os/adapter/in/http/runtime/public.controller.ts",
+      source: "@Controller('api/internal/agent-runtime') export class RuntimeController {}",
     },
   ]);
 
-  for (const category of [
-    "superseded Agent OS runtime surface",
-    "superseded Agent MCP application root",
-    "API image provider CLI installation",
-    "superseded Compose CLI-home volume",
-    "stale current Host Runner documentation",
-    "active secret/credential persistence",
-    "ephemeral Runner control-state persistence",
-  ]) {
-    assert.ok(findings.some((finding) => finding.endsWith(`: ${category}`)), category);
-  }
+  expectFinding(findings, "retired Agent runtime application");
+  expectFinding(findings, "retired runtime port 4401");
+  expectFinding(findings, "public internal runtime route");
 });
 
-test("enforces the absence of every superseded runtime path", () => {
-  const root = mkdtempSync(join(tmpdir(), "kiditem-agent-os-contraction-"));
-  const target = join(
-    root,
-    "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-broker.service.ts",
-  );
-  mkdirSync(path.dirname(target), { recursive: true });
-  writeFileSync(target, "export const legacy = true;\n");
+test("detects retired runtime application directories from the filesystem inventory", () => {
+  const root = mkdtempSync(join(tmpdir(), "kiditem-agent-os-inventory-"));
   try {
-    assert.deepEqual(collectSupersededRuntimeInventoryFindings(root), [
-      "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-broker.service.ts: superseded Agent OS runtime surface",
-    ]);
+    mkdirSync(join(root, "apps/agent-runner"), { recursive: true });
+    mkdirSync(join(root, "apps/interaction-gateway"), { recursive: true });
+    const findings = collectContractionInventoryFindings(root);
+    expectFinding(findings, "apps/agent-runner: retired Agent runtime application");
+    expectFinding(findings, "apps/interaction-gateway: retired Agent runtime application");
   } finally {
     rmSync(root, { force: true, recursive: true });
   }
-});
-
-test("enumerates every superseded runtime production and test surface", () => {
-  assert.deepEqual(supersededRuntimeInventoryPaths(), [
-    "apps/server/src/agent-mcp-application.module.ts",
-    "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-broker.service.ts",
-    "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-broker.spec.ts",
-    "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-proxy.ts",
-    "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-socket-server.spec.ts",
-    "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-socket-server.ts",
-    "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-stdio-to-uds.spec.ts",
-    "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-stdio-to-uds.ts",
-    "apps/server/src/agent-os/adapter/out/runtime/attempt/agent-attempt-executor.service.ts",
-    "apps/server/src/agent-os/adapter/out/runtime/attempt/agent-attempt-process-registry.ts",
-    "apps/server/src/agent-os/adapter/out/runtime/attempt/agent-attempt-runtime.spec.ts",
-    "apps/server/src/agent-os/adapter/out/runtime/attempt/agent-result-output-schema.ts",
-    "apps/server/src/agent-os/adapter/out/runtime/attempt/attempt-filesystem.service.spec.ts",
-    "apps/server/src/agent-os/adapter/out/runtime/attempt/attempt-filesystem.service.ts",
-    "apps/server/src/agent-os/adapter/out/runtime/attempt/attempt-live-control.registry.ts",
-    "apps/server/src/agent-os/adapter/out/runtime/attempt/claude-attempt.adapter.ts",
-    "apps/server/src/agent-os/adapter/out/runtime/attempt/codex-app-server-session.spec.ts",
-    "apps/server/src/agent-os/adapter/out/runtime/attempt/codex-app-server-session.ts",
-    "apps/server/src/agent-os/adapter/out/runtime/attempt/codex-attempt-isolation-canary.spec.ts",
-    "apps/server/src/agent-os/adapter/out/runtime/attempt/codex-attempt-isolation-canary.ts",
-    "apps/server/src/agent-os/adapter/out/runtime/attempt/codex-attempt.adapter.ts",
-    "apps/server/src/agent-os/application/service/work/agent-runtime-directory-reconciler.service.ts",
-  ]);
-});
-
-test("allows current documentation that assigns CLI ownership only to the Host Runner", () => {
-  assert.deepEqual(
-    collectAgentOsContractionFindings([
-      {
-        path: "docs/ARCHITECTURE.md",
-        source:
-          "The API owns durable admission. The native Host Runner alone owns Codex/Claude process trees.",
-      },
-      {
-        path: "docs/runbooks/deployment-architecture.md",
-        source:
-          "The worker never imports API transport or starts a CLI; the Host Runner owns provider processes.",
-      },
-    ]),
-    [],
-  );
 });

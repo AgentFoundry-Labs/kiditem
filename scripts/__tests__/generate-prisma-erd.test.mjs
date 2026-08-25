@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  generateDomainErdMarkdown,
   generateErdMarkdown,
   generateMermaidErDiagram,
   parsePrismaSchemaFiles,
@@ -181,4 +182,41 @@ model Warehouse {
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }
+});
+
+test('renders the current one-model AgentOS domain without legacy lifecycle rows', () => {
+  const schema = parsePrismaSchemaFiles([
+    {
+      fileName: 'agent-work.prisma',
+      content: `
+/// @namespace AgentOS
+/// @describe Exact request-driven mutation admission and replay receipt.
+model CapabilityInvocation {
+  id             String @id @db.Uuid
+  organizationId String @db.Uuid
+  requestKey     String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, requestKey])
+  @@map("capability_invocations")
+}
+
+/// @namespace Core
+/// @describe Organization root.
+model Organization {
+  id                    String @id @db.Uuid
+  capabilityInvocations CapabilityInvocation[]
+
+  @@map("organizations")
+}
+`,
+    },
+  ]);
+
+  const markdown = generateDomainErdMarkdown(schema, 'AgentOS');
+
+  assert.match(markdown, /\| CapabilityInvocation \| `capability_invocations` \| Exact request-driven mutation admission and replay receipt\. \|/);
+  assert.match(markdown, /CapabilityInvocation \{\n    String id PK/);
+  assert.match(markdown, /CapabilityInvocation \| organization \| references external \| Core \| Organization/);
+  assert.equal(schema.models.filter((model) => model.namespace === 'AgentOS').length, 1);
 });

@@ -22,9 +22,15 @@ function listFiles(dir) {
   });
 }
 
+const PLAN_DEFINED_AGENT_OS_DIRECT_OUT_PORTS = new Set([
+  'apps/server/src/agent-os/application/port/out/capability-invocation.repository.port.ts',
+  'apps/server/src/agent-os/application/port/out/gateway-conversation.port.ts',
+]);
+
 function directOutPortFiles(backendPortFiles) {
   return backendPortFiles
     .filter((file) => file.endsWith('.ts'))
+    .filter((file) => !PLAN_DEFINED_AGENT_OS_DIRECT_OUT_PORTS.has(file))
     .filter((file) => {
       const marker = '/application/port/out/';
       const markerIndex = file.indexOf(marker);
@@ -36,7 +42,14 @@ function directOutPortFiles(backendPortFiles) {
     .sort();
 }
 
-const FORBIDDEN_IN_PORT_FOLDER_NAMES = new Set(['agent', 'http', 'workflow']);
+const FORBIDDEN_IN_PORT_FOLDER_NAMES = new Set([
+  'agent',
+  'gateway',
+  'http',
+  'runner',
+  'runtime',
+  'workflow',
+]);
 
 function forbiddenInPortCallerFolders(backendPortFiles) {
   return backendPortFiles
@@ -56,6 +69,7 @@ function forbiddenInPortCallerFolders(backendPortFiles) {
 export function analyzeDirectoryArchitecture({
   architectureDoc,
   serverSrcDirs,
+  gatewaySrcDirs = [],
   webAppDirs,
   webSrcDirs,
   webAppApiExists,
@@ -63,6 +77,7 @@ export function analyzeDirectoryArchitecture({
 }) {
   const requiredPaths = [
     ...serverSrcDirs.map((name) => `apps/server/src/${name}`),
+    ...gatewaySrcDirs.map((name) => `apps/agent-gateway/src/${name}`),
     ...webAppDirs.map((name) => `apps/web/src/app/${name}`),
     ...webSrcDirs
       .filter((name) => name !== 'app')
@@ -90,9 +105,11 @@ export function analyzeDirectoryArchitecture({
 export function collectDirectoryArchitecture(root) {
   const webAppApiPath = path.join(root, 'apps/web/src/app/api');
   const serverSrcPath = path.join(root, 'apps/server/src');
+  const gatewaySrcPath = path.join(root, 'apps/agent-gateway/src');
   return {
     architectureDoc: readFileSync(path.join(root, 'docs/ARCHITECTURE.md'), 'utf8'),
     serverSrcDirs: listDirectories(serverSrcPath),
+    gatewaySrcDirs: existsSync(gatewaySrcPath) ? listDirectories(gatewaySrcPath) : [],
     backendPortFiles: listFiles(serverSrcPath)
       .map((file) => path.relative(root, file))
       .filter((file) => file.includes('/application/port/')),

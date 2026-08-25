@@ -1,14 +1,14 @@
 'use strict';
 
 // The scheduled task invokes this stable, ACL-protected launcher rather than
-// a versioned Runner path. It accepts only the fixed Office current pointer,
-// validates that pointer, and loads the selected immutable Runner in-process.
+// a versioned Gateway path. It accepts only the fixed Office current pointer,
+// validates that pointer, and loads the selected immutable Gateway in-process.
 // It intentionally has no general command/argument forwarding surface.
 const fs = require('node:fs');
 const path = require('node:path');
 
 const officeRoot = String.raw`C:\ProgramData\KidItem`;
-const defaultRunnerRoot = path.join(officeRoot, 'agent-runner');
+const defaultGatewayRoot = path.join(officeRoot, 'agent-gateway');
 
 function launchError(code) {
   return new Error(code);
@@ -36,13 +36,13 @@ function assertRegularDirectory(directoryPath, fsApi) {
  * to one immutable `releases/<gitSha>` package. The optional inputs exist for
  * portable filesystem-contract tests; production does not expose them.
  */
-function resolveRunnerLaunch(input = {}) {
+function resolveGatewayLaunch(input = {}) {
   const argv = input.argv ?? process.argv;
-  const runnerRoot = input.runnerRoot ?? defaultRunnerRoot;
+  const gatewayRoot = input.gatewayRoot ?? defaultGatewayRoot;
   const fsApi = input.fsApi ?? fs;
   const pathApi = input.pathApi ?? path;
   const platform = input.platform ?? process.platform;
-  const currentPointerPath = pathApi.join(runnerRoot, 'current.json');
+  const currentPointerPath = pathApi.join(gatewayRoot, 'current.json');
   if (
     argv.length !== 4 ||
     argv[2] !== '--current' ||
@@ -66,25 +66,25 @@ function resolveRunnerLaunch(input = {}) {
     Object.keys(pointer).length !== 3 ||
     !Object.prototype.hasOwnProperty.call(pointer, 'gitSha') ||
     !Object.prototype.hasOwnProperty.call(pointer, 'releaseRoot') ||
-    !Object.prototype.hasOwnProperty.call(pointer, 'runnerArtifactSha256') ||
+    !Object.prototype.hasOwnProperty.call(pointer, 'gatewayArtifactSha256') ||
     typeof pointer.gitSha !== 'string' ||
     !/^[0-9a-f]{40}$/.test(pointer.gitSha) ||
     typeof pointer.releaseRoot !== 'string' ||
-    typeof pointer.runnerArtifactSha256 !== 'string' ||
-    !/^[0-9a-f]{64}$/.test(pointer.runnerArtifactSha256)
+    typeof pointer.gatewayArtifactSha256 !== 'string' ||
+    !/^[0-9a-f]{64}$/.test(pointer.gatewayArtifactSha256)
   ) {
     throw launchError('current_pointer_invalid');
   }
 
   const releaseRoot = pathApi.resolve(pointer.releaseRoot);
-  const expectedReleaseRoot = pathApi.resolve(runnerRoot, 'releases', pointer.gitSha);
+  const expectedReleaseRoot = pathApi.resolve(gatewayRoot, 'releases', pointer.gitSha);
   if (!samePath(releaseRoot, expectedReleaseRoot, pathApi, platform)) {
     throw launchError('release_pointer_invalid');
   }
 
   const runtimeRoot = pathApi.join(releaseRoot, 'package');
   const entryPoint = pathApi.join(runtimeRoot, 'dist', 'main.cjs');
-  const configPath = pathApi.join(releaseRoot, 'runner-config.json');
+  const configPath = pathApi.join(releaseRoot, 'gateway-config.json');
   try {
     assertRegularDirectory(releaseRoot, fsApi);
     assertRegularDirectory(runtimeRoot, fsApi);
@@ -96,9 +96,9 @@ function resolveRunnerLaunch(input = {}) {
   return { runtimeRoot, entryPoint, configPath };
 }
 
-function runRunnerLaunch(input = {}) {
+function runGatewayLaunch(input = {}) {
   const argv = input.argv ?? process.argv;
-  const resolved = resolveRunnerLaunch({ ...input, argv });
+  const resolved = resolveGatewayLaunch({ ...input, argv });
   const chdir = input.chdir ?? process.chdir;
   const loadEntrypoint = input.loadEntrypoint ?? require;
   chdir(resolved.runtimeRoot);
@@ -109,16 +109,16 @@ function runRunnerLaunch(input = {}) {
 
 function runProductionLauncher() {
   try {
-    runRunnerLaunch();
+    runGatewayLaunch();
   } catch (error) {
     const code = error instanceof Error && /^[a-z_]+$/.test(error.message)
       ? error.message
       : 'startup_failed';
-    process.stderr.write(`kiditem_runner_launcher_${code}\n`);
+    process.stderr.write(`kiditem_gateway_launcher_${code}\n`);
     process.exitCode = 1;
   }
 }
 
-module.exports = { resolveRunnerLaunch, runRunnerLaunch };
+module.exports = { resolveGatewayLaunch, runGatewayLaunch };
 
 if (require.main === module) runProductionLauncher();

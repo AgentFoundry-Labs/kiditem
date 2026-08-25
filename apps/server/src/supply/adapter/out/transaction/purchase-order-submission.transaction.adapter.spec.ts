@@ -276,6 +276,19 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
     expect(result).toMatchObject({ kind: 'created', attempt: { status: 'prepared' } });
   });
 
+  it('rejects a missing owner request hash before locking persistent state', async () => {
+    const { prisma, tx } = makePrisma();
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+
+    await expect(adapter.prepare({
+      ...prepareInput(),
+      requestHash: undefined as never,
+    })).rejects.toThrow('request hash');
+
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    expect(tx.purchaseOrderSubmissionAttempt.create).not.toHaveBeenCalled();
+  });
+
   it('rejects an opaque fence mismatch as freshness-required', async () => {
     const { prisma, tx } = makePrisma({ fence: '00000000-0000-4000-8000-000000000100' });
     const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);

@@ -1,105 +1,92 @@
 # Agent Interaction Platform Runbook
 
-KidItem uses CopilotKit OSS v2 as a same-origin Nest incoming adapter. KidItem
-PostgreSQL is the source of truth for durable Session/Task/Attempt, capability
-invocation and approval records. No CopilotKit Premium or Enterprise thread
-service is required.
+KidItem uses CopilotKit OSS `1.69.0` as a same-origin Nest incoming adapter.
+Codex or Claude owns each conversation and its history. KidItem owns business
+records, durable `OperationRun`s, and exactly one Agent OS persistence model:
+`CapabilityInvocation`. There is no CopilotKit thread service, generic durable
+work/process/version graph, capability-grant store, or KidItem transcript store.
 
 ## Runtime shape
 
 ```text
 browser /api/copilotkit
-  -> Nest authenticated CopilotKit incoming adapter
-  -> Agent Work admission and native Host Runner command
-  -> direct loopback MCP v2 Streamable HTTP + owner-domain capability ports
-  -> PostgreSQL durable work state
+  -> authenticated Nest/CopilotKit adapter
+  -> outbound command queue
+  -> native Agent Gateway
+  -> Codex/Claude conversation + native subagents
+  -> private Nest MCP 2026-07-28
+  -> CapabilityDefinition -> owner-domain incoming port
+  -> optional CapabilityInvocation approval / OperationRun
 ```
 
-Opening the panel, choosing an agent, starting an empty conversation, or
-reloading performs no control write. The browser supplies an opaque CopilotKit
-thread id; Nest creates `AgentSession`, a Task, and an immutable Attempt only
-on first submit. Live output exists only while that exact Attempt runs; provider
-history and replay transcripts are never restored after a restart.
+The Gateway is an always-on host process under the provider-login account. It
+stores only bounded conversation descriptors needed to list and reopen provider
+conversations; the provider remains the history source of truth. The browser
+may start a general conversation or an Agent-fixed domain conversation. Runtime
+is explicit at conversation creation, while model and reasoning effort are
+explicit user choices for each turn. Subagents are native Codex/Claude children,
+not KidItem conversations or durable child tasks.
 
-One ephemeral interaction-state module owns the selected Agent, one-time draft,
-thread URL, and open/new/select/close actions for the global FAB, domain entry
-points, and workspace. New work uses that selected Agent. Once a durable
-Session is loaded, the root Task facts pin its immutable Agent definition
-and a stale browser selection cannot replace it.
+Opening the workspace, creating an empty draft, reloading, or inspecting history
+starts no model turn. At most four turns are live in Gateway process memory. A
+browser/API/Gateway restart never resumes or automatically starts reasoning; the
+user's next message starts a fresh turn against provider-owned history.
 
-## Durable task controls
+## Capability and approval boundary
 
-AgentOS owns durable work independently from CopilotKit. `AgentVersion`,
-`AgentSession`, `AgentTask`, `AgentAttempt`, `AgentCapabilityInvocation`, and
-`AgentCapabilityApproval` are the complete persistence graph. Task records only
-`open | completed | failed | cancelled`. Attempts use only `starting | running
-| succeeded | failed | process_interrupted | cancelled`. The Work read API
-returns source facts directly: Task status, latest Attempt, Approval rows and
-current approval, admitted Invocation/Operation references and status, child
-Tasks, bounded result summaries/resource/operation references, and structured
-`result.needsInput` when available. It has no presentation state, precedence,
-or compatibility layer. `copilotThreadId` is opaque transport correlation only;
-request IDs, provider sessions, runtime handles, tokens, and raw provider IDs
-are not durable public identifiers.
+The private stateless MCP surface exposes exactly five tools:
+`capability_catalog_search`, `capability_invoke`, `invocation_status`,
+`operation_status`, and `readiness_probe`. The catalog contains five Agents,
+fourteen domains, seventeen owner-local CapabilityDefinitions, including ten
+Sourcing definitions. Profiles guide provider-native delegation; they do not
+create grants. Every
+invocation is authorized by current user/organization context, the selected
+Agent profile, the exact capability contract, and server-owned routing policy.
 
-Continue is an explicit user action, never a task state or automatic refresh
-action. It is available only when the Task is not cancelled and has no live
-Attempt; a Continue on a completed or failed Task atomically reopens it before
-creating a new immutable Attempt. A cancelled Task requires explicit Reopen.
-The UI must not automatically start work after refresh.
+Reads dispatch directly to the owner-domain incoming port. Mutations require an
+owner idempotency key and persist the canonical input plus hash in
+`CapabilityInvocation`. When approval is required, MCP returns `input_required`.
+Recording an approval decision executes nothing; the provider must explicitly
+retry the same request key and exact input. Same key/same input reuses the owner
+result or Operation, while input drift conflicts. Long work returns an
+`operationRef` immediately and the Operations worker owns completion without a
+model restart.
 
-An approval first stores its exact canonical input/hash durably. The CLI gets a
-bounded current result and exits; it never waits for, receives future output
-from, or is woken by an Approval decision, Operation completion, or child Task
-completion. An approved decision releases only the already-admitted deterministic
-mutation/Operation. Browser disconnect detaches live output only; it does not
-alter durable work.
-
-Reasoning is trusted but disposable. API/Runner restart, root or delegation
-replay, transport retry, CLI exit/timeout/loss, Approval decision, Operation
-completion, and child completion never create, resume, or relaunch reasoning.
-Browser root transport replay with the same logical key and input returns or
-closes the immutable first-root receipt. Exact delegation replay returns the
-existing child Task and its latest Attempt. Continue or Reopen is a separate
-explicit command; input drift conflicts. Worker recovery may continue or retry
-ready or executing mutation/Operation work only under its existing owner
-idempotency key.
-
-Agent versions are immutable. Publishing an identical manifest reuses the active
-version, while a changed capability/domain/runtime-profile manifest creates a
-later version and retires the previous active row. Models, credentials, and
-provider session/history never belong to AgentVersion; models are explicit API
-runtime configuration. Existing Tasks remain pinned to their selected version:
-retirement prevents only new root/delegation selection, while explicit continued
-Attempts and capability invocations validate the Task-pinned activated snapshot
-plus current catalog/implementation fences.
+An execution binding lives only in API/Gateway process memory for MCP request
+authentication and turn correlation, with a maximum four-hour TTL. It is not a
+conversation session, Agent/capability/delegation grant, provider credential, or
+durable authority. The installation bearer authenticates Gateway long-poll and
+event traffic only. Neither value is exposed to the browser or persisted.
 
 ## Readiness and verification
 
-Probe authenticated Nest interaction/readiness routes before sending browser
-traffic. There is no intermediary service, service credential, internal-signing
-envelope, browser-provided organization identity, Hermes runtime, deletion
-graph, or provider-session resume.
+The API may be healthy while Gateway/provider readiness is unavailable. Starting
+a conversation or turn must fail closed until the exact Gateway runtime train,
+provider login, model catalog, and MCP `2026-07-28` canary are ready. There is no
+legacy protocol fallback.
 
 ```bash
+npm run check:copilotkit-train
+npm run check:agent-os-contraction -- --enforce
+npm run check:agent-os-hexagonal
+npm run qa:agent-os:clean-cutover
+npm run smoke:interaction-os
 npm run build --workspace=apps/server
 npm run build --workspace=apps/web
-npm run smoke:interaction-os
 ```
 
-`npm run smoke:interaction-os` refuses production-like environments, builds the
-exact API/Web artifacts, and runs focused admission, direct-MCP, restart, and
-Runner-control suites. It does not contact Codex, Claude, or any production
-database/runtime. Full schema and seed acceptance uses only a named disposable
-PostgreSQL instance as defined in [Agent OS Clean Cutover](agent-os-clean-cutover.md).
+The clean-cutover helper accepts only its own generated Testcontainer database.
+The interaction smoke issues the real readiness/conversation/history/MCP request
+sequence with injectable test doubles and stops at an approval-pending mutation.
+Executable macOS QA uses the host's existing Codex login. Live Claude reply and
+Windows ACL/Job Object/Task Scheduler execution remain explicit deferred gates
+until those environments are available.
 
-## Process-root boundary
+## Process ownership
 
-The API root routes both REST and CopilotKit through one Agent Work intake
-Module, and exposes narrow views of one Host Runner control session to HTTP,
-MCP, launch, readiness, and live-input adapters. The native Host Runner owns
-poll/dispatch/outbox/control-loss in one native control session and keeps its
-HTTP client and CLI supervisor as adapters. The worker owns durable
-mutation/Operation recovery but never imports API transport or a CLI provider;
-it cannot wake or create CLI reasoning. Preserve this split when adding a
-capability, runtime, or controller.
+The API owns authenticated HTTP, transient Gateway control state, MCP admission,
+and `CapabilityInvocation`. The native Gateway owns provider processes,
+provider-local conversations/history, bounded descriptors, and live-turn cleanup.
+The worker owns only durable Operations and cannot import Agent transport, start
+a CLI, approve a mutation, or wake reasoning. Preserve this split when adding a
+capability, provider, controller, or deployment surface.

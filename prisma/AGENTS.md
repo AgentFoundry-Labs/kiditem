@@ -59,17 +59,18 @@ directory; do not move datasource URL back into `schema.prisma`.
 
 ## Integrated Model Contracts
 
-- Agent OS uses six code-owned persistence models only: `AgentVersion`,
-  `AgentSession`, `AgentTask`, `AgentAttempt`, `AgentCapabilityInvocation`, and
-  `AgentCapabilityApproval`.
-- `AgentVersion` snapshots domains/capability keys/runtime profile but never a
-  provider credential, model, or provider session. Task owns only the business
-  lifecycle; Attempt owns only the CLI process lifecycle.
-- Legacy `AgentDefinition`, `AgentInstance`, `AgentRunRequest`, `AgentRun`,
-  runtime state, cost ledgers, event/replay rows, and handle/session keys must
-  not return.
-- `Marketplace.type` distinguishes `agent` and `workflow`; version publication
-  is code-owned and idempotent.
+- Agent OS uses one code-owned persistence model only:
+  `CapabilityInvocation`. It stores exact request-driven mutation admission,
+  approval fields, idempotent result/error, and no provider conversation state.
+- Agent definitions and capability manifests are code-owned registries, not
+  database versions. Provider runtime/model/effort/history, live execution
+  bindings, Gateway commands, active turns, credentials, and secrets never
+  enter Prisma.
+- The retired version/session/task/process-attempt graph, separate approval
+  rows, database-owned Agent definitions/runs, runtime state, cost ledgers,
+  event/replay rows, and handle/session keys must not return.
+- `Marketplace.type` distinguishes `agent` and `workflow`; Agent definitions
+  themselves are not Marketplace rows.
 
 ## Partial Unique Indexes
 

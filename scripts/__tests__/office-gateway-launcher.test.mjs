@@ -8,26 +8,26 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const require = createRequire(import.meta.url);
-const launcher = require(`${root}/deploy/office/runner-launcher.cjs`);
+const launcher = require(`${root}/deploy/office/gateway-launcher.cjs`);
 process.exitCode = 0;
 
 async function fixture() {
-  const runnerRoot = await mkdtemp(join(tmpdir(), 'kiditem-office-runner-launcher-'));
+  const gatewayRoot = await mkdtemp(join(tmpdir(), 'kiditem-office-gateway-launcher-'));
   const gitSha = 'a'.repeat(40);
-  const releaseRoot = join(runnerRoot, 'releases', gitSha);
+  const releaseRoot = join(gatewayRoot, 'releases', gitSha);
   const runtimeRoot = join(releaseRoot, 'package');
   const entryPoint = join(runtimeRoot, 'dist', 'main.cjs');
-  const configPath = join(releaseRoot, 'runner-config.json');
-  const pointerPath = join(runnerRoot, 'current.json');
+  const configPath = join(releaseRoot, 'gateway-config.json');
+  const pointerPath = join(gatewayRoot, 'current.json');
   await mkdir(dirname(entryPoint), { recursive: true });
   await writeFile(entryPoint, 'module.exports = {};', 'utf8');
   await writeFile(configPath, '{}', 'utf8');
   await writeFile(pointerPath, JSON.stringify({
     gitSha,
     releaseRoot,
-    runnerArtifactSha256: 'b'.repeat(64),
+    gatewayArtifactSha256: 'b'.repeat(64),
   }), 'utf8');
-  return { runnerRoot, gitSha, releaseRoot, runtimeRoot, entryPoint, configPath, pointerPath };
+  return { gatewayRoot, gitSha, releaseRoot, runtimeRoot, entryPoint, configPath, pointerPath };
 }
 
 async function createFixtureSymlink(t, target, linkPath, type) {
@@ -43,11 +43,11 @@ async function createFixtureSymlink(t, target, linkPath, type) {
   }
 }
 
-test('Office Runner launcher accepts only its exact current-pointer argv and resolves one immutable release', async () => {
+test('Office Gateway launcher accepts only its exact current-pointer argv and resolves one immutable release', async () => {
   const value = await fixture();
-  const resolved = launcher.resolveRunnerLaunch({
-    argv: ['node', 'runner-launcher.cjs', '--current', value.pointerPath],
-    runnerRoot: value.runnerRoot,
+  const resolved = launcher.resolveGatewayLaunch({
+    argv: ['node', 'gateway-launcher.cjs', '--current', value.pointerPath],
+    gatewayRoot: value.gatewayRoot,
     platform: 'darwin',
   });
 
@@ -57,35 +57,35 @@ test('Office Runner launcher accepts only its exact current-pointer argv and res
     configPath: value.configPath,
   });
   assert.throws(
-    () => launcher.resolveRunnerLaunch({
-      argv: ['node', 'runner-launcher.cjs', '--current', value.pointerPath, '--arbitrary-command'],
-      runnerRoot: value.runnerRoot,
+    () => launcher.resolveGatewayLaunch({
+      argv: ['node', 'gateway-launcher.cjs', '--current', value.pointerPath, '--arbitrary-command'],
+      gatewayRoot: value.gatewayRoot,
       platform: 'darwin',
     }),
     /arguments_invalid/,
   );
   assert.throws(
-    () => launcher.resolveRunnerLaunch({
-      argv: ['node', 'runner-launcher.cjs', '--current', join(value.runnerRoot, 'other.json')],
-      runnerRoot: value.runnerRoot,
+    () => launcher.resolveGatewayLaunch({
+      argv: ['node', 'gateway-launcher.cjs', '--current', join(value.gatewayRoot, 'other.json')],
+      gatewayRoot: value.gatewayRoot,
       platform: 'darwin',
     }),
     /arguments_invalid/,
   );
 });
 
-test('Office Runner launcher rejects pointer shape and release-root drift before loading code', async () => {
+test('Office Gateway launcher rejects pointer shape and release-root drift before loading code', async () => {
   const value = await fixture();
   await writeFile(value.pointerPath, JSON.stringify({
     gitSha: value.gitSha,
     releaseRoot: value.releaseRoot,
-    runnerArtifactSha256: 'b'.repeat(64),
+    gatewayArtifactSha256: 'b'.repeat(64),
     unexpected: true,
   }), 'utf8');
   assert.throws(
-    () => launcher.resolveRunnerLaunch({
-      argv: ['node', 'runner-launcher.cjs', '--current', value.pointerPath],
-      runnerRoot: value.runnerRoot,
+    () => launcher.resolveGatewayLaunch({
+      argv: ['node', 'gateway-launcher.cjs', '--current', value.pointerPath],
+      gatewayRoot: value.gatewayRoot,
       platform: 'darwin',
     }),
     /current_pointer_invalid/,
@@ -93,42 +93,42 @@ test('Office Runner launcher rejects pointer shape and release-root drift before
 
   await writeFile(value.pointerPath, JSON.stringify({
     gitSha: value.gitSha,
-    releaseRoot: join(value.runnerRoot, 'untrusted-release'),
-    runnerArtifactSha256: 'b'.repeat(64),
+    releaseRoot: join(value.gatewayRoot, 'untrusted-release'),
+    gatewayArtifactSha256: 'b'.repeat(64),
   }), 'utf8');
   assert.throws(
-    () => launcher.resolveRunnerLaunch({
-      argv: ['node', 'runner-launcher.cjs', '--current', value.pointerPath],
-      runnerRoot: value.runnerRoot,
+    () => launcher.resolveGatewayLaunch({
+      argv: ['node', 'gateway-launcher.cjs', '--current', value.pointerPath],
+      gatewayRoot: value.gatewayRoot,
       platform: 'darwin',
     }),
     /release_pointer_invalid/,
   );
 });
 
-test('Office Runner launcher rejects symlinked pointer, release, entrypoint, and config files', async (t) => {
+test('Office Gateway launcher rejects symlinked pointer, release, entrypoint, and config files', async (t) => {
   const pointer = await fixture();
-  const pointerTarget = join(pointer.runnerRoot, 'current-target.json');
+  const pointerTarget = join(pointer.gatewayRoot, 'current-target.json');
   await writeFile(pointerTarget, await readFile(pointer.pointerPath));
   await rm(pointer.pointerPath);
   if (!await createFixtureSymlink(t, pointerTarget, pointer.pointerPath, 'file')) return;
   assert.throws(
-    () => launcher.resolveRunnerLaunch({
-      argv: ['node', 'runner-launcher.cjs', '--current', pointer.pointerPath],
-      runnerRoot: pointer.runnerRoot,
+    () => launcher.resolveGatewayLaunch({
+      argv: ['node', 'gateway-launcher.cjs', '--current', pointer.pointerPath],
+      gatewayRoot: pointer.gatewayRoot,
       platform: 'darwin',
     }),
     /current_pointer_invalid/,
   );
 
   const release = await fixture();
-  const releaseTarget = join(release.runnerRoot, 'release-target');
+  const releaseTarget = join(release.gatewayRoot, 'release-target');
   await rename(release.releaseRoot, releaseTarget);
   if (!await createFixtureSymlink(t, releaseTarget, release.releaseRoot, 'dir')) return;
   assert.throws(
-    () => launcher.resolveRunnerLaunch({
-      argv: ['node', 'runner-launcher.cjs', '--current', release.pointerPath],
-      runnerRoot: release.runnerRoot,
+    () => launcher.resolveGatewayLaunch({
+      argv: ['node', 'gateway-launcher.cjs', '--current', release.pointerPath],
+      gatewayRoot: release.gatewayRoot,
       platform: 'darwin',
     }),
     /release_incomplete/,
@@ -139,9 +139,9 @@ test('Office Runner launcher rejects symlinked pointer, release, entrypoint, and
   await rename(entry.entryPoint, entryTarget);
   if (!await createFixtureSymlink(t, entryTarget, entry.entryPoint, 'file')) return;
   assert.throws(
-    () => launcher.resolveRunnerLaunch({
-      argv: ['node', 'runner-launcher.cjs', '--current', entry.pointerPath],
-      runnerRoot: entry.runnerRoot,
+    () => launcher.resolveGatewayLaunch({
+      argv: ['node', 'gateway-launcher.cjs', '--current', entry.pointerPath],
+      gatewayRoot: entry.gatewayRoot,
       platform: 'darwin',
     }),
     /release_incomplete/,
@@ -152,22 +152,22 @@ test('Office Runner launcher rejects symlinked pointer, release, entrypoint, and
   await rename(config.configPath, configTarget);
   if (!await createFixtureSymlink(t, configTarget, config.configPath, 'file')) return;
   assert.throws(
-    () => launcher.resolveRunnerLaunch({
-      argv: ['node', 'runner-launcher.cjs', '--current', config.pointerPath],
-      runnerRoot: config.runnerRoot,
+    () => launcher.resolveGatewayLaunch({
+      argv: ['node', 'gateway-launcher.cjs', '--current', config.pointerPath],
+      gatewayRoot: config.gatewayRoot,
       platform: 'darwin',
     }),
     /release_incomplete/,
   );
 });
 
-test('Office Runner launcher changes only to the immutable package root and forwards only strict config argv', async () => {
+test('Office Gateway launcher changes only to the immutable package root and forwards only strict config argv', async () => {
   const value = await fixture();
   const calls = [];
-  const argv = ['node', 'runner-launcher.cjs', '--current', value.pointerPath];
-  const result = launcher.runRunnerLaunch({
+  const argv = ['node', 'gateway-launcher.cjs', '--current', value.pointerPath];
+  const result = launcher.runGatewayLaunch({
     argv,
-    runnerRoot: value.runnerRoot,
+    gatewayRoot: value.gatewayRoot,
     platform: 'darwin',
     chdir: (target) => calls.push(['chdir', target]),
     loadEntrypoint: (target) => calls.push(['require', target]),

@@ -10,7 +10,7 @@ GitHub Actions is the immutable release-artifact publisher, not the Office
 host deployer: it never receives the Task Scheduler credential and never
 invokes task registration. After the approved artifact is downloaded, a human
 operator runs its bundled PowerShell entrypoint on the Windows host and supplies
-the dedicated Runner account only to explicit task registration as an in-memory
+the dedicated Agent Gateway account only to explicit task registration as an in-memory
 `PSCredential`.
 
 ## Human Prerequisites
@@ -22,8 +22,8 @@ the dedicated Runner account only to explicit task registration as an in-memory
   tracking `origin/release/office`, and has no tracked changes.
 - Docker Desktop, Git, GitHub CLI, and PowerShell 5.1 or later are installed.
 - Node 22 is installed at `C:\Program Files\nodejs\node.exe` for the native
-  Host Runner scheduled task.
-- The dedicated local `KidItemAgentRunner` service account exists and the
+  Agent Gateway scheduled task.
+- The dedicated local `KidItemAgentGateway` service account exists and the
   operator has completed Codex/Claude login under that account. The deployment
   script verifies and uses the account; it does not create it or read login
   material. The operator can obtain its Windows account credential with a local
@@ -53,8 +53,8 @@ protected release/office SHA
         -> Windows operator guard
           -> pull + OCI revision verification
               -> optional approved Prisma schema push
-                -> Compose recreate + matching native Host Runner restart
-                  -> API/Runner readiness + health/smoke checks
+                -> Compose recreate + matching native Agent Gateway restart
+                  -> API/Gateway readiness + health/smoke checks
 ```
 
 GitHub owns image building and release identity. `C:\ProgramData\Kiditem` owns
@@ -114,12 +114,12 @@ named `office-deployment-<full SHA>` and contains:
 - `compose.office.yml`
 - `nginx.conf`
 - `apply-deployment.ps1`
-- `runner-launcher.cjs`
-- `kiditem-agent-runner-windows-x64.zip`
-- `runner-runtime-contract.json`
+- `gateway-launcher.cjs`
+- `kiditem-agent-gateway-windows-x64.zip`
+- `gateway-runtime-contract.json`
 
 The manifest records the workflow URL, root app version, Git SHA, exact API/web
-digest refs, and the SHA-256/runtime contract of the matching Windows Runner
+digest refs, and the SHA-256/runtime contract of the matching Windows Gateway
 archive. Convenience tags such as `office-candidate` are never used by Compose.
 
 ## Download And Deploy
@@ -145,22 +145,22 @@ after changing the dedicated Windows account password, run the one explicit
 task operation before the normal deployment:
 
 ```powershell
-$runnerTaskCredential = Get-Credential -UserName "$env:COMPUTERNAME\KidItemAgentRunner" `
-  -Message 'Credential for the dedicated KidItem Host Runner Task Scheduler account'
+$gatewayTaskCredential = Get-Credential -UserName "$env:COMPUTERNAME\KidItemAgentGateway" `
+  -Message 'Credential for the dedicated KidItem Agent Gateway Task Scheduler account'
 & "C:\ProgramData\Kiditem\incoming\<full-sha>\apply-deployment.ps1" `
-  -Operation InstallOrUpdateRunnerTask `
-  -RunnerTaskCredential $runnerTaskCredential
+  -Operation InstallOrUpdateGatewayTask `
+  -GatewayTaskCredential $gatewayTaskCredential
 ```
 
-Only `InstallOrUpdateRunnerTask` requires `-RunnerTaskCredential`. `Deploy`,
-`CutoverDeploy`, `Rollback`, and `RotateRunnerToken` do not re-register the
-native task: each replaces the protected Runner runtime/current pointer and
+Only `InstallOrUpdateGatewayTask` requires `-GatewayTaskCredential`. `Deploy`,
+`CutoverDeploy`, `Rollback`, and `RotateGatewayToken` do not re-register the
+native task: each replaces the protected Gateway runtime/current pointer and
 restarts the existing task before readiness. Create the credential with
 `Get-Credential` in the current elevated PowerShell process; never put the
 password in an argument string, environment variable, `.env` file, Docker
 secret, transcript, or log. `Status` is read-only and needs no credential. The
 task operation checks that the credential resolves to the same SID as the
-configured dedicated Runner account before registration.
+configured dedicated Gateway account before registration.
 
 Use `-ApplySchema` only when the reviewed release contains a Prisma schema
 change. It is required for the Office local-auth release because that release
@@ -180,9 +180,10 @@ reason in the PR body and final report. This only appends
 An incompatible schema contraction is a planned full-stop maintenance action,
 not a normal runtime rollout. The approved Agent OS clean cutover has an
 executable Windows sequence in [Agent OS Clean Cutover](agent-os-clean-cutover.md):
-it blocks ready/executing mutations, makes and lists a custom dump, records a
-SHA-256 plus app version/Git SHA and unrelated row counts, then seeds the six
-AgentVersions after `db push --accept-data-loss`. Before taking the final row counts or dump, stop
+it blocks mutation writers, makes and lists a custom dump, records a SHA-256
+plus app version/Git SHA and unrelated row counts, then verifies exactly one
+`capability_invocations` relation after `db push --accept-data-loss`. There is
+no Agent seed or backfill. Before taking the final row counts or dump, stop
 API, worker, web, and nginx with the current Office Compose configuration. Keep
 PostgreSQL and MinIO running, and do not restart any application container until
 the schema operation and post-push relation checks are complete.
@@ -210,7 +211,7 @@ While application writers remain stopped:
    ```
 
    `CutoverDeploy` rejects `-ApplySchema`: the destructive schema step has
-   already completed. If candidate startup fails, it stops the Runner and every
+   already completed. If candidate startup fails, it stops the Gateway and every
    application surface; restore the recorded database dump manually before
    starting a previous runtime.
 
@@ -320,59 +321,62 @@ the `Secure` flag and bearer tokens are not encrypted in transit. Do not expose
 port 80 outside the trusted office network. Moving Office to HTTPS is required
 before any untrusted-network or remote access.
 
-## Host Runner Boundary
+## Native Agent Gateway Boundary
 
-The API image contains no provider binary, provider login home, or local
-Attempt process control. It exposes the internal Agent runtime only on host
-loopback and accepts the Host Runner installation bearer from its mounted Docker
-secret file. Provider installation, interactive login, isolated homes and
-workspaces, and process cleanup are native Host Runner responsibilities; they
-are never Compose profile operations or API environment values.
+The API image contains no provider binary, provider login home, or local turn
+process control. It exposes the internal Agent runtime only on host loopback and
+accepts the Agent Gateway installation bearer from its mounted Docker secret
+file. Provider installation, interactive login, provider conversations/history,
+the fixed workspace, and process cleanup are native Gateway responsibilities;
+they are never Compose profile operations or API environment values.
 
-Do not place provider credentials, provider tokens, the raw Runner bearer, or
+Do not place provider credentials, provider tokens, the raw Gateway bearer, or
 the dedicated Task Scheduler account password in the Office env file or command
-line. The deployment package provisions the native Runner under a dedicated
+line. The deployment package provisions the native Gateway under a dedicated
 non-administrator account with `TASK_LOGON_PASSWORD`/PowerShell `Password`
 logon. Codex and Claude run non-interactively with trusted full access within
 that account's OS permissions; this is not hostile same-account containment.
-The account must therefore hold only the provider login and Runner control
+The account must therefore hold only the provider login and Gateway control
 material, never DB, Nest, business-provider, or unrelated credentials. The
-Runner bearer still protects the loopback control surface from LAN, other-user,
+Gateway bearer still protects the loopback control surface from LAN, other-user,
 and accidental callers. S4U is prohibited because Windows denies it network
-and encrypted-file access; the Runner needs provider HTTPS and its dedicated
+and encrypted-file access; the Gateway needs provider HTTPS and its dedicated
 account's login store. This follows Microsoft's
 [`TASK_LOGON_TYPE` contract](https://learn.microsoft.com/windows/win32/api/taskschd/ne-taskschd-task_logon_type).
 The operator supplies the account credential only to explicit
-`InstallOrUpdateRunnerTask` as an in-memory `PSCredential`, and Task
+`InstallOrUpdateGatewayTask` as an in-memory `PSCredential`, and Task
 Scheduler—not KidItem—keeps the protected registration secret. The task action
 is a stable protected launcher that reads the validated current-release pointer;
 ordinary deployment and token rotation never re-register it. The package
 verifies the archive SHA and runtime contract, protects the config/token with
 Windows ACLs, starts the task only after the matching API is healthy, and
-requires full Windows/runtime/model/direct-MCP readiness before business Attempt
-admission.
+requires full Windows/runtime/model/direct-MCP readiness before a user can start
+a provider turn.
 
-The Runner's installation bearer and each short-lived Attempt bearer are
-different values. Rotation uses the guarded deployment entrypoint and restarts
-the matching API/worker/Runner set before readiness is accepted:
+The Gateway installation bearer authenticates only outbound control requests.
+Per-turn MCP execution bindings are short-lived process-memory correlation
+values, grant no Agent/capability/delegation authority, and are never persisted.
+Rotation uses the guarded deployment entrypoint and restarts the matching
+API/Gateway set before readiness is accepted:
 
 ```powershell
 & C:\workspace\kiditem\deploy\office\apply-deployment.ps1 `
-  -Operation RotateRunnerToken
+  -Operation RotateGatewayToken
 ```
 
 If the dedicated Windows account password is rotated, update that account using
 the approved Windows administration procedure, obtain a fresh `PSCredential`,
-then run `InstallOrUpdateRunnerTask` as above to update the protected Scheduler
-registration. Run `RotateRunnerToken` afterwards to restart the matching
-API/worker/Runner set and prove full readiness. Token rotation remains
+then run `InstallOrUpdateGatewayTask` as above to update the protected Scheduler
+registration. Run `RotateGatewayToken` afterwards to restart the matching
+API/Gateway set and prove full readiness. Token rotation remains
 independent of the Windows account credential and never re-registers the task.
 KidItem never stores the account password.
 
-The Runner makes outbound long-poll/event requests to
+The Gateway makes outbound long-poll/event requests to
 `http://127.0.0.1:4000/internal/agent-runtime/*`; provider MCP calls use the
 same loopback API port with protocol `2026-07-28`. Neither route is exposed by
-nginx, and the Runner has no inbound listener.
+nginx, and the Gateway has no inbound listener. The worker receives neither the
+Gateway token nor any provider host path.
 
 ## Disk Pressure
 

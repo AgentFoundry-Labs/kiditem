@@ -8,11 +8,13 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 declare module 'vitest' {
   export interface ProvidedContext {
     databaseUrl: string;
-    runnerInstallationTokenFile: string;
+    gatewayInstallationTokenFile: string;
+    webOrigin: string;
   }
 }
 
 const repoRoot = path.resolve(__dirname, '../../../..');
+const integrationWebOrigin = 'http://127.0.0.1:3000';
 
 interface StartedPostgres {
   getConnectionUri(): string;
@@ -20,10 +22,13 @@ interface StartedPostgres {
 }
 
 interface DatabaseUrlProvider {
-  provide(key: 'databaseUrl' | 'runnerInstallationTokenFile', value: string): void;
+  provide(
+    key: 'databaseUrl' | 'gatewayInstallationTokenFile' | 'webOrigin',
+    value: string,
+  ): void;
 }
 
-export interface EphemeralRunnerInstallationToken {
+export interface EphemeralGatewayInstallationToken {
   directory: string;
   filePath: string;
 }
@@ -31,15 +36,15 @@ export interface EphemeralRunnerInstallationToken {
 export interface PostgresGlobalSetupDependencies {
   startPostgres(): Promise<StartedPostgres>;
   pushSchema(databaseUrl: string): void | Promise<void>;
-  createRunnerInstallationToken(): Promise<EphemeralRunnerInstallationToken>;
-  removeRunnerInstallationToken(token: EphemeralRunnerInstallationToken): Promise<void>;
+  createGatewayInstallationToken(): Promise<EphemeralGatewayInstallationToken>;
+  removeGatewayInstallationToken(token: EphemeralGatewayInstallationToken): Promise<void>;
 }
 
 export function createPostgresGlobalSetup(
   dependencies: PostgresGlobalSetupDependencies,
 ) {
   return async function setup(project: DatabaseUrlProvider) {
-    const runnerToken = await dependencies.createRunnerInstallationToken();
+    const gatewayToken = await dependencies.createGatewayInstallationToken();
     let container: StartedPostgres | null = null;
 
     try {
@@ -47,19 +52,20 @@ export function createPostgresGlobalSetup(
       const databaseUrl = container.getConnectionUri();
       await dependencies.pushSchema(databaseUrl);
       project.provide('databaseUrl', databaseUrl);
-      project.provide('runnerInstallationTokenFile', runnerToken.filePath);
+      project.provide('gatewayInstallationTokenFile', gatewayToken.filePath);
+      project.provide('webOrigin', integrationWebOrigin);
     } catch (error) {
-      throwWithSetupCleanup(error, await cleanup(container, runnerToken, dependencies));
+      throwWithSetupCleanup(error, await cleanup(container, gatewayToken, dependencies));
     }
 
     return async () => {
-      throwWithTeardownCleanup(await cleanup(container, runnerToken, dependencies));
+      throwWithTeardownCleanup(await cleanup(container, gatewayToken, dependencies));
     };
   };
 }
 
-export async function createEphemeralRunnerInstallationToken(): Promise<EphemeralRunnerInstallationToken> {
-  const directory = await mkdtemp(path.join(tmpdir(), 'kiditem-integration-runner-token-'));
+export async function createEphemeralGatewayInstallationToken(): Promise<EphemeralGatewayInstallationToken> {
+  const directory = await mkdtemp(path.join(tmpdir(), 'kiditem-integration-gateway-token-'));
   const filePath = path.join(directory, 'installation-token');
   try {
     await writeFile(filePath, randomBytes(32).toString('base64url'), {
@@ -82,15 +88,15 @@ export async function createEphemeralRunnerInstallationToken(): Promise<Ephemera
   }
 }
 
-export async function removeEphemeralRunnerInstallationToken(
-  token: EphemeralRunnerInstallationToken,
+export async function removeEphemeralGatewayInstallationToken(
+  token: EphemeralGatewayInstallationToken,
 ): Promise<void> {
   await rm(token.directory, { recursive: true, force: true });
 }
 
 async function cleanup(
   container: StartedPostgres | null,
-  runnerToken: EphemeralRunnerInstallationToken,
+  gatewayToken: EphemeralGatewayInstallationToken,
   dependencies: PostgresGlobalSetupDependencies,
 ): Promise<unknown[]> {
   const errors: unknown[] = [];
@@ -102,7 +108,7 @@ async function cleanup(
     }
   }
   try {
-    await dependencies.removeRunnerInstallationToken(runnerToken);
+    await dependencies.removeGatewayInstallationToken(gatewayToken);
   } catch (error) {
     errors.push(error);
   }
@@ -149,8 +155,8 @@ const setup = createPostgresGlobalSetup({
       stdio: 'inherit',
     });
   },
-  createRunnerInstallationToken: createEphemeralRunnerInstallationToken,
-  removeRunnerInstallationToken: removeEphemeralRunnerInstallationToken,
+  createGatewayInstallationToken: createEphemeralGatewayInstallationToken,
+  removeGatewayInstallationToken: removeEphemeralGatewayInstallationToken,
 });
 
 export default setup;

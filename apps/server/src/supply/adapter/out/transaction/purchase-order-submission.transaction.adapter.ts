@@ -124,6 +124,7 @@ implements PurchaseOrderSubmissionTransactionPort {
   ): Promise<PreparePurchaseOrderSubmissionResult> {
     return this.prisma.$transaction(async (tx) => {
       assertNormalizedIdempotencyKey(input.idempotencyKey);
+      assertRequestHash(input.requestHash);
       const freshness = await lockFreshness(tx, input.organizationId);
       const order = await lockOrder(tx, input.organizationId, input.purchaseOrderId);
       if (!order) throw referenceInvalid();
@@ -545,6 +546,14 @@ function assertNormalizedIdempotencyKey(value: string): void {
   if (!value || value !== value.trim()) {
     throw new BadRequestException(
       'Purchase submission idempotency key must be normalized and nonblank.',
+    );
+  }
+}
+
+function assertRequestHash(value: string): void {
+  if (!/^[a-f0-9]{64}$/.test(value)) {
+    throw new BadRequestException(
+      'Purchase submission request hash must be a canonical SHA-256 receipt.',
     );
   }
 }

@@ -14,8 +14,8 @@ protected release/office SHA
       -> local Docker Compose
         -> PostgreSQL + MinIO external volumes
         -> one API + one worker + one web + nginx
-      -> native Windows Host Runner under Task Scheduler
-        -> dedicated service-account login + disposable Attempt directories
+      -> native Windows Agent Gateway under Task Scheduler
+        -> dedicated service-account login + provider-owned conversations/history
 ```
 
 The Office checkout is always `release/office`, tracking
@@ -31,27 +31,28 @@ secret contract.
 ### Nest process ownership
 
 ```text
-main.ts                 -> ApiApplicationModule         -> HTTP + domains + Operations + Agent admission/MCP
-worker.ts               -> AgentWorkerApplicationModule -> durable Agent mutation/Operation recovery
-apps/agent-runner       -> native Host Runner            -> Codex/Claude process trees only
+main.ts            -> ApiApplicationModule         -> HTTP + domains + CopilotKit + admission + private MCP
+worker.ts          -> AgentWorkerApplicationModule -> durable OperationRun execution only
+apps/agent-gateway -> native Agent Gateway          -> Codex/Claude conversations and active turns
 ```
 
 Office runs exactly one API container, one worker, and one web container.
-Replicas and rolling API overlap are unsupported. The API owns durable Agent
-admission and the direct loopback MCP HTTP adapter; the native Host Runner
-alone owns Codex/Claude executables, per-Attempt homes/workspaces, and process
-tree cleanup. The worker owns durable Operation/approval recovery and receives
-neither a provider login profile nor provider binaries. `AGENT_CLI_MAX_CONCURRENCY=4`
-is the only Agent capacity control. The API has a 10-second stop grace period
-and its health check allows a 60-second startup period for fail-closed
-lifecycle cleanup.
+Replicas and rolling API overlap are unsupported. The API owns authenticated
+conversation commands, one durable `CapabilityInvocation` model, exact-input
+approval, owner dispatch, and the stateless private MCP HTTP adapter. The native
+Agent Gateway alone owns Codex/Claude executables, provider conversation IDs and
+history, bounded descriptor JSON, and live process cleanup. The worker owns only
+durable `OperationRun` execution and receives neither a provider login profile,
+Gateway token, nor provider binaries. Four process-local active turns is the
+only Agent capacity control. API or Gateway restart clears live turns and starts
+nothing automatically; the next user message starts a new turn against provider
+history.
 
 Only the API application graph reaches OperationsModule; ApiApplicationModule
 owns OperationRun creation, scheduling, resource-class dispatch, browser
 claims, startup cleanup, and shutdown cancellation. AgentWorkerApplicationModule
-is recovery-only: it cannot import API transport or start a CLI. The Host
-Runner can submit only strict Runner commands/events and direct scoped MCP
-requests to the one API owner.
+cannot import Agent transport or start a CLI. The Agent Gateway can submit only
+strict outbound long-poll/events and provider MCP requests to the one API owner.
 
 The API lifecycle is code-owned:
 
@@ -71,25 +72,28 @@ requeue a cancelled row; a deliberate operator retry creates a new run only
 after a single API is ACCEPTING.
 
 The API image contains no Codex or Claude binary and never mounts a provider
-login home. One native Host Runner under the dedicated host account owns the
-pinned CLIs, operator-established login state, disposable per-Attempt homes,
-and process-tree cleanup. KidItem never stores or injects provider API/OAuth
-credentials. PostgreSQL owns durable Task/Attempt and mutation authority;
-Runner lease/command/event/token state and CLI processes remain ephemeral and
-never resume after restart.
+login home. One native Agent Gateway under the dedicated host account owns the
+release-train CLIs, operator-established login state, provider history, a fixed
+workspace, bounded conversation descriptors, and process-tree cleanup. KidItem
+never stores or injects provider API/OAuth credentials or provider transcripts.
+PostgreSQL owns only durable capability mutation authority and business/
+`OperationRun` records. Gateway command/event state, active turns, execution
+bindings, and CLI processes remain ephemeral and never auto-resume after restart.
 
 Codex and Claude run non-interactively with trusted full access within the
 dedicated non-administrator account's OS permissions. This is deliberately not
 a hostile same-account containment boundary: the account contains only provider
-login and Runner control material, never DB, Nest, business-provider, or
-unrelated credentials. Runner bearer authentication still protects the
-loopback control boundary from LAN, other-user, and accidental callers.
+login and Gateway control material, never DB, Nest, business-provider, or
+unrelated credentials. The installation bearer still protects the loopback
+control boundary from LAN, other-user, and accidental callers.
 
 Office publishes the Nest port only as `127.0.0.1:4000:4000`. Public API routes
-remain under `/api/*`; Host Runner and CLI traffic uses the sibling
+remain under `/api/*`; Agent Gateway and CLI traffic use the sibling
 `/internal/agent-runtime/*` namespace on the same loopback port. The nginx edge
-returns 404 for `^~ /internal/` and never proxies it publicly. Runner and
-Attempt bearer tokens remain mandatory even on loopback.
+returns 404 for `^~ /internal/` and never proxies it publicly. Gateway long-poll
+and event calls require the installation bearer. A short-lived in-memory
+execution binding authenticates and correlates a provider turn's MCP requests;
+it grants no Agent, capability, or delegation authority and is never persisted.
 
 ## Release Boundary
 
@@ -113,7 +117,7 @@ The GitHub-hosted workflow produces the immutable Office artifact only. It does
 not receive the dedicated Windows Task Scheduler credential and does not invoke
 `apply-deployment.ps1` against the Office host. A human operator supplies that
 credential as an in-memory `PSCredential` only to the explicit
-`InstallOrUpdateRunnerTask` operation after downloading the approved artifact
+`InstallOrUpdateGatewayTask` operation after downloading the approved artifact
 onto the guarded Windows host. Ordinary Deploy/CutoverDeploy/Rollback/token
 rotation restarts the existing task and never receive or re-register it.
 
@@ -165,7 +169,7 @@ database.
 ## Security Boundary
 
 - Office environment files remain outside Git and are never workflow inputs.
-- Codex/Claude login material stays only in the dedicated Windows Host Runner
+- Codex/Claude login material stays only in the dedicated Windows Agent Gateway
   service account. It is never copied to an env file, container image,
   workflow artifact, log, or backup.
 - Office database and object storage are not exposed to the public Internet.
