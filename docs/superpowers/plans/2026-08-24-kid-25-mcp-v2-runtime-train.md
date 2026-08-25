@@ -206,7 +206,7 @@ and MCP configuration.
 - Modify: `scripts/check-agent-os-hexagonal.mjs`
 - Modify: `apps/server/src/__tests__/application-roots.architecture.spec.ts`
 
-- [ ] **Step 1: Add failing exact-train and strict-schema tests**
+- [x] **Step 1: Add failing exact-train and strict-schema tests**
 
 The neutral shared subpath owns the only runtime/control values:
 
@@ -276,7 +276,7 @@ They also prove:
 - terminal results parse through the existing bounded
   `AgentResultEnvelopeSchema`.
 
-- [ ] **Step 2: Make server and future Runner import the focused shared subpath**
+- [x] **Step 2: Make server and future Runner import the focused shared subpath**
 
 Add `@kiditem/shared/agent-runtime` to shared package exports and tsup entries.
 Delete the server-domain train files after moving their only production import
@@ -288,7 +288,7 @@ Move Codex/Claude packages out of `apps/server/package.json`. Keep
 dependencies and `@modelcontextprotocol/client` as an exact test dependency.
 The Runner package added in Task 3 becomes the only CLI package owner.
 
-- [ ] **Step 3: Expand final-invariant scanners before or alongside deletion**
+- [x] **Step 3: Expand final-invariant scanners before or alongside deletion**
 
 The contraction/architecture gates must fail while any production code still
 contains:
@@ -320,7 +320,7 @@ legacy-only fixtures together with the implementation they describe. The
 scanner may remain red while a replacement is being wired, but no legacy
 surface is kept alive merely until Task 6.
 
-- [ ] **Step 4: Run the focused red gate, implement, and commit**
+- [x] **Step 4: Run the focused red gate, implement, and commit**
 
 ```bash
 rtk npm uninstall --workspace=apps/server \
@@ -387,7 +387,7 @@ rtk git commit -m "refactor: define native Agent runtime contracts"
 - Modify: `apps/server/src/common/http/copilotkit-body-parser.ts`
 - Modify: `apps/server/src/main.ts`
 
-- [ ] **Step 1: Write failing control, identity, lifecycle, and HTTP tests**
+- [x] **Step 1: Write failing control, identity, lifecycle, and HTTP tests**
 
 Cover the complete process-memory state machine:
 
@@ -413,7 +413,7 @@ Cover the complete process-memory state machine:
 
 Use fake timers for 20/25/30-minute boundaries; do not sleep.
 
-- [ ] **Step 2: Implement token/lease/command registries without persistence**
+- [x] **Step 2: Implement token/lease/command registries without persistence**
 
 `RunnerInstallationTokenService` reads one configured Docker-secret file at
 boot, requires the 43-character unpadded base64url form to decode to exactly 32
@@ -440,7 +440,7 @@ Attempt IDs, and `probing | ready` readiness projection. Bound all maps and
 evict terminal entries. No Prisma access or serialization is allowed in these
 registries.
 
-- [ ] **Step 3: Implement strict HTTP control routes and lifecycle projection**
+- [x] **Step 3: Implement strict HTTP control routes and lifecycle projection**
 
 Both controllers use `@SkipAuth()` and class-level `@SkipThrottle()` plus
 their dedicated bearer validation;
@@ -489,7 +489,7 @@ stored.
 remove `ModuleRef` lookup of concrete `AgentAttemptExecutorService` and remove
 `loginHome` from `LiveAttemptRuntimeProfile`.
 
-- [ ] **Step 4: Replace the broker with request-scoped modern MCP HTTP**
+- [x] **Step 4: Replace the broker with request-scoped modern MCP HTTP**
 
 The controller accepts only `POST` at:
 
@@ -520,7 +520,7 @@ MCP session ID, and rejects the 2025 initialize path. Keep exactly the current
 capabilities. Do not alter owner ports, approval/idempotency routing, or tool
 semantics.
 
-- [ ] **Step 5: Run focused gates and commit**
+- [x] **Step 5: Run focused gates and commit**
 
 ```bash
 rtk npm exec --workspace=apps/server vitest -- run \
@@ -583,7 +583,7 @@ rtk git commit -m "refactor: admit native Host Runner attempts"
 - Modify: `package.json`
 - Modify: `package-lock.json`
 
-- [ ] **Step 1: Add failing Runner state-machine and command-builder tests**
+- [x] **Step 1: Add failing Runner state-machine and command-builder tests**
 
 Use fixture provider processes, not mocks around the code under test, to prove:
 
@@ -642,7 +642,7 @@ workflow generates the outer `runner-runtime-contract.json` by importing the
 built shared constant, never from a second hand-maintained version table. The
 host prerequisite is Node 22; readiness fails on another major.
 
-- [ ] **Step 2: Implement the outbound control client and exact replay rules**
+- [x] **Step 2: Implement the outbound control client and exact replay rules**
 
 The Runner starts with a fresh UUID `runnerInstanceId`, reads its installation
 token from a protected file, validates a loopback `http://127.0.0.1` control
@@ -673,7 +673,7 @@ installed locally. Same hash returns the installed state; drift emits one
 serializes one stable JSON body at a time and advances `eventSeq` only after
 Nest acknowledges it.
 
-- [ ] **Step 3: Port provider protocol logic behind Runner-owned builders**
+- [x] **Step 3: Port provider protocol logic behind Runner-owned builders**
 
 Resolve provider entrypoints only beneath the installed Runner package:
 
@@ -699,7 +699,11 @@ Nest data never supplies `executable/args/cwd/env`. Builders generate:
   `2026-07-28` feature, `CODEX_MCP_PROTOCOL_VERSION=2026-07-28`, direct HTTP
   server URL, and
   `bearer_token_env_var = "KIDITEM_ATTEMPT_MCP_TOKEN"`;
-- Claude: isolated `CLAUDE_CONFIG_DIR`, empty setting sources,
+- Claude: on macOS, the dedicated account's ordinary `HOME` plus exact `USER`
+  identity so Claude Code can use that account's Keychain login without
+  linking or copying host settings; on Windows, an isolated
+  `CLAUDE_CONFIG_DIR` containing only the validated same-volume credential
+  hard link. Both platforms use empty setting sources,
   `--no-session-persistence`, `--strict-mcp-config`, stream-json
   input/output, explicit model, `MCP_SDK_GENERATION=v2`,
   `MCP_PROTOCOL_NEGOTIATION=auto`, and an HTTP MCP config whose Authorization
@@ -718,13 +722,18 @@ Claude's `auto` is only the documented client negotiation setting. Nest's
 `legacy: 'reject'` handler plus the observed canary revision make any v1/2025
 fallback a readiness failure.
 
-- [ ] **Step 4: Implement isolated auth references and process supervisors**
+- [x] **Step 4: Implement isolated auth references and process supervisors**
 
 Use the dedicated account's ordinary home as the persistent login source.
-Validate the exact Codex `auth.json` or Claude `.credentials.json` selected by
-the resolved train without reading its contents. macOS creates a validated
-symlink; Windows creates a same-volume hard link. Any other credential-storage
-shape is unsupported for this train and fails readiness closed rather than
+Codex validates its exact `auth.json` without reading the contents; macOS
+creates a validated symlink and Windows creates a same-volume hard link.
+Claude follows the platform's actual credential boundary: macOS preserves the
+same OS-account `HOME`/`USER` identity and verifies only the boolean result of
+the bundled CLI's bounded `auth status --json` command so the Keychain remains
+authoritative, while Windows validates and hard-links only
+`.claude/.credentials.json` into the isolated config root. macOS must never
+link or copy `.claude.json`, settings, projects, history, or provider payload.
+Any unsupported credential-storage shape fails readiness closed rather than
 copying bytes or reusing the full persistent provider home.
 
 Each Attempt gets a private directory under the configured Runner attempt root:
@@ -746,7 +755,7 @@ closes the Job on Runner pipe EOF. The helper has no listener and accepts only
 Runner-local structured launch data. Normal interrupt/timeout/shutdown uses the
 same complete-tree path.
 
-- [ ] **Step 5: Run unit and real macOS process gates and commit**
+- [x] **Step 5: Run unit and real macOS process gates and commit**
 
 ```bash
 rtk npm install
@@ -791,7 +800,7 @@ the actual logged-in CLI canary.
 - Create: `apps/agent-runner/src/__tests__/runner-nest-loopback.integration.spec.ts`
 - Create: `apps/agent-runner/src/__tests__/real-cli-readiness.integration.spec.ts`
 
-- [ ] **Step 1: Add failing readiness/recovery tests**
+- [x] **Step 1: Add failing readiness/recovery tests**
 
 Readiness is a process-memory projection with two phases:
 
@@ -856,7 +865,7 @@ Tests prove:
   leases retry under the existing owner idempotency key;
 - Continue creates a new immutable Attempt and never resumes provider state.
 
-- [ ] **Step 2: Implement readiness without circular durable state**
+- [x] **Step 2: Implement readiness without circular durable state**
 
 `AgentAttemptReadinessService` no longer imports `child_process`, resolves host
 login paths, or executes provider binaries. It queries
@@ -870,7 +879,7 @@ business Attempt. Its token registry binding is `kind: 'readiness'`; its MCP
 HTTP controller routes only to `createReadinessCanaryMcpServer` and cannot
 reach `AttemptMcpActionsPort`.
 
-- [ ] **Step 3: Simplify API reconciliation and implement Runner loss handling**
+- [x] **Step 3: Simplify API reconciliation and implement Runner loss handling**
 
 Remove API-local process/directory reaping from `AgentAttemptReconciler`. API
 boot calls the existing durable reconciliation and releases capacity; the
@@ -900,26 +909,39 @@ rtk npm run test:integration --workspace=apps/server -- \
 rtk npm exec --workspace=apps/agent-runner vitest -- run \
   src/__tests__/runner-nest-loopback.integration.spec.ts
 rtk env KIDITEM_RUNNER_REAL_CLI_CANARY=1 \
+  KIDITEM_RUNNER_REAL_CLI_CANARY_RUNTIMES=codex_cli \
   npm exec --workspace=apps/agent-runner vitest -- run \
   src/__tests__/real-cli-readiness.integration.spec.ts
 rtk git diff --check
 rtk git commit -m "test: prove Host Runner readiness and recovery"
 ```
 
-The real canary runs on the implementation Mac using its logged-in Codex and
-Claude accounts. Codex starts a tool-hidden ephemeral provider thread and a
+The real canary runs on the implementation Mac using its logged-in Codex
+account. Codex starts a tool-hidden ephemeral provider thread and a
 separate enabled ephemeral probe thread in the same app-server process, with
 no resume/history bridge or synthetic live input. It returns the immediate
 structured provider result first; Runner then makes the supported fixed
 app-server control-plane call on the enabled probe thread, and emits success
 only after its exact direct result. Its minimal structured reachability prompt
 does not narrate readiness or MCP state because the direct probe carries that
-semantics separately. Claude uses its scoped model-selected call and retains
-the live second input. Both must exercise their applicable strict modern MCP
-discovery/call, result parsing, and cleanup. The separate local fake-provider
-gate proves bounded Codex tool metadata, not a stochastic real-model decision
-or a fake-provider full-turn completion. Never print login artifacts or
+semantics separately. Claude's deterministic bundled/fake-process gates must
+exercise its strict modern MCP discovery/call, live second input, result
+parsing, non-persistence, timeout, termination, and cleanup contracts. Its
+local login probe records only a boolean outcome. A real Claude provider turn
+is explicitly skipped for this acceptance because the implementation account
+does not currently have an eligible paid subscription; that limitation must
+be reported and must not be disguised as a passing live canary. A future
+eligible Office account may run the same scoped model-selected canary without
+changing the architecture. The separate local fake-provider gate proves
+bounded tool metadata, not a stochastic real-model decision or a fake-provider
+full-turn completion. Never print login artifacts, raw provider output, or
 Attempt tokens.
+
+`KIDITEM_RUNNER_REAL_CLI_CANARY_RUNTIMES` accepts only `codex_cli`,
+`claude_cli`, or `both`; an unset value preserves the conservative default
+`both` selection, while an empty or unknown value fails closed. Only selected
+runtimes require a corresponding explicit model environment variable. This
+acceptance uses `codex_cli` and must not spawn or require a Claude model.
 
 ## Task 5: Package and deploy the native Windows Runner through the Office release
 
@@ -937,7 +959,7 @@ Attempt tokens.
 - Modify: `apps/server/.env.example`
 - Modify: `package-lock.json`
 
-- [ ] **Step 1: Add failing Office/Windows contract tests**
+- [x] **Step 1: Add failing Office/Windows contract tests**
 
 Require:
 
@@ -961,7 +983,7 @@ Require:
 - Windows package/build tests run on `windows-latest` and no script creates a
   firewall/LAN listener.
 
-- [ ] **Step 2: Remove provider execution from the API image and wire loopback**
+- [x] **Step 2: Remove provider execution from the API image and wire loopback**
 
 Compose:
 
@@ -986,7 +1008,7 @@ The URL sent to the host CLI is the host-loopback origin, not
 image keeps MCP server packages but removes provider CLI packages and all
 provider/UDS image assertions.
 
-- [ ] **Step 3: Build one immutable Windows Runner artifact**
+- [x] **Step 3: Build one immutable Windows Runner artifact**
 
 Add a `build_runner_windows` job on `windows-latest`:
 
@@ -1008,7 +1030,7 @@ Office operator bundle. Manifest schema 2 binds the artifact SHA and runtime
 train to the same Git SHA/API/Web digests. No floating download or npm install
 occurs on the Office machine.
 
-- [ ] **Step 4: Extend the existing PowerShell deployment transaction**
+- [x] **Step 4: Extend the existing PowerShell deployment transaction**
 
 Do not add a second deploy script. `apply-deployment.ps1` owns:
 
@@ -1138,9 +1160,12 @@ All durable docs must say:
 - restart means `process_interrupted` plus manual immutable successor, never
   provider resume;
 - exactly 11 MCP tools, 18 capabilities, and ten Sourcing capabilities remain;
-- no new schema, status, migration, Web state, gateway, internal signing or
-  credential broker, durable control queue, quota, or multi-instance protocol
-  was added.
+- no new Agent OS schema/status, Web state, gateway, internal signing or
+  credential broker, durable Runner control queue, quota, or multi-instance
+  protocol was added. The Channels domain owns the one registration owner
+  idempotency receipt introduced by the integrated boundary repair; it stores
+  only the canonical request hash and minimal result, never provider payload or
+  Runner state.
 
 Update stale architecture paragraphs that still call the API process the CLI
 owner or mention a private MCP socket. The top-level architecture map and
@@ -1177,10 +1202,12 @@ rtk env DATABASE_URL="$KID25_ACCEPTANCE_DATABASE_URL" npm run dev:server
 ```
 
 Confirm API boot/reconciliation, start the macOS Runner, obtain a ready lease,
-run one Codex and one Claude real canary, and stop both cleanly. This follow-up
-has no Prisma diff, so do not run `db:push` merely for the Runner change; the
-overall KID-25 clean-cutover gate in the parent plan remains responsible for
-its already-approved schema push.
+run one Codex real canary plus the complete deterministic Claude contract
+suite, and stop both cleanly. Record the unavailable paid Claude subscription
+as the reason no live Claude turn was attempted. The Runner change itself adds
+no Agent OS Prisma state. The integrated KID-25 acceptance must nevertheless
+run the clean schema push/generate gates for the Channels-owned registration
+idempotency receipt included by the final boundary repair.
 
 - [ ] **Step 4: Require Windows CI and one integrated Sol review**
 
@@ -1232,11 +1259,11 @@ impact; do not mark it complete unless its own acceptance is complete.
 | Process tree | macOS watchdog/group and Windows Job Object kill descendants on all exits |
 | MCP | direct loopback Streamable HTTP `2026-07-28`, modern-only, stateless/request-scoped |
 | Catalog | exactly 11 tools, 18 definitions, all ten Sourcing capabilities |
-| Durability | no new schema/status; Task/Attempt/Approval/Invocation/Operation ownership unchanged |
+| Durability | no new Agent OS schema/status or durable Runner state; one Channels-owned registration receipt; Task/Attempt/Approval/Invocation/Operation ownership unchanged |
 | Restart | live process killed; Attempt/read interrupted; Task open; mutation/idempotency preserved |
 | Network | loopback port only; nginx internal deny; Runner has no listener; no firewall rule |
 | Deployment | one matching API/Web/worker/Runner manifest, transactional deploy/rollback/rotation |
-| Verification | Mac real canary, Windows job/helper CI, Nest/server/shared/web builds, scanners |
+| Verification | Mac Codex real canary, deterministic Claude contract suite with subscription limitation recorded, Windows job/helper CI, Nest/server/shared/web builds, scanners |
 | Review/ship | integrated Sol max clean re-review, existing PR 479 only, accurate Linear updates |
 
 ## 3. Explicit non-goals

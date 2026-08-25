@@ -754,11 +754,15 @@ training or automatic provider action is enabled by this foundation.
 
 ## Account-Scoped Registration And Content Ownership (`0.1.8`–`0.1.25`)
 
-Sourcing owns reviewed registration input in `ProductPreparation` and every
-registration side effect in `ProductRegistrationExecution`; Channels owns the
-selected marketplace account, provider capability, resulting `ChannelListing`,
-and `ChannelListingDeletionOperation`; AI owns candidate/listing content
-workspaces. Registration no longer promotes a candidate into `MasterProduct`.
+Sourcing owns reviewed registration input in `ProductPreparation` and the
+frozen provider-execution/provenance fence in
+`ProductRegistrationExecution`. The Agent-facing mutation terminates at a
+Channels-owned incoming port: it loads that frozen state only through the
+Sourcing read boundary, then Channels owns provider submission, the resulting
+`ChannelListing`, its minimal owner-idempotency receipt, and
+`ChannelListingDeletionOperation`. Provider state is never accepted as Agent
+business input. AI owns candidate/listing content workspaces. Registration no
+longer promotes a candidate into `MasterProduct`.
 
 ```text
 SourcingCandidate (status: sourced | rejected)
@@ -768,10 +772,11 @@ SourcingCandidate (status: sourced | rejected)
   -> persist executing/uncertain before provider IO and reconcile by key/provider ID
   -> call provider outside the DB tx only when the execution remains
      prepared/not_attempted and reconciliation proves this is new
-  -> one final DB tx resolves/reactivates the account-scoped ChannelListing,
-     succeeds the execution,
-     + branches selected content into a listing-owned ContentWorkspace
-     + marks the ProductPreparation compatibility projection registered
+  -> persist the fenced provider outcome
+  -> one Channels DB tx resolves/reactivates the account-scoped ChannelListing
+     + claims exact owner key/request hash in
+       ChannelRegistrationOwnerIdempotencyReceipt
+     + replays the minimal listing result or rejects changed canonical input
 ```
 
 No bulk cutover backfill copies legacy preparation or deletion rows into these
@@ -1020,6 +1025,14 @@ keeps admission closed until the Runner proves the required runtime/version,
 model, deployment identity, direct MCP contract, and login readiness. Agent
 versions snapshot domains/capabilities and runtime profile, while model
 selection is explicit deployment configuration.
+
+Provider login reuse follows the host platform instead of a KidItem credential
+broker. macOS Claude execution preserves that account's exact `HOME`/`USER`
+identity so the CLI can use its Keychain while Attempt settings and history
+remain isolated. Windows Claude execution validates and same-volume hard-links
+only the account-owned `.claude/.credentials.json` into the disposable config
+root. Codex similarly references only its account-owned `auth.json`; no path
+reads, copies, logs, or durably persists credential bytes.
 
 ## Verification Baseline
 

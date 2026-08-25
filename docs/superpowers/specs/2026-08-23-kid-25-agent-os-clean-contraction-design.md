@@ -520,6 +520,15 @@ account's ordinary Codex and Claude login state is the only persistent provider
 state. KidItem never reads, copies into persistence, encrypts, HMAC-signs, or
 returns provider credential values.
 
+The reference mechanism is platform-specific. macOS Claude uses the dedicated
+account's exact `HOME`/`USER` identity and a bounded boolean-only native auth
+status check so the OS Keychain remains authoritative; it never materializes
+`.claude.json`, settings, projects, or history. Windows Claude uses only a
+validated same-volume hard link to that account's `.claude/.credentials.json`
+inside the disposable Attempt config. Codex references only the validated
+account-owned `auth.json` appropriate to the platform. Unsupported shapes fail
+readiness closed without copying credential bytes.
+
 ### 7.2 Runtime topology and ownership
 
 Nest remains the durable authority while a new native `apps/agent-runner`
