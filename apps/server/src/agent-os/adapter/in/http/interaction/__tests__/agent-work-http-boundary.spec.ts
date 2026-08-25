@@ -35,7 +35,7 @@ describe('Agent Work HTTP boundary', () => {
     expect(copilot).not.toContain('agents: { operator:');
   });
 
-  it('exposes only the six code-owned Agent definitions to CopilotKit and routes an existing live thread through the intake Module', () => {
+  it('exposes only the six code-owned Agent definitions and never turns terminal thread replay into reasoning', () => {
     const source = readFileSync(resolve(__dirname, '../../../../../application/service/work/agent-work-intake.module.ts'), 'utf8');
     expect(AGENT_DEFINITIONS.map((definition) => definition.key)).toEqual([
       'operator',
@@ -51,15 +51,17 @@ describe('Agent Work HTTP boundary', () => {
     expect(source).toContain('this.queries.threadContinuation');
     expect(source).toContain('this.liveMessages.send');
     expect(source).toContain("kind: 'live_input'");
-    expect(source).toContain('this.futureOutput.bind');
+    expect(source).not.toContain("kind: 'successor'");
+    expect(source).not.toContain('futureOutput');
     expect(source).not.toContain('conversation/replay');
   });
 
-  it('derives all successor prompts from bounded durable context instead of an empty prompt', () => {
+  it('derives explicit Continue prompts from bounded durable context without an automatic successor path', () => {
     const source = readFileSync(resolve(__dirname, '../../../../../application/service/work/agent-work-intake.module.ts'), 'utf8');
     expect(source).toContain('continuationContext');
     expect(source).not.toContain("input: { prompt: input.prompt ?? '' }");
     expect(source).not.toContain("prompt: input.prompt ?? ''");
+    expect(source).not.toContain('successorContext');
   });
 
   it('binds final work input ports to Host Runner control and never API-local broker/process handlers', () => {
@@ -80,7 +82,21 @@ describe('Agent Work HTTP boundary', () => {
     expect(runtimeModule).toContain('AgentLiveMessageService');
     expect(runtimeModule).toContain('provide: LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT');
     expect(runtimeModule).toContain('useExisting: HostRunnerAttemptExecutorService');
-    expect(runtimeModule).toContain('provide: LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT');
-    expect(runtimeModule).toContain('useExisting: AttemptFutureOutputChannel');
+    expect(runtimeModule).not.toContain('FutureOutput');
+    expect(runtimeModule).not.toContain('future-output');
+  });
+
+  it('keeps approval decisions and durable worker completion outside live CLI wake/relaunch wiring', () => {
+    const capabilityModule = readFileSync(resolve(__dirname, '../../../../../../agent-work-capability-application.module.ts'), 'utf8');
+    const workerModule = readFileSync(resolve(__dirname, '../../../../../../agent-worker-application.module.ts'), 'utf8');
+
+    expect(capabilityModule).toContain('AgentCapabilityApprovalService, inject: [AGENT_WORK_INVOCATION_APPROVAL_PORT]');
+    expect(capabilityModule).not.toContain('LIVE_ATTEMPT_OUTPUT_CAPABILITY_PORT');
+    expect(capabilityModule).not.toContain('AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT');
+    expect(workerModule).toContain('AgentMutationDispatcherService');
+    expect(workerModule).not.toContain('AgentRuntimeApplicationModule');
+    expect(workerModule).not.toContain('AgentWorkIntake');
+    expect(workerModule).not.toContain('AgentAttemptLaunch');
+    expect(workerModule).not.toContain('LIVE_ATTEMPT_OUTPUT');
   });
 });

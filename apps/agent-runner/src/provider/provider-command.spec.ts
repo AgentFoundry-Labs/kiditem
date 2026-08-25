@@ -66,6 +66,19 @@ describe('buildProviderCommand', () => {
     expect(environment.KIDITEM_ATTEMPT_MCP_TOKEN).toBe('A'.repeat(43));
     expect(environment.CODEX_MCP_PROTOCOL_VERSION).toBe('2026-07-28');
   });
+
+  it('does not inherit host credentials or Runner control secrets into a provider process environment', () => {
+    vi.stubEnv('DATABASE_URL', 'postgres://business-secret');
+    vi.stubEnv('KIDITEM_RUNNER_BEARER_TOKEN', 'runner-control-secret');
+    vi.stubEnv('ANTHROPIC_API_KEY', 'provider-secret');
+
+    const environment = providerEnvironment({ home: '/Users/runner-login', attemptToken: 'A'.repeat(43) });
+
+    expect(environment).not.toHaveProperty('DATABASE_URL');
+    expect(environment).not.toHaveProperty('KIDITEM_RUNNER_BEARER_TOKEN');
+    expect(environment).not.toHaveProperty('ANTHROPIC_API_KEY');
+    expect(environment.KIDITEM_ATTEMPT_MCP_TOKEN).toBe('A'.repeat(43));
+  });
 });
 const paths = { root: '/tmp/a', workspace: '/tmp/a/workspace', home: '/tmp/a/home', codexHome: '/tmp/a/codex', claudeConfigDir: '/tmp/a/claude', mcpConfigPath: '/tmp/a/mcp.json', codexConfigPath: '/tmp/a/codex.toml' };
 

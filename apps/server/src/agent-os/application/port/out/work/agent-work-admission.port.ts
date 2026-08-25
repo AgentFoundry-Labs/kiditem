@@ -11,13 +11,13 @@ export const AGENT_WORK_ADMISSION_PORT = Symbol("AGENT_WORK_ADMISSION_PORT");
 
 /**
  * Durable admission and delegation seam. It owns all Session/Task/Attempt
- * creation ordering, idempotent delegation replay, and successor fencing.
+ * creation ordering, idempotent delegation replay, and explicit follow-up fencing.
  */
 export interface AgentWorkAdmissionPort {
   admitRootAttempt(
     input: AdmitRootAttemptInput,
   ): Promise<AdmitRootAttemptResult>;
-  /** Locks Session before Task and creates an immutable successor Attempt. */
+  /** Locks Session before Task and creates an immutable Attempt for explicit Continue. */
   admitAttempt(input: AdmitAttemptInput): Promise<AdmitAttemptResult>;
   /** Fast exact replay lookup; delegateTask remains the atomic authority. */
   findDelegationReplay(

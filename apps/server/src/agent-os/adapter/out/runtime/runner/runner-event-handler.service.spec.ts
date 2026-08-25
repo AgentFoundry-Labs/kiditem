@@ -127,7 +127,7 @@ describe('RunnerEventHandlerService', () => {
       controlRevision: 'kiditem-runner-control-v1', mcpProtocolRevision: '2026-07-28', cliContractIdentity: 'office-cli-contract-v2',
       runtimes: {
         codex_cli: { version: '0.149.1', loginVerified: true, nonPersistentSettingsVerified: true },
-        claude_cli: { version: '2.1.241', loginVerified: true, nonPersistentSettingsVerified: true },
+        claude_cli: { version: '2.1.245', loginVerified: true, nonPersistentSettingsVerified: true },
       },
     });
     const deadline = new Date(Date.now() + 60_000);
@@ -150,7 +150,7 @@ describe('RunnerEventHandlerService', () => {
       controlRevision: 'kiditem-runner-control-v1', mcpProtocolRevision: '2026-07-28', cliContractIdentity: 'office-cli-contract-v2',
       runtimes: {
         codex_cli: { version: '0.149.1', loginVerified: true, nonPersistentSettingsVerified: true },
-        claude_cli: { version: '2.1.241', loginVerified: true, nonPersistentSettingsVerified: true },
+        claude_cli: { version: '2.1.245', loginVerified: true, nonPersistentSettingsVerified: true },
       },
     });
     await settleAsync();
@@ -330,18 +330,18 @@ describe('RunnerEventHandlerService', () => {
     expect(fixture.capacity.releaseAttempt).toHaveBeenCalledTimes(1);
   });
 
-  it('does not revoke an Attempt token twice when future-output completion is retried', async () => {
+  it('does not revoke an Attempt token twice when live-output completion is retried', async () => {
     const fixture = await handlerFixture();
     fixture.tokens.revokeAttempt = vi.fn() as never;
     fixture.output.finish
-      .mockImplementationOnce(() => { throw new Error('future_output_failure'); })
+      .mockImplementationOnce(() => { throw new Error('live_output_failure'); })
       .mockImplementationOnce(() => undefined);
     const terminal = batch(fixture.leaseId, 1, [{
       kind: 'attempt.terminal', attemptId, terminalReason: 'success',
       result: { outcome: 'completed', summary: 'done', resourceRefs: [], operationRefs: [] },
     }]);
 
-    await expect(fixture.handler.handle(terminal)).rejects.toThrow('future_output_failure');
+    await expect(fixture.handler.handle(terminal)).rejects.toThrow('live_output_failure');
     expect(fixture.tokens.revokeAttempt).toHaveBeenCalledTimes(1);
     expect(fixture.capacity.releaseAttempt).not.toHaveBeenCalled();
 
@@ -466,7 +466,7 @@ describe('RunnerEventHandlerService', () => {
       controlRevision: 'kiditem-runner-control-v1', mcpProtocolRevision: '2026-07-28', cliContractIdentity: 'office-cli-contract-v2',
       runtimes: {
         codex_cli: { version: '0.149.1', loginVerified: true, nonPersistentSettingsVerified: true },
-        claude_cli: { version: '2.1.241', loginVerified: true, nonPersistentSettingsVerified: true },
+        claude_cli: { version: '2.1.245', loginVerified: true, nonPersistentSettingsVerified: true },
       },
     });
     releaseFinalize();
@@ -525,7 +525,7 @@ describe('RunnerEventHandlerService', () => {
       controlRevision: 'kiditem-runner-control-v1', mcpProtocolRevision: '2026-07-28', cliContractIdentity: 'office-cli-contract-v2',
       runtimes: {
         codex_cli: { version: '0.149.1', loginVerified: true, nonPersistentSettingsVerified: true },
-        claude_cli: { version: '2.1.241', loginVerified: true, nonPersistentSettingsVerified: true },
+        claude_cli: { version: '2.1.245', loginVerified: true, nonPersistentSettingsVerified: true },
       },
     });
     await settleAsync();
@@ -561,7 +561,7 @@ async function handlerFixture() {
     controlRevision: 'kiditem-runner-control-v1', mcpProtocolRevision: '2026-07-28', cliContractIdentity: 'office-cli-contract-v2',
     runtimes: {
       codex_cli: { version: '0.149.1', loginVerified: true, nonPersistentSettingsVerified: true },
-      claude_cli: { version: '2.1.241', loginVerified: true, nonPersistentSettingsVerified: true },
+      claude_cli: { version: '2.1.245', loginVerified: true, nonPersistentSettingsVerified: true },
     },
   }).leaseId;
   leases.markReady({ runnerInstanceId: instanceId, leaseId });

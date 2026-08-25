@@ -1026,9 +1026,9 @@ remain deliberately flat.
 
 ## 14. Implementation Order
 
-Use substantial integrated Terra work units, not file-sized microtasks. Use one
-integrated Sol review over the complete implementation and fix every concrete
-P1/P2 finding before completion.
+Use substantial integrated Terra work units, not file-sized microtasks. Use
+selective Sol review for important boundaries when needed, but make executable
+QA the final blocking gate. Fix every reproduced QA failure before completion.
 
 The exact Host Runner/control/MCP/deployment file sequence and TDD gates are
 owned by
@@ -1057,8 +1057,8 @@ invariants, and acceptance gates remain authoritative.
    contraction.
 6. Remove container CLI/UDS/stdio assumptions, align the single-node
    Compose/Runner artifact/config/docs, perform the basic backup/cutover check,
-   run macOS and Windows gates, obtain one Sol review, push the existing branch,
-   and update PR/Linear.
+   run macOS and Windows QA gates, push the existing branch, and update
+   PR/Linear.
 
 ## 15. Verification and Acceptance
 
@@ -1183,4 +1183,5 @@ invariants, and acceptance gates remain authoritative.
 - Legacy Agent OS data is discarded in a clean six-model cutover.
 - Cutover requires a basic custom backup/list/checksum, not restore rehearsal or
   RPO/RTO evidence.
-- Final delivery uses substantial Terra units and one integrated Sol review.
+- Final delivery uses substantial Terra units and complete local/Windows QA;
+  targeted Sol review is optional for unresolved important boundaries.

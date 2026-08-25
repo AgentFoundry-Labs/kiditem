@@ -13,9 +13,9 @@ import {
   type LiveAttemptExecutionCapabilityPort,
 } from '../../../../application/port/in/capability/live-attempt-execution.capability.port';
 import {
-  LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT,
-  type LiveAttemptFutureOutputCapabilityPort,
-} from '../../../../application/port/in/capability/live-attempt-future-output.capability.port';
+  LIVE_ATTEMPT_OUTPUT_CAPABILITY_PORT,
+  type LiveAttemptOutputCapabilityPort,
+} from '../../../../application/port/in/capability/live-attempt-output.capability.port';
 import {
   AGENT_WORK_INTAKE_PORT,
   AgentWorkIntakeError,
@@ -31,8 +31,8 @@ export class AgentWorkCopilotKitController {
   constructor(
     @Inject(LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT)
     private readonly executor: LiveAttemptExecutionCapabilityPort,
-    @Inject(LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT)
-    private readonly live: LiveAttemptFutureOutputCapabilityPort,
+    @Inject(LIVE_ATTEMPT_OUTPUT_CAPABILITY_PORT)
+    private readonly live: LiveAttemptOutputCapabilityPort,
     @Inject(AGENT_WORK_INTAKE_PORT)
     private readonly intake: AgentWorkIntakePort,
   ) {}
@@ -42,7 +42,7 @@ export class AgentWorkCopilotKitController {
     const disconnected = new AbortController();
     request.once('aborted', () => disconnected.abort());
     response.once('close', () => { if (!response.writableEnded) disconnected.abort(); });
-    const runner = new FutureOnlyRunner(this.executor, this.live);
+    const runner = new LiveOutputRunner(this.executor, this.live);
     const agents = Object.fromEntries(AGENT_DEFINITIONS.map(({ key }) => [
       key,
       new DurableWorkAgent({ organizationId, userId: user.id }, key, this.intake),
@@ -88,7 +88,12 @@ export class DurableWorkAgent extends AbstractAgent {
           },
         ];
         } catch (error) {
-          if (error instanceof AgentWorkIntakeError) throw new BadRequestException(error.code);
+          if (error instanceof AgentWorkIntakeError) {
+            if (error.code === 'root_admission_replay_conflict') {
+              throw new ConflictException(error.code);
+            }
+            throw new BadRequestException(error.code);
+          }
           if (error instanceof AgentOsRuntimeError && error.code === 'runner_input_command_conflict') {
             throw new ConflictException(error.code);
           }
@@ -109,17 +114,17 @@ export class DurableWorkAgent extends AbstractAgent {
   }
 }
 
-export class FutureOnlyRunner extends CopilotAgentRunner {
-  constructor(private readonly executor: LiveAttemptExecutionCapabilityPort, private readonly live: LiveAttemptFutureOutputCapabilityPort) { super(); }
+export class LiveOutputRunner extends CopilotAgentRunner {
+  constructor(private readonly executor: LiveAttemptExecutionCapabilityPort, private readonly live: LiveAttemptOutputCapabilityPort) { super(); }
   run(request: { threadId: string; agent: { run(input: unknown): Observable<BaseEvent> }; input: unknown }): Observable<BaseEvent> {
     const runId = (request.input as { runId?: unknown }).runId;
     if (typeof runId !== 'string' || !runId) throw new BadRequestException('copilotkit_run_id_required');
     // Subscribe before launching the agent: a fast terminal process cannot
-    // finish between RUN_STARTED and installation of its future-only sink.
-    const future = this.live.future({ threadId: request.threadId, runId });
-    return merge(request.agent.run(request.input), future);
+    // finish between RUN_STARTED and installation of its live output sink.
+    const output = this.live.stream({ threadId: request.threadId, runId });
+    return merge(request.agent.run(request.input), output);
   }
-  connect(request: { threadId: string }) { return this.live.futureThread(request.threadId); }
+  connect(request: { threadId: string }) { return this.live.streamThread(request.threadId); }
   async isRunning(request: { threadId: string }) { return this.live.current(request.threadId) !== null; }
   async stop(request: { threadId: string; runId?: string }) {
     const runId = this.live.current(request.threadId, request.runId);

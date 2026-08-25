@@ -3,7 +3,7 @@ import type {
   AgentAttemptLaunchCapabilityPort,
 } from '../../port/in/capability/agent-attempt-launch.capability.port';
 import type { LiveAttemptExecutionCapabilityPort } from '../../port/in/capability/live-attempt-execution.capability.port';
-import type { LiveAttemptFutureOutputCapabilityPort } from '../../port/in/capability/live-attempt-future-output.capability.port';
+import type { LiveAttemptOutputCapabilityPort } from '../../port/in/capability/live-attempt-output.capability.port';
 import type { AgentWorkLifecyclePort } from '../../port/out/work/agent-work-lifecycle.port';
 
 export interface AgentAttemptLaunchServiceOptions {
@@ -39,7 +39,7 @@ export class AgentAttemptLaunchService implements AgentAttemptLaunchCapabilityPo
     private readonly execution: Pick<LiveAttemptExecutionCapabilityPort, 'start'>,
     private readonly work: AgentWorkLifecyclePort,
     private readonly admissions: { releaseAttempt(attemptId: string): void },
-    private readonly output: Pick<LiveAttemptFutureOutputCapabilityPort, 'bind' | 'finish'>,
+    private readonly output: Pick<LiveAttemptOutputCapabilityPort, 'bind' | 'finish'>,
     options: AgentAttemptLaunchServiceOptions = {},
   ) {
     this.now = options.now ?? (() => new Date());

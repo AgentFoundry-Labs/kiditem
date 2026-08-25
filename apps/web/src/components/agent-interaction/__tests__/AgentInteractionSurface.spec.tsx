@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -64,8 +66,69 @@ describe('AgentInteractionSurface durable projection', () => {
     vi.clearAllMocks();
   });
 
-  it('adopts a successful durable projection after submitting the first prompt through CopilotKit', async () => {
-    vi.mocked(apiClient.get).mockResolvedValue({ session: { id: expect.any(String) }, tasks: [{ id: 'task-1', parentTaskId: null, agentDefinitionKey: 'operator', objective: 'collect signals', status: 'open', presentation: 'running', summary: 'Durable result', error: { message: 'bounded error' }, resourceRefs: [{ kind: 'candidate', id: 'candidate-1' }], operationRefs: [{ kind: 'operation', id: 'run-1', status: 'running' }], latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'running' } }] } as never);
+  it('renders Continue from Task and Attempt facts and never starts terminal work after refresh', async () => {
+    const sessionId = '00000000-0000-4000-8000-000000000030';
+    window.history.replaceState(null, '', `/agent-os?agentSessionId=${sessionId}`);
+    vi.mocked(apiClient.get).mockResolvedValue({
+      session: { id: sessionId },
+      tasks: [{
+        id: 'task-terminal',
+        parentTaskId: null,
+        agentDefinitionKey: 'operator',
+        objective: 'durable terminal work',
+        status: 'completed',
+        latestAttempt: { id: 'attempt-terminal', ordinal: 1, status: 'succeeded' },
+      }],
+    } as never);
+
+    const user = userEvent.setup();
+    render(<AgentInteractionSurface />);
+
+    expect(await screen.findByText('durable terminal work')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Reopen' })).not.toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText('Ask Operator to begin work'), 'do not start automatically');
+    expect(screen.getByRole('button', { name: 'Send follow-up' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Send follow-up' }));
+    expect(runAgent).not.toHaveBeenCalled();
+    expect(apiClient.post).not.toHaveBeenCalled();
+  });
+
+  it('does not retain presentation or needs_continue branching in interaction UI source', () => {
+    for (const filename of ['AgentInteractionTaskList.tsx', 'useAgentInteraction.ts']) {
+      const source = readFileSync(
+        resolve(process.cwd(), 'src/components/agent-interaction', filename),
+        'utf8',
+      );
+      expect(source).not.toContain('presentation');
+      expect(source).not.toContain('needs_continue');
+    }
+  });
+
+  it('requires explicit Reopen for a cancelled Task and derives it from Task and Attempt facts', async () => {
+    const sessionId = '00000000-0000-4000-8000-000000000031';
+    window.history.replaceState(null, '', `/agent-os?agentSessionId=${sessionId}`);
+    vi.mocked(apiClient.get).mockResolvedValue({
+      session: { id: sessionId },
+      tasks: [{
+        id: 'task-cancelled',
+        parentTaskId: null,
+        agentDefinitionKey: 'operator',
+        objective: 'cancelled work',
+        status: 'cancelled',
+        latestAttempt: { id: 'attempt-cancelled', ordinal: 1, status: 'cancelled' },
+      }],
+    } as never);
+
+    render(<AgentInteractionSurface />);
+
+    expect(await screen.findByText('cancelled work')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reopen' })).toBeVisible();
+  });
+
+  it('renders durable Task, Attempt, result, approval, invocation, and child facts after the first prompt', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({ session: { id: expect.any(String) }, tasks: [{ id: 'task-1', parentTaskId: null, agentDefinitionKey: 'operator', objective: 'collect signals', status: 'open', result: { summary: 'Durable result', error: { message: 'bounded error' }, needsInput: { code: 'choose', prompt: 'Choose one.' } }, resourceRefs: [{ kind: 'candidate', id: 'candidate-1' }], operationRefs: [{ kind: 'operation', id: 'run-1', status: 'running' }], latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'running' }, approval: { id: 'approval-1', invocationId: 'invocation-1', inputHash: 'hash', status: 'pending' }, approvals: [{ id: 'approval-1', invocationId: 'invocation-1', inputHash: 'hash', status: 'pending' }], invocations: [{ id: 'invocation-1', capabilityKey: 'sourcing.inspectCandidate', status: 'succeeded' }], childTasks: [{ id: 'child-1', parentTaskId: 'task-1', objective: 'inspect evidence', status: 'completed', latestAttempt: { id: 'child-attempt-1', ordinal: 1, status: 'succeeded' } }] }] } as never);
     const user = userEvent.setup();
     render(<AgentInteractionSurface />);
     await user.type(screen.getByPlaceholderText('Ask Operator to begin work'), 'collect signals');
@@ -76,6 +139,10 @@ describe('AgentInteractionSurface durable projection', () => {
     expect(screen.getAllByText('collect signals')).toHaveLength(2);
     expect(screen.getByText('Durable result')).toBeVisible();
     expect(screen.getByText('bounded error')).toBeVisible();
+    expect(screen.getByText(/Needs input:.*choose/)).toBeVisible();
+    expect(screen.getByText(/Approvals: approval-1 \(pending\)/)).toBeVisible();
+    expect(screen.getByText(/Invocations: sourcing.inspectCandidate \(succeeded\)/)).toBeVisible();
+    expect(screen.getByText(/Child tasks: inspect evidence \(completed; Attempt 1: succeeded\)/)).toBeVisible();
     expect(screen.getByText(/candidate:candidate-1/)).toBeVisible();
     expect(screen.getByText(/operation:run-1/)).toBeVisible();
     expect(screen.getByText(/past chat is never replayed/i)).toBeVisible();
@@ -109,7 +176,7 @@ describe('AgentInteractionSurface durable projection', () => {
     runAgent.mockRejectedValueOnce(new Error('connection dropped'));
     vi.mocked(apiClient.get)
       .mockRejectedValueOnce(new ApiError(404, 'agent_session_not_found', 'not found'))
-      .mockImplementation(async (path: string) => durableProjection(sessionIdFromPath(path)));
+      .mockImplementation(async (path: string) => durableWorkView(sessionIdFromPath(path)));
     const user = userEvent.setup();
     render(<AgentInteractionSurface />);
 
@@ -195,14 +262,13 @@ describe('AgentInteractionSurface durable projection', () => {
   it('adopts a durable session after an ambiguous live transport failure without resubmitting', async () => {
     runAgent.mockRejectedValueOnce(new Error('response lost after write'));
     vi.mocked(apiClient.get).mockImplementation(async (path: string) => ({
-      ...durableProjection(sessionIdFromPath(path)),
+      ...durableWorkView(sessionIdFromPath(path)),
       tasks: [{
         id: 'task-ambiguous',
         parentTaskId: null,
         agentDefinitionKey: 'operator',
         objective: 'already admitted durable work',
         status: 'open',
-        presentation: 'running',
         latestAttempt: { id: 'attempt-ambiguous', ordinal: 1, status: 'running' },
       }],
     }) as never);
@@ -219,7 +285,7 @@ describe('AgentInteractionSurface durable projection', () => {
 
   it('adopts a matching root admission event before a long first live run completes', async () => {
     const completion = deferred<undefined>();
-    vi.mocked(apiClient.get).mockImplementation(async (path: string) => durableProjection(
+    vi.mocked(apiClient.get).mockImplementation(async (path: string) => durableWorkView(
       sessionIdFromPath(path),
     ) as never);
     runAgent.mockImplementationOnce(() => {
@@ -245,7 +311,7 @@ describe('AgentInteractionSurface durable projection', () => {
 
   it('restores a rejected existing-session follow-up when its latest durable Attempt is unchanged', async () => {
     const sessionId = '00000000-0000-4000-8000-000000000014';
-    const unchanged = projectionWithRootAttempt(sessionId, {
+    const unchanged = workViewWithRootAttempt(sessionId, {
       id: 'attempt-running',
       ordinal: 1,
       status: 'running',
@@ -270,9 +336,9 @@ describe('AgentInteractionSurface durable projection', () => {
     expect(screen.getByRole('button', { name: 'Send follow-up' })).toBeEnabled();
   });
 
-  it('adopts a matching live-input admission event for an existing running Attempt without a successor', async () => {
+  it('adopts a matching live-input admission event for an existing running Attempt', async () => {
     const sessionId = '00000000-0000-4000-8000-000000000016';
-    const unchanged = projectionWithRootAttempt(sessionId, {
+    const unchanged = workViewWithRootAttempt(sessionId, {
       id: 'attempt-running',
       ordinal: 1,
       status: 'running',
@@ -304,7 +370,7 @@ describe('AgentInteractionSurface durable projection', () => {
 
   it('reuses one live-message command after enqueue succeeds but its admission event is lost', async () => {
     const sessionId = '00000000-0000-4000-8000-000000000020';
-    const unchanged = projectionWithRootAttempt(sessionId, {
+    const unchanged = workViewWithRootAttempt(sessionId, {
       id: 'attempt-running',
       ordinal: 1,
       status: 'running',
@@ -356,7 +422,7 @@ describe('AgentInteractionSurface durable projection', () => {
 
   it('does not consume a follow-up for a live-input admission event bound to another Attempt', async () => {
     const sessionId = '00000000-0000-4000-8000-000000000017';
-    const unchanged = projectionWithRootAttempt(sessionId, {
+    const unchanged = workViewWithRootAttempt(sessionId, {
       id: 'attempt-running',
       ordinal: 1,
       status: 'running',
@@ -387,133 +453,18 @@ describe('AgentInteractionSurface durable projection', () => {
     expect(runAgent).toHaveBeenCalledTimes(1);
   });
 
-  it('reconciles a successor admission event before its long live run completes', async () => {
-    const sessionId = '00000000-0000-4000-8000-000000000018';
-    const predecessor = projectionWithRootAttempt(sessionId, {
-      id: 'attempt-terminal',
-      ordinal: 1,
-      status: 'succeeded',
-      presentation: 'needs_continue',
-    });
-    const successor = projectionWithRootAttempt(sessionId, {
-      id: 'attempt-successor',
-      ordinal: 2,
-      status: 'running',
-    });
-    const completion = deferred<undefined>();
-    window.history.replaceState(null, '', `/agent-os?agentSessionId=${sessionId}`);
-    vi.mocked(apiClient.get)
-      .mockResolvedValueOnce(predecessor as never)
-      .mockResolvedValueOnce(successor as never);
-    runAgent.mockImplementationOnce(() => {
-      emitAgentWorkAdmission({
-        kind: 'successor',
-        sessionId,
-        taskId: 'task-root',
-        attemptId: 'attempt-successor',
-      });
-      return completion.promise;
-    });
-    const user = userEvent.setup();
-    render(<AgentInteractionSurface />);
-
-    await screen.findByText('durable work');
-    await user.type(screen.getByPlaceholderText('Ask Operator to begin work'), 'start while output remains live');
-    await user.click(screen.getByRole('button', { name: 'Send follow-up' }));
-
-    expect(await screen.findByText(/Attempt 2: running/)).toBeVisible();
-    expect(screen.getByPlaceholderText('Ask Operator to begin work')).toHaveValue('');
-    expect(runAgent).toHaveBeenCalledTimes(1);
-  });
-
-  it('keeps the expected successor Attempt across a failed projection reconciliation retry', async () => {
-    const sessionId = '00000000-0000-4000-8000-000000000019';
-    const predecessor = projectionWithRootAttempt(sessionId, {
-      id: 'attempt-terminal',
-      ordinal: 1,
-      status: 'succeeded',
-      presentation: 'needs_continue',
-    });
-    const wrongSuccessor = projectionWithRootAttempt(sessionId, {
-      id: 'attempt-other-successor',
-      ordinal: 2,
-      status: 'running',
-    });
-    const completion = deferred<undefined>();
-    window.history.replaceState(null, '', `/agent-os?agentSessionId=${sessionId}`);
-    vi.mocked(apiClient.get)
-      .mockResolvedValueOnce(predecessor as never)
-      .mockRejectedValueOnce(new ApiError(503, 'unavailable', 'projection unavailable'))
-      .mockResolvedValueOnce(wrongSuccessor as never);
-    runAgent.mockImplementationOnce(() => {
-      emitAgentWorkAdmission({
-        kind: 'successor',
-        sessionId,
-        taskId: 'task-root',
-        attemptId: 'attempt-expected-successor',
-      });
-      return completion.promise;
-    });
-    const user = userEvent.setup();
-    render(<AgentInteractionSurface />);
-
-    await screen.findByText('durable work');
-    const prompt = 'keep the exact successor identity';
-    await user.type(screen.getByPlaceholderText('Ask Operator to begin work'), prompt);
-    await user.click(screen.getByRole('button', { name: 'Send follow-up' }));
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to confirm durable work');
-    await user.click(screen.getByRole('button', { name: 'Retry durable admission check' }));
-
-    await vi.waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(3));
-    expect(screen.getByPlaceholderText('Ask Operator to begin work')).toHaveValue(prompt);
-    expect(screen.getByText('Durable admission was not confirmed. Retry will reuse the exact command.')).toBeVisible();
-  });
-
-  it('adopts an existing-session follow-up only after the projection proves a new successor Attempt', async () => {
-    const sessionId = '00000000-0000-4000-8000-000000000015';
-    const predecessor = projectionWithRootAttempt(sessionId, {
-      id: 'attempt-terminal',
-      ordinal: 1,
-      status: 'succeeded',
-      presentation: 'needs_continue',
-    });
-    const successor = projectionWithRootAttempt(sessionId, {
-      id: 'attempt-successor',
-      ordinal: 2,
-      status: 'running',
-      presentation: 'running',
-    });
-    window.history.replaceState(null, '', `/agent-os?agentSessionId=${sessionId}`);
-    vi.mocked(apiClient.get)
-      .mockResolvedValueOnce(predecessor as never)
-      .mockResolvedValueOnce(successor as never);
-    const user = userEvent.setup();
-    render(<AgentInteractionSurface />);
-
-    await screen.findByText('durable work');
-    await user.type(screen.getByPlaceholderText('Ask Operator to begin work'), 'start a durable successor');
-    await user.click(screen.getByRole('button', { name: 'Send follow-up' }));
-
-    expect(await screen.findByText(/Attempt 2: running/)).toBeVisible();
-    expect(screen.getByPlaceholderText('Ask Operator to begin work')).toHaveValue('');
-    expect(screen.queryByText('No new durable Attempt was admitted.')).not.toBeInTheDocument();
-    expect(runAgent).toHaveBeenCalledTimes(1);
-  });
-
   it('shows a deterministic reconciliation retry when projection loading fails without rerunning the agent', async () => {
     runAgent.mockRejectedValueOnce(new Error('stream ended'));
     vi.mocked(apiClient.get)
       .mockRejectedValueOnce(new ApiError(503, 'unavailable', 'projection unavailable'))
       .mockImplementation(async (path: string) => ({
-        ...durableProjection(sessionIdFromPath(path)),
+        ...durableWorkView(sessionIdFromPath(path)),
         tasks: [{
           id: 'task-reconciled',
           parentTaskId: null,
           agentDefinitionKey: 'operator',
           objective: 'reconciled durable work',
           status: 'open',
-          presentation: 'running',
           latestAttempt: { id: 'attempt-reconciled', ordinal: 1, status: 'running' },
         }],
       }) as never);
@@ -537,7 +488,7 @@ describe('AgentInteractionSurface durable projection', () => {
     window.history.replaceState(null, '', `/agent-os?agentSessionId=${sessionId}`);
     vi.mocked(apiClient.get)
       .mockRejectedValueOnce(new ApiError(503, 'unavailable', 'projection unavailable'))
-      .mockResolvedValueOnce(durableProjection(sessionId) as never);
+      .mockResolvedValueOnce(durableWorkView(sessionId) as never);
     const user = userEvent.setup();
 
     render(<AgentInteractionSurface />);
@@ -549,7 +500,7 @@ describe('AgentInteractionSurface durable projection', () => {
   });
 
   it('submits a sourcing prompt through the immutable sourcing agent pin', async () => {
-    vi.mocked(apiClient.get).mockImplementation(async (path: string) => durableProjection(
+    vi.mocked(apiClient.get).mockImplementation(async (path: string) => durableWorkView(
       sessionIdFromPath(path),
       'sourcing',
     ) as never);
@@ -570,16 +521,31 @@ describe('AgentInteractionSurface durable projection', () => {
     }));
   });
 
-  it('routes continue, interrupt, cancel, and terminal deletion to durable actions', async () => {
-    vi.mocked(apiClient.get).mockResolvedValue({ session: { id: expect.any(String) }, tasks: [{ id: 'task-1', parentTaskId: null, agentDefinitionKey: 'operator', objective: 'work', status: 'open', presentation: 'needs_continue', latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'running' } }] } as never);
+  it('routes Continue from a non-live Attempt to the explicit durable action', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({ session: { id: expect.any(String) }, tasks: [{ id: 'task-1', parentTaskId: null, agentDefinitionKey: 'operator', objective: 'work', status: 'open', latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'process_interrupted' } }] } as never);
     const user = userEvent.setup(); render(<AgentInteractionSurface />);
     await user.type(screen.getByPlaceholderText('Ask Operator to begin work'), 'work'); await user.click(screen.getByRole('button', { name: 'Start' }));
     await user.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(apiClient.post).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/api\/agent-work\/sessions\/[0-9a-f-]{36}\/tasks\/task-1\/continue$/),
+      { predecessorAttemptId: 'attempt-1', prompt: 'Continue the durable work with the current state.' },
+    );
+  });
+
+  it('keeps interrupt and cancel available for a genuinely live Attempt', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({ session: { id: expect.any(String) }, tasks: [{ id: 'task-live', parentTaskId: null, agentDefinitionKey: 'operator', objective: 'live work', status: 'open', latestAttempt: { id: 'attempt-live', ordinal: 1, status: 'running' } }] } as never);
+    const user = userEvent.setup(); render(<AgentInteractionSurface />);
+    await user.type(screen.getByPlaceholderText('Ask Operator to begin work'), 'work'); await user.click(screen.getByRole('button', { name: 'Start' }));
     await user.click(screen.getByRole('button', { name: 'Interrupt' }));
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
-    const sessionPath = expect.stringMatching(/^\/api\/agent-work\/sessions\/[0-9a-f-]{36}\//);
-    expect(apiClient.post).toHaveBeenCalledWith(sessionPath, { predecessorAttemptId: 'attempt-1', prompt: 'Continue the durable work with the current state.' });
-    expect(apiClient.post).toHaveBeenCalledWith(sessionPath, undefined);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/api\/agent-work\/sessions\/[0-9a-f-]{36}\/tasks\/task-live\/attempts\/attempt-live\/interrupt$/),
+      undefined,
+    );
+    expect(apiClient.post).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/api\/agent-work\/sessions\/[0-9a-f-]{36}\/tasks\/task-live\/cancel$/),
+      undefined,
+    );
   });
 
   it('recovers a selected durable session projection after remounting from the URL', async () => {
@@ -587,13 +553,13 @@ describe('AgentInteractionSurface durable projection', () => {
     window.history.replaceState(null, '', `/agent-os?agentSessionId=${sessionId}`);
     vi.mocked(apiClient.get).mockResolvedValue({
       session: { id: sessionId },
-      tasks: [{ id: 'task-1', parentTaskId: null, agentDefinitionKey: 'operator', objective: 'durable work', status: 'completed', presentation: 'completed', latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'succeeded' } }],
+      tasks: [{ id: 'task-1', parentTaskId: null, agentDefinitionKey: 'operator', objective: 'durable work', status: 'completed', latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'succeeded' } }],
     } as never);
 
     const first = render(<AgentInteractionSurface />);
     await vi.waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(`/api/agent-work/sessions/${sessionId}`));
     expect(await screen.findByText('durable work')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Reopen' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeVisible();
     first.unmount();
 
     render(<AgentInteractionSurface />);
@@ -613,7 +579,6 @@ describe('AgentInteractionSurface durable projection', () => {
         agentDefinitionKey: 'supply',
         objective: 'resume durable work',
         status: 'open',
-        presentation: 'needs_continue',
         latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'exited' },
       }],
     } as never);
@@ -633,7 +598,7 @@ describe('AgentInteractionSurface durable projection', () => {
     window.history.replaceState(null, '', `/agent-os?agentSessionId=${sessionId}`);
     vi.mocked(apiClient.get).mockResolvedValue({
       session: { id: sessionId },
-      tasks: [{ id: 'task-1', parentTaskId: null, agentDefinitionKey: 'operator', objective: 'terminal work', status: 'completed', presentation: 'completed', latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'succeeded' } }],
+      tasks: [{ id: 'task-1', parentTaskId: null, agentDefinitionKey: 'operator', objective: 'terminal work', status: 'completed', latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'succeeded' } }],
     } as never);
     const user = userEvent.setup();
 
@@ -656,7 +621,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function durableProjection(
+function durableWorkView(
   sessionId: string,
   agentDefinitionKey: 'operator' | 'sourcing' = 'operator',
 ) {
@@ -668,7 +633,6 @@ function durableProjection(
       agentDefinitionKey,
       objective: 'durable work',
       status: 'open',
-      presentation: 'running',
       latestAttempt: { id: 'attempt-durable', ordinal: 1, status: 'running' },
     }],
   };
@@ -678,13 +642,12 @@ function sessionIdFromPath(path: string): string {
   return path.split('/').at(-1) ?? '00000000-0000-4000-8000-000000000099';
 }
 
-function projectionWithRootAttempt(
+function workViewWithRootAttempt(
   sessionId: string,
   latestAttempt: {
     id: string;
     ordinal: number;
     status: string;
-    presentation?: string;
   },
 ) {
   return {
@@ -695,7 +658,6 @@ function projectionWithRootAttempt(
       agentDefinitionKey: 'operator',
       objective: 'durable work',
       status: 'open',
-      presentation: latestAttempt.presentation ?? 'running',
       latestAttempt: {
         id: latestAttempt.id,
         ordinal: latestAttempt.ordinal,
@@ -706,7 +668,7 @@ function projectionWithRootAttempt(
 }
 
 function emitAgentWorkAdmission(value: {
-  kind: 'live_input' | 'root' | 'successor';
+  kind: 'live_input' | 'root';
   sessionId: string;
   taskId: string;
   attemptId: string;

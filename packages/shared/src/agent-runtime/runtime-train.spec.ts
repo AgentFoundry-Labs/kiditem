@@ -14,7 +14,7 @@ describe('native Agent runtime train', () => {
       cliContractIdentity: 'office-cli-contract-v2',
       mcpProtocolRevision: '2026-07-28',
       codexVersion: '0.149.1',
-      claudeVersion: '2.1.241',
+      claudeVersion: '2.1.245',
       nodeMajor: 22,
     });
     expect(Object.isFrozen(ATTEMPT_RUNTIME_TRAIN)).toBe(true);
@@ -22,7 +22,7 @@ describe('native Agent runtime train', () => {
 
   it.each([
     ['codex_cli', '0.149.1'],
-    ['claude_cli', '2.1.241'],
+    ['claude_cli', '2.1.245'],
   ] as const)('returns the approved version for %s', (runtime, expected) => {
     expect(attemptRuntimeVersion(runtime)).toBe(expected);
   });

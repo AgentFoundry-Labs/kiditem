@@ -148,12 +148,16 @@ export class PrismaAgentWorkTransaction
       const task = tasks[0];
       if (!task) throw rejection("task_not_found");
       const intent = input.intent;
+      if (task.status === "open" && intent === "reopen") {
+        throw rejection("task_not_open");
+      }
       if (task.status !== "open") {
-        if (
-          !["completed", "failed", "cancelled"].includes(task.status) ||
-          !intent ||
-          (task.status === "cancelled" && intent !== "reopen")
-        )
+        const requiredIntent = task.status === "cancelled"
+          ? "reopen"
+          : ["completed", "failed"].includes(task.status)
+            ? "follow_up"
+            : null;
+        if (!requiredIntent || intent !== requiredIntent)
           throw rejection("task_not_open");
         await tx.agentTask.update({
           where: { id: task.id },
@@ -266,10 +270,23 @@ export class PrismaAgentWorkTransaction
       ) {
         throw rejection("delegation_idempotency_conflict");
       }
+      const latest = await tx.agentAttempt.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          taskId: existing.id,
+        },
+        orderBy: { ordinal: "desc" },
+        select: { id: true, status: true },
+      });
+      if (!latest) throw rejection("delegation_idempotency_conflict");
       return {
         childTaskId: existing.id,
         firstAttemptId: existing.attempts[0].id,
+        attemptId: latest.id,
         replayed: true,
+        launchRequired: false,
+        taskTerminal: existing.status !== "open",
       };
     });
   }
@@ -299,6 +316,8 @@ export class PrismaAgentWorkTransaction
         );
       const existing = await tx.agentTask.findFirst({
         where: {
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
           parentTaskId: input.parentTaskId,
           delegationIdempotencyKey: input.idempotencyKey,
         },
@@ -310,10 +329,45 @@ export class PrismaAgentWorkTransaction
           !existing.attempts[0]
         )
           throw rejection("delegation_idempotency_conflict");
+        const child = await lockTask(
+          tx,
+          input.organizationId,
+          input.sessionId,
+          existing.id,
+        );
+        const latestPointer = await tx.agentAttempt.findFirst({
+          where: {
+            organizationId: input.organizationId,
+            sessionId: input.sessionId,
+            taskId: existing.id,
+          },
+          orderBy: { ordinal: "desc" },
+          select: { id: true },
+        });
+        if (!latestPointer) throw rejection("delegation_idempotency_conflict");
+        const latestLock = await lockAttempt(
+          tx,
+          input.organizationId,
+          latestPointer.id,
+        );
+        if (!latestLock) throw rejection("delegation_idempotency_conflict");
+        const latest = await tx.agentAttempt.findFirst({
+          where: {
+            id: latestLock.id,
+            organizationId: input.organizationId,
+            sessionId: input.sessionId,
+            taskId: existing.id,
+          },
+          select: { id: true },
+        });
+        if (!latest) throw rejection("delegation_idempotency_conflict");
         return {
           childTaskId: existing.id,
           firstAttemptId: existing.attempts[0].id,
+          attemptId: latest.id,
           replayed: true,
+          launchRequired: false,
+          taskTerminal: child.status !== "open",
         };
       }
       const attempt = await tx.agentAttempt.findFirst({
@@ -363,7 +417,10 @@ export class PrismaAgentWorkTransaction
       return {
         childTaskId: child.id,
         firstAttemptId: first.id,
+        attemptId: first.id,
         replayed: false,
+        launchRequired: true,
+        taskTerminal: false,
       };
     });
   }
@@ -980,7 +1037,7 @@ export class PrismaAgentWorkTransaction
         select: { organizationId: true, sessionId: true, taskId: true },
       });
       if (!coordinate) return { finalized: false, status: null };
-      // Keep the same Session -> Task order as successor admission. The Task
+      // Keep the same Session -> Task order as explicit follow-up admission. The Task
       // lock spans every finalization fence, so a new Attempt cannot appear
       // after the latest/live checks but before the terminal Task update.
       await lockSession(tx, coordinate.organizationId, coordinate.sessionId);
@@ -1012,7 +1069,7 @@ export class PrismaAgentWorkTransaction
       if (operationIds.length) {
         // The Operations owner is authoritative for current state.  If it is
         // unavailable or a reference is active, preserve this Task for a
-        // successor rather than inferring completion from stale envelopes.
+        // manual operator action rather than inferring completion from stale envelopes.
         if (!this.operations) return { finalized: false, status: null };
         try {
           const uniqueOperationIds = [...new Set(operationIds)];

@@ -14,7 +14,7 @@ describe('verifyRunnerReadiness', () => {
     vi.stubEnv('USER', 'runner-login');
     await expect(verifyRunnerReadiness({ runtimeRoot: root, loginRoot: root, platform: 'macos' })).resolves.toEqual({
       codex_cli: { version: '0.149.1', loginVerified: true, nonPersistentSettingsVerified: true },
-      claude_cli: { version: '2.1.241', loginVerified: true, nonPersistentSettingsVerified: true },
+      claude_cli: { version: '2.1.245', loginVerified: true, nonPersistentSettingsVerified: true },
     });
   });
 
@@ -82,7 +82,7 @@ async function fixture(options: Readonly<{ claudeAuthStatus?: 'verify-environmen
   await Promise.all([
     writeFile(join(root, '.codex/auth.json'), 'not-read'), writeFile(join(root, '.claude/.credentials.json'), 'not-read'),
     writeFile(join(root, 'node_modules/@openai/codex/package.json'), JSON.stringify({ version: '0.149.1' })),
-    writeFile(join(root, 'node_modules/@anthropic-ai/claude-code/package.json'), JSON.stringify({ version: '2.1.241' })),
+    writeFile(join(root, 'node_modules/@anthropic-ai/claude-code/package.json'), JSON.stringify({ version: '2.1.245' })),
   ]);
   await writeFile(
     join(root, 'node_modules/@anthropic-ai/claude-code/cli.js'),

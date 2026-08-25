@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AgentWorkCapabilityApplicationModule } from './agent-work-capability-application.module';
 import { PrismaAgentWorkRepository } from './agent-os/adapter/out/repository/work/prisma-agent-work.repository';
-import { AttemptFutureOutputChannel } from './agent-os/adapter/out/runtime/attempt/attempt-future-output-channel';
+import { LiveAttemptOutputChannel } from './agent-os/adapter/out/runtime/attempt/live-attempt-output-channel';
 import { AgentAttemptRuntimeAdmissionService } from './agent-os/adapter/out/runtime/attempt/agent-attempt-runtime-admission.service';
 import { AttemptTokenRegistry } from './agent-os/adapter/out/runtime/runner/attempt-token.registry';
 import { HostRunnerAttemptControlAdapter } from './agent-os/adapter/out/runtime/runner/host-runner-attempt-control.adapter';
@@ -28,9 +28,9 @@ import {
   type LiveAttemptExecutionCapabilityPort,
 } from './agent-os/application/port/in/capability/live-attempt-execution.capability.port';
 import {
-  LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT,
-  type LiveAttemptFutureOutputCapabilityPort,
-} from './agent-os/application/port/in/capability/live-attempt-future-output.capability.port';
+  LIVE_ATTEMPT_OUTPUT_CAPABILITY_PORT,
+  type LiveAttemptOutputCapabilityPort,
+} from './agent-os/application/port/in/capability/live-attempt-output.capability.port';
 import {
   ATTEMPT_MCP_ACTIONS_PORT,
   type AttemptMcpActionsPort,
@@ -85,8 +85,8 @@ import { PrismaService } from './prisma/prisma.service';
 @Module({
   imports: [AgentWorkCapabilityApplicationModule],
   providers: [
-    AttemptFutureOutputChannel,
-    { provide: LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT, useExisting: AttemptFutureOutputChannel },
+    LiveAttemptOutputChannel,
+    { provide: LIVE_ATTEMPT_OUTPUT_CAPABILITY_PORT, useExisting: LiveAttemptOutputChannel },
     { provide: RunnerInstallationTokenService, useFactory: () => new RunnerInstallationTokenService() },
     AttemptTokenRegistry,
     AgentAttemptCapacityService,
@@ -102,14 +102,14 @@ import { PrismaService } from './prisma/prisma.service';
         AttemptTokenRegistry,
         AGENT_WORK_LIFECYCLE_PORT,
         AgentAttemptCapacityService,
-        AttemptFutureOutputChannel,
+        LiveAttemptOutputChannel,
         AgentAttemptReconciler,
       ],
       useFactory: (
         tokens: AttemptTokenRegistry,
         work: AgentWorkLifecyclePort,
         capacity: AgentAttemptCapacityService,
-        output: AttemptFutureOutputChannel,
+        output: LiveAttemptOutputChannel,
         reconciler: AgentAttemptReconciler,
       ): HostRunnerControlSessionPort => new HostRunnerControlSession({
         tokens,
@@ -156,11 +156,9 @@ import { PrismaService } from './prisma/prisma.service';
     },
     {
       provide: AgentTaskDelegationService,
-      inject: [PrismaAgentWorkRepository, AgentAttemptAdmissionService],
-      useFactory: (
-        repository: PrismaAgentWorkRepository,
-        admissions: AgentAttemptAdmissionService,
-      ) => new AgentTaskDelegationService(repository, admissions),
+      inject: [AgentAttemptAdmissionService],
+      useFactory: (admissions: AgentAttemptAdmissionService) =>
+        new AgentTaskDelegationService(admissions),
     },
     {
       provide: AgentWorkCommandService,
@@ -228,13 +226,13 @@ import { PrismaService } from './prisma/prisma.service';
         LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT,
         AGENT_WORK_LIFECYCLE_PORT,
         AgentAttemptCapacityService,
-        AttemptFutureOutputChannel,
+        LiveAttemptOutputChannel,
       ],
       useFactory: (
         execution: LiveAttemptExecutionCapabilityPort,
         work: AgentWorkLifecyclePort,
         capacity: AgentAttemptCapacityService,
-        output: AttemptFutureOutputChannel,
+        output: LiveAttemptOutputChannel,
       ) => new AgentAttemptLaunchService(execution, work, capacity, output),
     },
     { provide: AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT, useExisting: AgentAttemptLaunchService },
@@ -245,15 +243,15 @@ import { PrismaService } from './prisma/prisma.service';
         AGENT_WORK_COMMAND_PORT,
         AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT,
         AgentLiveMessageService,
-        LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT,
+        LIVE_ATTEMPT_OUTPUT_CAPABILITY_PORT,
       ],
       useFactory: (
         queries: AgentWorkQueryPort,
         commands: AgentWorkCommandPort,
         launch: AgentAttemptLaunchCapabilityPort,
         liveMessages: AgentLiveMessageService,
-        futureOutput: LiveAttemptFutureOutputCapabilityPort,
-      ): AgentWorkIntakePort => createAgentWorkIntake(queries, commands, launch, liveMessages, futureOutput),
+        liveOutput: LiveAttemptOutputCapabilityPort,
+      ): AgentWorkIntakePort => createAgentWorkIntake(queries, commands, launch, liveMessages, liveOutput),
     },
     {
       provide: AgentDelegatedAttemptStarterService,
@@ -287,7 +285,7 @@ import { PrismaService } from './prisma/prisma.service';
     HOST_RUNNER_CONTROL_HTTP_PORT,
     HOST_RUNNER_CONTROL_ATTEMPT_PORT,
     HOST_RUNNER_CONTROL_READINESS_PORT,
-    AttemptFutureOutputChannel,
+    LiveAttemptOutputChannel,
     AttemptTokenRegistry,
     AgentApiStartupReconciler,
     AgentAttemptReconciler,
@@ -301,7 +299,7 @@ import { PrismaService } from './prisma/prisma.service';
     AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT,
     HostRunnerAttemptExecutorService,
     LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT,
-    LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT,
+    LIVE_ATTEMPT_OUTPUT_CAPABILITY_PORT,
     RunnerInstallationTokenService,
   ],
 })

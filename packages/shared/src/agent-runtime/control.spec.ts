@@ -81,7 +81,7 @@ function validHello() {
         nonPersistentSettingsVerified: true,
       },
       claude_cli: {
-        version: '2.1.241',
+        version: '2.1.245',
         loginVerified: true,
         nonPersistentSettingsVerified: true,
       },

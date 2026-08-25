@@ -7,7 +7,6 @@ import {
   canonicalize,
   hash,
 } from "../agent-capability-invocation.service";
-import { AgentWorkProjectionService } from "../agent-work-projection.service";
 
 const base = {
   organizationId: "org",
@@ -231,52 +230,6 @@ describe("replacement Agent work lifecycle", () => {
         initialStatus: "approval_pending",
       }),
     );
-  });
-
-  it("derives needs_continue only from open work with no live work", () => {
-    const projection = new AgentWorkProjectionService();
-    expect(
-      projection.project({
-        taskStatus: "open",
-        hasLiveAttempt: false,
-        hasPendingApproval: false,
-        hasReadyOrExecutingMutation: false,
-        hasLiveChild: false,
-        needsInput: false,
-        lastAttemptFailed: false,
-      }),
-    ).toBe("needs_continue");
-    expect(
-      projection.project({
-        taskStatus: "cancelled",
-        hasLiveAttempt: false,
-        hasPendingApproval: false,
-        hasReadyOrExecutingMutation: false,
-        hasLiveChild: false,
-        needsInput: false,
-        lastAttemptFailed: false,
-      }),
-    ).toBe("terminal");
-  });
-
-  it("projects open-work blockers ahead of a live parent and failed tasks as errors", () => {
-    const projection = new AgentWorkProjectionService();
-    const baseProjection = {
-      taskStatus: "open" as const,
-      hasLiveAttempt: true,
-      hasPendingApproval: false,
-      hasReadyOrExecutingMutation: false,
-      hasLiveChild: false,
-      needsInput: false,
-      lastAttemptFailed: false,
-    };
-    expect(projection.project({ ...baseProjection, hasPendingApproval: true })).toBe("awaiting_approval");
-    expect(projection.project({ ...baseProjection, hasReadyOrExecutingMutation: true })).toBe("awaiting_operation");
-    expect(projection.project({ ...baseProjection, hasLiveChild: true })).toBe("awaiting_child");
-    expect(projection.project(baseProjection)).toBe("running");
-    expect(projection.project({ ...baseProjection, taskStatus: "failed", lastAttemptFailed: false })).toBe("error");
-    expect(projection.project({ ...baseProjection, taskStatus: "completed", lastAttemptFailed: true })).toBe("terminal");
-    expect(projection.project({ ...baseProjection, taskStatus: "cancelled", lastAttemptFailed: true })).toBe("terminal");
   });
 
   it("rejects non-JSON and cyclic inputs while hashing key order deterministically", () => {

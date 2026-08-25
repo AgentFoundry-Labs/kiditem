@@ -615,7 +615,7 @@ test('Office artifact verification checks each bundled CLI result before the hel
 
   assert.match(workflow, /function Assert-BundledCliVersion/);
   assert.match(workflow, /Codex.*0\.149\.1/);
-  assert.match(workflow, /Claude.*2\.1\.241/);
+  assert.match(workflow, /Claude.*2\.1\.245/);
   assert.match(workflow, /\$exitCode = \$LASTEXITCODE/);
   assert.match(workflow, /if \(\$exitCode -ne 0\)/);
   assert.match(workflow, /unpacked Windows Job Object helper rejected malformed input incorrectly/);

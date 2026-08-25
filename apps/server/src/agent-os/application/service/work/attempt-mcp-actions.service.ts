@@ -19,6 +19,8 @@ import { AgentResultEnvelopeSchema } from '@kiditem/shared/agent-interaction';
  * substituted through narrow outgoing ports here.
  */
 export class AttemptMcpActionsService implements AttemptMcpActionsPort {
+  private readonly delegationActions = new Map<string, Promise<unknown>>();
+
   constructor(
     private readonly invocations: Pick<AgentCapabilityInvocationService, 'invoke' | 'authorize'>,
     private readonly delegation: Pick<AgentTaskDelegationService, 'delegate'>,
@@ -26,6 +28,7 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
       AgentWorkRepositoryPort,
       | 'assertAttemptMcpBinding'
       | 'loadAttemptMcpDelegationContext'
+      | 'loadAttemptMcpDelegationReplay'
       | 'loadAttemptMcpChild'
       | 'loadAttemptMcpInvocation'
     >,
@@ -44,7 +47,7 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
         description: definition.description,
         // Catalog discovery travels through the same bounded MCP result
         // envelope as business work. Preserve every JSON Schema validation
-        // keyword in a bounded document string; only presentation annotations
+        // keyword in a bounded document string; only descriptive annotations
         // such as descriptions/examples are clamped.
         inputSchema: encodedCatalogInputSchema(zodToJsonSchema(definition.inputSchema as never)),
         effects: definition.effects, approvalRisk: definition.approvalRisk,
@@ -89,6 +92,34 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
   ): Promise<unknown> {
     await this.assertBinding(input.binding);
     const explicit = explicitMutationGrant(input, this.capabilities);
+    const idempotencyKey = delegationIdempotencyKey(input, explicit);
+    return this.coalesceDelegation(
+      delegationActionKey(input, idempotencyKey),
+      () => this.delegateOnce(input, explicit, idempotencyKey),
+    );
+  }
+
+  private async delegateOnce(
+    input: Parameters<AttemptMcpActionsPort['delegate']>[0],
+    explicit: ReturnType<typeof explicitMutationGrant>,
+    idempotencyKey: string,
+  ): Promise<unknown> {
+    const replay = await this.work.loadAttemptMcpDelegationReplay({
+      organizationId: input.binding.organizationId,
+      sessionId: input.binding.sessionId,
+      taskId: input.binding.taskId,
+      attemptId: input.binding.attemptId,
+      requestedByUserId: input.binding.userId,
+      idempotencyKey,
+    });
+    if (replay) return {
+      childTaskId: replay.childTaskId,
+      firstAttemptId: replay.firstAttemptId,
+      attemptId: replay.attemptId,
+      replayed: true,
+      launchRequired: false,
+      taskTerminal: replay.taskTerminal,
+    };
     const context = await this.work.loadAttemptMcpDelegationContext({
       organizationId: input.binding.organizationId,
       sessionId: input.binding.sessionId,
@@ -100,6 +131,12 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
       ownerDomain: explicit?.ownerDomain,
     });
     if (!context) throw new Error('attempt_mcp_delegation_target_unavailable');
+    const childInput = delegatedChildInput(
+      input,
+      explicit,
+      context.rootTaskId,
+      context.input,
+    );
     const delegated = await this.delegation.delegate({
       organizationId: input.binding.organizationId,
       sessionId: input.binding.sessionId,
@@ -110,59 +147,49 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
       objective: input.objective,
       completionCriteria: input.objective,
       inputResourceRefs: [],
-      // Keep content-bearing objectives out of durable idempotency keys.  The
-      // canonical hash still makes an exact retry replay and drift conflict.
-      idempotencyKey: deriveOwnerIdempotencyKey({
-        attemptId: input.binding.attemptId,
-        capabilityKey: `delegation.${input.targetAgentKey}`,
-        input: { objective: input.objective, ...(explicit ? { capabilityKey: explicit.capabilityKey, input: explicit.input } : {}) },
-      }),
-      input: explicit ? {
-        explicitExecutionGrant: {
-          ...explicit,
-          parentTaskId: input.binding.taskId,
-          rootTaskId: context.rootTaskId,
-          delegatingAttemptId: input.binding.attemptId,
-        },
-      } : context.input,
+      // The content-addressed server key identifies an exact MCP retry; the
+      // lower admission hash independently fences durable key collisions.
+      idempotencyKey,
+      input: childInput,
       applicationVersion: context.applicationVersion,
       authorizingGitSha: context.authorizingGitSha,
       cliVersion: context.cliVersion,
       reportedModel: targetModel(context),
     });
+    const childAttemptId = delegated.attemptId;
     let authorization: Awaited<ReturnType<AgentCapabilityInvocationService['authorize']>> | undefined;
-    if (explicit) {
+    if (explicit && delegated.launchRequired && !delegated.replayed && !delegated.taskTerminal) {
       try {
         authorization = await this.invocations.authorize({
           organizationId: input.binding.organizationId,
           sessionId: input.binding.sessionId,
           taskId: delegated.childTaskId,
-          attemptId: delegated.firstAttemptId,
+          attemptId: childAttemptId,
           agentVersionId: context.targetAgentVersionId,
           initiatingUserId: input.binding.userId,
           capabilityKey: explicit.capabilityKey,
           authorizationKind: 'explicit_execution_grant',
           authorizationExpiresAt: new Date(Date.now() + 30 * 60 * 1_000),
           ownerIdempotencyKey: deriveOwnerIdempotencyKey({
-            attemptId: delegated.firstAttemptId,
+            attemptId: childAttemptId,
             capabilityKey: explicit.capabilityKey,
             input: explicit.input,
           }),
           input: explicit.input,
         });
       } catch (error) {
-        if (!delegated.replayed) await this.starter?.failBeforeStart({
-          attemptId: delegated.firstAttemptId,
+        if (delegated.launchRequired) await this.starter?.failBeforeStart({
+          attemptId: childAttemptId,
           code: 'explicit_execution_grant_failed',
           message: 'Explicit execution grant admission failed.',
         });
         throw error;
       }
     }
-    if (!delegated.replayed) {
+    if (delegated.launchRequired && !delegated.replayed) {
       if (!this.starter) throw new Error('delegated_attempt_starter_unavailable');
       await this.starter.start({
-        attemptId: delegated.firstAttemptId,
+        attemptId: childAttemptId,
         sessionId: input.binding.sessionId,
         taskId: delegated.childTaskId,
         agentVersionId: context.targetAgentVersionId,
@@ -184,6 +211,25 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
     } : delegated;
   }
 
+  private coalesceDelegation(
+    key: string,
+    delegate: () => Promise<unknown>,
+  ): Promise<unknown> {
+    const existing = this.delegationActions.get(key);
+    if (existing) return existing;
+    if (this.delegationActions.size >= 256) {
+      return Promise.reject(new AgentOsRuntimeError('delegation_in_flight_limit'));
+    }
+    let action!: Promise<unknown>;
+    action = Promise.resolve()
+      .then(delegate)
+      .finally(() => {
+        if (this.delegationActions.get(key) === action) this.delegationActions.delete(key);
+      });
+    this.delegationActions.set(key, action);
+    return action;
+  }
+
   async invocation(input: Parameters<AttemptMcpActionsPort['invocation']>[0]): Promise<unknown> {
     await this.assertBinding(input.binding);
     const load = () => this.work.loadAttemptMcpInvocation({
@@ -191,18 +237,9 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
       taskId: input.binding.taskId, attemptId: input.binding.attemptId,
       requestedByUserId: input.binding.userId, invocationId: input.invocationId,
     });
-    let invocation = await load();
+    const invocation = await load();
     if (!invocation) throw new Error('attempt_mcp_invocation_not_found');
-    const waitExpired = input.action === 'wait' && invocation.attemptStartedAt instanceof Date && Date.now() - invocation.attemptStartedAt.getTime() >= 10 * 60 * 1_000;
-    if (input.action === 'wait' && !waitExpired) {
-      const deadline = Date.now() + 25_000;
-      while (isInvocationPending(invocation.status) && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        invocation = await load();
-        if (!invocation) throw new Error('attempt_mcp_invocation_not_found');
-      }
-    }
-    return invocationProjection(invocation, waitExpired);
+    return invocationProjection(invocation);
   }
 
   async child(
@@ -233,25 +270,10 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
       return { childTaskId: child.childTaskId, status: child.taskStatus };
     }
     if (input.action === 'wait') {
-      const settled = await this.waitForChild(input, child);
-      if (!settled) throw new Error('attempt_mcp_child_not_found');
-      return childProjection(settled);
+      return childProjection(child);
     }
     if (input.action === 'result') return childResult(child);
     return childProjection(child);
-  }
-
-  private async waitForChild(
-    input: Parameters<AttemptMcpActionsPort['child']>[0],
-    current: NonNullable<Awaited<ReturnType<AgentWorkRepositoryPort['loadAttemptMcpChild']>>>,
-  ): Promise<Awaited<ReturnType<AgentWorkRepositoryPort['loadAttemptMcpChild']>>> {
-    if (!current.live) return current;
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    return this.work.loadAttemptMcpChild({
-      organizationId: input.binding.organizationId, sessionId: input.binding.sessionId,
-      parentTaskId: input.binding.taskId, childTaskId: input.childTaskId,
-      requestedByUserId: input.binding.userId,
-    });
   }
 
   async assertBinding(input: Parameters<AttemptMcpActionsPort['catalog']>[0]['binding']): Promise<void> {
@@ -297,13 +319,57 @@ function explicitMutationGrant(
   }
 }
 
+function delegationIdempotencyKey(
+  input: Parameters<AttemptMcpActionsPort['delegate']>[0],
+  explicit: ReturnType<typeof explicitMutationGrant>,
+): string {
+  return deriveOwnerIdempotencyKey({
+    attemptId: input.binding.attemptId,
+    capabilityKey: `delegation.${input.targetAgentKey}`,
+    input: {
+      objective: input.objective,
+      ...(explicit ? { capabilityKey: explicit.capabilityKey, input: explicit.input } : {}),
+    },
+  });
+}
+
+function delegationActionKey(
+  input: Parameters<AttemptMcpActionsPort['delegate']>[0],
+  idempotencyKey: string,
+): string {
+  return [
+    input.binding.organizationId,
+    input.binding.sessionId,
+    input.binding.taskId,
+    input.binding.attemptId,
+    input.binding.userId,
+    idempotencyKey,
+  ].join('\u0000');
+}
+
+function delegatedChildInput(
+  input: Parameters<AttemptMcpActionsPort['delegate']>[0],
+  explicit: ReturnType<typeof explicitMutationGrant>,
+  rootTaskId: string,
+  parentInput: unknown,
+): unknown {
+  return explicit ? {
+    explicitExecutionGrant: {
+      ...explicit,
+      parentTaskId: input.binding.taskId,
+      rootTaskId,
+      delegatingAttemptId: input.binding.attemptId,
+    },
+  } : parentInput;
+}
+
 function isInvocationPending(status: string): boolean { return ['authorized', 'approval_pending', 'ready', 'executing'].includes(status); }
-function invocationProjection(invocation: { invocationId: string; status: string; result: unknown | null; error: unknown | null }, waitExpired = false) {
+function invocationProjection(invocation: { invocationId: string; status: string; result: unknown | null; error: unknown | null }) {
   const parsed = AgentResultEnvelopeSchema.safeParse(invocation.result);
   const result = parsed.success ? parsed.data : null;
   const error = invocation.error && typeof invocation.error === 'object' ? invocation.error as Record<string, unknown> : null;
   return {
-    invocationId: invocation.invocationId, status: invocation.status, terminal: !isInvocationPending(invocation.status), waitExpired,
+    invocationId: invocation.invocationId, status: invocation.status, terminal: !isInvocationPending(invocation.status),
     result: result && {
       outcome: result.outcome,
       summary: result.summary,

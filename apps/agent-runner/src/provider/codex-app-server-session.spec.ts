@@ -9,11 +9,11 @@ describe('CodexAppServerSession', () => {
     expect(lines).toEqual([]);
   });
 
-  it('uses an exact ephemeral thread request, the built-in workspace profile, and live steering without a resume id', async () => {
+  it('uses an exact ephemeral thread request, the trusted full-access profile, and live steering without a resume id', async () => {
     const lines: string[] = []; const session = new CodexAppServerSession((line) => { lines.push(line); });
     const start = session.start({ model: 'gpt-5.6', cwd: '/attempt/workspace', prompt: 'work' });
     answer(session, lines, 'initialize', {}); await advance();
-    answer(session, lines, 'thread/start', { thread: { id: 'thread-1' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    answer(session, lines, 'thread/start', { thread: { id: 'thread-1' }, activePermissionProfile: { id: ':danger-full-access' } }); await advance();
     answer(session, lines, 'turn/start', { turn: { id: 'turn-1' } }); await start;
     const steer = session.steer('continue'); answer(session, lines, 'turn/steer', {}); await steer;
 
@@ -40,10 +40,10 @@ describe('CodexAppServerSession', () => {
       approvalPolicy: 'never',
       config: { mcp_servers: { kiditem_attempt: { disabled_tools: ['readiness_probe'] } } },
     });
-    answerAt(session, threadStarts, 0, { thread: { id: 'provider-thread' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    answerAt(session, threadStarts, 0, { thread: { id: 'provider-thread' }, activePermissionProfile: { id: ':danger-full-access' } }); await advance();
     const probeThreadStart = requests(lines, 'thread/start')[1]!;
     expect(probeThreadStart.params).toEqual({ ephemeral: true, model: 'gpt-5.6', cwd: '/attempt/workspace', approvalPolicy: 'never' });
-    answerAt(session, [probeThreadStart], 0, { thread: { id: 'probe-thread' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    answerAt(session, [probeThreadStart], 0, { thread: { id: 'probe-thread' }, activePermissionProfile: { id: ':danger-full-access' } }); await advance();
     answer(session, lines, 'turn/start', { turn: { id: 'provider-turn' } }); await start;
 
     const probe = session.completeReadinessProbe();
@@ -77,10 +77,10 @@ describe('CodexAppServerSession', () => {
       approvalPolicy: 'never',
       config: { mcp_servers: { kiditem_attempt: { disabled_tools: ['readiness_probe'] } } },
     });
-    answerAt(session, threadStarts, 0, { thread: { id: 'provider-thread' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    answerAt(session, threadStarts, 0, { thread: { id: 'provider-thread' }, activePermissionProfile: { id: ':danger-full-access' } }); await advance();
     const probeThreadStart = requests(lines, 'thread/start')[1]!;
     expect(probeThreadStart.params).toEqual({ ephemeral: true, model: 'gpt-5.6', cwd: '/attempt/workspace', approvalPolicy: 'never' });
-    answerAt(session, [probeThreadStart], 0, { thread: { id: 'probe-thread' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    answerAt(session, [probeThreadStart], 0, { thread: { id: 'probe-thread' }, activePermissionProfile: { id: ':danger-full-access' } }); await advance();
     expect(lines.map((line) => JSON.parse(line).method)).not.toContain('mcpServer/tool/call');
     expect(request(lines, 'turn/start').params).toMatchObject({ threadId: 'provider-thread' });
     answer(session, lines, 'turn/start', { turn: { id: 'provider-turn' } }); await start;
@@ -100,7 +100,7 @@ describe('CodexAppServerSession', () => {
     await probe;
   });
 
-  it('fails closed when the enabled deferred probe thread does not return the workspace permission profile', async () => {
+  it('fails closed when the enabled deferred probe thread returns a workspace-only permission profile', async () => {
     const lines: string[] = []; const session = new CodexAppServerSession((line) => { lines.push(line); });
     const start = session.start({
       model: 'gpt-5.6',
@@ -111,9 +111,9 @@ describe('CodexAppServerSession', () => {
     answer(session, lines, 'initialize', {}); await advance();
     const threadStarts = requests(lines, 'thread/start');
     expect(threadStarts[0]!.params).toMatchObject({ config: { mcp_servers: { kiditem_attempt: { disabled_tools: ['readiness_probe'] } } } });
-    answerAt(session, threadStarts, 0, { thread: { id: 'provider-thread' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    answerAt(session, threadStarts, 0, { thread: { id: 'provider-thread' }, activePermissionProfile: { id: ':danger-full-access' } }); await advance();
     const probeThreadStart = requests(lines, 'thread/start')[1]!;
-    answerAt(session, [probeThreadStart], 0, { thread: { id: 'probe-thread' }, activePermissionProfile: { id: ':danger-full-access' } });
+    answerAt(session, [probeThreadStart], 0, { thread: { id: 'probe-thread' }, activePermissionProfile: { id: ':workspace' } });
 
     await expect(start).rejects.toThrow('codex_app_server_permission_profile_mismatch');
     expect(lines.map((line) => JSON.parse(line).method)).not.toContain('turn/start');
@@ -124,7 +124,7 @@ describe('CodexAppServerSession', () => {
     const session = new CodexAppServerSession((line) => { lines.push(line); }, undefined, (event) => events.push(event));
     const start = session.start({ model: 'gpt-5.6', cwd: '/attempt/workspace', prompt: 'work' });
     answer(session, lines, 'initialize', {}); await advance();
-    answer(session, lines, 'thread/start', { thread: { id: 'thread-1' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    answer(session, lines, 'thread/start', { thread: { id: 'thread-1' }, activePermissionProfile: { id: ':danger-full-access' } }); await advance();
     answer(session, lines, 'turn/start', { turn: { id: 'turn-1' } }); await start;
 
     session.receive(`${JSON.stringify({ jsonrpc: '2.0', method: 'item/agentMessage/delta', params: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'item-1', delta: 'bounded delta' } })}\n`);
@@ -142,7 +142,7 @@ describe('CodexAppServerSession', () => {
     const session = new CodexAppServerSession((line) => { lines.push(line); }, undefined, (event) => events.push(event));
     const start = session.start({ model: 'gpt-5.6', cwd: '/attempt/workspace', prompt: 'work' });
     answer(session, lines, 'initialize', {}); await advance();
-    answer(session, lines, 'thread/start', { thread: { id: 'thread-1' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    answer(session, lines, 'thread/start', { thread: { id: 'thread-1' }, activePermissionProfile: { id: ':danger-full-access' } }); await advance();
 
     session.receive(`${JSON.stringify({ jsonrpc: '2.0', method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status } } })}\n`);
     await start;

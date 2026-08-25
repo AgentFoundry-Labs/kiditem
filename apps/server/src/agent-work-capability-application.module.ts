@@ -18,7 +18,6 @@ import { AgentCapabilityInvocationService } from './agent-os/application/service
 import { AgentTaskLifecycleService } from './agent-os/application/service/work/agent-task-lifecycle.service';
 import { AgentCapabilityApprovalService } from './agent-os/application/service/work/agent-capability-approval.service';
 import { AgentSessionTerminalDeleteService } from './agent-os/application/service/work/agent-session-terminal-delete.service';
-import { AgentWorkProjectionService } from './agent-os/application/service/work/agent-work-projection.service';
 import { AgentWorkQueryService } from './agent-os/application/service/work/agent-work-query.service';
 import { AGENT_WORK_QUERY_PORT } from './agent-os/application/port/in/work/agent-work-query.port';
 import { AgentVersionPublisher } from './agent-os/application/service/work/agent-work-version-publisher.service';
@@ -62,10 +61,9 @@ import {
     { provide: AgentTaskLifecycleService, inject: [AGENT_WORK_LIFECYCLE_PORT], useFactory: (work: AgentWorkLifecyclePort) => new AgentTaskLifecycleService(work) },
     { provide: AgentCapabilityApprovalService, inject: [AGENT_WORK_INVOCATION_APPROVAL_PORT], useFactory: (work: AgentWorkInvocationApprovalPort) => new AgentCapabilityApprovalService(work) },
     { provide: AgentSessionTerminalDeleteService, inject: [AGENT_WORK_LIFECYCLE_PORT], useFactory: (work: AgentWorkLifecyclePort) => new AgentSessionTerminalDeleteService(work) },
-    AgentWorkProjectionService,
     AgentWorkQueryService,
     { provide: AGENT_WORK_QUERY_PORT, useExisting: AgentWorkQueryService },
   ],
-  exports: [AGENT_WORK_ADMISSION_PORT, AGENT_WORK_INVOCATION_APPROVAL_PORT, AGENT_WORK_LIFECYCLE_PORT, AGENT_WORK_MUTATION_PORT, PrismaAgentWorkRepository, AgentCapabilityInvocationService, AgentTaskLifecycleService, AgentCapabilityApprovalService, AgentSessionTerminalDeleteService, AgentWorkProjectionService, AGENT_WORK_QUERY_PORT, AgentOsCapabilityModule],
+  exports: [AGENT_WORK_ADMISSION_PORT, AGENT_WORK_INVOCATION_APPROVAL_PORT, AGENT_WORK_LIFECYCLE_PORT, AGENT_WORK_MUTATION_PORT, PrismaAgentWorkRepository, AgentCapabilityInvocationService, AgentTaskLifecycleService, AgentCapabilityApprovalService, AgentSessionTerminalDeleteService, AGENT_WORK_QUERY_PORT, AgentOsCapabilityModule],
 })
 export class AgentWorkCapabilityApplicationModule {}

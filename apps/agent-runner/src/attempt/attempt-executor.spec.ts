@@ -95,7 +95,7 @@ describe('AttemptExecutor', () => {
         const request = JSON.parse(line) as { id?: string; method?: string };
         if (!request.id || !request.method) return;
         const result = request.method === 'initialize' ? {}
-          : request.method === 'thread/start' ? { thread: { id: 'thread-1' }, activePermissionProfile: { id: ':workspace' } }
+          : request.method === 'thread/start' ? { thread: { id: 'thread-1' }, activePermissionProfile: { id: ':danger-full-access' } }
             : request.method === 'turn/start' ? { turn: { id: 'turn-1' } } : {};
         callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result })}\n`);
       },
@@ -133,7 +133,7 @@ describe('AttemptExecutor', () => {
         if (request.method === 'thread/start') {
           threadStarts += 1;
           const threadId = threadStarts === 1 ? 'provider-thread' : 'probe-thread';
-          callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { thread: { id: threadId }, activePermissionProfile: { id: ':workspace' } } })}\n`);
+          callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { thread: { id: threadId }, activePermissionProfile: { id: ':danger-full-access' } } })}\n`);
         }
         if (request.method === 'turn/start') {
           turnThreadId = request.params?.threadId ?? '';
@@ -180,7 +180,7 @@ describe('AttemptExecutor', () => {
         if (request.method === 'thread/start') {
           threadStarts += 1;
           const threadId = threadStarts === 1 ? 'provider-thread' : 'probe-thread';
-          callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { thread: { id: threadId }, activePermissionProfile: { id: ':workspace' } } })}\n`);
+          callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { thread: { id: threadId }, activePermissionProfile: { id: ':danger-full-access' } } })}\n`);
         }
         if (request.method === 'turn/start') {
           turnThreadId = request.params?.threadId ?? '';
@@ -246,7 +246,7 @@ describe('AttemptExecutor', () => {
         if (!request.id || !request.method) return;
         if (request.method === 'initialize') callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: {} })}\n`);
         if (request.method === 'thread/start') {
-          callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { thread: { id: 'thread-1' }, activePermissionProfile: { id: ':workspace' } } })}\n`);
+          callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { thread: { id: 'thread-1' }, activePermissionProfile: { id: ':danger-full-access' } } })}\n`);
         }
         if (request.method === 'turn/start') {
           const completion = `${JSON.stringify({ jsonrpc: '2.0', method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status } } })}\n`;

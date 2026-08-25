@@ -2,20 +2,21 @@ import {
   AgentTaskStatusSchema,
   type AgentTaskStatus,
 } from "@kiditem/shared/agent-interaction";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import type {
-  AgentWorkProjection,
+  AgentWorkSessionFacts,
   AgentWorkRepositoryPort,
   OrganizationScopedId,
 } from "../../../../application/port/out/work/agent-work-repository.port";
 import type { AgentWorkQueryRepositoryPort } from '../../../../application/port/out/work/agent-work-query-repository.port';
+import type { RootAttemptReplayReceipt } from '../../../../application/port/out/work/agent-work-persistence.types';
 
 export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort, AgentWorkQueryRepositoryPort {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async loadProjection(
+  async loadSessionFacts(
     input: OrganizationScopedId,
-  ): Promise<AgentWorkProjection | null> {
+  ): Promise<AgentWorkSessionFacts | null> {
     const session = await this.prisma.agentSession.findFirst({
       where: input,
       include: { tasks: true },
@@ -32,7 +33,7 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort, Agent
     };
   }
 
-  async loadOwnedProjection(input: { organizationId: string; userId: string; sessionId: string }): Promise<unknown | null> {
+  async loadOwnedWorkView(input: { organizationId: string; userId: string; sessionId: string }): Promise<unknown | null> {
     return this.prisma.agentSession.findFirst({
       where: { id: input.sessionId, organizationId: input.organizationId, createdByUserId: input.userId },
       include: {
@@ -76,50 +77,29 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort, Agent
       },
     });
     const predecessor = task?.attempts[0] ?? null;
+    const rootAttempt = task
+      ? await this.prisma.agentAttempt.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          taskId: task.id,
+          ordinal: 1,
+        },
+        select: { id: true, status: true, input: true },
+      })
+      : null;
     return task && predecessor ? {
       taskId: task.id,
       predecessorAttemptId: predecessor.id,
       terminal: ['succeeded', 'failed', 'process_interrupted', 'cancelled'].includes(predecessor.status),
       agentDefinitionKey: task.assignedAgentVersion.agentDefinitionKey,
+      rootAdmission: rootAttempt ? rootAttemptReplayReceipt({
+        taskId: task.id,
+        attemptId: rootAttempt.id,
+        terminal: ['succeeded', 'failed', 'process_interrupted', 'cancelled'].includes(rootAttempt.status),
+        input: rootAttempt.input,
+      }) : null,
     } : null;
-  }
-
-  async findDelegationReplay(input: {
-    organizationId: string;
-    sessionId: string;
-    parentTaskId: string;
-    idempotencyKey: string;
-    requestedByUserId: string;
-  }): Promise<{
-    childTaskId: string;
-    requestHash: string | null;
-    firstAttemptId: string | null;
-  } | null> {
-    const membership = await this.prisma.organizationMembership.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        userId: input.requestedByUserId,
-        status: "active",
-      },
-    });
-    if (!membership) return null;
-    const task = await this.prisma.agentTask.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        sessionId: input.sessionId,
-        parentTaskId: input.parentTaskId,
-        delegationIdempotencyKey: input.idempotencyKey,
-        session: { createdByUserId: input.requestedByUserId },
-      },
-      include: { attempts: { orderBy: { ordinal: "asc" }, take: 1 } },
-    });
-    return task
-      ? {
-          childTaskId: task.id,
-          requestHash: task.delegationRequestHash,
-          firstAttemptId: task.attempts[0]?.id ?? null,
-        }
-      : null;
   }
 
   async loadLiveAttempt(input: {
@@ -262,6 +242,57 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort, Agent
     };
   }
 
+  async loadAttemptMcpDelegationReplay(input: {
+    organizationId: string;
+    sessionId: string;
+    taskId: string;
+    attemptId: string;
+    requestedByUserId: string;
+    idempotencyKey: string;
+  }) {
+    // A replay receipt is one durable fact: an explicit Continue must not make
+    // this read combine the former Task status with a later Attempt pointer.
+    return this.prisma.$transaction(async (tx) => {
+      const child = await tx.agentTask.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          parentTaskId: input.taskId,
+          delegatedFromAttemptId: input.attemptId,
+          delegationIdempotencyKey: input.idempotencyKey,
+          session: { createdByUserId: input.requestedByUserId },
+        },
+        select: {
+          id: true,
+          status: true,
+          attempts: {
+            orderBy: { ordinal: 'asc' },
+            take: 1,
+            select: { id: true },
+          },
+        },
+      });
+      const first = child?.attempts[0] ?? null;
+      if (!child || !first) return null;
+      const latest = await tx.agentAttempt.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          taskId: child.id,
+        },
+        orderBy: { ordinal: 'desc' },
+        select: { id: true },
+      });
+      if (!latest) return null;
+      return {
+        childTaskId: child.id,
+        firstAttemptId: first.id,
+        attemptId: latest.id,
+        taskTerminal: child.status !== 'open',
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
   async loadAttemptMcpChild(input: {
     organizationId: string;
     sessionId: string;
@@ -341,6 +372,36 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort, Agent
       inputHash: approval.inputHash,
     }));
   }
+}
+
+function rootAttemptReplayReceipt(input: {
+  taskId: string;
+  attemptId: string;
+  terminal: boolean;
+  input: unknown;
+}): RootAttemptReplayReceipt | null {
+  const persistedInput = input.input;
+  if (!persistedInput || typeof persistedInput !== 'object' || Array.isArray(persistedInput)) return null;
+  const receipt = (persistedInput as Record<string, unknown>).rootAdmission;
+  if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) return null;
+  const messageCommandKey = (receipt as Record<string, unknown>).messageCommandKey;
+  const inputHash = (receipt as Record<string, unknown>).inputHash;
+  const invalid = (
+    typeof messageCommandKey !== 'string'
+    || !messageCommandKey.trim()
+    || messageCommandKey.trim() !== messageCommandKey
+    || messageCommandKey.length > 256
+    || typeof inputHash !== 'string'
+    || !/^[a-f0-9]{64}$/.test(inputHash)
+  );
+  if (invalid) return null;
+  return {
+    taskId: input.taskId,
+    attemptId: input.attemptId,
+    terminal: input.terminal,
+    messageCommandKey,
+    inputHash,
+  };
 }
 
 function sameCapabilityKeys(

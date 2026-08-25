@@ -37,23 +37,36 @@ Agent
 ## Lifecycle
 
 - `AgentTask` owns only `open | completed | failed | cancelled` business
-  lifecycle. `AgentAttempt` owns only a CLI process lifecycle.
-- Approval wait, Operation wait, child Task wait, and Continue requirement are
-  UI projections from current Approval/Operation/Task/Attempt records, never
-  duplicated Task states.
+  lifecycle. `AgentAttempt` owns only `starting | running | succeeded | failed
+  | process_interrupted | cancelled` CLI process lifecycle. Do not add schema,
+  status, or continuation fields for interaction state.
+- Work reads return source facts, never a presentation aggregate: Task status,
+  latest Attempt, Approval and Invocation/Operation facts, child Tasks, and
+  bounded result/resource/operation references including structured
+  `result.needsInput` when present. The web derives its UI from those facts.
+- Continue is an explicit action, never a state or refresh side effect. It is
+  allowed only with no live Attempt and a non-cancelled Task; continuing a
+  completed or failed Task atomically reopens it before creating one immutable
+  Attempt. A cancelled Task requires explicit Reopen. No other event creates
+  reasoning.
 - Every CLI process uses a Runner-owned isolated per-Attempt home/workspace. It
   may reference the dedicated host account's persisted login artifact through
   the validated OS mechanism but never copies credential bytes into KidItem
-  persistence. Runner loss, API restart, CLI exit, timeout, or interruption
-  never resumes provider session/history; later reasoning creates an immutable
-  successor Attempt from durable state.
+  persistence. Reasoning is trusted but disposable: Runner loss, API restart,
+  CLI exit, timeout, interruption, root/delegation replay, transport retry,
+  Approval decision, Operation completion, and child Task completion never
+  resume provider history or create/relaunch another Attempt.
 - The protected installation bearer identifies one Runner installation. A
   cryptographically random per-Attempt bearer is short-lived, bound to one
   Attempt, revoked on terminal state, and never persisted or logged as raw
   control state.
-- Approval saves exact canonical input/hash before a live Attempt waits. A
-  timed-out Attempt does not cancel the durable mutation; worker recovery owns
-  the remaining safe work.
+- A mutation requiring approval stores its exact canonical input/hash and
+  Approval durably before work can proceed. MCP returns a bounded current
+  result and the CLI exits; it never waits for or is woken by a later Approval,
+  Operation, or child completion. Approval may release only that admitted
+  deterministic mutation/Operation. Durable worker recovery continues or
+  retries ready/executing mutation work under its existing owner key, never
+  reasoning.
 - `AGENT_CLI_MAX_CONCURRENCY` is a process-local admission limit. There is no
   organization quota, provider budget, distributed lock, or provider resume
   contract in this release.
@@ -63,8 +76,9 @@ Agent
 CopilotKit OSS is an API-local Nest incoming adapter at `/api/copilotkit`.
 Browser traffic is same-origin and authenticated by ordinary KidItem session
 auth. There is no interaction gateway, replay transcript service, or separate
-control plane. Future output is streamed only while the Attempt is live;
-database Task/Attempt and mutation records are the durable recovery authority.
+control plane. Live output and ordinary user-message/interrupt delivery exist
+only while the exact Attempt is running; database Task/Attempt and mutation
+records are the durable recovery authority.
 
 ## Version Publication And Seed
 

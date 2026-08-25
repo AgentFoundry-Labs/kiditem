@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path, { join } from "node:path";
 import test from "node:test";
@@ -7,6 +13,7 @@ import {
   collectAgentOsContractionFindings,
   collectSupersededRuntimeInventoryFindings,
   contractionRoots,
+  productionFiles,
   supersededRuntimeInventoryPaths,
 } from "../check-agent-os-contraction.mjs";
 
@@ -38,6 +45,41 @@ test("limits enforcement to final native Runner boundaries", () => {
   );
 });
 
+test("ignores dependency and generated descendants while retaining repo-owned Runner source", () => {
+  const root = mkdtempSync(join(tmpdir(), "kiditem-agent-os-contraction-"));
+  const runnerRoot = join(root, "apps/agent-runner");
+  const forbiddenSource =
+    "import { createServer } from 'node:http'; createServer(() => {}).listen(4000);\n";
+  const ownedSource = join(runnerRoot, "src/legacy-runner.ts");
+  const ignoredSources = [
+    join(runnerRoot, "node_modules/example/legacy-runner.ts"),
+    join(runnerRoot, "dist/legacy-runner.ts"),
+    join(runnerRoot, "coverage/legacy-runner.ts"),
+    join(runnerRoot, ".next/server/legacy-runner.ts"),
+  ];
+
+  try {
+    for (const file of [ownedSource, ...ignoredSources]) {
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, forbiddenSource);
+    }
+
+    const files = productionFiles(runnerRoot).map((file) => ({
+      path: path.relative(root, file),
+      source: readFileSync(file, "utf8"),
+    }));
+
+    assert.deepEqual(files.map((file) => file.path), [
+      "apps/agent-runner/src/legacy-runner.ts",
+    ]);
+    assert.deepEqual(collectAgentOsContractionFindings(files), [
+      "apps/agent-runner/src/legacy-runner.ts: Runner inbound listener or LAN exposure",
+    ]);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
 test("freezes the API MCP dependency train and excludes provider CLIs", () => {
   const correct = JSON.stringify({
     dependencies: {
@@ -61,7 +103,7 @@ test("freezes the API MCP dependency train and excludes provider CLIs", () => {
           "@modelcontextprotocol/server": "^2.0.0",
           "@modelcontextprotocol/sdk": "1.19.1",
           "@modelcontextprotocol/core": "2.0.0",
-          "@anthropic-ai/claude-code": "^2.1.241",
+          "@anthropic-ai/claude-code": "^2.1.245",
           "@openai/codex": "0.149.0",
           "zod-v4": "npm:zod@4.4.0",
         },

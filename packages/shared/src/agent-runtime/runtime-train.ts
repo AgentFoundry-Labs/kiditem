@@ -5,7 +5,7 @@ export const ATTEMPT_RUNTIME_TRAIN = Object.freeze({
   cliContractIdentity: 'office-cli-contract-v2',
   mcpProtocolRevision: '2026-07-28',
   codexVersion: '0.149.1',
-  claudeVersion: '2.1.241',
+  claudeVersion: '2.1.245',
   nodeMajor: 22,
 } as const);
 

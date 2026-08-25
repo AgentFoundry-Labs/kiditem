@@ -335,7 +335,7 @@ function Assert-RunnerRuntimeContract {
     $Runtime.cliContractIdentity -ne 'office-cli-contract-v2' -or
     $Runtime.mcpProtocolRevision -ne '2026-07-28' -or
     $Runtime.codexVersion -ne '0.149.1' -or
-    $Runtime.claudeVersion -ne '2.1.241'
+    $Runtime.claudeVersion -ne '2.1.245'
   ) {
     throw 'Runner runtime contract does not match the approved KID-25 Windows train.'
   }
@@ -1296,7 +1296,7 @@ function Wait-ForAgentRuntimeReadiness {
         $response.runner.cliContractIdentity -eq 'office-cli-contract-v2' -and
         $response.runner.mcpProtocolRevision -eq '2026-07-28' -and
         $response.runner.runtimes.codex_cli.version -eq '0.149.1' -and
-        $response.runner.runtimes.claude_cli.version -eq '2.1.241'
+        $response.runner.runtimes.claude_cli.version -eq '2.1.245'
       ) {
         return
       }

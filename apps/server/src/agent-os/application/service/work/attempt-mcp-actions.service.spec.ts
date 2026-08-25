@@ -24,6 +24,7 @@ function setup() {
   const work = {
     assertAttemptMcpBinding: vi.fn().mockResolvedValue(true),
     loadAttemptMcpDelegationContext: vi.fn(),
+    loadAttemptMcpDelegationReplay: vi.fn(),
     loadAttemptMcpChild: vi.fn(),
     loadAttemptMcpInvocation: vi.fn(),
   };
@@ -97,7 +98,10 @@ describe('AttemptMcpActionsService', () => {
       targetAgentKey: 'supply', targetRuntimeType: 'codex_cli', targetCapabilityKeys: [],
       targetInstructionProfileRef: 'agent-config/prompts/agents/supply.md',
     });
-    delegation.delegate.mockResolvedValue({ childTaskId: 'child', firstAttemptId: 'child-attempt', replayed: true });
+    delegation.delegate.mockResolvedValue({
+      childTaskId: 'child', firstAttemptId: 'child-attempt', attemptId: 'child-attempt',
+      replayed: true, launchRequired: false, taskTerminal: false,
+    });
     work.loadAttemptMcpInvocation.mockResolvedValue({
       invocationId: '11111111-1111-4111-8111-111111111111', status: 'succeeded',
       result: null, error: null, attemptStartedAt: new Date(),
@@ -217,7 +221,10 @@ describe('AttemptMcpActionsService', () => {
       targetAgentKey: 'supply', targetRuntimeType: 'codex_cli', targetCapabilityKeys: [], rootTaskId: 'root-task',
       targetInstructionProfileRef: 'agent-config/prompts/agents/supply.md',
     });
-    delegation.delegate.mockResolvedValue({ childTaskId: 'child', firstAttemptId: 'child-attempt', replayed: false });
+    delegation.delegate.mockResolvedValue({
+      childTaskId: 'child', firstAttemptId: 'child-attempt', attemptId: 'child-attempt',
+      replayed: false, launchRequired: true, taskTerminal: false,
+    });
 
     await expect(service.delegate({
       binding,
@@ -252,6 +259,150 @@ describe('AttemptMcpActionsService', () => {
     expect(starter.start).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'child-attempt' }));
   });
 
+  it('does not reauthorize an explicit mutation when an exact child delegation replays after Continue', async () => {
+    const { service, work, delegation, invocations, starter } = setup();
+    work.loadAttemptMcpDelegationContext.mockResolvedValue({
+      input: { parent: 'input' }, applicationVersion: '1.0.0', authorizingGitSha: 'a'.repeat(40), cliVersion: '1.0.0',
+      reportedModel: 'model-1', targetModel: 'target-model', targetAgentVersionId: 'target-version',
+      targetAgentKey: 'supply', targetRuntimeType: 'codex_cli', targetCapabilityKeys: [], rootTaskId: 'root-task',
+      targetInstructionProfileRef: 'agent-config/prompts/agents/supply.md',
+    });
+    delegation.delegate.mockResolvedValue({
+      childTaskId: 'child', firstAttemptId: 'child-attempt-1', attemptId: 'child-attempt-2',
+      replayed: true, launchRequired: false, taskTerminal: false,
+    });
+
+    await expect(service.delegate({
+      binding,
+      targetAgentKey: 'supply',
+      objective: 'Create the approved purchase-order draft.',
+      capabilityKey: 'supply.create_purchase_order_draft',
+      input: { amount: 1, productName: 'Kid' },
+    } as never)).resolves.toMatchObject({
+      childTaskId: 'child',
+      firstAttemptId: 'child-attempt-1',
+      attemptId: 'child-attempt-2',
+    });
+
+    expect(invocations.authorize).not.toHaveBeenCalled();
+    expect(starter.start).not.toHaveBeenCalled();
+  });
+
+  it('returns an existing child receipt without reading any target AgentVersion', async () => {
+    const { service, work, delegation, invocations, starter } = setup();
+    const explicitInput = { amount: 1, productName: 'Kid' };
+    work.loadAttemptMcpDelegationReplay.mockResolvedValue({
+      childTaskId: 'child',
+      firstAttemptId: 'child-attempt-v1',
+      attemptId: 'child-attempt-continue-v2',
+      taskTerminal: false,
+    });
+    work.loadAttemptMcpDelegationContext.mockRejectedValue(new Error('current_active_target_must_not_be_read'));
+
+    await expect(service.delegate({
+      binding,
+      targetAgentKey: 'supply',
+      objective: 'Create the approved purchase-order draft.',
+      capabilityKey: 'supply.create_purchase_order_draft',
+      input: explicitInput,
+    } as never)).resolves.toEqual({
+      childTaskId: 'child',
+      firstAttemptId: 'child-attempt-v1',
+      attemptId: 'child-attempt-continue-v2',
+      replayed: true,
+      launchRequired: false,
+      taskTerminal: false,
+    });
+
+    expect(work.loadAttemptMcpDelegationContext).not.toHaveBeenCalled();
+    expect(delegation.delegate).not.toHaveBeenCalled();
+    expect(invocations.authorize).not.toHaveBeenCalled();
+    expect(starter.start).not.toHaveBeenCalled();
+  });
+
+  it('does not reuse an exact receipt when canonical delegation input derives a different key', async () => {
+    const { service, work, delegation, invocations, starter } = setup();
+    const explicitInput = { amount: 1, productName: 'Kid' };
+    work.loadAttemptMcpDelegationReplay
+      .mockResolvedValueOnce({
+        childTaskId: 'child',
+        firstAttemptId: 'child-attempt-v1',
+        attemptId: 'child-attempt-continue-v2',
+        taskTerminal: false,
+      })
+      .mockResolvedValueOnce(null);
+    work.loadAttemptMcpDelegationContext.mockRejectedValue(new Error('current_active_target_must_not_be_read'));
+
+    await expect(service.delegate({
+      binding,
+      targetAgentKey: 'supply',
+      objective: 'Create the approved purchase-order draft.',
+      capabilityKey: 'supply.create_purchase_order_draft',
+      input: explicitInput,
+    } as never)).resolves.toMatchObject({ childTaskId: 'child' });
+    await expect(service.delegate({
+      binding,
+      targetAgentKey: 'supply',
+      objective: 'Create a different approved purchase-order draft.',
+      capabilityKey: 'supply.create_purchase_order_draft',
+      input: explicitInput,
+    } as never)).rejects.toThrow('current_active_target_must_not_be_read');
+
+    expect(work.loadAttemptMcpDelegationReplay).toHaveBeenCalledTimes(2);
+    expect(work.loadAttemptMcpDelegationReplay.mock.calls[1][0].idempotencyKey)
+      .not.toBe(work.loadAttemptMcpDelegationReplay.mock.calls[0][0].idempotencyKey);
+    expect(work.loadAttemptMcpDelegationContext).toHaveBeenCalledTimes(1);
+    expect(delegation.delegate).not.toHaveBeenCalled();
+    expect(invocations.authorize).not.toHaveBeenCalled();
+    expect(starter.start).not.toHaveBeenCalled();
+  });
+
+  it('coalesces concurrent explicit delegation followers so authorization and launch happen once', async () => {
+    const { service, work, delegation, invocations, starter } = setup();
+    work.loadAttemptMcpDelegationContext.mockResolvedValue({
+      input: { parent: 'input' }, applicationVersion: '1.0.0', authorizingGitSha: 'a'.repeat(40), cliVersion: '1.0.0',
+      reportedModel: 'model-1', targetModel: 'target-model', targetAgentVersionId: 'target-version',
+      targetAgentKey: 'supply', targetRuntimeType: 'codex_cli', targetCapabilityKeys: [], rootTaskId: 'root-task',
+      targetInstructionProfileRef: 'agent-config/prompts/agents/supply.md',
+    });
+    const entered = deferred<void>();
+    const release = deferred<{
+      childTaskId: string;
+      firstAttemptId: string;
+      attemptId: string;
+      replayed: boolean;
+      launchRequired: boolean;
+      taskTerminal: boolean;
+    }>();
+    delegation.delegate.mockImplementation(async () => {
+      entered.resolve();
+      return release.promise;
+    });
+    const input = {
+      binding,
+      targetAgentKey: 'supply',
+      objective: 'Create the approved purchase-order draft.',
+      capabilityKey: 'supply.create_purchase_order_draft',
+      input: { amount: 1, productName: 'Kid' },
+    } as never;
+
+    const leader = service.delegate(input);
+    await entered.promise;
+    const follower = service.delegate(input);
+    release.resolve({
+      childTaskId: 'child', firstAttemptId: 'child-attempt', attemptId: 'child-attempt',
+      replayed: false, launchRequired: true, taskTerminal: false,
+    });
+
+    await expect(Promise.all([leader, follower])).resolves.toEqual([
+      expect.objectContaining({ childTaskId: 'child', invocationId: 'explicit-invocation' }),
+      expect.objectContaining({ childTaskId: 'child', invocationId: 'explicit-invocation' }),
+    ]);
+    expect(delegation.delegate).toHaveBeenCalledTimes(1);
+    expect(invocations.authorize).toHaveBeenCalledTimes(1);
+    expect(starter.start).toHaveBeenCalledTimes(1);
+  });
+
   it('delegates from a repository-owned attempt snapshot without Prisma in the MCP adapter', async () => {
     const { service, work, delegation, starter } = setup();
     work.loadAttemptMcpDelegationContext.mockResolvedValue({
@@ -260,7 +411,10 @@ describe('AttemptMcpActionsService', () => {
       reportedModel: 'model-1', targetModel: 'target-model', targetAgentVersionId: 'target-version',
       targetAgentKey: 'supply', targetRuntimeType: 'codex_cli', targetCapabilityKeys: ['supply.create_purchase_order_draft'], rootTaskId: 'root-task',
     });
-    delegation.delegate.mockResolvedValue({ childTaskId: 'child', firstAttemptId: 'child-attempt', replayed: false });
+    delegation.delegate.mockResolvedValue({
+      childTaskId: 'child', firstAttemptId: 'child-attempt', attemptId: 'child-attempt',
+      replayed: false, launchRequired: true, taskTerminal: false,
+    });
 
     await expect(service.delegate({ binding, targetAgentKey: 'supply', objective: 'submit' }))
       .resolves.toMatchObject({ childTaskId: 'child' });
@@ -280,9 +434,68 @@ describe('AttemptMcpActionsService', () => {
       input: {}, applicationVersion: '1', authorizingGitSha: 'a'.repeat(40), cliVersion: '1', reportedModel: null, targetModel: 'target-model',
       targetAgentVersionId: 'target-version', targetAgentKey: 'supply', targetRuntimeType: 'codex_cli', targetCapabilityKeys: [],
     });
-    delegation.delegate.mockResolvedValue({ childTaskId: 'child', firstAttemptId: 'child-attempt', replayed: true });
+    delegation.delegate.mockResolvedValue({
+      childTaskId: 'child', firstAttemptId: 'child-attempt-1', attemptId: 'child-attempt-1',
+      replayed: true, launchRequired: false, taskTerminal: true,
+    });
     await service.delegate({ binding, targetAgentKey: 'supply', objective: 'submit' });
     expect(starter.start).not.toHaveBeenCalled();
+  });
+
+  it('never starts a new child Attempt when an exact delegation replay is already terminal', async () => {
+    const { service, work, delegation, starter } = setup();
+    work.loadAttemptMcpDelegationContext.mockResolvedValue({
+      input: { objective: 'source' }, applicationVersion: '1.0.0',
+      authorizingGitSha: 'a'.repeat(40), cliVersion: '1.0.0', reportedModel: 'model-1', targetModel: 'target-model',
+      targetAgentVersionId: 'target-version', targetAgentKey: 'supply', targetRuntimeType: 'codex_cli',
+      targetCapabilityKeys: ['supply.create_purchase_order_draft'],
+      targetInstructionProfileRef: 'agent-config/prompts/agents/supply.md',
+    });
+    delegation.delegate.mockResolvedValue({
+      childTaskId: 'child', firstAttemptId: 'child-attempt-1', attemptId: 'child-attempt-2',
+      replayed: true, launchRequired: true, taskTerminal: false,
+    });
+
+    await expect(service.delegate({ binding, targetAgentKey: 'supply', objective: 'submit' }))
+      .resolves.toMatchObject({ childTaskId: 'child', attemptId: 'child-attempt-2' });
+
+    expect(starter.start).not.toHaveBeenCalled();
+  });
+
+  it('returns pending approval and child facts without holding an old CLI Attempt for a wake-up', async () => {
+    const { service, work } = setup();
+    const timer = vi.spyOn(globalThis, 'setTimeout').mockImplementation((() => {
+      throw new Error('live_wait_forbidden');
+    }) as never);
+    work.loadAttemptMcpInvocation.mockResolvedValue({
+      invocationId: '11111111-1111-4111-8111-111111111111',
+      status: 'approval_pending',
+      result: null,
+      error: null,
+      attemptStartedAt: new Date(),
+    });
+    work.loadAttemptMcpChild.mockResolvedValue({
+      childTaskId: 'child',
+      taskStatus: 'open',
+      attemptId: 'child-attempt',
+      attemptStatus: 'running',
+      live: true,
+      result: null,
+      error: null,
+    });
+
+    try {
+      await expect(service.invocation({
+        binding,
+        action: 'wait',
+        invocationId: '11111111-1111-4111-8111-111111111111',
+      })).resolves.toMatchObject({ status: 'approval_pending', terminal: false });
+      await expect(service.child({ binding, action: 'wait', childTaskId: 'child' }))
+        .resolves.toMatchObject({ childTaskId: 'child', terminal: false });
+      expect(timer).not.toHaveBeenCalled();
+    } finally {
+      timer.mockRestore();
+    }
   });
 
   it('preserves child status, message, and interrupt control through narrow ports', async () => {
@@ -323,3 +536,11 @@ describe('AttemptMcpActionsService', () => {
     expect(work.loadAttemptMcpInvocation).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'attempt', invocationId: '11111111-1111-4111-8111-111111111111' }));
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}

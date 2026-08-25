@@ -74,7 +74,7 @@ describe('RunnerControlController', () => {
         mcpProtocolRevision: '2026-07-28' as const,
         runtimes: {
           codex_cli: { version: '0.149.1' as const, loginVerified: true as const, nonPersistentSettingsVerified: true as const },
-          claude_cli: { version: '2.1.241' as const, loginVerified: true as const, nonPersistentSettingsVerified: true as const },
+          claude_cli: { version: '2.1.245' as const, loginVerified: true as const, nonPersistentSettingsVerified: true as const },
         },
       },
       agents: [{ agentDefinitionKey: 'operator', runtimeType: 'codex_cli' as const, model: 'gpt-5.6-sol', status: 'ready' as const }],
@@ -97,7 +97,7 @@ function hello() {
     controlRevision: 'kiditem-runner-control-v1' as const, mcpProtocolRevision: '2026-07-28' as const, cliContractIdentity: 'office-cli-contract-v2' as const,
     runtimes: {
       codex_cli: { version: '0.149.1' as const, loginVerified: true as const, nonPersistentSettingsVerified: true as const },
-      claude_cli: { version: '2.1.241' as const, loginVerified: true as const, nonPersistentSettingsVerified: true as const },
+      claude_cli: { version: '2.1.245' as const, loginVerified: true as const, nonPersistentSettingsVerified: true as const },
     },
   };
 }

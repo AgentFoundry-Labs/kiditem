@@ -6,13 +6,13 @@
 
 **Architecture:** One Nest API process owns same-origin CopilotKit, process-local Attempt admission, direct loopback MCP v2 HTTP, and all durable Agent authority. One native macOS/Windows Host Runner owns only disposable Codex/Claude CLI processes through outbound command long-poll and idempotent event POST. The existing worker owns durable mutation Invocation dispatch, Approval expiry, and deterministic Operations. PostgreSQL stores work and exact mutation authorization only; reasoning restart is always a user-triggered immutable successor Attempt.
 
-**Tech Stack:** NestJS, TypeScript, Prisma/PostgreSQL, Zod, CopilotKit OSS/AG-UI `1.67.1`, MCP SDK v2 `2.0.0`, MCP `2026-07-28`, Codex CLI `0.149.1`, Claude Code `2.1.241`, native macOS/Windows Host Runner, Next.js/React, Vitest, Playwright, Docker Compose, GitHub Actions.
+**Tech Stack:** NestJS, TypeScript, Prisma/PostgreSQL, Zod, CopilotKit OSS/AG-UI `1.67.1`, MCP SDK v2 `2.0.0`, MCP `2026-07-28`, Codex CLI `0.149.1`, Claude Code `2.1.245`, native macOS/Windows Host Runner, Next.js/React, Vitest, Playwright, Docker Compose, GitHub Actions.
 
 ---
 
 ## Execution Contract
 
-The authority is `docs/superpowers/specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md`. The runtime/deployment implementation authority is `docs/superpowers/plans/2026-08-24-kid-25-mcp-v2-runtime-train.md`; it replaces every container CLI, stdio, UDS, or API-local process instruction that remains in an older plan revision. These six tasks are substantial integrated Terra work units; do not split them into file-sized subagent tasks. Every implementation subagent uses Terra with `max` reasoning. Task numbers are review checkpoints, not compatibility boundaries: move replacement/deletion work across them when necessary for a coherent clean cutover, and never preserve a legacy entrypoint or fallback merely for an intermediate task. The parent verifies every integrated unit against its TDD/focused gates. Sol `max` review is selective for important security, authority, transport, process-isolation, or deployment boundaries rather than mandatory per task. A fresh Sol reviewer performs the final complete-implementation review before final QA. Fix and re-review every concrete P1/P2 finding.
+The authority is `docs/superpowers/specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md`. The runtime/deployment implementation authority is `docs/superpowers/plans/2026-08-24-kid-25-mcp-v2-runtime-train.md`; it replaces every container CLI, stdio, UDS, or API-local process instruction that remains in an older plan revision. These six tasks are substantial integrated Terra work units; do not split them into file-sized subagent tasks. Every implementation subagent uses Terra with `max` reasoning. Task numbers are review checkpoints, not compatibility boundaries: move replacement/deletion work across them when necessary for a coherent clean cutover, and never preserve a legacy entrypoint or fallback merely for an intermediate task. The parent verifies every integrated unit against its TDD/focused gates. Sol `max` review is selective for important security, authority, transport, process-isolation, or deployment boundaries rather than mandatory per task. Final completion is QA-driven: run the complete local matrix, real Codex canary, deterministic Claude contracts, negative authority probes, and required Windows CI. Use another targeted review only when QA exposes a boundary ambiguity.
 
 Do not add any of the following while implementing:
 
@@ -298,7 +298,7 @@ Expected: PASS; no destructive push or legacy data rewrite occurs in this task.
 - Replace internals under: `apps/server/src/agent-os/application/service/session-control/`
 - Replace internals under: `apps/server/src/agent-os/adapter/out/transaction/session-control/`
 
-- [ ] **Step 1: Extend the failing admission and lifecycle matrix**
+- [x] **Step 1: Extend the failing admission and lifecycle matrix**
 
 Cover these exact cases:
 
@@ -376,7 +376,7 @@ and Approval, validates exact hash/current user/expiry, and atomically changes
 Approval plus Invocation. The expiry service uses the same fence and changes
 due pending Approval to `expired` and Invocation to `failed/approval_expired`.
 
-- [ ] **Step 4: Implement explicit Task transitions and facts-only work view**
+- [x] **Step 4: Implement explicit Task transitions and facts-only work view**
 
 Only the lifecycle service writes Task status. Process errors never directly
 write Task terminal state. Enforce:
@@ -704,7 +704,7 @@ Expected: PASS for same-SHA API and worker restart with no duplicate mutation.
 - Modify: `docs/erd/system.md`
 - Modify: `package.json`
 
-- [ ] **Step 1: Extend failing HTTP/Web/no-replay tests**
+- [x] **Step 1: Extend failing HTTP/Web/no-replay tests**
 
 Require authenticated same-origin `/api/copilotkit`, one root Task, future live
 AG-UI, disconnect without Attempt cancellation, durable projection on refresh,
@@ -723,7 +723,7 @@ rtk npm exec --workspace=apps/web vitest -- run src/components/agent-interaction
 
 Expected: FAIL on Copilot thread/replay/Execution assumptions.
 
-- [ ] **Step 2: Implement the focused Nest incoming adapter and facts-only Web view**
+- [x] **Step 2: Implement the focused Nest incoming adapter and facts-only Web view**
 
 Nest authenticates user/organization, calls application ports in process, and
 owns no replay/session/authority/active-process state. First prompt defaults to
@@ -829,7 +829,7 @@ Expected: PASS with no compatibility route, worker, fallback, or old schema.
 - Modify: `apps/server/src/agent-os/AGENTS.md`
 - Modify: `prisma/AGENTS.md`
 
-- [ ] **Step 1: Make deployment exactly one Web/API/worker stack plus one native Host Runner**
+- [x] **Step 1: Make deployment exactly one Web/API/worker stack plus one native Host Runner**
 
 The Office/home host is Windows and runs the existing Linux containers through
 Docker Desktop. Compose declares one API replica. API owns CopilotKit, durable
@@ -875,7 +875,7 @@ Do not automate restore rehearsal, archive retention policy, RPO/RTO, or release
 drain. Never log the database URL, archive contents, credentials, prompts, or
 canonical mutation input.
 
-- [ ] **Step 3: Rewrite durable architecture/runbooks/instructions**
+- [x] **Step 3: Rewrite durable architecture/runbooks/instructions**
 
 `docs/ARCHITECTURE.md` and Agent OS `AGENTS.md` describe only the single-node
 six-model graph, process-local capacity, terminal deletion, explicit Continue,
@@ -966,12 +966,15 @@ Object/ACL/package job must pass before completion.
 Expected: all mandatory runtime/admission/cutover/restart gates PASS from one
 Git SHA. No scheduled compatibility or restore-rehearsal gate is required.
 
-- [ ] **Step 5: Run one integrated Sol review and correction loop**
+- [ ] **Step 5: Run the final QA correction loop**
 
-Give one Sol reviewer the complete branch diff, authority design, this plan,
-schema diff, scanner output, and mandatory verification transcript. Ask for one
-integrated correctness/security/operations review. Fix every P1/P2 finding,
-rerun affected focused tests plus the full matrix, and obtain a clean re-review.
+Treat executable evidence as the final blocking gate. Run the complete unit and
+PostgreSQL integration suites, clean schema/seed/boot, authenticated and
+unauthenticated HTTP probes, real Codex MCP v2 canary, deterministic Claude
+contracts, Office deployment contracts, scanners, and Windows CI. Fix every
+reproduced failure and rerun its focused gate plus the complete matrix. A
+targeted Sol review remains available only for an important boundary that QA
+cannot decide from executable facts.
 
 - [ ] **Step 6: Commit the final release surface**
 
@@ -1045,7 +1048,7 @@ enterprise operations features. Move KID-25 to **In Review**, not Done.
 
 KID-25 is merge-ready only when all six integrated tasks are checked, the six
 final models are the only Agent OS graph, runtime/admission and same-SHA restart
-tests pass, the clean destructive cutover passes on the explicit acceptance
-database with basic backup safety documented, one integrated Sol review is
-clean, the branch is pushed to existing PR 479, KID-24 is cross-updated, and
-KID-25 is in **In Review** with green remote evidence.
+tests pass, the clean destructive cutover and final QA matrix pass on the
+explicit acceptance database with basic backup safety documented, the branch
+is pushed to existing PR 479, KID-24 is cross-updated, and KID-25 is in **In
+Review** with green remote evidence.

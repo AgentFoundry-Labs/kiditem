@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EMPTY, firstValueFrom, throwError, toArray } from 'rxjs';
-import { AttemptFutureOutputChannel } from '../../../out/runtime/attempt/attempt-future-output-channel';
-import { DurableWorkAgent, FutureOnlyRunner } from './agent-work-copilotkit.controller';
+import { LiveAttemptOutputChannel } from '../../../out/runtime/attempt/live-attempt-output-channel';
+import { DurableWorkAgent, LiveOutputRunner } from './agent-work-copilotkit.controller';
 import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
+import { AgentWorkIntakeError } from '../../../../application/port/in/work/agent-work-intake.port';
 
 const organizationId = '018f4eb1-9078-7a1e-9514-b19b5732f5de';
 const userId = '118f4eb1-9078-7a1e-9514-b19b5732f5de';
@@ -10,7 +11,7 @@ const threadId = '218f4eb1-9078-7a1e-9514-b19b5732f5de';
 const attemptId = '418f4eb1-9078-7a1e-9514-b19b5732f5de';
 
 describe('DurableWorkAgent Copilot transport-only intake', () => {
-  it('forwards the explicit code-owned Agent definition, thread coordinate, and future-only output to the common intake Module', async () => {
+  it('forwards the explicit code-owned Agent definition and thread coordinate to the common intake Module', async () => {
     const fixture = agentFixture('sourcing');
     fixture.intake.startThread.mockResolvedValue({ kind: 'root', attemptId, sessionId: threadId, taskId: '318f4eb1-9078-7a1e-9514-b19b5732f5de' });
 
@@ -83,7 +84,27 @@ describe('DurableWorkAgent Copilot transport-only intake', () => {
     });
   });
 
-  it('exposes the exact admission coordinate as an AG-UI custom event so Web reconciliation can distinguish a live input from a successor', async () => {
+  it('renders root admission replay drift as an explicit conflict', async () => {
+    const fixture = agentFixture('sourcing');
+    fixture.intake.startThread.mockRejectedValue(
+      new AgentWorkIntakeError('root_admission_replay_conflict'),
+    );
+
+    await expect(firstValueFrom(fixture.agent.run({
+      threadId,
+      runId: 'retry-root-run',
+      messages: [{
+        id: 'stable-root-message-1',
+        role: 'user',
+        content: 'Different root content for a replayed logical turn.',
+      }],
+    } as never))).rejects.toMatchObject({
+      message: 'root_admission_replay_conflict',
+      status: 409,
+    });
+  });
+
+  it('exposes the exact admission coordinate as an AG-UI custom event for Web reconciliation', async () => {
     const fixture = agentFixture('sourcing');
     fixture.intake.startThread.mockResolvedValue({
       kind: 'live_input',
@@ -108,10 +129,10 @@ describe('DurableWorkAgent Copilot transport-only intake', () => {
   });
 });
 
-describe('FutureOnlyRunner', () => {
-  it('discards an unbound future coordinate when pre-admission intake rejects', async () => {
-    const live = new AttemptFutureOutputChannel();
-    const runner = new FutureOnlyRunner({ interrupt: vi.fn() } as never, live);
+describe('LiveOutputRunner', () => {
+  it('discards an unbound output coordinate when pre-admission intake rejects', async () => {
+    const live = new LiveAttemptOutputChannel();
+    const runner = new LiveOutputRunner({ interrupt: vi.fn() } as never, live);
 
     await expect(firstValueFrom(runner.run({
       threadId,
@@ -124,9 +145,9 @@ describe('FutureOnlyRunner', () => {
   });
 
   it('keeps a bound Attempt coordinate when its Copilot subscriber disconnects', () => {
-    const live = new AttemptFutureOutputChannel();
+    const live = new LiveAttemptOutputChannel();
     live.bind({ attemptId, threadId, runId: 'bound-run' });
-    const runner = new FutureOnlyRunner({ interrupt: vi.fn() } as never, live);
+    const runner = new LiveOutputRunner({ interrupt: vi.fn() } as never, live);
 
     const subscription = runner.run({
       threadId,

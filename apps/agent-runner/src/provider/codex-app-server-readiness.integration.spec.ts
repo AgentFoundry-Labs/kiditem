@@ -41,7 +41,7 @@ describe('Codex app-server readiness boundary', () => {
       }) as { thread?: { id?: string }; activePermissionProfile?: { id?: string } };
       const threadId = thread.thread?.id;
       if (!threadId) throw new Error('local_readiness_direct_probe_thread_id_missing');
-      expect(thread.activePermissionProfile?.id).toBe(':workspace');
+      expect(thread.activePermissionProfile?.id).toBe(':danger-full-access');
       await rpc.request('mcpServer/tool/call', {
         threadId,
         server: 'kiditem_attempt',
@@ -77,7 +77,7 @@ describe('Codex app-server readiness boundary', () => {
       }) as { thread?: { id?: string }; activePermissionProfile?: { id?: string } };
       const providerThreadId = providerThread.thread?.id;
       if (!providerThreadId) throw new Error('local_readiness_hidden_provider_thread_id_missing');
-      expect(providerThread.activePermissionProfile?.id).toBe(':workspace');
+      expect(providerThread.activePermissionProfile?.id).toBe(':danger-full-access');
       const turn = rpc.request('turn/start', {
         threadId: providerThreadId,
         input: [{ type: 'text', text: 'local bounded disabled-tool provider metadata', text_elements: [] }],
@@ -100,7 +100,7 @@ describe('Codex app-server readiness boundary', () => {
       const probeThreadId = probeThread.thread?.id;
       if (!probeThreadId) throw new Error('local_readiness_enabled_probe_thread_id_missing');
       expect(probeThreadId).not.toBe(providerThreadId);
-      expect(probeThread.activePermissionProfile?.id).toBe(':workspace');
+      expect(probeThread.activePermissionProfile?.id).toBe(':danger-full-access');
       await rpc.request('mcpServer/tool/call', {
         threadId: probeThreadId,
         server: 'kiditem_attempt',
@@ -288,7 +288,7 @@ async function readinessThread(
   }) as { thread?: { id?: string }; activePermissionProfile?: { id?: string } };
   const id = thread.thread?.id;
   if (!id) throw new Error('local_readiness_experiment_thread_id_missing');
-  if (thread.activePermissionProfile?.id !== ':workspace') throw new Error('local_readiness_experiment_permission_profile_mismatch');
+  if (thread.activePermissionProfile?.id !== ':danger-full-access') throw new Error('local_readiness_experiment_permission_profile_mismatch');
   return Object.freeze({ id });
 }
 

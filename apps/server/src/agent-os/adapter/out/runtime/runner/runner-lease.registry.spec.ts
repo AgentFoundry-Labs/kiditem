@@ -544,7 +544,7 @@ function hello(overrides: Partial<RunnerHello> = {}): RunnerHello {
     cliContractIdentity: 'office-cli-contract-v2',
     runtimes: {
       codex_cli: { version: '0.149.1', loginVerified: true, nonPersistentSettingsVerified: true },
-      claude_cli: { version: '2.1.241', loginVerified: true, nonPersistentSettingsVerified: true },
+      claude_cli: { version: '2.1.245', loginVerified: true, nonPersistentSettingsVerified: true },
     },
     ...overrides,
   };

@@ -175,7 +175,7 @@ export class CodexAppServerSession {
       ...(config ? { config } : {}),
     });
     const threadId = requiredNestedId(thread, 'thread');
-    if (requiredNestedId(thread, 'activePermissionProfile') !== ':workspace') throw new Error('codex_app_server_permission_profile_mismatch');
+    if (requiredNestedId(thread, 'activePermissionProfile') !== ':danger-full-access') throw new Error('codex_app_server_permission_profile_mismatch');
     return threadId;
   }
 

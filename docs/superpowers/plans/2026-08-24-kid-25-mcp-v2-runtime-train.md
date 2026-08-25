@@ -6,7 +6,7 @@
 
 **Architecture:** One Nest API container owns admission, Task/Attempt/Invocation/Approval/Operation authority, short-lived Attempt tokens, the MCP v2 tool implementation, and all durable transitions. One native `apps/agent-runner` process owns provider command construction, ephemeral per-Attempt homes/workspaces, trusted full-access/non-interactive CLI execution under one dedicated non-administrator OS account, CLI stdin/stdout, process-tree supervision, and cleanup. The Runner has no inbound listener: it polls Nest for strict structured commands and posts idempotent events; each CLI calls Nest's loopback-only Attempt MCP endpoint directly. Windows is the Office production host, macOS is the supported development and integration-test host.
 
-**Tech Stack:** Node.js 22, TypeScript, NestJS/Express, Zod 3 shared control contracts, Zod 4 only inside the MCP SDK adapter, MCP TypeScript SDK v2, MCP `2026-07-28`, Codex CLI `0.149.1`, Claude Code `2.1.241`, Vitest, tsup, .NET 8 Windows Job Objects, PowerShell Task Scheduler, Docker Compose, GitHub Actions.
+**Tech Stack:** Node.js 22, TypeScript, NestJS/Express, Zod 3 shared control contracts, Zod 4 only inside the MCP SDK adapter, MCP TypeScript SDK v2, MCP `2026-07-28`, Codex CLI `0.149.1`, Claude Code `2.1.245`, Vitest, tsup, .NET 8 Windows Job Objects, PowerShell Task Scheduler, Docker Compose, GitHub Actions.
 
 ---
 
@@ -84,7 +84,7 @@ when deliberately upgrading the train.
 | `@modelcontextprotocol/client` | `2.0.0` | Nest conformance tests |
 | `zod-v4` alias | `npm:zod@4.4.3` | Nest MCP wire adapter only |
 | `@openai/codex` | `0.149.1` | native Runner package/artifact |
-| `@anthropic-ai/claude-code` | `2.1.241` | native Runner package/artifact |
+| `@anthropic-ai/claude-code` | `2.1.245` | native Runner package/artifact |
 | MCP revision | `2026-07-28` | shared runtime contract |
 | control revision | `kiditem-runner-control-v1` | shared runtime contract |
 | CLI contract identity | `office-cli-contract-v2` | shared runtime contract |
@@ -237,7 +237,7 @@ export const ATTEMPT_RUNTIME_TRAIN = Object.freeze({
   cliContractIdentity: 'office-cli-contract-v2',
   mcpProtocolRevision: '2026-07-28',
   codexVersion: '0.149.1',
-  claudeVersion: '2.1.241',
+  claudeVersion: '2.1.245',
   nodeMajor: 22,
 } as const);
 
@@ -604,7 +604,7 @@ rtk git commit -m "refactor: admit native Host Runner attempts"
 - Modify: `package.json`
 - Modify: `package-lock.json`
 
-- [ ] **Step 1: Extend failing Runner state-machine and command-builder tests**
+- [x] **Step 1: Extend failing Runner state-machine and command-builder tests**
 
 Use fixture provider processes, not mocks around the code under test, to prove:
 
@@ -641,7 +641,7 @@ Use fixture provider processes, not mocks around the code under test, to prove:
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.241",
+    "@anthropic-ai/claude-code": "2.1.245",
     "@openai/codex": "0.149.1",
     "@kiditem/shared": "*",
     "zod": "^3.25.0"
@@ -697,7 +697,7 @@ installed locally. Same hash returns the installed state; drift emits one
 serializes one stable JSON body at a time and advances `eventSeq` only after
 Nest acknowledges it.
 
-- [ ] **Step 3: Update provider protocol logic behind Runner-owned builders**
+- [x] **Step 3: Update provider protocol logic behind Runner-owned builders**
 
 Resolve provider entrypoints only beneath the installed Runner package:
 
@@ -829,7 +829,7 @@ the actual logged-in CLI canary.
 - Create: `apps/agent-runner/src/__tests__/runner-nest-loopback.integration.spec.ts`
 - Create: `apps/agent-runner/src/__tests__/real-cli-readiness.integration.spec.ts`
 
-- [ ] **Step 1: Extend failing readiness/recovery tests**
+- [x] **Step 1: Extend failing readiness/recovery tests**
 
 Readiness is a process-memory projection with two phases:
 
@@ -899,7 +899,7 @@ Tests prove:
 - retrying the same root/live/delegation command after interruption returns the
   existing projection or conflict and never creates a successor.
 
-- [ ] **Step 2: Implement full-access readiness without circular durable state**
+- [x] **Step 2: Implement full-access readiness without circular durable state**
 
 `AgentAttemptReadinessService` no longer imports `child_process`, resolves host
 login paths, or executes provider binaries. It queries
@@ -930,7 +930,7 @@ Runner behavior:
 - watchdog/Job Object handles abrupt Runner death;
 - a browser stream disconnect never interrupts the CLI.
 
-- [ ] **Step 4: Run focused conformance/recovery plus real CLI readiness**
+- [x] **Step 4: Run focused conformance/recovery plus real CLI readiness**
 
 ```bash
 rtk npm exec --workspace=apps/server vitest -- run \
@@ -1190,7 +1190,7 @@ The final server runtime tree may retain only:
 - Nest-owned 11-tool factory and strict result/wire helpers;
 - existing durable work/capability application services.
 
-- [ ] **Step 2: Rewrite nearby durable documentation, not append history**
+- [x] **Step 2: Rewrite nearby durable documentation, not append history**
 
 All durable docs must say:
 
@@ -1226,7 +1226,7 @@ Update stale architecture paragraphs that still call the API process the CLI
 owner or mention a private MCP socket. The top-level architecture map and
 Agent OS instructions must agree.
 
-- [ ] **Step 3: Run the complete local acceptance matrix**
+- [x] **Step 3: Run the complete local acceptance matrix**
 
 ```bash
 rtk npm run check:conventions
@@ -1264,25 +1264,29 @@ no Agent OS Prisma state. The integrated KID-25 acceptance must nevertheless
 run the clean schema push/generate gates for the Channels-owned registration
 idempotency receipt included by the final boundary repair.
 
-- [ ] **Step 4: Require Windows CI and one integrated Sol review**
+- [ ] **Step 4: Require Windows CI and QA closure**
 
 Do not claim completion while the Windows Runner job is absent, skipped, or
-failing. Give the Sol reviewer:
+failing. The final QA evidence must cover:
 
 - primary design and both implementation plans;
-- full branch diff including the interrupted work reconciled in place;
 - shared control schemas and token/lease state machines;
 - provider builders and macOS/Windows supervisors;
 - direct MCP controller and 11-tool/18-capability evidence;
 - restart/readiness tests;
 - Compose/nginx/PowerShell/workflow diff;
+- clean schema/seed plus API/worker boot;
+- authenticated and unauthenticated HTTP probes;
+- the real Codex canary and deterministic Claude contract suite; and
 - complete local and Windows verification transcripts.
 
-Ask specifically for authority confusion, token leakage, replay/drift bugs,
-process escape/orphan risks, MCP legacy/session fallback, LAN exposure,
-restart double-terminalization, deploy/rollback skew, and unintended schema/
-capability/Web changes. Fix all P1/P2 findings and rerun affected tests plus
-the complete matrix.
+Use race, scanner, process-supervisor, deployment-contract, and negative HTTP
+tests to detect authority confusion, token leakage, replay/drift bugs, process
+escape/orphan risks, MCP legacy/session fallback, LAN exposure, restart double
+terminalization, deploy/rollback skew, and unintended schema/capability/Web
+changes. Fix every reproduced failure and rerun affected tests plus the
+complete matrix. Request a targeted Sol review only if executable evidence
+cannot decide an important boundary.
 
 - [ ] **Step 5: Commit, push the existing branch, and update PR/Linear**
 
@@ -1319,7 +1323,7 @@ impact; do not mark it complete unless its own acceptance is complete.
 | Network | loopback port only; nginx internal deny; Runner has no listener; no firewall rule |
 | Deployment | one matching API/Web/worker/Runner manifest, transactional deploy/rollback/rotation |
 | Verification | Mac Codex real canary, deterministic Claude contract suite with subscription limitation recorded, Windows job/helper CI, Nest/server/shared/web builds, scanners |
-| Review/ship | integrated Sol max clean re-review, existing PR 479 only, accurate Linear updates |
+| QA/ship | complete local and Windows QA, existing PR 479 only, accurate Linear updates |
 
 ## 3. Explicit non-goals
 

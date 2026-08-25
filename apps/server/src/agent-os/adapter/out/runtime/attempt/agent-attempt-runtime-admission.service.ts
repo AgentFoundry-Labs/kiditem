@@ -55,7 +55,7 @@ export class AgentAttemptRuntimeAdmissionService implements AgentAttemptReadines
     if (!task) throw agentWorkError('task_not_found');
     const version = task.assignedAgentVersion;
     // This is a Task-pinned immutable snapshot. Retirement only removes a
-    // version from new root/delegation selection; a successor must retain its
+    // version from new root/delegation selection; an explicit Continue must retain its
     // original runtime contract.
     if (!version.activatedAt) {
       throw agentWorkError('agent_version_not_active');
@@ -64,6 +64,34 @@ export class AgentAttemptRuntimeAdmissionService implements AgentAttemptReadines
   }
 
   async assertDelegation(input: DelegateTaskInput): Promise<void> {
+    const existing = await this.prisma.agentTask.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        parentTaskId: input.parentTaskId,
+        delegatedFromAttemptId: input.delegatingAttemptId,
+        delegationIdempotencyKey: input.idempotencyKey,
+      },
+      select: {
+        delegationRequestHash: true,
+        assignedAgentVersion: {
+          select: { runtimeType: true, activatedAt: true },
+        },
+      },
+    });
+    // A same-key, same-input replay is not a new delegation selection. Its
+    // child Task owns the pinned version, including when that version was
+    // retired after the first Attempt failed before launch.
+    if (
+      input.requestHash &&
+      existing?.delegationRequestHash &&
+      existing.delegationRequestHash === input.requestHash
+    ) {
+      const version = existing.assignedAgentVersion;
+      if (!version.activatedAt) throw agentWorkError('agent_version_not_active');
+      await this.assertPreflight(runtimeType(version.runtimeType), input);
+      return;
+    }
     const runtime = await this.currentVersionRuntime(input.targetAgentVersionId);
     await this.assertPreflight(runtime, input);
   }

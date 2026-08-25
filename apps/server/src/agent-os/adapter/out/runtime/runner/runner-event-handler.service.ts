@@ -10,7 +10,7 @@ import type {
   ReconciliationResult,
 } from '../../../../application/port/out/work/agent-work-persistence.types';
 
-type FutureOutput = {
+type LiveOutput = {
   publish(input: { attemptId: string; output: string }): void;
   finish(input: { attemptId: string; outcome: 'completed' | 'failed'; summary?: string }): void;
 };
@@ -45,7 +45,7 @@ export interface RunnerEventHandlerServiceOptions {
   tokens: AttemptTokenRegistry;
   work: Pick<AgentWorkLifecyclePort, 'transitionAttempt' | 'finalizeTaskFromAttempt'>;
   capacity: { releaseAttempt(attemptId: string): void };
-  output: FutureOutput;
+  output: LiveOutput;
   readiness?: Pick<RunnerReadinessService, 'handleRunnerEvent'>;
   reconciler?: { reconcile(): Promise<ReconciliationResult> };
   now?: () => Date;

@@ -58,7 +58,7 @@ export type RunnerReadinessSnapshot = Readonly<{
   mcpProtocolRevision: '2026-07-28';
   runtimes: Readonly<{
     codex_cli: Readonly<{ version: '0.149.1'; loginVerified: true; nonPersistentSettingsVerified: true }>;
-    claude_cli: Readonly<{ version: '2.1.241'; loginVerified: true; nonPersistentSettingsVerified: true }>;
+    claude_cli: Readonly<{ version: '2.1.245'; loginVerified: true; nonPersistentSettingsVerified: true }>;
   }>;
 }>;
 

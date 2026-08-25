@@ -30,7 +30,7 @@ describe('buildCodexCommand', () => {
     expect(command.args.join(' ')).not.toContain(token);
   });
 
-  it('boots the installed 0.149.1 app-server with the strict generated config and :workspace profile', async () => {
+  it('boots the installed 0.149.1 app-server with the strict generated config and trusted full-access profile', async () => {
     const root = await mkdtemp(join(tmpdir(), 'kiditem-codex-strict-'));
     const codexHome = join(root, 'codex-home');
     const require = createRequire(import.meta.url);
@@ -40,7 +40,7 @@ describe('buildCodexCommand', () => {
       'history.persistence = "none"',
       'web_search = "disabled"',
       'approval_policy = "never"',
-      'default_permissions = ":workspace"',
+      'default_permissions = ":danger-full-access"',
       '',
       '[shell_environment_policy]',
       'exclude = ["KIDITEM_ATTEMPT_MCP_TOKEN"]',
@@ -58,7 +58,7 @@ describe('buildCodexCommand', () => {
       const thread = await rpc.request('thread/start', {
         model: 'gpt-5.6', cwd: root, approvalPolicy: 'never', ephemeral: true,
       }) as Record<string, unknown>;
-      expect(((thread.activePermissionProfile as Record<string, unknown> | undefined)?.id)).toBe(':workspace');
+      expect(((thread.activePermissionProfile as Record<string, unknown> | undefined)?.id)).toBe(':danger-full-access');
       expect(JSON.stringify(rpc.stderr)).not.toContain('unknown field');
     } finally {
       child.kill('SIGTERM');
@@ -89,7 +89,7 @@ describe('buildCodexCommand', () => {
       ]);
 
       expect(first).toBe('tools_list');
-      await expect(threadStart).resolves.toMatchObject({ activePermissionProfile: { id: ':workspace' } });
+      await expect(threadStart).resolves.toMatchObject({ activePermissionProfile: { id: ':danger-full-access' } });
     } finally {
       if (child) await stop(child);
       await endpoint.close();

@@ -48,9 +48,12 @@ and never accepts a raw shell command. Runner-spawned Codex/Claude processes
 call the loopback-only Nest MCP v2 Streamable HTTP adapter with one short-lived
 Attempt bearer token. The adapter revalidates Session/Task/Attempt authority
 and active Operation binding from the database on every tool call. It exposes
-`agent_os_read_context` plus the complete policy-registered capability catalog.
-The release exposes exactly 11 MCP tools for 18 CapabilityDefinitions,
-including all ten Sourcing capabilities.
+exactly eleven transport tools: `capability_catalog_search`,
+`capability_invoke`; `invocation_status`, `invocation_wait`,
+`invocation_result`; `delegate_to_agent`; and `child_status`, `child_wait`,
+`child_result`, `child_message`, `child_interrupt`. Those tools expose the
+complete policy-registered catalog of 18 CapabilityDefinitions, including all
+ten Sourcing capabilities.
 Cross-domain reads receive an execution-scoped grant; cross-domain mutations
 delegate to the explicitly selected owner Agent. A mutation retains its exact
 execution-derived idempotency key, and its `approvalRisk` determines whether it
@@ -61,9 +64,10 @@ Production supports exactly one API instance. API replicas, rolling overlap,
 and overlapping lifecycle ownership are unsupported. One native Runner owns
 host CLI process trees; the worker owns durable Operation and mutation
 execution and never spawns a provider CLI. Runner loss or API restart kills
-live host processes and terminalizes their Attempts; recovery starts an
-immutable successor from durable Task/Invocation state and never resumes
-provider history.
+live host processes and terminalizes their affected Attempts as
+`process_interrupted`; recovery never creates a successor or resumes provider
+history. Only an authenticated explicit Continue or Reopen creates an
+immutable successor Attempt.
 
 Frontend code never talks to the database directly. All app data flows through
 NestJS APIs and shared Zod contracts from `@kiditem/shared`.
@@ -1007,9 +1011,9 @@ only strict structured commands to the native Host Runner. The Runner is the
 only process that starts Codex/Claude Attempts; each Attempt reaches the Nest
 MCP adapter directly through loopback Streamable HTTP. The worker recovers
 durable mutation/Operation state, but never receives a CLI login profile or
-imports the HTTP adapter. Restart/follow-up reasoning always starts a new
-immutable Attempt from durable KidItem state; provider session/history is never
-resumed.
+imports the HTTP adapter. Provider session/history is never resumed; only an
+authenticated explicit Continue or Reopen starts a new immutable Attempt from
+durable KidItem state.
 
 The runtime keeps five stateful boundaries deep and leaves data-only contracts
 flat:
@@ -1022,8 +1026,8 @@ flat:
   event outbox retry, control-loss deadline, and shutdown, while the HTTP client
   and CLI process supervisor remain adapters;
 - one `AgentWorkIntakePort` owns AgentVersion selection, explicit runtime/model
-  resolution, root or immutable-successor admission, launch context, and future
-  output binding for both REST and CopilotKit;
+  resolution, root admission plus explicit Continue/Reopen successor admission,
+  and launch context for both REST and CopilotKit;
 - one ephemeral interaction-state module owns the selected Agent, one-time
   draft, durable session URL coordinate, and new/select/close actions; a loaded
   Session is pinned to its root Task's immutable Agent definition;

@@ -71,7 +71,7 @@ describe('AgentWorkController transport-only intake', () => {
 
 function controllerFixture() {
   const queries = {
-    projection: vi.fn(),
+    view: vi.fn(),
     liveAttempt: vi.fn(),
   };
   const commands = { root: vi.fn(), followUp: vi.fn(), transition: vi.fn(), decide: vi.fn(), delete: vi.fn() };

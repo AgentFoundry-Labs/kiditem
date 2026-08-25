@@ -75,6 +75,10 @@ KID-25의 Agent runtime은 테스트에서 세 경계를 따로 증명한다.
   replay, modern-only MCP `2026-07-28`, and same-SHA restart recovery를 다룬다.
 - `apps/agent-runner` tests는 strict long-poll/event contracts, per-Attempt
   cleanup, provider command isolation, and macOS/Windows supervision을 다룬다.
+  Codex의 `approvalPolicy: never`/`:danger-full-access`와 Claude의
+  `bypassPermissions`를 명시적으로 검증하고, workspace-only 또는 prompting
+  설정은 fail-closed여야 한다. Host DB/Nest/business/Runner control secrets는
+  provider 환경이나 로그로 전달되지 않아야 한다.
 
 Normal CI never requires a live provider login. A manually enabled real-CLI
 canary runs only on the Host Runner, requires explicit model values, and must

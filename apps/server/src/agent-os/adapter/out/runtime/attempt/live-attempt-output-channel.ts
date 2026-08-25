@@ -3,12 +3,12 @@ import { EventType, type BaseEvent } from '@ag-ui/core';
 
 type Coordinate = { threadId: string; runId: string };
 
-/** Ephemeral future-only output channel; it owns neither durable state nor history. */
-export class AttemptFutureOutputChannel {
+/** Ephemeral live Attempt output; it owns neither durable state nor history. */
+export class LiveAttemptOutputChannel {
   private readonly coordinates = new Map<string, Coordinate>();
   private readonly attemptsByCoordinate = new Map<string, string>();
   private readonly streams = new Map<string, Subject<BaseEvent>>();
-  private readonly futureSubscribers = new Map<string, number>();
+  private readonly streamSubscribers = new Map<string, number>();
   private readonly currentRunByThread = new Map<string, string>();
   private readonly activeMessageIds = new Map<string, string>();
   private readonly closed = new Set<string>();
@@ -31,30 +31,35 @@ export class AttemptFutureOutputChannel {
     this.coordinates.set(input.attemptId, coordinate);
     this.attemptsByCoordinate.set(id, input.attemptId);
     this.currentRunByThread.set(input.threadId, input.runId);
-    this.stream(input.threadId, input.runId);
+    this.subject(input.threadId, input.runId);
     return true;
   }
-  future(input: Coordinate): Observable<BaseEvent> {
+  closeUnboundOutput(input: Coordinate): void {
+    const id = key(input);
+    if (this.attemptsByCoordinate.has(id)) return;
+    this.closeLateCoordinate(id);
+  }
+  stream(input: Coordinate): Observable<BaseEvent> {
     const coordinate = { threadId: input.threadId, runId: input.runId };
     const id = key(coordinate);
     return new Observable<BaseEvent>((subscriber) => {
-      const stream = this.stream(coordinate.threadId, coordinate.runId);
-      this.futureSubscribers.set(id, (this.futureSubscribers.get(id) ?? 0) + 1);
+      const stream = this.subject(coordinate.threadId, coordinate.runId);
+      this.streamSubscribers.set(id, (this.streamSubscribers.get(id) ?? 0) + 1);
       const subscription = stream.subscribe(subscriber);
       return () => {
         subscription.unsubscribe();
-        this.releaseUnboundFuture(id);
+        this.releaseUnboundOutput(id);
       };
     });
   }
-  futureThread(threadId: string): Observable<BaseEvent> { const runId = this.currentRunByThread.get(threadId); return runId ? this.future({ threadId, runId }) : new Subject<BaseEvent>().asObservable(); }
+  streamThread(threadId: string): Observable<BaseEvent> { const runId = this.currentRunByThread.get(threadId); return runId ? this.stream({ threadId, runId }) : new Subject<BaseEvent>().asObservable(); }
   current(threadId: string, runId?: string): string | null { const current = this.currentRunByThread.get(threadId) ?? null; return current && (!runId || current === runId) ? current : null; }
   attemptId(input: Coordinate): string | null { return this.attemptsByCoordinate.get(key(input)) ?? null; }
   publish(input: { attemptId: string; output: string }): void {
     const coordinate = this.coordinates.get(input.attemptId);
     const delta = input.output.slice(0, 8_192);
     if (!coordinate || !delta) return;
-    const stream = this.stream(coordinate.threadId, coordinate.runId);
+    const stream = this.subject(coordinate.threadId, coordinate.runId);
     const messageId = this.activeMessageIds.get(input.attemptId) ?? `attempt-${input.attemptId}-${++this.messageSequence}`;
     if (!this.activeMessageIds.has(input.attemptId)) {
       this.activeMessageIds.set(input.attemptId, messageId);
@@ -65,7 +70,7 @@ export class AttemptFutureOutputChannel {
   finish(input: { attemptId: string; outcome: 'completed' | 'failed'; summary?: string }): void {
     this.rememberTerminal(input.attemptId);
     const coordinate = this.coordinates.get(input.attemptId); if (!coordinate) return;
-    const stream = this.stream(coordinate.threadId, coordinate.runId);
+    const stream = this.subject(coordinate.threadId, coordinate.runId);
     const activeMessageId = this.activeMessageIds.get(input.attemptId);
     if (activeMessageId) stream.next({ type: EventType.TEXT_MESSAGE_END, messageId: activeMessageId } as BaseEvent);
     else if (input.outcome === 'completed' && input.summary?.trim()) { const messageId = `attempt-${input.attemptId}-${++this.messageSequence}`; stream.next({ type: EventType.TEXT_MESSAGE_START, messageId, role: 'assistant' } as BaseEvent); stream.next({ type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta: input.summary.slice(0, 8_192) } as BaseEvent); stream.next({ type: EventType.TEXT_MESSAGE_END, messageId } as BaseEvent); }
@@ -83,7 +88,7 @@ export class AttemptFutureOutputChannel {
   /** Complete a replaced Copilot run without terminalizing its durable Attempt. */
   private finishRun(input: { attemptId: string; coordinate: Coordinate }): void {
     const id = key(input.coordinate);
-    const stream = this.stream(input.coordinate.threadId, input.coordinate.runId);
+    const stream = this.subject(input.coordinate.threadId, input.coordinate.runId);
     const activeMessageId = this.activeMessageIds.get(input.attemptId);
     if (activeMessageId) {
       stream.next({ type: EventType.TEXT_MESSAGE_END, messageId: activeMessageId } as BaseEvent);
@@ -103,7 +108,7 @@ export class AttemptFutureOutputChannel {
     this.streams.delete(id);
     this.rememberClosed(id);
   }
-  private stream(threadId: string, runId: string): Subject<BaseEvent> {
+  private subject(threadId: string, runId: string): Subject<BaseEvent> {
     const id = key({ threadId, runId });
     if (this.closed.has(id)) { const closed = new Subject<BaseEvent>(); closed.complete(); return closed; }
     let stream = this.streams.get(id); if (!stream) { stream = new Subject<BaseEvent>(); this.streams.set(id, stream); } return stream;
@@ -113,17 +118,17 @@ export class AttemptFutureOutputChannel {
     const stream = this.streams.get(id);
     stream?.complete();
     this.streams.delete(id);
-    this.futureSubscribers.delete(id);
+    this.streamSubscribers.delete(id);
     this.rememberClosed(id);
   }
-  /** A rejected pre-admission Copilot run owns no Attempt and no future stream. */
-  private releaseUnboundFuture(id: string): void {
-    const remaining = (this.futureSubscribers.get(id) ?? 1) - 1;
+  /** A rejected pre-admission Copilot run owns no Attempt and no output stream. */
+  private releaseUnboundOutput(id: string): void {
+    const remaining = (this.streamSubscribers.get(id) ?? 1) - 1;
     if (remaining > 0) {
-      this.futureSubscribers.set(id, remaining);
+      this.streamSubscribers.set(id, remaining);
       return;
     }
-    this.futureSubscribers.delete(id);
+    this.streamSubscribers.delete(id);
     if (this.attemptsByCoordinate.has(id)) return;
     const stream = this.streams.get(id);
     if (!stream) return;

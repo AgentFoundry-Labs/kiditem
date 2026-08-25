@@ -311,8 +311,12 @@ describe('Agent Work lifecycle races', () => {
     await expect(work.delegateTask(delegation)).resolves.toEqual({
       childTaskId: child.childTaskId,
       firstAttemptId: child.firstAttemptId,
+      attemptId: child.firstAttemptId,
       replayed: true,
+      launchRequired: false,
+      taskTerminal: false,
     });
+    await expect(prisma.agentAttempt.count({ where: { taskId: child.childTaskId } })).resolves.toBe(1);
     await expect(work.authorizeInvocation(authorization)).resolves.toEqual(first);
     await expect(work.authorizeInvocation({
       ...authorization,
@@ -364,7 +368,7 @@ describe('Agent Work lifecycle races', () => {
     })).resolves.toEqual({ finalized: true, status: 'completed' });
   });
 
-  it('leaves finalization as a no-op when successor admission already won', async () => {
+  it('leaves finalization as a no-op when explicit Continue admission already won', async () => {
     const root = await terminalRoot();
     await prisma.agentAttempt.update({
       where: { id: root.attempt.id },
@@ -372,7 +376,7 @@ describe('Agent Work lifecycle races', () => {
     });
     const capacity = new AgentAttemptCapacityService(1);
     const admissions = new AgentAttemptAdmissionService(capacity, work, readyPreflight);
-    const successor = await admissions.followUp({
+    const continued = await admissions.followUp({
       organizationId,
       sessionId: root.session.id,
       taskId: root.task.id,
@@ -390,10 +394,10 @@ describe('Agent Work lifecycle races', () => {
       where: { id: root.task.id },
       select: { status: true },
     })).resolves.toEqual({ status: 'open' });
-    capacity.releaseAttempt(successor.attemptId);
+    capacity.releaseAttempt(continued.attemptId);
   });
 
-  it('holds the Task lock through finalization so a concurrent successor is rejected', async () => {
+  it('holds the Task lock through finalization so a concurrent Continue is rejected', async () => {
     const root = await terminalRoot();
     const operationId = 'operation-finalization-fence';
     await prisma.agentAttempt.update({

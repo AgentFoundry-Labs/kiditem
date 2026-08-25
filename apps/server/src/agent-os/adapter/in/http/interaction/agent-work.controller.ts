@@ -32,8 +32,8 @@ export class AgentWorkController {
   ) {}
 
   @Get('sessions/:sessionId')
-  async projection(@Param('sessionId') sessionId: string, @CurrentOrganization() organizationId: string, @CurrentUser() user: AuthUser) {
-    return this.queries.projection({ sessionId, organizationId, userId: user.id });
+  async view(@Param('sessionId') sessionId: string, @CurrentOrganization() organizationId: string, @CurrentUser() user: AuthUser) {
+    return this.queries.view({ sessionId, organizationId, userId: user.id });
   }
 
   @Post('start')

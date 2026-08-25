@@ -25,8 +25,8 @@ export interface AdmitAttemptInput extends AttemptSnapshot {
   taskId: string;
   requestedByUserId: string;
   predecessorAttemptId: string;
-  /** Command intent only; never persisted as Task state. */
-  intent?: "follow_up" | "retry" | "reopen";
+  /** Explicit user action only; never persisted as Task state. */
+  intent?: "follow_up" | "reopen";
 }
 
 export interface AdmitAttemptResult {
@@ -52,6 +52,15 @@ export interface AdmitRootAttemptResult {
   attempt: { id: string; ordinal: number };
 }
 
+/** Durable receipt stored in a root Attempt input for exact browser retry admission. */
+export type RootAttemptReplayReceipt = Readonly<{
+  taskId: string;
+  attemptId: string;
+  terminal: boolean;
+  messageCommandKey: string;
+  inputHash: string;
+}>;
+
 export interface DelegateTaskInput extends AttemptSnapshot {
   organizationId: string;
   sessionId: string;
@@ -68,8 +77,15 @@ export interface DelegateTaskInput extends AttemptSnapshot {
 
 export interface DelegateTaskResult {
   childTaskId: string;
+  /** Immutable first Attempt retained as the delegation's durable origin. */
   firstAttemptId: string;
+  /** Current Attempt for this exact delegation receipt. */
+  attemptId: string;
   replayed: boolean;
+  /** A newly admitted initial child Attempt must be launched once. */
+  launchRequired: boolean;
+  /** The child Task is terminal, so the receipt is informational only. */
+  taskTerminal: boolean;
 }
 
 export interface InvocationAuthorizationInput {

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AgentWorkIntakeModule, createAgentWorkIntake } from './agent-work-intake.module';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
-import { AttemptFutureOutputChannel } from '../../../adapter/out/runtime/attempt/attempt-future-output-channel';
+import { LiveAttemptOutputChannel } from '../../../adapter/out/runtime/attempt/live-attempt-output-channel';
+import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 
 const principal = {
   organizationId: '018f4eb1-9078-7a1e-9514-b19b5732f5de',
@@ -23,7 +24,7 @@ describe('AgentWorkIntakeModule', () => {
       { root: vi.fn(), followUp: vi.fn() } as never,
       { start: vi.fn() } as never,
       { send: vi.fn() } as never,
-      { bind: vi.fn() } as never,
+      { bind: vi.fn(), closeUnboundOutput: vi.fn() } as never,
     );
 
     expect(intake).toBeInstanceOf(AgentWorkIntakeModule);
@@ -51,7 +52,7 @@ describe('AgentWorkIntakeModule', () => {
       launch as never,
       runtimeEnvironment(),
       { send: vi.fn() } as never,
-      { bind: vi.fn() } as never,
+      { bind: vi.fn(), closeUnboundOutput: vi.fn() } as never,
     );
 
     await expect(intake.startRoot({
@@ -77,7 +78,7 @@ describe('AgentWorkIntakeModule', () => {
     }));
   });
 
-  it('starts the explicitly selected code-owned Agent definition with Copilot future output', async () => {
+  it('starts the explicitly selected code-owned Agent definition with Copilot live output', async () => {
     const queries = {
       activeVersion: vi.fn(async () => version({
         agentDefinitionKey: 'sourcing',
@@ -111,6 +112,10 @@ describe('AgentWorkIntakeModule', () => {
       assignedAgentVersionId: '618f4eb1-9078-7a1e-9514-b19b5732f5de',
       sessionId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
       reportedModel: 'gpt-5.6',
+      input: {
+        prompt: 'Find a product source',
+        rootAdmission: rootAdmissionReceipt('Find a product source', 'message-root-1'),
+      },
     }));
     expect(launch.start).toHaveBeenCalledWith(expect.objectContaining({
       runtime: 'codex_cli',
@@ -119,6 +124,321 @@ describe('AgentWorkIntakeModule', () => {
       capabilityKeys: ['sourcing.scrapeProductUrl'],
       output: { threadId: '218f4eb1-9078-7a1e-9514-b19b5732f5de', runId: 'run-1' },
     }));
+  });
+
+  it('rebinds an exact durable root admission instead of injecting its initial prompt into the live Attempt', async () => {
+    const receipt = rootAdmissionReceipt('Find a product source', 'message-root-replay-1');
+    const live = { send: vi.fn() };
+    const output = { bind: vi.fn(), closeUnboundOutput: vi.fn() };
+    const queries = {
+      threadContinuation: vi.fn(async () => ({
+        taskId: '318f4eb1-9078-7a1e-9514-b19b5732f5de',
+        predecessorAttemptId: '418f4eb1-9078-7a1e-9514-b19b5732f5de',
+        terminal: false,
+        agentDefinitionKey: 'sourcing',
+        rootAdmission: {
+          attemptId: '418f4eb1-9078-7a1e-9514-b19b5732f5de',
+          taskId: '318f4eb1-9078-7a1e-9514-b19b5732f5de',
+          terminal: false,
+          ...receipt,
+        },
+      })),
+    };
+    const commands = { root: vi.fn(), followUp: vi.fn() };
+    const launch = { start: vi.fn() };
+    const intake = new AgentWorkIntakeModule(
+      queries as never,
+      commands as never,
+      launch as never,
+      runtimeEnvironment(),
+      live as never,
+      output as never,
+    );
+
+    await expect(intake.startThread({
+      principal,
+      sessionId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
+      agentDefinitionKey: 'sourcing',
+      prompt: 'Find a product source',
+      messageCommandKey: 'message-root-replay-1',
+      output: { threadId: '218f4eb1-9078-7a1e-9514-b19b5732f5de', runId: 'retry-root-run' },
+    })).resolves.toEqual({
+      kind: 'root',
+      sessionId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
+      taskId: '318f4eb1-9078-7a1e-9514-b19b5732f5de',
+      attemptId: '418f4eb1-9078-7a1e-9514-b19b5732f5de',
+    });
+
+    expect(output.bind).toHaveBeenCalledWith({
+      attemptId: '418f4eb1-9078-7a1e-9514-b19b5732f5de',
+      threadId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
+      runId: 'retry-root-run',
+    });
+    expect(live.send).not.toHaveBeenCalled();
+    expect(commands.root).not.toHaveBeenCalled();
+    expect(commands.followUp).not.toHaveBeenCalled();
+    expect(launch.start).not.toHaveBeenCalled();
+  });
+
+  it('returns the immutable first root receipt after explicit Continue instead of binding the newer Attempt', async () => {
+    const receipt = rootAdmissionReceipt('Find a product source', 'message-root-after-continue-1');
+    const live = { send: vi.fn() };
+    const output = { bind: vi.fn(), closeUnboundOutput: vi.fn() };
+    const queries = {
+      threadContinuation: vi.fn(async () => ({
+        taskId: '318f4eb1-9078-7a1e-9514-b19b5732f5de',
+        predecessorAttemptId: '518f4eb1-9078-7a1e-9514-b19b5732f5de',
+        terminal: false,
+        agentDefinitionKey: 'sourcing',
+        rootAdmission: {
+          attemptId: '418f4eb1-9078-7a1e-9514-b19b5732f5de',
+          taskId: '318f4eb1-9078-7a1e-9514-b19b5732f5de',
+          terminal: true,
+          ...receipt,
+        },
+      })),
+    };
+    const commands = { root: vi.fn(), followUp: vi.fn() };
+    const launch = { start: vi.fn() };
+    const intake = new AgentWorkIntakeModule(
+      queries as never,
+      commands as never,
+      launch as never,
+      runtimeEnvironment(),
+      live as never,
+      output as never,
+    );
+
+    await expect(intake.startThread({
+      principal,
+      sessionId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
+      agentDefinitionKey: 'sourcing',
+      prompt: 'Find a product source',
+      messageCommandKey: 'message-root-after-continue-1',
+      output: { threadId: '218f4eb1-9078-7a1e-9514-b19b5732f5de', runId: 'root-after-continue-retry' },
+    })).resolves.toEqual({
+      kind: 'root',
+      sessionId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
+      taskId: '318f4eb1-9078-7a1e-9514-b19b5732f5de',
+      attemptId: '418f4eb1-9078-7a1e-9514-b19b5732f5de',
+    });
+
+    expect(output.bind).not.toHaveBeenCalled();
+    expect(output.closeUnboundOutput).toHaveBeenCalledWith({
+      threadId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
+      runId: 'root-after-continue-retry',
+    });
+    expect(live.send).not.toHaveBeenCalled();
+    expect(commands.root).not.toHaveBeenCalled();
+    expect(commands.followUp).not.toHaveBeenCalled();
+    expect(launch.start).not.toHaveBeenCalled();
+  });
+
+  it('rejects same-key root replay drift instead of routing it as a live input', async () => {
+    const live = { send: vi.fn() };
+    const output = { bind: vi.fn(), closeUnboundOutput: vi.fn() };
+    const queries = {
+      threadContinuation: vi.fn(async () => ({
+        taskId: '318f4eb1-9078-7a1e-9514-b19b5732f5de',
+        predecessorAttemptId: '418f4eb1-9078-7a1e-9514-b19b5732f5de',
+        terminal: false,
+        agentDefinitionKey: 'sourcing',
+        rootAdmission: {
+          attemptId: '418f4eb1-9078-7a1e-9514-b19b5732f5de',
+          taskId: '318f4eb1-9078-7a1e-9514-b19b5732f5de',
+          terminal: false,
+          ...rootAdmissionReceipt('Original prompt', 'message-root-replay-1'),
+        },
+      })),
+    };
+    const commands = { root: vi.fn(), followUp: vi.fn() };
+    const launch = { start: vi.fn() };
+    const intake = new AgentWorkIntakeModule(
+      queries as never,
+      commands as never,
+      launch as never,
+      runtimeEnvironment(),
+      live as never,
+      output as never,
+    );
+
+    await expect(intake.startThread({
+      principal,
+      sessionId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
+      agentDefinitionKey: 'sourcing',
+      prompt: 'Changed prompt',
+      messageCommandKey: 'message-root-replay-1',
+      output: { threadId: '218f4eb1-9078-7a1e-9514-b19b5732f5de', runId: 'retry-root-run' },
+    })).rejects.toMatchObject({ code: 'root_admission_replay_conflict' });
+
+    expect(live.send).not.toHaveBeenCalled();
+    expect(commands.root).not.toHaveBeenCalled();
+    expect(commands.followUp).not.toHaveBeenCalled();
+    expect(launch.start).not.toHaveBeenCalled();
+  });
+
+  it('coalesces concurrent exact root starts before a second durable admission and rebinds the follower output', async () => {
+    const receipt = rootAdmissionReceipt('Find a product source', 'message-root-concurrent-1');
+    let durableRootVisible = false;
+    const existing = {
+      taskId: '318f4eb1-9078-7a1e-9514-b19b5732f5de',
+      predecessorAttemptId: '418f4eb1-9078-7a1e-9514-b19b5732f5de',
+      terminal: false,
+      agentDefinitionKey: 'sourcing',
+      rootAdmission: {
+        attemptId: '418f4eb1-9078-7a1e-9514-b19b5732f5de',
+        taskId: '318f4eb1-9078-7a1e-9514-b19b5732f5de',
+        terminal: false,
+        ...receipt,
+      },
+    };
+    const live = { send: vi.fn() };
+    const output = { bind: vi.fn(), closeUnboundOutput: vi.fn() };
+    const queries = {
+      threadContinuation: vi.fn(async () => durableRootVisible ? existing : null),
+      activeVersion: vi.fn(async () => version({
+        agentDefinitionKey: 'sourcing',
+        capabilityKeys: ['sourcing.scrapeProductUrl'],
+        instructionProfileRef: 'agent-config/prompts/agents/sourcing.md',
+      })),
+    };
+    const rootEntered = deferred<void>();
+    const releaseRoot = deferred<ReturnType<typeof rootAdmission>>();
+    const commands = {
+      root: vi.fn(async () => {
+        rootEntered.resolve();
+        return releaseRoot.promise;
+      }),
+      followUp: vi.fn(),
+    };
+    const launch = { start: vi.fn(async () => undefined) };
+    const intake = new AgentWorkIntakeModule(
+      queries as never,
+      commands as never,
+      launch as never,
+      runtimeEnvironment(),
+      live as never,
+      output as never,
+    );
+    const input = {
+      principal,
+      sessionId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
+      agentDefinitionKey: 'sourcing',
+      prompt: 'Find a product source',
+      messageCommandKey: 'message-root-concurrent-1',
+      output: { threadId: '218f4eb1-9078-7a1e-9514-b19b5732f5de', runId: 'root-run-1' },
+    };
+
+    const leader = intake.startThread(input);
+    await rootEntered.promise;
+    const follower = intake.startThread({ ...input, output: { ...input.output, runId: 'root-run-2' } });
+    durableRootVisible = true;
+    releaseRoot.resolve(rootAdmission());
+    const results = await Promise.all([leader, follower]);
+
+    expect(results).toEqual([
+      expect.objectContaining({ kind: 'root', attemptId: '418f4eb1-9078-7a1e-9514-b19b5732f5de' }),
+      expect.objectContaining({ kind: 'root', attemptId: '418f4eb1-9078-7a1e-9514-b19b5732f5de' }),
+    ]);
+    expect(commands.root).toHaveBeenCalledTimes(1);
+    expect(launch.start).toHaveBeenCalledTimes(1);
+    expect(output.bind).toHaveBeenCalledWith({
+      attemptId: '418f4eb1-9078-7a1e-9514-b19b5732f5de',
+      threadId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
+      runId: 'root-run-2',
+    });
+    expect(live.send).not.toHaveBeenCalled();
+    expect(commands.followUp).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when a root uniqueness collision cannot yet read its durable receipt', async () => {
+    const live = { send: vi.fn() };
+    const output = { bind: vi.fn(), closeUnboundOutput: vi.fn() };
+    const queries = {
+      threadContinuation: vi.fn(async () => null),
+      activeVersion: vi.fn(async () => version({
+        agentDefinitionKey: 'sourcing',
+        capabilityKeys: ['sourcing.scrapeProductUrl'],
+        instructionProfileRef: 'agent-config/prompts/agents/sourcing.md',
+      })),
+    };
+    const commands = {
+      root: vi.fn(async () => { throw new AgentOsRuntimeError('root_task_already_exists'); }),
+      followUp: vi.fn(),
+    };
+    const launch = { start: vi.fn() };
+    const intake = new AgentWorkIntakeModule(
+      queries as never,
+      commands as never,
+      launch as never,
+      runtimeEnvironment(),
+      live as never,
+      output as never,
+    );
+
+    await expect(intake.startThread({
+      principal,
+      sessionId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
+      agentDefinitionKey: 'sourcing',
+      prompt: 'Find a product source',
+      messageCommandKey: 'message-root-late-read-1',
+      output: { threadId: '218f4eb1-9078-7a1e-9514-b19b5732f5de', runId: 'late-root-run' },
+    })).rejects.toMatchObject({ code: 'root_task_already_exists' });
+
+    expect(live.send).not.toHaveBeenCalled();
+    expect(commands.followUp).not.toHaveBeenCalled();
+    expect(launch.start).not.toHaveBeenCalled();
+  });
+
+  it('closes only the retry output when an exact root admission is already terminal', async () => {
+    const receipt = rootAdmissionReceipt('Find a product source', 'message-root-terminal-1');
+    const live = { send: vi.fn() };
+    const output = { bind: vi.fn(), closeUnboundOutput: vi.fn() };
+    const queries = {
+      threadContinuation: vi.fn(async () => ({
+        taskId: '318f4eb1-9078-7a1e-9514-b19b5732f5de',
+        predecessorAttemptId: '418f4eb1-9078-7a1e-9514-b19b5732f5de',
+        terminal: true,
+        agentDefinitionKey: 'sourcing',
+        rootAdmission: {
+          attemptId: '418f4eb1-9078-7a1e-9514-b19b5732f5de',
+          taskId: '318f4eb1-9078-7a1e-9514-b19b5732f5de',
+          terminal: true,
+          ...receipt,
+        },
+      })),
+    };
+    const commands = { root: vi.fn(), followUp: vi.fn() };
+    const launch = { start: vi.fn() };
+    const intake = new AgentWorkIntakeModule(
+      queries as never,
+      commands as never,
+      launch as never,
+      runtimeEnvironment(),
+      live as never,
+      output as never,
+    );
+
+    await expect(intake.startThread({
+      principal,
+      sessionId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
+      agentDefinitionKey: 'sourcing',
+      prompt: 'Find a product source',
+      messageCommandKey: 'message-root-terminal-1',
+      output: { threadId: '218f4eb1-9078-7a1e-9514-b19b5732f5de', runId: 'terminal-root-retry' },
+    })).resolves.toMatchObject({
+      kind: 'root',
+      attemptId: '418f4eb1-9078-7a1e-9514-b19b5732f5de',
+    });
+
+    expect(output.bind).not.toHaveBeenCalled();
+    expect(output.closeUnboundOutput).toHaveBeenCalledWith({
+      threadId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
+      runId: 'terminal-root-retry',
+    });
+    expect(live.send).not.toHaveBeenCalled();
+    expect(commands.followUp).not.toHaveBeenCalled();
+    expect(launch.start).not.toHaveBeenCalled();
   });
 
   it('resolves the task immutable AgentVersion before a REST follow-up and finalizes its exact launch context', async () => {
@@ -169,7 +489,7 @@ describe('AgentWorkIntakeModule', () => {
       taskId: '318f4eb1-9078-7a1e-9514-b19b5732f5de',
     });
     expect(commands.followUp).toHaveBeenCalledWith(expect.objectContaining({
-      cliVersion: '2.1.241',
+      cliVersion: '2.1.245',
       reportedModel: 'claude-source',
       input: { prompt: 'Continue', resourceRefs: [], operationRefs: [] },
     }));
@@ -181,7 +501,7 @@ describe('AgentWorkIntakeModule', () => {
     }));
   });
 
-  it('turns a terminal thread root collision into one immutable successor before launch', async () => {
+  it('rejects a new terminal-thread message instead of creating or launching another Attempt', async () => {
     const queries = {
       activeVersion: vi.fn(async () => version()),
       taskVersion: vi.fn(async () => version({ runtimeType: 'claude_cli' })),
@@ -192,7 +512,7 @@ describe('AgentWorkIntakeModule', () => {
         agentDefinitionKey: 'operator',
       })),
       continuationContext: vi.fn(async () => ({
-        prompt: 'bounded durable successor prompt',
+        prompt: 'bounded explicit Continue prompt',
         input: { prompt: 'Continue', resourceRefs: [], operationRefs: [] },
       })),
     };
@@ -212,7 +532,7 @@ describe('AgentWorkIntakeModule', () => {
       launch as never,
       runtimeEnvironment(),
       { send: vi.fn() } as never,
-      { bind: vi.fn() } as never,
+      { bind: vi.fn(), closeUnboundOutput: vi.fn() } as never,
     );
 
     await expect(intake.startThread({
@@ -220,35 +540,19 @@ describe('AgentWorkIntakeModule', () => {
       sessionId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
       agentDefinitionKey: 'operator',
       prompt: 'Continue',
-      messageCommandKey: 'message-successor-1',
+      messageCommandKey: 'message-terminal-1',
       output: { threadId: '218f4eb1-9078-7a1e-9514-b19b5732f5de', runId: 'run-2' },
-    })).resolves.toMatchObject({
-      kind: 'successor',
-      attemptId: '418f4eb1-9078-7a1e-9514-b19b5732f5de',
-    });
+    })).rejects.toMatchObject({ code: 'agent_thread_terminal' });
 
     expect(queries.threadContinuation).toHaveBeenCalledWith({
       organizationId: principal.organizationId,
       userId: principal.userId,
       sessionId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
     });
-    expect(queries.taskVersion).toHaveBeenCalledWith({
-      organizationId: principal.organizationId,
-      userId: principal.userId,
-      sessionId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
-      taskId: '318f4eb1-9078-7a1e-9514-b19b5732f5de',
-    });
-    expect(commands.followUp).toHaveBeenCalledWith(expect.objectContaining({
-      predecessorAttemptId: '518f4eb1-9078-7a1e-9514-b19b5732f5de',
-      intent: 'follow_up',
-      input: { prompt: 'Continue', resourceRefs: [], operationRefs: [] },
-      cliVersion: '2.1.241',
-    }));
-    expect(launch.start).toHaveBeenCalledWith(expect.objectContaining({
-      runtime: 'claude_cli',
-      prompt: 'bounded durable successor prompt',
-      output: { threadId: '218f4eb1-9078-7a1e-9514-b19b5732f5de', runId: 'run-2' },
-    }));
+    expect(queries.taskVersion).not.toHaveBeenCalled();
+    expect(queries.continuationContext).not.toHaveBeenCalled();
+    expect(commands.followUp).not.toHaveBeenCalled();
+    expect(launch.start).not.toHaveBeenCalled();
   });
 
   it('rejects an arbitrary Agent definition before it can query, admit, or launch', async () => {
@@ -295,7 +599,7 @@ describe('AgentWorkIntakeModule', () => {
     expect(launch.start).not.toHaveBeenCalled();
   });
 
-  it('routes an owned live thread prompt into its exact Attempt without admitting a root or successor', async () => {
+  it('routes an owned live thread prompt into its exact Attempt without admitting new work', async () => {
     const live = { send: vi.fn(async () => undefined) };
     const output = { bind: vi.fn() };
     const queries = {
@@ -392,9 +696,9 @@ describe('AgentWorkIntakeModule', () => {
     expect(launch.start).not.toHaveBeenCalled();
   });
 
-  it('re-resolves a just-terminal live Attempt and admits one immutable successor instead of creating a parallel root', async () => {
+  it('reports a just-terminal live Attempt without admitting or launching another Attempt', async () => {
     const live = { send: vi.fn(async () => { throw new AgentOsRuntimeError('attempt_not_live'); }) };
-    const output = { bind: vi.fn() };
+    const output = { bind: vi.fn(), closeUnboundOutput: vi.fn() };
     const queries = {
       threadContinuation: vi.fn()
         .mockResolvedValueOnce({
@@ -409,24 +713,10 @@ describe('AgentWorkIntakeModule', () => {
           terminal: true,
           agentDefinitionKey: 'sourcing',
         }),
-      taskVersion: vi.fn(async () => version({
-        agentDefinitionKey: 'sourcing',
-        capabilityKeys: ['sourcing.scrapeProductUrl'],
-        instructionProfileRef: 'agent-config/prompts/agents/sourcing.md',
-      })),
-      continuationContext: vi.fn(async () => ({
-        prompt: 'bounded successor prompt',
-        input: { prompt: 'Continue safely', resourceRefs: [], operationRefs: [] },
-      })),
     };
     const commands = {
       root: vi.fn(),
-      followUp: vi.fn(async () => ({
-        attemptId: '518f4eb1-9078-7a1e-9514-b19b5732f5de',
-        sessionId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
-        taskId: '318f4eb1-9078-7a1e-9514-b19b5732f5de',
-        ordinal: 2,
-      })),
+      followUp: vi.fn(),
     };
     const launch = { start: vi.fn(async () => undefined) };
     const intake = new AgentWorkIntakeModule(
@@ -445,25 +735,21 @@ describe('AgentWorkIntakeModule', () => {
       prompt: 'Continue safely',
       messageCommandKey: 'message-after-terminal-race',
       output: { threadId: '218f4eb1-9078-7a1e-9514-b19b5732f5de', runId: 'run-after-terminal-race' },
-    })).resolves.toEqual({
-      kind: 'successor',
-      sessionId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
-      taskId: '318f4eb1-9078-7a1e-9514-b19b5732f5de',
-      attemptId: '518f4eb1-9078-7a1e-9514-b19b5732f5de',
-    });
+    })).rejects.toMatchObject({ code: 'agent_thread_terminal' });
 
     expect(live.send).toHaveBeenCalledTimes(1);
     expect(output.bind).not.toHaveBeenCalled();
+    expect(output.closeUnboundOutput).toHaveBeenCalledWith({
+      threadId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
+      runId: 'run-after-terminal-race',
+    });
     expect(commands.root).not.toHaveBeenCalled();
-    expect(commands.followUp).toHaveBeenCalledTimes(1);
-    expect(launch.start).toHaveBeenCalledWith(expect.objectContaining({
-      attemptId: '518f4eb1-9078-7a1e-9514-b19b5732f5de',
-      output: { threadId: '218f4eb1-9078-7a1e-9514-b19b5732f5de', runId: 'run-after-terminal-race' },
-    }));
+    expect(commands.followUp).not.toHaveBeenCalled();
+    expect(launch.start).not.toHaveBeenCalled();
   });
 
   it('keeps a queue-accepted message as one live admission when terminalization wins before output rebind', async () => {
-    const output = new AttemptFutureOutputChannel();
+    const output = new LiveAttemptOutputChannel();
     const live = {
       send: vi.fn(async () => {
         // The Runner accepted attempt.input, then its terminal event wins
@@ -495,11 +781,11 @@ describe('AgentWorkIntakeModule', () => {
       live as never,
       output,
     );
-    let lateFutureCompleted = false;
-    output.future({
+    let lateOutputCompleted = false;
+    output.stream({
       threadId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
       runId: 'run-terminal-between-send-and-bind',
-    }).subscribe({ complete: () => { lateFutureCompleted = true; } });
+    }).subscribe({ complete: () => { lateOutputCompleted = true; } });
 
     await expect(intake.startThread({
       principal,
@@ -517,7 +803,7 @@ describe('AgentWorkIntakeModule', () => {
     expect(commands.followUp).not.toHaveBeenCalled();
     expect(commands.root).not.toHaveBeenCalled();
     expect(launch.start).not.toHaveBeenCalled();
-    expect(lateFutureCompleted).toBe(true);
+    expect(lateOutputCompleted).toBe(true);
     expect(output.current('218f4eb1-9078-7a1e-9514-b19b5732f5de')).toBeNull();
   });
 
@@ -619,6 +905,13 @@ function rootAdmission() {
   };
 }
 
+function rootAdmissionReceipt(prompt: string, messageCommandKey: string, agentDefinitionKey = 'sourcing') {
+  return {
+    messageCommandKey,
+    inputHash: canonicalOwnerInputHash({ agentDefinitionKey, prompt }),
+  };
+}
+
 function version(overrides: Partial<AgentVersionFixture> = {}): AgentVersionFixture {
   return {
     id: '618f4eb1-9078-7a1e-9514-b19b5732f5de',
@@ -628,4 +921,12 @@ function version(overrides: Partial<AgentVersionFixture> = {}): AgentVersionFixt
     instructionProfileRef: 'agent-config/prompts/agents/operator.md',
     ...overrides,
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }

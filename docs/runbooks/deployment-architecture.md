@@ -78,6 +78,13 @@ credentials. PostgreSQL owns durable Task/Attempt and mutation authority;
 Runner lease/command/event/token state and CLI processes remain ephemeral and
 never resume after restart.
 
+Codex and Claude run non-interactively with trusted full access within the
+dedicated non-administrator account's OS permissions. This is deliberately not
+a hostile same-account containment boundary: the account contains only provider
+login and Runner control material, never DB, Nest, business-provider, or
+unrelated credentials. Runner bearer authentication still protects the
+loopback control boundary from LAN, other-user, and accidental callers.
+
 Office publishes the Nest port only as `127.0.0.1:4000:4000`. Public API routes
 remain under `/api/*`; Host Runner and CLI traffic uses the sibling
 `/internal/agent-runtime/*` namespace on the same loopback port. The nginx edge

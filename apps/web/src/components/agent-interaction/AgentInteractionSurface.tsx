@@ -12,8 +12,8 @@ import type { DurableWorkAdmission } from './useAgentInteraction';
 
 /**
  * Durable Work renderer. The interaction UI Module owns context, session
- * coordination, projection, and Agent Work actions; CopilotKit stays a local
- * Adapter for future-only in-memory messages.
+ * coordination, durable fact view, and Agent Work actions; CopilotKit stays a local
+ * Adapter for live in-memory messages while an Attempt is running.
  */
 export function AgentInteractionSurface({
   surface = 'global_panel',
@@ -64,7 +64,7 @@ export function AgentInteractionSurface({
       {interaction.sessionId ? (
         <>
           {liveAgentDefinitionKey ? (
-            <LiveFutureAgent
+            <LiveAttemptAgent
               key={`${interaction.sessionId}:${liveAgentDefinitionKey}`}
               threadId={interaction.sessionId}
             agentDefinitionKey={liveAgentDefinitionKey}
@@ -120,13 +120,13 @@ export function AgentInteractionSurface({
           ) : null}
         </div>
       ) : null}
-      {interaction.projectionError ? (
+      {interaction.workViewError ? (
         <div role="alert" className="rounded border border-destructive/40 p-2 text-sm text-destructive">
-          {interaction.projectionError}
+          {interaction.workViewError}
         </div>
       ) : null}
       <AgentInteractionTaskList
-        tasks={interaction.projection?.tasks ?? []}
+        tasks={interaction.workView?.tasks ?? []}
         onContinue={interaction.continueTask}
         onReopen={interaction.reopenTask}
         onInterrupt={interaction.interruptTask}
@@ -137,7 +137,7 @@ export function AgentInteractionSurface({
   );
 }
 
-function LiveFutureAgent({
+function LiveAttemptAgent({
   threadId,
   agentDefinitionKey,
   queuedPrompt,
@@ -236,7 +236,7 @@ function durableWorkAdmission(event: unknown): DurableWorkAdmission | null {
   if (!isRecord(value)) return null;
   const kind = value.kind;
   if (
-    (kind !== 'live_input' && kind !== 'root' && kind !== 'successor')
+    (kind !== 'live_input' && kind !== 'root')
     || typeof value.sessionId !== 'string'
     || typeof value.taskId !== 'string'
     || typeof value.attemptId !== 'string'

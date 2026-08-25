@@ -398,7 +398,7 @@ describe('RunnerReadinessService', () => {
       mcpProtocolRevision: '2026-07-28',
       runtimes: {
         codex_cli: { version: '0.149.1', loginVerified: true, nonPersistentSettingsVerified: true },
-        claude_cli: { version: '2.1.241', loginVerified: true, nonPersistentSettingsVerified: true },
+        claude_cli: { version: '2.1.245', loginVerified: true, nonPersistentSettingsVerified: true },
       },
     });
     expect(JSON.stringify(facts)).not.toMatch(/token|path|credential/i);
@@ -492,7 +492,7 @@ function hello() {
     cliContractIdentity: 'office-cli-contract-v2' as const,
     runtimes: {
       codex_cli: { version: '0.149.1' as const, loginVerified: true as const, nonPersistentSettingsVerified: true as const },
-      claude_cli: { version: '2.1.241' as const, loginVerified: true as const, nonPersistentSettingsVerified: true as const },
+      claude_cli: { version: '2.1.245' as const, loginVerified: true as const, nonPersistentSettingsVerified: true as const },
     },
   };
 }

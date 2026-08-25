@@ -63,14 +63,14 @@ export async function runNativeAgentRunner(argv: readonly string[]): Promise<nev
 }
 
 type RuntimeReadiness<T extends AgentCliRuntime> = Readonly<{
-  version: T extends 'codex_cli' ? '0.149.1' : '2.1.241';
+  version: T extends 'codex_cli' ? '0.149.1' : '2.1.245';
   loginVerified: true;
   nonPersistentSettingsVerified: true;
 }>;
 
 export async function verifyRunnerReadiness(input: Readonly<{ runtimeRoot: string; loginRoot: string; platform: 'macos' | 'windows' }>): Promise<{
   codex_cli: { version: '0.149.1'; loginVerified: true; nonPersistentSettingsVerified: true };
-  claude_cli: { version: '2.1.241'; loginVerified: true; nonPersistentSettingsVerified: true };
+  claude_cli: { version: '2.1.245'; loginVerified: true; nonPersistentSettingsVerified: true };
 }> {
   const [codex_cli, claude_cli] = await Promise.all([
     verifyRunnerRuntimeReadiness({ ...input, runtime: 'codex_cli' }),

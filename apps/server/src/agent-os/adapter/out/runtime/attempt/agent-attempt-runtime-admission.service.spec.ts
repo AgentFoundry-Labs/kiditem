@@ -11,7 +11,7 @@ describe('AgentAttemptRuntimeAdmissionService', () => {
     expect(readiness.assertRuntime).toHaveBeenCalledWith('codex_cli', 'gpt-5', `1.2.3:${'a'.repeat(40)}`);
   });
 
-  it('preflights a successor against an activated retired Task snapshot', async () => {
+  it('preflights explicit Continue against an activated retired Task snapshot', async () => {
     const taskFindFirst = vi.fn().mockResolvedValue({
       assignedAgentVersion: {
         runtimeType: 'codex_cli',
@@ -36,6 +36,54 @@ describe('AgentAttemptRuntimeAdmissionService', () => {
     expect(readiness.assertRuntime).toHaveBeenCalledWith(
       'codex_cli',
       'exact-model',
+      `1.2.3:${'a'.repeat(40)}`,
+    );
+  });
+
+  it('preflights an exact delegation replay against its pinned child version after that version retires', async () => {
+    const taskFindFirst = vi.fn().mockResolvedValue({
+      delegationRequestHash: 'd'.repeat(64),
+      assignedAgentVersion: {
+        runtimeType: 'claude_cli',
+        activatedAt: new Date(),
+        retiredAt: new Date(),
+      },
+    });
+    const versionFindFirst = vi.fn().mockResolvedValue(null);
+    const readiness = { assertRuntime: vi.fn(async () => undefined) };
+    const service = new AgentAttemptRuntimeAdmissionService({
+      agentTask: { findFirst: taskFindFirst },
+      agentVersion: { findFirst: versionFindFirst },
+    } as never, readiness as never);
+    const input = {
+      organizationId: 'org',
+      sessionId: 'session',
+      parentTaskId: 'parent-task',
+      delegatingAttemptId: 'parent-attempt',
+      requestedByUserId: 'user',
+      targetAgentVersionId: 'retired-target-version',
+      idempotencyKey: 'delegation-key',
+      requestHash: 'd'.repeat(64),
+      applicationVersion: '1.2.3',
+      authorizingGitSha: 'a'.repeat(40),
+      reportedModel: 'claude-pinned',
+    };
+
+    await expect(service.assertDelegation(input as never)).resolves.toBeUndefined();
+
+    expect(taskFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        organizationId: 'org',
+        sessionId: 'session',
+        parentTaskId: 'parent-task',
+        delegatedFromAttemptId: 'parent-attempt',
+        delegationIdempotencyKey: 'delegation-key',
+      },
+    }));
+    expect(versionFindFirst).not.toHaveBeenCalled();
+    expect(readiness.assertRuntime).toHaveBeenCalledWith(
+      'claude_cli',
+      'claude-pinned',
       `1.2.3:${'a'.repeat(40)}`,
     );
   });

@@ -90,7 +90,7 @@ function New-FixtureRunnerArtifact {
   New-Item -ItemType Directory -Path (Join-Path $packageRoot 'node_modules\@anthropic-ai\claude-code') -Force | Out-Null
   Set-Content -LiteralPath (Join-Path $packageRoot 'dist\main.cjs') -Value 'trusted cached-release fixture' -NoNewline
   Set-Content -LiteralPath (Join-Path $packageRoot 'node_modules\@openai\codex\package.json') -Value '{"version":"0.149.1"}' -NoNewline
-  Set-Content -LiteralPath (Join-Path $packageRoot 'node_modules\@anthropic-ai\claude-code\package.json') -Value '{"version":"2.1.241"}' -NoNewline
+  Set-Content -LiteralPath (Join-Path $packageRoot 'node_modules\@anthropic-ai\claude-code\package.json') -Value '{"version":"2.1.245"}' -NoNewline
 
   $tgz = Join-Path $Root 'agent-runner.tgz'
   & tar.exe -czf $tgz -C $payloadRoot package
@@ -342,7 +342,7 @@ try {
         cliContractIdentity = 'office-cli-contract-v2'
         mcpProtocolRevision = '2026-07-28'
         codexVersion = '0.149.1'
-        claudeVersion = '2.1.241'
+        claudeVersion = '2.1.245'
       }
       createdAt = '2026-08-25T00:00:00Z'
       workflowRunUrl = 'https://github.com/agentfoundry-labs/kiditem/actions/runs/123'

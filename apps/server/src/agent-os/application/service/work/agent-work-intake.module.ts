@@ -1,4 +1,5 @@
 import { attemptRuntimeVersion } from '@kiditem/shared/agent-runtime';
+import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import { AGENT_DEFINITIONS } from '../../../domain/agent-definition.registry';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
 import {
@@ -14,7 +15,7 @@ import type {
 import type {
   AgentWorkCommandPort,
 } from '../../port/in/work/agent-work-command.port';
-import type { LiveAttemptFutureOutputCapabilityPort } from '../../port/in/capability/live-attempt-future-output.capability.port';
+import type { LiveAttemptOutputCapabilityPort } from '../../port/in/capability/live-attempt-output.capability.port';
 import type {
   AgentWorkQueryPort,
 } from '../../port/in/work/agent-work-query.port';
@@ -47,12 +48,30 @@ type AgentLiveMessageSender = Readonly<{
 }>;
 
 type ThreadContinuation = NonNullable<Awaited<ReturnType<AgentWorkQueryPort['threadContinuation']>>>;
+type ThreadInput = Readonly<{
+  principal: AgentWorkIntakePrincipal;
+  sessionId: string;
+  agentDefinitionKey: string;
+  prompt: string;
+  messageCommandKey: string;
+  output: AgentWorkIntakeOutput;
+}>;
+type RootAdmissionReceipt = NonNullable<ThreadContinuation['rootAdmission']>;
+
+const MAX_IN_FLIGHT_ROOT_THREADS = 256;
+
+type InFlightRootThread = Readonly<{
+  inputHash: string;
+  promise: Promise<AgentWorkThreadAdmission>;
+}>;
 
 /**
  * A deep application Module, not a Nest module. Incoming Adapters provide a
  * principal and coordinate; this Module retains all Agent Work intake policy.
  */
 export class AgentWorkIntakeModule implements AgentWorkIntakePort {
+  private readonly rootThreadAdmissions = new Map<string, InFlightRootThread>();
+
   constructor(
     private readonly queries: Pick<
       AgentWorkQueryPort,
@@ -62,7 +81,7 @@ export class AgentWorkIntakeModule implements AgentWorkIntakePort {
     private readonly launch: AgentAttemptLaunchCapabilityPort,
     private readonly environment: NodeJS.ProcessEnv,
     private readonly liveMessages: AgentLiveMessageSender,
-    private readonly futureOutput: Pick<LiveAttemptFutureOutputCapabilityPort, 'bind'>,
+    private readonly liveOutput: Pick<LiveAttemptOutputCapabilityPort, 'bind' | 'closeUnboundOutput'>,
   ) {}
 
   async startRoot(input: {
@@ -138,21 +157,43 @@ export class AgentWorkIntakeModule implements AgentWorkIntakePort {
     return admitted;
   }
 
-  async startThread(input: {
-    principal: AgentWorkIntakePrincipal;
-    sessionId: string;
-    agentDefinitionKey: string;
-    prompt: string;
-    messageCommandKey: string;
-    output: AgentWorkIntakeOutput;
-  }): Promise<AgentWorkThreadAdmission> {
+  async startThread(input: ThreadInput): Promise<AgentWorkThreadAdmission> {
     const agentDefinitionKey = this.supportedAgentDefinition(input.agentDefinitionKey);
+    const rootReceipt = rootAdmissionReceipt(input, agentDefinitionKey);
+    const key = rootThreadAdmissionKey(input);
+    const existing = this.rootThreadAdmissions.get(key);
+    if (existing) {
+      if (existing.inputHash !== rootReceipt.inputHash) {
+        return Promise.reject(new AgentWorkIntakeError('root_admission_replay_conflict'));
+      }
+      return existing.promise.then(() => this.rebindCoalescedRoot(input, agentDefinitionKey, rootReceipt));
+    }
+    if (this.rootThreadAdmissions.size >= MAX_IN_FLIGHT_ROOT_THREADS) {
+      return Promise.reject(new AgentWorkIntakeError('root_admission_in_flight_limit'));
+    }
+    let admission!: Promise<AgentWorkThreadAdmission>;
+    admission = Promise.resolve()
+      .then(() => this.startThreadOnce(input, agentDefinitionKey, rootReceipt))
+      .finally(() => {
+        if (this.rootThreadAdmissions.get(key)?.promise === admission) {
+          this.rootThreadAdmissions.delete(key);
+        }
+      });
+    this.rootThreadAdmissions.set(key, { inputHash: rootReceipt.inputHash, promise: admission });
+    return admission;
+  }
+
+  private async startThreadOnce(
+    input: ThreadInput,
+    agentDefinitionKey: string,
+    rootReceipt: Pick<RootAdmissionReceipt, 'messageCommandKey' | 'inputHash'>,
+  ): Promise<AgentWorkThreadAdmission> {
     const existing = await this.queries.threadContinuation({
       organizationId: input.principal.organizationId,
       userId: input.principal.userId,
       sessionId: input.sessionId,
     });
-    if (existing) return this.submitExistingThread(input, agentDefinitionKey, existing);
+    if (existing) return this.resolveThreadAdmission(input, agentDefinitionKey, existing, rootReceipt);
 
     try {
       const rootContext = await this.activeLaunchContext(agentDefinitionKey);
@@ -163,7 +204,7 @@ export class AgentWorkIntakeModule implements AgentWorkIntakePort {
         objective: input.prompt,
         completionCriteria: 'Provide a concise durable result.',
         inputResourceRefs: [],
-        input: { prompt: input.prompt },
+        input: { prompt: input.prompt, rootAdmission: rootReceipt },
         sessionId: input.sessionId,
         applicationVersion: rootContext.applicationVersion,
         authorizingGitSha: rootContext.authorizingGitSha,
@@ -193,22 +234,66 @@ export class AgentWorkIntakeModule implements AgentWorkIntakePort {
         sessionId: input.sessionId,
       });
       if (!predecessor) throw error;
-      return this.submitExistingThread(input, agentDefinitionKey, predecessor);
+      return this.resolveThreadAdmission(input, agentDefinitionKey, predecessor, rootReceipt, error);
     }
   }
 
-  private async submitExistingThread(
-    input: {
-      principal: AgentWorkIntakePrincipal;
-      sessionId: string;
-      agentDefinitionKey: string;
-      prompt: string;
-      messageCommandKey: string;
-      output: AgentWorkIntakeOutput;
-    },
+  private async rebindCoalescedRoot(
+    input: ThreadInput,
+    agentDefinitionKey: string,
+    rootReceipt: Pick<RootAdmissionReceipt, 'messageCommandKey' | 'inputHash'>,
+  ): Promise<AgentWorkThreadAdmission> {
+    const predecessor = await this.queries.threadContinuation({
+      organizationId: input.principal.organizationId,
+      userId: input.principal.userId,
+      sessionId: input.sessionId,
+    });
+    if (!predecessor) throw new AgentWorkIntakeError('root_admission_replay_missing');
+    return this.resolveThreadAdmission(input, agentDefinitionKey, predecessor, rootReceipt);
+  }
+
+  private async resolveThreadAdmission(
+    input: ThreadInput,
     agentDefinitionKey: string,
     predecessor: ThreadContinuation,
-    recoverStaleLiveAttempt = true,
+    rootReceipt: Pick<RootAdmissionReceipt, 'messageCommandKey' | 'inputHash'>,
+    rootCollision?: AgentOsRuntimeError,
+  ): Promise<AgentWorkThreadAdmission> {
+    const durableRoot = predecessor.rootAdmission;
+    if (durableRoot?.messageCommandKey === rootReceipt.messageCommandKey) {
+      if (
+        durableRoot.inputHash !== rootReceipt.inputHash
+        || predecessor.agentDefinitionKey !== agentDefinitionKey
+      ) throw new AgentWorkIntakeError('root_admission_replay_conflict');
+      return this.rebindRootAdmission(input, durableRoot);
+    }
+    // A collision without a readable receipt cannot prove that the initial
+    // prompt was not already admitted. Do not turn it into a live command.
+    if (rootCollision && !durableRoot) throw rootCollision;
+    return this.submitExistingThread(input, agentDefinitionKey, predecessor);
+  }
+
+  private rebindRootAdmission(
+    input: ThreadInput,
+    rootAdmission: RootAdmissionReceipt,
+  ): AgentWorkThreadAdmission {
+    if (rootAdmission.terminal) {
+      this.liveOutput.closeUnboundOutput(input.output);
+    } else {
+      this.liveOutput.bind({ attemptId: rootAdmission.attemptId, ...input.output });
+    }
+    return {
+      kind: 'root',
+      attemptId: rootAdmission.attemptId,
+      sessionId: input.sessionId,
+      taskId: rootAdmission.taskId,
+    };
+  }
+
+  private async submitExistingThread(
+    input: ThreadInput,
+    agentDefinitionKey: string,
+    predecessor: ThreadContinuation,
   ): Promise<AgentWorkThreadAdmission> {
     if (predecessor.agentDefinitionKey !== agentDefinitionKey) {
       throw new AgentWorkIntakeError('agent_thread_agent_mismatch');
@@ -228,17 +313,17 @@ export class AgentWorkIntakeModule implements AgentWorkIntakePort {
         });
       } catch (error) {
         // A terminal event may win between the authoritative read and the
-        // Runner queue admission. Re-read once: a newly terminal predecessor
-        // follows the normal immutable-successor path; a different live
-        // Attempt is never sent a duplicate instruction speculatively.
-        if (recoverStaleLiveAttempt && error instanceof AgentOsRuntimeError && error.code === 'attempt_not_live') {
+        // Runner queue admission. Re-read once only to report that durable
+        // terminal fact; a browser message never creates a new Attempt.
+        if (error instanceof AgentOsRuntimeError && error.code === 'attempt_not_live') {
           const latest = await this.queries.threadContinuation({
             organizationId: input.principal.organizationId,
             userId: input.principal.userId,
             sessionId: input.sessionId,
           });
           if (latest?.terminal) {
-            return this.submitExistingThread(input, agentDefinitionKey, latest, false);
+            this.liveOutput.closeUnboundOutput(input.output);
+            throw new AgentWorkIntakeError('agent_thread_terminal');
           }
         }
         throw error;
@@ -246,8 +331,8 @@ export class AgentWorkIntakeModule implements AgentWorkIntakePort {
       // Rebind only after enqueue ACK. If a terminal event won this narrow
       // interval, the channel closes the pending stream instead. The input
       // remains its original live admission: it may already have reached the
-      // Runner, so creating a successor here would duplicate user work.
-      this.futureOutput.bind({
+      // Runner, so creating another Attempt here would duplicate user work.
+      this.liveOutput.bind({
         attemptId: predecessor.predecessorAttemptId,
         threadId: input.output.threadId,
         runId: input.output.runId,
@@ -259,43 +344,8 @@ export class AgentWorkIntakeModule implements AgentWorkIntakePort {
         taskId: predecessor.taskId,
       };
     }
-
-    const successorContext = await this.taskLaunchContext(input.principal, input.sessionId, predecessor.taskId);
-    const continuation = await this.queries.continuationContext({
-      organizationId: input.principal.organizationId,
-      userId: input.principal.userId,
-      sessionId: input.sessionId,
-      taskId: predecessor.taskId,
-      prompt: input.prompt,
-    });
-    const admitted = await this.commands.followUp({
-        organizationId: input.principal.organizationId,
-        sessionId: input.sessionId,
-        taskId: predecessor.taskId,
-        requestedByUserId: input.principal.userId,
-        predecessorAttemptId: predecessor.predecessorAttemptId,
-        intent: 'follow_up',
-        input: continuation.input,
-        applicationVersion: successorContext.applicationVersion,
-        authorizingGitSha: successorContext.authorizingGitSha,
-        cliVersion: successorContext.cliVersion,
-        reportedModel: successorContext.profile.model,
-      });
-    await this.launchAttempt({
-      context: successorContext,
-      attemptId: admitted.attemptId,
-      sessionId: admitted.sessionId,
-      taskId: admitted.taskId,
-      principal: input.principal,
-      prompt: continuation.prompt,
-      output: input.output,
-    });
-    return {
-      kind: 'successor',
-      attemptId: admitted.attemptId,
-      sessionId: admitted.sessionId,
-      taskId: admitted.taskId,
-    };
+    this.liveOutput.closeUnboundOutput(input.output);
+    throw new AgentWorkIntakeError('agent_thread_terminal');
   }
 
   private async activeLaunchContext(agentDefinitionKey: string): Promise<LaunchContext> {
@@ -378,9 +428,9 @@ export function createAgentWorkIntake(
   commands: AgentWorkCommandPort,
   launch: AgentAttemptLaunchCapabilityPort,
   liveMessages: AgentLiveMessageSender,
-  futureOutput: Pick<LiveAttemptFutureOutputCapabilityPort, 'bind'>,
+  liveOutput: Pick<LiveAttemptOutputCapabilityPort, 'bind' | 'closeUnboundOutput'>,
 ): AgentWorkIntakePort {
-  return new AgentWorkIntakeModule(queries, commands, launch, process.env, liveMessages, futureOutput);
+  return new AgentWorkIntakeModule(queries, commands, launch, process.env, liveMessages, liveOutput);
 }
 
 function requiredEnvironment(environment: NodeJS.ProcessEnv, name: string): string {
@@ -396,4 +446,23 @@ function supportedRuntime(value: string): 'codex_cli' | 'claude_cli' {
 
 function capabilityKeys(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((key): key is string => typeof key === 'string') : [];
+}
+
+function rootAdmissionReceipt(
+  input: Pick<ThreadInput, 'messageCommandKey' | 'prompt'>,
+  agentDefinitionKey: string,
+): Pick<RootAdmissionReceipt, 'messageCommandKey' | 'inputHash'> {
+  return {
+    messageCommandKey: input.messageCommandKey,
+    inputHash: canonicalOwnerInputHash({ agentDefinitionKey, prompt: input.prompt }),
+  };
+}
+
+function rootThreadAdmissionKey(input: ThreadInput): string {
+  return [
+    input.principal.organizationId,
+    input.principal.userId,
+    input.sessionId,
+    input.messageCommandKey,
+  ].join('\u0000');
 }

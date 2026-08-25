@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { EventType } from '@ag-ui/core';
 import { firstValueFrom, toArray } from 'rxjs';
-import { AttemptFutureOutputChannel } from './attempt-future-output-channel';
+import { LiveAttemptOutputChannel } from './live-attempt-output-channel';
 
-describe('AttemptFutureOutputChannel', () => {
+describe('LiveAttemptOutputChannel', () => {
   it('binds the exact thread/run to an Attempt for a later HTTP stop request', () => {
-    const channel = new AttemptFutureOutputChannel();
+    const channel = new LiveAttemptOutputChannel();
 
     channel.bind({ attemptId: 'attempt-1', threadId: 'thread-1', runId: 'run-1' });
 
@@ -14,32 +14,32 @@ describe('AttemptFutureOutputChannel', () => {
   });
 
   it('emits one bounded RUN_ERROR terminal on failure and never replays it', async () => {
-    const channel = new AttemptFutureOutputChannel();
+    const channel = new LiveAttemptOutputChannel();
     channel.bind({ attemptId: 'attempt-1', threadId: 'thread-1', runId: 'run-1' });
-    const received = firstValueFrom(channel.future({ threadId: 'thread-1', runId: 'run-1' }).pipe(toArray()));
+    const received = firstValueFrom(channel.stream({ threadId: 'thread-1', runId: 'run-1' }).pipe(toArray()));
 
     channel.finish({ attemptId: 'attempt-1', outcome: 'failed', summary: 'bounded failure' });
 
     const events = await received;
     expect(events.map((event) => event.type)).toEqual([EventType.RUN_ERROR]);
     expect(events[0]).toMatchObject({ message: 'bounded failure', code: 'attempt_failed' });
-    await expect(firstValueFrom(channel.future({ threadId: 'thread-1', runId: 'run-1' }))).rejects.toThrow();
+    await expect(firstValueFrom(channel.stream({ threadId: 'thread-1', runId: 'run-1' }))).rejects.toThrow();
   });
 
   it('does not cancel a bound Attempt when a subscriber disconnects', () => {
-    const channel = new AttemptFutureOutputChannel();
+    const channel = new LiveAttemptOutputChannel();
     channel.bind({ attemptId: 'attempt-1', threadId: 'thread-1', runId: 'run-1' });
-    const subscription = channel.future({ threadId: 'thread-1', runId: 'run-1' }).subscribe();
+    const subscription = channel.stream({ threadId: 'thread-1', runId: 'run-1' }).subscribe();
 
     subscription.unsubscribe();
 
     expect(channel.attemptId({ threadId: 'thread-1', runId: 'run-1' })).toBe('attempt-1');
   });
 
-  it('emits bounded future-only live output before its terminal run event', async () => {
-    const channel = new AttemptFutureOutputChannel();
+  it('emits bounded live output before its terminal run event', async () => {
+    const channel = new LiveAttemptOutputChannel();
     channel.bind({ attemptId: 'attempt-1', threadId: 'thread-1', runId: 'run-1' });
-    const received = firstValueFrom(channel.future({ threadId: 'thread-1', runId: 'run-1' }).pipe(toArray()));
+    const received = firstValueFrom(channel.stream({ threadId: 'thread-1', runId: 'run-1' }).pipe(toArray()));
 
     channel.publish({ attemptId: 'attempt-1', output: 'live delta' });
     channel.finish({ attemptId: 'attempt-1', outcome: 'completed' });
@@ -55,21 +55,21 @@ describe('AttemptFutureOutputChannel', () => {
   });
 
   it('atomically moves one live Attempt to a replacement Copilot run, closes the old run, and never duplicates its output', () => {
-    const channel = new AttemptFutureOutputChannel();
+    const channel = new LiveAttemptOutputChannel();
     const oldEvents: unknown[] = [];
     const nextEvents: unknown[] = [];
     let oldCompleted = false;
     let nextCompleted = false;
 
     channel.bind({ attemptId: 'attempt-1', threadId: 'thread-1', runId: 'run-1' });
-    channel.future({ threadId: 'thread-1', runId: 'run-1' }).subscribe({
+    channel.stream({ threadId: 'thread-1', runId: 'run-1' }).subscribe({
       next: (event) => oldEvents.push(event),
       complete: () => { oldCompleted = true; },
     });
     channel.publish({ attemptId: 'attempt-1', output: 'first response' });
 
     channel.bind({ attemptId: 'attempt-1', threadId: 'thread-1', runId: 'run-2' });
-    channel.future({ threadId: 'thread-1', runId: 'run-2' }).subscribe({
+    channel.stream({ threadId: 'thread-1', runId: 'run-2' }).subscribe({
       next: (event) => nextEvents.push(event),
       complete: () => { nextCompleted = true; },
     });
@@ -97,11 +97,11 @@ describe('AttemptFutureOutputChannel', () => {
   });
 
   it('rejects and closes a late coordinate after the Attempt terminalizes so an intake rebind cannot hang SSE', () => {
-    const channel = new AttemptFutureOutputChannel();
+    const channel = new LiveAttemptOutputChannel();
     const lateEvents: unknown[] = [];
     let lateCompleted = false;
 
-    channel.future({ threadId: 'thread-1', runId: 'late-run' }).subscribe({
+    channel.stream({ threadId: 'thread-1', runId: 'late-run' }).subscribe({
       next: (event) => lateEvents.push(event),
       complete: () => { lateCompleted = true; },
     });
@@ -114,5 +114,22 @@ describe('AttemptFutureOutputChannel', () => {
     expect(channel.current('thread-1')).toBeNull();
     expect(channel.attemptId({ threadId: 'thread-1', runId: 'late-run' })).toBeNull();
     expect((channel as unknown as { streams: Map<string, unknown> }).streams.has('thread-1\u0000late-run')).toBe(false);
+  });
+
+  it('closes an unbound retry coordinate without disturbing a mapped live Attempt', () => {
+    const channel = new LiveAttemptOutputChannel();
+    let retryCompleted = false;
+
+    channel.bind({ attemptId: 'attempt-1', threadId: 'thread-1', runId: 'live-run' });
+    channel.stream({ threadId: 'thread-1', runId: 'retry-run' }).subscribe({
+      complete: () => { retryCompleted = true; },
+    });
+
+    channel.closeUnboundOutput({ threadId: 'thread-1', runId: 'retry-run' });
+    channel.closeUnboundOutput({ threadId: 'thread-1', runId: 'live-run' });
+
+    expect(retryCompleted).toBe(true);
+    expect(channel.attemptId({ threadId: 'thread-1', runId: 'retry-run' })).toBeNull();
+    expect(channel.attemptId({ threadId: 'thread-1', runId: 'live-run' })).toBe('attempt-1');
   });
 });

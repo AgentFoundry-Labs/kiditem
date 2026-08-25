@@ -59,20 +59,19 @@ describe('buildClaudeCommand', () => {
     }, paths, '/opt/kiditem-runner')).toThrow('provider_user_identity_required');
   });
 
-  it('allows native Agent subagents and exactly the scoped KidItem MCP tools, without shell or browser tools', () => {
+  it('uses the bundled full-access bypass mode without restricting built-in tools to the MCP catalog', () => {
     const command = buildClaudeCommand({ attemptId: '33333333-3333-4333-8333-333333333333', runtime: 'claude_cli', model: 'claude-sonnet', prompt: 'secret prompt', timeoutMs: 10_000, workspacePolicy: 'empty_ephemeral_v1', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/attempts/33333333-3333-4333-8333-333333333333/mcp', attemptToken: 'A'.repeat(43), mcpToolScope: 'business', mcpProtocolRevision: '2026-07-28', cliContractIdentity: 'office-cli-contract-v2' }, { root: '/tmp/a', workspace: '/tmp/a/workspace', home: '/tmp/a/home', codexHome: '/tmp/a/codex', claudeConfigDir: '/tmp/a/claude', mcpConfigPath: '/tmp/a/mcp.json', codexConfigPath: '/tmp/a/codex.toml' }, '/opt/kiditem-runner');
-    const tools = command.args[command.args.indexOf('--tools') + 1]!.split(',');
-    const allowed = command.args[command.args.indexOf('--allowedTools') + 1]!.split(',');
 
-    expect(tools).toHaveLength(12);
-    expect(tools[0]).toBe('Agent');
-    expect(allowed).toEqual(tools);
-    expect(tools).not.toContain('Bash');
-    expect(tools).not.toContain('browser');
-    expect(tools.filter((tool) => tool.startsWith('mcp__kiditem_attempt__'))).toHaveLength(11);
+    expect(command.args).toEqual(expect.arrayContaining([
+      '--permission-mode', 'bypassPermissions', '--allow-dangerously-skip-permissions',
+      '--no-session-persistence', '--strict-mcp-config', '--disable-slash-commands',
+    ]));
+    expect(command.args).not.toContain('--tools');
+    expect(command.args).not.toContain('--allowedTools');
+    expect(command.args).not.toContain('dontAsk');
   });
 
-  it('allows exactly the scoped readiness canary tool and none of the business surface', () => {
+  it('keeps the same trusted full-access command for readiness while the request-scoped MCP server narrows its tools', () => {
     const launch = {
       attemptId: '33333333-3333-4333-8333-333333333333', runtime: 'claude_cli', model: 'claude-sonnet', prompt: 'readiness probe', timeoutMs: 10_000,
       workspacePolicy: 'empty_ephemeral_v1', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/attempts/33333333-3333-4333-8333-333333333333/mcp',
@@ -80,18 +79,19 @@ describe('buildClaudeCommand', () => {
       mcpToolScope: 'readiness_canary', readinessProbeNonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505',
     };
     const command = buildClaudeCommand(launch, { root: '/tmp/a', workspace: '/tmp/a/workspace', home: '/tmp/a/home', codexHome: '/tmp/a/codex', claudeConfigDir: '/tmp/a/claude', mcpConfigPath: '/tmp/a/mcp.json', codexConfigPath: '/tmp/a/codex.toml' }, '/opt/kiditem-runner');
-    const tools = command.args[command.args.indexOf('--tools') + 1]!.split(',');
-    const allowed = command.args[command.args.indexOf('--allowedTools') + 1]!.split(',');
 
-    expect(tools).toEqual(['mcp__kiditem_attempt__readiness_probe']);
-    expect(allowed).toEqual(tools);
-    expect(tools).not.toContain('Agent');
-    expect(tools.filter((tool) => tool.startsWith('mcp__kiditem_attempt__'))).toHaveLength(1);
+    expect(command.args).toEqual(expect.arrayContaining(['--permission-mode', 'bypassPermissions', '--allow-dangerously-skip-permissions']));
+    expect(command.args).not.toContain('--tools');
+    expect(command.args).not.toContain('--allowedTools');
   });
 
-  it('the installed 2.1.241 parser recognizes the stream-json verbose contract before any provider request', async () => {
+  it('the installed 2.1.245 parser recognizes the non-persistent full-access stream-json contract before any provider request', async () => {
     const executable = bundledProviderEntrypoint(resolve(process.cwd(), '../..'), 'claude');
-    const child = spawn(executable, ['--print', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--help'], {
+    const child = spawn(executable, [
+      '--print', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
+      '--no-session-persistence', '--strict-mcp-config', '--allow-dangerously-skip-permissions', '--permission-mode', 'bypassPermissions',
+      '--help',
+    ], {
       stdio: ['ignore', 'ignore', 'ignore'],
     });
     const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];

@@ -94,7 +94,7 @@ function codexMcpConfig(url: string): string {
     'history.persistence = "none"',
     'web_search = "disabled"',
     'approval_policy = "never"',
-    'default_permissions = ":workspace"',
+    'default_permissions = ":danger-full-access"',
     '',
     '[shell_environment_policy]',
     'exclude = ["KIDITEM_ATTEMPT_MCP_TOKEN"]',

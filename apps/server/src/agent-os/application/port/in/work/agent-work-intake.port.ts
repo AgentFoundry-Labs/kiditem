@@ -21,7 +21,7 @@ export type AgentWorkIntakeOutput = Readonly<{
  * is the durable evidence that the browser can reconcile after its ACK.
  */
 export type AgentWorkThreadAdmission = Readonly<{
-  kind: 'root' | 'successor' | 'live_input';
+  kind: 'root' | 'live_input';
   sessionId: string;
   taskId: string;
   attemptId: string;
@@ -37,7 +37,7 @@ export class AgentWorkIntakeError extends Error {
 
 /**
  * Deep Agent Work intake Module seam. It owns version/config resolution,
- * durable admission, immutable successor selection, and launch finalization.
+ * durable admission, explicit Continue selection, and launch finalization.
  */
 export interface AgentWorkIntakePort {
   startRoot(input: {

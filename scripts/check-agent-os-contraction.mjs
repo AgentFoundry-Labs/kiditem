@@ -4,6 +4,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
+const IGNORED_PRODUCTION_DIRECTORIES = new Set([
+  "__tests__",
+  "node_modules",
+  "dist",
+  "coverage",
+  ".next",
+]);
+
 export function productionFiles(directory) {
   if (!existsSync(directory)) return [];
   if (statSync(directory).isFile()) {
@@ -16,7 +24,9 @@ export function productionFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const absolute = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      return entry.name === "__tests__" ? [] : productionFiles(absolute);
+      return IGNORED_PRODUCTION_DIRECTORIES.has(entry.name)
+        ? []
+        : productionFiles(absolute);
     }
     return entry.isFile() &&
       /(?:\.(?:ts|tsx|mjs|prisma|json|conf|ya?ml|md)|\.env\.example|\.example)$/.test(

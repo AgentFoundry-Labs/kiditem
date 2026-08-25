@@ -172,7 +172,7 @@ jobs:
           New-Item -ItemType Directory -Path $verifyPackage | Out-Null
           tar -xf (Join-Path $verifyRoot 'agent-runner.tgz') -C $verifyRoot
           $runtimeContract = Get-Content -LiteralPath (Join-Path $verifyRoot 'runner-runtime-contract.json') -Raw | ConvertFrom-Json
-          if ($runtimeContract.platform -ne 'windows' -or $runtimeContract.nodeMajor -ne 22 -or $runtimeContract.codexVersion -ne '0.149.1' -or $runtimeContract.claudeVersion -ne '2.1.241' -or $runtimeContract.mcpProtocolRevision -ne '2026-07-28') { throw 'Runner runtime contract is invalid.' }
+          if ($runtimeContract.platform -ne 'windows' -or $runtimeContract.nodeMajor -ne 22 -or $runtimeContract.codexVersion -ne '0.149.1' -or $runtimeContract.claudeVersion -ne '2.1.245' -or $runtimeContract.mcpProtocolRevision -ne '2026-07-28') { throw 'Runner runtime contract is invalid.' }
           function Assert-BundledCliVersion {
             param(
               [Parameter(Mandatory = $true)][string]$Name,
@@ -193,7 +193,7 @@ jobs:
             if ($accepted -notcontains $boundedOutput) { throw "$Name version does not match the immutable Runner runtime contract." }
           }
           Assert-BundledCliVersion -Name Codex -Executable node -Arguments @((Join-Path $verifyPackage 'node_modules\\@openai\\codex\\bin\\codex.js'), '--version') -ExpectedVersion '0.149.1'
-          Assert-BundledCliVersion -Name Claude -Executable (Join-Path $verifyPackage 'node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe') -Arguments @('--version') -ExpectedVersion '2.1.241'
+          Assert-BundledCliVersion -Name Claude -Executable (Join-Path $verifyPackage 'node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe') -Arguments @('--version') -ExpectedVersion '2.1.245'
           # Run the unpacked Windows Job Object fixture: malformed structured
           # input must be rejected without ever creating a listener or shell.
           '{"unexpected":true}' | & (Join-Path $verifyRoot 'KidItem.JobRunner.exe')
@@ -259,7 +259,7 @@ jobs:
             .cliContractIdentity == "office-cli-contract-v2" and
             .mcpProtocolRevision == "2026-07-28" and
             .codexVersion == "0.149.1" and
-            .claudeVersion == "2.1.241"
+            .claudeVersion == "2.1.245"
           ' office-bundle/runner-runtime-contract.json >/dev/null
           jq -n \
             --arg gitSha "$GIT_SHA" \

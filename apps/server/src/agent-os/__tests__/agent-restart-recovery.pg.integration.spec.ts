@@ -106,7 +106,7 @@ describe('same-SHA Agent work restart recovery', () => {
     await expect(prisma.agentTask.findUnique({ where: { id: admitted.task.id }, select: { status: true } })).resolves.toEqual({ status: 'open' });
   });
 
-  it('continues from process interruption by admitting a new immutable Attempt instead of resuming provider state', async () => {
+  it('permits an explicit Continue after process interruption without resuming provider state', async () => {
     const admitted = await root();
     await prisma.agentAttempt.update({
       where: { id: admitted.attempt.id },
@@ -131,7 +131,7 @@ describe('same-SHA Agent work restart recovery', () => {
       cliVersion: '1.0.0',
       reportedModel: 'fresh-model-selection',
     });
-    const [predecessor, successor] = await Promise.all([
+    const [predecessor, continuedAttempt] = await Promise.all([
       prisma.agentAttempt.findUniqueOrThrow({
         where: { id: admitted.attempt.id },
         select: { id: true, status: true, inputTokens: true, outputTokens: true, finishedAt: true },
@@ -153,7 +153,7 @@ describe('same-SHA Agent work restart recovery', () => {
       outputTokens: 31,
       finishedAt: new Date('2030-01-01T00:00:02.000Z'),
     });
-    expect(successor).toEqual({
+    expect(continuedAttempt).toEqual({
       id: continued.attemptId,
       ordinal: 2,
       predecessorAttemptId: admitted.attempt.id,

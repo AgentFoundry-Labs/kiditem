@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { randomUUID } from 'node:crypto';
 import { z } from "zod";
@@ -12,7 +12,7 @@ import { AgentLiveMessageService } from "../application/service/work/agent-live-
 import { AgentCapabilityInvocationService } from "../application/service/work/agent-capability-invocation.service";
 import type { AgentWorkAdmissionPort } from "../application/port/out/work/agent-work-admission.port";
 import type { AgentWorkLifecyclePort } from "../application/port/out/work/agent-work-lifecycle.port";
-import { deriveOwnerIdempotencyKey } from '../../common/owner-idempotency-key';
+import { canonicalOwnerInputHash, deriveOwnerIdempotencyKey } from '../../common/owner-idempotency-key';
 
 const organizationId = "b1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
 const userId = "e1234567-89ab-4cde-8f01-23456789abc1";
@@ -34,6 +34,59 @@ const readyPreflight = {
   assertFollowUp: async () => undefined,
   assertDelegation: async () => undefined,
 };
+
+/**
+ * Places a real child Continue exactly after the repository has read the child
+ * Task and before it asks for the latest Attempt.  The wrapper is deliberately
+ * narrow: it only observes the two delegates used by delegation replay while
+ * the Continue itself uses the unwrapped Prisma-backed transaction.
+ */
+function replayReadClientWithConcurrentContinue(
+  onAfterChildRead: () => Promise<void>,
+): PrismaClient {
+  const state = { childRead: false, continued: false };
+
+  const decorate = (
+    client: Pick<PrismaClient, "agentTask" | "agentAttempt">,
+  ): Pick<PrismaClient, "agentTask" | "agentAttempt"> => ({
+    agentTask: {
+      findFirst: async (
+        ...args: Parameters<PrismaClient["agentTask"]["findFirst"]>
+      ) => {
+        const task = await client.agentTask.findFirst(...args);
+        state.childRead = true;
+        return task;
+      },
+    } as PrismaClient["agentTask"],
+    agentAttempt: {
+      findFirst: async (
+        ...args: Parameters<PrismaClient["agentAttempt"]["findFirst"]>
+      ) => {
+        if (state.childRead && !state.continued) {
+          state.continued = true;
+          await onAfterChildRead();
+        }
+        return client.agentAttempt.findFirst(...args);
+      },
+    } as PrismaClient["agentAttempt"],
+  });
+
+  const root = decorate(prisma);
+  return {
+    ...root,
+    $transaction: async <Result>(
+      callback: (tx: Prisma.TransactionClient) => Promise<Result>,
+      options?: {
+        maxWait?: number;
+        timeout?: number;
+        isolationLevel?: Prisma.TransactionIsolationLevel;
+      },
+    ) => prisma.$transaction(
+      (tx) => callback(decorate(tx) as Prisma.TransactionClient),
+      options,
+    ),
+  } as unknown as PrismaClient;
+}
 
 beforeAll(async () => {
   prisma = new PrismaClient({
@@ -261,6 +314,34 @@ describe("replacement Agent work transaction races", () => {
     expect(await prisma.agentAttempt.count({ where: { organizationId } })).toBe(5);
   });
 
+  it("matrix 2a: concurrent exact root admission shares one in-flight capacity slot", async () => {
+    const version = await createVersion();
+    const capacity = new AgentAttemptCapacityService(1);
+    const admissions = new AgentAttemptAdmissionService(capacity, work, readyPreflight);
+    const input = {
+      organizationId,
+      createdByUserId: userId,
+      assignedAgentVersionId: version.id,
+      objective: "One root despite transport retry",
+      completionCriteria: "One immutable root Attempt",
+      inputResourceRefs: [],
+      sessionId: randomUUID(),
+      ...snapshot,
+    };
+
+    const [first, second] = await Promise.all([
+      admissions.root(input),
+      admissions.root(input),
+    ]);
+
+    expect(second).toEqual(first);
+    await expect(prisma.agentTask.count({ where: { organizationId, sessionId: input.sessionId } }))
+      .resolves.toBe(1);
+    await expect(prisma.agentAttempt.count({ where: { organizationId, sessionId: input.sessionId } }))
+      .resolves.toBe(1);
+    admissions.releaseAttempt(first.attempt.id);
+  });
+
   it("matrix 3: concurrent admission service follow-ups have one winner and release the loser's provisional slot", async () => {
     const root = await terminalRoot();
     const capacity = new AgentAttemptCapacityService(2);
@@ -288,26 +369,44 @@ describe("replacement Agent work transaction races", () => {
   it("matrix 4: terminal follow-up semantics atomically reopen only the current predecessor", async () => {
     const root = await terminalRoot();
     let predecessorAttemptId = root.attempt.id;
+    await expect(work.admitAttempt({
+      organizationId,
+      sessionId: root.session.id,
+      taskId: root.task.id,
+      requestedByUserId: userId,
+      predecessorAttemptId,
+      intent: "reopen",
+      ...snapshot,
+    })).rejects.toMatchObject({ code: "task_not_open" });
     for (const status of ["completed", "failed"] as const) {
       await prisma.agentTask.update({
         where: { id: root.task.id },
         data: { status, finishedAt: new Date() },
       });
-      const successor = await work.admitAttempt({
+      await expect(work.admitAttempt({
         organizationId,
         sessionId: root.session.id,
         taskId: root.task.id,
         requestedByUserId: userId,
         predecessorAttemptId,
-        intent: status === "completed" ? "follow_up" : "retry",
+        intent: "reopen",
+        ...snapshot,
+      })).rejects.toMatchObject({ code: "task_not_open" });
+      const continued = await work.admitAttempt({
+        organizationId,
+        sessionId: root.session.id,
+        taskId: root.task.id,
+        requestedByUserId: userId,
+        predecessorAttemptId,
+        intent: "follow_up",
         ...snapshot,
       });
-      expect(successor.ordinal).toBe(status === "completed" ? 2 : 3);
+      expect(continued.ordinal).toBe(status === "completed" ? 2 : 3);
       await prisma.agentAttempt.update({
-        where: { id: successor.attemptId },
+        where: { id: continued.attemptId },
         data: { status: "failed", finishedAt: new Date() },
       });
-      predecessorAttemptId = successor.attemptId;
+      predecessorAttemptId = continued.attemptId;
       await prisma.agentTask.update({
         where: { id: root.task.id },
         data: { status: "failed", finishedAt: new Date() },
@@ -320,7 +419,7 @@ describe("replacement Agent work transaction races", () => {
         taskId: root.task.id,
         requestedByUserId: userId,
         predecessorAttemptId: root.attempt.id,
-        intent: "retry",
+        intent: "follow_up",
         ...snapshot,
       }),
     ).rejects.toMatchObject({ code: "attempt_predecessor_stale" });
@@ -382,7 +481,7 @@ describe("replacement Agent work transaction races", () => {
     expect(delivery.deliver).toHaveBeenCalledTimes(1);
   });
 
-  it("matrix 5a: an owned thread resolves its latest exact Attempt and immutable Agent pin before live input or successor admission", async () => {
+  it("matrix 5a: an owned thread resolves its latest exact Attempt and immutable Agent pin before live input or explicit Continue admission", async () => {
     const version = await createVersion({ agentDefinitionKey: "admission_race_test_sourcing" });
     const root = await liveRoot(version);
 
@@ -395,6 +494,7 @@ describe("replacement Agent work transaction races", () => {
       predecessorAttemptId: root.attempt.id,
       terminal: false,
       agentDefinitionKey: "admission_race_test_sourcing",
+      rootAdmission: null,
     });
 
     await prisma.agentAttempt.update({
@@ -411,6 +511,57 @@ describe("replacement Agent work transaction races", () => {
       predecessorAttemptId: root.attempt.id,
       terminal: true,
       agentDefinitionKey: "admission_race_test_sourcing",
+      rootAdmission: null,
+    });
+  });
+
+  it("matrix 5b: thread continuation exposes only the durable root replay receipt from its first Attempt", async () => {
+    const version = await createVersion({ agentDefinitionKey: "admission_race_test_sourcing" });
+    const prompt = "Find school bags";
+    const rootAdmission = {
+      messageCommandKey: "root-message-command-1",
+      inputHash: canonicalOwnerInputHash({ agentDefinitionKey: version.agentDefinitionKey, prompt }),
+    };
+    const root = await work.admitRootAttempt({
+      organizationId,
+      createdByUserId: userId,
+      assignedAgentVersionId: version.id,
+      objective: prompt,
+      completionCriteria: "Done",
+      inputResourceRefs: [],
+      ...snapshot,
+      input: { prompt, rootAdmission },
+    });
+
+    await expect(prisma.agentAttempt.findUniqueOrThrow({
+      where: { id: root.attempt.id },
+      select: { input: true },
+    })).resolves.toEqual({ input: { prompt, rootAdmission } });
+    await expect(prisma.agentAttempt.findFirst({
+      where: {
+        organizationId,
+        sessionId: root.session.id,
+        taskId: root.task.id,
+        ordinal: 1,
+      },
+      select: { id: true, input: true },
+    })).resolves.toEqual({ id: root.attempt.id, input: { prompt, rootAdmission } });
+
+    await expect(repository.threadContinuation({
+      organizationId,
+      userId,
+      sessionId: root.session.id,
+    })).resolves.toEqual({
+      taskId: root.task.id,
+      predecessorAttemptId: root.attempt.id,
+      terminal: false,
+      agentDefinitionKey: "admission_race_test_sourcing",
+      rootAdmission: {
+        attemptId: root.attempt.id,
+        taskId: root.task.id,
+        terminal: false,
+        ...rootAdmission,
+      },
     });
   });
 
@@ -423,7 +574,6 @@ describe("replacement Agent work transaction races", () => {
     const parent = await liveRoot(parentVersion);
     const capacity = new AgentAttemptCapacityService(2);
     const delegation = new AgentTaskDelegationService(
-      repository,
       new AgentAttemptAdmissionService(capacity, work, readyPreflight),
     );
     const input = {
@@ -446,11 +596,16 @@ describe("replacement Agent work transaction races", () => {
     expect(first.replayed).toBe(false);
     await expect(prisma.agentAttempt.findUnique({ where: { id: first.firstAttemptId }, select: { runtimeType: true, instructionProfileRef: true } }))
       .resolves.toEqual({ runtimeType: "claude_cli", instructionProfileRef: "target/pinned" });
-    await expect(delegation.delegate(input)).resolves.toEqual({ ...first, replayed: true });
+    await expect(delegation.delegate(input)).resolves.toEqual({
+      ...first,
+      replayed: true,
+      launchRequired: false,
+    });
     expect(await prisma.agentTask.count({ where: { sessionId: parent.session.id } })).toBe(2);
     expect(await prisma.agentAttempt.count({ where: { sessionId: parent.session.id } })).toBe(2);
+    await expect(delegation.delegate({ ...input, targetAgentVersionId: parentVersion.id }))
+      .resolves.toEqual({ ...first, replayed: true, launchRequired: false });
     for (const changed of [
-      { targetAgentVersionId: parentVersion.id },
       { objective: "Changed" },
       { completionCriteria: "Changed" },
       { inputResourceRefs: [] },
@@ -486,7 +641,11 @@ describe("replacement Agent work transaction races", () => {
       ...snapshot,
     };
     const first = await admissions.delegate(input);
-    await expect(admissions.delegate(input)).resolves.toEqual({ ...first, replayed: true });
+    await expect(admissions.delegate(input)).resolves.toEqual({
+      ...first,
+      replayed: true,
+      launchRequired: false,
+    });
     await expect(admissions.delegate({
       ...input,
       requestHash: "f".repeat(64),
@@ -500,6 +659,307 @@ describe("replacement Agent work transaction races", () => {
     admissions.releaseAttempt(first.firstAttemptId);
     const reusable = capacity.tryReserve();
     reusable.release();
+  });
+
+  it("matrix 6aa: concurrent exact delegation admission shares one in-flight capacity slot", async () => {
+    const parentVersion = await createVersion();
+    const targetVersion = await createVersion();
+    const parent = await liveRoot(parentVersion);
+    const capacity = new AgentAttemptCapacityService(1);
+    const admissions = new AgentAttemptAdmissionService(capacity, work, readyPreflight);
+    const input = {
+      organizationId,
+      sessionId: parent.session.id,
+      parentTaskId: parent.task.id,
+      delegatingAttemptId: parent.attempt.id,
+      requestedByUserId: userId,
+      targetAgentVersionId: targetVersion.id,
+      objective: "One child despite transport retry",
+      completionCriteria: "One immutable child Attempt",
+      inputResourceRefs: [],
+      idempotencyKey: "direct-delegate-concurrent-1",
+      requestHash: "c".repeat(64),
+      ...snapshot,
+    };
+
+    const [first, second] = await Promise.all([
+      admissions.delegate(input),
+      admissions.delegate(input),
+    ]);
+
+    expect(second).toEqual(first);
+    expect(first).toMatchObject({ replayed: false, launchRequired: true });
+    await expect(prisma.agentTask.count({
+      where: { organizationId, sessionId: parent.session.id, parentTaskId: parent.task.id },
+    })).resolves.toBe(1);
+    await expect(prisma.agentAttempt.count({ where: { taskId: first.childTaskId } })).resolves.toBe(1);
+    admissions.releaseAttempt(first.attemptId);
+  });
+
+  it("matrix 6ab: MCP delegation replay returns its durable receipt with no active AgentVersion", async () => {
+    const parentVersion = await createVersion({ agentDefinitionKey: "admission_race_replay_parent" });
+    const pinnedV1 = await createVersion({ agentDefinitionKey: "admission_race_replay_target" });
+    const parent = await liveRoot(parentVersion);
+    const idempotencyKey = deriveOwnerIdempotencyKey({
+      attemptId: parent.attempt.id,
+      capabilityKey: "delegation.admission_race_replay_target",
+      input: { objective: "Replay the original child." },
+    });
+    const first = await work.delegateTask({
+      organizationId,
+      sessionId: parent.session.id,
+      parentTaskId: parent.task.id,
+      delegatingAttemptId: parent.attempt.id,
+      requestedByUserId: userId,
+      targetAgentVersionId: pinnedV1.id,
+      objective: "Replay the original child.",
+      completionCriteria: "Return the original child receipt.",
+      inputResourceRefs: [],
+      idempotencyKey,
+      requestHash: "b".repeat(64),
+      input: { parent: "immutable-input" },
+      applicationVersion: "1.0.0",
+      authorizingGitSha: "a".repeat(40),
+      cliVersion: "1.0.0",
+    });
+    await prisma.agentAttempt.update({
+      where: { id: first.firstAttemptId },
+      data: { status: "succeeded", finishedAt: new Date() },
+    });
+    const continued = await work.admitAttempt({
+      organizationId,
+      sessionId: parent.session.id,
+      taskId: first.childTaskId,
+      requestedByUserId: userId,
+      predecessorAttemptId: first.firstAttemptId,
+      intent: "follow_up",
+      ...snapshot,
+    });
+    await prisma.agentVersion.update({ where: { id: pinnedV1.id }, data: { retiredAt: new Date() } });
+    await expect(repository.loadAttemptMcpDelegationContext({
+      organizationId,
+      sessionId: parent.session.id,
+      taskId: parent.task.id,
+      attemptId: parent.attempt.id,
+      requestedByUserId: userId,
+      targetAgentKey: "admission_race_replay_target",
+    })).resolves.toBeNull();
+
+    const currentVersionLookup = vi.spyOn(prisma.agentVersion, "findFirst");
+    const replay = await (repository as unknown as {
+      loadAttemptMcpDelegationReplay(input: {
+        organizationId: string;
+        sessionId: string;
+        taskId: string;
+        attemptId: string;
+        requestedByUserId: string;
+        idempotencyKey: string;
+      }): Promise<unknown>;
+    }).loadAttemptMcpDelegationReplay({
+      organizationId,
+      sessionId: parent.session.id,
+      taskId: parent.task.id,
+      attemptId: parent.attempt.id,
+      requestedByUserId: userId,
+      idempotencyKey,
+    });
+
+    expect(currentVersionLookup).not.toHaveBeenCalled();
+    currentVersionLookup.mockRestore();
+    expect(replay).toEqual({
+      childTaskId: first.childTaskId,
+      firstAttemptId: first.firstAttemptId,
+      attemptId: continued.attemptId,
+      taskTerminal: false,
+    });
+  });
+
+  it("matrix 6ac: MCP delegation replay reads one coherent receipt when child Continue commits between reads", async () => {
+    const parentVersion = await createVersion();
+    const childVersion = await createVersion();
+    const parent = await liveRoot(parentVersion);
+    const first = await work.delegateTask({
+      organizationId,
+      sessionId: parent.session.id,
+      parentTaskId: parent.task.id,
+      delegatingAttemptId: parent.attempt.id,
+      requestedByUserId: userId,
+      targetAgentVersionId: childVersion.id,
+      objective: "Read one receipt snapshot.",
+      completionCriteria: "Never mix terminal Task facts with a later Attempt.",
+      inputResourceRefs: [],
+      idempotencyKey: "delegation-replay-snapshot",
+      requestHash: "9".repeat(64),
+      input: { immutable: true },
+      ...snapshot,
+    });
+    await prisma.agentAttempt.update({
+      where: { id: first.firstAttemptId },
+      data: { status: "succeeded", finishedAt: new Date() },
+    });
+    await prisma.agentTask.update({
+      where: { id: first.childTaskId },
+      data: { status: "completed", finishedAt: new Date() },
+    });
+
+    let continuedAttemptId: string | null = null;
+    const replayRepository = new PrismaAgentWorkRepository(
+      replayReadClientWithConcurrentContinue(async () => {
+        const continued = await work.admitAttempt({
+          organizationId,
+          sessionId: parent.session.id,
+          taskId: first.childTaskId,
+          requestedByUserId: userId,
+          predecessorAttemptId: first.firstAttemptId,
+          intent: "follow_up",
+          ...snapshot,
+        });
+        continuedAttemptId = continued.attemptId;
+      }),
+    );
+
+    await expect(replayRepository.loadAttemptMcpDelegationReplay({
+      organizationId,
+      sessionId: parent.session.id,
+      taskId: parent.task.id,
+      attemptId: parent.attempt.id,
+      requestedByUserId: userId,
+      idempotencyKey: "delegation-replay-snapshot",
+    })).resolves.toEqual({
+      childTaskId: first.childTaskId,
+      firstAttemptId: first.firstAttemptId,
+      attemptId: first.firstAttemptId,
+      taskTerminal: true,
+    });
+    expect(continuedAttemptId).not.toBeNull();
+    expect(continuedAttemptId).not.toBe(first.firstAttemptId);
+  });
+
+  it("matrix 6b: concurrent exact terminal delegation retries reuse one durable child Attempt without relaunch", async () => {
+    const parentVersion = await createVersion();
+    const targetVersion = await createVersion({
+      runtimeType: "claude_cli",
+      instructionProfileRef: "target/pinned-v1",
+    });
+    const parent = await liveRoot(parentVersion);
+    const input = {
+      organizationId,
+      sessionId: parent.session.id,
+      parentTaskId: parent.task.id,
+      delegatingAttemptId: parent.attempt.id,
+      requestedByUserId: userId,
+      targetAgentVersionId: targetVersion.id,
+      objective: "Recover the same child.",
+      completionCriteria: "The child has one immutable first Attempt.",
+      inputResourceRefs: [{ kind: "product", id: "1" }],
+      idempotencyKey: "delegate-recover-after-start-failure",
+      requestHash: "6".repeat(64),
+      input: { objective: "immutable child input" },
+      applicationVersion: "1.0.0",
+      authorizingGitSha: "a".repeat(40),
+      cliVersion: "1.0.0",
+      reportedModel: "claude-pinned",
+    };
+    const first = await work.delegateTask(input);
+    await prisma.agentAttempt.update({
+      where: { id: first.firstAttemptId },
+      data: { status: "failed", finishedAt: new Date() },
+    });
+    // Retirement affects only new delegation selection. Exact replay returns
+    // the existing durable child facts and never restarts reasoning.
+    await prisma.agentVersion.update({
+      where: { id: targetVersion.id },
+      data: { retiredAt: new Date() },
+    });
+
+    const retries = await Promise.all([
+      work.delegateTask(input),
+      work.delegateTask(input),
+    ]);
+
+    expect(retries).toEqual([
+      expect.objectContaining({
+        childTaskId: first.childTaskId,
+        firstAttemptId: first.firstAttemptId,
+        attemptId: first.firstAttemptId,
+        replayed: true,
+        launchRequired: false,
+        taskTerminal: false,
+      }),
+      expect.objectContaining({
+        childTaskId: first.childTaskId,
+        firstAttemptId: first.firstAttemptId,
+        attemptId: first.firstAttemptId,
+        replayed: true,
+        launchRequired: false,
+        taskTerminal: false,
+      }),
+    ]);
+    const childAttempts = await prisma.agentAttempt.findMany({
+      where: { taskId: first.childTaskId },
+      orderBy: { ordinal: "asc" },
+      select: {
+        id: true,
+        ordinal: true,
+        predecessorAttemptId: true,
+        status: true,
+        agentVersionId: true,
+        runtimeType: true,
+        instructionProfileRef: true,
+        input: true,
+        applicationVersion: true,
+        authorizingGitSha: true,
+        cliVersion: true,
+        reportedModel: true,
+      },
+    });
+    expect(childAttempts).toHaveLength(1);
+    expect(childAttempts[0]).toMatchObject({
+      id: first.firstAttemptId,
+      ordinal: 1,
+      status: "failed",
+    });
+    await expect(prisma.agentTask.findUniqueOrThrow({ where: { id: first.childTaskId } }))
+      .resolves.toMatchObject({ status: "open", assignedAgentVersionId: targetVersion.id });
+  });
+
+  it("matrix 6c: an exact delegation replay reports a terminal child Task without admitting or launching another Attempt", async () => {
+    const parent = await liveRoot();
+    const target = await createVersion();
+    const input = {
+      organizationId,
+      sessionId: parent.session.id,
+      parentTaskId: parent.task.id,
+      delegatingAttemptId: parent.attempt.id,
+      requestedByUserId: userId,
+      targetAgentVersionId: target.id,
+      objective: "Return the terminal child result.",
+      completionCriteria: "No new child Attempt is admitted.",
+      inputResourceRefs: [],
+      idempotencyKey: "delegate-terminal-replay",
+      requestHash: "7".repeat(64),
+      ...snapshot,
+    };
+    const first = await work.delegateTask(input);
+    await prisma.agentAttempt.update({
+      where: { id: first.firstAttemptId },
+      data: { status: "failed", finishedAt: new Date() },
+    });
+    await prisma.agentTask.update({
+      where: { id: first.childTaskId },
+      data: { status: "failed", finishedAt: new Date() },
+    });
+
+    await expect(work.delegateTask(input)).resolves.toMatchObject({
+      childTaskId: first.childTaskId,
+      firstAttemptId: first.firstAttemptId,
+      attemptId: first.firstAttemptId,
+      replayed: true,
+      launchRequired: false,
+      taskTerminal: true,
+    });
+    await expect(prisma.agentAttempt.count({ where: { taskId: first.childTaskId } }))
+      .resolves.toBe(1);
   });
 
   it("matrix 7: code-owned capability definitions enforce routing and persist approval snapshots", async () => {

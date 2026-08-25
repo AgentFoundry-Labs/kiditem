@@ -74,7 +74,7 @@ export async function currentAgentVersion(tx: AgentWorkTransaction, id: string) 
 /**
  * A Task holds an immutable AgentVersion coordinate. Retiring a version only
  * prevents selecting it for new root/delegation work; it cannot invalidate an
- * already-admitted Task's successor Attempts or capability authorization.
+ * already-admitted Task's later Attempts or capability authorization.
  */
 export async function activatedTaskVersion(
   tx: AgentWorkTransaction,

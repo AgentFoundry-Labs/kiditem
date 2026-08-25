@@ -1,4 +1,4 @@
-/** Process-local Attempt controls; they never create durable successor work. */
+/** Process-local Attempt controls; they never create another durable Attempt. */
 export const ATTEMPT_RUNTIME_CONTROL_PORT = Symbol(
   'ATTEMPT_RUNTIME_CONTROL_PORT',
 );

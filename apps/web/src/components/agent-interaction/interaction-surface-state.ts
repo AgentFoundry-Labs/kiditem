@@ -32,7 +32,6 @@ export interface QueuedInteractionPrompt {
   agentDefinitionKey: InteractionAgentDefinitionKey;
   createdSession: boolean;
   baseline: InteractionAttemptBaseline | null;
-  expectedSuccessorAttemptId: string | null;
 }
 
 /** Ephemeral proof coordinate for one follow-up; it is never persisted as chat state. */
@@ -67,7 +66,6 @@ interface InteractionSurfaceState {
     createdSession: boolean;
   } | null;
   markPromptSubmitting(input: { sessionId: string; promptId: string }): void;
-  recordSuccessorAdmission(input: { sessionId: string; promptId: string; attemptId: string }): void;
   admitQueuedPrompt(input: { sessionId: string; promptId: string }): void;
   restoreUnadmittedPrompt(input: { sessionId: string; promptId: string; error?: string }): void;
   markPromptReconciliationFailed(input: { sessionId: string; promptId: string; error: string }): void;
@@ -184,7 +182,6 @@ export const useInteractionSurfaceState = create<InteractionSurfaceState>((set, 
         agentDefinitionKey,
         createdSession,
         baseline: createdSession ? null : baseline,
-        expectedSuccessorAttemptId: null,
       },
       submissionStatus: 'queued',
       submissionError: null,
@@ -195,17 +192,6 @@ export const useInteractionSurfaceState = create<InteractionSurfaceState>((set, 
     ownsQueuedPrompt(state, sessionId, promptId)
       && ['queued', 'reconciliation_failed'].includes(state.submissionStatus)
       ? { submissionStatus: 'submitting', submissionError: null }
-      : {}
-  )),
-  recordSuccessorAdmission: ({ sessionId, promptId, attemptId }) => set((state) => (
-    ownsQueuedPrompt(state, sessionId, promptId)
-      && state.queuedPrompt.expectedSuccessorAttemptId === null
-      ? {
-          queuedPrompt: {
-            ...state.queuedPrompt,
-            expectedSuccessorAttemptId: attemptId,
-          },
-        }
       : {}
   )),
   admitQueuedPrompt: ({ sessionId, promptId }) => set((state) => (
@@ -279,14 +265,6 @@ export function startInteraction(
 
 export function markInteractionPromptSubmitting(input: { sessionId: string; promptId: string }): void {
   useInteractionSurfaceState.getState().markPromptSubmitting(input);
-}
-
-export function recordInteractionSuccessorAdmission(input: {
-  sessionId: string;
-  promptId: string;
-  attemptId: string;
-}): void {
-  useInteractionSurfaceState.getState().recordSuccessorAdmission(input);
 }
 
 export function admitQueuedInteractionPrompt(input: { sessionId: string; promptId: string }): void {

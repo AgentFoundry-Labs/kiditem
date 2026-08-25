@@ -10,7 +10,6 @@ import {
   markInteractionPromptReconciliationFailed,
   markInteractionPromptSubmitting,
   pinDurableInteractionAgent,
-  recordInteractionSuccessorAdmission,
   resolvedInteractionAgent,
   restoreUnadmittedInteractionPrompt,
   setInteractionDraft,
@@ -24,26 +23,82 @@ import {
 export interface AgentWorkTask {
   id: string;
   parentTaskId: string | null;
-  agentDefinitionKey: string;
+  agentDefinitionKey: string | null;
   objective: string;
+  completionCriteria?: string;
   status: string;
-  presentation: string;
-  summary?: string | null;
-  error?: { code?: string; message?: string } | null;
-  resourceRefs?: Array<{ kind: string; id: string }>;
-  operationRefs?: Array<{ kind: string; id: string; status?: string }>;
-  latestAttempt: { id: string; ordinal: number; status: string } | null;
-  approval?: { id: string; invocationId: string; inputHash: string; expiresAt?: string } | null;
+  latestAttempt: AgentWorkAttempt | null;
+  result?: AgentWorkResult | null;
+  approval?: AgentWorkApproval | null;
+  approvals?: AgentWorkApproval[];
+  invocations?: AgentWorkInvocation[];
+  childTasks?: AgentWorkChildTask[];
+  resourceRefs?: AgentWorkReference[];
+  operationRefs?: AgentWorkReference[];
 }
 
-export interface AgentWorkProjection {
+export interface AgentWorkReference {
+  kind?: string;
+  id?: string;
+  status?: string;
+}
+
+export interface AgentWorkError {
+  code?: string | null;
+  message?: string | null;
+}
+
+export interface AgentWorkResult {
+  outcome?: string | null;
+  summary?: string | null;
+  resourceRefs?: AgentWorkReference[];
+  operationRefs?: AgentWorkReference[];
+  needsInput?: unknown;
+  error?: AgentWorkError | null;
+}
+
+export interface AgentWorkAttempt {
+  id: string;
+  ordinal: number;
+  status: string;
+  result?: AgentWorkResult | null;
+  error?: AgentWorkError | null;
+}
+
+export interface AgentWorkApproval {
+  id: string;
+  invocationId: string;
+  inputHash: string;
+  status?: string | null;
+  expiresAt?: string | null;
+}
+
+export interface AgentWorkInvocation {
+  id: string;
+  capabilityKey: string;
+  status: string;
+  result?: AgentWorkResult | null;
+  error?: AgentWorkError | null;
+  approval?: AgentWorkApproval | null;
+}
+
+export interface AgentWorkChildTask {
+  id: string;
+  parentTaskId: string | null;
+  objective: string;
+  completionCriteria?: string;
+  status: string;
+  latestAttempt: AgentWorkAttempt | null;
+}
+
+export interface AgentWorkView {
   session: { id: string };
   tasks: AgentWorkTask[];
 }
 
 /** Exact durable admission evidence emitted by the CopilotKit incoming adapter. */
 export interface DurableWorkAdmission {
-  kind: 'live_input' | 'root' | 'successor';
+  kind: 'live_input' | 'root';
   sessionId: string;
   taskId: string;
   attemptId: string;
@@ -53,13 +108,13 @@ const DURABLE_ADMISSION_RETRY_MESSAGE =
   'Unable to confirm durable work. Retry the durable admission check before sending another prompt.';
 
 /**
- * The interaction UI Module's controller. It keeps the durable projection,
+ * The interaction UI Module's controller. It keeps the durable work view,
  * selected Agent, session URL coordinate, and Agent Work API Adapter together
  * so the Surface remains a renderer.
  */
 export function useAgentInteraction() {
-  const [projection, setProjection] = useState<AgentWorkProjection | null>(null);
-  const [projectionError, setProjectionError] = useState<string | null>(null);
+  const [workView, setWorkView] = useState<AgentWorkView | null>(null);
+  const [workViewError, setWorkViewError] = useState<string | null>(null);
   const selectedAgentDefinitionKey = useInteractionSurfaceState(
     (state) => state.selectedAgentDefinitionKey,
   );
@@ -72,32 +127,32 @@ export function useAgentInteraction() {
 
   useInteractionSessionCoordinate();
 
-  const loadProjection = useCallback(async (id: string) => {
-    const nextProjection = await apiClient.get<AgentWorkProjection>(`/api/agent-work/sessions/${id}`);
-    const durableAgentDefinitionKey = rootAgentDefinitionKey(nextProjection);
+  const loadWorkView = useCallback(async (id: string) => {
+    const nextWorkView = await apiClient.get<AgentWorkView>(`/api/agent-work/sessions/${id}`);
+    const durableAgentDefinitionKey = rootAgentDefinitionKey(nextWorkView);
     if (durableAgentDefinitionKey) pinDurableInteractionAgent(durableAgentDefinitionKey);
-    setProjection(nextProjection);
-    setProjectionError(null);
-    return nextProjection;
+    setWorkView(nextWorkView);
+    setWorkViewError(null);
+    return nextWorkView;
   }, []);
   const refresh = useCallback(async (id = sessionId) => {
     if (!id) return;
     try {
-      await loadProjection(id);
+      await loadWorkView(id);
     } catch {
-      setProjectionError('Unable to load durable work. Refresh durable work to retry.');
+      setWorkViewError('Unable to load durable work. Refresh durable work to retry.');
     }
-  }, [loadProjection, sessionId]);
+  }, [loadWorkView, sessionId]);
 
   useEffect(() => {
     if (sessionId === observedSessionId.current) return;
     observedSessionId.current = sessionId;
-    setProjection(null);
+    setWorkView(null);
     if (!sessionId || queuedPrompt) return;
     void refresh(sessionId);
   }, [queuedPrompt, refresh, sessionId]);
 
-  const rootTask = rootAgentTask(projection);
+  const rootTask = rootAgentTask(workView);
   const durableAgentDefinitionKey = rootTask?.agentDefinitionKey
     && isInteractionAgentDefinitionKey(rootTask.agentDefinitionKey)
     ? rootTask.agentDefinitionKey
@@ -125,8 +180,8 @@ export function useAgentInteraction() {
   }, [agentDefinitionKey, rootTask, sessionId]);
   const newTask = useCallback(() => {
     if (useInteractionSurfaceState.getState().queuedPrompt) return;
-    setProjection(null);
-    setProjectionError(null);
+    setWorkView(null);
+    setWorkViewError(null);
     clearInteractionSession();
   }, []);
   const action = useCallback(async (path: string, body?: unknown) => {
@@ -136,27 +191,20 @@ export function useAgentInteraction() {
   const deleteSession = useCallback(async () => {
     if (!sessionId || useInteractionSurfaceState.getState().queuedPrompt) return;
     await apiClient.post(`/api/agent-work/sessions/${sessionId}/delete`);
-    setProjection(null);
-    setProjectionError(null);
+    setWorkView(null);
+    setWorkViewError(null);
     clearInteractionSession();
   }, [sessionId]);
   const reconcileDurableAdmission = useCallback(async (reconciliation: {
     sessionId: string;
     promptId: string;
-    expectedSuccessorAttemptId?: string;
   }) => {
     const queued = useInteractionSurfaceState.getState().queuedPrompt;
     if (queued?.id !== reconciliation.promptId) return;
-    const expectedSuccessorAttemptId = reconciliation.expectedSuccessorAttemptId
-      ?? queued.expectedSuccessorAttemptId;
     markInteractionPromptSubmitting(reconciliation);
     try {
-      const nextProjection = await loadProjection(reconciliation.sessionId);
-      if (!provesDurableAdmission(
-        nextProjection,
-        queued,
-        expectedSuccessorAttemptId ?? undefined,
-      )) {
+      const nextWorkView = await loadWorkView(reconciliation.sessionId);
+      if (!provesDurableAdmission(nextWorkView, queued)) {
         restoreUnadmittedInteractionPrompt({
           ...reconciliation,
           error: 'Durable admission was not confirmed. Retry will reuse the exact command.',
@@ -174,7 +222,7 @@ export function useAgentInteraction() {
         error: DURABLE_ADMISSION_RETRY_MESSAGE,
       });
     }
-  }, [loadProjection]);
+  }, [loadWorkView]);
   const onLiveRunFinished = useCallback((finishedSessionId: string, promptId: string) => {
     void reconcileDurableAdmission({ sessionId: finishedSessionId, promptId });
   }, [reconcileDurableAdmission]);
@@ -198,32 +246,20 @@ export function useAgentInteraction() {
       void refresh(input.sessionId);
       return;
     }
-    if (matchesSuccessorAdmission(queued, input.sessionId, input.admission)) {
-      recordInteractionSuccessorAdmission({
-        sessionId: input.sessionId,
-        promptId: input.promptId,
-        attemptId: input.admission.attemptId,
-      });
-      void reconcileDurableAdmission({
-        sessionId: input.sessionId,
-        promptId: input.promptId,
-        expectedSuccessorAttemptId: input.admission.attemptId,
-      });
-    }
-  }, [reconcileDurableAdmission, refresh]);
+  }, [refresh]);
   const retryDurableAdmission = useCallback(() => {
     if (!sessionId || !queuedPrompt || submissionStatus !== 'reconciliation_failed') return;
     void reconcileDurableAdmission({ sessionId, promptId: queuedPrompt.id });
   }, [queuedPrompt, reconcileDurableAdmission, sessionId, submissionStatus]);
   const continueTask = useCallback((task: AgentWorkTask) => {
-    if (!sessionId || !task.latestAttempt) return;
+    if (!sessionId || !task.latestAttempt || !canContinueAgentWorkTask(task)) return;
     void action(`/api/agent-work/sessions/${sessionId}/tasks/${task.id}/continue`, {
       predecessorAttemptId: task.latestAttempt.id,
       prompt: draft.trim() || 'Continue the durable work with the current state.',
     });
   }, [action, draft, sessionId]);
   const reopenTask = useCallback((task: AgentWorkTask) => {
-    if (!sessionId || !task.latestAttempt) return;
+    if (!sessionId || !task.latestAttempt || !canReopenAgentWorkTask(task)) return;
     void action(`/api/agent-work/sessions/${sessionId}/tasks/${task.id}/continue`, {
       predecessorAttemptId: task.latestAttempt.id,
       prompt: draft.trim() || 'Reopen this durable work and continue from its current state.',
@@ -239,7 +275,7 @@ export function useAgentInteraction() {
     void action(`/api/agent-work/sessions/${sessionId}/tasks/${task.id}/cancel`);
   }, [action, sessionId]);
   const decideApproval = useCallback((task: AgentWorkTask, decision: 'approved' | 'rejected') => {
-    if (!sessionId || !task.approval) return;
+    if (!sessionId || !task.approval || task.approval.status !== 'pending') return;
     void action(`/api/agent-work/sessions/${sessionId}/approvals/${task.approval.id}`, {
       invocationId: task.approval.invocationId,
       inputHash: task.approval.inputHash,
@@ -252,13 +288,14 @@ export function useAgentInteraction() {
     agentLabel: displayAgentName(agentDefinitionKey ?? localAgentDefinitionKey),
     canDeleteSession: Boolean(
       !queuedPrompt
-      && projection?.tasks.length
-      && projection.tasks.every((task) => task.status !== 'open'),
+      && workView?.tasks.length
+      && workView.tasks.every((task) => task.status !== 'open'),
     ),
     canStart: Boolean(
       agentDefinitionKey
       && draft.trim()
-      && ['idle', 'retry_ready'].includes(submissionStatus),
+      && ['idle', 'retry_ready'].includes(submissionStatus)
+      && (!sessionId || isLiveAgentWorkAttempt(rootTask?.latestAttempt ?? null)),
     ),
     continueTask,
     cancelTask,
@@ -271,8 +308,8 @@ export function useAgentInteraction() {
     newTask,
     onLiveAdmission,
     onLiveRunFinished,
-    projection,
-    projectionError,
+    workView,
+    workViewError,
     queuedPrompt,
     refresh,
     reopenTask,
@@ -286,35 +323,23 @@ export function useAgentInteraction() {
 }
 
 function rootAgentTask(
-  projection: AgentWorkProjection | null,
+  workView: AgentWorkView | null,
 ): AgentWorkTask | null {
-  return projection?.tasks.find((task) => task.parentTaskId === null) ?? null;
+  return workView?.tasks.find((task) => task.parentTaskId === null) ?? null;
 }
 
 function rootAgentDefinitionKey(
-  projection: AgentWorkProjection | null,
+  workView: AgentWorkView | null,
 ): InteractionAgentDefinitionKey | null {
-  const agentDefinitionKey = rootAgentTask(projection)?.agentDefinitionKey;
+  const agentDefinitionKey = rootAgentTask(workView)?.agentDefinitionKey;
   return isInteractionAgentDefinitionKey(agentDefinitionKey) ? agentDefinitionKey : null;
 }
 
 function provesDurableAdmission(
-  projection: AgentWorkProjection,
+  workView: AgentWorkView,
   prompt: QueuedInteractionPrompt,
-  expectedSuccessorAttemptId?: string,
 ): boolean {
-  if (prompt.createdSession) return true;
-  if (!prompt.baseline) return false;
-  const rootTask = projection.tasks.find((task) => (
-    task.id === prompt.baseline!.taskId && task.parentTaskId === null
-  ));
-  const successor = rootTask?.latestAttempt;
-  if (!successor) return false;
-  const predecessor = prompt.baseline.latestAttempt;
-  const isSuccessor = predecessor === null
-    || (successor.id !== predecessor.id && successor.ordinal > predecessor.ordinal);
-  return isSuccessor
-    && (expectedSuccessorAttemptId === undefined || successor.id === expectedSuccessorAttemptId);
+  return prompt.createdSession && Boolean(workView.session.id);
 }
 
 function matchesLiveInputAdmission(
@@ -340,17 +365,16 @@ function matchesRootAdmission(
     && admission.sessionId === sessionId;
 }
 
-function matchesSuccessorAdmission(
-  prompt: QueuedInteractionPrompt,
-  sessionId: string,
-  admission: DurableWorkAdmission,
-): boolean {
-  const predecessor = prompt.baseline?.latestAttempt;
-  return admission.kind === 'successor'
-    && !prompt.createdSession
-    && admission.sessionId === sessionId
-    && admission.taskId === prompt.baseline?.taskId
-    && (!predecessor || admission.attemptId !== predecessor.id);
+export function isLiveAgentWorkAttempt(attempt: AgentWorkAttempt | null): boolean {
+  return Boolean(attempt && ['starting', 'running'].includes(attempt.status));
+}
+
+export function canContinueAgentWorkTask(task: AgentWorkTask): boolean {
+  return task.status !== 'cancelled' && Boolean(task.latestAttempt) && !isLiveAgentWorkAttempt(task.latestAttempt);
+}
+
+export function canReopenAgentWorkTask(task: AgentWorkTask): boolean {
+  return task.status === 'cancelled' && Boolean(task.latestAttempt) && !isLiveAgentWorkAttempt(task.latestAttempt);
 }
 
 function displayAgentName(agentDefinitionKey: InteractionAgentDefinitionKey): string {

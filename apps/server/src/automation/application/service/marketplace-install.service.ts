@@ -41,9 +41,10 @@ function stringParam(params: MarketplaceInstallParams | undefined, key: string) 
  * tenant's installed instance and decrements the catalog's `installCount`.
  *
  * Agent install is intentionally not implemented. Shipped Agent OS
- * definitions are code-owned and global; `AgentInstance` remains the
- * tenant-owned runnable subject. Definitions are not cloned per-tenant from
- * marketplace rows. The controller rejects agent install with
+ * definitions are code-owned and global. Durable organization work is scoped
+ * by `AgentSession` and `AgentTask`, each pinned to an `AgentVersion`; there
+ * is no tenant-owned runnable subject to clone from marketplace rows. The
+ * controller rejects agent install with
  * `BadRequestException` until a real catalog wiring lands.
  *
  * Catalog read/list (`MarketplaceCatalogService` next to this service)

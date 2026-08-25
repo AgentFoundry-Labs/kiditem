@@ -331,10 +331,15 @@ are never Compose profile operations or API environment values.
 
 Do not place provider credentials, provider tokens, the raw Runner bearer, or
 the dedicated Task Scheduler account password in the Office env file or command
-line. The deployment package provisions the native Runner under the constrained
-dedicated account with `TASK_LOGON_PASSWORD`/PowerShell `Password` logon and
-limited privilege. S4U is prohibited because Windows denies it network and
-encrypted-file access; the Runner needs provider HTTPS and its dedicated
+line. The deployment package provisions the native Runner under a dedicated
+non-administrator account with `TASK_LOGON_PASSWORD`/PowerShell `Password`
+logon. Codex and Claude run non-interactively with trusted full access within
+that account's OS permissions; this is not hostile same-account containment.
+The account must therefore hold only the provider login and Runner control
+material, never DB, Nest, business-provider, or unrelated credentials. The
+Runner bearer still protects the loopback control surface from LAN, other-user,
+and accidental callers. S4U is prohibited because Windows denies it network
+and encrypted-file access; the Runner needs provider HTTPS and its dedicated
 account's login store. This follows Microsoft's
 [`TASK_LOGON_TYPE` contract](https://learn.microsoft.com/windows/win32/api/taskschd/ne-taskschd-task_logon_type).
 The operator supplies the account credential only to explicit

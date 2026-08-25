@@ -7,7 +7,8 @@ export interface OrganizationScopedId {
   organizationId: string;
 }
 
-export interface AgentWorkProjection {
+/** Minimal durable session/task facts used by runtime-bound reads. */
+export interface AgentWorkSessionFacts {
   session: OrganizationScopedId;
   tasks: Array<
     OrganizationScopedId & { sessionId: string; status: AgentTaskStatus }
@@ -16,20 +17,9 @@ export interface AgentWorkProjection {
 
 /** Read-only persistence seam. Lifecycle mutations belong to the transaction port. */
 export interface AgentWorkRepositoryPort {
-  loadProjection(
+  loadSessionFacts(
     input: OrganizationScopedId,
-  ): Promise<AgentWorkProjection | null>;
-  findDelegationReplay(input: {
-    organizationId: string;
-    sessionId: string;
-    parentTaskId: string;
-    idempotencyKey: string;
-    requestedByUserId: string;
-  }): Promise<{
-    childTaskId: string;
-    requestHash: string | null;
-    firstAttemptId: string | null;
-  } | null>;
+  ): Promise<AgentWorkSessionFacts | null>;
   loadLiveAttempt(input: {
     organizationId: string;
     sessionId: string;
@@ -71,6 +61,24 @@ export interface AgentWorkRepositoryPort {
     targetCapabilityKeys: readonly string[];
     targetAssignedDomains: readonly string[];
     targetInstructionProfileRef: string;
+  } | null>;
+  /**
+   * Exact delegation replay is a durable child receipt. Its content-addressed
+   * idempotency key already identifies canonical MCP input, so it neither reads
+   * nor exposes inputs/hashes or old/current AgentVersions.
+   */
+  loadAttemptMcpDelegationReplay(input: {
+    organizationId: string;
+    sessionId: string;
+    taskId: string;
+    attemptId: string;
+    requestedByUserId: string;
+    idempotencyKey: string;
+  }): Promise<{
+    childTaskId: string;
+    firstAttemptId: string;
+    attemptId: string;
+    taskTerminal: boolean;
   } | null>;
   loadAttemptMcpChild(input: {
     organizationId: string;
