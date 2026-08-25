@@ -29,7 +29,7 @@ const sharp: (typeof import("sharp"))["default"] = require("sharp");
 
 const IMMUTABLE_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
-export type AgentSessionMultipartCleanupCapability = "unsupported";
+export type MultipartCleanupCapability = "unsupported";
 
 export interface StorageServiceOptions {
   client?: S3Client;
@@ -155,7 +155,7 @@ export class StorageService implements OnModuleInit {
     );
   }
 
-  /** Internal AgentSession writer primitive. It never issues a browser URL. */
+  /** Internal bounded multipart writer primitive. It never issues a browser URL. */
   async openMultipartUpload(input: {
     key: string;
     mimeType: string;
@@ -174,7 +174,7 @@ export class StorageService implements OnModuleInit {
     return { uploadId: result.UploadId };
   }
 
-  /** Internal AgentSession writer primitive. One bounded part is completed atomically. */
+  /** Internal bounded multipart writer primitive. One bounded part is completed atomically. */
   async uploadAndCompleteMultipart(input: {
     key: string;
     uploadId: string;
@@ -208,7 +208,7 @@ export class StorageService implements OnModuleInit {
    * Generic S3-compatible storage cannot prove exact-key multipart ordering
    * across process recreation, so deletion must treat cleanup as unknown.
    */
-  agentSessionMultipartCleanupCapability(): AgentSessionMultipartCleanupCapability {
+  multipartCleanupCapability(): MultipartCleanupCapability {
     return "unsupported";
   }
 

@@ -107,15 +107,15 @@ $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $dump).Hash.ToLowerInvari
 [ordered]@{ database = 'kiditem'; appVersion = $manifest.appVersion; gitSha = $manifest.gitSha; dump = $dump; sha256 = $sha256; unrelatedCounts = $counts } |
   ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $record -Encoding UTF8
 
-# Explicitly authorized destructive schema cutover, then generated client and six versions.
+# Explicitly authorized destructive schema cutover, then generated client.
 try {
-  & docker @compose run --rm --no-deps api sh -lc 'cd /app && npx prisma db push --accept-data-loss && npx prisma generate && node apps/server/dist/agent-os/adapter/in/cli/seed-agent-versions.cli.js'
-  if ($LASTEXITCODE -ne 0) { throw 'Schema/seed failed.' }
+  & docker @compose run --rm --no-deps api sh -lc 'cd /app && npx prisma db push --accept-data-loss && npx prisma generate'
+  if ($LASTEXITCODE -ne 0) { throw 'Schema generation failed.' }
 
   # The new relation now exists. Writers are still stopped, so any durable
   # Agent mutation would be a cutover invariant failure rather than live work.
-  $pendingMutations = (& docker @compose exec -T postgres psql -U kiditem -d kiditem -Atc "SELECT count(*) FROM agent_capability_invocations WHERE status IN ('ready','executing');").Trim()
-  if ($LASTEXITCODE -ne 0 -or $pendingMutations -ne '0') { throw 'Ready/executing Agent mutations exist after schema cutover; writers remain stopped.' }
+  $pendingMutations = (& docker @compose exec -T postgres psql -U kiditem -d kiditem -Atc "SELECT count(*) FROM capability_invocations WHERE status = 'pending';").Trim()
+  if ($LASTEXITCODE -ne 0 -or $pendingMutations -ne '0') { throw 'Pending CapabilityInvocations exist after schema cutover; writers remain stopped.' }
 
   # The schema is already applied above. CutoverDeploy installs the matching
   # Host Runner archive, switches its protected current pointer, restarts the

@@ -1,4 +1,4 @@
-import type { AgentResultEnvelope } from '@kiditem/shared/agent-interaction';
+import type { CapabilityResultEnvelope } from '@kiditem/shared/agent-interaction';
 import type { CapabilityExecutionContext } from '../../../../../common/capability-composition';
 
 /** Final narrow handler contract; capability metadata belongs to CapabilityDefinition. */
@@ -7,5 +7,5 @@ export interface AgentCapabilityContractHandler {
   invoke(input: {
     context: CapabilityExecutionContext;
     input: Record<string, unknown>;
-  }): Promise<AgentResultEnvelope>;
+  }): Promise<CapabilityResultEnvelope>;
 }

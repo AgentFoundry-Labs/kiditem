@@ -1,12 +1,11 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const read = (path) => readFileSync(`${root}/${path}`, 'utf8');
-const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 test('office workflow builds both images and publishes digest refs', () => {
   const workflow = read('.github/workflows/office-images.yml');
@@ -164,22 +163,12 @@ test('office API image has no process-inspection dependency after Host Runner cu
   assert.doesNotMatch(dockerfile, /command -v ps/);
 });
 
-test('office API image context resolves every published Agent instruction profile exactly', () => {
-  const definitions = read('apps/server/src/agent-os/domain/agent-definition.registry.ts');
-  const publication = read('apps/server/src/agent-os/domain/catalog/agent-version-publication.registry.ts');
-  const dockerignore = read('.dockerignore');
+test('office API image avoids retired Agent version-profile artifact assertions', () => {
   const dockerfile = read('apps/server/Dockerfile');
-  const agentKeys = [...definitions.matchAll(/key: '([^']+)'/g)].map((match) => match[1]);
-  const profileRefs = agentKeys.map((key) => `agent-config/prompts/agents/${key}.md`);
 
-  assert.equal(agentKeys.length, 6);
-  assert.match(publication, /`agent-config\/prompts\/agents\/\$\{agent\.key\}\.md`/);
-  assert.doesNotMatch(dockerignore, /^!agent-config\/prompts\/agents\/\*\.md$/m);
-  for (const profileRef of profileRefs) {
-    assert.equal(existsSync(`${root}/${profileRef}`), true, `missing published profile ${profileRef}`);
-    assert.match(dockerignore, new RegExp(`^!${escapeRegex(profileRef)}$`, 'm'));
-    assert.match(dockerfile, new RegExp(escapeRegex(profileRef)));
-  }
+  assert.match(dockerfile, /COPY agent-config \.\/agent-config/);
+  assert.doesNotMatch(dockerfile, /agent-config\/prompts\/agents\//);
+  assert.doesNotMatch(dockerfile, /agent-version-publication/);
 });
 
 test('office API exposes only the loopback Host Runner boundary and contains no provider runtime', () => {
@@ -193,8 +182,8 @@ test('office API exposes only the loopback Host Runner boundary and contains no 
   assert.doesNotMatch(dockerfile, /(?:codex|claude)\s+--version/i);
   assert.doesNotMatch(dockerfile, /agent-attempt-readiness-canary/);
   assert.match(dockerfile, /COPY agent-config \.\/agent-config/);
-  assert.match(dockerfile, /readiness-canary-mcp-server\.js/);
-  assert.match(dockerfile, /kiditem-agent-os-mcp-server\.js/);
+  assert.doesNotMatch(dockerfile, /readiness-canary-mcp-server\.js/);
+  assert.doesNotMatch(dockerfile, /kiditem-agent-os-mcp-server\.js/);
   assert.doesNotMatch(
     dockerfile,
     /COPY agent-config\/prompts\/agents\/sourcing\.md/,
@@ -727,7 +716,8 @@ test('Agent OS clean cutover is Windows/Docker-only, stops writers before quiesc
   assert.match(cutover, /pg_restore --list/);
   assert.match(cutover, /Get-FileHash -Algorithm SHA256/);
   assert.match(cutover, /npx prisma db push --accept-data-loss/);
-  assert.match(cutover, /seed-agent-versions\.cli\.js/);
+  assert.doesNotMatch(cutover, /seed-agent-versions\.cli\.js/);
+  assert.match(cutover, /npx prisma db push --accept-data-loss && npx prisma generate/);
   assert.match(cutover, /& docker @compose stop api worker web nginx/);
   assert.match(cutover, /& docker @compose ps --status running --services/);
   assert.ok(
@@ -750,17 +740,4 @@ test('Agent OS clean cutover inventories and backs up a legacy schema before it 
   assert.ok(legacyCounts >= 0 && legacyCounts < schemaPush, 'legacy-safe inventory must run before schema push');
   assert.ok(backup >= 0 && backup < schemaPush, 'backup must run before schema push');
   assert.ok(pendingMutations > schemaPush, 'new Agent OS relation may be queried only after schema push');
-});
-
-test('KID-25 clean-cutover plan stops and confirms writers before mutation quiescence', () => {
-  const plan = read('docs/superpowers/plans/2026-08-23-kid-25-agent-os-clean-contraction.md');
-  const stopWriters = plan.indexOf('stop API and worker writers');
-  const confirmStopped = plan.indexOf('confirm worker shutdown/drain and writers stopped');
-  const quiescence = plan.indexOf('verify no ready/executing Agent mutation');
-
-  assert.ok(stopWriters >= 0, 'plan must stop API and worker writers');
-  assert.ok(confirmStopped >= 0, 'plan must confirm the worker drain and writer stop');
-  assert.ok(quiescence >= 0, 'plan must check Agent mutation quiescence');
-  assert.ok(stopWriters < confirmStopped);
-  assert.ok(confirmStopped < quiescence);
 });

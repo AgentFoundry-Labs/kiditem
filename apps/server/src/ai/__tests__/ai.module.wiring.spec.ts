@@ -1,7 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { AgentOsCapabilityModule } from '../../agent-os/agent-os-capability.module';
-import { AgentOsSessionModule } from '../../agent-os/agent-os-session.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { OperationAlertRuntimeModule } from '../../automation/operation-alert-runtime.module';
 import { StorageModule } from '../../common/storage/storage.module';
@@ -125,7 +124,6 @@ describe('AiModule hexagonal wiring contract', () => {
     expect(runtimeImports).toEqual([
       PrismaModule,
       OperationAlertRuntimeModule,
-      AgentOsSessionModule,
       AgentOsCapabilityModule,
       StorageModule,
       AiProductGenerationRuntimeModule,

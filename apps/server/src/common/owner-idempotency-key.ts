@@ -1,25 +1,16 @@
 import { createHash } from 'node:crypto';
 
-/**
- * Derives the server-owned mutation key from the immutable Attempt coordinate
- * and a canonical capability input. Owner domains can validate this without
- * importing Agent OS implementation types.
- */
-export function deriveOwnerIdempotencyKey(input: {
-  attemptId: string;
-  capabilityKey: string;
-  input: unknown;
-}): string {
-  return createHash('sha256').update(JSON.stringify({
-    attemptId: input.attemptId,
-    capabilityKey: input.capabilityKey,
-    input: canonicalizeOwnerInput(input.input),
-  })).digest('hex');
-}
-
 /** Stable owner-input receipt hash, deliberately independent of an Attempt. */
 export function canonicalOwnerInputHash(input: unknown): string {
-  return createHash('sha256').update(JSON.stringify(canonicalizeOwnerInput(input))).digest('hex');
+  return createHash('sha256').update(canonicalOwnerInputJson(input)).digest('hex');
+}
+
+/**
+ * RFC-8785-compatible JSON normalization used at every mutation boundary.
+ * Callers hash this canonical representation; never hash caller-order JSON.
+ */
+export function canonicalOwnerInputJson(input: unknown): string {
+  return JSON.stringify(canonicalizeOwnerInput(input));
 }
 
 export function canonicalizeOwnerInput(input: unknown): unknown {

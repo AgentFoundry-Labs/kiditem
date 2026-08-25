@@ -1,7 +1,6 @@
 /**
- * Sourcing's narrow pre-authorization guard. It intentionally holds only
- * attempt-local scrape evidence; the AgentCapabilityInvocation row becomes
- * the durable proof after this guard admits a mutation.
+ * Sourcing's narrow pre-admission guard. It retains only one bounded,
+ * normalized scrape receipt for the current live execution binding.
  */
 export const SOURCING_CAPABILITY_ADMISSION_PORT = Symbol(
   'SOURCING_CAPABILITY_ADMISSION_PORT',
@@ -12,27 +11,21 @@ export interface SourcingCapabilityAdmissionPort {
     capabilityKey: string;
     organizationId: string;
     initiatingUserId: string;
-    attemptId: string;
+    executionId: string;
     input: unknown;
-  }): Promise<void>;
+  }): Promise<{ canonicalInput: unknown }>;
 
   recordScrapeSnapshot(input: {
     organizationId: string;
     initiatingUserId: string;
-    attemptId: string;
+    executionId: string;
     snapshot: unknown;
   }): void;
 
-  /**
-   * A successful durable authorization may retain its exact evidence hash
-   * until that authorization expires. A restarted process never restores it.
-   */
-  retainAuthorizedReplay(input: {
-    capabilityKey: string;
+  /** Called by the live-binding owner on turn end, revocation, or disconnect. */
+  revokeExecution(input: {
     organizationId: string;
     initiatingUserId: string;
-    attemptId: string;
-    input: unknown;
-    authorizationExpiresAt: Date;
+    executionId: string;
   }): void;
 }

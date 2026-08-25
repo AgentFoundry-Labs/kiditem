@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import { SourcingFinalDiscoveryCapabilityAdapter } from './sourcing-final-discovery-capability.adapter';
 
 describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
@@ -108,11 +109,13 @@ describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
     const snapshot = await adapter.scrapeProductUrl({
       sourceUrl: 'https://detail.1688.com/offer/1.html',
     });
+    const requestHash = canonicalOwnerInputHash({ snapshot });
 
     await expect(adapter.ingestCandidate({
       organizationId: '00000000-0000-4000-8000-000000000002',
       initiatingUserId: '00000000-0000-4000-8000-000000000003',
       idempotencyKey: 'owner:attempt:ingest',
+      requestHash,
       snapshot,
     })).resolves.toEqual({ candidateId: '00000000-0000-4000-8000-000000000011' });
 
@@ -120,9 +123,18 @@ describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
       expect.objectContaining({
         capabilityKey: 'sourcing.ingestCandidate',
         idempotencyKey: 'owner:attempt:ingest',
-        requestHash: snapshot.contentHash,
+        requestHash,
       }),
     );
+
+    await expect(adapter.ingestCandidate({
+      organizationId: '00000000-0000-4000-8000-000000000002',
+      initiatingUserId: '00000000-0000-4000-8000-000000000003',
+      idempotencyKey: 'owner:attempt:ingest-conflict',
+      requestHash: 'b'.repeat(64),
+      snapshot,
+    })).rejects.toThrow('owner_idempotency_input_conflict');
+    expect(candidates.upsertSourcedWithIdempotencyReceipt).toHaveBeenCalledTimes(1);
     expect(candidates.upsertSourced).not.toHaveBeenCalled();
   });
 });

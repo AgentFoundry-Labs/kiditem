@@ -29,7 +29,6 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'manage-extension-release.mjs',
   'run-data-migrations.ts',
   'safe-prisma-db-push.mjs',
-  'seed-agent-os.ts',
   'seed-order-collection-mall-accounts.ts',
   'smoke-interaction-os.mjs',
   'vitest.config.ts',

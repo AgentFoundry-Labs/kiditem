@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { z } from 'zod';
+import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import {
   PURCHASE_ORDER_DRAFT_PORT,
   type PurchaseOrderDraftPort,
@@ -59,31 +59,6 @@ function recommendationFromInput(input: SupplyPurchaseOrderDraftCapabilityInput)
   };
 }
 
-function purchaseOrderDraftIdempotencyKey(input: {
-  requestId: string;
-  input: SupplyPurchaseOrderDraftCapabilityInput;
-}): string {
-  const source =
-    typeof input.input.recommendationArtifactId === 'string'
-      ? `recommendation_artifact:${input.input.recommendationArtifactId}`
-       : [
-           'content',
-           String(input.input.productName),
-           String(input.input.supplierName ?? input.input.supplierId ?? 'unknown-supplier'),
-           String(input.input.testQuantity ?? input.input.moq),
-         ].join(':');
-
-  return `${input.requestId}:supply.create_purchase_order_draft:${source}`;
-}
-
-function purchaseOrderDraftRequestHash(
-  value: ReturnType<typeof recommendationFromInput>,
-): string {
-  return createHash('sha256')
-    .update(JSON.stringify(Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)))))
-    .digest('hex');
-}
-
 @Injectable()
 export class SupplyAgentCapabilityAdapter implements SupplyPurchaseOrderCapabilityPort {
   constructor(
@@ -98,11 +73,12 @@ export class SupplyAgentCapabilityAdapter implements SupplyPurchaseOrderCapabili
   ): Promise<{ orderId: string; status: string }> {
     const organizationId = z.string().uuid().parse(input.organizationId);
     const idempotencyKey = z.string().min(1).parse(input.idempotencyKey);
+    const requestHash = requiredInputHash(input.inputHash, draftCapabilityInput(input));
     const recommendation = recommendationFromInput(input);
     const result = await this.drafts.createFromRecommendation({
       organizationId,
       idempotencyKey,
-      requestHash: purchaseOrderDraftRequestHash(recommendation),
+      requestHash,
       recommendation,
     });
     return { orderId: result.orderId, status: result.status };
@@ -117,11 +93,13 @@ export class SupplyAgentCapabilityAdapter implements SupplyPurchaseOrderCapabili
     }
     const userId = z.string().uuid().parse(input.userId);
     const idempotencyKey = z.string().min(1).parse(input.idempotencyKey);
+    const requestHash = requiredInputHash(input.inputHash, submissionCapabilityInput(input));
     const parsed = PurchaseOrderSubmissionInputSchema.parse(input);
     const result = await this.submissions.submit({
       organizationId,
       purchaseOrderId: parsed.purchaseOrderId,
       idempotencyKey,
+      requestHash,
       userId,
       ...(parsed.externalOrderPlatform !== undefined && { externalOrderPlatform: parsed.externalOrderPlatform }),
       ...(parsed.externalOrderId !== undefined && { externalOrderId: parsed.externalOrderId }),
@@ -129,4 +107,40 @@ export class SupplyAgentCapabilityAdapter implements SupplyPurchaseOrderCapabili
     });
     return { orderId: result.orderId, status: result.status };
   }
+}
+
+function draftCapabilityInput(
+  input: SupplyPurchaseOrderDraftCapabilityInput,
+): Record<string, unknown> {
+  const {
+    organizationId: _organizationId,
+    userId: _userId,
+    idempotencyKey: _idempotencyKey,
+    inputHash: _inputHash,
+    ...businessInput
+  } = input;
+  return businessInput;
+}
+
+function submissionCapabilityInput(
+  input: SupplyPurchaseOrderSubmissionCapabilityInput,
+): Record<string, unknown> {
+  const {
+    organizationId: _organizationId,
+    userId: _userId,
+    idempotencyKey: _idempotencyKey,
+    inputHash: _inputHash,
+    ...businessInput
+  } = input;
+  return businessInput;
+}
+
+function requiredInputHash(value: string, input: unknown): string {
+  if (
+    !/^[a-f0-9]{64}$/.test(value)
+    || value !== canonicalOwnerInputHash(input)
+  ) {
+    throw new Error('owner_input_hash_required');
+  }
+  return value;
 }

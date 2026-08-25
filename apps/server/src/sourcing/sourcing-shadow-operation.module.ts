@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { AgentOsSessionModule } from '../agent-os/agent-os-session.module';
 import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
 import { OperationsModule } from '../operations/operations.module';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -23,7 +22,6 @@ import { SourcingAgentRuntimeModule } from './sourcing-agent-runtime.module';
 @Module({
   imports: [
     PrismaModule,
-    AgentOsSessionModule,
     AgentOsCapabilityModule,
     OperationsModule,
     SourcingAgentRuntimeModule,

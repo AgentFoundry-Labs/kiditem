@@ -300,7 +300,7 @@ describe('StorageService', () => {
     });
   });
 
-  describe('AgentSession conditional multipart completion capability', () => {
+  describe('conditional multipart completion capability', () => {
     it('sends IfNoneMatch on every owned multipart completion', async () => {
       mockSend
         .mockResolvedValueOnce({ ETag: 'part-etag' })
@@ -322,7 +322,7 @@ describe('StorageService', () => {
 
     it('keeps deletion cleanup unsupported until a provider-specific proof exists', () => {
       const service = new StorageService();
-      expect(service.agentSessionMultipartCleanupCapability()).toBe('unsupported');
+      expect(service.multipartCleanupCapability()).toBe('unsupported');
     });
   });
 

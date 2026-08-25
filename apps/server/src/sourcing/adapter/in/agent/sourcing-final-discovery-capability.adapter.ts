@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
+import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import {
   type SourcingFinalDiscoveryCapabilityPort,
 } from '../../../application/port/in/capability/sourcing-final-discovery-capability.port';
@@ -62,9 +63,13 @@ export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDis
     organizationId: string;
     initiatingUserId: string;
     idempotencyKey: string;
+    requestHash: string;
     snapshot: SourcingSourceSnapshot;
   }) {
     if (!input.idempotencyKey.trim()) throw new Error('owner_idempotency_key_required');
+    if (input.requestHash !== canonicalOwnerInputHash({ snapshot: input.snapshot })) {
+      throw new Error('owner_idempotency_input_conflict');
+    }
     const supplier = parseAllowedSupplierUrl(input.snapshot.sourceUrl);
     if (contentHash(snapshotContent(input.snapshot)) !== input.snapshot.contentHash) {
       throw new Error('sourcing_scrape_snapshot_hash_mismatch');
@@ -76,7 +81,7 @@ export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDis
     );
     return this.candidates.upsertSourcedWithIdempotencyReceipt({
       capabilityKey: 'sourcing.ingestCandidate',
-      requestHash: input.snapshot.contentHash,
+      requestHash: input.requestHash,
       organizationId: input.organizationId,
       sourceUrl: supplier.normalizedUrl,
       sourcePlatform: platform,

@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   canonicalOwnerInputHash,
-  deriveOwnerIdempotencyKey,
 } from "../../../../common/owner-idempotency-key";
 import { ChannelsFinalCapabilityAdapter } from "./channels-final-capability.adapter";
 
@@ -38,26 +37,16 @@ const frozen = {
 };
 
 function context(
-  capabilityKey:
+  _capabilityKey:
     "channels.submit_coupang_listing" | "channels.register_confirmed_listing",
   input: typeof submissionInput | typeof confirmationInput,
 ) {
-  const attemptId = "attempt-1";
   return {
     organizationId: "00000000-0000-4000-8000-000000000001",
     initiatingUserId: "00000000-0000-4000-8000-000000000002",
-    sessionId: "session-1",
-    taskId: "task-1",
-    attemptId,
-    agentVersionId: "version-1",
-    ownerIdempotencyKey: deriveOwnerIdempotencyKey({
-      attemptId,
-      capabilityKey,
-      input,
-    }),
-    applicationVersion: "0.25.0",
-    authorizingGitSha: "a".repeat(40),
-    runtimeType: "codex_cli",
+    executionId: 'execution-1',
+    ownerIdempotencyKey: 'capability-invocation:00000000-0000-4000-8000-000000000099',
+    ownerInputHash: canonicalOwnerInputHash(input),
   };
 }
 
@@ -243,7 +232,8 @@ describe("ChannelsFinalCapabilityAdapter", () => {
       adapter.submitCoupangListing({
         context: {
           ...context("channels.submit_coupang_listing", submissionInput),
-          ownerIdempotencyKey: "f".repeat(64),
+          ownerIdempotencyKey: "capability-invocation:00000000-0000-4000-8000-000000000098",
+          ownerInputHash: 'f'.repeat(64),
         },
         input: submissionInput,
       }),

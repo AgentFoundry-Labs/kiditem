@@ -51,6 +51,8 @@ export interface SourcingAgentWorkspaceMutationCapabilityPort {
     organizationId: string;
     recommendationRunId: string;
     idempotencyKey: string;
+    /** Exact SHA-256 of canonical capability input, fenced with the owner key. */
+    requestHash: string;
   }): Promise<{
     recommendationRunId: string;
     validationEpisodeIds: string[];
@@ -64,5 +66,7 @@ export interface SourcingAgentWorkspaceMutationCapabilityPort {
     workspaceKey: 'entry' | 'final';
     items: Array<{ itemKey: string; expectedVersion: number }>;
     idempotencyKey: string;
+    /** Exact SHA-256 of canonical capability input, fenced with the owner key. */
+    requestHash: string;
   }): Promise<{ reviewBatchId: string; itemCount: number; status: string }>;
 }

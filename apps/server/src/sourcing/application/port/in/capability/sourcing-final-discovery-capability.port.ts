@@ -9,6 +9,8 @@ export interface SourcingFinalDiscoveryCapabilityPort {
     organizationId: string;
     initiatingUserId: string;
     idempotencyKey: string;
+    /** Exact canonical hash of the outer { snapshot } capability input. */
+    requestHash: string;
     snapshot: SourcingSourceSnapshot;
   }): Promise<{ candidateId: string }>;
 }

@@ -10,7 +10,6 @@ import {
   vi,
 } from 'vitest';
 import { ApiApplicationModule } from '../../../../api-application.module';
-import { seedAgentVersions } from '../../../../agent-os/seed-agent-versions';
 import {
   makeTestPrisma,
   resetDb,
@@ -61,14 +60,6 @@ async function readRegisteredOperationOwnerDomains(
     AI_DIRECT_JOB_WORKER_ENABLED: '0',
     OPERATION_RUNTIME_WORKER_ENABLED: '0',
     OPERATION_SCHEDULER_ENABLED: '0',
-    KIDITEM_APPLICATION_VERSION: 'test-version',
-    KIDITEM_GIT_SHA: '0000000000000000000000000000000000000000',
-    AGENT_OPERATOR_MODEL: 'test-model',
-    AGENT_SOURCING_MODEL: 'test-model',
-    AGENT_MERCHANDISING_MODEL: 'test-model',
-    AGENT_SUPPLY_MODEL: 'test-model',
-    AGENT_CHANNEL_OPERATIONS_MODEL: 'test-model',
-    AGENT_ADVERTISING_MODEL: 'test-model',
   } as const;
   const priorEnvironment = Object.fromEntries(
     Object.keys(disabledRuntimeEnvironment).map((key) => [key, process.env[key]]),
@@ -77,7 +68,6 @@ async function readRegisteredOperationOwnerDomains(
 
   let context: INestApplicationContext | null = null;
   try {
-    await seedAgentVersions();
     context = await NestFactory.createApplicationContext(
       ApiApplicationModule,
       { logger: false, abortOnError: false },

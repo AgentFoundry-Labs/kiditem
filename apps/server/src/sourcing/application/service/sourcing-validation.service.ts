@@ -91,6 +91,7 @@ export class SourcingValidationService {
     organizationId: string;
     recommendationRunId: string;
     idempotencyKey?: string;
+    requestHash?: string;
     limit?: number;
   }): Promise<SourcingValidationEnvelope> {
     const now = new Date();
@@ -106,6 +107,7 @@ export class SourcingValidationService {
       limit: normalizeLimit(input.limit),
       now,
       idempotencyKey: input.idempotencyKey,
+      requestHash: input.requestHash,
     });
   }
 
@@ -115,6 +117,7 @@ export class SourcingValidationService {
     limit: number;
     now: Date;
     idempotencyKey?: string;
+    requestHash?: string;
   }): Promise<SourcingValidationEnvelope> {
     const supplyItems = input.run.items.filter((item) => item.sourcePlatform === '1688');
     const validationItems = supplyItems.length > 0 ? supplyItems : input.run.items;
@@ -127,6 +130,7 @@ export class SourcingValidationService {
           organizationId: input.organizationId,
           recommendationRunId: input.run.id,
           idempotencyKey: input.idempotencyKey,
+          requestHash: input.requestHash,
           episodes,
         });
     return ready(input.run, items, null);

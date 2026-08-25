@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
@@ -10,6 +10,7 @@ import type {
 } from '../../../application/port/out/repository/sourcing-validation.repository.port';
 
 const MAX_PAGE_SIZE = 100;
+const VALIDATION_CAPABILITY_KEY = 'sourcing.refreshValidation';
 
 @Injectable()
 export class SourcingValidationRepositoryAdapter
@@ -21,9 +22,10 @@ export class SourcingValidationRepositoryAdapter
     organizationId: string;
     recommendationRunId: string;
     idempotencyKey?: string;
+    requestHash?: string;
     episodes: SourcingValidationEpisodeWrite[];
   }): Promise<SourcingValidationItemRecord[]> {
-    if (command.episodes.length === 0) return [];
+    if (command.episodes.length === 0 && !ownerReceipt(command)) return [];
     try {
       await this.createMissingEpisodes(command);
     } catch (error: unknown) {
@@ -77,14 +79,36 @@ export class SourcingValidationRepositoryAdapter
     organizationId: string;
     recommendationRunId: string;
     idempotencyKey?: string;
+    requestHash?: string;
     episodes: SourcingValidationEpisodeWrite[];
   }): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      const receiptInput = ownerReceipt(command);
       if (command.idempotencyKey?.trim()) {
         await advisoryLock(
           tx,
           `sourcing-validation:${command.organizationId}:${command.idempotencyKey}`,
         );
+      }
+      if (receiptInput) {
+        await advisoryLock(
+          tx,
+          `sourcing-owner-receipt:${command.organizationId}:${VALIDATION_CAPABILITY_KEY}:${receiptInput.idempotencyKey}`,
+        );
+        const receipt = await tx.sourcingOwnerIdempotencyReceipt.findFirst({
+          where: {
+            organizationId: command.organizationId,
+            capabilityKey: VALIDATION_CAPABILITY_KEY,
+            idempotencyKey: receiptInput.idempotencyKey,
+          },
+          select: { requestHash: true, result: true },
+        });
+        if (receipt) {
+          if (receipt.requestHash !== receiptInput.requestHash) {
+            throw new ConflictException('owner_idempotency_input_conflict');
+          }
+          return;
+        }
       }
       const episodeByItemId = new Map<string, SourcingValidationEpisodeWrite>();
       for (const episode of command.episodes) {
@@ -95,6 +119,10 @@ export class SourcingValidationRepositoryAdapter
         episodeByItemId.set(episode.recommendationItemId, episode);
       }
       const itemIds = [...episodeByItemId.keys()];
+      if (itemIds.length === 0) {
+        await persistOwnerReceipt(tx, command, receiptInput, []);
+        return;
+      }
       const items = await tx.sourcingRecommendationItem.findMany({
         where: {
           organizationId: command.organizationId,
@@ -119,7 +147,10 @@ export class SourcingValidationRepositoryAdapter
       const missing = command.episodes.filter(
         (episode) => !existingItemIds.has(episode.recommendationItemId),
       );
-      if (missing.length === 0) return;
+      if (missing.length === 0) {
+        await persistOwnerReceipt(tx, command, receiptInput, itemIds);
+        return;
+      }
 
       const evidenceObservationIds = compactIds(
         missing.flatMap((episode) =>
@@ -189,8 +220,57 @@ export class SourcingValidationRepositoryAdapter
       if (links.length > 0) {
         await tx.sourcingValidationCheckEvidence.createMany({ data: links });
       }
+      await persistOwnerReceipt(tx, command, receiptInput, itemIds);
     });
   }
+}
+
+function ownerReceipt(command: {
+  idempotencyKey?: string;
+  requestHash?: string;
+}): { idempotencyKey: string; requestHash: string } | null {
+  const idempotencyKey = command.idempotencyKey?.trim();
+  const requestHash = command.requestHash?.trim();
+  if (!requestHash) return null;
+  if (!idempotencyKey || !/^[a-f0-9]{64}$/.test(requestHash)) {
+    throw new ConflictException('owner_idempotency_input_conflict');
+  }
+  return { idempotencyKey, requestHash };
+}
+
+async function persistOwnerReceipt(
+  tx: Prisma.TransactionClient,
+  command: {
+    organizationId: string;
+    recommendationRunId: string;
+  },
+  receipt: { idempotencyKey: string; requestHash: string } | null,
+  itemIds: string[],
+): Promise<void> {
+  if (!receipt) return;
+  const rows = itemIds.length === 0
+    ? []
+    : await tx.sourcingValidationEpisode.findMany({
+        where: {
+          organizationId: command.organizationId,
+          recommendationRunId: command.recommendationRunId,
+          recommendationItemId: { in: itemIds },
+        },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+      });
+  await tx.sourcingOwnerIdempotencyReceipt.create({
+    data: {
+      organizationId: command.organizationId,
+      capabilityKey: VALIDATION_CAPABILITY_KEY,
+      idempotencyKey: receipt.idempotencyKey,
+      requestHash: receipt.requestHash,
+      result: {
+        recommendationRunId: command.recommendationRunId,
+        validationEpisodeIds: rows.map((row) => row.id),
+      },
+    },
+  });
 }
 
 async function advisoryLock(tx: Prisma.TransactionClient, key: string): Promise<void> {

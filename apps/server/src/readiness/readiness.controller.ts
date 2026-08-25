@@ -1,5 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
-import { ReadinessService, type AgentAttemptRuntimeReadinessResponse } from './readiness.service';
+import { ReadinessService } from './readiness.service';
 import { CurrentOrganization } from '../auth/decorators/current-organization.decorator';
 import type {
   ReadinessResponse,
@@ -22,9 +22,4 @@ export class ReadinessController {
     return this.service.getRebuildStatus(organizationId);
   }
 
-  /** Authenticated, bounded CLI admission canary; no credential material is returned. */
-  @Get('agent-runtime')
-  getAgentRuntime(): Promise<AgentAttemptRuntimeReadinessResponse> {
-    return this.service.getAgentAttemptRuntimeReadiness();
-  }
 }

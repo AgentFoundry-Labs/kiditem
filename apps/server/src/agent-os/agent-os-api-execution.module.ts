@@ -1,10 +1,9 @@
 import { Module } from "@nestjs/common";
-import { AgentWorkCapabilityApplicationModule } from "../agent-work-capability-application.module";
-import { AgentRuntimeApplicationModule } from '../agent-runtime-application.module';
+import { AgentOsInvocationModule } from './agent-os-invocation.module';
 
-/** API composition for live Attempts; durable mutations remain worker-owned. */
+/** API composition for synchronous, request-driven Invocation execution. */
 @Module({
-  imports: [AgentWorkCapabilityApplicationModule, AgentRuntimeApplicationModule],
-  exports: [AgentWorkCapabilityApplicationModule, AgentRuntimeApplicationModule],
+  imports: [AgentOsInvocationModule],
+  exports: [AgentOsInvocationModule],
 })
 export class AgentOsApiExecutionModule {}

@@ -4,9 +4,10 @@ export const SOURCING_FINAL_CAPABILITY_PORT = Symbol('SOURCING_FINAL_CAPABILITY_
 export interface SourcingOwnerExecutionContext {
   organizationId: string;
   initiatingUserId: string;
-  /** Attempt-local coordinate used only to bind a scrape snapshot before admission. */
-  attemptId: string;
+  /** Process-memory live execution coordinate used only for scrape receipt binding. */
+  executionId: string;
   ownerIdempotencyKey?: string;
+  ownerInputHash?: string;
 }
 export type SourcingMutationExecutionContext = SourcingOwnerExecutionContext & {
   ownerIdempotencyKey: string;
@@ -26,7 +27,7 @@ export interface SourcingSourceSnapshot {
 
 export interface SourcingFinalCapabilityPort {
   duplicateCheck(request: { context: Pick<SourcingOwnerExecutionContext, 'organizationId'>; input: { sourceUrl: string } }): Promise<{ duplicate: boolean; candidateId: string | null }>;
-  scrapeProductUrl(request: { context: Pick<SourcingOwnerExecutionContext, 'organizationId' | 'initiatingUserId' | 'attemptId'>; input: { sourceUrl: string } }): Promise<{ snapshot: SourcingSourceSnapshot }>;
+  scrapeProductUrl(request: { context: Pick<SourcingOwnerExecutionContext, 'organizationId' | 'initiatingUserId' | 'executionId'>; input: { sourceUrl: string } }): Promise<{ snapshot: SourcingSourceSnapshot }>;
   ingestCandidate(request: { context: SourcingMutationExecutionContext; input: { snapshot: SourcingSourceSnapshot } }): Promise<{ candidateId: string }>;
   createReviewBatch(request: { context: SourcingMutationExecutionContext; input: { recommendationRunId: string; workspaceKey: 'entry' | 'final'; items: Array<{ itemKey: string; expectedVersion: number }> } }): Promise<{ reviewBatchId: string; itemCount: number; status: string }>;
   inspectRecommendationRun(request: { context: Pick<SourcingOwnerExecutionContext, 'organizationId'>; input: { recommendationRunId?: string } }): Promise<{ runId: string; status: 'complete' | 'partial' | 'failed'; businessDate: string; itemCount: number; warningCodes: string[]; validation: { itemCount: number; missingCount: number } }>;

@@ -74,6 +74,7 @@ implements PurchaseOrderSubmissionPort {
       purchaseOrderId: input.purchaseOrderId,
       sellpiaInventorySkuIds,
       idempotencyKey,
+      requestHash: input.requestHash,
       userId: input.userId,
       freshnessFence: gate.fence,
       freshnessLastVerifiedAt: gate.lastVerifiedAt,

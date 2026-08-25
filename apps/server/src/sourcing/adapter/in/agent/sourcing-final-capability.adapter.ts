@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { deriveOwnerIdempotencyKey } from '../../../../common/owner-idempotency-key';
+import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import {
   OPERATION_RUNNER_PORT,
   type OperationRunnerPort,
@@ -50,32 +50,27 @@ export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPo
     return this.discovery.duplicateCheck({ organizationId: context.organizationId, sourceUrl: input.sourceUrl });
   }
 
-  async scrapeProductUrl({ context, input }: { context: Pick<SourcingOwnerExecutionContext, 'organizationId' | 'initiatingUserId' | 'attemptId'>; input: { sourceUrl: string } }) {
+  async scrapeProductUrl({ context, input }: { context: Pick<SourcingOwnerExecutionContext, 'organizationId' | 'initiatingUserId' | 'executionId'>; input: { sourceUrl: string } }) {
     const snapshot = await this.discovery.scrapeProductUrl({ sourceUrl: input.sourceUrl });
     this.admissions.recordScrapeSnapshot({ ...context, snapshot });
     return { snapshot };
   }
 
   async ingestCandidate({ context, input }: { context: SourcingOwnerExecutionContext & { ownerIdempotencyKey: string }; input: { snapshot: import('../../../application/port/in/capability/sourcing-final-capability.port').SourcingSourceSnapshot } }) {
-    const idempotencyKey = requiredDerivedIdempotency(
-      context,
-      'sourcing.ingestCandidate',
-      input,
-    );
+    const idempotencyKey = requiredIdempotency(context);
+    const requestHash = requiredOwnerInputHash(context, input);
     return this.discovery.ingestCandidate({
       organizationId: context.organizationId,
       initiatingUserId: context.initiatingUserId,
       idempotencyKey,
+      requestHash,
       snapshot: input.snapshot,
     });
   }
 
   async createReviewBatch({ context, input }: { context: SourcingOwnerExecutionContext; input: { recommendationRunId: string; workspaceKey: 'entry' | 'final'; items: Array<{ itemKey: string; expectedVersion: number }> } }) {
-    const ownerIdempotencyKey = requiredDerivedIdempotency(
-      context,
-      'sourcing.createReviewBatch',
-      input,
-    );
+    const ownerIdempotencyKey = requiredIdempotency(context);
+    const requestHash = requiredOwnerInputHash(context, input);
     return this.mutations.createReviewBatch({
       organizationId: context.organizationId,
       requestedByUserId: context.initiatingUserId,
@@ -83,6 +78,7 @@ export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPo
       workspaceKey: input.workspaceKey,
       items: input.items,
       idempotencyKey: ownerIdempotencyKey,
+      requestHash,
     });
   }
 
@@ -94,11 +90,7 @@ export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPo
   }
 
   async refreshCollection({ context, input }: { context: SourcingOwnerExecutionContext; input: { sources: Array<'naver' | '1688' | 'shorts'> } }) {
-    const ownerIdempotencyKey = requiredDerivedIdempotency(
-      context,
-      'sourcing.refreshCollection',
-      input,
-    );
+    const ownerIdempotencyKey = requiredOwnerReceipt(context, input);
     const run = await this.operations.start({
       organizationId: context.organizationId,
       operationKey: 'sourcing.collect_daily_trends',
@@ -111,15 +103,12 @@ export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPo
   }
 
   async refreshValidation({ context, input }: { context: SourcingOwnerExecutionContext & { ownerIdempotencyKey: string }; input: { recommendationRunId: string } }) {
-    const ownerIdempotencyKey = requiredDerivedIdempotency(
-      context,
-      'sourcing.refreshValidation',
-      input,
-    );
+    const ownerIdempotencyKey = requiredOwnerReceipt(context, input);
     return this.mutations.refreshValidation({
       organizationId: context.organizationId,
       recommendationRunId: input.recommendationRunId,
       idempotencyKey: ownerIdempotencyKey,
+      requestHash: context.ownerInputHash!,
     });
   }
 
@@ -146,11 +135,7 @@ export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPo
   }
 
   async scrapeUrlWorkflow({ context, input }: { context: SourcingOwnerExecutionContext; input: { sourceUrl: string } }) {
-    const idempotencyKey = requiredDerivedIdempotency(
-      context,
-      'sourcing.scrapeUrlWorkflow',
-      input,
-    );
+    const idempotencyKey = requiredOwnerReceipt(context, input);
     const replay = await this.operations.findByIdempotency({
       organizationId: context.organizationId,
       operationKey: SOURCING_SCRAPE_URL_OPERATION.key,
@@ -181,11 +166,7 @@ export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPo
     return this.shadow.collectShadowSignals({
       organizationId: context.organizationId,
       requestedByUserId: context.initiatingUserId,
-      idempotencyKey: requiredDerivedIdempotency(
-        context,
-        'sourcing.collect_shadow_signals',
-        input,
-      ),
+      idempotencyKey: requiredOwnerReceipt(context, input),
     });
   }
 }
@@ -195,21 +176,26 @@ function requiredIdempotency(input: { ownerIdempotencyKey?: string }): string {
   return input.ownerIdempotencyKey;
 }
 
-function requiredDerivedIdempotency(
+function requiredOwnerReceipt(
   context: SourcingOwnerExecutionContext,
-  capabilityKey: string,
   input: unknown,
 ): string {
   const ownerIdempotencyKey = requiredIdempotency(context);
-  const expected = deriveOwnerIdempotencyKey({
-    attemptId: context.attemptId,
-    capabilityKey,
-    input,
-  });
-  if (ownerIdempotencyKey !== expected) {
+  requiredOwnerInputHash(context, input);
+  return ownerIdempotencyKey;
+}
+
+function requiredOwnerInputHash(
+  context: SourcingOwnerExecutionContext,
+  input: unknown,
+): string {
+  if (
+    !context.ownerInputHash ||
+    context.ownerInputHash !== canonicalOwnerInputHash(input)
+  ) {
     throw new Error('owner_idempotency_input_conflict');
   }
-  return ownerIdempotencyKey;
+  return context.ownerInputHash;
 }
 
 function boundedRequiredText(value: string, maximum: number): string {

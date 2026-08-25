@@ -57,6 +57,7 @@ export class SourcingReviewService {
     recommendationRunId: string;
     itemKeys: string[];
     idempotencyKey: string;
+    requestHash?: string;
     workspaceKey?: 'entry' | 'final';
     expectedSelections?: Array<{
       itemKey: string;
@@ -91,7 +92,7 @@ export class SourcingReviewService {
           }))
           .sort((left, right) => left.itemKey.localeCompare(right.itemKey))
       : undefined;
-    const requestHash = createHash('sha256').update(canonicalJson({
+    const requestHash = input.requestHash ?? createHash('sha256').update(canonicalJson({
       recommendationRunId: input.recommendationRunId,
       itemKeys,
       ...(input.workspaceKey && expectedSelections

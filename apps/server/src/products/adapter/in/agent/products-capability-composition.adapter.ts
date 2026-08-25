@@ -28,6 +28,7 @@ export class ProductsCapabilityCompositionAdapter
             organizationId: context.organizationId,
             triggeredByUserId: context.initiatingUserId,
             idempotencyKey: requiredOwnerIdempotencyKey(context),
+            inputHash: requiredOwnerInputHash(context),
           }),
         resourceRef: (output) => ({
           kind: 'sourcing_candidate',
@@ -46,4 +47,13 @@ function requiredOwnerIdempotencyKey(context: {
     throw new Error('owner_idempotency_key_required');
   }
   return context.ownerIdempotencyKey;
+}
+
+function requiredOwnerInputHash(context: {
+  ownerInputHash?: string;
+}): string {
+  if (!context.ownerInputHash?.match(/^[a-f0-9]{64}$/)) {
+    throw new Error('owner_input_hash_required');
+  }
+  return context.ownerInputHash;
 }

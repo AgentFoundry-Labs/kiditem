@@ -30,6 +30,7 @@ export const BoundedCanonicalJsonSchema = z.unknown().superRefine((value, contex
       if (typeof node === 'number') return Number.isFinite(node);
       if (Array.isArray(node)) return node.length <= 100 && node.every((item) => visit(item, depth + 1));
       if (node && typeof node === 'object') {
+        if (Object.getPrototypeOf(node) !== Object.prototype) return false;
         const entries = Object.entries(node as Record<string, unknown>);
         return entries.length <= 100 && entries.every(([key, item]) => key.length <= 128 && visit(item, depth + 1));
       }

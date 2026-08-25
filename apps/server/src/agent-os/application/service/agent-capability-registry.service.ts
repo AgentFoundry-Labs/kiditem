@@ -4,7 +4,7 @@ import {
   assertCapabilityDefinitions,
   type CapabilityDefinition,
 } from "../../domain/capability/capability-definition";
-import type { AgentResultEnvelope } from "@kiditem/shared/agent-interaction";
+import type { CapabilityResultEnvelope } from "@kiditem/shared/agent-interaction";
 import type { CapabilityCompositionUnit } from "../../../common/capability-composition";
 import type { AgentCapabilityContractHandler } from "../port/out/capability/agent-capability-handler.port";
 
@@ -78,7 +78,7 @@ export class AgentCapabilityRegistry {
     return this.implementations.get(key) ?? null;
   }
 
-  /** Public discovery is broader than an AgentVersion's default invocation scope. */
+  /** Public discovery is broader than any individual acting Agent's allowed domain. */
   listDefinitions(): CapabilityDefinition[] {
     return [...this.definitions.values()].sort((left, right) =>
       left.key.localeCompare(right.key),
@@ -130,9 +130,8 @@ function envelope(
   output: Record<string, unknown>,
   resource: { kind: string; id: string } | null,
   operation: string | null,
-): AgentResultEnvelope {
+): CapabilityResultEnvelope {
   return {
-    outcome: "completed",
     summary: `${key} completed.`,
     resourceRefs: resource ? [{ ...resource, version: null }] : [],
     operationRefs: operation ? [{ kind: "operation_run", id: operation }] : [],

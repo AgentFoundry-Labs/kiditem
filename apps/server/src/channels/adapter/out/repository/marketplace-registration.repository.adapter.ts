@@ -31,9 +31,9 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
     requestHash: string;
     ownerIdempotencyKey: string;
   }) {
-    if (!/^[a-f0-9]{64}$/.test(input.ownerIdempotencyKey)) {
+    if (!isInvocationOwnerKey(input.ownerIdempotencyKey)) {
       throw new ConflictException(
-        "Provider write requires a canonical owner idempotency key.",
+        "Provider write requires an invocation owner idempotency key.",
       );
     }
     return this.prisma.$transaction(async (tx) => {
@@ -568,7 +568,7 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
     },
   ) {
     if (
-      !/^[a-f0-9]{64}$/.test(input.ownerIdempotencyKey) ||
+      !isInvocationOwnerKey(input.ownerIdempotencyKey) ||
       !/^[a-f0-9]{64}$/.test(input.ownerRequestHash)
     ) {
       throw new ConflictException(
@@ -622,6 +622,10 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
     });
     return result;
   }
+}
+
+function isInvocationOwnerKey(value: string): boolean {
+  return /^capability-invocation:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function receiptListingResult(value: Prisma.JsonValue): {

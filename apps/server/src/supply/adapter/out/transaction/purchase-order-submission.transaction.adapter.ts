@@ -33,6 +33,7 @@ type LockedOrderRow = { id: string; status: string };
 type LockedAttemptRow = {
   id: string;
   idempotencyKey: string;
+  requestHash: string;
   status: string;
   providerReference: string | null;
   reconciliationOutcome: string | null;
@@ -170,6 +171,7 @@ implements PurchaseOrderSubmissionTransactionPort {
         select: {
           id: true,
           idempotencyKey: true,
+          requestHash: true,
           status: true,
           providerReference: true,
           reconciliationOutcome: true,
@@ -177,6 +179,14 @@ implements PurchaseOrderSubmissionTransactionPort {
         },
       });
       if (latest) {
+        if (
+          latest.idempotencyKey === input.idempotencyKey
+          && latest.requestHash !== input.requestHash
+        ) {
+          throw new ConflictException(
+            'Purchase submission idempotency key conflicts with a different canonical input.',
+          );
+        }
         const promoted = await promoteExpiredPrepared(
           tx,
           input,
@@ -201,6 +211,7 @@ implements PurchaseOrderSubmissionTransactionPort {
           organizationId: input.organizationId,
           purchaseOrderId: input.purchaseOrderId,
           idempotencyKey: input.idempotencyKey,
+          requestHash: input.requestHash,
           freshnessGeneration: freshness.freshnessGeneration,
           status: 'prepared',
         },
@@ -268,6 +279,7 @@ implements PurchaseOrderSubmissionTransactionPort {
         SELECT
           id,
           idempotency_key AS "idempotencyKey",
+          request_hash AS "requestHash",
           status,
           provider_reference AS "providerReference",
           reconciliation_outcome AS "reconciliationOutcome",
@@ -395,7 +407,8 @@ async function lockAttempt(
   const rows = await tx.$queryRaw<LockedAttemptRow[]>`
     SELECT
       id,
-      idempotency_key AS "idempotencyKey",
+          idempotency_key AS "idempotencyKey",
+          request_hash AS "requestHash",
       status,
       provider_reference AS "providerReference",
       reconciliation_outcome AS "reconciliationOutcome",

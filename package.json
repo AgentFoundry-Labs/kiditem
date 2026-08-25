@@ -62,7 +62,6 @@
     "data:migrate": "tsx scripts/run-data-migrations.ts",
     "extension:release": "node scripts/manage-extension-release.mjs",
     "inventory:bootstrap:dev": "tsx scripts/bootstrap-authoritative-inventory-dev.ts",
-    "seed:agent-os": "tsx scripts/seed-agent-os.ts",
     "smoke:interaction-os": "node scripts/smoke-interaction-os.mjs",
     "seed:order-collection-malls": "tsx scripts/seed-order-collection-mall-accounts.ts",
     "test:integration": "npm run test:integration --workspace=apps/server --"

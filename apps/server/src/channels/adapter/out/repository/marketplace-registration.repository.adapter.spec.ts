@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { MarketplaceRegistrationRepositoryAdapter } from "./marketplace-registration.repository.adapter";
 
 describe("MarketplaceRegistrationRepositoryAdapter preparation registration", () => {
-  it("rejects a noncanonical owner key before claiming a provider write", async () => {
+  it("rejects a non-invocation owner key before claiming a provider write", async () => {
     const $transaction = vi.fn().mockResolvedValue(undefined);
     const repository = new MarketplaceRegistrationRepositoryAdapter({
       $transaction,
@@ -21,9 +21,31 @@ describe("MarketplaceRegistrationRepositoryAdapter preparation registration", ()
         ownerIdempotencyKey: "not-a-canonical-sha256-key",
       }),
     ).rejects.toThrow(
-      "Provider write requires a canonical owner idempotency key.",
+      "Provider write requires an invocation owner idempotency key.",
     );
     expect($transaction).not.toHaveBeenCalled();
+  });
+
+  it("accepts the opaque CapabilityInvocation owner key before claiming a provider write", async () => {
+    const $transaction = vi.fn().mockResolvedValue({ mode: "created" });
+    const repository = new MarketplaceRegistrationRepositoryAdapter({
+      $transaction,
+    } as never);
+
+    await expect(
+      repository.claimProviderWrite({
+        organizationId: "org-1",
+        executionId: "execution-1",
+        preparationId: "preparation-1",
+        channelAccountId: "account-1",
+        sourceCandidateId: "candidate-1",
+        idempotencyKey: "submission-1",
+        requestHash: "a".repeat(64),
+        ownerIdempotencyKey:
+          "capability-invocation:00000000-0000-4000-8000-000000000001",
+      }),
+    ).resolves.toEqual({ mode: "created" });
+    expect($transaction).toHaveBeenCalledTimes(1);
   });
 
   it("finds an active account-scoped listing by its synced seller SKU", async () => {

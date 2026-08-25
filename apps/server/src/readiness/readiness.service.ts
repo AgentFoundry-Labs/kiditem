@@ -1,29 +1,13 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { kstDayStart } from '../common/kst';
 import { SELLPIA_SALES_COVERAGE_SELLER_ID } from '../analytics/sellpia-sales/domain/snapshot-coverage';
-import {
-  HOST_RUNNER_CONTROL_READINESS_PORT,
-  type HostRunnerControlReadinessPort,
-  type RunnerReadinessSnapshot,
-} from '../agent-os/adapter/out/runtime/runner/host-runner-control-session.module';
 import type {
   ReadinessCheck,
   ReadinessResponse,
   RebuildReadinessResponse,
 } from '@kiditem/shared/readiness';
-
-export type AgentAttemptRuntimeReadinessResponse = Readonly<{
-  status: 'ready' | 'probing';
-  runner: RunnerReadinessSnapshot | null;
-  agents: ReadonlyArray<Readonly<{
-    agentDefinitionKey: string;
-    runtimeType: 'codex_cli' | 'claude_cli';
-    model: string;
-    status: 'ready' | 'probing';
-  }>>;
-}>;
 
 /**
  * Readiness check for system data freshness.
@@ -38,11 +22,7 @@ export type AgentAttemptRuntimeReadinessResponse = Readonly<{
  */
 @Injectable()
 export class ReadinessService {
-  constructor(
-    private readonly prisma: PrismaService,
-    @Inject(HOST_RUNNER_CONTROL_READINESS_PORT)
-    private readonly attemptReadiness: Pick<HostRunnerControlReadinessPort, 'assertRuntime' | 'beginCanary' | 'snapshot'>,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /**
    * 광고와 Sellpia 매출 모두 최소 최근 N일을 보장하고, 이번 달이 더 길면
@@ -71,65 +51,6 @@ export class ReadinessService {
       state: 'snapshot_required',
       target,
       requiredImports: ['sellpia', 'wing'],
-    };
-  }
-
-  /**
-   * KID-25 local-runtime gate. It probes only runtime binary/login state and
-   * requires an explicit profile model; credential values never enter Nest.
-   */
-  async getAgentAttemptRuntimeReadiness(): Promise<AgentAttemptRuntimeReadinessResponse> {
-    const versions = await this.prisma.agentVersion.findMany({
-      where: { activatedAt: { not: null }, retiredAt: null },
-      select: { agentDefinitionKey: true, runtimeType: true },
-      orderBy: { agentDefinitionKey: 'asc' },
-    });
-    const applicationVersion = optionalEnv('KIDITEM_APPLICATION_VERSION');
-    const gitSha = optionalEnv('KIDITEM_GIT_SHA');
-    if (!applicationVersion || !gitSha) throw new Error('missing_required_work_runtime_identity');
-    const deployIdentity = `${applicationVersion}:${gitSha}`;
-    const agents = versions.map((version) => {
-      const model = optionalEnv(`AGENT_${version.agentDefinitionKey.toUpperCase()}_MODEL`);
-      if (!model) throw new Error(`missing_runtime_model:${version.agentDefinitionKey}`);
-      return {
-        agentDefinitionKey: version.agentDefinitionKey,
-        runtimeType: supportedRuntimeType(version.runtimeType),
-        model,
-      };
-    });
-    const pairs = new Map<string, { runtime: 'codex_cli' | 'claude_cli'; model: string }>();
-    for (const agent of agents) pairs.set(`${agent.runtimeType}\u0000${agent.model}`, {
-      runtime: agent.runtimeType,
-      model: agent.model,
-    });
-
-    const pairStatuses = new Map<string, 'ready' | 'probing'>();
-    await Promise.all([...pairs.entries()].map(async ([key, pair]) => {
-      try {
-        await this.attemptReadiness.assertRuntime(pair.runtime, pair.model, deployIdentity);
-        pairStatuses.set(key, 'ready');
-      } catch (error) {
-        if (!isRunnerNotReady(error)) throw error;
-        try {
-          this.attemptReadiness.beginCanary({
-            runtime: pair.runtime,
-            model: pair.model,
-            deployIdentity,
-          });
-        } catch (canaryError) {
-          if (!isRunnerNotReady(canaryError)) throw canaryError;
-        }
-        pairStatuses.set(key, 'probing');
-      }
-    }));
-
-    return {
-      status: [...pairStatuses.values()].every((status) => status === 'ready') ? 'ready' : 'probing',
-      runner: runnerSnapshot(this.attemptReadiness),
-      agents: agents.map((agent) => ({
-        ...agent,
-        status: pairStatuses.get(`${agent.runtimeType}\u0000${agent.model}`) ?? 'probing',
-      })),
     };
   }
 
@@ -446,32 +367,6 @@ function optionalText(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 }
-
-function optionalEnv(key: string): string | null {
-  return optionalText(process.env[key]);
-}
-
-function supportedRuntimeType(value: string): 'codex_cli' | 'claude_cli' {
-  if (value !== 'codex_cli' && value !== 'claude_cli') {
-    throw new Error(`attempt_runtime_not_supported:${value}`);
-  }
-  return value;
-}
-
-function isRunnerNotReady(error: unknown): boolean {
-  return error instanceof Error && error.message === 'runner_not_ready';
-}
-
-function runnerSnapshot(readiness: Pick<HostRunnerControlReadinessPort, 'snapshot'> | { snapshot?: () => RunnerReadinessSnapshot | null }): RunnerReadinessSnapshot | null {
-  if (typeof readiness.snapshot !== 'function') return null;
-  try {
-    return readiness.snapshot();
-  } catch (error) {
-    if (isRunnerNotReady(error)) return null;
-    throw error;
-  }
-}
-
 
 function toRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};

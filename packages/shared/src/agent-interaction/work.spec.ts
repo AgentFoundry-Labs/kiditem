@@ -13,6 +13,19 @@ describe("CapabilityResultEnvelopeSchema", () => {
     ).toMatchObject({ summary: "Inventory checked." });
   });
 
+  it("rejects Date and class instances instead of silently serializing them", () => {
+    class ProviderPayload {
+      readonly status = "provider";
+    }
+
+    expect(
+      Work.BoundedCanonicalJsonSchema.safeParse({ observedAt: new Date() }).success,
+    ).toBe(false);
+    expect(
+      Work.BoundedCanonicalJsonSchema.safeParse({ payload: new ProviderPayload() }).success,
+    ).toBe(false);
+  });
+
   it("does not allow legacy continuation, outcome, or artifact fields", () => {
     expect(
       Work.CapabilityResultEnvelopeSchema.safeParse({

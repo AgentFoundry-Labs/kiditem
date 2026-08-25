@@ -17,7 +17,7 @@ import { SOURCING_CAPABILITY_COMPOSITION_PORT } from '../../sourcing/application
 import { SupplyCapabilityCompositionAdapter } from '../../supply/adapter/in/agent/supply-capability-composition.adapter';
 import { SupplyAgentRuntimeModule } from '../../supply/supply-agent-runtime.module';
 import { SUPPLY_CAPABILITY_COMPOSITION_PORT } from '../../supply/application/port/in/capability/supply-capability-composition.port';
-import { AgentWorkCapabilityApplicationModule } from '../../agent-work-capability-application.module';
+import { AgentOsInvocationModule } from '../agent-os-invocation.module';
 
 const PROVIDERS_KEY = 'providers';
 
@@ -96,7 +96,7 @@ describe('owner-local capability composition module wiring', () => {
 
   it('uses the existing application Module imports as the sole aggregation seam', () => {
     const imports: unknown[] =
-      Reflect.getMetadata('imports', AgentWorkCapabilityApplicationModule) ?? [];
+      Reflect.getMetadata('imports', AgentOsInvocationModule) ?? [];
 
     expect(imports).toEqual(
       expect.arrayContaining([

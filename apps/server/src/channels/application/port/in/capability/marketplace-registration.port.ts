@@ -4,6 +4,8 @@ import type {
 } from "@kiditem/shared/channel-listing";
 
 export class DefinitiveMarketplaceRegistrationError extends Error {
+  readonly knownNoCommit = true;
+
   constructor(message: string) {
     super(message);
     this.name = "DefinitiveMarketplaceRegistrationError";

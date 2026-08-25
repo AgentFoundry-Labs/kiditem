@@ -272,6 +272,7 @@ model PurchaseOrderSubmissionAttempt {
   organizationId        String    @map("organization_id") @db.Uuid
   purchaseOrderId       String    @map("purchase_order_id") @db.Uuid
   idempotencyKey        String    @map("idempotency_key")
+  requestHash           String    @map("request_hash") @db.VarChar(64)
   freshnessGeneration   BigInt    @map("freshness_generation") @db.BigInt
   status                String
   providerReference     String?   @map("provider_reference")

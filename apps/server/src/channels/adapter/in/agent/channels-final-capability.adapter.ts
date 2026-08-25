@@ -2,7 +2,6 @@ import { Inject, Injectable } from "@nestjs/common";
 import { PrismaService } from "../../../../prisma/prisma.service";
 import {
   canonicalOwnerInputHash,
-  deriveOwnerIdempotencyKey,
 } from "../../../../common/owner-idempotency-key";
 import {
   CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,
@@ -54,7 +53,7 @@ export class ChannelsFinalCapabilityAdapter implements ChannelsFinalCapabilityPo
     context: ChannelsOwnerExecutionContext;
     input: ChannelsRegistrationReference;
   }) {
-    assertOwnerKey(context, "channels.submit_coupang_listing", input);
+    assertOwnerReceipt(context, input);
     const frozen = await this.provenance.loadSubmission(
       toFrozenReference(context, input),
     );
@@ -151,7 +150,7 @@ export class ChannelsFinalCapabilityAdapter implements ChannelsFinalCapabilityPo
     context: ChannelsOwnerExecutionContext;
     input: ChannelsConfirmedListingInput;
   }) {
-    assertOwnerKey(context, "channels.register_confirmed_listing", input);
+    assertOwnerReceipt(context, input);
     const frozen = await this.provenance.loadExternalConfirmation(
       toFrozenReference(context, input),
     );
@@ -185,24 +184,18 @@ export class ChannelsFinalCapabilityAdapter implements ChannelsFinalCapabilityPo
 function requiredOwnerIdempotencyKey(
   context: ChannelsOwnerExecutionContext,
 ): string {
-  if (!/^[a-f0-9]{64}$/.test(context.ownerIdempotencyKey)) {
+  if (!/^capability-invocation:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(context.ownerIdempotencyKey)) {
     throw new Error("owner_idempotency_key_required");
   }
   return context.ownerIdempotencyKey;
 }
 
-function assertOwnerKey(
+function assertOwnerReceipt(
   context: ChannelsOwnerExecutionContext,
-  capabilityKey:
-    "channels.submit_coupang_listing" | "channels.register_confirmed_listing",
   input: ChannelsRegistrationReference | ChannelsConfirmedListingInput,
 ): void {
-  const expected = deriveOwnerIdempotencyKey({
-    attemptId: context.attemptId,
-    capabilityKey,
-    input,
-  });
-  if (requiredOwnerIdempotencyKey(context) !== expected) {
+  requiredOwnerIdempotencyKey(context);
+  if (context.ownerInputHash !== canonicalOwnerInputHash(input)) {
     throw new Error("owner_idempotency_key_conflict");
   }
 }
@@ -262,7 +255,7 @@ function receiptResolutionInput(input: {
     optionLinks: input.frozen.optionLinks,
     ownerCapabilityKey: input.capabilityKey,
     ownerIdempotencyKey: requiredOwnerIdempotencyKey(input.context),
-    ownerRequestHash: canonicalOwnerInputHash(input.ownerInput),
+    ownerRequestHash: input.context.ownerInputHash,
   };
 }
 

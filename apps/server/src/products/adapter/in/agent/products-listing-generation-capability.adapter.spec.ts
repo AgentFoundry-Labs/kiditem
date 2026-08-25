@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import { ProductsListingGenerationCapabilityAdapter } from './products-listing-generation-capability.adapter';
 
 const organizationId = '00000000-0000-4000-8000-000000000001';
@@ -14,10 +15,7 @@ describe('ProductsListingGenerationCapabilityAdapter', () => {
       }),
     };
     const adapter = new ProductsListingGenerationCapabilityAdapter(operations as never);
-    const input = {
-      organizationId,
-      idempotencyKey: 'agent-attempt:products-generation',
-      triggeredByUserId: userId,
+    const businessInput = {
       candidateId,
       productName: 'Wooden blocks',
       imageUrls: ['https://example.test/block.jpg'],
@@ -31,6 +29,13 @@ describe('ProductsListingGenerationCapabilityAdapter', () => {
       usageSectionMode: 'include' as const,
       kcCertificationStatus: 'unknown' as const,
       task: 'all' as const,
+    };
+    const input = {
+      organizationId,
+      idempotencyKey: 'capability-invocation:00000000-0000-4000-8000-000000000004',
+      inputHash: canonicalOwnerInputHash(businessInput),
+      triggeredByUserId: userId,
+      ...businessInput,
     };
 
     await expect(adapter.createListingGenerationPackage(input)).resolves.toEqual({
@@ -50,7 +55,7 @@ describe('ProductsListingGenerationCapabilityAdapter', () => {
       input: expect.objectContaining({
         candidateId,
         idempotencyKey: input.idempotencyKey,
-        requestHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        requestHash: input.inputHash,
       }),
     }));
     expect(operations.start.mock.calls[0][0].input).toEqual(

@@ -1,16 +1,13 @@
 import { Module } from '@nestjs/common';
-import { AgentOsCapabilityModule } from './agent-os-capability.module';
-import { AgentOsSessionModule } from './agent-os-session.module';
+import { AgentOsInvocationModule } from './agent-os-invocation.module';
 
 /** Controller-free AgentOS facade for focused internal composition modules. */
 @Module({
   imports: [
-    AgentOsCapabilityModule,
-    AgentOsSessionModule,
+    AgentOsInvocationModule,
   ],
   exports: [
-    AgentOsCapabilityModule,
-    AgentOsSessionModule,
+    AgentOsInvocationModule,
   ],
 })
 export class AgentOsModule {}

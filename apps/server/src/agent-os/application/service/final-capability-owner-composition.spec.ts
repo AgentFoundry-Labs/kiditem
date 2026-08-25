@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { canonicalOwnerInputHash } from '../../../common/owner-idempotency-key';
 import { AnalyticsCapabilityCompositionAdapter } from '../../../analytics/adapter/in/agent/analytics-capability-composition.adapter';
 import { ChannelsCapabilityCompositionAdapter } from '../../../channels/adapter/in/agent/channels-capability-composition.adapter';
 import { ProductsCapabilityCompositionAdapter } from '../../../products/adapter/in/agent/products-capability-composition.adapter';
@@ -39,6 +40,10 @@ const context = {
   executionId: identifiers.executionId,
   ownerIdempotencyKey: 'owner-idempotency-key',
 };
+
+function mutationContext(input: unknown) {
+  return { ...context, ownerInputHash: canonicalOwnerInputHash(input) };
+}
 
 const registrationReference: ChannelsRegistrationReference = {
   registrationExecutionId: identifiers.executionId,
@@ -172,22 +177,34 @@ describe('owner capability composition', () => {
     });
     await registry
       .resolveImplementation('channels.submit_coupang_listing')!
-      .invoke({ context, input: registrationReference });
+      .invoke({
+        context: mutationContext(registrationReference),
+        input: registrationReference,
+      });
     await registry.resolveImplementation('channels.submit_wing_thumbnail')!.invoke({
-      context,
+      context: mutationContext({ generationId: 'generation-1' }),
       input: { generationId: 'generation-1' },
     });
     await registry
       .resolveImplementation('products.create_listing_generation_package')!
-      .invoke({ context, input: { candidateId: identifiers.candidateId } });
+      .invoke({
+        context: mutationContext({ candidateId: identifiers.candidateId }),
+        input: { candidateId: identifiers.candidateId },
+      });
     await registry.resolveImplementation('sourcing.ingestCandidate')!.invoke({
-      context,
+      context: mutationContext({ snapshot }),
       input: { snapshot },
     });
     await registry
       .resolveImplementation('supply.create_purchase_order_draft')!
       .invoke({
-        context,
+        context: mutationContext({
+          sellpiaInventorySkuId: identifiers.candidateId,
+          productName: 'Toy',
+          supplierName: 'Supplier',
+          unitPriceCny: 1,
+          moq: 1,
+        }),
         input: {
           sellpiaInventorySkuId: identifiers.candidateId,
           productName: 'Toy',

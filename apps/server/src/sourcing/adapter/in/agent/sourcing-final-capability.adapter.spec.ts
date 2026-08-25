@@ -1,22 +1,19 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import { deriveOwnerIdempotencyKey } from '../../../../common/owner-idempotency-key';
+import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import { SOURCING_CAPABILITIES } from '../../../domain/capability/sourcing.capabilities';
 import { SourcingFinalCapabilityAdapter } from './sourcing-final-capability.adapter';
 import { SourcingScrapeSnapshotAdmissionGuard } from './sourcing-scrape-snapshot-admission.guard';
 
 const baseContext = {
-  organizationId: '00000000-0000-4000-8000-000000000001', initiatingUserId: '00000000-0000-4000-8000-000000000002', attemptId: '00000000-0000-4000-8000-000000000003',
+  organizationId: '00000000-0000-4000-8000-000000000001', initiatingUserId: '00000000-0000-4000-8000-000000000002', executionId: 'execution-1',
 };
 
-function mutationContext(capabilityKey: string, input: unknown) {
+function mutationContext(_capabilityKey: string, input: unknown) {
   return {
     ...baseContext,
-    ownerIdempotencyKey: deriveOwnerIdempotencyKey({
-      attemptId: baseContext.attemptId,
-      capabilityKey,
-      input,
-    }),
+    ownerIdempotencyKey: 'capability-invocation:00000000-0000-4000-8000-000000000099',
+    ownerInputHash: canonicalOwnerInputHash(input),
   };
 }
 
@@ -133,7 +130,7 @@ describe('SourcingFinalCapabilityAdapter', () => {
       triggerSource: 'agent',
       idempotencyKey: workflowContext.ownerIdempotencyKey,
     }));
-    expect(mutations.refreshValidation).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: validationContext.ownerIdempotencyKey }));
+    expect(mutations.refreshValidation).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: validationContext.ownerIdempotencyKey, requestHash: validationContext.ownerInputHash }));
   });
 
   it('passes exact derived owner keys to collection, review, and shadow owners', async () => {

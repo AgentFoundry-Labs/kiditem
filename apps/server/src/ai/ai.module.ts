@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { StorageService } from '../common/storage/storage.service';
 import { StorageModule } from '../common/storage/storage.module';
 import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
-import { AgentOsSessionModule } from '../agent-os/agent-os-session.module';
 import { OperationAlertRuntimeModule } from '../automation/operation-alert-runtime.module';
 import { PrismaModule } from '../prisma/prisma.module';
 // adapter/in/http
@@ -181,7 +180,6 @@ import { AiProductGenerationRuntimeModule } from './ai-product-generation-runtim
   imports: [
     PrismaModule,
     OperationAlertRuntimeModule,
-    AgentOsSessionModule,
     AgentOsCapabilityModule,
     StorageModule,
     AiProductGenerationRuntimeModule,

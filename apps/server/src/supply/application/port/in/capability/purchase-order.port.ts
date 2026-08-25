@@ -6,6 +6,7 @@ export interface SupplyPurchaseOrderDraftCapabilityInput {
   organizationId: string;
   userId?: string;
   idempotencyKey: string;
+  inputHash: string;
   recommendationArtifactId?: string;
   sellpiaInventorySkuId: string;
   productName: string;
@@ -20,6 +21,7 @@ export interface SupplyPurchaseOrderSubmissionCapabilityInput {
   organizationId: string;
   userId: string;
   idempotencyKey: string;
+  inputHash: string;
   purchaseOrderId: string;
   externalOrderPlatform?: string | null;
   externalOrderId?: string | null;

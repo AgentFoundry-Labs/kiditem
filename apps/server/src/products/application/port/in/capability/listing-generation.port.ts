@@ -5,6 +5,8 @@ export const PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT = Symbol(
 export interface ProductsListingGenerationInput {
   organizationId: string;
   idempotencyKey: string;
+  /** Exact canonical Agent capability input hash, bound with the owner key. */
+  inputHash: string;
   triggeredByUserId?: string | null;
   /** Existing Sourcing candidate; Products never creates one as a side effect. */
   candidateId: string;

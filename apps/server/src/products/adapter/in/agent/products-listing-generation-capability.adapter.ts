@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   OPERATION_RUNNER_PORT,
   type OperationRunnerPort,
 } from '../../../../operations/application/port/in/operation-runner.port';
+import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import type {
   ProductsListingGenerationCapabilityPort,
   ProductsListingGenerationInput,
@@ -24,9 +24,10 @@ export class ProductsListingGenerationCapabilityAdapter
     input: ProductsListingGenerationInput,
   ): Promise<ProductsListingGenerationResult> {
     const generation = normalizeGenerationInput(input);
-    const requestHash = createHash('sha256')
-      .update(canonicalJson(generation))
-      .digest('hex');
+    const requestHash = requiredInputHash(
+      input.inputHash,
+      capabilityInput(input),
+    );
     const run = await this.operations.start({
       organizationId: input.organizationId,
       operationKey: 'products.generate_listing_package',
@@ -72,13 +73,23 @@ function normalizeGenerationInput(input: ProductsListingGenerationInput) {
   };
 }
 
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
-      .join(',')}}`;
+function capabilityInput(input: ProductsListingGenerationInput): Record<string, unknown> {
+  const {
+    organizationId: _organizationId,
+    idempotencyKey: _idempotencyKey,
+    inputHash: _inputHash,
+    triggeredByUserId: _triggeredByUserId,
+    ...businessInput
+  } = input;
+  return businessInput;
+}
+
+function requiredInputHash(value: string, input: unknown): string {
+  if (
+    !/^[a-f0-9]{64}$/.test(value)
+    || value !== canonicalOwnerInputHash(input)
+  ) {
+    throw new Error('owner_input_hash_required');
   }
-  return JSON.stringify(value);
+  return value;
 }

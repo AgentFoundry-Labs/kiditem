@@ -32,21 +32,6 @@ describe('SessionAuthMiddleware', () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
-  it('never treats a Host Runner bearer on the internal runtime prefix as a KidItem session', async () => {
-    const authenticateToken = vi.fn();
-    const middleware = new SessionAuthMiddleware(makeService(authenticateToken));
-    const req = {
-      originalUrl: '/internal/agent-runtime/runner/commands:poll',
-      headers: { authorization: `Bearer ${'r'.repeat(43)}` },
-    } as any;
-    const next = vi.fn();
-
-    await middleware.use(req, {} as any, next);
-
-    expect(authenticateToken).not.toHaveBeenCalled();
-    expect(next).toHaveBeenCalledOnce();
-  });
-
   it('authenticates a bearer token and attaches the existing AuthUser contract', async () => {
     const authenticateToken = vi.fn().mockResolvedValue(AUTHENTICATED);
     const middleware = new SessionAuthMiddleware(makeService(authenticateToken));

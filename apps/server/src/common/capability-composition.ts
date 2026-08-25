@@ -9,6 +9,8 @@ export interface CapabilityExecutionContext {
   executionId: string;
   /** Present only for mutations and derived by Agent OS from the exact input. */
   ownerIdempotencyKey?: string;
+  /** SHA-256 of the exact canonical parsed business input for mutations. */
+  ownerInputHash?: string;
 }
 
 export interface CapabilityCompositionResourceRef {

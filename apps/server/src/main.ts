@@ -8,14 +8,13 @@ config({ path: resolve(__dirname, '..', '.env') });
 config({ path: resolve(__dirname, '..', '..', '..', '.env') });
 
 import { NestFactory } from '@nestjs/core';
-import { RequestMethod, ValidationPipe } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const cookieParser = require('cookie-parser') as () => import('express').RequestHandler;
 import { ApiApplicationModule } from './api-application.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { requireWebOrigin } from './common/config/web-origin';
-import { configureCopilotKitBodyParser } from './common/http/copilotkit-body-parser';
 
 async function bootstrap() {
   requireWebOrigin();
@@ -47,13 +46,8 @@ async function bootstrap() {
     // server:4000) 에서 cookie 전송이 허용되도록 credentials 활성화 필수.
     credentials: true,
   });
-  configureCopilotKitBodyParser(app);
   // SessionAuthMiddleware 가 KidItem HttpOnly 세션 쿠키를 읽기 위해 필요.
-  // Native Host Runner control is a sibling loopback-only surface, not part
-  // of the public /api contract that nginx proxies to LAN clients.
-  app.setGlobalPrefix('api', {
-    exclude: [{ path: 'internal/agent-runtime/*path', method: RequestMethod.ALL }],
-  });
+  app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
     transform: true,

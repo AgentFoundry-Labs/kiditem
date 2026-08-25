@@ -44,7 +44,7 @@ export class SourcingCapabilityCompositionAdapter
             context: {
               organizationId: context.organizationId,
               initiatingUserId: context.initiatingUserId,
-              attemptId: context.attemptId,
+              executionId: context.executionId,
             },
             input,
           }),
@@ -155,8 +155,9 @@ function sourcingMutationContext(
   return {
     organizationId: context.organizationId,
     initiatingUserId: context.initiatingUserId,
-    attemptId: context.attemptId,
+    executionId: context.executionId,
     ownerIdempotencyKey: requiredOwnerIdempotencyKey(context),
+    ownerInputHash: requiredOwnerInputHash(context),
   };
 }
 
@@ -167,4 +168,13 @@ function requiredOwnerIdempotencyKey(
     throw new Error('owner_idempotency_key_required');
   }
   return context.ownerIdempotencyKey;
+}
+
+function requiredOwnerInputHash(
+  context: CapabilityExecutionContext,
+): string {
+  if (!context.ownerInputHash?.match(/^[a-f0-9]{64}$/)) {
+    throw new Error('owner_input_hash_required');
+  }
+  return context.ownerInputHash;
 }

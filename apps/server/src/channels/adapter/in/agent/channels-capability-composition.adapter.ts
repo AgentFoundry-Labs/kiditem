@@ -1,8 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
-  canonicalOwnerInputHash,
-} from '../../../../common/owner-idempotency-key';
-import {
   defineCapabilityComposition,
   type CapabilityExecutionContext,
 } from '../../../../common/capability-composition';
@@ -67,7 +64,7 @@ export class ChannelsCapabilityCompositionAdapter
             generationId: input.generationId,
             triggeredByUserId: context.initiatingUserId,
             ownerIdempotencyKey: requiredOwnerIdempotencyKey(context),
-            requestHash: canonicalOwnerInputHash({ generationId: input.generationId }),
+            requestHash: requiredOwnerInputHash(context),
           }),
       }),
     ];
@@ -80,15 +77,19 @@ function channelsMutationContext(
   return {
     organizationId: context.organizationId,
     initiatingUserId: context.initiatingUserId,
-    sessionId: context.sessionId,
-    taskId: context.taskId,
-    attemptId: context.attemptId,
-    agentVersionId: context.agentVersionId,
+    executionId: context.executionId,
     ownerIdempotencyKey: requiredOwnerIdempotencyKey(context),
-    applicationVersion: context.applicationVersion,
-    authorizingGitSha: context.authorizingGitSha,
-    runtimeType: context.runtimeType,
+    ownerInputHash: requiredOwnerInputHash(context),
   };
+}
+
+function requiredOwnerInputHash(
+  context: CapabilityExecutionContext,
+): string {
+  if (!context.ownerInputHash?.match(/^[a-f0-9]{64}$/)) {
+    throw new Error('owner_input_hash_required');
+  }
+  return context.ownerInputHash;
 }
 
 function requiredOwnerIdempotencyKey(

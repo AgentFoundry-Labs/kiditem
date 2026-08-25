@@ -23,17 +23,12 @@ describe('sourcing extension route security wiring', () => {
 
   it('runs the global KidItem session middleware on extension routes', () => {
     const sessionForRoutes = vi.fn();
-    const exclude = vi.fn().mockReturnValue({ forRoutes: sessionForRoutes });
-    const apply = vi.fn().mockReturnValue({ exclude });
+    const apply = vi.fn().mockReturnValue({ forRoutes: sessionForRoutes });
 
     new ApiApplicationModule().configure({ apply } as never);
 
     expect(apply).toHaveBeenCalledTimes(1);
     expect(apply).toHaveBeenCalledWith(SessionAuthMiddleware);
-    expect(exclude).toHaveBeenCalledWith({
-      path: 'internal/agent-runtime/*path',
-      method: RequestMethod.ALL,
-    });
     expect(sessionForRoutes).toHaveBeenCalledWith('*');
   });
 

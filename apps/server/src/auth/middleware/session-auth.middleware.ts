@@ -10,10 +10,6 @@ export class SessionAuthMiddleware implements NestMiddleware {
   constructor(private readonly authService: AuthService) {}
 
   async use(request: Request, response: Response, next: NextFunction): Promise<void> {
-    if (isInternalAgentRuntimeRequest(request)) {
-      next();
-      return;
-    }
     if (request.authUser) {
       next();
       return;
@@ -37,11 +33,6 @@ export class SessionAuthMiddleware implements NestMiddleware {
     }
     next();
   }
-}
-
-function isInternalAgentRuntimeRequest(request: Request): boolean {
-  const path = (request.originalUrl?.split('?')[0] ?? request.url ?? '');
-  return path === '/internal/agent-runtime' || path.startsWith('/internal/agent-runtime/');
 }
 
 function extractSessionCredential(

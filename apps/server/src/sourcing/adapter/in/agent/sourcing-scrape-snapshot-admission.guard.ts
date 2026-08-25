@@ -1,42 +1,35 @@
-import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import type { SourcingCapabilityAdmissionPort } from '../../../application/port/in/capability/sourcing-capability-admission.port';
 import { SOURCING_CAPABILITIES } from '../../../domain/capability/sourcing.capabilities';
+import {
+  canonicalizeOwnerInput,
+  canonicalOwnerInputHash,
+} from '../../../../common/owner-idempotency-key';
 
 const DEFAULT_TTL_MS = 2 * 60_000;
 const DEFAULT_MAX_ENTRIES = 128;
 
 export interface SourcingScrapeSnapshotAdmissionGuardOptions {
-  /** Injected only by the Sourcing composition root or focused tests. */
   now?: () => Date;
-  /** Evidence must be short lived because it is not durable work state. */
   ttlMs?: number;
-  /** Prevent noisy active Attempts from retaining unbounded process memory. */
   maxEntries?: number;
 }
 
 type SnapshotEvidence = Readonly<{
-  canonicalSnapshotHash: string;
+  canonicalInput: unknown;
+  inputHash: string;
   contentHash: string;
   expiresAtMs: number;
-  admitted: boolean;
-  durableAuthorized: boolean;
 }>;
 
 /**
- * Process-local evidence gates pre-durable admission. Only an exact,
- * hash-only fingerprint may survive a successful durable authorization until
- * that authorization expires; owner execution never reads this map.
+ * Process-memory-only same-turn scrape admission. It stores no raw browser,
+ * provider, or unbounded payload, and a process restart clears every receipt.
  */
 @Injectable()
 export class SourcingScrapeSnapshotAdmissionGuard
   implements SourcingCapabilityAdmissionPort
 {
-  /**
-   * This intentionally retains hashes only, never raw browser/provider data
-   * or the normalized snapshot itself. The candidate owner independently
-   * verifies `contentHash` before its durable write.
-   */
   private readonly snapshots = new Map<string, SnapshotEvidence>();
   private readonly now: () => Date;
   private readonly ttlMs: number;
@@ -44,91 +37,74 @@ export class SourcingScrapeSnapshotAdmissionGuard
 
   constructor(options: SourcingScrapeSnapshotAdmissionGuardOptions = {}) {
     this.now = options.now ?? (() => new Date());
-    this.ttlMs = positiveInteger(options.ttlMs ?? DEFAULT_TTL_MS, 'sourcing_scrape_snapshot_ttl_invalid');
-    this.maxEntries = positiveInteger(options.maxEntries ?? DEFAULT_MAX_ENTRIES, 'sourcing_scrape_snapshot_capacity_invalid');
+    this.ttlMs = positiveInteger(
+      options.ttlMs ?? DEFAULT_TTL_MS,
+      'sourcing_scrape_snapshot_ttl_invalid',
+    );
+    this.maxEntries = positiveInteger(
+      options.maxEntries ?? DEFAULT_MAX_ENTRIES,
+      'sourcing_scrape_snapshot_capacity_invalid',
+    );
   }
 
   recordScrapeSnapshot(input: {
     organizationId: string;
     initiatingUserId: string;
-    attemptId: string;
+    executionId: string;
     snapshot: unknown;
   }): void {
     this.evictExpired();
     const parsed = scrapeOutput().safeParse({ snapshot: input.snapshot });
     if (!parsed.success) throw new Error('sourcing_scrape_snapshot_invalid');
-    const snapshot = parsed.data.snapshot;
-    const key = snapshotKey(input, snapshot);
+    const canonicalInput = canonicalizeOwnerInput(
+      ingestInput().parse({ snapshot: parsed.data.snapshot }),
+    );
+    const key = executionKey(input);
     if (!this.snapshots.has(key) && this.snapshots.size >= this.maxEntries) {
       throw new Error('sourcing_scrape_snapshot_capacity_exhausted');
     }
-    const existing = this.snapshots.get(key);
-    if (existing?.durableAuthorized) return;
-    this.snapshots.set(key, Object.freeze({
-      canonicalSnapshotHash: canonicalHash(snapshot),
-      contentHash: snapshot.contentHash,
-      expiresAtMs: this.now().getTime() + this.ttlMs,
-      admitted: existing?.admitted ?? false,
-      durableAuthorized: false,
-    }));
+    this.snapshots.set(
+      key,
+      Object.freeze({
+        canonicalInput,
+        inputHash: canonicalOwnerInputHash(canonicalInput),
+        contentHash: parsed.data.snapshot.contentHash,
+        expiresAtMs: this.now().getTime() + this.ttlMs,
+      }),
+    );
   }
 
   async admit(input: {
     capabilityKey: string;
     organizationId: string;
     initiatingUserId: string;
-    attemptId: string;
+    executionId: string;
     input: unknown;
-  }): Promise<void> {
-    if (input.capabilityKey !== 'sourcing.ingestCandidate') return;
+  }): Promise<{ canonicalInput: unknown }> {
+    if (input.capabilityKey !== 'sourcing.ingestCandidate') {
+      return { canonicalInput: canonicalizeOwnerInput(input.input) };
+    }
     this.evictExpired();
     const parsed = ingestInput().safeParse(input.input);
-    if (!parsed?.success) throw new Error('sourcing_scrape_snapshot_unbound');
-    const snapshot = parsed.data.snapshot;
-    const key = snapshotKey(input, snapshot);
-    const evidence = this.snapshots.get(key);
+    if (!parsed.success) throw new Error('sourcing_scrape_snapshot_unbound');
+    const canonicalInput = canonicalizeOwnerInput(parsed.data);
+    const evidence = this.snapshots.get(executionKey(input));
     if (
       !evidence ||
-      evidence.contentHash !== snapshot.contentHash ||
-      evidence.canonicalSnapshotHash !== canonicalHash(snapshot)
+      evidence.contentHash !== parsed.data.snapshot.contentHash ||
+      evidence.inputHash !== canonicalOwnerInputHash(canonicalInput)
     ) {
       throw new Error('sourcing_scrape_snapshot_unbound');
     }
-    if (!evidence.admitted) {
-      this.snapshots.set(key, Object.freeze({ ...evidence, admitted: true }));
-    }
+    return { canonicalInput: evidence.canonicalInput };
   }
 
-  retainAuthorizedReplay(input: {
-    capabilityKey: string;
+  revokeExecution(input: {
     organizationId: string;
     initiatingUserId: string;
-    attemptId: string;
-    input: unknown;
-    authorizationExpiresAt: Date;
+    executionId: string;
   }): void {
-    if (input.capabilityKey !== 'sourcing.ingestCandidate') return;
-    const parsed = ingestInput().safeParse(input.input);
-    if (!parsed.success) return;
-    const snapshot = parsed.data.snapshot;
-    const key = snapshotKey(input, snapshot);
-    const evidence = this.snapshots.get(key);
-    const expiresAtMs = input.authorizationExpiresAt.getTime();
-    if (
-      !evidence ||
-      !evidence.admitted ||
-      evidence.contentHash !== snapshot.contentHash ||
-      evidence.canonicalSnapshotHash !== canonicalHash(snapshot) ||
-      !Number.isFinite(expiresAtMs) ||
-      expiresAtMs <= this.now().getTime()
-    ) {
-      return;
-    }
-    this.snapshots.set(key, Object.freeze({
-      ...evidence,
-      expiresAtMs,
-      durableAuthorized: true,
-    }));
+    this.snapshots.delete(executionKey(input));
   }
 
   private evictExpired(): void {
@@ -139,20 +115,12 @@ export class SourcingScrapeSnapshotAdmissionGuard
   }
 }
 
-function snapshotKey(
-  input: {
-    organizationId: string;
-    initiatingUserId: string;
-    attemptId: string;
-  },
-  snapshot: unknown,
-): string {
-  return canonicalHash({
-    organizationId: input.organizationId,
-    initiatingUserId: input.initiatingUserId,
-    attemptId: input.attemptId,
-    snapshot,
-  });
+function executionKey(input: {
+  organizationId: string;
+  initiatingUserId: string;
+  executionId: string;
+}): string {
+  return `${input.organizationId}:${input.initiatingUserId}:${input.executionId}`;
 }
 
 function scrapeOutput() {
@@ -169,22 +137,6 @@ function ingestInput() {
   );
   if (!definition) throw new Error('sourcing_scrape_snapshot_contract_missing');
   return definition.inputSchema;
-}
-
-function canonicalHash(value: unknown): string {
-  return createHash('sha256')
-    .update(JSON.stringify(canonicalValue(value)))
-    .digest('hex');
-}
-
-function canonicalValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalValue);
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => [key, canonicalValue(item)]),
-  );
 }
 
 function positiveInteger(value: number, code: string): number {

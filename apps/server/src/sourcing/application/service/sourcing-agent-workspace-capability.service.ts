@@ -15,6 +15,7 @@ import {
 import { SourcingAgentRagService } from './sourcing-agent-rag.service';
 import { SourcingReviewService } from './sourcing-review.service';
 import { SourcingValidationService } from './sourcing-validation.service';
+import { canonicalOwnerInputHash } from '../../../common/owner-idempotency-key';
 
 @Injectable()
 export class SourcingAgentWorkspaceReadCapabilityService
@@ -98,8 +99,12 @@ export class SourcingAgentWorkspaceMutationCapabilityService
     organizationId: string;
     recommendationRunId: string;
     idempotencyKey: string;
+    requestHash: string;
   }) {
     if (!input.idempotencyKey.trim()) throw new Error('owner_idempotency_key_required');
+    if (input.requestHash !== canonicalOwnerInputHash(refreshValidationBusinessInput(input))) {
+      throw new Error('owner_idempotency_input_conflict');
+    }
     const envelope = await this.validations.refreshForRun(input);
     if (!envelope.data) {
       throw new NotFoundException({
@@ -133,7 +138,11 @@ export class SourcingAgentWorkspaceMutationCapabilityService
     workspaceKey: 'entry' | 'final';
     items: Array<{ itemKey: string; expectedVersion: number }>;
     idempotencyKey: string;
+    requestHash: string;
   }) {
+    if (input.requestHash !== canonicalOwnerInputHash(reviewBatchBusinessInput(input))) {
+      throw new Error('owner_idempotency_input_conflict');
+    }
     const expectedSelections = [...input.items]
       .map((item) => ({
         itemKey: item.itemKey.trim(),
@@ -148,6 +157,7 @@ export class SourcingAgentWorkspaceMutationCapabilityService
       expectedSelections,
       itemKeys: expectedSelections.map((item) => item.itemKey),
       idempotencyKey: input.idempotencyKey,
+      requestHash: input.requestHash,
     });
     return {
       reviewBatchId: batch.id,
@@ -155,4 +165,20 @@ export class SourcingAgentWorkspaceMutationCapabilityService
       status: batch.status,
     };
   }
+}
+
+function refreshValidationBusinessInput(input: { recommendationRunId: string }) {
+  return { recommendationRunId: input.recommendationRunId };
+}
+
+function reviewBatchBusinessInput(input: {
+  recommendationRunId: string;
+  workspaceKey: 'entry' | 'final';
+  items: Array<{ itemKey: string; expectedVersion: number }>;
+}) {
+  return {
+    recommendationRunId: input.recommendationRunId,
+    workspaceKey: input.workspaceKey,
+    items: input.items,
+  };
 }

@@ -1,21 +1,65 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { currentWorkRuntimeIdentity } from './agent-worker-application.module';
+import 'reflect-metadata';
+import { describe, expect, it } from 'vitest';
+import { MODULE_METADATA } from '@nestjs/common/constants';
+import { AgentOsWorkerModule } from './agent-os/agent-os-worker.module';
+import { AgentWorkerApplicationModule } from './agent-worker-application.module';
 
-const original = { version: process.env.KIDITEM_APPLICATION_VERSION, sha: process.env.KIDITEM_GIT_SHA, gitSha: process.env.GIT_SHA };
-afterEach(() => {
-  if (original.version === undefined) delete process.env.KIDITEM_APPLICATION_VERSION; else process.env.KIDITEM_APPLICATION_VERSION = original.version;
-  if (original.sha === undefined) delete process.env.KIDITEM_GIT_SHA; else process.env.KIDITEM_GIT_SHA = original.sha;
-  if (original.gitSha === undefined) delete process.env.GIT_SHA; else process.env.GIT_SHA = original.gitSha;
-});
+function workerModules(root: Function): Function[] {
+  const seen = new Set<Function>();
+  const visit = (module: Function) => {
+    if (seen.has(module)) return;
+    seen.add(module);
+    const imports = Reflect.getMetadata(MODULE_METADATA.IMPORTS, module) ?? [];
+    for (const imported of imports) {
+      const importedModule =
+        typeof imported === 'function' ? imported : imported?.module;
+      if (typeof importedModule === 'function') visit(importedModule);
+    }
+  };
+  visit(root);
+  return [...seen];
+}
 
-describe('worker runtime identity', () => {
-  it('rejects silent version and SHA fallbacks', () => {
-    delete process.env.KIDITEM_APPLICATION_VERSION; delete process.env.KIDITEM_GIT_SHA; delete process.env.GIT_SHA;
-    expect(currentWorkRuntimeIdentity).toThrow('missing_required_work_runtime_identity');
+function resolvedClassNames(root: Function): string[] {
+  return workerModules(root).flatMap((module) => {
+    const providers = Reflect.getMetadata(MODULE_METADATA.PROVIDERS, module) ?? [];
+    return [module, ...providers].flatMap((value) => {
+      if (typeof value === 'function') return [value.name];
+      if (value && typeof value === 'object' && typeof value.useClass === 'function') {
+        return [value.useClass.name];
+      }
+      return [];
+    });
   });
+}
 
-  it('uses an explicit deploy identity for mutation fences', () => {
-    process.env.KIDITEM_APPLICATION_VERSION = '1.2.3'; process.env.KIDITEM_GIT_SHA = 'a'.repeat(40);
-    expect(currentWorkRuntimeIdentity()).toEqual({ applicationVersion: '1.2.3', gitSha: 'a'.repeat(40) });
+describe('AgentWorkerApplicationModule', () => {
+  it('contains only Operations durable background work, not Agent invocation runtime', () => {
+    const imports = Reflect.getMetadata(
+      MODULE_METADATA.IMPORTS,
+      AgentWorkerApplicationModule,
+    ) ?? [];
+    const providers = Reflect.getMetadata(
+      MODULE_METADATA.PROVIDERS,
+      AgentWorkerApplicationModule,
+    ) ?? [];
+    expect(imports).toEqual([AgentOsWorkerModule]);
+    expect(providers).toEqual([]);
+
+    const resolved = resolvedClassNames(AgentWorkerApplicationModule);
+    expect(resolved).toEqual(expect.arrayContaining([
+      'OperationRunWorkerService',
+      'OperationSchedulerService',
+      'OperationWorkerLifecycleService',
+    ]));
+    expect(resolved).not.toEqual(expect.arrayContaining([
+      'PrismaCapabilityInvocationRepository',
+      'CapabilityInvocationService',
+      'CapabilityApprovalService',
+      'AgentCapabilityRegistry',
+      'SourcingAgentGatewayAdapter',
+      'HostRunnerAttemptControlAdapter',
+      'HostRunnerAttemptExecutorService',
+    ]));
   });
 });

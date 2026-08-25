@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import {
   SourcingAgentWorkspaceMutationCapabilityService,
   SourcingAgentWorkspaceReadCapabilityService,
@@ -77,6 +78,11 @@ describe('SourcingAgentWorkspaceCapabilityService', () => {
     });
     const service = createMutationService(dependencies);
 
+    const requestHash = canonicalOwnerInputHash({
+      recommendationRunId: RUN_ID,
+      workspaceKey: 'final',
+      items: [{ itemKey: ITEM_KEY, expectedVersion: 4 }],
+    });
     await service.createReviewBatch({
       organizationId: ORGANIZATION_ID,
       requestedByUserId: USER_ID,
@@ -84,7 +90,8 @@ describe('SourcingAgentWorkspaceCapabilityService', () => {
       workspaceKey: 'final',
       items: [{ itemKey: ITEM_KEY, expectedVersion: 4 }],
       idempotencyKey: 'review-key-1',
-    });
+      requestHash,
+    } as never);
 
     expect(dependencies.reviews.createBatch).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
@@ -94,7 +101,24 @@ describe('SourcingAgentWorkspaceCapabilityService', () => {
       expectedSelections: [{ itemKey: ITEM_KEY, expectedVersion: 4 }],
       itemKeys: [ITEM_KEY],
       idempotencyKey: 'review-key-1',
+      requestHash,
     });
+  });
+
+  it('rejects review-batch owner hash drift before it reaches the transaction', async () => {
+    const dependencies = mocks();
+    const service = createMutationService(dependencies);
+
+    await expect(service.createReviewBatch({
+      organizationId: ORGANIZATION_ID,
+      requestedByUserId: USER_ID,
+      recommendationRunId: RUN_ID,
+      workspaceKey: 'final',
+      items: [{ itemKey: ITEM_KEY, expectedVersion: 4 }],
+      idempotencyKey: 'review-key-1',
+      requestHash: 'a'.repeat(64),
+    } as never)).rejects.toThrow('owner_idempotency_input_conflict');
+    expect(dependencies.reviews.createBatch).not.toHaveBeenCalled();
   });
 
   it('passes the owner idempotency key through validation to its final owner', async () => {
@@ -106,18 +130,40 @@ describe('SourcingAgentWorkspaceCapabilityService', () => {
       },
     });
     const service = createMutationService(dependencies);
+    const requestHash = canonicalOwnerInputHash({ recommendationRunId: RUN_ID });
 
     await service.refreshValidation({
       organizationId: ORGANIZATION_ID,
       recommendationRunId: RUN_ID,
       idempotencyKey: 'validation-owner-key',
+      requestHash,
     });
 
     expect(dependencies.validations.refreshForRun).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       recommendationRunId: RUN_ID,
       idempotencyKey: 'validation-owner-key',
+      requestHash,
     });
+  });
+
+  it('rejects validation owner hash drift before it reaches the final owner', async () => {
+    const dependencies = mocks();
+    dependencies.validations.refreshForRun.mockResolvedValue({
+      data: {
+        recommendationRunId: RUN_ID,
+        items: [{ episodeId: 'episode-1', checks: [] }],
+      },
+    });
+    const service = createMutationService(dependencies);
+
+    await expect(service.refreshValidation({
+      organizationId: ORGANIZATION_ID,
+      recommendationRunId: RUN_ID,
+      idempotencyKey: 'validation-owner-key',
+      requestHash: 'a'.repeat(64),
+    })).rejects.toThrow('owner_idempotency_input_conflict');
+    expect(dependencies.validations.refreshForRun).not.toHaveBeenCalled();
   });
 });
 

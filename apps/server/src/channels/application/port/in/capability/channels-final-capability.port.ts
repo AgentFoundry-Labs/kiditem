@@ -6,15 +6,12 @@ export const CHANNELS_FINAL_CAPABILITY_PORT = Symbol(
 export interface ChannelsOwnerExecutionContext {
   organizationId: string;
   initiatingUserId: string;
-  sessionId: string;
-  taskId: string;
-  attemptId: string;
-  agentVersionId: string;
-  /** Derived from the exact Agent input and required at this owner boundary. */
+  /** Process-memory execution binding; never a business or persistence id. */
+  executionId: string;
+  /** Invocation-derived opaque owner key, passed unchanged to Channels. */
   ownerIdempotencyKey: string;
-  applicationVersion: string;
-  authorizingGitSha: string;
-  runtimeType: string;
+  /** Exact SHA-256 of canonical parsed business input. */
+  ownerInputHash: string;
 }
 
 /** Minimal Agent-facing business reference; all provider state loads server-side. */

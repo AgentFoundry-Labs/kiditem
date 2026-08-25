@@ -1,10 +1,9 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
-import { AgentRuntimeApplicationModule } from '../agent-runtime-application.module';
 import { ReadinessService } from './readiness.service';
 
 @Module({
-  imports: [PrismaModule, AgentRuntimeApplicationModule],
+  imports: [PrismaModule],
   providers: [ReadinessService],
   exports: [ReadinessService],
 })
