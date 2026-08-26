@@ -21,7 +21,7 @@ const operationMocks = vi.hoisted(() => ({
   useAction: vi.fn(),
 }));
 const routerPushMock = vi.hoisted(() => vi.fn());
-const openConversationMock = vi.hoisted(() => vi.fn());
+const openConversationFromLauncherMock = vi.hoisted(() => vi.fn());
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: routerPushMock }),
@@ -51,8 +51,10 @@ vi.mock('../../hooks/use-sourcing-workspace', () => ({
   useSourcingRecommendations: vi.fn(),
   useSourcingReviewSelections: vi.fn(),
 }));
-vi.mock('@/components/agent-interaction/conversation-surface-state', () => ({
-  openConversation: openConversationMock,
+vi.mock('@/components/layout/right-surface-launcher-context', () => ({
+  useRightSurfaceLauncher: () => ({
+    openConversationFromLauncher: openConversationFromLauncherMock,
+  }),
 }));
 
 function renderBoard() {
@@ -126,16 +128,19 @@ describe('EntryRecommendationBoard review state', () => {
     expect(screen.queryByText('상품 B')).not.toBeInTheDocument();
   });
 
-  it('opens a fixed Sourcing conversation without mutating an existing conversation', async () => {
+  it('opens a fixed Sourcing draft in the global AI chat surface without navigation', async () => {
     const user = userEvent.setup();
     const question = '테스트 지금 진입해도 될까? 근거로 설명해줘.';
 
     renderBoard();
     await user.click(await screen.findByText('상품 A'));
-    await user.click(screen.getByRole('button', { name: 'AgentOS에서 묻기' }));
+    await user.click(screen.getByRole('button', { name: '소싱 Agent에게 묻기' }));
 
-    expect(openConversationMock).toHaveBeenCalledWith({ fixedAgentKey: 'sourcing', draft: question });
-    expect(routerPushMock).toHaveBeenCalledWith('/agent-os');
+    expect(openConversationFromLauncherMock).toHaveBeenCalledWith(
+      { fixedAgentKey: 'sourcing', draft: question },
+      expect.any(HTMLButtonElement),
+    );
+    expect(routerPushMock).not.toHaveBeenCalled();
   });
 
   it('reads the persisted entry snapshot on mount and starts the exact 1688 operation only from the missing-supply CTA', async () => {

@@ -44,6 +44,13 @@ describe('panel-store', () => {
     store = createPanelStore();
   });
 
+  it('keeps notification data separate from right-surface presentation state', () => {
+    const state = store.getState();
+    const legacyKeys = ['is' + 'Open', 'set' + 'Open'];
+
+    legacyKeys.forEach((key) => expect(state).not.toHaveProperty(key));
+  });
+
   it('upsertItem adds new', () => {
     store.getState().upsertItem(makeItem({ id: 'a', seq: 1 }));
     expect(store.getState().byId['a']).toBeDefined();

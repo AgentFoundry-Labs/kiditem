@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useRightSurfaceLauncher } from '../right-surface-launcher-context';
 import AppLayout from '../AppLayout';
 
 const useAuthMock = vi.hoisted(() => vi.fn());
@@ -11,6 +12,18 @@ const usePanelStreamMock = vi.hoisted(() => vi.fn());
 const readinessMock = vi.hoisted(() => vi.fn(() => null));
 const generationWatcherMock = vi.hoisted(() => vi.fn(() => null));
 const openConversationMock = vi.hoisted(() => vi.fn());
+const rightAuxiliaryPropsMock = vi.hoisted(() => vi.fn());
+const conversationSurfaceState = vi.hoisted(() => ({ activeConversationId: null as string | null }));
+const appStoreState = vi.hoisted(() => ({
+  sidebarOpen: true,
+  activeRightSurface: null as 'notifications' | 'ai_chat' | null,
+  selectRightSurface(surface: 'notifications' | 'ai_chat') {
+    appStoreState.activeRightSurface = appStoreState.activeRightSurface === surface ? null : surface;
+  },
+  closeRightSurface() {
+    appStoreState.activeRightSurface = null;
+  },
+}));
 const runtimeOwnershipMocks = vi.hoisted(() => ({
   providerMounted: vi.fn(),
   providerUnmounted: vi.fn(),
@@ -28,11 +41,23 @@ vi.mock('@/hooks/useAuth', () => ({
 }));
 
 vi.mock('@/store/useStore', () => ({
-  useStore: () => ({ sidebarOpen: true }),
+  useStore: (selector?: (state: typeof appStoreState) => unknown) =>
+    selector ? selector(appStoreState) : appStoreState,
 }));
 
 vi.mock('../Sidebar', () => ({
-  default: () => <nav data-testid="sidebar" />,
+  default: ({
+    onChatToggle,
+    onNotificationToggle,
+  }: {
+    onChatToggle?: (launcher: HTMLElement) => void;
+    onNotificationToggle?: (launcher: HTMLElement) => void;
+  }) => (
+    <nav data-testid="sidebar">
+      <button type="button" onClick={(event) => onChatToggle?.(event.currentTarget)}>AI 챗</button>
+      <button type="button" onClick={(event) => onNotificationToggle?.(event.currentTarget)}>알림</button>
+    </nav>
+  ),
 }));
 
 vi.mock('@/components/ui/PageSkeleton', () => ({
@@ -41,10 +66,6 @@ vi.mock('@/components/ui/PageSkeleton', () => ({
 
 vi.mock('@/components/panel/hooks/usePanelStream', () => ({
   usePanelStream: () => usePanelStreamMock(),
-}));
-
-vi.mock('@/components/panel/PanelSheet', () => ({
-  PanelSheet: () => <div data-testid="panel-sheet" />,
 }));
 
 vi.mock('@/components/panel/PanelErrorBoundary', () => ({
@@ -68,13 +89,42 @@ vi.mock('@/components/GlobalConfirmDialog', () => ({
 }));
 
 vi.mock('@/components/QuickActionFab', () => ({
-  default: ({ onOpenConversation }: { onOpenConversation?: () => void }) => (
-    <button data-testid="quick-action" onClick={onOpenConversation}>AgentOS 대화 열기</button>
+  default: ({
+    onOpenConversation,
+    isAuxiliarySurfaceOpen,
+  }: {
+    onOpenConversation?: (launcher: HTMLElement) => void;
+    isAuxiliarySurfaceOpen?: boolean;
+  }) => (
+    <button
+      data-testid="quick-action"
+      data-auxiliary-open={String(Boolean(isAuxiliarySurfaceOpen))}
+      onClick={(event) => onOpenConversation?.(event.currentTarget)}
+    >
+      AI 챗 열기
+    </button>
   ),
+}));
+
+vi.mock('../RightAuxiliaryPanel', () => ({
+  RightAuxiliaryPanel: (props: {
+    activeRightSurface: 'notifications' | 'ai_chat' | null;
+    onClose(): void;
+  }) => {
+    rightAuxiliaryPropsMock(props);
+    return (
+      <div data-testid="right-auxiliary-panel">
+        {props.activeRightSurface ?? 'closed'}
+        <button type="button" onClick={props.onClose}>보조 패널 닫기</button>
+      </div>
+    );
+  },
 }));
 
 vi.mock('@/components/agent-interaction/conversation-surface-state', () => ({
   openConversation: openConversationMock,
+  useConversationSurfaceState: (selector: (state: typeof conversationSurfaceState) => unknown) =>
+    selector(conversationSurfaceState),
 }));
 
 vi.mock('@/components/agent-interaction/ConversationProvider', () => ({
@@ -105,6 +155,21 @@ function renderLayout(children: React.ReactNode = <main data-testid="protected-c
   );
 }
 
+function SourcingChatLauncher() {
+  const { openConversationFromLauncher } = useRightSurfaceLauncher();
+  return (
+    <button
+      type="button"
+      onClick={(event) => openConversationFromLauncher(
+        { fixedAgentKey: 'sourcing', draft: '소싱 질문' },
+        event.currentTarget,
+      )}
+    >
+      소싱 Agent에게 묻기
+    </button>
+  );
+}
+
 describe('AppLayout auth gate', () => {
   beforeEach(() => {
     useAuthMock.mockReset();
@@ -115,6 +180,10 @@ describe('AppLayout auth gate', () => {
     readinessMock.mockClear();
     generationWatcherMock.mockClear();
     openConversationMock.mockReset();
+    rightAuxiliaryPropsMock.mockReset();
+    conversationSurfaceState.activeConversationId = null;
+    appStoreState.sidebarOpen = true;
+    appStoreState.activeRightSurface = null;
     Object.values(runtimeOwnershipMocks).forEach((mock) => mock.mockReset());
     usePathnameMock.mockReturnValue('/dashboard');
     window.history.pushState({}, '', '/dashboard');
@@ -138,6 +207,36 @@ describe('AppLayout auth gate', () => {
     expect(readinessMock).not.toHaveBeenCalled();
     expect(generationWatcherMock).not.toHaveBeenCalled();
     expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
+  });
+
+  it('transitions from loading to ready without changing AppLayout hook order', () => {
+    let authState: {
+      status: 'loading' | 'ready';
+      user: { id: string; organizationId: string } | null;
+      isLoading: boolean;
+      logout: ReturnType<typeof vi.fn>;
+    } = {
+      status: 'loading' as const,
+      user: null,
+      isLoading: true,
+      logout: vi.fn(),
+    };
+    useAuthMock.mockImplementation(() => authState);
+    const view = renderLayout();
+
+    expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
+
+    authState = {
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    };
+    view.rerender(<AppLayout><main data-testid="protected-child">Protected child</main></AppLayout>);
+
+    expect(screen.getByTestId('protected-child')).toBeInTheDocument();
+    expect(screen.getByTestId('conversation-provider')).toBeInTheDocument();
+    expect(screen.getByTestId('conversation-runtime-host')).toBeInTheDocument();
   });
 
   it('keeps the Agent workspace and CopilotKit provider unmounted while identity is loading', () => {
@@ -217,9 +316,125 @@ describe('AppLayout auth gate', () => {
     expect(usePanelStreamMock).toHaveBeenCalledTimes(1);
     expect(readinessMock).toHaveBeenCalledTimes(1);
     expect(generationWatcherMock).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole('button', { name: 'AgentOS 대화 열기' }));
+    fireEvent.click(screen.getByRole('button', { name: 'AI 챗 열기' }));
     expect(openConversationMock).toHaveBeenCalledWith({ fixedAgentKey: null });
-    expect(pushMock).toHaveBeenCalledWith('/agent-os');
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it('mounts exactly one derived right surface and hides the fixed Quick Action FAB while a surface is active', () => {
+    appStoreState.activeRightSurface = 'notifications';
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    });
+
+    renderLayout();
+
+    expect(screen.getByTestId('right-auxiliary-panel')).toHaveTextContent('notifications');
+    expect(screen.getByTestId('quick-action')).toHaveAttribute('data-auxiliary-open', 'true');
+    expect(rightAuxiliaryPropsMock).toHaveBeenCalledWith(expect.objectContaining({
+      activeRightSurface: 'notifications',
+    }));
+  });
+
+  it('captures a route launcher through the app-shell contract before opening its fixed draft', () => {
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    });
+    renderLayout(<SourcingChatLauncher />);
+    const launcher = screen.getByRole('button', { name: '소싱 Agent에게 묻기' });
+
+    fireEvent.click(launcher);
+
+    expect(openConversationMock).toHaveBeenCalledWith({
+      fixedAgentKey: 'sourcing',
+      draft: '소싱 질문',
+    });
+    const props = rightAuxiliaryPropsMock.mock.calls.at(-1)?.[0] as {
+      launcherRef: { current: HTMLElement | null };
+    };
+    expect(props.launcherRef.current).toBe(launcher);
+  });
+
+  it('restores the selected conversation when chat replaces notifications instead of creating a new draft', () => {
+    appStoreState.activeRightSurface = 'notifications';
+    conversationSurfaceState.activeConversationId = 'conversation-1';
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    });
+
+    renderLayout();
+    fireEvent.click(screen.getByRole('button', { name: 'AI 챗' }));
+
+    expect(appStoreState.activeRightSurface).toBe('ai_chat');
+    expect(openConversationMock).not.toHaveBeenCalled();
+  });
+
+  it('suppresses only the duplicate AI chat body on Agent OS without clearing its selected surface', () => {
+    usePathnameMock.mockReturnValue('/agent-os');
+    appStoreState.activeRightSurface = 'ai_chat';
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    });
+
+    renderLayout();
+
+    expect(screen.getByTestId('right-auxiliary-panel')).toHaveTextContent('closed');
+    expect(appStoreState.activeRightSurface).toBe('ai_chat');
+    expect(screen.getByTestId('conversation-runtime-host')).toBeInTheDocument();
+  });
+
+  it('restores a suppressed AI chat body after navigating back to a normal route without remounting runtime ownership', () => {
+    appStoreState.activeRightSurface = 'ai_chat';
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    });
+    const view = renderLayout();
+
+    expect(screen.getByTestId('right-auxiliary-panel')).toHaveTextContent('ai_chat');
+
+    usePathnameMock.mockReturnValue('/agent-os');
+    view.rerender(<AppLayout><main data-testid="agent-presentation">Agent workspace</main></AppLayout>);
+    expect(screen.getByTestId('right-auxiliary-panel')).toHaveTextContent('closed');
+    expect(appStoreState.activeRightSurface).toBe('ai_chat');
+
+    usePathnameMock.mockReturnValue('/dashboard');
+    view.rerender(<AppLayout><main data-testid="normal-presentation">Normal presentation</main></AppLayout>);
+    expect(screen.getByTestId('right-auxiliary-panel')).toHaveTextContent('ai_chat');
+    expect(runtimeOwnershipMocks.providerMounted).toHaveBeenCalledTimes(1);
+    expect(runtimeOwnershipMocks.hostMounted).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps notifications visible on Agent OS and does not unmount the conversation runtime when a panel closes', () => {
+    usePathnameMock.mockReturnValue('/agent-os');
+    appStoreState.activeRightSurface = 'notifications';
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    });
+
+    renderLayout();
+    fireEvent.click(screen.getByRole('button', { name: '보조 패널 닫기' }));
+
+    expect(screen.getByTestId('right-auxiliary-panel')).toHaveTextContent('notifications');
+    expect(appStoreState.activeRightSurface).toBeNull();
+    expect(runtimeOwnershipMocks.hostUnmounted).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -270,6 +485,7 @@ describe('AppLayout auth gate', () => {
     expect(screen.getByTestId('protected-child')).toBeInTheDocument();
     expect(screen.getByTestId('conversation-provider')).toBeInTheDocument();
     expect(screen.getByTestId('conversation-runtime-host')).toBeInTheDocument();
+    expect(usePanelStreamMock).toHaveBeenCalledTimes(1);
   });
 
   it('keeps one provider and runtime-host subscription while normal and Agent workspace presentations swap', () => {

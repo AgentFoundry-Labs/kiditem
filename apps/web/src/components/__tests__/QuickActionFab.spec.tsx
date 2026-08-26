@@ -42,14 +42,24 @@ describe('QuickActionFab', () => {
     expect(screen.queryByRole('link', { name: '상품 생성' })).not.toBeInTheDocument();
   });
 
-  it('opens the General conversation from the existing fan', () => {
+  it('opens the General AI chat surface from the existing fan', () => {
     const openConversation = vi.fn();
     render(<QuickActionFab onOpenConversation={openConversation} />);
 
     fireEvent.click(screen.getByRole('button', { name: '퀵 메뉴 열기' }));
-    fireEvent.click(screen.getByRole('button', { name: 'AgentOS 대화 열기' }));
+    fireEvent.click(screen.getByRole('button', { name: 'AI 챗 열기' }));
 
     expect(openConversation).toHaveBeenCalledTimes(1);
     expect(screen.getAllByTestId('quick-action-fab')).toHaveLength(1);
+  });
+
+  it('hides the fixed launcher while either right auxiliary surface is active', () => {
+    const { rerender } = render(<QuickActionFab isAuxiliarySurfaceOpen />);
+
+    expect(screen.queryByTestId('quick-action-fab')).not.toBeInTheDocument();
+
+    rerender(<QuickActionFab isAuxiliarySurfaceOpen={false} />);
+
+    expect(screen.getByTestId('quick-action-fab')).toHaveClass('fixed');
   });
 });

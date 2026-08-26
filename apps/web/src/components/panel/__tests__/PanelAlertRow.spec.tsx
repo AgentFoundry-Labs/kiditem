@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { PanelAlertRow } from '../PanelAlertRow';
 import { usePanelStore } from '../lib/panel-store';
+import { useStore } from '@/store/useStore';
 import type { PanelAlertItem } from '@kiditem/shared/panel';
 
 const BROWSER_RUN_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
@@ -113,7 +114,8 @@ describe('PanelAlertRow', () => {
     mockSendBrowserCollectionControl.mockReset();
     mockSyncBrowserCollectionAlert.mockReset();
     mockSyncBrowserCollectionAlert.mockResolvedValue(undefined);
-    usePanelStore.setState({ byId: {}, isOpen: true });
+    usePanelStore.setState({ byId: {} });
+    useStore.getState().closeRightSurface();
     vi.restoreAllMocks();
   });
 
@@ -198,7 +200,7 @@ describe('PanelAlertRow', () => {
 
   it('dismisses a terminal alert from the panel', async () => {
     const item = makeAlert({ id: 'alert-cleanup-1' });
-    usePanelStore.setState({ byId: { [item.id]: item }, isOpen: true });
+    usePanelStore.setState({ byId: { [item.id]: item } });
 
     render(<PanelAlertRow item={item} />);
     fireEvent.click(screen.getByRole('button', { name: '알림 정리' }));
@@ -306,8 +308,8 @@ describe('PanelAlertRow', () => {
       );
     });
 
-    it('closes the panel when href link is clicked', () => {
-      usePanelStore.getState().setOpen(true);
+    it('preserves the selected right surface when an href link is clicked', () => {
+      useStore.getState().selectRightSurface('notifications');
       render(
         <PanelAlertRow
           item={makeAlert({
@@ -320,7 +322,7 @@ describe('PanelAlertRow', () => {
 
       fireEvent.click(screen.getByRole('link', { name: /이동/ }));
 
-      expect(usePanelStore.getState().isOpen).toBe(false);
+      expect(useStore.getState().activeRightSurface).toBe('notifications');
     });
 
     it('hides promote button while a running operation is in flight', () => {
@@ -374,7 +376,7 @@ describe('PanelAlertRow', () => {
         operationKey:
           'sellpia-inventory-quality:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:missing_barcode',
       });
-      usePanelStore.setState({ byId: { [item.id]: item }, isOpen: true });
+      usePanelStore.setState({ byId: { [item.id]: item } });
 
       render(<PanelAlertRow item={item} />);
 
@@ -422,7 +424,7 @@ describe('PanelAlertRow', () => {
           operationKey: `browser-collection:${BROWSER_RUN_ID}`,
           sourceType,
         });
-        usePanelStore.setState({ byId: { [item.id]: item }, isOpen: true });
+        usePanelStore.setState({ byId: { [item.id]: item } });
 
         render(<PanelAlertRow item={item} />);
         fireEvent.click(screen.getByRole('button', { name: '작업 중단' }));
@@ -454,7 +456,7 @@ describe('PanelAlertRow', () => {
         operationKey: 'operation-key-1',
         sourceType: 'thumbnail_generation',
       });
-      usePanelStore.setState({ byId: { [item.id]: item }, isOpen: true });
+      usePanelStore.setState({ byId: { [item.id]: item } });
 
       render(<PanelAlertRow item={item} />);
       fireEvent.click(screen.getByRole('button', { name: '작업 중단' }));
@@ -482,7 +484,7 @@ describe('PanelAlertRow', () => {
         operationKey: 'operation-key-1',
         sourceType: 'sellpia_inventory_import',
       });
-      usePanelStore.setState({ byId: { [item.id]: item }, isOpen: true });
+      usePanelStore.setState({ byId: { [item.id]: item } });
 
       render(<PanelAlertRow item={item} />);
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { usePanelStore } from '../lib/panel-store';
-import { PanelSheet } from '../PanelSheet';
+import { NotificationPanelContent } from '../NotificationPanelContent';
 import type { PanelItem } from '@kiditem/shared/panel';
 
 const mockApiPost = vi.hoisted(() => vi.fn(async () => ({ ok: true })));
@@ -27,9 +27,6 @@ const mockUser = vi.hoisted(() => ({ value: null as { id: string } | null }));
 vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => ({ user: mockUser.value, isLoading: false, logout: vi.fn() }),
 }));
-
-// Radix UI Dialog renders into a portal — need a DOM container
-// @radix-ui/react-dialog uses document.body as portal target by default in jsdom
 
 const MY_USER_ID = 'user-mine-0000-0000-0000000000001';
 const OTHER_USER_ID = 'user-other-000-0000-0000000000002';
@@ -78,10 +75,10 @@ const makeAlertItem = (id: string): PanelItem => ({
 function seedStore(items: PanelItem[]) {
   const byId: Record<string, PanelItem> = {};
   items.forEach((item) => { byId[item.id] = item; });
-  usePanelStore.setState({ byId, isOpen: true, connectionStatus: 'connected' });
+  usePanelStore.setState({ byId, connectionStatus: 'connected' });
 }
 
-describe('PanelSheet unified notification list', () => {
+describe('NotificationPanelContent unified notification list', () => {
   beforeEach(() => {
     mockApiPost.mockClear();
     mockRecoverStalePanelOperations.mockClear();
@@ -89,12 +86,12 @@ describe('PanelSheet unified notification list', () => {
       Object.values(usePanelStore.getState().byId),
     );
     mockUser.value = { id: MY_USER_ID };
-    usePanelStore.setState({ byId: {}, isOpen: true, connectionStatus: 'connected' });
+    usePanelStore.setState({ byId: {}, connectionStatus: 'connected' });
   });
 
   afterEach(() => {
     mockUser.value = null;
-    usePanelStore.setState({ byId: {}, isOpen: false });
+    usePanelStore.setState({ byId: {} });
   });
 
   it('renders run and alert items in one list without dedicated work sections', () => {
@@ -103,7 +100,7 @@ describe('PanelSheet unified notification list', () => {
       makeRunItem('wf-2', OTHER_USER_ID, 'succeeded'),
       makeAlertItem('alert-1'),
     ]);
-    render(<PanelSheet />);
+    render(<NotificationPanelContent />);
 
     expect(screen.getByText('워크플로우 wf-1')).toBeInTheDocument();
     expect(screen.getByText('워크플로우 wf-2')).toBeInTheDocument();
@@ -111,17 +108,18 @@ describe('PanelSheet unified notification list', () => {
     expect(screen.queryByText('내 작업')).not.toBeInTheDocument();
     expect(screen.queryByText('조직 알림')).not.toBeInTheDocument();
     expect(screen.queryByText('팀 작업')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('shows one empty state when no notifications exist', () => {
     seedStore([]);
-    render(<PanelSheet />);
+    render(<NotificationPanelContent />);
 
     expect(screen.getByText('표시할 알림이 없습니다')).toBeInTheDocument();
   });
 });
 
-describe('PanelSheet active count', () => {
+describe('NotificationPanelContent active count', () => {
   beforeEach(() => {
     mockApiPost.mockClear();
     mockRecoverStalePanelOperations.mockClear();
@@ -129,11 +127,11 @@ describe('PanelSheet active count', () => {
       Object.values(usePanelStore.getState().byId),
     );
     mockUser.value = { id: MY_USER_ID };
-    usePanelStore.setState({ byId: {}, isOpen: true, connectionStatus: 'connected' });
+    usePanelStore.setState({ byId: {}, connectionStatus: 'connected' });
   });
   afterEach(() => {
     mockUser.value = null;
-    usePanelStore.setState({ byId: {}, isOpen: false });
+    usePanelStore.setState({ byId: {} });
   });
 
   const makeOperationAlert = (
@@ -151,7 +149,7 @@ describe('PanelSheet active count', () => {
       makeOperationAlert('op-1', 'running'),
       makeOperationAlert('op-2', 'succeeded'), // not active
     ]);
-    render(<PanelSheet />);
+    render(<NotificationPanelContent />);
     // 1 running run + 1 running operation alert = 2 active
     expect(screen.getByText('2 진행')).toBeInTheDocument();
   });
@@ -168,7 +166,7 @@ describe('PanelSheet active count', () => {
     ]);
     usePanelStore.setState({ lastSeq: 7, connectionStatus: 'connected' });
 
-    render(<PanelSheet />);
+    render(<NotificationPanelContent />);
 
     await waitFor(() => {
       expect(mockRecoverStalePanelOperations).toHaveBeenCalledWith(7);
@@ -177,7 +175,7 @@ describe('PanelSheet active count', () => {
 
   it('signal alerts never count as active', () => {
     seedStore([makeAlertItem('signal-1')]);
-    render(<PanelSheet />);
+    render(<NotificationPanelContent />);
     // signal alerts → recent only, no progress badge shown
     expect(screen.queryByText(/진행$/)).not.toBeInTheDocument();
   });
@@ -194,7 +192,7 @@ describe('PanelSheet active count', () => {
       runningOperation,
     ]);
 
-    render(<PanelSheet />);
+    render(<NotificationPanelContent />);
     screen.getByRole('button', { name: '완료 알림 정리' }).click();
 
     await waitFor(() => {
@@ -218,7 +216,7 @@ describe('PanelSheet active count', () => {
       runningOperation,
     ]);
 
-    render(<PanelSheet />);
+    render(<NotificationPanelContent />);
     screen.getByRole('button', { name: '진행 중 워크플로우 화면에서 정리' }).click();
 
     expect(usePanelStore.getState().byId['wf-running']).toBeUndefined();
@@ -239,7 +237,7 @@ describe('PanelSheet active count', () => {
       runningOperation,
     ]);
 
-    render(<PanelSheet />);
+    render(<NotificationPanelContent />);
     screen.getByRole('button', { name: '현재 알림 모두 정리' }).click();
 
     await waitFor(() => expect(usePanelStore.getState().byId).toEqual({}));

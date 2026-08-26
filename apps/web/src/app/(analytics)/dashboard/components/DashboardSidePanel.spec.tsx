@@ -152,7 +152,6 @@ describe('DashboardSidePanel', () => {
       byId: {},
       lastSeq: 0,
       hasHydrated: false,
-      isOpen: false,
       connectionStatus: 'disconnected',
     });
   });

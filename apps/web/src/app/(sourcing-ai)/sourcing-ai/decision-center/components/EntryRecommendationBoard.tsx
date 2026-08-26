@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { sourcingWingCatalogKeywordIdentity } from '@kiditem/shared/sourcing';
 import { toast } from 'sonner';
 import { AlertTriangle, Loader2, RefreshCw, Sparkles, Star } from 'lucide-react';
@@ -9,7 +8,7 @@ import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
 import { isTerminalOperationStatus } from '@/hooks/useOperationRun';
 import { useAuth } from '@/hooks/useAuth';
-import { openConversation } from '@/components/agent-interaction/conversation-surface-state';
+import { useRightSurfaceLauncher } from '@/components/layout/right-surface-launcher-context';
 import {
   type EntryInterestKeywordStatus,
   type EntryRecommendation,
@@ -49,8 +48,8 @@ type InterestFilter = 'all' | 'interest' | 'other';
  * (`CompetitorTrackingPage` 와 같은 패턴). 새 SSE 는 열지 않는다.
  */
 export function EntryRecommendationBoard() {
-  const router = useRouter();
   const { user } = useAuth();
+  const { openConversationFromLauncher } = useRightSurfaceLauncher();
   const organizationId = user?.organizationId ?? null;
   const [activeId, setActiveId] = useState<string | null>(null);
   const [interestFilter, setInterestFilter] = useState<InterestFilter>('all');
@@ -155,9 +154,8 @@ export function EntryRecommendationBoard() {
   );
   const activeItem = items.find((item) => item.id === activeId) ?? null;
 
-  const handleAsk = (question: string) => {
-    openConversation({ fixedAgentKey: 'sourcing', draft: question });
-    router.push('/agent-os');
+  const handleAsk = (question: string, launcher: HTMLElement) => {
+    openConversationFromLauncher({ fixedAgentKey: 'sourcing', draft: question }, launcher);
   };
 
   const saveEntrySelection = (itemKey: string, state: 'neutral' | 'selected' | 'removed') => {

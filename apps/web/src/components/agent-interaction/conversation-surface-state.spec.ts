@@ -4,9 +4,13 @@ import {
   openConversation,
   useConversationSurfaceState,
 } from './conversation-surface-state';
+import { useStore } from '@/store/useStore';
 
 describe('conversation surface state', () => {
-  beforeEach(() => useConversationSurfaceState.getState().reset());
+  beforeEach(() => {
+    useConversationSurfaceState.getState().reset();
+    useStore.setState({ activeRightSurface: null } as never);
+  });
   afterEach(() => vi.unstubAllGlobals());
 
   it('uses General plus only the exact five fixed Agent keys and stores only a disposable reserved draft', () => {
@@ -27,13 +31,16 @@ describe('conversation surface state', () => {
     });
     expect(Object.keys(useConversationSurfaceState.getState()).sort()).toEqual([
       'activeConversationId',
+      'closeSettings',
       'discardDraft',
       'openConversation',
+      'openSettings',
       'pendingDraft',
       'reset',
       'selectContext',
       'selectConversation',
       'selectedContext',
+      'settingsOpen',
       'updateDraft',
     ]);
   });
@@ -66,5 +73,43 @@ describe('conversation surface state', () => {
     expect(useConversationSurfaceState.getState().pendingDraft?.conversationId)
       .toBe('conversation-reserved-2');
     expect(randomUUID).toHaveBeenCalledTimes(2);
+  });
+
+  it('opens the exact draft context in the global AI chat surface', () => {
+    vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'conversation-sourcing') });
+
+    openConversation({ fixedAgentKey: 'sourcing', draft: '소싱 질문' });
+
+    expect(useConversationSurfaceState.getState().pendingDraft).toMatchObject({
+      conversationId: 'conversation-sourcing',
+      agentKey: 'sourcing',
+      message: '소싱 질문',
+    });
+    expect(useStore.getState().activeRightSurface).toBe('ai_chat');
+  });
+
+  it('keeps the AI chat surface selected when a new draft is started from the open panel', () => {
+    vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'conversation-advertising') });
+    useStore.setState({ activeRightSurface: 'ai_chat' } as never);
+
+    openConversation({ fixedAgentKey: 'advertising' });
+
+    expect(useConversationSurfaceState.getState().pendingDraft?.agentKey).toBe('advertising');
+    expect(useStore.getState().activeRightSurface).toBe('ai_chat');
+  });
+
+  it('stores only the disposable settings coordinate for the shared settings dialog', () => {
+    const state = useConversationSurfaceState.getState() as {
+      settingsOpen?: boolean;
+      openSettings?: () => void;
+      closeSettings?: () => void;
+    };
+
+    expect(state.openSettings).toEqual(expect.any(Function));
+    expect(state.closeSettings).toEqual(expect.any(Function));
+    state.openSettings?.();
+    expect(useConversationSurfaceState.getState().settingsOpen).toBe(true);
+    state.closeSettings?.();
+    expect(useConversationSurfaceState.getState().settingsOpen).toBe(false);
   });
 });

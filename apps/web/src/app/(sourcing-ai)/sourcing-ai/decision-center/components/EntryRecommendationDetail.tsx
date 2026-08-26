@@ -11,7 +11,7 @@ import type {
 export interface EntryRecommendationDetailProps {
   item: EntryRecommendation;
   onClose: () => void;
-  onAsk: (question: string) => void;
+  onAsk: (question: string, launcher: HTMLElement) => void;
 }
 
 const COMPONENT_LABELS: Record<keyof EntryRecommendationComponents, string> = {
@@ -130,10 +130,14 @@ export function EntryRecommendationDetail({
         <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
-            onClick={() => onAsk(`${item.keyword ?? item.title} 지금 진입해도 될까? 근거로 설명해줘.`)}
+            data-right-surface-launcher="sourcing-ai-chat"
+            onClick={(event) => onAsk(
+              `${item.keyword ?? item.title} 지금 진입해도 될까? 근거로 설명해줘.`,
+              event.currentTarget,
+            )}
             className="rounded-md bg-[var(--primary)] px-2.5 py-1.5 text-[11px] font-black text-white transition-[filter] hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
           >
-            AgentOS에서 묻기
+            소싱 Agent에게 묻기
           </button>
           {item.sourceUrl && (
             <a

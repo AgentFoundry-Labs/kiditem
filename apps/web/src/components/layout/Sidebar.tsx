@@ -54,10 +54,14 @@ function findActiveSection(pathname: string): string | null {
 export default function Sidebar({
   onChatToggle,
   chatOpen,
+  onNotificationToggle,
+  notificationsOpen,
   lockCollapsed = false,
 }: {
-  onChatToggle?: () => void;
+  onChatToggle?: (launcher: HTMLElement) => void;
   chatOpen?: boolean;
+  onNotificationToggle?: (launcher: HTMLElement) => void;
+  notificationsOpen?: boolean;
   lockCollapsed?: boolean;
 }) {
   const pathname = usePathname();
@@ -71,7 +75,6 @@ export default function Sidebar({
   const editorDirty = useStore((s) => s.editorDirty);
   const setEditorDirty = useStore((s) => s.setEditorDirty);
   const showConfirm = useStore((s) => s.showConfirm);
-  const setPanelOpen = usePanelStore((s) => s.setOpen);
   const unreadAlertCount = usePanelStore((s) => s.unreadCount());
   const runningCount = usePanelStore((s) => s.runningCount());
   const { user, logout } = useAuth();
@@ -385,9 +388,15 @@ export default function Sidebar({
           })}
           {/* 알림 */}
           <button
-            onClick={() => setPanelOpen(true)}
+            type="button"
+            aria-pressed={notificationsOpen}
+            data-right-surface-launcher="notifications"
+            onClick={(event) => onNotificationToggle?.(event.currentTarget)}
             className={cn(
-              "w-full group flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] leading-5 font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text-primary)] transition-colors",
+              "w-full group flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] leading-5 font-medium transition-colors",
+              notificationsOpen
+                ? "bg-[var(--primary-soft)] text-[var(--primary)]"
+                : "text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text-primary)]",
               !sidebarOpen && "justify-center px-0",
             )}
             title={!sidebarOpen ? "알림" : undefined}
@@ -412,7 +421,10 @@ export default function Sidebar({
           {/* AI 챗 토글 */}
           {onChatToggle && (
             <button
-              onClick={onChatToggle}
+              type="button"
+              aria-pressed={chatOpen}
+              data-right-surface-launcher="ai_chat"
+              onClick={(event) => onChatToggle(event.currentTarget)}
               className={cn(
                 "group flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] leading-5 transition-all duration-100 relative w-full",
                 chatOpen

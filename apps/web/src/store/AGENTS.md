@@ -7,6 +7,7 @@ It must not become a server-state cache.
 ## Owned State
 
 - Sidebar open/closed state
+- Active right auxiliary surface (`notifications | ai_chat | null`)
 - Editor dirty flag
 - Global confirm dialog state and callbacks
 

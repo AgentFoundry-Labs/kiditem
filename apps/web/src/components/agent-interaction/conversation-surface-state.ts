@@ -6,6 +6,7 @@ import {
   type AgentConversationKey,
   type ConversationRuntime,
 } from './conversation-api';
+import { useStore } from '@/store/useStore';
 
 export { agentConversationKeys } from './conversation-api';
 
@@ -32,11 +33,14 @@ interface ConversationSurfaceState {
   selectedContext: AgentConversationKey | null;
   activeConversationId: string | null;
   pendingDraft: NewConversationDraft | null;
+  settingsOpen: boolean;
   selectContext(context: AgentConversationKey | null): void;
   selectConversation(conversation: ConversationSelection): void;
   openConversation(input: NewConversationRequest): NewConversationDraft;
   updateDraft(patch: Partial<Omit<NewConversationDraft, 'conversationId'>>): void;
   discardDraft(): void;
+  openSettings(): void;
+  closeSettings(): void;
   reset(): void;
 }
 
@@ -44,7 +48,11 @@ const initialState = {
   selectedContext: null,
   activeConversationId: null,
   pendingDraft: null,
-} satisfies Pick<ConversationSurfaceState, 'selectedContext' | 'activeConversationId' | 'pendingDraft'>;
+  settingsOpen: false,
+} satisfies Pick<
+  ConversationSurfaceState,
+  'selectedContext' | 'activeConversationId' | 'pendingDraft' | 'settingsOpen'
+>;
 
 /** Ephemeral navigation intent only; provider history remains outside browser state. */
 export const useConversationSurfaceState = create<ConversationSurfaceState>((set) => ({
@@ -78,6 +86,9 @@ export const useConversationSurfaceState = create<ConversationSurfaceState>((set
       activeConversationId: conversationId,
       pendingDraft: draft,
     });
+    if (useStore.getState().activeRightSurface !== 'ai_chat') {
+      useStore.getState().selectRightSurface('ai_chat');
+    }
     return draft;
   },
   updateDraft: (patch) => set((state) => {
@@ -94,6 +105,8 @@ export const useConversationSurfaceState = create<ConversationSurfaceState>((set
       : state.activeConversationId,
     pendingDraft: null,
   })),
+  openSettings: () => set({ settingsOpen: true }),
+  closeSettings: () => set({ settingsOpen: false }),
   reset: () => set(initialState),
 }));
 

@@ -32,8 +32,10 @@ const ACTIONS: QuickAction[] = [
 
 export default function QuickActionFab({
   onOpenConversation,
+  isAuxiliarySurfaceOpen = false,
 }: {
-  onOpenConversation?: () => void;
+  onOpenConversation?: (launcher: HTMLElement) => void;
+  isAuxiliarySurfaceOpen?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -45,6 +47,8 @@ export default function QuickActionFab({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
+
+  if (isAuxiliarySurfaceOpen) return null;
 
   return (
     <>
@@ -88,10 +92,11 @@ export default function QuickActionFab({
         {open && onOpenConversation ? (
           <button
             type="button"
-            aria-label="AgentOS 대화 열기"
-            title="AgentOS 대화"
-            onClick={() => {
-              onOpenConversation();
+            aria-label="AI 챗 열기"
+            title="AI 챗"
+            data-right-surface-launcher="quick-action-ai-chat"
+            onClick={(event) => {
+              onOpenConversation(event.currentTarget);
               setOpen(false);
             }}
             style={{ transform: 'translate(calc(-50% - 92px), -50%)' }}
@@ -106,6 +111,7 @@ export default function QuickActionFab({
 
         <button
           type="button"
+          data-right-surface-launcher="quick-action-ai-chat"
           aria-label={open ? '퀵 메뉴 닫기' : '퀵 메뉴 열기'}
           aria-expanded={open}
           onClick={() => setOpen((prev) => !prev)}

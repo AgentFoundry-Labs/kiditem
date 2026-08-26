@@ -1,8 +1,10 @@
-# web/components/panel - Live Operations Panel
+# web/components/panel - Live Notification Content
 
-`components/panel/` owns the global slide-out operations panel, alert rows,
-task promotion UI, panel store, SSE client, stream hook, and recovery helpers.
-It is the only frontend SSE exception documented for `apps/web`.
+`components/panel/` owns notification content, alert rows, task promotion UI,
+panel store, SSE client, stream hook, and recovery helpers. The app shell owns
+the single right-surface selection and desktop/mobile framing; this directory
+does not own dialog or open-state presentation. It is the only frontend SSE
+exception documented for `apps/web`.
 
 ## Data Flow
 
@@ -10,7 +12,7 @@ It is the only frontend SSE exception documented for `apps/web`.
 PanelSseClient
   -> /api/panel/stream
   -> panel-store
-  -> panel rows and sheet UI
+  -> panel rows and notification content
 fallback/recovery
   -> /api/panel/snapshot, /api/panel/backfill
 ```

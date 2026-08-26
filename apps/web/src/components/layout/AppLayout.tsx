@@ -1,11 +1,10 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { PanelSheet } from '@/components/panel/PanelSheet';
 import { PanelErrorBoundary } from '@/components/panel/PanelErrorBoundary';
 import { usePanelStream } from '@/components/panel/hooks/usePanelStream';
 import ReadinessModal from '@/components/ReadinessModal';
@@ -16,12 +15,17 @@ import { useAuth } from '@/hooks/useAuth';
 import RebuildReadinessBanner from '@/components/RebuildReadinessBanner';
 import { ConversationProvider } from '@/components/agent-interaction/ConversationProvider';
 import { ConversationRuntimeHost } from '@/components/agent-interaction/ConversationRuntimeHost';
-import { openConversation } from '@/components/agent-interaction/conversation-surface-state';
+import {
+  openConversation,
+  useConversationSurfaceState,
+} from '@/components/agent-interaction/conversation-surface-state';
+import { RightAuxiliaryPanel } from './RightAuxiliaryPanel';
+import { RightSurfaceLauncherProvider } from './right-surface-launcher-context';
 import Sidebar from './Sidebar';
 
-function PanelMount() {
+function NotificationDataMount() {
   usePanelStream();
-  return <PanelSheet />;
+  return null;
 }
 
 function ConversationRuntimeShell({ children }: { children: React.ReactNode }) {
@@ -33,10 +37,17 @@ function ConversationRuntimeShell({ children }: { children: React.ReactNode }) {
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { sidebarOpen } = useStore();
+  const {
+    sidebarOpen,
+    activeRightSurface,
+    selectRightSurface,
+    closeRightSurface,
+  } = useStore();
   const auth = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const launcherRef = useRef<HTMLElement | null>(null);
+  const activeConversationId = useConversationSurfaceState((state) => state.activeConversationId);
 
   // Public/isolated surfaces render their own layout. `/agent-os` is fullscreen
   // too, but remains a protected surface before its provider can mount.
@@ -103,19 +114,53 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (isAgentWorkspace) {
-    return <ConversationRuntimeShell>{children}</ConversationRuntimeShell>;
-  }
-
   const isEditorRoute = pathname.includes('/editor');
   const isFinalSelectionRoute = pathname === '/sourcing-ai/final-selection';
   const isWingCatalogRoute = pathname === '/sourcing-ai/wing-catalog';
   const collapsedForEditor = isEditorRoute || !sidebarOpen;
   const showAutoReadinessModal = pathname === '/dashboard';
+  const visibleRightSurface = isAgentWorkspace && activeRightSurface === 'ai_chat'
+    ? null
+    : activeRightSurface;
+
+  const selectRightSurfaceFromLauncher = (
+    surface: Exclude<typeof activeRightSurface, null>,
+    launcher: HTMLElement,
+  ) => {
+    launcherRef.current = launcher;
+    selectRightSurface(surface);
+  };
+
+  const openGeneralConversation = (launcher: HTMLElement) => {
+    launcherRef.current = launcher;
+    if (activeRightSurface === 'ai_chat') {
+      selectRightSurface('ai_chat');
+      return;
+    }
+    if (activeConversationId) {
+      selectRightSurface('ai_chat');
+      return;
+    }
+    openConversation({ fixedAgentKey: null });
+  };
+
+  const openConversationFromLauncher = (
+    input: Parameters<typeof openConversation>[0],
+    launcher: HTMLElement,
+  ) => {
+    launcherRef.current = launcher;
+    openConversation(input);
+  };
 
   const content = (
     <div className="min-h-screen bg-[var(--background)]">
-      <Sidebar lockCollapsed={isEditorRoute} />
+      <Sidebar
+        lockCollapsed={isEditorRoute}
+        onChatToggle={openGeneralConversation}
+        chatOpen={activeRightSurface === 'ai_chat'}
+        onNotificationToggle={(launcher) => selectRightSurfaceFromLauncher('notifications', launcher)}
+        notificationsOpen={activeRightSurface === 'notifications'}
+      />
       <div
         className={cn(
           'transition-all duration-300',
@@ -131,22 +176,31 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
-      <PanelErrorBoundary>
-        <PanelMount />
-      </PanelErrorBoundary>
       {showAutoReadinessModal && <ReadinessModal autoOpenWhen="collectionIssue" />}
       <GlobalConfirmDialog />
       <GenerationCompletionWatcher />
       {isEditorRoute ? null : (
         <QuickActionFab
-          onOpenConversation={() => {
-            openConversation({ fixedAgentKey: null });
-            router.push('/agent-os');
-          }}
+          onOpenConversation={openGeneralConversation}
+          isAuxiliarySurfaceOpen={activeRightSurface !== null}
         />
       )}
     </div>
   );
 
-  return <ConversationRuntimeShell>{content}</ConversationRuntimeShell>;
+  return (
+    <ConversationRuntimeShell>
+      <NotificationDataMount />
+      <RightSurfaceLauncherProvider openConversationFromLauncher={openConversationFromLauncher}>
+        {isAgentWorkspace ? children : content}
+      </RightSurfaceLauncherProvider>
+      <PanelErrorBoundary>
+        <RightAuxiliaryPanel
+          activeRightSurface={visibleRightSurface}
+          onClose={closeRightSurface}
+          launcherRef={launcherRef}
+        />
+      </PanelErrorBoundary>
+    </ConversationRuntimeShell>
+  );
 }
