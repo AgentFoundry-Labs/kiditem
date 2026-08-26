@@ -1,16 +1,48 @@
 import { describe, expect, it } from 'vitest';
 
 describe('Gateway control contract', () => {
-  it('accepts only the eight bounded Gateway command shapes', async () => {
+  it('round-trips only the twelve bounded Gateway command shapes, including browser-addressed conversations and preferences', async () => {
     const { GatewayCommandSchema } = await import('./control');
     const base = { commandId: 'command-1' };
+    const preferences = {
+      schemaVersion: 1,
+      contexts: {
+        general: {
+          codex_cli: { model: 'gpt-5.6', reasoningEffort: 'medium' },
+          claude_cli: { model: 'claude-sonnet-5', reasoningEffort: 'high' },
+        },
+      },
+    };
+    const conversationCreate = {
+      ...base,
+      kind: 'conversation.create',
+      conversationId: 'browser-reserved-conversation-1',
+      runtime: 'codex_cli',
+      agentKey: null,
+      title: 'New conversation',
+    };
+    const preferencesGet = { ...base, kind: 'conversation.preferences.get' };
+    const preferencesSet = {
+      ...base,
+      kind: 'conversation.preferences.set',
+      context: 'general',
+      runtime: 'codex_cli',
+      model: 'gpt-5.6',
+      reasoningEffort: 'medium',
+    };
+    const preferencesLoaded = { ...base, kind: 'conversation.preferences.loaded', preferences };
+    const preferencesUpdated = { ...base, kind: 'conversation.preferences.updated', preferences };
 
     const commands = [
       { ...base, kind: 'conversation.list' },
-      { ...base, kind: 'conversation.create', runtime: 'codex_cli', agentKey: null },
+      conversationCreate,
       { ...base, kind: 'conversation.history', conversationId: 'conversation-1' },
       { ...base, kind: 'conversation.rename', conversationId: 'conversation-1', title: 'Renamed' },
       { ...base, kind: 'conversation.delete', conversationId: 'conversation-1' },
+      preferencesGet,
+      preferencesSet,
+      preferencesLoaded,
+      preferencesUpdated,
       {
         ...base,
         kind: 'turn.start',
@@ -31,10 +63,21 @@ describe('Gateway control contract', () => {
       'conversation.history',
       'conversation.rename',
       'conversation.delete',
+      'conversation.preferences.get',
+      'conversation.preferences.set',
+      'conversation.preferences.loaded',
+      'conversation.preferences.updated',
       'turn.start',
       'turn.input',
       'turn.interrupt',
     ]);
+    expect(GatewayCommandSchema.parse(conversationCreate)).toEqual(conversationCreate);
+    expect(GatewayCommandSchema.parse(preferencesGet)).toEqual(preferencesGet);
+    expect(GatewayCommandSchema.parse(preferencesSet)).toEqual(preferencesSet);
+    expect(GatewayCommandSchema.parse(preferencesLoaded)).toEqual(preferencesLoaded);
+    expect(GatewayCommandSchema.parse(preferencesUpdated)).toEqual(preferencesUpdated);
+    expect(GatewayCommandSchema.safeParse({ ...preferencesSet, organizationId: 'organization-1' }).success).toBe(false);
+    expect(GatewayCommandSchema.safeParse({ ...preferencesSet, userId: 'user-1' }).success).toBe(false);
   });
 
   it('rejects raw process, environment, workspace, MCP, and auth authority from Nest', async () => {

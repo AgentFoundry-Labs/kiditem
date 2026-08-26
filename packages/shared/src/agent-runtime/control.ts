@@ -2,6 +2,8 @@ import { z } from 'zod';
 import {
   AgentKeySchema,
   ConversationIdSchema,
+  ConversationPreferenceContextSchema,
+  ConversationPreferencesSchema,
   ConversationSummarySchema,
   ConversationTitleSchema,
   ModelSchema,
@@ -51,10 +53,14 @@ export const GatewayReadinessSchema = z.array(GatewayProviderReadinessSchema).le
 
 export const GatewayCommandSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('conversation.list'), commandId: CommandIdSchema, runtime: ProviderRuntimeSchema.optional() }).strict(),
-  z.object({ kind: z.literal('conversation.create'), commandId: CommandIdSchema, runtime: ProviderRuntimeSchema, agentKey: AgentKeySchema.nullable(), title: ConversationTitleSchema.optional() }).strict(),
+  z.object({ kind: z.literal('conversation.create'), commandId: CommandIdSchema, conversationId: ConversationIdSchema, runtime: ProviderRuntimeSchema, agentKey: AgentKeySchema.nullable(), title: ConversationTitleSchema }).strict(),
   z.object({ kind: z.literal('conversation.history'), commandId: CommandIdSchema, conversationId: ConversationIdSchema }).strict(),
   z.object({ kind: z.literal('conversation.rename'), commandId: CommandIdSchema, conversationId: ConversationIdSchema, title: ConversationTitleSchema }).strict(),
   z.object({ kind: z.literal('conversation.delete'), commandId: CommandIdSchema, conversationId: ConversationIdSchema }).strict(),
+  z.object({ kind: z.literal('conversation.preferences.get'), commandId: CommandIdSchema }).strict(),
+  z.object({ kind: z.literal('conversation.preferences.set'), commandId: CommandIdSchema, context: ConversationPreferenceContextSchema, runtime: ProviderRuntimeSchema, model: ModelSchema, reasoningEffort: ReasoningEffortSchema }).strict(),
+  z.object({ kind: z.literal('conversation.preferences.loaded'), commandId: CommandIdSchema, preferences: ConversationPreferencesSchema }).strict(),
+  z.object({ kind: z.literal('conversation.preferences.updated'), commandId: CommandIdSchema, preferences: ConversationPreferencesSchema }).strict(),
   z.object({ kind: z.literal('turn.start'), commandId: CommandIdSchema, conversationId: ConversationIdSchema, turnId: TurnIdSchema, message: MessageSchema, model: ModelSchema, reasoningEffort: ReasoningEffortSchema, executionBinding: ExecutionBindingSchema }).strict(),
   z.object({ kind: z.literal('turn.input'), commandId: CommandIdSchema, conversationId: ConversationIdSchema, turnId: TurnIdSchema, message: MessageSchema }).strict(),
   z.object({ kind: z.literal('turn.interrupt'), commandId: CommandIdSchema, conversationId: ConversationIdSchema, turnId: TurnIdSchema }).strict(),

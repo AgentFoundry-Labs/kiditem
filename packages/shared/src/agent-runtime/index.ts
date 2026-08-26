@@ -14,6 +14,9 @@ export type {
 export {
   AgentKeySchema,
   ConversationIdSchema,
+  ConversationPreferenceContextSchema,
+  ConversationPreferenceSchema,
+  ConversationPreferencesSchema,
   ConversationSummarySchema,
   ConversationTitleSchema,
   CreateConversationCommandSchema,
@@ -23,11 +26,15 @@ export {
   ProviderMessageRoleSchema,
   ProviderReadinessSchema,
   ReasoningEffortSchema,
+  SetConversationPreferenceCommandSchema,
   TurnIdSchema,
 } from './conversation';
 export type {
   AgentKey,
   ConversationId,
+  ConversationPreferenceContext,
+  ConversationPreference,
+  ConversationPreferences,
   ConversationSummary,
   ConversationTitle,
   CreateConversationCommand,
@@ -37,6 +44,7 @@ export type {
   ProviderMessageRole,
   ProviderReadiness,
   ReasoningEffort,
+  SetConversationPreferenceCommand,
   TurnId,
 } from './conversation';
 export {

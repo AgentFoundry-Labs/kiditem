@@ -28,6 +28,44 @@ export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>;
 export const ConversationTitleSchema = z.string().trim().min(1).max(200);
 export type ConversationTitle = z.infer<typeof ConversationTitleSchema>;
 
+export const ConversationPreferenceContextSchema = z.union([
+  z.literal('general'),
+  AgentKeySchema,
+]);
+export type ConversationPreferenceContext = z.infer<typeof ConversationPreferenceContextSchema>;
+
+export const ConversationPreferenceSchema = z.object({
+  model: ModelSchema,
+  reasoningEffort: ReasoningEffortSchema,
+}).strict();
+export type ConversationPreference = z.infer<typeof ConversationPreferenceSchema>;
+
+const ProviderPreferenceMapSchema = z.object({
+  codex_cli: ConversationPreferenceSchema.optional(),
+  claude_cli: ConversationPreferenceSchema.optional(),
+}).strict();
+
+export const ConversationPreferencesSchema = z.object({
+  schemaVersion: z.literal(1),
+  contexts: z.object({
+    general: ProviderPreferenceMapSchema.optional(),
+    sourcing: ProviderPreferenceMapSchema.optional(),
+    merchandising: ProviderPreferenceMapSchema.optional(),
+    supply: ProviderPreferenceMapSchema.optional(),
+    channel_operations: ProviderPreferenceMapSchema.optional(),
+    advertising: ProviderPreferenceMapSchema.optional(),
+  }).strict(),
+}).strict();
+export type ConversationPreferences = z.infer<typeof ConversationPreferencesSchema>;
+
+export const SetConversationPreferenceCommandSchema = z.object({
+  context: ConversationPreferenceContextSchema,
+  runtime: ProviderRuntimeSchema,
+  model: ModelSchema,
+  reasoningEffort: ReasoningEffortSchema,
+}).strict();
+export type SetConversationPreferenceCommand = z.infer<typeof SetConversationPreferenceCommandSchema>;
+
 export const ProviderMessageRoleSchema = z.enum(['user', 'assistant', 'tool', 'status']);
 export type ProviderMessageRole = z.infer<typeof ProviderMessageRoleSchema>;
 
@@ -55,9 +93,10 @@ export type ConversationSummary = z.infer<typeof ConversationSummarySchema>;
 
 /** Runtime and Agent binding exist only at creation; neither can be patched later. */
 export const CreateConversationCommandSchema = z.object({
+  conversationId: ConversationIdSchema,
   runtime: ProviderRuntimeSchema,
   agentKey: AgentKeySchema.nullable(),
-  title: ConversationTitleSchema.optional(),
+  title: ConversationTitleSchema,
 }).strict();
 export type CreateConversationCommand = z.infer<typeof CreateConversationCommandSchema>;
 
