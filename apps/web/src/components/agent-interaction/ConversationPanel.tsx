@@ -2,14 +2,13 @@
 
 import { History, Plus, Settings2, X } from 'lucide-react';
 import { useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { ConversationFlow } from './ConversationFlow';
 import { useConversationRuntime } from './ConversationRuntimeHost';
 import { conversationContextFor, conversationContexts } from './conversation-context.catalog';
 import { openConversation, useConversationSurfaceState } from './conversation-surface-state';
 
 export function ConversationPanel({ onClose }: { onClose(): void }) {
-  const router = useRouter();
   const runtime = useConversationRuntime();
   const selectedContext = useConversationSurfaceState((state) => state.selectedContext);
   const openSettings = useConversationSurfaceState((state) => state.openSettings);
@@ -86,14 +85,13 @@ export function ConversationPanel({ onClose }: { onClose(): void }) {
           >
             <Settings2 aria-hidden="true" size={18} />
           </button>
-          <button
-            type="button"
+          <Link
+            href="/agent-os"
             aria-label="전체 기록"
-            onClick={() => router.push('/agent-os')}
             className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <History aria-hidden="true" size={18} />
-          </button>
+          </Link>
           <button
             type="button"
             aria-label="AI 챗 닫기"

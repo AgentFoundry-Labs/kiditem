@@ -1,70 +1,116 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
 import { Send, Square } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ConversationCombinedSelector, isSupportedConversationPair } from './ConversationCombinedSelector';
 import type { ConversationRuntime, GatewayReadiness } from './conversation-api';
 
-type ReadyGateway = Extract<GatewayReadiness, { ready: true }>;
+type DraftPatch = {
+  provider?: ConversationRuntime | null;
+  model?: string | null;
+  reasoningEffort?: string | null;
+  message?: string;
+};
 
 export function AgentConversationComposer({
-  label,
+  conversationId,
+  contextLabel,
+  placeholder,
   runtime,
   readiness,
-  initialDraft,
+  initialMessage,
+  initialModel,
+  initialReasoningEffort,
+  isDraft,
   activeTurnId,
   onStart,
   onInput,
   onInterrupt,
+  onUpdateDraft,
+  onRetry,
 }: {
-  label: string;
-  runtime: ConversationRuntime;
+  conversationId: string;
+  contextLabel: string;
+  placeholder: string;
+  runtime: ConversationRuntime | null;
   readiness: GatewayReadiness[] | null | undefined;
-  initialDraft?: string;
+  initialMessage?: string;
+  initialModel?: string | null;
+  initialReasoningEffort?: string | null;
+  isDraft: boolean;
   activeTurnId: string | null;
   onStart(input: { message: string; model: string; reasoningEffort: string }): Promise<void>;
   onInput(message: string): Promise<void>;
   onInterrupt(): Promise<void>;
+  onUpdateDraft?(patch: DraftPatch): void;
+  onRetry?(): void;
 }) {
-  const [draft, setDraft] = useState(initialDraft ?? '');
-  const [model, setModel] = useState('');
-  const [reasoningEffort, setReasoningEffort] = useState('');
+  const messageRef = useRef<HTMLTextAreaElement | null>(null);
+  const [message, setMessage] = useState(initialMessage ?? '');
+  const [model, setModel] = useState<string | null>(initialModel ?? null);
+  const [reasoningEffort, setReasoningEffort] = useState<string | null>(initialReasoningEffort ?? null);
   const [submitting, setSubmitting] = useState(false);
+  const [isComposing, setIsComposing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const runtimeReadiness = useMemo(
-    () => readiness === undefined
-      ? undefined
-      : readiness?.find((entry): entry is ReadyGateway => entry.runtime === runtime && entry.ready) ?? null,
-    [readiness, runtime],
-  );
-  const models = useMemo(() => runtimeReadiness?.readiness.models ?? [], [runtimeReadiness]);
-  const efforts = useMemo(
-    () => runtimeReadiness?.readiness.modelReasoningEfforts
-      .find((entry) => entry.model === model)?.reasoningEfforts ?? [],
-    [model, runtimeReadiness],
-  );
+  const pairSupported = useMemo(() => isSupportedConversationPair({
+    runtime,
+    model,
+    reasoningEffort,
+    readiness,
+  }), [model, readiness, reasoningEffort, runtime]);
+  const needsReview = Boolean((model || reasoningEffort) && !pairSupported);
+  const canStart = Boolean(message.trim() && runtime && pairSupported && !submitting);
+  const canInput = Boolean(message.trim() && activeTurnId && !submitting);
 
   useEffect(() => {
-    if (initialDraft) setDraft(initialDraft);
-  }, [initialDraft]);
+    setMessage(initialMessage ?? '');
+    setModel(initialModel ?? null);
+    setReasoningEffort(initialReasoningEffort ?? null);
+    setError(null);
+  }, [conversationId]); // A new selection is the only time local composer state is replaced.
   useEffect(() => {
-    setModel((current) => models.includes(current) ? current : '');
-  }, [models]);
+    if (!isDraft) return;
+    messageRef.current?.focus();
+  }, [conversationId, isDraft]);
   useEffect(() => {
-    setReasoningEffort((current) => efforts.includes(current) ? current : '');
-  }, [efforts]);
+    const textarea = messageRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 80), 240)}px`;
+  }, [message]);
 
-  const canStart = Boolean(draft.trim() && model && reasoningEffort && runtimeReadiness && !submitting);
-  const canInput = Boolean(draft.trim() && activeTurnId && !submitting);
+  const updateMessage = (nextMessage: string) => {
+    setMessage(nextMessage);
+    if (isDraft) onUpdateDraft?.({ message: nextMessage });
+  };
+  const updateRuntime = (nextRuntime: ConversationRuntime | null) => {
+    if (!isDraft) return;
+    setModel(null);
+    setReasoningEffort(null);
+    onUpdateDraft?.({ provider: nextRuntime, model: null, reasoningEffort: null });
+  };
+  const updateModel = (nextModel: string | null) => {
+    setModel(nextModel);
+    if (isDraft) onUpdateDraft?.({ model: nextModel });
+  };
+  const updateReasoningEffort = (nextReasoningEffort: string | null) => {
+    setReasoningEffort(nextReasoningEffort);
+    if (isDraft) onUpdateDraft?.({ reasoningEffort: nextReasoningEffort });
+  };
   const submit = async () => {
     if (!(activeTurnId ? canInput : canStart)) return;
     setSubmitting(true);
     setError(null);
     try {
-      if (activeTurnId) await onInput(draft.trim());
-      else await onStart({ message: draft.trim(), model, reasoningEffort });
-      setDraft('');
+      if (activeTurnId) await onInput(message.trim());
+      else await onStart({
+        message: message.trim(),
+        model: model ?? '',
+        reasoningEffort: reasoningEffort ?? '',
+      });
+      updateMessage('');
     } catch {
-      setError(activeTurnId ? 'Unable to send input to the active turn.' : 'Unable to start this turn.');
+      setError(activeTurnId ? '메시지를 보낼 수 없습니다.' : '선택한 대화 엔진을 현재 사용할 수 없습니다.');
     } finally {
       setSubmitting(false);
     }
@@ -75,57 +121,81 @@ export function AgentConversationComposer({
     try {
       await onInterrupt();
     } catch {
-      setError('Unable to interrupt the active turn.');
+      setError('대화를 중단할 수 없습니다.');
     } finally {
       setSubmitting(false);
     }
   };
-  const needsModel = !activeTurnId && runtimeReadiness && !model;
-  const needsEffort = !activeTurnId && runtimeReadiness && model && !reasoningEffort;
 
   return (
     <form
-      className="sticky bottom-0 border-t bg-background/95 p-3 backdrop-blur supports-[backdrop-filter]:bg-background/80"
-      onSubmit={(event) => { event.preventDefault(); void submit(); }}
+      className="sticky bottom-0 border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:px-6"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
     >
-      {readiness === undefined ? <p role="status" className="mb-2 text-sm text-muted-foreground">Checking Gateway readiness…</p> : null}
-      {readiness !== undefined && !runtimeReadiness ? <p role="status" className="mb-2 text-sm text-amber-700">Gateway unavailable. Provider history and durable cards remain available.</p> : null}
-      {needsModel ? <p id="agent-conversation-model-help" className="mb-2 text-sm text-muted-foreground">Choose a supported model to start a turn.</p> : null}
-      {needsEffort ? <p id="agent-conversation-effort-help" className="mb-2 text-sm text-muted-foreground">Choose a supported reasoning effort to start a turn.</p> : null}
-      {error ? <p role="alert" className="mb-2 text-sm text-destructive">{error}</p> : null}
-      <label className="sr-only" htmlFor="agent-conversation-message">Message {label}</label>
-      <textarea
-        id="agent-conversation-message"
-        maxLength={16_000}
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        placeholder={`Message ${label}`}
-        rows={2}
-        className="min-h-20 w-full resize-y rounded-lg border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-      />
-      <div className="mt-2 flex flex-wrap items-end gap-2 max-sm:flex-col max-sm:items-stretch">
-        <label className="grid min-w-36 flex-1 gap-1 text-xs font-medium text-muted-foreground max-sm:w-full">
-          Model
-          <select aria-label="Model" aria-describedby={needsModel ? 'agent-conversation-model-help' : undefined} value={model} disabled={Boolean(activeTurnId) || !runtimeReadiness} onChange={(event) => setModel(event.target.value)} className="min-h-10 rounded-md border bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60 max-lg:min-h-11">
-            <option value="">Select model</option>
-            {models.map((candidate) => <option key={candidate} value={candidate}>{candidate}</option>)}
-          </select>
-        </label>
-        <label className="grid min-w-36 flex-1 gap-1 text-xs font-medium text-muted-foreground max-sm:w-full">
-          Reasoning effort
-          <select aria-label="Reasoning effort" aria-describedby={needsEffort ? 'agent-conversation-effort-help' : undefined} value={reasoningEffort} disabled={Boolean(activeTurnId) || !model} onChange={(event) => setReasoningEffort(event.target.value)} className="min-h-10 rounded-md border bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60 max-lg:min-h-11">
-            <option value="">Select effort</option>
-            {efforts.map((candidate) => <option key={candidate} value={candidate}>{candidate}</option>)}
-          </select>
-        </label>
-        {activeTurnId ? (
-          <button type="button" onClick={() => void interrupt()} disabled={submitting} className="inline-flex min-h-10 items-center gap-1 rounded-md border px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 max-lg:min-h-11 max-sm:w-full max-sm:justify-center">
-            <Square aria-hidden="true" size={16} /> Interrupt
-          </button>
+      <div className="mx-auto w-full max-w-3xl rounded-2xl border bg-card p-3 shadow-sm">
+        {error ? <p role="alert" className="mb-2 text-sm text-destructive">{error}</p> : null}
+        {needsReview ? <p role="alert" className="mb-2 text-sm text-amber-700">선택한 모델과 사고 수준을 다시 선택해 주세요.</p> : null}
+        {runtime && readiness === null ? (
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-sm text-amber-700">
+            <span>선택한 대화 엔진을 현재 사용할 수 없습니다.</span>
+            {onRetry ? <button type="button" onClick={onRetry} className="rounded-md border px-2 py-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">다시 시도</button> : null}
+          </div>
         ) : null}
-        <button type="submit" disabled={activeTurnId ? !canInput : !canStart} className="inline-flex min-h-10 items-center gap-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 max-lg:min-h-11 max-sm:w-full max-sm:justify-center">
-          <Send aria-hidden="true" size={16} /> {activeTurnId ? 'Send input' : 'Send'}
-        </button>
+        <label className="sr-only" htmlFor="agent-conversation-message">{contextLabel} 메시지</label>
+        <textarea
+          ref={messageRef}
+          id="agent-conversation-message"
+          maxLength={16_000}
+          value={message}
+          onChange={(event) => updateMessage(event.target.value)}
+          onCompositionStart={() => setIsComposing(true)}
+          onCompositionEnd={() => setIsComposing(false)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' || event.shiftKey || isComposing || event.nativeEvent.isComposing) return;
+            event.preventDefault();
+            void submit();
+          }}
+          placeholder={placeholder}
+          rows={2}
+          className="min-h-20 w-full resize-none bg-transparent px-1 py-1 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        />
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 max-sm:flex-col max-sm:items-stretch">
+          <ConversationCombinedSelector
+            runtime={runtime}
+            readiness={readiness}
+            model={model}
+            reasoningEffort={reasoningEffort}
+            providerEditable={isDraft}
+            disabled={Boolean(activeTurnId)}
+            needsReview={needsReview}
+            onRuntimeChange={updateRuntime}
+            onModelChange={updateModel}
+            onReasoningEffortChange={updateReasoningEffort}
+          />
+          {activeTurnId ? (
+            <button
+              type="button"
+              aria-label="대화 중단"
+              onClick={() => void interrupt()}
+              disabled={submitting}
+              className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-full border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 max-lg:min-h-11 max-lg:min-w-11"
+            >
+              <Square aria-hidden="true" size={16} />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              aria-label="보내기"
+              disabled={!canStart}
+              className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-full bg-primary text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 max-lg:min-h-11 max-lg:min-w-11"
+            >
+              <Send aria-hidden="true" size={17} />
+            </button>
+          )}
+        </div>
       </div>
     </form>
   );

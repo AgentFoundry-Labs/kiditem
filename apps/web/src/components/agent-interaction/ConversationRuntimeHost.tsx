@@ -27,6 +27,7 @@ export interface ConversationRuntimeContextValue {
   start(input: TurnInput): Promise<void>;
   sendInput(message: string): Promise<void>;
   interrupt(): Promise<void>;
+  retryReadiness(): void;
   updateDraft(patch: DraftPatch): void;
   setPreference(input: SetConversationPreferenceCommand): Promise<ConversationPreferences>;
 }
@@ -127,6 +128,7 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
     conversationsError: conversationsQuery.isError,
     readiness: readinessQuery.data,
     preferences: preferencesQuery.data,
+    retryReadiness: () => { void readinessQuery.refetch(); },
     updateDraft,
     setPreference: setPreferenceMutation.mutateAsync,
   });
@@ -147,6 +149,7 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
       conversationsError={conversationsQuery.isError}
       readiness={readinessQuery.data}
       preferences={preferencesQuery.data}
+      retryReadiness={() => { void readinessQuery.refetch(); }}
       coordinator={coordinatorRef.current}
       runtimeHandleRef={runtimeHandleRef}
       updateDraft={updateDraft}
@@ -164,6 +167,7 @@ function ActiveConversationRuntime({
   conversationsError,
   readiness,
   preferences,
+  retryReadiness,
   coordinator,
   runtimeHandleRef,
   updateDraft,
@@ -176,6 +180,7 @@ function ActiveConversationRuntime({
   conversationsError: boolean;
   readiness: GatewayReadiness[] | null | undefined;
   preferences: ConversationPreferences | null | undefined;
+  retryReadiness(): void;
   coordinator: ConversationFirstSendCoordinator;
   runtimeHandleRef: React.MutableRefObject<RuntimeHandle | null>;
   updateDraft(patch: Partial<Omit<NewConversationDraft, 'conversationId'>>): void;
@@ -427,6 +432,7 @@ function ActiveConversationRuntime({
     start,
     sendInput,
     interrupt,
+    retryReadiness,
     updateDraft,
     setPreference,
   };
@@ -449,6 +455,7 @@ function inactiveRuntimeValue({
   conversationsError,
   readiness,
   preferences,
+  retryReadiness,
   updateDraft,
   setPreference,
 }: Pick<ConversationRuntimeContextValue,
@@ -457,6 +464,7 @@ function inactiveRuntimeValue({
   | 'conversationsError'
   | 'readiness'
   | 'preferences'
+  | 'retryReadiness'
   | 'updateDraft'
   | 'setPreference'>): ConversationRuntimeContextValue {
   const noActiveConversation = async () => {
@@ -483,6 +491,7 @@ function inactiveRuntimeValue({
     start: noActiveConversation,
     sendInput: noActiveConversation,
     interrupt: noActiveConversation,
+    retryReadiness,
     updateDraft,
     setPreference,
   };

@@ -1,48 +1,46 @@
 'use client';
 
-import { useState } from 'react';
 import { AgentConversationComposer } from './AgentConversationComposer';
 import { AgentConversationMessage } from './AgentConversationMessage';
+import { conversationContextFor } from './conversation-context.catalog';
 import { useConversationRuntime, type ToolProjection } from './ConversationRuntimeHost';
 
-/** Shared message lane and composer presentation over the route-stable runtime. */
+/** Shared message lane, live projections, cards, and compact composer. */
 export function ConversationFlow() {
   const runtime = useConversationRuntime();
-  const [initialDraft] = useState(() => runtime.isDraft ? runtime.draft?.message ?? '' : '');
-  const label = runtime.activeConversation?.title
-    ?? draftLabel(runtime.draft?.message)
-    ?? 'New conversation';
+  const context = conversationContextFor(
+    runtime.activeConversation?.agentKey ?? runtime.draft?.agentKey ?? null,
+  );
 
   if (!runtime.conversationId) return null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <section aria-label="Conversation messages" className="mx-auto w-full max-w-3xl flex-1 space-y-4 overflow-y-auto px-4 py-6 sm:px-6">
-        {runtime.historyLoading ? <p role="status" className="text-sm text-muted-foreground">Loading provider history…</p> : null}
-        {runtime.historyError ? <p role="alert" className="text-sm text-destructive">Provider history could not be loaded.</p> : null}
+      <section aria-label="대화 메시지" className="mx-auto w-full max-w-3xl flex-1 space-y-4 overflow-y-auto px-4 py-6 sm:px-6">
+        {runtime.historyLoading ? <p role="status" className="text-sm text-muted-foreground">대화 기록을 불러오는 중입니다.</p> : null}
+        {runtime.historyError ? <p role="alert" className="text-sm text-destructive">대화 기록을 불러올 수 없습니다.</p> : null}
         {runtime.historyMessages.map((message) => <AgentConversationMessage key={message.id} message={message} />)}
         {runtime.liveMessages.map((message) => <AgentConversationMessage key={`live-${message.id}`} message={message} live />)}
         <ToolStatusCards projections={runtime.toolProjections} />
         {runtime.turnEnded ? <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{runtime.turnEnded}</p> : null}
       </section>
-      {runtime.runtime ? (
-        <div className="mx-auto w-full max-w-3xl px-4 sm:px-6">
-          <AgentConversationComposer
-            label={label}
-            runtime={runtime.runtime}
-            readiness={runtime.readiness}
-            initialDraft={initialDraft}
-            activeTurnId={runtime.activeTurnId}
-            onStart={runtime.start}
-            onInput={runtime.sendInput}
-            onInterrupt={runtime.interrupt}
-          />
-        </div>
-      ) : (
-        <p role="status" className="mx-auto w-full max-w-3xl border-t px-4 py-4 text-sm text-muted-foreground sm:px-6">
-          Choose a provider runtime before sending the first message.
-        </p>
-      )}
+      <AgentConversationComposer
+        conversationId={runtime.conversationId}
+        contextLabel={context.label}
+        placeholder={context.placeholder}
+        runtime={runtime.runtime}
+        readiness={runtime.readiness}
+        initialMessage={runtime.draft?.message}
+        initialModel={runtime.activeConversation?.lastModel ?? runtime.draft?.model ?? null}
+        initialReasoningEffort={runtime.activeConversation?.lastReasoningEffort ?? runtime.draft?.reasoningEffort ?? null}
+        isDraft={runtime.isDraft}
+        activeTurnId={runtime.activeTurnId}
+        onStart={runtime.start}
+        onInput={runtime.sendInput}
+        onInterrupt={runtime.interrupt}
+        onUpdateDraft={runtime.isDraft ? runtime.updateDraft : undefined}
+        onRetry={runtime.retryReadiness}
+      />
     </div>
   );
 }
@@ -50,7 +48,7 @@ export function ConversationFlow() {
 function ToolStatusCards({ projections }: { projections: ToolProjection[] }) {
   if (!projections.length) return null;
   return (
-    <section aria-label="Live provider tool details" className="space-y-2">
+    <section aria-label="실시간 도구 정보" className="space-y-2">
       {projections.map((projection) => (
         <article key={projection.id} className="rounded-lg border bg-card p-3 text-sm">
           <p className="font-medium">{projection.title}</p>
@@ -59,9 +57,4 @@ function ToolStatusCards({ projections }: { projections: ToolProjection[] }) {
       ))}
     </section>
   );
-}
-
-function draftLabel(message: string | undefined): string | null {
-  const normalized = message?.trim();
-  return normalized || null;
 }

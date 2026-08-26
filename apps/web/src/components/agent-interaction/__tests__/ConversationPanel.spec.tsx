@@ -2,14 +2,9 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConversationPanel } from '../ConversationPanel';
 
-const pushMock = vi.hoisted(() => vi.fn());
 const openConversationMock = vi.hoisted(() => vi.fn());
 const openSettingsMock = vi.hoisted(() => vi.fn());
 const runtimeMock = vi.hoisted(() => vi.fn());
-
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: pushMock }),
-}));
 
 vi.mock('../ConversationRuntimeHost', () => ({
   useConversationRuntime: () => runtimeMock(),
@@ -41,7 +36,6 @@ function activeRuntime(overrides: Record<string, unknown> = {}) {
 
 describe('ConversationPanel', () => {
   beforeEach(() => {
-    pushMock.mockReset();
     openConversationMock.mockReset();
     openSettingsMock.mockReset();
     runtimeMock.mockReturnValue(activeRuntime());
@@ -56,11 +50,10 @@ describe('ConversationPanel', () => {
     expect(screen.getByTestId('conversation-flow')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '대화 설정' }));
-    fireEvent.click(screen.getByRole('button', { name: '전체 기록' }));
     fireEvent.click(screen.getByRole('button', { name: 'AI 챗 닫기' }));
 
     expect(openSettingsMock).toHaveBeenCalledTimes(1);
-    expect(pushMock).toHaveBeenCalledWith('/agent-os');
+    expect(screen.getByRole('link', { name: '전체 기록' })).toHaveAttribute('href', '/agent-os');
     expect(closeMock).toHaveBeenCalledTimes(1);
   });
 
