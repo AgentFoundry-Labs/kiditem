@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AppLayout from '../AppLayout';
 
@@ -10,6 +11,12 @@ const usePanelStreamMock = vi.hoisted(() => vi.fn());
 const readinessMock = vi.hoisted(() => vi.fn(() => null));
 const generationWatcherMock = vi.hoisted(() => vi.fn(() => null));
 const openConversationMock = vi.hoisted(() => vi.fn());
+const runtimeOwnershipMocks = vi.hoisted(() => ({
+  providerMounted: vi.fn(),
+  providerUnmounted: vi.fn(),
+  hostMounted: vi.fn(),
+  hostUnmounted: vi.fn(),
+}));
 
 vi.mock('next/navigation', () => ({
   usePathname: () => usePathnameMock(),
@@ -71,13 +78,29 @@ vi.mock('@/components/agent-interaction/conversation-surface-state', () => ({
 }));
 
 vi.mock('@/components/agent-interaction/ConversationProvider', () => ({
-  ConversationProvider: ({ children }: { children: React.ReactNode }) => <div data-testid="conversation-provider">{children}</div>,
+  ConversationProvider: ({ children }: { children: React.ReactNode }) => {
+    useEffect(() => {
+      runtimeOwnershipMocks.providerMounted();
+      return () => runtimeOwnershipMocks.providerUnmounted();
+    }, []);
+    return <div data-testid="conversation-provider">{children}</div>;
+  },
 }));
 
-function renderLayout() {
+vi.mock('@/components/agent-interaction/ConversationRuntimeHost', () => ({
+  ConversationRuntimeHost: ({ children }: { children: React.ReactNode }) => {
+    useEffect(() => {
+      runtimeOwnershipMocks.hostMounted();
+      return () => runtimeOwnershipMocks.hostUnmounted();
+    }, []);
+    return <div data-testid="conversation-runtime-host">{children}</div>;
+  },
+}));
+
+function renderLayout(children: React.ReactNode = <main data-testid="protected-child">Protected child</main>) {
   return render(
     <AppLayout>
-      <main data-testid="protected-child">Protected child</main>
+      {children}
     </AppLayout>,
   );
 }
@@ -92,6 +115,7 @@ describe('AppLayout auth gate', () => {
     readinessMock.mockClear();
     generationWatcherMock.mockClear();
     openConversationMock.mockReset();
+    Object.values(runtimeOwnershipMocks).forEach((mock) => mock.mockReset());
     usePathnameMock.mockReturnValue('/dashboard');
     window.history.pushState({}, '', '/dashboard');
   });
@@ -108,6 +132,8 @@ describe('AppLayout auth gate', () => {
 
     expect(screen.queryByTestId('protected-child')).not.toBeInTheDocument();
     expect(screen.queryByTestId('sidebar')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-provider')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-runtime-host')).not.toBeInTheDocument();
     expect(usePanelStreamMock).not.toHaveBeenCalled();
     expect(readinessMock).not.toHaveBeenCalled();
     expect(generationWatcherMock).not.toHaveBeenCalled();
@@ -127,6 +153,7 @@ describe('AppLayout auth gate', () => {
 
     expect(screen.queryByTestId('protected-child')).not.toBeInTheDocument();
     expect(screen.queryByTestId('conversation-provider')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-runtime-host')).not.toBeInTheDocument();
     expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
   });
 
@@ -145,6 +172,8 @@ describe('AppLayout auth gate', () => {
       expect(replaceMock).toHaveBeenCalledWith('/login?next=%2Fdashboard%3Ftab%3Dorders');
     });
     expect(screen.queryByTestId('protected-child')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-provider')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-runtime-host')).not.toBeInTheDocument();
     expect(usePanelStreamMock).not.toHaveBeenCalled();
     expect(readinessMock).not.toHaveBeenCalled();
     expect(generationWatcherMock).not.toHaveBeenCalled();
@@ -167,6 +196,7 @@ describe('AppLayout auth gate', () => {
     });
     expect(screen.queryByTestId('protected-child')).not.toBeInTheDocument();
     expect(screen.queryByTestId('conversation-provider')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-runtime-host')).not.toBeInTheDocument();
     expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
   });
 
@@ -181,6 +211,8 @@ describe('AppLayout auth gate', () => {
     renderLayout();
 
     expect(screen.getByTestId('protected-child')).toBeInTheDocument();
+    expect(screen.getByTestId('conversation-provider')).toBeInTheDocument();
+    expect(screen.getByTestId('conversation-runtime-host')).toBeInTheDocument();
     expect(screen.getByTestId('sidebar')).toBeInTheDocument();
     expect(usePanelStreamMock).toHaveBeenCalledTimes(1);
     expect(readinessMock).toHaveBeenCalledTimes(1);
@@ -237,6 +269,50 @@ describe('AppLayout auth gate', () => {
 
     expect(screen.getByTestId('protected-child')).toBeInTheDocument();
     expect(screen.getByTestId('conversation-provider')).toBeInTheDocument();
+    expect(screen.getByTestId('conversation-runtime-host')).toBeInTheDocument();
+  });
+
+  it('keeps one provider and runtime-host subscription while normal and Agent workspace presentations swap', () => {
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    });
+    const view = renderLayout(<main data-testid="normal-presentation">Normal presentation</main>);
+
+    expect(screen.getByTestId('conversation-provider')).toBeInTheDocument();
+    expect(screen.getByTestId('conversation-runtime-host')).toBeInTheDocument();
+    expect(runtimeOwnershipMocks.providerMounted).toHaveBeenCalledTimes(1);
+    expect(runtimeOwnershipMocks.hostMounted).toHaveBeenCalledTimes(1);
+
+    usePathnameMock.mockReturnValue('/agent-os');
+    view.rerender(<AppLayout><main data-testid="agent-presentation">Agent workspace</main></AppLayout>);
+    expect(screen.getByTestId('agent-presentation')).toBeInTheDocument();
+
+    usePathnameMock.mockReturnValue('/dashboard');
+    view.rerender(<AppLayout><main data-testid="remounted-presentation">Normal presentation remounted</main></AppLayout>);
+    expect(screen.getByTestId('remounted-presentation')).toBeInTheDocument();
+    expect(runtimeOwnershipMocks.providerMounted).toHaveBeenCalledTimes(1);
+    expect(runtimeOwnershipMocks.providerUnmounted).not.toHaveBeenCalled();
+    expect(runtimeOwnershipMocks.hostMounted).toHaveBeenCalledTimes(1);
+    expect(runtimeOwnershipMocks.hostUnmounted).not.toHaveBeenCalled();
+  });
+
+  it('keeps public surfaces outside the conversation runtime owner', () => {
+    usePathnameMock.mockReturnValue('/');
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    });
+
+    renderLayout();
+
+    expect(screen.getByTestId('protected-child')).toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-provider')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-runtime-host')).not.toBeInTheDocument();
   });
 
   it('shows organization guidance without starting background runtime when membership is missing', () => {
@@ -252,6 +328,8 @@ describe('AppLayout auth gate', () => {
 
     expect(screen.getByText('조직 연결이 필요합니다')).toBeInTheDocument();
     expect(screen.queryByTestId('protected-child')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-provider')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-runtime-host')).not.toBeInTheDocument();
     expect(usePanelStreamMock).not.toHaveBeenCalled();
     expect(readinessMock).not.toHaveBeenCalled();
     expect(generationWatcherMock).not.toHaveBeenCalled();
@@ -274,6 +352,7 @@ describe('AppLayout auth gate', () => {
     expect(screen.getByText('조직 연결이 필요합니다')).toBeInTheDocument();
     expect(screen.queryByTestId('protected-child')).not.toBeInTheDocument();
     expect(screen.queryByTestId('conversation-provider')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-runtime-host')).not.toBeInTheDocument();
   });
 
   it('keeps the Agent workspace provider behind an auth-error gate', () => {
@@ -290,5 +369,6 @@ describe('AppLayout auth gate', () => {
     expect(screen.getByText('로그인 상태를 확인하지 못했습니다')).toBeInTheDocument();
     expect(screen.queryByTestId('protected-child')).not.toBeInTheDocument();
     expect(screen.queryByTestId('conversation-provider')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-runtime-host')).not.toBeInTheDocument();
   });
 });

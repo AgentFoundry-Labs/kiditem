@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import { AgentConversationSurface } from '../AgentConversationSurface';
+import { ConversationRuntimeHost } from '../ConversationRuntimeHost';
 import { useConversationSurfaceState } from '../conversation-surface-state';
 
 vi.mock('@/lib/api-client', () => ({
@@ -72,7 +73,11 @@ const READINESS_INFO = {
 };
 
 function renderSurface(queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
-  return render(<QueryClientProvider client={queryClient}><AgentConversationSurface /></QueryClientProvider>);
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <ConversationRuntimeHost><AgentConversationSurface /></ConversationRuntimeHost>
+    </QueryClientProvider>,
+  );
 }
 
 describe('AgentConversationSurface', () => {

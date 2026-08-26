@@ -15,12 +15,21 @@ import QuickActionFab from '@/components/QuickActionFab';
 import { useAuth } from '@/hooks/useAuth';
 import RebuildReadinessBanner from '@/components/RebuildReadinessBanner';
 import { ConversationProvider } from '@/components/agent-interaction/ConversationProvider';
+import { ConversationRuntimeHost } from '@/components/agent-interaction/ConversationRuntimeHost';
 import { openConversation } from '@/components/agent-interaction/conversation-surface-state';
 import Sidebar from './Sidebar';
 
 function PanelMount() {
   usePanelStream();
   return <PanelSheet />;
+}
+
+function ConversationRuntimeShell({ children }: { children: React.ReactNode }) {
+  return (
+    <ConversationProvider>
+      <ConversationRuntimeHost>{children}</ConversationRuntimeHost>
+    </ConversationProvider>
+  );
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -95,7 +104,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   if (isAgentWorkspace) {
-    return <ConversationProvider>{children}</ConversationProvider>;
+    return <ConversationRuntimeShell>{children}</ConversationRuntimeShell>;
   }
 
   const isEditorRoute = pathname.includes('/editor');
@@ -139,7 +148,5 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     </div>
   );
 
-  if (isEditorRoute) return content;
-
-  return content;
+  return <ConversationRuntimeShell>{content}</ConversationRuntimeShell>;
 }

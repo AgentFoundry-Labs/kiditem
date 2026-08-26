@@ -26,12 +26,14 @@ export interface ConversationFirstSendCoordinatorDependencies {
   cacheSummary(summary: ConversationSummary): void;
   selectConversation(summary: ConversationSummary): void;
   handoff(input: ConversationFirstSend): Promise<void>;
+  isCurrent?(conversationId: string): boolean;
 }
 
 interface FirstSendEntry {
   createCanonicalJson: string;
   firstSendCanonicalJson: string;
   handoffIssued: boolean;
+  cancelled: boolean;
   promise: Promise<void>;
 }
 
@@ -75,7 +77,9 @@ export class ConversationFirstSendCoordinator {
       .then(
         (summary) => {
           this.dependencies.cacheSummary(summary);
+          if (!this.entryIsCurrent(input.conversationId, entry)) return;
           this.dependencies.selectConversation(summary);
+          if (!this.entryIsCurrent(input.conversationId, entry)) return;
           // Set this before invoking the mounted binding: synchronous throws
           // must still count as a consumed handoff and never auto-replay.
           entry.handoffIssued = true;
@@ -91,13 +95,22 @@ export class ConversationFirstSendCoordinator {
     entry.createCanonicalJson = createCanonicalJson;
     entry.firstSendCanonicalJson = firstSendCanonicalJson;
     entry.handoffIssued = false;
+    entry.cancelled = false;
     entry.promise = promise;
     this.entries.set(input.conversationId, entry);
     return promise;
   }
 
   dispose(conversationId: string): void {
+    const entry = this.entries.get(conversationId);
+    if (entry) entry.cancelled = true;
     this.entries.delete(conversationId);
+  }
+
+  private entryIsCurrent(conversationId: string, entry: FirstSendEntry): boolean {
+    return !entry.cancelled
+      && this.entries.get(conversationId) === entry
+      && (this.dependencies.isCurrent?.(conversationId) ?? true);
   }
 }
 

@@ -98,6 +98,11 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
       selectConversation: (summary) => {
         useConversationSurfaceState.getState().selectConversation(summary);
       },
+      isCurrent: (conversationId) => {
+        const state = useConversationSurfaceState.getState();
+        return state.activeConversationId === conversationId
+          && state.pendingDraft?.conversationId === conversationId;
+      },
       handoff: (input) => {
         const runtimeHandle = latestHostRef.current.runtimeHandleRef.current;
         if (!runtimeHandle || runtimeHandle.conversationId !== input.conversationId) {
@@ -116,7 +121,6 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
     }
     previousDraftIdRef.current = currentDraftId;
   }, [pendingDraft?.conversationId]);
-
   const inactiveValue = inactiveRuntimeValue({
     conversations,
     conversationsLoading: conversationsQuery.isLoading,
@@ -126,7 +130,6 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
     updateDraft,
     setPreference: setPreferenceMutation.mutateAsync,
   });
-
   if (!binding) {
     return (
       <ConversationRuntimeContext.Provider value={inactiveValue}>
@@ -427,7 +430,6 @@ function ActiveConversationRuntime({
     updateDraft,
     setPreference,
   };
-
   return (
     <ConversationRuntimeContext.Provider value={value}>
       {children}
@@ -485,11 +487,9 @@ function inactiveRuntimeValue({
     setPreference,
   };
 }
-
 function conversationIdForBinding(binding: RuntimeBinding): string {
   return binding.kind === 'existing' ? binding.conversation.id : binding.draft.conversationId;
 }
-
 function newTurnId(): string {
   const randomUUID = globalThis.crypto?.randomUUID;
   if (typeof randomUUID !== 'function') throw new Error('conversation_turn_id_unavailable');

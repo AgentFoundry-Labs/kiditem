@@ -110,6 +110,21 @@ describe('ConversationFirstSendCoordinator', () => {
     }));
   });
 
+  it('does not select or hand off a draft disposed while its create is pending', async () => {
+    const create = deferred<typeof SUMMARY>();
+    const runtime = coordinator({ createConversation: vi.fn().mockReturnValue(create.promise) });
+    const first = runtime.coordinator.send(FIRST_SEND);
+
+    await Promise.resolve();
+    runtime.coordinator.dispose(FIRST_SEND.conversationId);
+    create.resolve(SUMMARY);
+    await first;
+
+    expect(runtime.cacheSummary).toHaveBeenCalledWith(SUMMARY);
+    expect(runtime.selectConversation).not.toHaveBeenCalled();
+    expect(runtime.handoff).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['runtime', { runtime: 'claude_cli' as const }],
     ['Agent', { agentKey: null }],

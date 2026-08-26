@@ -157,6 +157,44 @@ describe('ConversationRuntimeHost', () => {
     expect(runtimeMocks.subscriptions).toHaveLength(1);
   });
 
+  it('does not replace a newer draft or run a disposed draft after its create resolves', async () => {
+    renderHost(<RuntimeProbe />);
+    const firstDraft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
+    useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
+    const created = deferred<typeof FIRST>();
+    vi.mocked(apiClient.post).mockImplementation((path: string) => {
+      if (path === '/api/agent-os/conversations') return created.promise as never;
+      if (path === '/api/copilotkit') return Promise.resolve({ agents: {} } as never);
+      return Promise.resolve({} as never);
+    });
+
+    await waitFor(() => expect(runtimeMocks.subscriptions).toHaveLength(1));
+    const firstSend = latestRuntime?.start({
+      message: 'Review the supplier evidence', model: 'gpt-5.6', reasoningEffort: 'low',
+    });
+    await waitFor(() => expect(vi.mocked(apiClient.post)).toHaveBeenCalledWith(
+      '/api/agent-os/conversations',
+      expect.objectContaining({ conversationId: firstDraft.conversationId }),
+    ));
+
+    const secondDraft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
+    useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
+    await waitFor(() => expect(runtimeMocks.useAgent).toHaveBeenLastCalledWith({
+      agentId: `kiditem-conversation:${secondDraft.conversationId}`,
+      runtimeAgentId: 'conversation',
+      threadId: secondDraft.conversationId,
+    }));
+
+    await act(async () => {
+      created.resolve({ ...FIRST, id: firstDraft.conversationId, title: 'Review the supplier evidence' });
+      await firstSend;
+    });
+
+    expect(useConversationSurfaceState.getState().activeConversationId).toBe(secondDraft.conversationId);
+    expect(runtimeMocks.addMessage).not.toHaveBeenCalled();
+    expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
+  });
+
   it('does not replay a failed first handoff; an explicit retry uses the promoted existing conversation', async () => {
     renderHost(<RuntimeProbe />);
     const draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });

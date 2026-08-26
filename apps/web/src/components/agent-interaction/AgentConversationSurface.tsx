@@ -6,10 +6,7 @@ import { Menu, Plus, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { queryKeys } from '@/lib/query-keys';
 import { ConversationFlow } from './ConversationFlow';
-import {
-  ConversationRuntimeHost,
-  useConversationRuntime,
-} from './ConversationRuntimeHost';
+import { useConversationRuntime } from './ConversationRuntimeHost';
 import { AgentConversationSidebar, agentConversationDestinations } from './AgentConversationSidebar';
 import {
   deleteConversation,
@@ -23,11 +20,7 @@ import { useNewConversationDraft } from './useNewConversationDraft';
 
 /** Agent-first workspace layout. Runtime lifetime lives above this presentation. */
 export function AgentConversationSurface() {
-  return (
-    <ConversationRuntimeHost>
-      <AgentConversationSurfaceLayout />
-    </ConversationRuntimeHost>
-  );
+  return <AgentConversationSurfaceLayout />;
 }
 
 function AgentConversationSurfaceLayout() {
