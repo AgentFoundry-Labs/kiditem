@@ -28,13 +28,19 @@ Settings/history management together. Preserve focused tests and commits inside
 those phases; do not turn them back into separate Task-level review boundaries.
 Task 7 is the single cross-process acceptance and browser-QA checkpoint.
 
-Execution uses Terra(max) implementation workers. Do not run a full Sol review
-after every Task or phase. Use focused tests continuously and review only a
-critical owner/runtime boundary when evidence warrants it. After all
-deterministic gates and boot checks pass, run one mandatory Sol(max) integrated
-review over the complete implementation, fix every Critical/Important finding,
-and re-review the fixes before starting browser QA. Task 7 browser QA is the
-final completion gate after that integrated review.
+Execution uses Terra(max) implementation workers with TDD, focused tests, and a
+short implementer self-check for every Task. Use a separate Terra(max)
+spec-compliance review only for Task 1, Task 2, and the first-send/runtime
+contract of Task 4. After Task 3, run one Sol(max) Batch A review over Tasks
+1-3. After Task 6, run one Sol(max) Batch B review over Tasks 4-6. Do not run a
+Sol review for each individual Task.
+
+After all deterministic gates and boot checks pass, run one mandatory Sol(max)
+integrated review over the complete implementation. Fix every
+Critical/Important finding with a failing regression test first. Every
+re-review receives only the prior finding list and its fix diff; it must not
+restart a broad codebase review. Task 7 browser QA begins only after that final
+review is clean and remains the final completion gate.
 
 The following decisions are fixed:
 
@@ -696,6 +702,21 @@ rtk git add apps/server/src/agent-os
 rtk git commit -m "feat(agent-os): expose conversation defaults securely"
 ~~~
 
+## Sol(max) Batch Review A: Tasks 1-3
+
+Review only the Tasks 1-3 batch diff and these architecture invariants:
+
+- strict shared command/event contracts and no authority/provider leakage;
+- Gateway descriptor serialization, create idempotency, exact provider
+  deletion, preference-file ownership, and live-turn fencing; and
+- Nest authentication/readiness/error mapping with no Prisma conversation or
+  preference persistence.
+
+Do not ask the reviewer to reread the complete implementation plan. Provide
+the batch acceptance criteria, batch base/head SHAs, focused test evidence, and
+the exact batch diff. Fix Critical/Important findings with TDD. Re-review only
+the previous finding IDs against their fix diff before starting Task 4.
+
 ## Task 4: Build One Route-Stable Web Runtime and First-Send Coordinator
 
 **Files:**
@@ -879,6 +900,14 @@ tests pass with one runtime subscription.
 rtk git add apps/web/src/components/agent-interaction apps/web/src/lib/query-keys.ts apps/web/src/lib/query-keys.spec.ts
 rtk git commit -m "refactor(agent-os): keep one conversation runtime host"
 ~~~
+
+### Terra(max) Task 4 Contract Check
+
+Review only browser-reserved draft identity, create canonicalization,
+first-send coalescing/drift rejection, one-handoff semantics, and preservation
+of one runtime binding across presentation and route changes. Do not perform a
+general UI quality review here. Fix findings with TDD and re-review only the
+reported finding IDs.
 
 ## Task 5: Wire the Single Right Auxiliary Panel
 
@@ -1383,6 +1412,21 @@ Expected: full interaction tests and Web production build pass.
 rtk git add apps/web/src/components/agent-interaction
 rtk git commit -m "feat(agent-os): manage chat defaults and history"
 ~~~
+
+## Sol(max) Batch Review B: Tasks 4-6
+
+Review only the Tasks 4-6 batch diff and these architecture invariants:
+
+- one route-stable provider/runtime/subscription and race-safe first Send;
+- one `notifications | ai_chat | null` right-surface owner with no page reflow;
+- complete removal of legacy panel/sidebar/create-modal state and wrappers;
+- Agent OS folder/history/settings presentations sharing the same runtime; and
+- explicit provider/model/reasoning selection with no silent fallback.
+
+Provide the batch acceptance criteria, batch base/head SHAs, focused tests, and
+exact batch diff rather than the whole plan. Fix Critical/Important findings
+with TDD. Re-review only the previous finding IDs against their fix diff before
+starting Task 7.
 
 ## Task 7: Update Cross-Process Acceptance, Documentation, and Run Final QA
 
