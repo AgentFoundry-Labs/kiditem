@@ -29,10 +29,12 @@ those phases; do not turn them back into separate Task-level review boundaries.
 Task 7 is the single cross-process acceptance and browser-QA checkpoint.
 
 Execution uses Terra(max) implementation workers. Do not run a full Sol review
-after every Task or phase. Use focused tests continuously, review only a
-critical owner/runtime boundary when evidence warrants it, and use Task 7 QA as
-the default completion gate. If an integrated final model review is still
-needed after QA, run it once with Sol(max).
+after every Task or phase. Use focused tests continuously and review only a
+critical owner/runtime boundary when evidence warrants it. After all
+deterministic gates and boot checks pass, run one mandatory Sol(max) integrated
+review over the complete implementation, fix every Critical/Important finding,
+and re-review the fixes before starting browser QA. Task 7 browser QA is the
+final completion gate after that integrated review.
 
 The following decisions are fixed:
 
@@ -1481,7 +1483,29 @@ loopback, build, and pack checks pass. Claude live conversation remains an
 environment limitation when no paid login is available, but its deterministic
 session deletion/readiness contracts must pass.
 
-- [ ] **Step 6: Run authenticated browser QA**
+- [ ] **Step 6: Run the mandatory Sol(max) integrated review**
+
+Review the complete implementation against the approved 2026-08-26 design,
+this plan, and the older KID-25 runtime/capability contracts. Give the reviewer
+the exact `develop...HEAD` diff plus current deterministic gate evidence. The
+review must cover at least:
+
+- shared contract strictness and absence of authority/provider leakage;
+- Gateway create idempotency, serialized local state, exact provider deletion,
+  and live-turn fences;
+- Nest authentication/error mapping and absence of conversation persistence;
+- one route-stable Web runtime, first-send handoff correctness, and explicit
+  model/reasoning selection;
+- single right-surface ownership and complete legacy presentation removal;
+- Agent OS folder/history/settings behavior without a second runtime; and
+- test quality, race coverage, security boundaries, and maintainability.
+
+Use `gpt-5.6-sol` with reasoning effort `max`. Fix every Critical and Important
+finding with a failing regression test first, rerun the affected deterministic
+gates, and return the fix diff to the same review boundary until no such finding
+remains. Do not begin browser QA while integrated review findings are open.
+
+- [ ] **Step 7: Run authenticated browser QA**
 
 Use the isolated Agent OS QA environment and the current development account.
 Do not print credentials, cookies, Gateway bearer, execution binding, provider
@@ -1521,7 +1545,7 @@ Verify:
 Capture failures as code defects or the explicit Claude environment limitation;
 do not add operator readiness/login UI to make QA pass.
 
-- [ ] **Step 7: Review the final diff against the approved design**
+- [ ] **Step 8: Review the final diff against the approved design**
 
 Run:
 
@@ -1547,7 +1571,7 @@ Confirm:
 - no compatibility wrapper, alias, dual right-surface state, or migration was
   added for the removed presentation paths.
 
-- [ ] **Step 8: Commit documentation and acceptance updates**
+- [ ] **Step 9: Commit documentation and acceptance updates**
 
 ~~~bash
 rtk git add scripts/smoke-interaction-os.mjs scripts/__tests__/smoke-interaction-os.test.mjs docs/ARCHITECTURE.md docs/TESTING.md
@@ -1588,5 +1612,7 @@ rtk git commit -m "docs(agent-os): verify global conversation workspace"
   remains.
 - [ ] Shared, Gateway, server, Web, scanner, build, boot, macOS, smoke, and
   browser QA evidence is recorded.
+- [ ] One Sol(max) integrated review passed before browser QA with no open
+  Critical or Important finding.
 - [ ] The only live limitation, when still applicable, is unavailable Claude
   subscription/login; deterministic Claude contracts still pass.
