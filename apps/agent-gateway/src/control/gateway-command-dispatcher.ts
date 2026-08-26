@@ -14,7 +14,7 @@ import { GatewayEventOutbox } from './gateway-event-outbox';
 
 type ConversationGatewayPort = Readonly<{
   list: (runtime?: 'codex_cli' | 'claude_cli') => Promise<unknown[]>;
-  create: (input: { runtime: 'codex_cli' | 'claude_cli'; agentKey: string | null; title?: string }) => Promise<unknown>;
+  create: (input: { conversationId: string; runtime: 'codex_cli' | 'claude_cli'; agentKey: string | null; title: string }) => Promise<unknown>;
   history: (conversationId: string) => Promise<unknown[]>;
   rename: (conversationId: string, title: string) => Promise<unknown>;
   delete: (conversationId: string) => Promise<void>;
@@ -83,7 +83,12 @@ export class GatewayCommandDispatcher {
         return;
       }
       case 'conversation.create': {
-        const conversation = await this.options.gateway.create({ runtime: command.runtime, agentKey: command.agentKey, ...(command.title ? { title: command.title } : {}) });
+        const conversation = await this.options.gateway.create({
+          conversationId: command.conversationId,
+          runtime: command.runtime,
+          agentKey: command.agentKey,
+          title: command.title,
+        });
         this.options.outbox.enqueue({ kind: 'conversation.created', commandId: command.commandId, conversation });
         return;
       }
@@ -183,6 +188,7 @@ function activeTurnKey(conversationId: string, turnId: string): string {
 function rejectionCode(error: unknown): 'capacity' | 'invalid_state' | 'unsupported' | 'provider_error' {
   if (error instanceof ActiveTurnCapacityError) return 'capacity';
   if (error instanceof ActiveTurnAlreadyLiveError) return 'invalid_state';
+  if (error instanceof Error && error.message === 'gateway_conversation_create_conflict') return 'invalid_state';
   if (error instanceof Error && (error.message.includes('_unsupported') || error.message.includes('_invalid'))) return 'unsupported';
   return 'provider_error';
 }

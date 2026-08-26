@@ -79,6 +79,26 @@ describe('GatewayCommandDispatcher', () => {
     expect(JSON.stringify([...applied.values()])).not.toContain(binding);
     expect(outbox.peekBody()).not.toContain(binding);
   });
+
+  it('maps immutable create identity drift to invalid_state without emitting provider-local data', async () => {
+    const { GatewayCommandDispatcher } = await import('./gateway-command-dispatcher');
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const gateway = new FakeConversationGateway();
+    gateway.createFailure = new Error('gateway_conversation_create_conflict');
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
+    const dispatcher = new GatewayCommandDispatcher({ gateway, outbox });
+
+    await dispatcher.dispatch({
+      kind: 'conversation.create', commandId: 'command-create-conflict', conversationId: 'browser-conversation-conflict',
+      runtime: 'codex_cli', agentKey: null, title: 'General chat',
+    });
+
+    expect(gateway.createInputs).toEqual([{
+      conversationId: 'browser-conversation-conflict', runtime: 'codex_cli', agentKey: null, title: 'General chat',
+    }]);
+    expect(events(outbox)).toEqual([{ kind: 'command.rejected', commandId: 'command-create-conflict', code: 'invalid_state' }]);
+    expect(outbox.peekBody()).not.toContain('provider-thread');
+  });
 });
 
 function events(outbox: { peekBody(): string | null }): Array<Record<string, unknown>> {
@@ -91,10 +111,16 @@ class FakeConversationGateway {
   started: unknown[] = [];
   listCalls = 0;
   messages: unknown[] = [];
+  createInputs: unknown[] = [];
+  createFailure: Error | undefined;
   private sink: ((event: GatewayProviderEvent) => void) | undefined;
 
   async list() { this.listCalls += 1; return []; }
-  async create() { return { id: 'conversation-1', runtime: 'codex_cli', agentKey: null, title: 'New', createdAt: '2026-08-23T00:00:00.000Z', updatedAt: '2026-08-23T00:00:00.000Z' }; }
+  async create(input: unknown) {
+    this.createInputs.push(input);
+    if (this.createFailure) throw this.createFailure;
+    return { id: 'conversation-1', runtime: 'codex_cli', agentKey: null, title: 'New', createdAt: '2026-08-23T00:00:00.000Z', updatedAt: '2026-08-23T00:00:00.000Z' };
+  }
   async history() { return this.messages; }
   async rename() { return { id: 'conversation-1', runtime: 'codex_cli', agentKey: null, title: 'New', createdAt: '2026-08-23T00:00:00.000Z', updatedAt: '2026-08-23T00:00:00.000Z' }; }
   async delete() { return undefined; }

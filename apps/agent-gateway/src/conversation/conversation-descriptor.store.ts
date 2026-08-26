@@ -36,6 +36,7 @@ export class ConversationDescriptorStore {
   private readonly stateFile: string;
   private readonly storage: ConversationDescriptorFilesystem;
   private readonly random: () => string;
+  private mutationTail: Promise<void> = Promise.resolve();
 
   constructor(private readonly options: Readonly<{
     stateRoot: string;
@@ -49,6 +50,62 @@ export class ConversationDescriptorStore {
   }
 
   async list(): Promise<ConversationDescriptor[]> {
+    const pending = this.mutationTail;
+    await pending;
+    return this.readCollection();
+  }
+
+  async find(id: string): Promise<ConversationDescriptor | null> {
+    const pending = this.mutationTail;
+    await pending;
+    return (await this.readCollection()).find((descriptor) => descriptor.id === id) ?? null;
+  }
+
+  async create(input: ConversationDescriptor): Promise<void> {
+    await this.enqueueMutation(async () => {
+      const descriptor = parseDescriptor(input);
+      const current = await this.readCollection();
+      if (current.some((candidate) => candidate.id === descriptor.id)) {
+        throw new Error('gateway_descriptor_duplicate');
+      }
+      await this.writeAtomically([...current, descriptor]);
+    });
+  }
+
+  async update(
+    id: string,
+    change: (current: ConversationDescriptor) => ConversationDescriptor,
+  ): Promise<ConversationDescriptor> {
+    return this.enqueueMutation(async () => {
+      const current = await this.readCollection();
+      const index = current.findIndex((descriptor) => descriptor.id === id);
+      if (index < 0) throw new Error('gateway_descriptor_not_found');
+      const next = parseDescriptor(change(current[index]!));
+      if (next.id !== id) throw new Error('gateway_descriptor_invalid');
+      const descriptors = [...current];
+      descriptors[index] = next;
+      await this.writeAtomically(descriptors);
+      return next;
+    });
+  }
+
+  async removeIfPresent(id: string): Promise<boolean> {
+    return this.enqueueMutation(async () => {
+      const current = await this.readCollection();
+      const next = current.filter((descriptor) => descriptor.id !== id);
+      if (next.length === current.length) return false;
+      await this.writeAtomically(next);
+      return true;
+    });
+  }
+
+  private enqueueMutation<T>(work: () => Promise<T>): Promise<T> {
+    const result = this.mutationTail.then(work, work);
+    this.mutationTail = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
+  private async readCollection(): Promise<ConversationDescriptor[]> {
     let raw: string;
     try {
       raw = await this.storage.readFile(this.stateFile, 'utf8');
@@ -63,31 +120,6 @@ export class ConversationDescriptorStore {
       throw new Error('gateway_descriptor_invalid');
     }
     return parseCollection(value);
-  }
-
-  async find(id: string): Promise<ConversationDescriptor | null> {
-    return (await this.list()).find((descriptor) => descriptor.id === id) ?? null;
-  }
-
-  async create(input: ConversationDescriptor): Promise<void> {
-    const descriptor = parseDescriptor(input);
-    const current = await this.list();
-    if (current.some((candidate) => candidate.id === descriptor.id)) {
-      throw new Error('gateway_descriptor_duplicate');
-    }
-    await this.replace([...current, descriptor]);
-  }
-
-  async replace(input: readonly ConversationDescriptor[]): Promise<void> {
-    const descriptors = parseCollection(input);
-    await this.writeAtomically(descriptors);
-  }
-
-  async remove(id: string): Promise<void> {
-    const current = await this.list();
-    const next = current.filter((descriptor) => descriptor.id !== id);
-    if (next.length === current.length) throw new Error('gateway_descriptor_not_found');
-    await this.replace(next);
   }
 
   private async writeAtomically(descriptors: readonly ConversationDescriptor[]): Promise<void> {

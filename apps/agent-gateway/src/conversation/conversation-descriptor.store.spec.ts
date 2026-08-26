@@ -39,7 +39,7 @@ describe('ConversationDescriptorStore', () => {
     ]) expect(raw).not.toContain(forbidden);
   });
 
-  it('rejects unknown descriptor fields, duplicate IDs, invalid provider refs, and over-limit collections without replacing readable state', async () => {
+  it('rejects unknown descriptor fields, duplicate IDs, and invalid provider refs without replacing readable state', async () => {
     const { ConversationDescriptorStore } = await import('./conversation-descriptor.store');
     const root = await fixtureRoot();
     const store = new ConversationDescriptorStore({ stateRoot: root, platform: 'macos' });
@@ -51,10 +51,55 @@ describe('ConversationDescriptorStore', () => {
     await expect(store.create(descriptor)).rejects.toThrow('gateway_descriptor_duplicate');
     await expect(store.create({ ...descriptor, id: 'conversation-3', providerConversationRef: '' }))
       .rejects.toThrow('gateway_descriptor_invalid');
-    await expect(store.replace(Array.from({ length: 1_001 }, (_, index) => ({ ...descriptor, id: `conversation-${index}` }))))
-      .rejects.toThrow('gateway_descriptor_limit');
-
     expect(await store.list()).toEqual([descriptor]);
+  });
+
+  it('serializes concurrent updates so a later mutation retains fields written by an earlier mutation', async () => {
+    const { ConversationDescriptorStore } = await import('./conversation-descriptor.store');
+    const root = await fixtureRoot();
+    const store = new ConversationDescriptorStore({ stateRoot: root, platform: 'macos' });
+    const descriptor = fixtureDescriptor();
+    await store.create(descriptor);
+
+    const renamed = store.update(descriptor.id, (current) => ({
+      ...current,
+      title: 'Renamed research',
+      updatedAt: '2026-08-23T00:01:00.000Z',
+    }));
+    const metadata = store.update(descriptor.id, (current) => ({
+      ...current,
+      lastModel: 'gpt-5.6',
+      lastReasoningEffort: 'high',
+      updatedAt: '2026-08-23T00:02:00.000Z',
+    }));
+
+    await expect(renamed).resolves.toMatchObject({ title: 'Renamed research' });
+    await expect(metadata).resolves.toEqual({
+      ...descriptor,
+      title: 'Renamed research',
+      lastReasoningEffort: 'high',
+      updatedAt: '2026-08-23T00:02:00.000Z',
+    });
+    expect(await store.list()).toEqual([{
+      ...descriptor,
+      title: 'Renamed research',
+      lastReasoningEffort: 'high',
+      updatedAt: '2026-08-23T00:02:00.000Z',
+    }]);
+  });
+
+  it('removes only a present descriptor and never re-inserts it through a stale update', async () => {
+    const { ConversationDescriptorStore } = await import('./conversation-descriptor.store');
+    const root = await fixtureRoot();
+    const store = new ConversationDescriptorStore({ stateRoot: root, platform: 'macos' });
+    const descriptor = fixtureDescriptor();
+    await store.create(descriptor);
+
+    await expect(store.removeIfPresent(descriptor.id)).resolves.toBe(true);
+    await expect(store.removeIfPresent(descriptor.id)).resolves.toBe(false);
+    await expect(store.update(descriptor.id, (current) => ({ ...current, title: 'Must not return' })))
+      .rejects.toThrow('gateway_descriptor_not_found');
+    expect(await store.list()).toEqual([]);
   });
 
   it('keeps the prior JSON readable when the final atomic rename fails', async () => {

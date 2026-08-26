@@ -4,7 +4,7 @@ import {
   CreateConversationCommandSchema,
   ProviderEventSchema,
   ProviderMessageSchema,
-  type AgentKey,
+  type CreateConversationCommand,
   type ConversationSummary,
   type Model,
   type ProviderEvent,
@@ -19,6 +19,11 @@ import type { ProviderConversationPort } from '../provider/provider-conversation
 import { gatewayInstructionProfile } from '../profile/agent-profile.catalog';
 
 type ProviderMap = Readonly<Record<ProviderRuntime, ProviderConversationPort>>;
+
+type PendingCreate = Readonly<{
+  canonical: string;
+  promise: Promise<ConversationSummary>;
+}>;
 
 export interface GatewayTurnStart {
   conversationId: string;
@@ -35,11 +40,12 @@ export interface GatewayTurnStart {
  * method returns a provider reference, and runtime is set only at creation.
  */
 export class ConversationGateway {
+  private readonly pendingCreates = new Map<string, PendingCreate>();
+
   constructor(private readonly options: Readonly<{
     descriptors: ConversationDescriptorStore;
     providers: ProviderMap;
     now?: () => Date;
-    randomId?: () => string;
   }>) {}
 
   async list(runtime?: ProviderRuntime): Promise<ConversationSummary[]> {
@@ -50,13 +56,33 @@ export class ConversationGateway {
       .map(toPublicConversation);
   }
 
-  async create(input: Readonly<{ runtime: ProviderRuntime; agentKey: AgentKey | null; title?: string }>): Promise<ConversationSummary> {
+  async create(input: CreateConversationCommand): Promise<ConversationSummary> {
     const command = CreateConversationCommandSchema.parse(input);
+    const existing = await this.options.descriptors.find(command.conversationId);
+    if (existing) return this.replayOrConflict(existing, command);
+    const canonical = JSON.stringify({ runtime: command.runtime, agentKey: command.agentKey, title: command.title });
+    const pending = this.pendingCreates.get(command.conversationId);
+    if (pending) {
+      if (pending.canonical !== canonical) throw new Error('gateway_conversation_create_conflict');
+      return pending.promise;
+    }
+    const promise = this.createMissing(command);
+    this.pendingCreates.set(command.conversationId, { canonical, promise });
+    try {
+      return await promise;
+    } finally {
+      if (this.pendingCreates.get(command.conversationId)?.promise === promise) {
+        this.pendingCreates.delete(command.conversationId);
+      }
+    }
+  }
+
+  private async createMissing(command: CreateConversationCommand): Promise<ConversationSummary> {
     const provider = this.provider(command.runtime);
     let created: Awaited<ReturnType<ProviderConversationPort['create']>>;
     try {
       created = await provider.create({
-        ...(command.title ? { title: command.title } : {}),
+        title: command.title,
         instructionProfile: gatewayInstructionProfile(command.agentKey),
       });
     } catch {
@@ -64,11 +90,11 @@ export class ConversationGateway {
     }
     const timestamp = this.now().toISOString();
     const descriptor: ConversationDescriptor = {
-      id: this.randomId(),
+      id: command.conversationId,
       runtime: command.runtime,
       providerConversationRef: created.providerConversationRef,
       agentKey: command.agentKey,
-      title: command.title ?? created.title,
+      title: command.title,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -77,6 +103,7 @@ export class ConversationGateway {
     } catch {
       // The provider may have created a thread, but we deliberately do not
       // leak its reference while reporting the bounded local-catalog failure.
+      try { await provider.delete(created.providerConversationRef); } catch { /* best-effort provider cleanup */ }
       throw new Error('gateway_descriptor_create_failed');
     }
     return toPublicConversation(descriptor);
@@ -101,13 +128,19 @@ export class ConversationGateway {
     } catch {
       throw new Error('gateway_provider_rename_failed');
     }
-    const next = { ...descriptor, title: parsedTitle.data, updatedAt: this.now().toISOString() };
-    await this.replaceDescriptor(next);
+    const next = await this.options.descriptors.update(descriptor.id, (current) => ({
+      ...current,
+      title: parsedTitle.data,
+      updatedAt: this.now().toISOString(),
+    }));
     return toPublicConversation(next);
   }
 
   async delete(conversationId: string): Promise<void> {
-    const descriptor = await this.resolve(conversationId);
+    const id = ConversationIdSchema.safeParse(conversationId);
+    if (!id.success) throw new Error('gateway_conversation_not_found');
+    const descriptor = await this.options.descriptors.find(id.data);
+    if (!descriptor) return;
     try {
       await this.provider(descriptor.runtime).delete(descriptor.providerConversationRef);
     } catch {
@@ -115,7 +148,7 @@ export class ConversationGateway {
       // the descriptor makes failure retryable and avoids a false UI success.
       throw new Error('gateway_provider_delete_failed');
     }
-    await this.options.descriptors.remove(descriptor.id);
+    await this.options.descriptors.removeIfPresent(descriptor.id);
   }
 
   async startTurn(input: GatewayTurnStart): Promise<void> {
@@ -134,12 +167,12 @@ export class ConversationGateway {
     } catch {
       throw new Error('gateway_provider_turn_failed');
     }
-    await this.replaceDescriptor({
-      ...descriptor,
+    await this.options.descriptors.update(descriptor.id, (current) => ({
+      ...current,
       updatedAt: this.now().toISOString(),
       lastModel: input.model,
       lastReasoningEffort: input.reasoningEffort,
-    });
+    }));
   }
 
   async sendInput(input: Readonly<{ conversationId: string; turnId: string; message: string }>): Promise<void> {
@@ -189,10 +222,6 @@ export class ConversationGateway {
     return (this.options.now ?? (() => new Date()))();
   }
 
-  private randomId(): string {
-    return (this.options.randomId ?? cryptoRandomId)();
-  }
-
   private async assertSupportedTurn(runtime: ProviderRuntime, model: Model, reasoningEffort: ReasoningEffort): Promise<void> {
     let readiness: ProviderReadiness;
     try {
@@ -206,17 +235,19 @@ export class ConversationGateway {
     if (!modelCatalog.reasoningEfforts.includes(reasoningEffort)) throw new Error('gateway_reasoning_effort_unsupported');
   }
 
-  private async replaceDescriptor(next: ConversationDescriptor): Promise<void> {
-    const descriptors = await this.options.descriptors.list();
-    await this.options.descriptors.replace(descriptors.map((descriptor) => descriptor.id === next.id ? next : descriptor));
+  private replayOrConflict(descriptor: ConversationDescriptor, command: CreateConversationCommand): ConversationSummary {
+    if (
+      descriptor.runtime !== command.runtime
+      || descriptor.agentKey !== command.agentKey
+      || descriptor.title !== command.title
+    ) {
+      throw new Error('gateway_conversation_create_conflict');
+    }
+    return toPublicConversation(descriptor);
   }
 }
 
 function toPublicConversation(descriptor: ConversationDescriptor): ConversationSummary {
   const { providerConversationRef: _providerConversationRef, ...conversation } = descriptor;
   return conversation;
-}
-
-function cryptoRandomId(): string {
-  return globalThis.crypto.randomUUID();
 }

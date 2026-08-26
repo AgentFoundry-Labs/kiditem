@@ -18,12 +18,11 @@ describe('ConversationGateway', () => {
       descriptors: new ConversationDescriptorStore({ stateRoot: await fixtureRoot(), platform: 'macos' }),
       providers: { codex_cli: provider, claude_cli: new FakeProvider('claude_cli') },
       now: () => new Date('2026-08-23T00:00:00.000Z'),
-      randomId: () => 'opaque-conversation-id',
     });
 
-    const created = await gateway.create({ runtime: 'codex_cli', agentKey: 'sourcing', title: 'Supplier research' });
+    const created = await gateway.create({ conversationId: 'browser-conversation-1', runtime: 'codex_cli', agentKey: 'sourcing', title: 'Supplier research' });
     expect(created).toEqual({
-      id: 'opaque-conversation-id',
+      id: 'browser-conversation-1',
       runtime: 'codex_cli',
       agentKey: 'sourcing',
       title: 'Supplier research',
@@ -87,6 +86,91 @@ describe('ConversationGateway', () => {
     })).rejects.toThrow('gateway_reasoning_effort_unsupported');
   });
 
+  it('replays sequential and concurrent canonical creates by the requested public conversation ID', async () => {
+    const { ConversationGateway } = await import('./conversation-gateway');
+    const root = await fixtureRoot();
+    const provider = new FakeProvider('codex_cli');
+    const claude = new FakeProvider('claude_cli');
+    const createGate = deferred<void>();
+    const createStarted = deferred<void>();
+    provider.createGate = createGate.promise;
+    provider.createStarted = () => createStarted.resolve();
+    const command = {
+      conversationId: 'browser-idempotent-conversation',
+      runtime: 'codex_cli' as const,
+      agentKey: null,
+      title: 'General chat',
+    };
+    const gateway = new ConversationGateway({
+      descriptors: new ConversationDescriptorStore({ stateRoot: root, platform: 'macos' }),
+      providers: { codex_cli: provider, claude_cli: claude },
+      now: () => new Date('2026-08-23T00:00:00.000Z'),
+    });
+
+    const first = gateway.create(command);
+    await createStarted.promise;
+    const concurrent = gateway.create({ ...command });
+    await expect(gateway.create({ ...command, title: 'Changed during create' }))
+      .rejects.toThrow('gateway_conversation_create_conflict');
+    expect(provider.created).toHaveLength(1);
+    createGate.resolve();
+
+    const expected = {
+      id: 'browser-idempotent-conversation',
+      runtime: 'codex_cli',
+      agentKey: null,
+      title: 'General chat',
+      createdAt: '2026-08-23T00:00:00.000Z',
+      updatedAt: '2026-08-23T00:00:00.000Z',
+    };
+    await expect(first).resolves.toEqual(expected);
+    await expect(concurrent).resolves.toEqual(expected);
+    await expect(gateway.create(command)).resolves.toEqual(expected);
+    expect(provider.created).toHaveLength(1);
+
+    await expect(gateway.create({ ...command, runtime: 'claude_cli' }))
+      .rejects.toThrow('gateway_conversation_create_conflict');
+    await expect(gateway.create({ ...command, agentKey: 'sourcing' }))
+      .rejects.toThrow('gateway_conversation_create_conflict');
+    await expect(gateway.create({ ...command, title: 'Changed after create' }))
+      .rejects.toThrow('gateway_conversation_create_conflict');
+    expect(provider.created).toHaveLength(1);
+    expect(claude.created).toHaveLength(0);
+
+    const restarted = new ConversationGateway({
+      descriptors: new ConversationDescriptorStore({ stateRoot: root, platform: 'macos' }),
+      providers: { codex_cli: provider, claude_cli: claude },
+      now: () => new Date('2026-08-23T00:01:00.000Z'),
+    });
+    await expect(restarted.create(command)).resolves.toEqual(expected);
+    expect(provider.created).toHaveLength(1);
+  });
+
+  it('deletes a just-created provider conversation when the descriptor write fails without exposing its provider ref', async () => {
+    const { ConversationGateway } = await import('./conversation-gateway');
+    const provider = new FakeProvider('codex_cli');
+    const gateway = new ConversationGateway({
+      descriptors: new ConversationDescriptorStore({
+        stateRoot: await fixtureRoot(),
+        platform: 'macos',
+        filesystem: descriptorWriteFailureFilesystem() as never,
+      }),
+      providers: { codex_cli: provider, claude_cli: new FakeProvider('claude_cli') },
+      now: () => new Date('2026-08-23T00:00:00.000Z'),
+    });
+
+    let failure: unknown;
+    try {
+      await gateway.create({ conversationId: 'browser-write-failure', runtime: 'codex_cli', agentKey: null, title: 'General chat' });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toMatchObject({ message: 'gateway_descriptor_create_failed' });
+    expect(JSON.stringify(failure)).not.toContain('provider-thread-1');
+    expect(provider.deleted).toEqual(['provider-thread-1']);
+  });
+
   it('reads history from the provider after a Gateway restart without copying a provider ref into public output', async () => {
     const { ConversationGateway } = await import('./conversation-gateway');
     const root = await fixtureRoot();
@@ -96,18 +180,16 @@ describe('ConversationGateway', () => {
       descriptors,
       providers: { codex_cli: provider, claude_cli: new FakeProvider('claude_cli') },
       now: () => new Date('2026-08-23T00:00:00.000Z'),
-      randomId: () => 'opaque-conversation-id',
     });
-    await first.create({ runtime: 'codex_cli', agentKey: null, title: 'General chat' });
+    await first.create({ conversationId: 'browser-conversation-2', runtime: 'codex_cli', agentKey: null, title: 'General chat' });
     provider.messages = [{ id: 'message-1', role: 'assistant', content: 'Provider-native history.', createdAt: '2026-08-23T00:01:00.000Z' }];
 
     const restarted = new ConversationGateway({
       descriptors: new ConversationDescriptorStore({ stateRoot: root, platform: 'macos' }),
       providers: { codex_cli: provider, claude_cli: new FakeProvider('claude_cli') },
       now: () => new Date('2026-08-23T00:02:00.000Z'),
-      randomId: () => 'different-id',
     });
-    const history = await restarted.history('opaque-conversation-id');
+    const history = await restarted.history('browser-conversation-2');
 
     expect(history).toEqual(provider.messages);
     expect(provider.historyRefs).toEqual(['provider-thread-1']);
@@ -122,9 +204,8 @@ describe('ConversationGateway', () => {
       descriptors: new ConversationDescriptorStore({ stateRoot: root, platform: 'macos' }),
       providers: { codex_cli: provider, claude_cli: new FakeProvider('claude_cli') },
       now: () => new Date('2026-08-23T00:00:00.000Z'),
-      randomId: () => 'opaque-sourcing-conversation',
     });
-    await first.create({ runtime: 'codex_cli', agentKey: 'sourcing', title: 'Sourcing' });
+    await first.create({ conversationId: 'browser-sourcing-conversation', runtime: 'codex_cli', agentKey: 'sourcing', title: 'Sourcing' });
 
     const restarted = new ConversationGateway({
       descriptors: new ConversationDescriptorStore({ stateRoot: root, platform: 'macos' }),
@@ -132,7 +213,7 @@ describe('ConversationGateway', () => {
       now: () => new Date('2026-08-23T00:01:00.000Z'),
     });
     await restarted.startTurn({
-      conversationId: 'opaque-sourcing-conversation', turnId: 'turn-after-restart', message: 'Use the selected Agent.',
+      conversationId: 'browser-sourcing-conversation', turnId: 'turn-after-restart', message: 'Use the selected Agent.',
       model: 'gpt-5.6', reasoningEffort: 'medium', executionBinding: 'binding-after-restart', onEvent: () => undefined,
     });
 
@@ -155,16 +236,15 @@ describe('ConversationGateway', () => {
       descriptors: new ConversationDescriptorStore({ stateRoot: root, platform: 'macos' }),
       providers: { codex_cli: new FakeProvider('codex_cli'), claude_cli: provider },
       now: () => new Date('2026-08-23T00:00:00.000Z'),
-      randomId: () => 'opaque-conversation-id',
     });
-    await gateway.create({ runtime: 'claude_cli', agentKey: null, title: 'General chat' });
+    await gateway.create({ conversationId: 'browser-conversation-3', runtime: 'claude_cli', agentKey: null, title: 'General chat' });
     provider.deleteFailure = true;
 
-    await expect(gateway.delete('opaque-conversation-id')).rejects.toThrow('gateway_provider_delete_failed');
-    expect((await gateway.list()).map((conversation) => conversation.id)).toEqual(['opaque-conversation-id']);
+    await expect(gateway.delete('browser-conversation-3')).rejects.toThrow('gateway_provider_delete_failed');
+    expect((await gateway.list()).map((conversation) => conversation.id)).toEqual(['browser-conversation-3']);
 
     provider.deleteFailure = false;
-    await gateway.delete('opaque-conversation-id');
+    await gateway.delete('browser-conversation-3');
     expect(provider.deleted).toEqual(['provider-thread-1']);
     expect(await gateway.list()).toEqual([]);
   });
@@ -177,14 +257,48 @@ describe('ConversationGateway', () => {
       descriptors: new ConversationDescriptorStore({ stateRoot: root, platform: 'macos' }),
       providers: { codex_cli: provider, claude_cli: new FakeProvider('claude_cli') },
       now: () => new Date('2026-08-23T00:00:00.000Z'),
-      randomId: () => 'opaque-conversation-id',
     });
-    await gateway.create({ runtime: 'codex_cli', agentKey: null, title: 'General chat' });
+    await gateway.create({ conversationId: 'browser-conversation-4', runtime: 'codex_cli', agentKey: null, title: 'General chat' });
     provider.messages = [{ id: 'provider-message-1', role: 'assistant', content: 'x'.repeat(16_001), createdAt: '2026-08-23T00:00:00.000Z' }];
 
-    await expect(gateway.history('opaque-conversation-id')).rejects.toThrow('gateway_provider_history_failed');
-    await expect(gateway.rename('opaque-conversation-id', ' ')).rejects.toThrow();
+    await expect(gateway.history('browser-conversation-4')).rejects.toThrow('gateway_provider_history_failed');
+    await expect(gateway.rename('browser-conversation-4', ' ')).rejects.toThrow();
     expect(provider.renameCalls).toEqual([]);
+  });
+
+  it('never restores a descriptor after a racing provider-backed rename or turn update loses to delete', async () => {
+    const { ConversationGateway } = await import('./conversation-gateway');
+    const root = await fixtureRoot();
+    const provider = new FakeProvider('codex_cli');
+    const renameGate = deferred<void>();
+    const turnGate = deferred<void>();
+    const renameStarted = deferred<void>();
+    const turnStarted = deferred<void>();
+    provider.renameGate = renameGate.promise;
+    provider.turnGate = turnGate.promise;
+    provider.renameStarted = () => renameStarted.resolve();
+    provider.turnStarted = () => turnStarted.resolve();
+    const gateway = new ConversationGateway({
+      descriptors: new ConversationDescriptorStore({ stateRoot: root, platform: 'macos' }),
+      providers: { codex_cli: provider, claude_cli: new FakeProvider('claude_cli') },
+      now: () => new Date('2026-08-23T00:01:00.000Z'),
+    });
+    await gateway.create({ conversationId: 'browser-racing-delete', runtime: 'codex_cli', agentKey: null, title: 'General chat' });
+
+    const rename = gateway.rename('browser-racing-delete', 'Renamed before delete');
+    await renameStarted.promise;
+    const turn = gateway.startTurn({
+      conversationId: 'browser-racing-delete', turnId: 'turn-racing-delete', message: 'Record metadata.',
+      model: 'gpt-5.6', reasoningEffort: 'high', executionBinding: 'binding-racing-delete', onEvent: () => undefined,
+    });
+    await turnStarted.promise;
+    await gateway.delete('browser-racing-delete');
+    renameGate.resolve();
+    turnGate.resolve();
+
+    await expect(rename).rejects.toThrow('gateway_descriptor_not_found');
+    await expect(turn).rejects.toThrow('gateway_descriptor_not_found');
+    expect(await gateway.list()).toEqual([]);
   });
 });
 
@@ -202,6 +316,12 @@ class FakeProvider {
   readonly renameCalls: Array<{ providerConversationRef: string; title: string }> = [];
   messages: unknown[] = [];
   deleteFailure = false;
+  createGate: Promise<void> | undefined;
+  renameGate: Promise<void> | undefined;
+  turnGate: Promise<void> | undefined;
+  createStarted: (() => void) | undefined;
+  renameStarted: (() => void) | undefined;
+  turnStarted: (() => void) | undefined;
   private nextRef = 1;
 
   constructor(readonly runtime: 'codex_cli' | 'claude_cli') {}
@@ -209,6 +329,8 @@ class FakeProvider {
   async list() { return []; }
   async create(input: { title?: string }) {
     this.created.push(input);
+    this.createStarted?.();
+    await this.createGate;
     return {
       providerConversationRef: `provider-thread-${this.nextRef++}`,
       title: input.title ?? 'New conversation',
@@ -217,12 +339,20 @@ class FakeProvider {
     };
   }
   async history(providerConversationRef: string) { this.historyRefs.push(providerConversationRef); return this.messages; }
-  async rename(providerConversationRef: string, title: string) { this.renameCalls.push({ providerConversationRef, title }); }
+  async rename(providerConversationRef: string, title: string) {
+    this.renameCalls.push({ providerConversationRef, title });
+    this.renameStarted?.();
+    await this.renameGate;
+  }
   async delete(providerConversationRef: string) {
     if (this.deleteFailure) throw new Error('provider refuses deletion');
     this.deleted.push(providerConversationRef);
   }
-  async startTurn(input: unknown) { this.started.push(input); }
+  async startTurn(input: unknown) {
+    this.started.push(input);
+    this.turnStarted?.();
+    await this.turnGate;
+  }
   async sendInput() { return undefined; }
   async interrupt() { return undefined; }
   async readiness() {
@@ -236,4 +366,23 @@ class FakeProvider {
       mcpProtocolRevision: '2026-07-28' as const,
     };
   }
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve: ((value: T) => void) | undefined;
+  const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; });
+  return { promise, resolve: (value) => resolve?.(value) };
+}
+
+function descriptorWriteFailureFilesystem() {
+  return {
+    mkdir: async () => undefined,
+    chmod: async () => undefined,
+    readFile: async () => {
+      throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+    },
+    writeFile: async () => { throw new Error('descriptor write failure'); },
+    rename: async () => undefined,
+    unlink: async () => undefined,
+  };
 }
