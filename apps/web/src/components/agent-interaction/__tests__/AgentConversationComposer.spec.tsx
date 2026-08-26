@@ -87,6 +87,45 @@ describe('AgentConversationComposer', () => {
     await act(async () => launch.resolve());
   });
 
+  it('does not restore the retained first prompt when the same composer is promoted to a conversation', async () => {
+    const launch = deferred();
+    const onStart = vi.fn(() => launch.promise);
+    const user = userEvent.setup();
+    const view = render(<AgentConversationComposer {...composerProps({ isDraft: true, onStart })} />);
+
+    await user.click(screen.getByRole('button', { name: '보내기' }));
+    await waitFor(() => expect(onStart).toHaveBeenCalledTimes(1));
+    expect(screen.getByLabelText('일반 메시지')).toHaveValue('');
+
+    view.rerender(<AgentConversationComposer {...composerProps({
+      isDraft: false,
+      activeTurnId: 'turn-1',
+      onStart,
+    })} />);
+
+    expect(screen.getByLabelText('일반 메시지')).toHaveValue('');
+    await act(async () => launch.resolve());
+  });
+
+  it('keeps a failed first prompt and error when promotion commits before the launch rejection flushes', async () => {
+    const launch = deferred();
+    const onStart = vi.fn(() => launch.promise);
+    const user = userEvent.setup();
+    const view = render(<AgentConversationComposer {...composerProps({ isDraft: true, onStart })} />);
+
+    await user.click(screen.getByRole('button', { name: '보내기' }));
+    await waitFor(() => expect(onStart).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      view.rerender(<AgentConversationComposer {...composerProps({ isDraft: false, onStart })} />);
+      launch.reject(new Error('provider unavailable'));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByLabelText('일반 메시지')).toHaveValue('Review the supplier evidence.');
+    expect(screen.getByRole('alert')).toHaveTextContent('선택한 대화 엔진을 현재 사용할 수 없습니다.');
+  });
+
   it('sends a follow-up after a turn id arrives before its launch promise settles', async () => {
     const launch = deferred();
     const onInput = vi.fn(async () => undefined);

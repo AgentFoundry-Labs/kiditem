@@ -76,10 +76,12 @@ export function AgentConversationComposer({
 
   useEffect(() => {
     if (initializedMessageIdentity.current === messageIdentity) return;
+    const wasPromoted = initializedMessageIdentity.current === `${conversationId}:draft` && !isDraft;
     initializedMessageIdentity.current = messageIdentity;
+    if (wasPromoted) return;
     setMessage(initialMessage ?? '');
     setError(null);
-  }, [initialMessage, messageIdentity]);
+  }, [conversationId, initialMessage, isDraft, messageIdentity]);
   useEffect(() => {
     setModel(initialModel ?? null);
     setReasoningEffort(initialReasoningEffort ?? null);

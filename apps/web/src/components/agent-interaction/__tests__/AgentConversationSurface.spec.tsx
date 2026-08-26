@@ -89,6 +89,10 @@ function renderSurface(queryClient = new QueryClient({ defaultOptions: { queries
 
 async function chooseCodexPair(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: '대화 엔진 설정' }));
+  const runtime = screen.getByLabelText('대화 엔진');
+  if (!runtime.hasAttribute('disabled') && (runtime as HTMLSelectElement).value === '') {
+    await user.selectOptions(runtime, 'codex_cli');
+  }
   await waitFor(() => expect(screen.getByLabelText('모델')).toBeEnabled());
   await user.selectOptions(screen.getByLabelText('모델'), 'gpt-5.6');
   await user.selectOptions(screen.getByLabelText('사고 수준'), 'low');
@@ -238,6 +242,57 @@ describe('AgentConversationSurface', () => {
     await waitFor(() => expect(runtimeMocks.runAgent).toHaveBeenCalledWith(expect.objectContaining({
       forwardedProps: { model: 'gpt-5.6', reasoningEffort: 'low' },
     })));
+  });
+
+  it('clears the visible composer after a first General draft is promoted and its turn completes', async () => {
+    vi.stubGlobal('crypto', {
+      randomUUID: vi.fn()
+        .mockReturnValueOnce('general-draft')
+        .mockReturnValueOnce('first-turn'),
+    });
+    const promoted = {
+      ...CONVERSATION,
+      id: 'general-draft',
+      title: 'KID-25 QA 연결 확인이라고 답해.',
+    };
+    vi.mocked(apiClient.post).mockImplementation((path: string) => {
+      if (path === '/api/agent-os/conversations') return Promise.resolve(promoted as never);
+      if (path === '/api/copilotkit') return Promise.resolve(READINESS_INFO as never);
+      return Promise.resolve({ turnId: 'first-turn' } as never);
+    });
+    vi.mocked(apiClient.get).mockImplementation((path: string) => {
+      if (path === '/api/agent-os/conversations') return Promise.resolve([] as never);
+      if (path.endsWith('/history')) return Promise.resolve([] as never);
+      return Promise.resolve({ schemaVersion: 1, contexts: {} } as never);
+    });
+    let resolveRun!: () => void;
+    runtimeMocks.runAgent.mockImplementation(() => new Promise<void>((resolve) => { resolveRun = resolve; }));
+    useConversationSurfaceState.getState().reset();
+    const user = userEvent.setup();
+    renderSurface();
+
+    await user.click(await screen.findByRole('button', { name: '새 AI 대화' }));
+    expect(useConversationSurfaceState.getState().pendingDraft).toMatchObject({
+      conversationId: 'general-draft',
+      agentKey: null,
+    });
+    const composer = await screen.findByPlaceholderText('무엇을 도와드릴까요?');
+    await chooseCodexPair(user);
+    await user.type(composer, 'KID-25 QA 연결 확인이라고 답해.');
+    await user.click(screen.getByRole('button', { name: '보내기' }));
+
+    await waitFor(() => expect(useConversationSurfaceState.getState()).toMatchObject({
+      activeConversationId: 'general-draft',
+      pendingDraft: { conversationId: 'general-draft' },
+    }));
+    expect(screen.getByLabelText('일반 AI 챗 메시지')).toHaveValue('');
+    await act(async () => resolveRun());
+    await waitFor(() => expect(useConversationSurfaceState.getState()).toMatchObject({
+      activeConversationId: 'general-draft',
+      pendingDraft: null,
+    }));
+    expect(runtimeMocks.runAgent).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText('일반 AI 챗 메시지')).toHaveValue('');
   });
 
   it('keeps the active conversation and its one subscription while another folder expands during a turn', async () => {

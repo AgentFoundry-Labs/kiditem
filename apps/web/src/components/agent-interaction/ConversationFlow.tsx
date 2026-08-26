@@ -37,7 +37,7 @@ export function ConversationFlow() {
         placeholder={context.placeholder}
         runtime={runtime.runtime}
         readiness={runtime.readiness}
-        initialMessage={runtime.draft?.message}
+        initialMessage={runtime.isDraft ? runtime.draft?.message : undefined}
         initialModel={initialModel}
         initialReasoningEffort={initialReasoningEffort}
         needsReview={runtime.turnPreference.needsReview}
