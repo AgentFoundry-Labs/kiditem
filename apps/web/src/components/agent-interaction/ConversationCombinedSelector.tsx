@@ -2,9 +2,8 @@
 
 import { Check, ChevronDown } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { readyGatewayForRuntime } from './conversation-preference-selection';
 import type { ConversationRuntime, GatewayReadiness } from './conversation-api';
-
-type ReadyGateway = Extract<GatewayReadiness, { ready: true }>;
 
 const runtimeLabels: Record<ConversationRuntime, string> = {
   codex_cli: 'Codex',
@@ -39,7 +38,7 @@ export function ConversationCombinedSelector({
   const readyRuntime = useMemo(
     () => !runtime || readiness === undefined
       ? undefined
-      : readiness?.find((entry): entry is ReadyGateway => entry.runtime === runtime && entry.ready) ?? null,
+      : readyGatewayForRuntime(runtime, readiness),
     [readiness, runtime],
   );
   const models = readyRuntime?.readiness.models ?? [];
@@ -156,22 +155,4 @@ export function ConversationCombinedSelector({
       ) : null}
     </div>
   );
-}
-
-export function isSupportedConversationPair({
-  runtime,
-  model,
-  reasoningEffort,
-  readiness,
-}: {
-  runtime: ConversationRuntime | null;
-  model: string | null;
-  reasoningEffort: string | null;
-  readiness: GatewayReadiness[] | null | undefined;
-}): boolean {
-  if (!runtime || !model || !reasoningEffort || !readiness) return false;
-  const entry = readiness.find((candidate): candidate is ReadyGateway => candidate.runtime === runtime && candidate.ready);
-  return Boolean(entry?.readiness.modelReasoningEfforts.some((candidate) => (
-    candidate.model === model && candidate.reasoningEfforts.includes(reasoningEffort)
-  )));
 }

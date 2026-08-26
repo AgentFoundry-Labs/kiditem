@@ -5,8 +5,10 @@ import { useAgent } from '@copilotkit/react-core/v2';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { queryKeys } from '@/lib/query-keys';
 import { ConversationFirstSendCoordinator, type ConversationFirstSend } from './conversation-first-send.coordinator';
+import { ConversationSettingsDialog } from './ConversationSettingsDialog';
 import { conversationTitleFromMessage } from './conversation-title';
-import { createConversation, getConversationHistory, getConversationPreferences, interruptConversation, listConversations, loadConversationReadiness, sendConversationInput, setConversationPreference, type ConversationMessage, type ConversationPreferences, type ConversationRuntime, type ConversationSummary, type GatewayReadiness, type SetConversationPreferenceCommand } from './conversation-api';
+import { selectTurnPreference, type TurnPreferenceSelection } from './conversation-preference-selection';
+import { createConversation, deleteConversation, getConversationHistory, getConversationPreferences, interruptConversation, listConversations, loadConversationReadiness, renameConversation, sendConversationInput, setConversationPreference, type ConversationMessage, type ConversationPreferences, type ConversationRuntime, type ConversationSummary, type GatewayReadiness, type SetConversationPreferenceCommand } from './conversation-api';
 import { historyCoversLiveMessages, messageCoverageCounts, toLiveMessages, toolProjectionFromEvent, type LiveMessage, type ToolProjection } from './conversation-runtime-reconciliation';
 import { useConversationSurfaceState, type NewConversationDraft } from './conversation-surface-state';
 
@@ -18,9 +20,10 @@ type DraftPatch = Partial<Omit<NewConversationDraft, 'conversationId'>>;
 export interface ConversationRuntimeContextValue {
   conversations: ConversationSummary[]; conversationsLoading: boolean; conversationsError: boolean;
   readiness: GatewayReadiness[] | null | undefined;
-  preferences: ConversationPreferences | null | undefined;
+  preferences: ConversationPreferences | null | undefined; preferencesLoading: boolean; preferencesError: boolean;
   activeConversation: ConversationSummary | null; draft: NewConversationDraft | null;
   conversationId: string | null; runtime: ConversationRuntime | null; isDraft: boolean;
+  turnPreference: TurnPreferenceSelection;
   historyMessages: ConversationMessage[]; historyLoading: boolean; historyError: boolean;
   liveMessages: LiveMessage[]; toolProjections: ToolProjection[];
   activeTurnId: string | null; turnEnded: string | null;
@@ -30,6 +33,8 @@ export interface ConversationRuntimeContextValue {
   retryReadiness(): void;
   updateDraft(patch: DraftPatch): void;
   setPreference(input: SetConversationPreferenceCommand): Promise<ConversationPreferences>;
+  renameConversation(conversationId: string, title: string): Promise<ConversationSummary>;
+  deleteConversation(conversationId: string): Promise<void>;
 }
 
 type RuntimeBinding = { kind: 'existing'; conversation: ConversationSummary } | { kind: 'draft'; draft: NewConversationDraft };
@@ -45,6 +50,7 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
   const activeConversationId = useConversationSurfaceState((state) => state.activeConversationId);
   const pendingDraft = useConversationSurfaceState((state) => state.pendingDraft);
   const updateDraft = useConversationSurfaceState((state) => state.updateDraft);
+  const settingsOpen = useConversationSurfaceState((state) => state.settingsOpen);
   const conversationsQuery = useQuery({
     queryKey: queryKeys.conversations.list(),
     queryFn: listConversations,
@@ -69,13 +75,13 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
     queryKey: queryKeys.conversations.readiness(),
     queryFn: loadConversationReadiness,
     staleTime: 30_000,
-    enabled: selectedRuntime !== null,
+    enabled: selectedRuntime !== null || settingsOpen,
   });
   const preferencesQuery = useQuery({
     queryKey: queryKeys.conversations.preferences(),
     queryFn: getConversationPreferences,
     staleTime: 30_000,
-    enabled: selectedRuntime !== null,
+    enabled: selectedRuntime !== null || settingsOpen,
   });
   const setPreferenceMutation = useMutation({
     mutationFn: setConversationPreference,
@@ -83,6 +89,39 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
       queryClient.setQueryData(queryKeys.conversations.preferences(), preferences);
     },
   });
+  const renameConversationMutation = useMutation({
+    mutationFn: ({ conversationId, title }: { conversationId: string; title: string }) => renameConversation(conversationId, title),
+    onSuccess: (renamed) => {
+      queryClient.setQueryData<ConversationSummary[]>(queryKeys.conversations.list(), (current = []) => current.map(
+        (conversation) => conversation.id === renamed.id ? renamed : conversation,
+      ));
+    },
+  });
+  const deleteConversationMutation = useMutation({
+    mutationFn: deleteConversation,
+    onSuccess: (_, conversationId) => {
+      let deleted: ConversationSummary | undefined;
+      queryClient.setQueryData<ConversationSummary[]>(queryKeys.conversations.list(), (current = []) => {
+        deleted = current.find((conversation) => conversation.id === conversationId);
+        return current.filter((conversation) => conversation.id !== conversationId);
+      });
+      if (useConversationSurfaceState.getState().activeConversationId === conversationId) {
+        useConversationSurfaceState.getState().selectContext(deleted?.agentKey ?? null);
+      }
+    },
+  });
+  const turnPreference = selectTurnPreference({
+    conversation: activeConversation,
+    draftContext: activeDraft?.agentKey ?? null,
+    runtime: selectedRuntime,
+    preferences: preferencesQuery.data,
+    readiness: readinessQuery.data,
+  });
+  useEffect(() => {
+    if (!activeDraft || !selectedRuntime || activeDraft.model !== null || activeDraft.reasoningEffort !== null) return;
+    if (!turnPreference.model || !turnPreference.reasoningEffort) return;
+    updateDraft({ model: turnPreference.model, reasoningEffort: turnPreference.reasoningEffort });
+  }, [activeDraft, selectedRuntime, turnPreference.model, turnPreference.reasoningEffort, updateDraft]);
   const runtimeHandleRef = useRef<RuntimeHandle | null>(null);
   const latestHostRef = useRef({ queryClient, runtimeHandleRef });
   latestHostRef.current = { queryClient, runtimeHandleRef };
@@ -128,14 +167,20 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
     conversationsError: conversationsQuery.isError,
     readiness: readinessQuery.data,
     preferences: preferencesQuery.data,
+    preferencesLoading: preferencesQuery.isLoading,
+    preferencesError: preferencesQuery.isError,
+    turnPreference,
     retryReadiness: () => { void readinessQuery.refetch(); },
     updateDraft,
     setPreference: setPreferenceMutation.mutateAsync,
+    renameConversation: (conversationId, title) => renameConversationMutation.mutateAsync({ conversationId, title }),
+    deleteConversation: deleteConversationMutation.mutateAsync,
   });
   if (!binding) {
     return (
       <ConversationRuntimeContext.Provider value={inactiveValue}>
         {children}
+        <ConversationSettingsMount />
       </ConversationRuntimeContext.Provider>
     );
   }
@@ -144,16 +189,22 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
     <ActiveConversationRuntime
       key={conversationIdForBinding(binding)}
       binding={binding}
+      retainedDraft={activeDraft}
       conversations={conversations}
       conversationsLoading={conversationsQuery.isLoading}
       conversationsError={conversationsQuery.isError}
       readiness={readinessQuery.data}
       preferences={preferencesQuery.data}
+      preferencesLoading={preferencesQuery.isLoading}
+      preferencesError={preferencesQuery.isError}
+      turnPreference={turnPreference}
       retryReadiness={() => { void readinessQuery.refetch(); }}
       coordinator={coordinatorRef.current}
       runtimeHandleRef={runtimeHandleRef}
       updateDraft={updateDraft}
       setPreference={setPreferenceMutation.mutateAsync}
+      renameConversation={(conversationId, title) => renameConversationMutation.mutateAsync({ conversationId, title })}
+      deleteConversation={deleteConversationMutation.mutateAsync}
     >
       {children}
     </ActiveConversationRuntime>
@@ -162,35 +213,47 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
 
 function ActiveConversationRuntime({
   binding,
+  retainedDraft,
   conversations,
   conversationsLoading,
   conversationsError,
   readiness,
   preferences,
+  preferencesLoading,
+  preferencesError,
+  turnPreference,
   retryReadiness,
   coordinator,
   runtimeHandleRef,
   updateDraft,
   setPreference,
+  renameConversation,
+  deleteConversation,
   children,
 }: {
   binding: RuntimeBinding;
+  retainedDraft: NewConversationDraft | null;
   conversations: ConversationSummary[];
   conversationsLoading: boolean;
   conversationsError: boolean;
   readiness: GatewayReadiness[] | null | undefined;
   preferences: ConversationPreferences | null | undefined;
+  preferencesLoading: boolean;
+  preferencesError: boolean;
+  turnPreference: TurnPreferenceSelection;
   retryReadiness(): void;
   coordinator: ConversationFirstSendCoordinator;
   runtimeHandleRef: React.MutableRefObject<RuntimeHandle | null>;
   updateDraft(patch: Partial<Omit<NewConversationDraft, 'conversationId'>>): void;
   setPreference(input: SetConversationPreferenceCommand): Promise<ConversationPreferences>;
+  renameConversation(conversationId: string, title: string): Promise<ConversationSummary>;
+  deleteConversation(conversationId: string): Promise<void>;
   children: ReactNode;
 }) {
   const queryClient = useQueryClient();
   const conversationId = conversationIdForBinding(binding);
   const activeConversation = binding.kind === 'existing' ? binding.conversation : null;
-  const draft = binding.kind === 'draft' ? binding.draft : null;
+  const draft = binding.kind === 'draft' ? binding.draft : retainedDraft;
   const runtime = activeConversation?.runtime ?? draft?.provider ?? null;
   const { agent, isReady } = useAgent({
     agentId: `kiditem-conversation:${conversationId}`,
@@ -388,7 +451,7 @@ function ActiveConversationRuntime({
       reasoningEffort: input.reasoningEffort,
       message: input.message,
     });
-    return coordinator.send({
+    await coordinator.send({
       conversationId,
       runtime: binding.draft.provider,
       agentKey: binding.draft.agentKey,
@@ -397,6 +460,8 @@ function ActiveConversationRuntime({
       model: input.model,
       reasoningEffort: input.reasoningEffort,
     });
+    const state = useConversationSurfaceState.getState();
+    if (state.pendingDraft?.conversationId === conversationId) state.discardDraft();
   }, [binding, conversationId, coordinator, startExisting, updateDraft]);
   const sendInput = useCallback(async (message: string) => {
     if (!activeTurnId) throw new Error('conversation_turn_not_active');
@@ -417,11 +482,14 @@ function ActiveConversationRuntime({
     conversationsError,
     readiness,
     preferences,
+    preferencesLoading,
+    preferencesError,
     activeConversation,
     draft,
     conversationId,
     runtime,
     isDraft: binding.kind === 'draft',
+    turnPreference,
     historyMessages: history.data ?? [],
     historyLoading: history.isLoading,
     historyError: history.isError,
@@ -435,10 +503,13 @@ function ActiveConversationRuntime({
     retryReadiness,
     updateDraft,
     setPreference,
+    renameConversation,
+    deleteConversation,
   };
   return (
     <ConversationRuntimeContext.Provider value={value}>
       {children}
+      <ConversationSettingsMount />
     </ConversationRuntimeContext.Provider>
   );
 }
@@ -449,24 +520,56 @@ export function useConversationRuntime(): ConversationRuntimeContextValue {
   return value;
 }
 
+function ConversationSettingsMount() {
+  const runtime = useConversationRuntime();
+  const open = useConversationSurfaceState((state) => state.settingsOpen);
+  const closeSettings = useConversationSurfaceState((state) => state.closeSettings);
+  return (
+    <ConversationSettingsDialog
+      open={open}
+      onClose={closeSettings}
+      conversations={runtime.conversations}
+      activeConversationId={runtime.activeConversation?.id ?? null}
+      activeTurnId={runtime.activeTurnId}
+      preferences={runtime.preferences}
+      preferencesLoading={runtime.preferencesLoading}
+      preferencesError={runtime.preferencesError}
+      readiness={runtime.readiness}
+      onSavePreference={runtime.setPreference}
+      onRenameConversation={runtime.renameConversation}
+      onDeleteConversation={runtime.deleteConversation}
+    />
+  );
+}
+
 function inactiveRuntimeValue({
   conversations,
   conversationsLoading,
   conversationsError,
   readiness,
   preferences,
+  preferencesLoading,
+  preferencesError,
+  turnPreference,
   retryReadiness,
   updateDraft,
   setPreference,
+  renameConversation,
+  deleteConversation,
 }: Pick<ConversationRuntimeContextValue,
   | 'conversations'
   | 'conversationsLoading'
   | 'conversationsError'
   | 'readiness'
   | 'preferences'
+  | 'preferencesLoading'
+  | 'preferencesError'
+  | 'turnPreference'
   | 'retryReadiness'
   | 'updateDraft'
-  | 'setPreference'>): ConversationRuntimeContextValue {
+  | 'setPreference'
+  | 'renameConversation'
+  | 'deleteConversation'>): ConversationRuntimeContextValue {
   const noActiveConversation = async () => {
     throw new Error('conversation_not_selected');
   };
@@ -476,11 +579,14 @@ function inactiveRuntimeValue({
     conversationsError,
     readiness,
     preferences,
+    preferencesLoading,
+    preferencesError,
     activeConversation: null,
     draft: null,
     conversationId: null,
     runtime: null,
     isDraft: false,
+    turnPreference,
     historyMessages: [],
     historyLoading: false,
     historyError: false,
@@ -494,6 +600,8 @@ function inactiveRuntimeValue({
     retryReadiness,
     updateDraft,
     setPreference,
+    renameConversation,
+    deleteConversation,
   };
 }
 function conversationIdForBinding(binding: RuntimeBinding): string {

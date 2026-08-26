@@ -39,7 +39,7 @@ interface ConversationSurfaceState {
   openConversation(input: NewConversationRequest): NewConversationDraft;
   updateDraft(patch: Partial<Omit<NewConversationDraft, 'conversationId'>>): void;
   discardDraft(): void;
-  openSettings(): void;
+  openSettings(trigger?: HTMLElement | null): void;
   closeSettings(): void;
   reset(): void;
 }
@@ -53,6 +53,8 @@ const initialState = {
   ConversationSurfaceState,
   'selectedContext' | 'activeConversationId' | 'pendingDraft' | 'settingsOpen'
 >;
+
+let settingsTrigger: HTMLElement | null = null;
 
 /** Ephemeral navigation intent only; provider history remains outside browser state. */
 export const useConversationSurfaceState = create<ConversationSurfaceState>((set) => ({
@@ -105,9 +107,20 @@ export const useConversationSurfaceState = create<ConversationSurfaceState>((set
       : state.activeConversationId,
     pendingDraft: null,
   })),
-  openSettings: () => set({ settingsOpen: true }),
-  closeSettings: () => set({ settingsOpen: false }),
-  reset: () => set(initialState),
+  openSettings: (trigger) => {
+    settingsTrigger = trigger ?? activeElement();
+    set({ settingsOpen: true });
+  },
+  closeSettings: () => {
+    const trigger = settingsTrigger;
+    settingsTrigger = null;
+    set({ settingsOpen: false });
+    if (trigger?.isConnected && typeof window !== 'undefined') window.setTimeout(() => trigger.focus(), 0);
+  },
+  reset: () => {
+    settingsTrigger = null;
+    set(initialState);
+  },
 }));
 
 export function openConversation(input: NewConversationRequest): NewConversationDraft {
@@ -120,4 +133,9 @@ function reserveConversationId(): string {
   const conversationId = randomUUID.call(globalThis.crypto);
   if (!conversationId) throw new Error('conversation_id_unavailable');
   return conversationId;
+}
+
+function activeElement(): HTMLElement | null {
+  if (typeof document === 'undefined') return null;
+  return document.activeElement instanceof HTMLElement ? document.activeElement : null;
 }

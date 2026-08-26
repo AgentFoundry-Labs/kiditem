@@ -64,6 +64,9 @@ function AgentConversationSurfaceLayout() {
       onSelectConversation={chooseConversation}
       onNewConversation={openDraft}
       onOpenSettings={openSettings}
+      activeTurnId={runtime.activeTurnId}
+      onRenameConversation={runtime.renameConversation}
+      onDeleteConversation={runtime.deleteConversation}
     />
   );
 

@@ -88,6 +88,12 @@ describe('conversation API', () => {
     expect(apiClient.put).not.toHaveBeenCalled();
   });
 
+  it('rejects an empty history rename before it reaches the provider-facing endpoint', async () => {
+    await expect(renameConversation('conversation-1', '   ')).rejects.toThrow();
+
+    expect(apiClient.patch).not.toHaveBeenCalled();
+  });
+
   it('reads model and effort choices from the public CopilotKit info capability', async () => {
     vi.mocked(apiClient.post).mockResolvedValue({
       agents: {

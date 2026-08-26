@@ -1,6 +1,7 @@
 import { apiClient } from '@/lib/api-client';
 import {
   AgentKeySchema,
+  ConversationTitleSchema,
   CreateConversationCommandSchema,
   ConversationPreferencesSchema,
   ConversationSummarySchema,
@@ -60,7 +61,8 @@ export async function getConversationHistory(conversationId: string): Promise<Co
 }
 
 export async function renameConversation(conversationId: string, title: string): Promise<ConversationSummary> {
-  return ConversationSummarySchema.parse(await apiClient.patch<unknown>(`/api/agent-os/conversations/${encodeURIComponent(conversationId)}`, { title }));
+  const normalizedTitle = ConversationTitleSchema.parse(title);
+  return ConversationSummarySchema.parse(await apiClient.patch<unknown>(`/api/agent-os/conversations/${encodeURIComponent(conversationId)}`, { title: normalizedTitle }));
 }
 
 export function deleteConversation(conversationId: string): Promise<void> {

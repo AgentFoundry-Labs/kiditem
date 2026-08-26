@@ -90,4 +90,23 @@ describe('ConversationFolderTree', () => {
     expect(screen.getByRole('button', { name: '광고 Agent' })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('button', { name: 'Campaign check' })).toHaveAttribute('aria-current', 'page');
   });
+
+  it('keeps provider-first rename and delete actions on conversation rows, fencing the live row', async () => {
+    const user = userEvent.setup();
+    const onRenameConversation = vi.fn().mockResolvedValue({ ...conversations[1], title: 'Renamed sourcing' });
+    const onDeleteConversation = vi.fn().mockResolvedValue(undefined);
+    renderTree({ onRenameConversation, onDeleteConversation, activeTurnId: 'turn-1' });
+
+    expect(screen.getByRole('button', { name: 'Latest sourcing 삭제' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Earlier sourcing 이름 변경' }));
+    await user.clear(screen.getByLabelText('Earlier sourcing 이름'));
+    await user.type(screen.getByLabelText('Earlier sourcing 이름'), 'Renamed sourcing');
+    await user.click(screen.getByRole('button', { name: '이름 저장' }));
+    expect(onRenameConversation).toHaveBeenCalledWith('source-older', 'Renamed sourcing');
+
+    await user.click(screen.getByRole('button', { name: 'Earlier sourcing 삭제' }));
+    expect(screen.getByRole('alertdialog', { name: '대화 삭제 확인' })).toHaveTextContent('Earlier sourcing 대화를 삭제할까요?');
+    await user.click(screen.getByRole('button', { name: '삭제 확인' }));
+    expect(onDeleteConversation).toHaveBeenCalledWith('source-older');
+  });
 });

@@ -13,6 +13,13 @@ export function ConversationFlow() {
   );
 
   if (!runtime.conversationId) return null;
+  const draftHasExplicitPair = Boolean(runtime.draft?.model || runtime.draft?.reasoningEffort);
+  const initialModel = draftHasExplicitPair
+    ? runtime.draft?.model ?? null
+    : runtime.turnPreference.model;
+  const initialReasoningEffort = draftHasExplicitPair
+    ? runtime.draft?.reasoningEffort ?? null
+    : runtime.turnPreference.reasoningEffort;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -31,8 +38,9 @@ export function ConversationFlow() {
         runtime={runtime.runtime}
         readiness={runtime.readiness}
         initialMessage={runtime.draft?.message}
-        initialModel={runtime.activeConversation?.lastModel ?? runtime.draft?.model ?? null}
-        initialReasoningEffort={runtime.activeConversation?.lastReasoningEffort ?? runtime.draft?.reasoningEffort ?? null}
+        initialModel={initialModel}
+        initialReasoningEffort={initialReasoningEffort}
+        needsReview={runtime.turnPreference.needsReview}
         isDraft={runtime.isDraft}
         activeTurnId={runtime.activeTurnId}
         onStart={runtime.start}

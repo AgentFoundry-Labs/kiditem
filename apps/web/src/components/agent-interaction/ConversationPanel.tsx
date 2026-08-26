@@ -80,7 +80,7 @@ export function ConversationPanel({ onClose }: { onClose(): void }) {
           <button
             type="button"
             aria-label="대화 설정"
-            onClick={openSettings}
+            onClick={(event) => openSettings(event.currentTarget)}
             className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Settings2 aria-hidden="true" size={18} />

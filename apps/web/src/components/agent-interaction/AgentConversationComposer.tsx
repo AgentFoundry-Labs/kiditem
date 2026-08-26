@@ -2,7 +2,8 @@
 
 import { Send, Square } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ConversationCombinedSelector, isSupportedConversationPair } from './ConversationCombinedSelector';
+import { ConversationCombinedSelector } from './ConversationCombinedSelector';
+import { isSupportedConversationPair } from './conversation-preference-selection';
 import type { ConversationRuntime, GatewayReadiness } from './conversation-api';
 
 type DraftPatch = {
@@ -21,6 +22,7 @@ export function AgentConversationComposer({
   initialMessage,
   initialModel,
   initialReasoningEffort,
+  needsReview = false,
   isDraft,
   activeTurnId,
   onStart,
@@ -37,6 +39,7 @@ export function AgentConversationComposer({
   initialMessage?: string;
   initialModel?: string | null;
   initialReasoningEffort?: string | null;
+  needsReview?: boolean;
   isDraft: boolean;
   activeTurnId: string | null;
   onStart(input: { message: string; model: string; reasoningEffort: string }): Promise<void>;
@@ -58,7 +61,7 @@ export function AgentConversationComposer({
     reasoningEffort,
     readiness,
   }), [model, readiness, reasoningEffort, runtime]);
-  const needsReview = Boolean((model || reasoningEffort) && !pairSupported);
+  const selectionNeedsReview = needsReview || Boolean((model || reasoningEffort) && !pairSupported);
   const canStart = Boolean(message.trim() && runtime && pairSupported && !submitting);
   const canInput = Boolean(message.trim() && activeTurnId && !submitting);
 
@@ -67,7 +70,7 @@ export function AgentConversationComposer({
     setModel(initialModel ?? null);
     setReasoningEffort(initialReasoningEffort ?? null);
     setError(null);
-  }, [conversationId]); // A new selection is the only time local composer state is replaced.
+  }, [conversationId, initialMessage, initialModel, initialReasoningEffort]);
   useEffect(() => {
     if (!isDraft) return;
     messageRef.current?.focus();
@@ -137,7 +140,7 @@ export function AgentConversationComposer({
     >
       <div className="mx-auto w-full max-w-3xl rounded-2xl border bg-card p-3 shadow-sm">
         {error ? <p role="alert" className="mb-2 text-sm text-destructive">{error}</p> : null}
-        {needsReview ? <p role="alert" className="mb-2 text-sm text-amber-700">선택한 모델과 사고 수준을 다시 선택해 주세요.</p> : null}
+        {selectionNeedsReview ? <p role="alert" className="mb-2 text-sm text-amber-700">선택한 모델과 사고 수준을 다시 선택해 주세요.</p> : null}
         {runtime && readiness === null ? (
           <div className="mb-2 flex flex-wrap items-center gap-2 text-sm text-amber-700">
             <span>선택한 대화 엔진을 현재 사용할 수 없습니다.</span>
@@ -170,7 +173,7 @@ export function AgentConversationComposer({
             reasoningEffort={reasoningEffort}
             providerEditable={isDraft}
             disabled={Boolean(activeTurnId)}
-            needsReview={needsReview}
+            needsReview={selectionNeedsReview}
             onRuntimeChange={updateRuntime}
             onModelChange={updateModel}
             onReasoningEffortChange={updateReasoningEffort}

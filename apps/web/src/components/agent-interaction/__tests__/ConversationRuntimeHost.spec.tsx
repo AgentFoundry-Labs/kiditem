@@ -7,6 +7,7 @@ import {
   useConversationRuntime,
   type ConversationRuntimeContextValue,
 } from '../ConversationRuntimeHost';
+import { ConversationFolderTree } from '../ConversationFolderTree';
 import { useConversationSurfaceState } from '../conversation-surface-state';
 
 vi.mock('@/lib/api-client', () => ({
@@ -64,6 +65,24 @@ function RuntimeProbe() {
       {latestRuntime.liveMessages.map((message) => message.content).join(',')}|
       {latestRuntime.toolProjections.map((projection) => projection.title).join(',')}
     </output>
+  );
+}
+
+function SettingsTriggers() {
+  const openSettings = useConversationSurfaceState((state) => state.openSettings);
+  return (
+    <>
+      <button type="button" aria-label="패널 대화 설정" onClick={(event) => openSettings(event.currentTarget)}>패널 설정</button>
+      <ConversationFolderTree
+        conversations={[]}
+        selectedContext={null}
+        activeConversationId={null}
+        onSelectContext={vi.fn()}
+        onSelectConversation={vi.fn()}
+        onNewConversation={vi.fn()}
+        onOpenSettings={openSettings}
+      />
+    </>
   );
 }
 
@@ -215,6 +234,9 @@ describe('ConversationRuntimeHost', () => {
     })).rejects.toThrow('conversation_turn_ended');
     expect(runtimeMocks.runAgent).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(latestRuntime?.isDraft).toBe(false));
+    expect(latestRuntime?.draft).toMatchObject({
+      message: 'Review the supplier evidence', model: 'gpt-5.6', reasoningEffort: 'low',
+    });
 
     await latestRuntime?.start({
       message: 'Try the same request again', model: 'gpt-5.6', reasoningEffort: 'low',
@@ -238,6 +260,69 @@ describe('ConversationRuntimeHost', () => {
       message: 'Review evidence', model: 'gpt-5.6', reasoningEffort: '',
     })).rejects.toThrow('conversation_reasoning_effort_required');
     expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
+  });
+
+  it('applies only a supported matching preference pair to a newly selected draft', async () => {
+    vi.mocked(apiClient.get).mockImplementation((path: string) => {
+      if (path === '/api/agent-os/conversations') return Promise.resolve([] as never);
+      return Promise.resolve({
+        schemaVersion: 1,
+        contexts: { sourcing: { codex_cli: { model: 'gpt-5.6', reasoningEffort: 'low' } } },
+      } as never);
+    });
+    vi.mocked(apiClient.post).mockImplementation((path: string) => {
+      if (path !== '/api/copilotkit') return Promise.resolve({} as never);
+      return Promise.resolve({
+        agents: { conversation: { capabilities: { custom: { gatewayReadiness: [{
+          runtime: 'codex_cli', ready: true,
+          readiness: {
+            runtime: 'codex_cli', version: '0.149.1', models: ['gpt-5.6'], reasoningEfforts: ['low'],
+            modelReasoningEfforts: [{ model: 'gpt-5.6', reasoningEfforts: ['low'] }],
+            loginVerified: true, mcpProtocolRevision: '2026-07-28',
+          },
+        }, { runtime: 'claude_cli', ready: false, code: 'selected_engine_unavailable' }] } } } },
+      } as never);
+    });
+    renderHost(<RuntimeProbe />);
+    act(() => {
+      useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
+      useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
+    });
+
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/copilotkit', {
+      method: 'info', params: {}, body: {},
+    }));
+    await waitFor(() => expect(latestRuntime?.readiness).not.toBeUndefined());
+    expect(latestRuntime?.readiness).toEqual(expect.arrayContaining([
+      expect.objectContaining({ runtime: 'codex_cli', ready: true }),
+    ]));
+    expect(latestRuntime?.preferences).toEqual(expect.objectContaining({
+      contexts: expect.objectContaining({ sourcing: expect.any(Object) }),
+    }));
+    await waitFor(() => expect(latestRuntime?.turnPreference).toEqual({
+      model: 'gpt-5.6', reasoningEffort: 'low', needsReview: false,
+    }));
+    expect(useConversationSurfaceState.getState().pendingDraft).toMatchObject({
+      model: 'gpt-5.6', reasoningEffort: 'low',
+    });
+  });
+
+  it('mounts exactly one settings dialog for panel and tree triggers, returning focus to each trigger', async () => {
+    renderHost(<SettingsTriggers />);
+    await screen.findByRole('navigation', { name: '대화 목록' });
+    const panelTrigger = screen.getByRole('button', { name: '패널 대화 설정' });
+    act(() => panelTrigger.focus());
+    act(() => panelTrigger.click());
+    expect(screen.getAllByRole('dialog', { name: '대화 설정' })).toHaveLength(1);
+    screen.getByRole('button', { name: '닫기' }).click();
+    await waitFor(() => expect(panelTrigger).toHaveFocus());
+
+    const treeTrigger = screen.getByRole('button', { name: '대화 설정' });
+    act(() => treeTrigger.focus());
+    act(() => treeTrigger.click());
+    expect(screen.getAllByRole('dialog', { name: '대화 설정' })).toHaveLength(1);
+    screen.getByRole('button', { name: '닫기' }).click();
+    await waitFor(() => expect(treeTrigger).toHaveFocus());
   });
 
   it('keeps one subscription and the active turn, live messages, tool projections, and interrupt across presentation route remounts', async () => {
