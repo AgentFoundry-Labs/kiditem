@@ -105,7 +105,7 @@ export class GatewayCommandResponseBroker {
   }
 
   resolveConversationCreated(event: Extract<GatewayEvent, { kind: 'conversation.created' }>): void {
-    this.resolve(event.commandId, 'conversation.create', event.conversation);
+    this.resolve(event.commandId, 'conversation.create', event.conversation, event.conversation.id);
   }
 
   resolveConversationHistory(event: Extract<GatewayEvent, { kind: 'conversation.history' }>): void {

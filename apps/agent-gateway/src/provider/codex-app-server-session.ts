@@ -79,18 +79,35 @@ export class CodexAppServerSession {
   }
 
   async listConversations(): Promise<ProviderConversationSummary[]> {
+    return (await this.listConversationsPage()).conversations;
+  }
+
+  async listConversationsPage(cursor?: string): Promise<Readonly<{
+    conversations: ProviderConversationSummary[];
+    nextCursor: string | null;
+  }>> {
     await this.ensureInitialized();
+    if (cursor !== undefined && (cursor.length < 1 || cursor.length > 2_000)) throw new Error('codex_app_server_list_invalid');
     const result = await this.request('thread/list', {
       limit: MAX_HISTORY_MESSAGES,
       cwd: this.options.workspace,
       archived: false,
+      ...(cursor === undefined ? {} : { cursor }),
     });
-    const data = object(result)?.data;
+    const response = object(result);
+    const data = response?.data;
     if (!Array.isArray(data)) throw new Error('codex_app_server_list_invalid');
-    return data
+    const nextCursor = response?.nextCursor;
+    if (nextCursor !== null && (typeof nextCursor !== 'string' || nextCursor.length < 1 || nextCursor.length > 2_000)) {
+      throw new Error('codex_app_server_list_invalid');
+    }
+    return {
+      conversations: data
       .map(object)
       .filter((thread): thread is Record<string, unknown> => thread !== null && thread.parentThreadId === null)
-      .map(toProviderConversation);
+      .map(toProviderConversation),
+      nextCursor,
+    };
   }
 
   async modelCatalog(): Promise<CodexModelCapability[]> {

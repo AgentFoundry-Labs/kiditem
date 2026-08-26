@@ -68,6 +68,9 @@ export class ConversationDescriptorStore {
       if (current.some((candidate) => candidate.id === descriptor.id)) {
         throw new Error('gateway_descriptor_duplicate');
       }
+      if (current.length >= MAX_DESCRIPTORS) {
+        throw new Error('gateway_descriptor_limit');
+      }
       await this.writeAtomically([...current, descriptor]);
     });
   }

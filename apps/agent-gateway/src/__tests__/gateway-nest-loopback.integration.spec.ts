@@ -81,6 +81,93 @@ describe('Gateway ↔ Nest loopback', () => {
     });
   });
 
+  it('resolves a browser-reserved create through the real Nest control loopback before its transport acknowledgement', async () => {
+    const bindings = new ExecutionBindingRegistry();
+    const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
+    const readiness = new GatewayReadinessService();
+    const queue = new GatewayCommandQueue({
+      bindings,
+      installationId: 'installation-loopback',
+      longPollMs: 0,
+      onTransientClear: () => { broker.disconnect(); readiness.clear(); },
+    });
+    const eventHandler = new GatewayEventHandlerService({ queue, readiness, broker });
+    const controller = new GatewayControlController(
+      new GatewayInstallationBearerService({ token: TOKEN, installationId: 'installation-loopback' }),
+      queue,
+      eventHandler,
+      readiness,
+    );
+    const client = new GatewayControlClient({
+      controlOrigin: 'http://127.0.0.1:4000', token: TOKEN, fetch: loopbackFetch(controller),
+    });
+    const poll = {
+      kind: 'poll' as const,
+      gatewayInstanceId: 'gateway-loopback-create',
+      platform: 'macos' as const,
+      runtimeTrain: GATEWAY_RUNTIME_TRAIN,
+    };
+    const conversationId = 'browser-reserved-conversation-1';
+    const summary = {
+      id: conversationId,
+      runtime: 'codex_cli' as const,
+      agentKey: null,
+      title: 'General chat',
+      createdAt: '2026-08-26T00:00:00.000Z',
+      updatedAt: '2026-08-26T00:00:00.000Z',
+    };
+    const create = vi.fn(async () => summary);
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: poll.gatewayInstanceId, redactionTokens: [TOKEN] });
+    const dispatcher = new GatewayCommandDispatcher({
+      gateway: {
+        list: async () => [],
+        create,
+        history: async () => [],
+        rename: async () => undefined,
+        delete: async () => undefined,
+        startTurn: async () => undefined,
+        sendInput: async () => undefined,
+        interrupt: async () => undefined,
+      },
+      outbox,
+      preferences: { read: async () => ({ schemaVersion: 1 as const, contexts: {} }), set: async () => ({ schemaVersion: 1 as const, contexts: {} }) },
+    });
+
+    await expect(client.poll(poll)).resolves.toEqual({ commands: [] });
+    const command = {
+      kind: 'conversation.create' as const,
+      commandId: broker.nextCommandId(),
+      conversationId,
+      runtime: 'codex_cli' as const,
+      agentKey: null,
+      title: summary.title,
+    };
+    const result = broker.begin<typeof summary>({ ...OWNER, command });
+    queue.enqueue(command);
+
+    const batch = await client.poll(poll);
+    expect(batch?.commands).toEqual([command]);
+    await dispatcher.dispatch(batch!.commands[0]!);
+    const body = outbox.peekBody();
+    if (!body) throw new Error('gateway_loopback_create_event_missing');
+    expect(events(body)).toEqual([
+      { kind: 'conversation.created', commandId: command.commandId, conversation: summary },
+      { kind: 'command.ack', commandId: command.commandId },
+    ]);
+
+    const resolved = expect(result.result).resolves.toEqual(summary);
+    await outbox.flush((eventBody) => client.postEventBody(eventBody));
+    await resolved;
+
+    expect(create).toHaveBeenCalledOnce();
+    expect(create).toHaveBeenCalledWith({
+      conversationId,
+      runtime: 'codex_cli',
+      agentKey: null,
+      title: summary.title,
+    });
+  });
+
   it('round-trips installation-local preference commands without putting authenticated owner data in the file or Gateway events', async () => {
     const root = await fixtureRoot();
     const bindings = new ExecutionBindingRegistry();

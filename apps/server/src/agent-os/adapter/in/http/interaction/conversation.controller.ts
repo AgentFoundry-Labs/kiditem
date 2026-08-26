@@ -68,11 +68,15 @@ export class ConversationController {
   ) {}
 
   @Get('conversations')
-  list(
+  async list(
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.conversations.list(owner(organizationId, user));
+    try {
+      return await this.conversations.list(owner(organizationId, user));
+    } catch (error) {
+      rethrowConversationError(error);
+    }
   }
 
   @Post('conversations')
@@ -121,10 +125,11 @@ export class ConversationController {
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
+    const parsedConversationId = parseId(ConversationIdSchema, conversationId, 'conversationId');
     try {
       return await this.conversations.history({
         ...owner(organizationId, user),
-        conversationId: parseId(ConversationIdSchema, conversationId, 'conversationId'),
+        conversationId: parsedConversationId,
       });
     } catch (error) {
       rethrowConversationError(error);
@@ -139,10 +144,11 @@ export class ConversationController {
     @CurrentUser() user: AuthUser,
   ) {
     const command = parse(RenameConversationSchema, body, 'Invalid conversation rename request.');
+    const parsedConversationId = parseId(ConversationIdSchema, conversationId, 'conversationId');
     try {
       return await this.conversations.rename({
         ...owner(organizationId, user),
-        conversationId: parseId(ConversationIdSchema, conversationId, 'conversationId'),
+        conversationId: parsedConversationId,
         title: command.title,
       });
     } catch (error) {
@@ -156,10 +162,11 @@ export class ConversationController {
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
+    const parsedConversationId = parseId(ConversationIdSchema, conversationId, 'conversationId');
     try {
       await this.conversations.delete({
         ...owner(organizationId, user),
-        conversationId: parseId(ConversationIdSchema, conversationId, 'conversationId'),
+        conversationId: parsedConversationId,
       });
       return undefined;
     } catch (error) {
@@ -175,10 +182,11 @@ export class ConversationController {
     @CurrentUser() user: AuthUser,
   ) {
     const command = parse(StartTurnSchema, body, 'Invalid conversation turn request.');
+    const parsedConversationId = parseId(ConversationIdSchema, conversationId, 'conversationId');
     try {
       const turn = await this.conversations.start({
         ...owner(organizationId, user),
-        conversationId: parseId(ConversationIdSchema, conversationId, 'conversationId'),
+        conversationId: parsedConversationId,
         ...command,
       });
       return { turnId: turn.turnId };
@@ -196,11 +204,13 @@ export class ConversationController {
     @CurrentUser() user: AuthUser,
   ) {
     const command = parse(InputTurnSchema, body, 'Invalid conversation input request.');
+    const parsedConversationId = parseId(ConversationIdSchema, conversationId, 'conversationId');
+    const parsedTurnId = parseId(TurnIdSchema, turnId, 'turnId');
     try {
       await this.conversations.input({
         ...owner(organizationId, user),
-        conversationId: parseId(ConversationIdSchema, conversationId, 'conversationId'),
-        turnId: parseId(TurnIdSchema, turnId, 'turnId'),
+        conversationId: parsedConversationId,
+        turnId: parsedTurnId,
         message: command.message,
       });
       return undefined;
@@ -216,11 +226,13 @@ export class ConversationController {
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
+    const parsedConversationId = parseId(ConversationIdSchema, conversationId, 'conversationId');
+    const parsedTurnId = parseId(TurnIdSchema, turnId, 'turnId');
     try {
       await this.conversations.interrupt({
         ...owner(organizationId, user),
-        conversationId: parseId(ConversationIdSchema, conversationId, 'conversationId'),
-        turnId: parseId(TurnIdSchema, turnId, 'turnId'),
+        conversationId: parsedConversationId,
+        turnId: parsedTurnId,
       });
       return undefined;
     } catch (error) {

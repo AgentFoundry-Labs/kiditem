@@ -1,5 +1,5 @@
 import { readdir, readFile, realpath, rm, stat } from 'node:fs/promises';
-import { dirname, join, relative } from 'node:path';
+import { dirname, isAbsolute, join, relative } from 'node:path';
 import { ProviderMessageSchema, type ProviderMessage } from '@kiditem/shared/agent-runtime';
 
 const MAX_HISTORY_BYTES = 8 * 1024 * 1024;
@@ -132,7 +132,7 @@ async function readDirectoryOrMissing(path: string) {
 
 function isWithin(candidate: string, root: string): boolean {
   const relation = relative(root, candidate);
-  return relation === '' || (!relation.startsWith('..') && !relation.includes('/..') && !relation.includes('\\..'));
+  return relation === '' || (!isAbsolute(relation) && !relation.startsWith('..') && !relation.includes('/..') && !relation.includes('\\..'));
 }
 
 function toProviderMessages(record: Record<string, unknown>, index: number, toolNames: Map<string, string>): ProviderMessage[] {

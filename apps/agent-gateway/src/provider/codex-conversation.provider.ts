@@ -11,13 +11,15 @@ import type {
   StartProviderTurn,
 } from './provider-conversation.port';
 
+const MAX_ARCHIVE_RECONCILIATION_PAGES = 4;
+
 /** Provider-port adapter over one persistent Codex app-server thread session. */
 export class CodexConversationProvider implements ProviderConversationPort {
   readonly runtime = 'codex_cli' as const;
 
   constructor(private readonly options: Readonly<{
     session: Pick<CodexAppServerSession,
-      'listConversations' | 'createConversation' | 'history' | 'rename' | 'archive' | 'startTurn' | 'steer' | 'interrupt'>;
+      'listConversations' | 'listConversationsPage' | 'createConversation' | 'history' | 'rename' | 'archive' | 'startTurn' | 'steer' | 'interrupt'>;
     readiness: ProviderReadiness;
   }>) {}
 
@@ -31,8 +33,16 @@ export class CodexConversationProvider implements ProviderConversationPort {
       return;
     } catch {
       try {
-        const conversations = await this.options.session.listConversations();
-        if (!conversations.some((conversation) => conversation.providerConversationRef === providerConversationRef)) return;
+        let cursor: string | undefined;
+        const seenCursors = new Set<string>();
+        for (let pageNumber = 0; pageNumber < MAX_ARCHIVE_RECONCILIATION_PAGES; pageNumber += 1) {
+          const page = await this.options.session.listConversationsPage(cursor);
+          if (page.conversations.some((conversation) => conversation.providerConversationRef === providerConversationRef)) break;
+          if (page.nextCursor === null) return;
+          if (seenCursors.has(page.nextCursor)) break;
+          seenCursors.add(page.nextCursor);
+          cursor = page.nextCursor;
+        }
       } catch {
         // Preserve a bounded adapter failure rather than raw app-server data.
       }

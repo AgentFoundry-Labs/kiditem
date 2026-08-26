@@ -54,6 +54,34 @@ describe('ConversationDescriptorStore', () => {
     expect(await store.list()).toEqual([descriptor]);
   });
 
+  it('rejects the 1,001st create before writing and keeps the catalog and mutation tail usable', async () => {
+    const { ConversationDescriptorStore } = await import('./conversation-descriptor.store');
+    const root = await fixtureRoot();
+    const storage = inMemoryFilesystem();
+    const store = new ConversationDescriptorStore({ stateRoot: root, platform: 'macos', filesystem: storage.filesystem as never });
+    const descriptors = Array.from({ length: 1_000 }, (_, index) => ({
+      ...fixtureDescriptor(),
+      id: `conversation-${index + 1}`,
+      providerConversationRef: `provider-thread-${index + 1}`,
+    }));
+    for (const descriptor of descriptors) await store.create(descriptor);
+
+    expect(await store.list()).toEqual(descriptors);
+    const writeFileCalls = storage.writeFileCalls;
+    await expect(store.create({
+      ...fixtureDescriptor(),
+      id: 'conversation-1001',
+      providerConversationRef: 'provider-thread-1001',
+    })).rejects.toThrow('gateway_descriptor_limit');
+    expect(storage.writeFileCalls).toBe(writeFileCalls);
+    expect(await store.list()).toEqual(descriptors);
+
+    const last = descriptors[descriptors.length - 1]!;
+    const updated = { ...last, title: 'Updated supplier research', updatedAt: '2026-08-23T00:03:00.000Z' };
+    await expect(store.update(last.id, () => updated)).resolves.toEqual(updated);
+    expect(await store.list()).toEqual([...descriptors.slice(0, -1), updated]);
+  });
+
   it('serializes concurrent updates so a later mutation retains fields written by an earlier mutation', async () => {
     const { ConversationDescriptorStore } = await import('./conversation-descriptor.store');
     const root = await fixtureRoot();
@@ -153,11 +181,17 @@ function fixtureDescriptor() {
   };
 }
 
-function inMemoryFilesystem(): { filesystem: { [key: string]: unknown }; failRename: boolean; failWrite: boolean } {
+function inMemoryFilesystem(): {
+  filesystem: { [key: string]: unknown };
+  failRename: boolean;
+  failWrite: boolean;
+  writeFileCalls: number;
+} {
   const files = new Map<string, string>();
   const result = {
     failRename: false,
     failWrite: false,
+    writeFileCalls: 0,
     filesystem: {
       mkdir: async () => undefined,
       chmod: async () => undefined,
@@ -170,6 +204,7 @@ function inMemoryFilesystem(): { filesystem: { [key: string]: unknown }; failRen
         return value;
       },
       writeFile: async (path: string, value: string) => {
+        result.writeFileCalls += 1;
         if (result.failWrite) throw new Error('temporary write failed');
         files.set(path, value);
       },

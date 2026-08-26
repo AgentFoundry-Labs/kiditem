@@ -1,4 +1,4 @@
-import type { INestApplication } from '@nestjs/common';
+import { ServiceUnavailableException, type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
@@ -156,6 +156,48 @@ describe('ConversationController', () => {
       .rejects.toMatchObject({ status: 400 });
     await expect(controller.start('conversation-1', body, ORGANIZATION_ID, { id: USER_ID } as never))
       .rejects.toMatchObject({ status: 503 });
+  });
+
+  it('maps list control failures to a safe HTTP 503 response', async () => {
+    const server = await interactionApp({
+      list: vi.fn().mockRejectedValue(new ServiceUnavailableException('provider private-reference-123 failed')),
+    });
+
+    const response = await request(server.getHttpServer())
+      .get('/api/agent-os/conversations')
+      .expect(503);
+
+    expect(JSON.stringify(response.body)).not.toContain('private-reference-123');
+  });
+
+  it('keeps invalid conversation and turn route IDs at HTTP 400 on every parameterized route', async () => {
+    const conversations = {
+      list: vi.fn(), create: vi.fn(), history: vi.fn(), rename: vi.fn(), delete: vi.fn(),
+      start: vi.fn(), input: vi.fn(), interrupt: vi.fn(),
+    };
+    const server = await interactionApp(conversations);
+    const invalid = '%20';
+    const turn = { message: 'Review this.', model: 'gpt-5.6', reasoningEffort: 'low' };
+    const input = { message: 'More context.' };
+    const routes = [
+      () => request(server.getHttpServer()).get(`/api/agent-os/conversations/${invalid}/history`),
+      () => request(server.getHttpServer()).patch(`/api/agent-os/conversations/${invalid}`).send({ title: 'Renamed' }),
+      () => request(server.getHttpServer()).delete(`/api/agent-os/conversations/${invalid}`),
+      () => request(server.getHttpServer()).post(`/api/agent-os/conversations/${invalid}/turns`).send(turn),
+      () => request(server.getHttpServer()).post(`/api/agent-os/conversations/${invalid}/turns/turn-1/input`).send(input),
+      () => request(server.getHttpServer()).post('/api/agent-os/conversations/conversation-1/turns/%20/input').send(input),
+      () => request(server.getHttpServer()).post(`/api/agent-os/conversations/${invalid}/turns/turn-1/interrupt`),
+      () => request(server.getHttpServer()).post('/api/agent-os/conversations/conversation-1/turns/%20/interrupt'),
+    ];
+
+    for (const route of routes) await route().expect(400);
+
+    expect(conversations.history).not.toHaveBeenCalled();
+    expect(conversations.rename).not.toHaveBeenCalled();
+    expect(conversations.delete).not.toHaveBeenCalled();
+    expect(conversations.start).not.toHaveBeenCalled();
+    expect(conversations.input).not.toHaveBeenCalled();
+    expect(conversations.interrupt).not.toHaveBeenCalled();
   });
 
   it('exposes exact authenticated create and preference routes with strict browser payloads', async () => {

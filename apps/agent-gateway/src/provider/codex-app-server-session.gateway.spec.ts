@@ -160,6 +160,44 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
     expect(request(reopenLines, 'thread/archive').params).toEqual({ threadId: 'provider-thread-1' });
   });
 
+  it('retains a protocol list cursor for bounded archive reconciliation', async () => {
+    const { CodexAppServerSession } = await import('./codex-app-server-session');
+    const lines: string[] = [];
+    const session = new CodexAppServerSession({
+      write: (line: string) => { lines.push(line); },
+      workspace: '/gateway/workspace',
+      mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+    });
+    const listConversationsPage = (session as unknown as {
+      listConversationsPage?: (cursor?: string) => Promise<unknown>;
+    }).listConversationsPage;
+
+    expect(listConversationsPage).toBeTypeOf('function');
+    if (!listConversationsPage) return;
+    const page = listConversationsPage.call(session, 'cursor-1');
+    answer(session, lines, 'initialize', {}); await advance();
+    expect(request(lines, 'thread/list').params).toEqual({
+      limit: 1_000,
+      cwd: '/gateway/workspace',
+      archived: false,
+      cursor: 'cursor-1',
+    });
+    answer(session, lines, 'thread/list', {
+      data: [thread('provider-thread-2', null, 'Later thread')],
+      nextCursor: 'cursor-2',
+    });
+
+    await expect(page).resolves.toEqual({
+      conversations: [{
+        providerConversationRef: 'provider-thread-2',
+        title: 'Later thread',
+        createdAt: '2023-08-23T00:00:00.000Z',
+        updatedAt: '2023-08-23T00:01:00.000Z',
+      }],
+      nextCursor: 'cursor-2',
+    });
+  });
+
   it('reads the Codex app-server model catalog and retains each model\'s supported reasoning efforts', async () => {
     const { CodexAppServerSession } = await import('./codex-app-server-session');
     const lines: string[] = [];

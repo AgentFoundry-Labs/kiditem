@@ -21,7 +21,7 @@ describe('CodexConversationProvider', () => {
     await expect(provider.readiness()).resolves.toMatchObject({ runtime: 'codex_cli', version: '0.149.1' });
   });
 
-  it('treats an archive rejection as success only when the exact provider thread is absent from the top-level list', async () => {
+  it('fails deletion when an archive rejection finds the exact provider thread on a later reconciliation page', async () => {
     const { CodexConversationProvider } = await import('./codex-conversation.provider');
     const session = new FakeCodexSession();
     const provider = new CodexConversationProvider({
@@ -29,23 +29,71 @@ describe('CodexConversationProvider', () => {
       readiness: { runtime: 'codex_cli', version: '0.149.1', models: ['gpt-5.6'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'gpt-5.6', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
     });
     session.archiveFailure = true;
+    session.pages = [
+      { conversations: [], nextCursor: 'cursor-2' },
+      { conversations: [conversation('thread-present-later')], nextCursor: null },
+    ];
+
+    await expect(provider.delete('thread-present-later')).rejects.toThrow('codex_provider_delete_failed');
+    expect(session.archived).toEqual(['thread-present-later']);
+    expect(session.pageCursors).toEqual([undefined, 'cursor-2']);
+  });
+
+  it('treats an archive rejection as idempotent only after every bounded reconciliation page is exhausted', async () => {
+    const { CodexConversationProvider } = await import('./codex-conversation.provider');
+    const session = new FakeCodexSession();
+    const provider = new CodexConversationProvider({
+      session,
+      readiness: { runtime: 'codex_cli', version: '0.149.1', models: ['gpt-5.6'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'gpt-5.6', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
+    });
+    session.archiveFailure = true;
+    session.pages = [
+      { conversations: [], nextCursor: 'cursor-2' },
+      { conversations: [], nextCursor: null },
+    ];
 
     await expect(provider.delete('thread-absent')).resolves.toBeUndefined();
     expect(session.archived).toEqual(['thread-absent']);
-    expect(session.calls).toEqual(['archive', 'list']);
+    expect(session.pageCursors).toEqual([undefined, 'cursor-2']);
+  });
 
-    session.threads = [{ providerConversationRef: 'thread-present', title: 'Still present', createdAt: '2026-08-23T00:00:00.000Z', updatedAt: '2026-08-23T00:00:00.000Z' }];
-    await expect(provider.delete('thread-present')).rejects.toThrow('codex_provider_delete_failed');
-    expect(session.archived).toEqual(['thread-absent', 'thread-present']);
+  it('fails closed when four reconciliation pages still leave a provider cursor', async () => {
+    const { CodexConversationProvider } = await import('./codex-conversation.provider');
+    const session = new FakeCodexSession();
+    const provider = new CodexConversationProvider({
+      session,
+      readiness: { runtime: 'codex_cli', version: '0.149.1', models: ['gpt-5.6'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'gpt-5.6', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
+    });
+    session.archiveFailure = true;
+    session.pages = [
+      { conversations: [], nextCursor: 'cursor-2' },
+      { conversations: [], nextCursor: 'cursor-3' },
+      { conversations: [], nextCursor: 'cursor-4' },
+      { conversations: [], nextCursor: 'cursor-5' },
+    ];
+
+    await expect(provider.delete('thread-at-bound')).rejects.toThrow('codex_provider_delete_failed');
+    expect(session.pageCursors).toEqual([undefined, 'cursor-2', 'cursor-3', 'cursor-4']);
   });
 });
+
+type Conversation = { providerConversationRef: string; title: string; createdAt: string; updatedAt: string };
+type ConversationPage = { conversations: Conversation[]; nextCursor: string | null };
 
 class FakeCodexSession {
   calls: string[] = [];
   archived: string[] = [];
-  threads: Array<{ providerConversationRef: string; title: string; createdAt: string; updatedAt: string }> = [];
+  pageCursors: Array<string | undefined> = [];
+  pages: ConversationPage[] = [];
+  threads: Conversation[] = [];
   archiveFailure = false;
   async listConversations() { this.calls.push('list'); return this.threads; }
+  async listConversationsPage(cursor?: string) {
+    this.calls.push('list-page');
+    this.pageCursors.push(cursor);
+    const page = this.pages[this.pageCursors.length - 1];
+    return page ?? { conversations: this.threads, nextCursor: null };
+  }
   async createConversation() { this.calls.push('create'); return { providerConversationRef: 'thread-1', title: 'Thread', createdAt: '2026-08-23T00:00:00.000Z', updatedAt: '2026-08-23T00:00:00.000Z' }; }
   async history() { this.calls.push('history'); return []; }
   async rename() { this.calls.push('rename'); }
@@ -57,4 +105,13 @@ class FakeCodexSession {
   async startTurn() { this.calls.push('start'); }
   async steer() { this.calls.push('steer'); }
   async interrupt() { this.calls.push('interrupt'); }
+}
+
+function conversation(providerConversationRef: string): Conversation {
+  return {
+    providerConversationRef,
+    title: 'Still present',
+    createdAt: '2026-08-23T00:00:00.000Z',
+    updatedAt: '2026-08-23T00:00:00.000Z',
+  };
 }

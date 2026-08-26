@@ -1,5 +1,20 @@
+import { GATEWAY_RUNTIME_TRAIN } from '@kiditem/shared/agent-runtime';
 import { describe, expect, it, vi } from 'vitest';
+import { GatewayCommandQueue } from './gateway-command.queue';
+import { GatewayCommandResponseBroker } from './gateway-command-response.broker';
 import { GatewayEventHandlerService } from './gateway-event-handler.service';
+
+const OWNER = {
+  organizationId: '00000000-0000-4000-8000-000000000001',
+  initiatingUserId: '00000000-0000-4000-8000-000000000002',
+};
+
+const POLL = {
+  kind: 'poll' as const,
+  gatewayInstanceId: 'gateway-1',
+  platform: 'macos' as const,
+  runtimeTrain: GATEWAY_RUNTIME_TRAIN,
+};
 
 describe('GatewayEventHandlerService', () => {
   it('acknowledges retry-safe event sequences once, records exact readiness, and revokes a provider-exit turn', () => {
@@ -81,6 +96,64 @@ describe('GatewayEventHandlerService', () => {
     }));
     expect(broker.terminal).toHaveBeenCalledWith('conversation-1', 'turn-1', 'completed');
   });
+
+  it('resolves a queued create through the event handler only when its returned conversation ID matches the owner-fenced command', async () => {
+    const queue = new GatewayCommandQueue({
+      bindings: bindingRegistry() as never,
+      installationId: 'installation-1',
+      longPollMs: 0,
+    });
+    queue.claim('gateway-1');
+    const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
+    const handler = new GatewayEventHandlerService({
+      queue,
+      readiness: { update: vi.fn() } as never,
+      broker,
+    });
+    const command = {
+      kind: 'conversation.create' as const,
+      commandId: 'create-matching',
+      conversationId: 'conversation-created',
+      runtime: 'codex_cli' as const,
+      agentKey: null,
+      title: 'Conversation',
+    };
+    const created = conversation('created');
+    const matching = broker.begin<typeof created>({ ...OWNER, command });
+    queue.enqueue(command);
+
+    expect((await queue.poll(POLL)).commands).toEqual([command]);
+    handler.handle({
+      gatewayInstanceId: 'gateway-1',
+      eventSeq: 1,
+      events: [
+        { kind: 'command.ack', commandId: command.commandId },
+        { kind: 'conversation.created', commandId: command.commandId, conversation: created },
+      ],
+    });
+
+    await expect(matching.result).resolves.toEqual(created);
+    expect(await queue.poll(POLL)).toEqual({ commands: [] });
+
+    const mismatchedCommand = {
+      ...command,
+      commandId: 'create-mismatched',
+      conversationId: 'conversation-requested',
+    };
+    const mismatched = broker.begin<typeof created>({ ...OWNER, command: mismatchedCommand });
+    const mismatchedExpectation = expect(mismatched.result).rejects.toThrow('gateway_broker_fence_invalid');
+    queue.enqueue(mismatchedCommand);
+    handler.handle({
+      gatewayInstanceId: 'gateway-1',
+      eventSeq: 2,
+      events: [
+        { kind: 'command.ack', commandId: mismatchedCommand.commandId },
+        { kind: 'conversation.created', commandId: mismatchedCommand.commandId, conversation: created },
+      ],
+    });
+
+    await mismatchedExpectation;
+  });
 });
 
 function brokerPort() {
@@ -103,5 +176,13 @@ function conversation(id: string) {
   return {
     id: `conversation-${id}`, runtime: 'codex_cli' as const, agentKey: null,
     title: 'Conversation', createdAt: '2026-08-26T00:00:00.000Z', updatedAt: '2026-08-26T00:00:00.000Z',
+  };
+}
+
+function bindingRegistry() {
+  return {
+    issue: vi.fn(),
+    revokeTurn: vi.fn(),
+    revokeInstallation: vi.fn(),
   };
 }
