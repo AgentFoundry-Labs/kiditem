@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { queryKeys } from './query-keys';
 
+describe('conversation query keys', () => {
+  it('keeps summaries, history, readiness, and preferences in independently invalidatable families', () => {
+    expect(queryKeys.conversations.list()).toEqual(['agent-os', 'conversations', 'list']);
+    expect(queryKeys.conversations.history('conversation-1')).toEqual([
+      'agent-os', 'conversations', 'history', 'conversation-1',
+    ]);
+    expect(queryKeys.conversations.readiness()).toEqual(['agent-os', 'conversations', 'readiness']);
+    expect(queryKeys.conversations.preferences()).toEqual(['agent-os', 'conversations', 'preferences']);
+  });
+});
+
 describe('retired inventory route query keys', () => {
   it('removes unshipped and keeps warehouse reference lookup', () => {
     expect(queryKeys).not.toHaveProperty('unshipped');

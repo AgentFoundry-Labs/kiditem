@@ -125,6 +125,29 @@ describe('AgentConversationSurface', () => {
     expect(screen.getByLabelText('Conversation messages')).toHaveClass('overflow-y-auto');
   });
 
+  it('opens a local runtime-bound draft from the surface without creating a durable conversation', async () => {
+    useConversationSurfaceState.getState().reset();
+    const user = userEvent.setup();
+    renderSurface();
+    await screen.findByRole('heading', { name: 'General' });
+    vi.mocked(apiClient.post).mockClear();
+
+    await user.click(screen.getAllByRole('button', { name: 'New conversation' })[0]);
+    await user.selectOptions(screen.getByLabelText('Runtime'), 'codex_cli');
+    await user.click(screen.getByRole('button', { name: 'Create conversation' }));
+
+    await waitFor(() => expect(runtimeMocks.useAgent).toHaveBeenCalledWith({
+      agentId: expect.stringMatching(/^kiditem-conversation:/),
+      runtimeAgentId: 'conversation',
+      threadId: useConversationSurfaceState.getState().pendingDraft?.conversationId,
+    }));
+    expect(vi.mocked(apiClient.post).mock.calls.some(([path]) => path === '/api/agent-os/conversations'))
+      .toBe(false);
+    expect(vi.mocked(apiClient.get).mock.calls.some(([path]) => path.endsWith('/history')))
+      .toBe(false);
+    expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
+  });
+
   it('reconciles a live active turn only after refreshed provider history supplies the terminal reply', async () => {
     let history: unknown[] = [];
     let historyRequests = 0;

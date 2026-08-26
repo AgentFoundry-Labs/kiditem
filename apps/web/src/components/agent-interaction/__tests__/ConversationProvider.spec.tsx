@@ -29,6 +29,8 @@ describe('ConversationProvider', () => {
 
     const props = captureProps.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(props).not.toHaveProperty('headers');
+    expect(props).not.toHaveProperty('agentId');
+    expect(props).not.toHaveProperty('threadId');
     expect(props.credentials).toBe('include');
   });
 });

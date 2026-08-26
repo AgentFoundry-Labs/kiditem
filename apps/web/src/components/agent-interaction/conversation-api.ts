@@ -1,14 +1,19 @@
 import { apiClient } from '@/lib/api-client';
 import {
   AgentKeySchema,
+  CreateConversationCommandSchema,
+  ConversationPreferencesSchema,
   ConversationSummarySchema,
   GatewayReadinessSchema,
   ProviderMessageSchema,
   type AgentKey,
+  type ConversationPreferences as SharedConversationPreferences,
   type ConversationSummary as SharedConversationSummary,
   type GatewayProviderReadiness,
   type ProviderMessage,
   type ProviderRuntime,
+  type SetConversationPreferenceCommand as SharedSetConversationPreferenceCommand,
+  SetConversationPreferenceCommandSchema,
 } from '@kiditem/shared/agent-runtime';
 
 export const agentConversationKeys = AgentKeySchema.options;
@@ -18,17 +23,36 @@ export type ConversationRuntime = ProviderRuntime;
 export type ConversationSummary = SharedConversationSummary;
 export type ConversationMessage = ProviderMessage;
 export type GatewayReadiness = GatewayProviderReadiness;
+export type ConversationPreferences = SharedConversationPreferences;
+export type SetConversationPreferenceCommand = SharedSetConversationPreferenceCommand;
 
 export async function listConversations(): Promise<ConversationSummary[]> {
   return ConversationSummarySchema.array().parse(await apiClient.get<unknown>('/api/agent-os/conversations'));
 }
 
 export async function createConversation(input: {
+  conversationId: string;
   runtime: ConversationRuntime;
   agentKey: AgentConversationKey | null;
-  title?: string;
+  title: string;
 }): Promise<ConversationSummary> {
-  return ConversationSummarySchema.parse(await apiClient.post<unknown>('/api/agent-os/conversations', input));
+  const command = CreateConversationCommandSchema.parse(input);
+  return ConversationSummarySchema.parse(await apiClient.post<unknown>('/api/agent-os/conversations', command));
+}
+
+export async function getConversationPreferences(): Promise<ConversationPreferences> {
+  return ConversationPreferencesSchema.parse(
+    await apiClient.get<unknown>('/api/agent-os/conversation-preferences'),
+  );
+}
+
+export async function setConversationPreference(
+  input: SetConversationPreferenceCommand,
+): Promise<ConversationPreferences> {
+  const command = SetConversationPreferenceCommandSchema.parse(input);
+  return ConversationPreferencesSchema.parse(
+    await apiClient.put<unknown>('/api/agent-os/conversation-preferences', command),
+  );
 }
 
 export async function getConversationHistory(conversationId: string): Promise<ConversationMessage[]> {

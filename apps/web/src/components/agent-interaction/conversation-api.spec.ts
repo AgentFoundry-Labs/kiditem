@@ -3,17 +3,19 @@ import { apiClient } from '@/lib/api-client';
 import {
   createConversation,
   deleteConversation,
+  getConversationPreferences,
   getConversationHistory,
   interruptConversation,
   listConversations,
   loadConversationReadiness,
   renameConversation,
   sendConversationInput,
+  setConversationPreference,
   startConversationTurn,
 } from './conversation-api';
 
 vi.mock('@/lib/api-client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
+  apiClient: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }));
 
 describe('conversation API', () => {
@@ -24,15 +26,26 @@ describe('conversation API', () => {
       id: 'conversation-1', runtime: 'codex_cli', agentKey: null, title: 'General',
       createdAt: '2026-08-26T00:00:00.000Z', updatedAt: '2026-08-26T00:00:00.000Z',
     };
-    vi.mocked(apiClient.get).mockResolvedValue([] as never);
+    vi.mocked(apiClient.get).mockImplementation((path: string) => Promise.resolve(
+      path === '/api/agent-os/conversation-preferences'
+        ? { schemaVersion: 1, contexts: {} }
+        : [],
+    ) as never);
     vi.mocked(apiClient.post).mockImplementation((path: string) => Promise.resolve(
       path === '/api/agent-os/conversations' ? conversation : { turnId: 'turn-1' },
     ) as never);
     vi.mocked(apiClient.patch).mockResolvedValue(conversation as never);
+    vi.mocked(apiClient.put).mockResolvedValue({ schemaVersion: 1, contexts: {} } as never);
     vi.mocked(apiClient.delete).mockResolvedValue({} as never);
 
     await listConversations();
-    await createConversation({ runtime: 'codex_cli', agentKey: null, title: 'General' });
+    await createConversation({
+      conversationId: 'conversation-1', runtime: 'codex_cli', agentKey: null, title: 'General',
+    });
+    await getConversationPreferences();
+    await setConversationPreference({
+      context: 'general', runtime: 'codex_cli', model: 'gpt-5.6', reasoningEffort: 'xhigh',
+    });
     await getConversationHistory('conversation-1');
     await renameConversation('conversation-1', 'Renamed');
     await startConversationTurn('conversation-1', {
@@ -44,9 +57,13 @@ describe('conversation API', () => {
 
     expect(apiClient.get).toHaveBeenNthCalledWith(1, '/api/agent-os/conversations');
     expect(apiClient.post).toHaveBeenNthCalledWith(1, '/api/agent-os/conversations', {
-      runtime: 'codex_cli', agentKey: null, title: 'General',
+      conversationId: 'conversation-1', runtime: 'codex_cli', agentKey: null, title: 'General',
     });
-    expect(apiClient.get).toHaveBeenNthCalledWith(2, '/api/agent-os/conversations/conversation-1/history');
+    expect(apiClient.get).toHaveBeenNthCalledWith(2, '/api/agent-os/conversation-preferences');
+    expect(apiClient.put).toHaveBeenCalledWith('/api/agent-os/conversation-preferences', {
+      context: 'general', runtime: 'codex_cli', model: 'gpt-5.6', reasoningEffort: 'xhigh',
+    });
+    expect(apiClient.get).toHaveBeenNthCalledWith(3, '/api/agent-os/conversations/conversation-1/history');
     expect(apiClient.patch).toHaveBeenCalledWith('/api/agent-os/conversations/conversation-1', { title: 'Renamed' });
     expect(apiClient.post).toHaveBeenNthCalledWith(2, '/api/agent-os/conversations/conversation-1/turns', {
       message: 'Review the evidence.', model: 'gpt-5.6', reasoningEffort: 'xhigh',
@@ -57,6 +74,18 @@ describe('conversation API', () => {
     expect(apiClient.post).toHaveBeenNthCalledWith(4, '/api/agent-os/conversations/conversation-1/turns/turn-1/interrupt');
     expect(apiClient.delete).toHaveBeenCalledWith('/api/agent-os/conversations/conversation-1');
     expect(JSON.stringify(vi.mocked(apiClient.post).mock.calls)).not.toMatch(/provider|binding|owner|credential/i);
+  });
+
+  it('rejects malformed create and preference payloads before they leave the browser boundary', async () => {
+    await expect(createConversation({
+      conversationId: '', runtime: 'codex_cli', agentKey: null, title: 'General',
+    })).rejects.toThrow();
+    await expect(setConversationPreference({
+      context: 'general', runtime: 'codex_cli', model: '', reasoningEffort: 'low',
+    })).rejects.toThrow();
+
+    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(apiClient.put).not.toHaveBeenCalled();
   });
 
   it('reads model and effort choices from the public CopilotKit info capability', async () => {

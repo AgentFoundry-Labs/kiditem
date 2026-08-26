@@ -4,6 +4,7 @@ export const queryKeys = {
     list: () => [...queryKeys.conversations.all, 'list'] as const,
     history: (conversationId: string) => [...queryKeys.conversations.all, 'history', conversationId] as const,
     readiness: () => [...queryKeys.conversations.all, 'readiness'] as const,
+    preferences: () => [...queryKeys.conversations.all, 'preferences'] as const,
     invocation: (invocationId: string) => [...queryKeys.conversations.all, 'invocation', invocationId] as const,
   },
   agents: {
