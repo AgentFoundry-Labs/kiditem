@@ -14,7 +14,7 @@ The user-facing changes are:
 
 - a global right-side AI chat dock owned by the authenticated app shell;
 - the existing bottom-sidebar `AI 챗` utility wired as the normal dock trigger without coupling chat state to sidebar composition;
-- Dashboard Agent entry points that open an Agent-bound draft in the same dock;
+- the existing Dashboard `Agent OS` organization chart, label, cards, and action semantics preserved without chat-driven redesign;
 - an explicit Dashboard return action;
 - one folder tree containing General chat and the five code-owned Agents;
 - conversations nested below their General or Agent folder;
@@ -49,6 +49,7 @@ The user-facing changes are:
 - Adding visual controls for unsupported attachment, microphone, voice, or media capabilities
 - Fixing the final composition or order of the product navigation sidebar
 - Making chat lifecycle or state depend on one sidebar implementation
+- Renaming, restructuring, or repurposing the Dashboard `Agent OS` organization chart and action cards
 - Restoring an interaction gateway application or a separate port
 
 ## 4. Product Vocabulary
@@ -86,12 +87,15 @@ Opening the global launcher:
 - never creates a Conversation merely by opening the panel; and
 - preserves the panel and selected conversation across ordinary client-side route navigation.
 
-The Dashboard Agent cards and other explicit domain entry points may open the same dock with a fixed Agent draft. They do not create a second chat implementation.
+The existing Dashboard `Agent OS` region remains unchanged. Its `Agent OS` label, organization chart, business cards, and existing action semantics do not become chat launchers and are not renamed in this scope.
+
+An Agent-bound draft is selected from the dock's new-conversation context menu or from the matching Agent OS folder `+` action. A future explicit domain entry point may call the same dock controller, but this design does not add or repurpose one inside the Dashboard `Agent OS` region.
 
 The dock header contains:
 
 - General or fixed Agent identity;
 - conversation title when one exists;
+- a new-conversation action that selects General or one of the five Agents;
 - a close action;
 - a Settings action; and
 - `전체 기록`, which opens `/agent-os` at the current conversation or selected context.
@@ -138,7 +142,7 @@ Expansion state is disposable UI state. Selecting a conversation expands its own
 
 The tree has a visually primary `새 AI 대화` action. It opens an unsaved General draft immediately and focuses the composer. It does not open a runtime-selection modal and does not create a provider Conversation merely by opening or closing the draft.
 
-The global sidebar `AI 챗` utility, any authenticated full-screen launcher, the Dashboard entry, and the existing Quick Action entry call the same dock controller and use the same General draft behavior. A domain Agent entry calls that controller with the exact fixed Agent key.
+The global sidebar `AI 챗` utility, any authenticated full-screen launcher, and the existing Quick Action entry call the same dock controller and use the same General draft behavior. The dock context menu and Agent OS folder actions call that controller with the exact fixed Agent key.
 
 No entry point owns transcript state, creates its own CopilotKit provider, or implements a separate conversation panel.
 
@@ -407,7 +411,8 @@ The existing 500-plus-line `AgentConversationSurface` must be decomposed into sh
 - collapsed-sidebar and authenticated full-screen launcher behavior
 - dock state and active conversation survive ordinary route navigation
 - Dashboard remains visible beside the dock at wide desktop sizes
-- Dashboard Agent entry opens an Agent-bound draft in the same dock
+- Dashboard `Agent OS` label, organization chart, cards, and existing actions remain unchanged
+- dock new-conversation context menu opens an Agent-bound draft without touching Dashboard Agent UI
 - `전체 기록` opens Agent OS at the current conversation or context
 - dock and Agent OS reuse one conversation flow without duplicate transcript state
 - Dashboard return and KidItem visual tokens
@@ -442,15 +447,16 @@ Run authenticated browser QA for:
 
 1. open General chat from the bottom-sidebar utility on multiple authenticated routes;
 2. keep the dock and active conversation while navigating between work screens;
-3. open an Agent-bound draft from a Dashboard Agent entry;
-4. open the same conversation through `전체 기록` and return to Dashboard;
-5. immediate General chat start;
-6. Agent-folder chat start;
-7. model/reasoning override between turns;
-8. settings save and reuse in a new draft;
-9. rename, search, individual delete, and confirmed bulk delete against disposable QA conversations;
-10. docked desktop, overlay drawer, Agent OS desktop, and Agent OS drawer layouts; and
-11. console/network checks confirming one conversation transport, no retired Agent OS endpoints, and no internal-error toasts.
+3. verify the Dashboard `Agent OS` label, organization chart, cards, and existing actions are unchanged;
+4. open an Agent-bound draft from the dock context menu;
+5. open the same conversation through `전체 기록` and return to Dashboard;
+6. immediate General chat start;
+7. Agent-folder chat start;
+8. model/reasoning override between turns;
+9. settings save and reuse in a new draft;
+10. rename, search, individual delete, and confirmed bulk delete against disposable QA conversations;
+11. docked desktop, overlay drawer, Agent OS desktop, and Agent OS drawer layouts; and
+12. console/network checks confirming one conversation transport, no retired Agent OS endpoints, and no internal-error toasts.
 
 ## 15. Schema and Deployment Impact
 
