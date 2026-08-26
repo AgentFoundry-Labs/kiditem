@@ -50,7 +50,9 @@ function authRequiredJsonResponse(path: string): NextResponse {
 
 export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
-  const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
+  const isPublic =
+    PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}/`)) ||
+    (req.method === 'POST' && path === '/api/auth/login');
   const isTransportBypass = TRANSPORT_BYPASS_PATHS.some(
     (p) => path === p || path.startsWith(`${p}/`),
   );

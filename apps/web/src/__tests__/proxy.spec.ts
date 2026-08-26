@@ -4,12 +4,15 @@ import { proxy } from '../proxy';
 
 function makeRequest(
   path: string,
-  init?: { accept?: string; authenticated?: boolean },
+  init?: { accept?: string; authenticated?: boolean; method?: string },
 ) {
   const headers: Record<string, string> = {};
   if (init?.accept) headers.accept = init.accept;
   if (init?.authenticated) headers.cookie = `kiditem_session=${'a'.repeat(43)}`;
-  return new NextRequest(new URL(path, 'http://localhost:3000'), { headers });
+  return new NextRequest(new URL(path, 'http://localhost:3000'), {
+    headers,
+    method: init?.method,
+  });
 }
 
 function expectRedirectPath(response: Response, pathname: string, next: string) {
@@ -45,6 +48,18 @@ describe('proxy local session gate', () => {
       timestamp: expect.any(String),
       path: '/api/dashboard/stats',
     });
+  });
+
+  it('passes an unauthenticated login submission through to NestJS', async () => {
+    const response = await proxy(makeRequest('/api/auth/login', { method: 'POST' }));
+
+    expect(response.status).toBe(200);
+  });
+
+  it('keeps other unauthenticated auth APIs behind the cookie gate', async () => {
+    const response = await proxy(makeRequest('/api/auth/me'));
+
+    expect(response.status).toBe(401);
   });
 
   it('returns JSON 401 for a non-API application/json request without a cookie', async () => {
