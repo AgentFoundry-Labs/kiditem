@@ -19,7 +19,7 @@ import type {
 } from './provider-conversation.port';
 
 export interface ClaudeMcpConfigPort {
-  create(input: { turnId: string; mcpUrl: string; executionBinding: string }): Promise<string>;
+  create(input: { turnId: string; conversationId: string; mcpUrl: string; mcpTransportToken: string }): Promise<string>;
   remove(path: string): Promise<void>;
 }
 
@@ -60,12 +60,14 @@ export class ClaudeConversationProvider implements ProviderConversationPort {
   readonly runtime = 'claude_cli' as const;
   private readonly active = new Map<string, ActiveClaudeTurn>();
   private readonly terminating = new Map<string, Promise<void>>();
+  private readonly requestedTerminal = new Map<string, 'interrupted'>();
 
   constructor(private readonly options: Readonly<{
     runtimeRoot: string;
     workspace: string;
     loginRoot: string;
     mcpUrl: string;
+    mcpTransportToken: string;
     configs: ClaudeMcpConfigPort;
     launcher: ClaudeProcessLauncher;
     sessions: ClaudeProviderSessionStorePort;
@@ -103,8 +105,9 @@ export class ClaudeConversationProvider implements ProviderConversationPort {
     if (this.active.has(key)) throw new Error('claude_turn_already_live');
     const configPath = await this.options.configs.create({
       turnId: input.turnId,
+      conversationId: input.conversationId,
       mcpUrl: this.options.mcpUrl,
-      executionBinding: input.executionBinding,
+      mcpTransportToken: this.options.mcpTransportToken,
     });
     let resume: boolean;
     try {
@@ -127,7 +130,7 @@ export class ClaudeConversationProvider implements ProviderConversationPort {
       instructionProfile: input.instructionProfile,
     });
     let active: ActiveClaudeTurn | undefined;
-    const parser = new ClaudeStreamParser({ redactionTokens: [input.executionBinding] });
+    const parser = new ClaudeStreamParser({ redactionTokens: [this.options.mcpTransportToken] });
     const earlyEvents: ProviderEvent[] = [];
     let earlyOutputFailed = false;
     let earlyExit: number | null | undefined;
@@ -157,7 +160,7 @@ export class ClaudeConversationProvider implements ProviderConversationPort {
           // release its Gateway fence before that termination promise proves
           // the complete process tree is gone.
           if (this.terminating.has(key)) return;
-          this.finish(active, code === 0 ? 'completed' : 'failed');
+          this.finish(active, this.requestedTerminal.get(key) ?? (code === 0 ? 'completed' : 'failed'));
         },
       });
       active = Object.freeze({
@@ -194,7 +197,14 @@ export class ClaudeConversationProvider implements ProviderConversationPort {
 
   async interrupt(input: InterruptProviderTurn): Promise<void> {
     const active = this.require(input.providerConversationRef, input.turnId);
-    await this.terminateAndFinish(active, 'interrupted');
+    const key = turnKey(active.providerConversationRef, active.turnId);
+    this.requestedTerminal.set(key, 'interrupted');
+    try {
+      await active.handle.interrupt();
+    } catch (error) {
+      if (this.active.get(key) === active) this.requestedTerminal.delete(key);
+      throw error;
+    }
   }
 
   async readiness(): Promise<ProviderReadiness> {
@@ -202,7 +212,7 @@ export class ClaudeConversationProvider implements ProviderConversationPort {
     return this.options.readiness;
   }
 
-  /** Gateway loss never leaves a provider child holding an execution binding. */
+  /** Gateway loss never leaves a provider child with a live private MCP connection. */
   async close(): Promise<void> {
     await Promise.all([...this.active.values()].map((active) => this.terminateAndFinish(active, 'disconnected')));
   }
@@ -227,6 +237,7 @@ export class ClaudeConversationProvider implements ProviderConversationPort {
     const key = turnKey(active.providerConversationRef, active.turnId);
     if (this.active.get(key) !== active) return;
     this.active.delete(key);
+    this.requestedTerminal.delete(key);
     void this.options.configs.remove(active.configPath).catch(() => undefined);
     if (!terminalAlreadyEmitted) active.sink({ kind: 'status', status });
   }

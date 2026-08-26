@@ -31,6 +31,7 @@ describe('ConversationGateway', () => {
     });
     expect(JSON.stringify(created)).not.toContain('provider-thread-1');
     expect(provider.created).toEqual([expect.objectContaining({
+      conversationId: 'browser-conversation-1',
       title: 'Supplier research',
       instructionProfile: expect.objectContaining({
         selectedAgentKey: 'sourcing',
@@ -47,16 +48,15 @@ describe('ConversationGateway', () => {
       message: 'Find current supplier inventory.',
       model: 'gpt-5.6',
       reasoningEffort: 'medium',
-      executionBinding: 'binding-1',
       onEvent: () => undefined,
     });
     expect(provider.started).toEqual([{
       providerConversationRef: 'provider-thread-1',
+      conversationId: 'browser-conversation-1',
       turnId: 'turn-1',
       message: 'Find current supplier inventory.',
       model: 'gpt-5.6',
       reasoningEffort: 'medium',
-      executionBinding: 'binding-1',
       instructionProfile: expect.objectContaining({
         selectedAgentKey: 'sourcing',
         selectedInstructions: expect.stringContaining('KidItem Sourcing Agent'),
@@ -72,7 +72,6 @@ describe('ConversationGateway', () => {
       message: 'Try an unsupported model.',
       model: 'silent-default',
       reasoningEffort: 'medium',
-      executionBinding: 'binding-2',
       onEvent: () => undefined,
     })).rejects.toThrow('gateway_model_unsupported');
     await expect(gateway.startTurn({
@@ -81,7 +80,6 @@ describe('ConversationGateway', () => {
       message: 'Try an unsupported effort.',
       model: 'gpt-5.6',
       reasoningEffort: 'none',
-      executionBinding: 'binding-3',
       onEvent: () => undefined,
     })).rejects.toThrow('gateway_reasoning_effort_unsupported');
   });
@@ -290,7 +288,7 @@ describe('ConversationGateway', () => {
     });
     await restarted.startTurn({
       conversationId: 'browser-sourcing-conversation', turnId: 'turn-after-restart', message: 'Use the selected Agent.',
-      model: 'gpt-5.6', reasoningEffort: 'medium', executionBinding: 'binding-after-restart', onEvent: () => undefined,
+      model: 'gpt-5.6', reasoningEffort: 'medium', onEvent: () => undefined,
     });
 
     expect(provider.started).toEqual([expect.objectContaining({
@@ -368,7 +366,7 @@ describe('ConversationGateway', () => {
     await renameStarted.promise;
     const turn = gateway.startTurn({
       conversationId: 'browser-racing-delete', turnId: 'turn-racing-delete', message: 'Record metadata.',
-      model: 'gpt-5.6', reasoningEffort: 'high', executionBinding: 'binding-racing-delete', onEvent: () => undefined,
+      model: 'gpt-5.6', reasoningEffort: 'high', onEvent: () => undefined,
     });
     await turnStarted.promise;
     await gateway.delete('browser-racing-delete');

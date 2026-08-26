@@ -46,7 +46,6 @@ describe('Gateway control contract', () => {
         message: 'Summarize the open sourcing work.',
         model: 'gpt-5.6',
         reasoningEffort: 'medium',
-        executionBinding: 'binding-1',
       },
       { ...base, kind: 'turn.input', conversationId: 'conversation-1', turnId: 'turn-1', message: 'Use the latest supplier facts.' },
       { ...base, kind: 'turn.interrupt', conversationId: 'conversation-1', turnId: 'turn-1' },
@@ -110,7 +109,7 @@ describe('Gateway control contract', () => {
     }
   });
 
-  it('rejects raw process, environment, workspace, MCP, and auth authority from Nest', async () => {
+  it('keeps transport authority out of Gateway commands and accepts it only in the authenticated poll', async () => {
     const { GatewayCommandSchema } = await import('./control');
     const turn = {
       kind: 'turn.start',
@@ -120,7 +119,6 @@ describe('Gateway control contract', () => {
       message: 'Hello',
       model: 'gpt-5.6',
       reasoningEffort: 'medium',
-      executionBinding: 'binding-1',
     };
 
     for (const forbidden of [
@@ -130,6 +128,7 @@ describe('Gateway control contract', () => {
       { env: { SECRET: 'value' } },
       { workspace: '/tmp/workspace' },
       { mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp' },
+      { mcpTransportToken: 'process-token' },
       { authorization: 'Bearer secret' },
       { shell: 'echo unsafe' },
       { developerInstructions: 'untrusted profile text' },
@@ -146,12 +145,16 @@ describe('Gateway control contract', () => {
       GatewayEventAcknowledgementSchema,
       GatewayEventBatchSchema,
       GatewayPollSchema,
+      MCP_CONVERSATION_ID_HEADER,
     } = await import('./control');
+
+    expect(MCP_CONVERSATION_ID_HEADER).toBe('x-kiditem-conversation-id');
 
     expect(GatewayPollSchema.parse({
       kind: 'poll',
       gatewayInstanceId: 'gateway-1',
       platform: 'macos',
+      mcpTransportToken: 'process-mcp-token',
       runtimeTrain: {
         controlRevision: 'kiditem-gateway-control-v1',
         mcpProtocolRevision: '2026-07-28',
@@ -159,9 +162,16 @@ describe('Gateway control contract', () => {
         codexVersion: '0.149.1',
         claudeVersion: '2.1.245',
       },
-    })).not.toHaveProperty('leaseId');
+    })).toMatchObject({
+      mcpTransportToken: 'process-mcp-token',
+    });
 
     expect(GatewayCommandBatchSchema.parse({ commands: [] })).toEqual({ commands: [] });
+    expect(GatewayCommandBatchSchema.parse({ commands: [], apiRuntimeRegistered: true })).toEqual({
+      commands: [],
+      apiRuntimeRegistered: true,
+    });
+    expect(GatewayCommandBatchSchema.safeParse({ commands: [], apiRuntimeRegistered: false }).success).toBe(false);
     expect(GatewayEventBatchSchema.parse({
       gatewayInstanceId: 'gateway-1',
       eventSeq: 1,

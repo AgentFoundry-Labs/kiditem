@@ -7,15 +7,31 @@ const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
 describe('Claude turn MCP configuration', () => {
-  it('writes one Gateway-owned 0600 transient config and removes its fresh execution binding after the turn', async () => {
+  it('writes one Gateway-owned 0600 transient config with the process transport token and static conversation header', async () => {
     const { ClaudeMcpConfigStore } = await import('./claude-mcp-config');
     const root = await mkdtemp(join(tmpdir(), 'kiditem-claude-mcp-'));
     roots.push(root);
     const configs = new ClaudeMcpConfigStore({ stateRoot: root, platform: 'macos' });
-    const path = await configs.create({ turnId: 'turn/with/untrusted-path', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', executionBinding: 'A'.repeat(43) });
+    const path = await configs.create({
+      turnId: 'turn/with/untrusted-path',
+      conversationId: 'conversation-1',
+      mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: 'A'.repeat(43),
+    });
 
     const saved = JSON.parse(await readFile(path, 'utf8'));
-    expect(saved).toEqual({ mcpServers: { kiditem: { type: 'http', url: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', headers: { Authorization: `Bearer ${'A'.repeat(43)}` } } } });
+    expect(saved).toEqual({
+      mcpServers: {
+        kiditem: {
+          type: 'http',
+          url: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+          headers: {
+            Authorization: `Bearer ${'A'.repeat(43)}`,
+            'x-kiditem-conversation-id': 'conversation-1',
+          },
+        },
+      },
+    });
     expect((await stat(path)).mode & 0o777).toBe(0o600);
     expect(path).not.toContain('turn/with');
     await configs.remove(path);
@@ -36,7 +52,7 @@ describe('Claude turn MCP configuration', () => {
     await expect(stat(stale)).rejects.toThrow();
   });
 
-  it('removes a just-written binding file when chmod fails and surfaces startup cleanup I/O failures', async () => {
+  it('removes a just-written transport config when chmod fails and surfaces startup cleanup I/O failures', async () => {
     const { ClaudeMcpConfigStore } = await import('./claude-mcp-config');
     const root = await mkdtemp(join(tmpdir(), 'kiditem-claude-mcp-'));
     roots.push(root);
@@ -49,7 +65,7 @@ describe('Claude turn MCP configuration', () => {
         },
       },
     });
-    await expect(configs.create({ turnId: 'turn-1', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', executionBinding: 'A'.repeat(43) }))
+    await expect(configs.create({ turnId: 'turn-1', conversationId: 'conversation-1', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', mcpTransportToken: 'A'.repeat(43) }))
       .rejects.toThrow('chmod denied');
     await expect((await import('node:fs/promises')).readdir(join(root, 'claude-turn-mcp'))).resolves.toEqual([]);
 
@@ -74,7 +90,7 @@ describe('Claude turn MCP configuration', () => {
       },
     });
 
-    await expect(configs.create({ turnId: 'turn-1', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', executionBinding: 'A'.repeat(43) }))
+    await expect(configs.create({ turnId: 'turn-1', conversationId: 'conversation-1', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', mcpTransportToken: 'A'.repeat(43) }))
       .rejects.toThrow('claude_mcp_config_cleanup_failed');
   });
 });

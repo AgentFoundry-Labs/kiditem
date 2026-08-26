@@ -15,6 +15,7 @@ describe('GatewayControlClient', () => {
 
     await expect(client.poll({
       kind: 'poll', gatewayInstanceId: 'gateway-1', platform: 'macos',
+      mcpTransportToken: 'B'.repeat(43),
       runtimeTrain: { controlRevision: 'kiditem-gateway-control-v1', mcpProtocolRevision: '2026-07-28', nodeMajor: 22, codexVersion: '0.149.1', claudeVersion: '2.1.245' },
     })).resolves.toEqual({ commands: [] });
     await expect(client.postEventBody(JSON.stringify({ gatewayInstanceId: 'gateway-1', eventSeq: 1, events: [{ kind: 'command.ack', commandId: 'command-1' }] }))).resolves.toEqual({ eventSeq: 1, accepted: true });
@@ -24,6 +25,7 @@ describe('GatewayControlClient', () => {
       'http://127.0.0.1:4000/internal/agent-runtime/gateway/events',
     ]);
     expect(requests.every(({ init }) => (init.headers as Record<string, string>).authorization === `Bearer ${'A'.repeat(43)}`)).toBe(true);
+    expect(JSON.parse(String(requests[0]!.init.body)).mcpTransportToken).toBe('B'.repeat(43));
     expect(requests.map(({ init }) => JSON.parse(String(init.body))).every((body) => !('leaseId' in body))).toBe(true);
   });
 
@@ -37,6 +39,7 @@ describe('GatewayControlClient', () => {
 
     await expect(client.poll({
       kind: 'poll', gatewayInstanceId: 'gateway-1', platform: 'macos',
+      mcpTransportToken: 'B'.repeat(43),
       runtimeTrain: { controlRevision: 'kiditem-gateway-control-v1', mcpProtocolRevision: '2026-07-28', nodeMajor: 22, codexVersion: '0.149.1', claudeVersion: '2.1.245' },
     })).rejects.toThrow('gateway_control_response_too_large');
   });
@@ -55,6 +58,7 @@ describe('GatewayControlClient', () => {
       });
       const pending = client.poll({
         kind: 'poll', gatewayInstanceId: 'gateway-1', platform: 'macos',
+        mcpTransportToken: 'B'.repeat(43),
         runtimeTrain: { controlRevision: 'kiditem-gateway-control-v1', mcpProtocolRevision: '2026-07-28', nodeMajor: 22, codexVersion: '0.149.1', claudeVersion: '2.1.245' },
       });
       const rejection = expect(pending).rejects.toThrow('gateway_control_request_timeout');
@@ -65,5 +69,17 @@ describe('GatewayControlClient', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('retains only the explicit registration-missing conflict as a recovery signal', async () => {
+    const { GATEWAY_PROCESS_REGISTRATION_MISSING, GatewayControlClient } = await import('./gateway-control.client');
+    const client = new GatewayControlClient({
+      controlOrigin: 'http://127.0.0.1:4000', token: 'A'.repeat(43),
+      fetch: async () => new Response(JSON.stringify({ message: GATEWAY_PROCESS_REGISTRATION_MISSING }), { status: 409 }),
+    });
+
+    await expect(client.postEventBody(JSON.stringify({
+      gatewayInstanceId: 'gateway-1', eventSeq: 1, events: [{ kind: 'command.ack', commandId: 'command-1' }],
+    }))).rejects.toMatchObject({ status: 409, code: GATEWAY_PROCESS_REGISTRATION_MISSING });
   });
 });

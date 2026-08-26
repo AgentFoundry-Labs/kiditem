@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { AgentMcpHttpController } from './adapter/in/http/runtime/agent-mcp-http.controller';
 import { KidItemAgentOsMcpServer } from './adapter/in/mcp/kiditem-agent-os-mcp-server';
 import { McpRuntimeReadinessService } from './adapter/in/mcp/readiness-canary-mcp-server';
-import { ExecutionBindingRegistry } from './adapter/out/runtime/gateway/execution-binding.registry';
+import { GatewayMcpRuntimeRegistry } from './adapter/out/runtime/gateway/gateway-mcp-runtime.registry';
 import { GatewayControlSessionModule } from './adapter/out/runtime/gateway/gateway-control-session.module';
 import { ConversationController } from './adapter/in/http/interaction/conversation.controller';
 import { AgentOsHttpModule } from './agent-os-http.module';
@@ -12,7 +12,7 @@ import { AgentOsInvocationModule } from './agent-os-invocation.module';
 import { AgentOsRuntimeHttpModule } from './agent-os-runtime-http.module';
 
 describe('AgentOsRuntimeHttpModule', () => {
-  it('wires MCP plus the Gateway control-session composition and execution binding registry', () => {
+  it('wires MCP plus the Gateway control-session composition and process-scoped MCP runtime registry', () => {
     const imports = Reflect.getMetadata(MODULE_METADATA.IMPORTS, AgentOsRuntimeHttpModule);
     const controllers = Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, AgentOsRuntimeHttpModule);
     const providers = Reflect.getMetadata(MODULE_METADATA.PROVIDERS, AgentOsRuntimeHttpModule);
@@ -25,6 +25,10 @@ describe('AgentOsRuntimeHttpModule', () => {
       KidItemAgentOsMcpServer,
     ]));
     expect(Reflect.getMetadata(MODULE_METADATA.EXPORTS, AgentOsRuntimeHttpModule)).toContain(GatewayControlSessionModule);
+    const gatewayProviders = Reflect.getMetadata(MODULE_METADATA.PROVIDERS, GatewayControlSessionModule);
+    expect(gatewayProviders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ provide: GatewayMcpRuntimeRegistry }),
+    ]));
   });
 
   it('keeps the browser conversation facade composed only from the Gateway control ports, without Prisma or a local conversation repository', () => {

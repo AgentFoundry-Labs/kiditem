@@ -6,6 +6,12 @@ const OWNER = {
   initiatingUserId: '00000000-0000-4000-8000-000000000002',
 };
 
+const TURN_START_INPUT = {
+  message: 'Inspect the supplier evidence.',
+  model: 'gpt-5.6',
+  reasoningEffort: 'high',
+};
+
 const PREFERENCES = {
   schemaVersion: 1 as const,
   contexts: {
@@ -16,6 +22,62 @@ const PREFERENCES = {
 };
 
 describe('GatewayCommandResponseBroker', () => {
+  it('reuses the exact canonical start request for a same-owner live retry and rejects another owner', () => {
+    const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
+    const first = broker.beginTurnStart({
+      ...OWNER,
+      ...TURN_START_INPUT,
+      commandId: 'command-start-1',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    });
+    const retry = broker.beginTurnStart({
+      ...OWNER,
+      ...TURN_START_INPUT,
+      commandId: 'command-start-retry',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    });
+
+    expect(retry).toBe(first);
+    expect(retry.result).toBe(first.result);
+    expect(() => broker.beginTurnStart({
+      ...OWNER,
+      ...TURN_START_INPUT,
+      initiatingUserId: '00000000-0000-4000-8000-000000000003',
+      commandId: 'command-start-other-owner',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    })).toThrow('gateway_broker_turn_unavailable');
+  });
+
+  it.each([
+    ['message', { message: 'Use a different prompt.' }],
+    ['model', { model: 'gpt-5.7' }],
+    ['reasoning effort', { reasoningEffort: 'max' }],
+  ])('rejects a same-owner live retry with changed %s', async (_field, changed) => {
+    const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
+    const first = broker.beginTurnStart({
+      ...OWNER,
+      ...TURN_START_INPUT,
+      commandId: 'command-start-1',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    });
+
+    expect(() => broker.beginTurnStart({
+      ...OWNER,
+      ...TURN_START_INPUT,
+      ...changed,
+      commandId: 'command-start-retry',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    })).toThrow('gateway_broker_turn_start_input_conflict');
+
+    broker.publishTurnEvent('conversation-1', 'turn-1', { kind: 'status', status: 'started' });
+    await expect(first.result).resolves.toBeUndefined();
+  });
+
   it('keeps a command correlation through transport acknowledgement until its bounded provider result arrives', async () => {
     const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
     const request = broker.begin<unknown[]>({
@@ -44,7 +106,7 @@ describe('GatewayCommandResponseBroker', () => {
 
   it('fences a live turn by organization, user, conversation, and turn while forwarding only bounded live events', async () => {
     const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
-    const started = broker.beginTurnStart({ ...OWNER, commandId: 'command-1', conversationId: 'conversation-1', turnId: 'turn-1' });
+    const started = broker.beginTurnStart({ ...OWNER, ...TURN_START_INPUT, commandId: 'command-1', conversationId: 'conversation-1', turnId: 'turn-1' });
     const events: unknown[] = [];
     const unsubscribe = broker.subscribeTurn({ ...OWNER, conversationId: 'conversation-1', turnId: 'turn-1' }, (event) => events.push(event));
 
@@ -72,7 +134,7 @@ describe('GatewayCommandResponseBroker', () => {
       await vi.advanceTimersByTimeAsync(100);
       await timedOutExpectation;
 
-      const timedOutStart = broker.beginTurnStart({ ...OWNER, commandId: 'start-1', conversationId: 'conversation-1', turnId: 'turn-1' });
+      const timedOutStart = broker.beginTurnStart({ ...OWNER, ...TURN_START_INPUT, commandId: 'start-1', conversationId: 'conversation-1', turnId: 'turn-1' });
       const streamEvents: unknown[] = [];
       broker.subscribeTurn({ ...OWNER, conversationId: 'conversation-1', turnId: 'turn-1' }, (event) => streamEvents.push(event));
       const timedOutStartExpectation = expect(timedOutStart.result).rejects.toThrow('gateway_command_timeout');

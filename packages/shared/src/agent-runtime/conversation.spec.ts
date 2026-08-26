@@ -56,7 +56,7 @@ describe('Gateway conversation contract', () => {
     }).success).toBe(false);
   });
 
-  it('rejects server authority, provider references, credentials, transcript data, and execution bindings from creates', async () => {
+  it('rejects server authority, provider references, credentials, transcript data, and transport tokens from creates', async () => {
     const { CreateConversationCommandSchema } = await import('./conversation');
     const command = {
       conversationId: 'browser-conversation-1',
@@ -71,7 +71,7 @@ describe('Gateway conversation contract', () => {
       { providerConversationRef: 'provider-thread-1' },
       { credential: 'secret' },
       { transcript: [{ role: 'user', content: 'private history' }] },
-      { executionBinding: 'binding-1' },
+      { mcpTransportToken: 'transport-token' },
     ]) {
       expect(CreateConversationCommandSchema.safeParse({ ...command, ...forbidden }).success).toBe(false);
     }

@@ -5,10 +5,18 @@ This package owns the host-native Codex/Claude process boundary for KID-25.
 - Accept only the protected, one-argument Runner config; never add a listener.
 - Treat Nest input as typed launch data, never as executable paths, shell
   arguments, working directories, or environment overrides.
-- Keep Attempt tokens, provider credentials, prompts, raw provider payloads,
-  and stderr out of logs, durable storage, and model-visible environments.
-- Attempts and their workspaces are ephemeral. Provider login references are
+- Keep the installation bearer, process-scoped MCP transport token, provider
+  credentials, prompts, raw provider payloads, and stderr out of logs, durable
+  storage, and model-visible environments. Provider login references are
   validated without reading or copying credential bytes.
+- One long-running Gateway process owns provider-local Conversations and their
+  turns. It generates one opaque MCP transport token per process and keeps the
+  provider MCP configuration stable across ordinary turns. A turn ending must
+  not close its Conversation, rotate that token, or restart the Gateway.
+- Treat `conversationId` as a routing locator only. Nest owns the active-turn
+  authority and permits at most one active turn per Conversation; the Gateway
+  must report the exact provider terminal event before that authority is
+  released. Interrupt acknowledgement alone is not terminal.
 - Run Codex and Claude non-interactively in the bundled train's trusted
   full-access mode: Codex uses `approvalPolicy: never` with
   `:danger-full-access`; Claude uses `bypassPermissions`. Do not reintroduce a

@@ -116,26 +116,31 @@ export class GatewayConversationAdapter implements GatewayConversationPort {
         conversationId: input.conversationId,
         turnId: input.turnId,
         commandId,
-      });
-    } catch (error) {
-      throw gatewayError(error, 'turn.start');
-    }
-    try {
-      this.queue.enqueueTurnStart({
-        organizationId: input.organizationId,
-        initiatingUserId: input.userId,
-        commandId,
-        conversationId: input.conversationId,
-        turnId: input.turnId,
         message: input.message,
         model: input.model,
         reasoningEffort: input.reasoningEffort,
       });
     } catch (error) {
-      void request.result.catch(() => undefined);
-      this.broker.reject(request.commandId, 'gateway_command_not_enqueued');
-      this.queue.terminal(input.conversationId, input.turnId);
       throw gatewayError(error, 'turn.start');
+    }
+    if (request.commandId === commandId) {
+      try {
+        this.queue.enqueueTurnStart({
+          organizationId: input.organizationId,
+          initiatingUserId: input.userId,
+          commandId: request.commandId,
+          conversationId: input.conversationId,
+          turnId: input.turnId,
+          message: input.message,
+          model: input.model,
+          reasoningEffort: input.reasoningEffort,
+        });
+      } catch (error) {
+        void request.result.catch(() => undefined);
+        this.broker.reject(request.commandId, 'gateway_command_not_enqueued');
+        this.queue.terminal(input.conversationId, input.turnId);
+        throw gatewayError(error, 'turn.start');
+      }
     }
     const ready = request.result.catch((error) => {
       this.queue.terminal(input.conversationId, input.turnId);
@@ -164,20 +169,15 @@ export class GatewayConversationAdapter implements GatewayConversationPort {
   }
 
   interrupt(input: GatewayTurnCoordinates): Promise<void> {
-    try {
-      return this.dispatch(input, {
-        kind: 'turn.interrupt',
-        commandId: this.broker.nextCommandId(),
-        conversationId: input.conversationId,
-        turnId: input.turnId,
-      });
-    } finally {
-      this.queue.terminal(input.conversationId, input.turnId);
-    }
+    return this.dispatch(input, {
+      kind: 'turn.interrupt',
+      commandId: this.broker.nextCommandId(),
+      conversationId: input.conversationId,
+      turnId: input.turnId,
+    });
   }
 
   disconnect(input: GatewayTurnCoordinates): void {
-    this.queue.terminal(input.conversationId, input.turnId);
     this.broker.terminal(input.conversationId, input.turnId, 'disconnected');
   }
 
@@ -212,6 +212,9 @@ export class GatewayConversationAdapter implements GatewayConversationPort {
 function gatewayError(error: unknown, commandKind: GatewayCommand['kind']): AgentOsRuntimeError {
   if (error instanceof AgentOsRuntimeError) return error;
   const message = error instanceof Error ? error.message : '';
+  if (message === 'gateway_broker_turn_start_input_conflict') {
+    return new AgentOsRuntimeError('conversation_turn_live');
+  }
   if (message === 'gateway_command_rejected_invalid_state') {
     if (commandKind === 'conversation.create') return new AgentOsRuntimeError('conversation_create_conflict');
     if (commandKind === 'conversation.delete') return new AgentOsRuntimeError('conversation_turn_live');

@@ -6,11 +6,10 @@ import { GATEWAY_RUNTIME_TRAIN } from '@kiditem/shared/agent-runtime';
 import { GatewayControlClient } from '../control/gateway-control.client';
 import { GatewayCommandDispatcher } from '../control/gateway-command-dispatcher';
 import { GatewayEventOutbox } from '../control/gateway-event-outbox';
-import { NativeGatewayControlSession } from '../control/native-gateway-control-session';
 import { ConversationDescriptorStore } from '../conversation/conversation-descriptor.store';
 import { ConversationGateway } from '../conversation/conversation-gateway';
 import { ConversationPreferenceStore } from '../conversation/conversation-preference.store';
-import { ExecutionBindingRegistry } from '../../../server/src/agent-os/adapter/out/runtime/gateway/execution-binding.registry';
+import { GatewayMcpRuntimeRegistry } from '../../../server/src/agent-os/adapter/out/runtime/gateway/gateway-mcp-runtime.registry';
 import { GatewayCommandQueue } from '../../../server/src/agent-os/adapter/out/runtime/gateway/gateway-command.queue';
 import { GatewayCommandResponseBroker } from '../../../server/src/agent-os/adapter/out/runtime/gateway/gateway-command-response.broker';
 import { GatewayEventHandlerService } from '../../../server/src/agent-os/adapter/out/runtime/gateway/gateway-event-handler.service';
@@ -19,6 +18,7 @@ import { GatewayReadinessService } from '../../../server/src/agent-os/adapter/ou
 import { GatewayControlController } from '../../../server/src/agent-os/adapter/in/http/runtime/gateway-control.controller';
 
 const TOKEN = 'A'.repeat(43);
+const MCP_TRANSPORT_TOKEN = 'B'.repeat(43);
 const GATEWAY_INSTANCE_ID = 'gateway-loopback-1';
 const OWNER = {
   organizationId: '00000000-0000-4000-8000-000000000001',
@@ -32,11 +32,11 @@ afterEach(async () => {
 
 describe('Gateway ↔ Nest loopback', () => {
   it('polls strict Gateway commands, delivers the correlated provider result before transport ack retirement, and stores exact readiness', async () => {
-    const bindings = new ExecutionBindingRegistry();
+    const runtime = new GatewayMcpRuntimeRegistry();
     const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
     const readiness = new GatewayReadinessService();
     const queue = new GatewayCommandQueue({
-      bindings,
+      runtime,
       installationId: 'installation-loopback',
       longPollMs: 0,
       onTransientClear: () => { broker.disconnect(); readiness.clear(); },
@@ -51,14 +51,14 @@ describe('Gateway ↔ Nest loopback', () => {
     const client = new GatewayControlClient({
       controlOrigin: 'http://127.0.0.1:4000', token: TOKEN, fetch: loopbackFetch(controller),
     });
-    const poll = { kind: 'poll' as const, gatewayInstanceId: GATEWAY_INSTANCE_ID, platform: 'macos' as const, runtimeTrain: GATEWAY_RUNTIME_TRAIN };
+    const poll = { kind: 'poll' as const, gatewayInstanceId: GATEWAY_INSTANCE_ID, platform: 'macos' as const, runtimeTrain: GATEWAY_RUNTIME_TRAIN, mcpTransportToken: MCP_TRANSPORT_TOKEN };
 
-    await expect(client.poll(poll)).resolves.toEqual({ commands: [] });
+    await expect(client.poll(poll)).resolves.toEqual({ commands: [], apiRuntimeRegistered: true });
     const command = { kind: 'conversation.list' as const, commandId: broker.nextCommandId() };
     const result = broker.begin<unknown[]>({ ...OWNER, command });
     queue.enqueue(command);
 
-    const outbox = new GatewayEventOutbox({ gatewayInstanceId: GATEWAY_INSTANCE_ID, redactionTokens: [TOKEN] });
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: GATEWAY_INSTANCE_ID, redactionTokens: [TOKEN, MCP_TRANSPORT_TOKEN] });
     const dispatcher = new GatewayCommandDispatcher({
       gateway: { list: async () => [], create: async () => undefined, history: async () => [], rename: async () => undefined, delete: async () => undefined, startTurn: async () => undefined, sendInput: async () => undefined, interrupt: async () => undefined },
       outbox,
@@ -84,11 +84,11 @@ describe('Gateway ↔ Nest loopback', () => {
   });
 
   it('resolves a browser-reserved create through the real Nest control loopback before its transport acknowledgement', async () => {
-    const bindings = new ExecutionBindingRegistry();
+    const runtime = new GatewayMcpRuntimeRegistry();
     const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
     const readiness = new GatewayReadinessService();
     const queue = new GatewayCommandQueue({
-      bindings,
+      runtime,
       installationId: 'installation-loopback',
       longPollMs: 0,
       onTransientClear: () => { broker.disconnect(); readiness.clear(); },
@@ -108,6 +108,7 @@ describe('Gateway ↔ Nest loopback', () => {
       gatewayInstanceId: 'gateway-loopback-create',
       platform: 'macos' as const,
       runtimeTrain: GATEWAY_RUNTIME_TRAIN,
+      mcpTransportToken: MCP_TRANSPORT_TOKEN,
     };
     const conversationId = 'browser-reserved-conversation-1';
     const summary = {
@@ -119,7 +120,7 @@ describe('Gateway ↔ Nest loopback', () => {
       updatedAt: '2026-08-26T00:00:00.000Z',
     };
     const create = vi.fn(async () => summary);
-    const outbox = new GatewayEventOutbox({ gatewayInstanceId: poll.gatewayInstanceId, redactionTokens: [TOKEN] });
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: poll.gatewayInstanceId, redactionTokens: [TOKEN, MCP_TRANSPORT_TOKEN] });
     const dispatcher = new GatewayCommandDispatcher({
       gateway: {
         list: async () => [],
@@ -135,7 +136,7 @@ describe('Gateway ↔ Nest loopback', () => {
       preferences: { read: async () => ({ schemaVersion: 1 as const, contexts: {} }), set: async () => ({ schemaVersion: 1 as const, contexts: {} }) },
     });
 
-    await expect(client.poll(poll)).resolves.toEqual({ commands: [] });
+    await expect(client.poll(poll)).resolves.toEqual({ commands: [], apiRuntimeRegistered: true });
     const command = {
       kind: 'conversation.create' as const,
       commandId: broker.nextCommandId(),
@@ -172,11 +173,11 @@ describe('Gateway ↔ Nest loopback', () => {
 
   it('round-trips installation-local preference commands without putting authenticated owner data in the file or Gateway events', async () => {
     const root = await fixtureRoot();
-    const bindings = new ExecutionBindingRegistry();
+    const runtime = new GatewayMcpRuntimeRegistry();
     const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
     const readiness = new GatewayReadinessService();
     const queue = new GatewayCommandQueue({
-      bindings,
+      runtime,
       installationId: 'installation-loopback',
       longPollMs: 0,
       onTransientClear: () => { broker.disconnect(); readiness.clear(); },
@@ -188,9 +189,9 @@ describe('Gateway ↔ Nest loopback', () => {
       readiness,
     );
     const client = new GatewayControlClient({ controlOrigin: 'http://127.0.0.1:4000', token: TOKEN, fetch: loopbackFetch(controller) });
-    const poll = { kind: 'poll' as const, gatewayInstanceId: 'gateway-loopback-preferences', platform: 'macos' as const, runtimeTrain: GATEWAY_RUNTIME_TRAIN };
+    const poll = { kind: 'poll' as const, gatewayInstanceId: 'gateway-loopback-preferences', platform: 'macos' as const, runtimeTrain: GATEWAY_RUNTIME_TRAIN, mcpTransportToken: MCP_TRANSPORT_TOKEN };
     const preferences = new ConversationPreferenceStore({ stateRoot: root, platform: 'macos' });
-    const outbox = new GatewayEventOutbox({ gatewayInstanceId: poll.gatewayInstanceId, redactionTokens: [TOKEN] });
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: poll.gatewayInstanceId, redactionTokens: [TOKEN, MCP_TRANSPORT_TOKEN] });
     const dispatcher = new GatewayCommandDispatcher({
       gateway: { list: async () => [], create: async () => undefined, history: async () => [], rename: async () => undefined, delete: async () => undefined, startTurn: async () => undefined, sendInput: async () => undefined, interrupt: async () => undefined },
       outbox,
@@ -243,16 +244,16 @@ describe('Gateway ↔ Nest loopback', () => {
     expect(raw).not.toContain(OWNER.organizationId);
     expect(raw).not.toContain(OWNER.initiatingUserId);
     expect(raw).not.toContain('providerConversationRef');
-    expect(raw).not.toContain('executionBinding');
+    expect(raw).not.toContain('mcpTransportToken');
   });
 
   it('delivers a provider terminal through the real Nest loopback when non-authoritative launch metadata persistence fails', async () => {
     const root = await fixtureRoot();
-    const bindings = new ExecutionBindingRegistry();
+    const runtime = new GatewayMcpRuntimeRegistry();
     const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
     const readiness = new GatewayReadinessService();
     const queue = new GatewayCommandQueue({
-      bindings,
+      runtime,
       installationId: 'installation-loopback',
       longPollMs: 0,
       onTransientClear: () => { broker.disconnect(); readiness.clear(); },
@@ -264,7 +265,7 @@ describe('Gateway ↔ Nest loopback', () => {
       readiness,
     );
     const client = new GatewayControlClient({ controlOrigin: 'http://127.0.0.1:4000', token: TOKEN, fetch: loopbackFetch(controller) });
-    const poll = { kind: 'poll' as const, gatewayInstanceId: 'gateway-loopback-metadata', platform: 'macos' as const, runtimeTrain: GATEWAY_RUNTIME_TRAIN };
+    const poll = { kind: 'poll' as const, gatewayInstanceId: 'gateway-loopback-metadata', platform: 'macos' as const, runtimeTrain: GATEWAY_RUNTIME_TRAIN, mcpTransportToken: MCP_TRANSPORT_TOKEN };
     const provider = new MetadataFailingTurnProvider();
     const gateway = new ConversationGateway({
       descriptors: new ConversationDescriptorStore({
@@ -278,7 +279,7 @@ describe('Gateway ↔ Nest loopback', () => {
     await gateway.create({
       conversationId: 'browser-metadata-failure', runtime: 'codex_cli', agentKey: null, title: 'Metadata failure regression',
     });
-    const outbox = new GatewayEventOutbox({ gatewayInstanceId: poll.gatewayInstanceId, redactionTokens: [TOKEN] });
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: poll.gatewayInstanceId, redactionTokens: [TOKEN, MCP_TRANSPORT_TOKEN] });
     const dispatcher = new GatewayCommandDispatcher({
       // The dispatcher port is deliberately structurally broader than the
       // schema-validated concrete Gateway; this loopback exercises the real
@@ -294,6 +295,9 @@ describe('Gateway ↔ Nest loopback', () => {
       commandId,
       conversationId: 'browser-metadata-failure',
       turnId: 'turn-metadata-failure',
+      message: 'Continue provider work despite sidebar metadata failure.',
+      model: 'gpt-5.6',
+      reasoningEffort: 'medium',
     });
     const received: unknown[] = [];
     broker.subscribeTurn({ ...OWNER, conversationId: 'browser-metadata-failure', turnId: 'turn-metadata-failure' }, (event) => received.push(event));
@@ -348,11 +352,11 @@ describe('Gateway ↔ Nest loopback', () => {
   it('lets a normal empty 25-second Nest long-poll return before the Gateway client deadline', async () => {
     vi.useFakeTimers();
     try {
-      const bindings = new ExecutionBindingRegistry();
+      const runtime = new GatewayMcpRuntimeRegistry();
       const broker = new GatewayCommandResponseBroker();
       const readiness = new GatewayReadinessService();
       const queue = new GatewayCommandQueue({
-        bindings,
+        runtime,
         installationId: 'installation-loopback',
         onTransientClear: () => { broker.disconnect(); readiness.clear(); },
       });
@@ -363,7 +367,9 @@ describe('Gateway ↔ Nest loopback', () => {
         readiness,
       );
       const client = new GatewayControlClient({ controlOrigin: 'http://127.0.0.1:4000', token: TOKEN, fetch: loopbackFetch(controller) });
-      const pending = client.poll({ kind: 'poll', gatewayInstanceId: 'gateway-loopback-long-poll', platform: 'macos', runtimeTrain: GATEWAY_RUNTIME_TRAIN });
+      const poll = { kind: 'poll' as const, gatewayInstanceId: 'gateway-loopback-long-poll', platform: 'macos' as const, runtimeTrain: GATEWAY_RUNTIME_TRAIN, mcpTransportToken: MCP_TRANSPORT_TOKEN };
+      await expect(client.poll(poll)).resolves.toEqual({ commands: [], apiRuntimeRegistered: true });
+      const pending = client.poll(poll);
 
       await Promise.resolve();
       await vi.advanceTimersByTimeAsync(25_000);
@@ -373,12 +379,12 @@ describe('Gateway ↔ Nest loopback', () => {
     }
   });
 
-  it('maps an API-restarted event sequence to terminal loopback loss and closes the native session instead of retrying forever', async () => {
-    const bindings = new ExecutionBindingRegistry();
+  it('re-registers the same Gateway process transport after API restart and accepts its continuing outbox sequence', async () => {
+    const runtime = new GatewayMcpRuntimeRegistry();
     const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
     const readiness = new GatewayReadinessService();
     const queue = new GatewayCommandQueue({
-      bindings,
+      runtime,
       installationId: 'installation-loopback',
       longPollMs: 0,
       onTransientClear: () => { broker.disconnect(); readiness.clear(); },
@@ -388,27 +394,41 @@ describe('Gateway ↔ Nest loopback', () => {
     const client = new GatewayControlClient({
       controlOrigin: 'http://127.0.0.1:4000', token: TOKEN, fetch: loopbackFetch(() => controller),
     });
-    const poll = { kind: 'poll' as const, gatewayInstanceId: 'gateway-loopback-restart', platform: 'macos' as const, runtimeTrain: GATEWAY_RUNTIME_TRAIN };
-    await client.poll(poll);
+    const poll = { kind: 'poll' as const, gatewayInstanceId: 'gateway-loopback-restart', platform: 'macos' as const, runtimeTrain: GATEWAY_RUNTIME_TRAIN, mcpTransportToken: MCP_TRANSPORT_TOKEN };
+    await expect(client.poll(poll)).resolves.toEqual({ commands: [], apiRuntimeRegistered: true });
+    expect(runtime.authenticate(MCP_TRANSPORT_TOKEN)).toEqual({
+      installationId: 'installation-loopback',
+      gatewayInstanceId: poll.gatewayInstanceId,
+    });
 
-    const outbox = new GatewayEventOutbox({ gatewayInstanceId: poll.gatewayInstanceId, redactionTokens: [TOKEN] });
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: poll.gatewayInstanceId, redactionTokens: [TOKEN, MCP_TRANSPORT_TOKEN] });
     outbox.enqueue({ kind: 'command.ack', commandId: 'command-1' });
     await outbox.flush((body) => client.postEventBody(body));
 
-    // A Nest restart retains no process-memory event sequence. The Gateway's
-    // next stable outbox batch must become terminal control loss, not 500/retry.
-    controller = new GatewayControlController(bearer, queue, new GatewayEventHandlerService({ queue, readiness, broker }), readiness);
-    outbox.enqueue({ kind: 'command.ack', commandId: 'command-2' });
-    const staleBody = outbox.peekBody();
-    if (!staleBody) throw new Error('gateway_loopback_outbox_missing');
-    await expect(client.postEventBody(staleBody)).rejects.toMatchObject({ status: 409 });
+    const restartedRuntime = new GatewayMcpRuntimeRegistry();
+    const restartedBroker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
+    const restartedReadiness = new GatewayReadinessService();
+    const restartedQueue = new GatewayCommandQueue({
+      runtime: restartedRuntime,
+      installationId: 'installation-loopback',
+      longPollMs: 0,
+      onTransientClear: () => { restartedBroker.disconnect(); restartedReadiness.clear(); },
+    });
+    controller = new GatewayControlController(
+      bearer,
+      restartedQueue,
+      new GatewayEventHandlerService({ queue: restartedQueue, readiness: restartedReadiness, broker: restartedBroker }),
+      restartedReadiness,
+    );
 
-    const dispatcher = { dispatch: vi.fn(async () => undefined), clear: vi.fn() };
-    const lost = vi.fn();
-    const session = new NativeGatewayControlSession({ client, dispatcher, outbox, poll, onPollLoss: lost });
-    await expect(session.run()).rejects.toThrow('gateway_control_lost');
-    expect(dispatcher.clear).toHaveBeenCalledOnce();
-    expect(lost).toHaveBeenCalledOnce();
+    await expect(client.poll(poll)).resolves.toEqual({ commands: [], apiRuntimeRegistered: true });
+    expect(restartedRuntime.authenticate(MCP_TRANSPORT_TOKEN)).toEqual({
+      installationId: 'installation-loopback',
+      gatewayInstanceId: poll.gatewayInstanceId,
+    });
+    outbox.enqueue({ kind: 'command.ack', commandId: 'command-2' });
+    await expect(outbox.flush((body) => client.postEventBody(body))).resolves.toBeUndefined();
+    expect(restartedQueue.isLiveSession(poll.gatewayInstanceId)).toBe(true);
   });
 });
 
@@ -447,7 +467,7 @@ async function dispatchAndPeek(input: Readonly<{
   client: GatewayControlClient;
   dispatcher: GatewayCommandDispatcher;
   outbox: GatewayEventOutbox;
-  poll: { kind: 'poll'; gatewayInstanceId: string; platform: 'macos'; runtimeTrain: typeof GATEWAY_RUNTIME_TRAIN };
+  poll: { kind: 'poll'; gatewayInstanceId: string; platform: 'macos'; runtimeTrain: typeof GATEWAY_RUNTIME_TRAIN; mcpTransportToken: string };
   queue: GatewayCommandQueue;
   command: { kind: 'conversation.preferences.get'; commandId: string } | {
     kind: 'conversation.preferences.set'; commandId: string; context: 'general'; runtime: 'codex_cli'; model: string; reasoningEffort: string;

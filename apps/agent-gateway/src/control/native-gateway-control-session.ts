@@ -1,5 +1,8 @@
 import type { GatewayCommand, GatewayCommandBatch, GatewayPoll } from '@kiditem/shared/agent-runtime';
-import { GatewayControlHttpError } from './gateway-control.client';
+import {
+  GATEWAY_PROCESS_REGISTRATION_MISSING,
+  GatewayControlHttpError,
+} from './gateway-control.client';
 import { GatewayCommandDispatcher } from './gateway-command-dispatcher';
 import { GatewayEventOutbox } from './gateway-event-outbox';
 
@@ -19,7 +22,7 @@ export class NativeGatewayControlSession {
 
   constructor(private readonly options: Readonly<{
     client: GatewayControlTransport;
-    dispatcher: Pick<GatewayCommandDispatcher, 'dispatch' | 'clear'>;
+    dispatcher: Pick<GatewayCommandDispatcher, 'dispatch' | 'clear' | 'resetAfterApiRuntimeRegistration'>;
     outbox: GatewayEventOutbox;
     poll: GatewayPoll;
     onPollLoss: () => void | Promise<void>;
@@ -45,14 +48,24 @@ export class NativeGatewayControlSession {
 
   private async loop(): Promise<never> {
     let controlSessionClaimed = false;
+    let registrationRecoveryAttempted = false;
     try {
       for (;;) {
         if (this.stopped) throw new GatewayControlStoppedError();
         if (controlSessionClaimed && this.options.outbox.hasPending()) {
           try {
             await this.raceStop(this.options.outbox.flush((body) => this.options.client.postEventBody(body)));
+            registrationRecoveryAttempted = false;
           } catch (error) {
             if (error instanceof GatewayControlStoppedError) throw error;
+            if (isRegistrationMissing(error) && !registrationRecoveryAttempted) {
+              // A restarted API has no in-memory process registry yet. One
+              // fresh authenticated poll restores it before this unchanged
+              // outbox batch is retried; a second 409 remains terminal.
+              registrationRecoveryAttempted = true;
+              controlSessionClaimed = false;
+              continue;
+            }
             if (isTerminalControlError(error)) throw error;
             await this.raceStop(this.sleep(100));
           }
@@ -61,13 +74,18 @@ export class NativeGatewayControlSession {
         let batch: GatewayCommandBatch | null;
         try {
           batch = await this.raceStop(this.options.client.poll(this.options.poll));
-          controlSessionClaimed = true;
         } catch (error) {
           if (error instanceof GatewayControlStoppedError) throw error;
           if (isTerminalControlError(error)) throw error;
           await this.raceStop(this.sleep(100));
           continue;
         }
+        if (batch?.apiRuntimeRegistered) {
+          // A failed provider interrupt leaves local execution state
+          // indeterminate. It is not a retryable control transport failure.
+          await this.raceStop(this.options.dispatcher.resetAfterApiRuntimeRegistration());
+        }
+        controlSessionClaimed = true;
         if (!batch) continue;
         for (const command of batch.commands) await this.raceStop(this.options.dispatcher.dispatch(command as GatewayCommand));
       }
@@ -96,4 +114,10 @@ class GatewayControlStoppedError extends Error {}
 
 function isTerminalControlError(error: unknown): boolean {
   return error instanceof GatewayControlHttpError && (error.status === 401 || error.status === 403 || error.status === 409);
+}
+
+function isRegistrationMissing(error: unknown): boolean {
+  return error instanceof GatewayControlHttpError
+    && error.status === 409
+    && error.code === GATEWAY_PROCESS_REGISTRATION_MISSING;
 }

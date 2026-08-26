@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 describe('Gateway-owned provider command environment', () => {
-  it('allows only Gateway-owned login and train fields, never a turn binding or inherited shell environment', async () => {
+  it('allows only Gateway-owned login and train fields, never a transport token or inherited shell environment', async () => {
     const { gatewayProviderInvocation, providerEnvironment } = await import('./provider-command');
     vi.stubEnv('PATH', '/usr/bin');
     vi.stubEnv('USER', 'gateway-user');

@@ -1,6 +1,6 @@
 /**
  * Sourcing's narrow pre-admission guard. It retains only one bounded,
- * normalized scrape receipt for the current live execution binding.
+ * normalized scrape receipt for the current active turn context.
  */
 export const SOURCING_CAPABILITY_ADMISSION_PORT = Symbol(
   'SOURCING_CAPABILITY_ADMISSION_PORT',

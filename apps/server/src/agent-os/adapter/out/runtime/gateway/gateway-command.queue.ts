@@ -8,7 +8,7 @@ import {
   type GatewayCommandBatch,
   type GatewayPoll,
 } from '@kiditem/shared/agent-runtime';
-import { ExecutionBindingRegistry } from './execution-binding.registry';
+import { GatewayMcpRuntimeRegistry } from './gateway-mcp-runtime.registry';
 
 const MAX_QUEUED_COMMANDS = 64;
 
@@ -18,6 +18,11 @@ export class GatewaySessionUnavailableError extends Error {
 
 export class GatewaySessionMismatchError extends Error {
   constructor() { super('gateway_session_mismatch'); }
+}
+
+/** An event reached a freshly restarted API before this Gateway had polled it. */
+export class GatewayProcessRegistrationMissingError extends Error {
+  constructor() { super('gateway_process_registration_missing'); }
 }
 
 export class GatewayRuntimeTrainError extends Error {
@@ -32,36 +37,56 @@ interface PendingPoll {
   readonly abort?: () => void;
 }
 
+type LiveTurnCoordinates = Readonly<{ conversationId: string; turnId: string }>;
+
 /**
- * A process-memory only command rendezvous for exactly one installed Gateway.
- * It deliberately has no lease, persistence, recovery scan, or continuation.
+ * A process-memory command rendezvous for exactly one installed Gateway. It
+ * couples a successful authenticated poll to one process-scoped MCP bearer,
+ * while the registry alone owns active-turn authority.
  */
 export class GatewayCommandQueue {
   private gatewayInstanceId: string | null = null;
   private readonly commands: GatewayCommand[] = [];
-  private readonly bindingTurnsByCommand = new Map<string, Readonly<{ conversationId: string; turnId: string }>>();
+  private readonly turnsByCommand = new Map<string, LiveTurnCoordinates>();
   private pendingPoll: PendingPoll | null = null;
 
   constructor(private readonly options: Readonly<{
-    bindings: Pick<ExecutionBindingRegistry, 'issue' | 'revokeTurn' | 'revokeInstallation'>;
+    runtime: Pick<GatewayMcpRuntimeRegistry, 'registerProcess' | 'activateTurn' | 'deactivateTurn' | 'disconnect'>;
     installationId: string;
     longPollMs?: number;
     onTransientClear?: () => void;
   }>) {}
 
-  /** Returns true exactly once for each new instance; replacement clears transient state. */
-  claim(gatewayInstanceId: string): boolean {
-    if (this.gatewayInstanceId === gatewayInstanceId) return false;
-    const replaced = this.gatewayInstanceId !== null;
-    if (replaced) this.clearTransientState();
-    this.gatewayInstanceId = gatewayInstanceId;
+  /** Registers/reuses the Gateway process bearer; replacement clears all old live state first. */
+  claim(input: GatewayPoll): boolean {
+    const poll = GatewayPollSchema.parse(input);
+    this.assertRuntimeTrain(poll);
+    if (this.gatewayInstanceId === poll.gatewayInstanceId) {
+      this.options.runtime.registerProcess({
+        installationId: this.options.installationId,
+        gatewayInstanceId: poll.gatewayInstanceId,
+        mcpTransportToken: poll.mcpTransportToken,
+      });
+      return false;
+    }
+    const previousGatewayInstanceId = this.gatewayInstanceId;
+    if (previousGatewayInstanceId !== null) {
+      this.clearTransientState();
+      this.options.runtime.disconnect(previousGatewayInstanceId);
+    }
+    this.options.runtime.registerProcess({
+      installationId: this.options.installationId,
+      gatewayInstanceId: poll.gatewayInstanceId,
+      mcpTransportToken: poll.mcpTransportToken,
+    });
+    this.gatewayInstanceId = poll.gatewayInstanceId;
     return true;
   }
 
   async poll(input: GatewayPoll, signal?: AbortSignal): Promise<GatewayCommandBatch> {
     const poll = GatewayPollSchema.parse(input);
     this.assertRuntimeTrain(poll);
-    this.claim(poll.gatewayInstanceId);
+    this.claim(poll);
     const immediate = this.currentBatch();
     if (immediate.commands.length) return immediate;
     const longPollMs = this.options.longPollMs ?? GATEWAY_CONTROL_POLL_WAIT_MS;
@@ -95,11 +120,7 @@ export class GatewayCommandQueue {
     this.resolvePendingPoll();
   }
 
-  /**
-   * This is the only Nest-side construction path for a turn.start command.
-   * The private execution bearer is issued at that point and never reaches a
-   * controller, browser response, durable record, or log.
-   */
+  /** Atomically establishes Nest authority before issuing the provider turn command. */
   enqueueTurnStart(input: Readonly<{
     organizationId: string;
     initiatingUserId: string;
@@ -110,14 +131,17 @@ export class GatewayCommandQueue {
     model: string;
     reasoningEffort: string;
   }>): void {
-    if (!this.gatewayInstanceId) throw new GatewaySessionUnavailableError();
-    const binding = this.options.bindings.issue({
+    const gatewayInstanceId = this.gatewayInstanceId;
+    if (!gatewayInstanceId) throw new GatewaySessionUnavailableError();
+    this.options.runtime.activateTurn({
       installationId: this.options.installationId,
+      gatewayInstanceId,
       organizationId: input.organizationId,
       initiatingUserId: input.initiatingUserId,
       conversationId: input.conversationId,
       turnId: input.turnId,
     });
+    if (this.hasLiveTurn({ conversationId: input.conversationId, turnId: input.turnId })) return;
     const command = GatewayCommandSchema.parse({
       kind: 'turn.start',
       commandId: input.commandId,
@@ -126,18 +150,13 @@ export class GatewayCommandQueue {
       message: input.message,
       model: input.model,
       reasoningEffort: input.reasoningEffort,
-      executionBinding: binding.token,
     });
     if (command.kind !== 'turn.start') throw new Error('gateway_turn_start_command_invalid');
     try {
       this.enqueue(command);
-      this.bindingTurnsByCommand.set(command.commandId, { conversationId: command.conversationId, turnId: command.turnId });
+      this.turnsByCommand.set(command.commandId, { conversationId: command.conversationId, turnId: command.turnId });
     } catch (error) {
-      this.options.bindings.revokeTurn({
-        installationId: this.options.installationId,
-        conversationId: input.conversationId,
-        turnId: input.turnId,
-      });
+      this.deactivateTurn({ conversationId: input.conversationId, turnId: input.turnId });
       throw error;
     }
   }
@@ -148,22 +167,23 @@ export class GatewayCommandQueue {
 
   reject(commandId: string): void {
     this.removeCommand(commandId);
-    const turn = this.bindingTurnsByCommand.get(commandId);
-    this.bindingTurnsByCommand.delete(commandId);
-    if (turn) this.revokeTurn(turn);
+    const turn = this.turnsByCommand.get(commandId);
+    this.turnsByCommand.delete(commandId);
+    if (turn) this.deactivateTurn(turn);
   }
 
-  /** Terminal, interrupt, or provider-exit event revokes the one live MCP bearer. */
+  /** Only a terminal provider event closes active turn authority. */
   terminal(conversationId: string, turnId: string): void {
-    for (const [commandId, turn] of this.bindingTurnsByCommand) {
-      if (turn.conversationId === conversationId && turn.turnId === turnId) this.bindingTurnsByCommand.delete(commandId);
+    for (const [commandId, turn] of this.turnsByCommand) {
+      if (turn.conversationId === conversationId && turn.turnId === turnId) this.turnsByCommand.delete(commandId);
     }
-    this.revokeTurn({ conversationId, turnId });
+    this.deactivateTurn({ conversationId, turnId });
   }
 
   disconnect(gatewayInstanceId: string): void {
     if (this.gatewayInstanceId !== gatewayInstanceId) return;
     this.clearTransientState();
+    this.options.runtime.disconnect(gatewayInstanceId);
     this.gatewayInstanceId = null;
   }
 
@@ -186,8 +206,7 @@ export class GatewayCommandQueue {
 
   private clearTransientState(): void {
     this.commands.splice(0);
-    this.bindingTurnsByCommand.clear();
-    this.options.bindings.revokeInstallation(this.options.installationId);
+    this.turnsByCommand.clear();
     this.options.onTransientClear?.();
     this.resolvePendingPoll();
   }
@@ -197,8 +216,20 @@ export class GatewayCommandQueue {
     if (index >= 0) this.commands.splice(index, 1);
   }
 
-  private revokeTurn(turn: Readonly<{ conversationId: string; turnId: string }>): void {
-    this.options.bindings.revokeTurn({ installationId: this.options.installationId, ...turn });
+  private deactivateTurn(turn: LiveTurnCoordinates): void {
+    const gatewayInstanceId = this.gatewayInstanceId;
+    if (!gatewayInstanceId) return;
+    this.options.runtime.deactivateTurn({
+      installationId: this.options.installationId,
+      gatewayInstanceId,
+      ...turn,
+    });
+  }
+
+  private hasLiveTurn(turn: LiveTurnCoordinates): boolean {
+    return [...this.turnsByCommand.values()].some((active) => (
+      active.conversationId === turn.conversationId && active.turnId === turn.turnId
+    ));
   }
 
   private assertRuntimeTrain(poll: GatewayPoll): void {

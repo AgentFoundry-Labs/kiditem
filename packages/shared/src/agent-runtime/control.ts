@@ -19,7 +19,10 @@ import { GatewayPlatformSchema, GatewayRuntimeTrainSchema } from './runtime-trai
 const CommandIdSchema = z.string().trim().min(1).max(200);
 const GatewayInstanceIdSchema = z.string().trim().min(1).max(200);
 const MessageSchema = z.string().trim().min(1).max(16_000);
-const ExecutionBindingSchema = z.string().trim().min(1).max(500);
+const McpTransportTokenSchema = z.string().trim().min(1).max(500);
+
+/** Static provider-supplied routing locator; Nest derives all authority from its active turn map. */
+export const MCP_CONVERSATION_ID_HEADER = 'x-kiditem-conversation-id';
 
 /** One bounded server poll; the native client deadline always outlives it. */
 export const GATEWAY_CONTROL_POLL_WAIT_MS = 25_000;
@@ -59,7 +62,7 @@ export const GatewayCommandSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('conversation.delete'), commandId: CommandIdSchema, conversationId: ConversationIdSchema }).strict(),
   z.object({ kind: z.literal('conversation.preferences.get'), commandId: CommandIdSchema }).strict(),
   z.object({ kind: z.literal('conversation.preferences.set'), commandId: CommandIdSchema, context: ConversationPreferenceContextSchema, runtime: ProviderRuntimeSchema, model: ModelSchema, reasoningEffort: ReasoningEffortSchema }).strict(),
-  z.object({ kind: z.literal('turn.start'), commandId: CommandIdSchema, conversationId: ConversationIdSchema, turnId: TurnIdSchema, message: MessageSchema, model: ModelSchema, reasoningEffort: ReasoningEffortSchema, executionBinding: ExecutionBindingSchema }).strict(),
+  z.object({ kind: z.literal('turn.start'), commandId: CommandIdSchema, conversationId: ConversationIdSchema, turnId: TurnIdSchema, message: MessageSchema, model: ModelSchema, reasoningEffort: ReasoningEffortSchema }).strict(),
   z.object({ kind: z.literal('turn.input'), commandId: CommandIdSchema, conversationId: ConversationIdSchema, turnId: TurnIdSchema, message: MessageSchema }).strict(),
   z.object({ kind: z.literal('turn.interrupt'), commandId: CommandIdSchema, conversationId: ConversationIdSchema, turnId: TurnIdSchema }).strict(),
 ]);
@@ -67,6 +70,8 @@ export type GatewayCommand = z.infer<typeof GatewayCommandSchema>;
 
 export const GatewayCommandBatchSchema = z.object({
   commands: z.array(GatewayCommandSchema).max(64),
+  /** Present only when this poll first registered the Gateway in this API process. */
+  apiRuntimeRegistered: z.literal(true).optional(),
 }).strict();
 export type GatewayCommandBatch = z.infer<typeof GatewayCommandBatchSchema>;
 
@@ -75,6 +80,7 @@ export const GatewayPollSchema = z.object({
   kind: z.literal('poll'),
   gatewayInstanceId: GatewayInstanceIdSchema,
   platform: GatewayPlatformSchema,
+  mcpTransportToken: McpTransportTokenSchema,
   runtimeTrain: GatewayRuntimeTrainSchema,
 }).strict();
 export type GatewayPoll = z.infer<typeof GatewayPollSchema>;

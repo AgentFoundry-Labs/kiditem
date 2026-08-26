@@ -8,8 +8,12 @@ import {
   type GatewayPoll,
 } from '@kiditem/shared/agent-runtime';
 
+export const GATEWAY_PROCESS_REGISTRATION_MISSING = 'gateway_process_registration_missing';
+
 export class GatewayControlHttpError extends Error {
-  constructor(readonly status: number) { super(`gateway_control_http_${status}`); }
+  constructor(readonly status: number, readonly code?: string) {
+    super(code ? `gateway_control_http_${status}_${code}` : `gateway_control_http_${status}`);
+  }
 }
 
 const MAX_CONTROL_RESPONSE_BYTES = 64 * 1024;
@@ -33,13 +37,13 @@ export class GatewayControlClient {
     const poll = GatewayPollSchema.parse(input);
     const response = await this.rawPost('/internal/agent-runtime/gateway/commands:poll', JSON.stringify(poll), this.pollTimeoutMs);
     if (response.status === 204) return null;
-    if (!response.ok) throw new GatewayControlHttpError(response.status);
+    if (!response.ok) throw await controlHttpError(response);
     return GatewayCommandBatchSchema.parse(await boundedJson(response));
   }
 
   async postEventBody(body: string): Promise<{ eventSeq: number; accepted: true }> {
     const response = await this.rawPost('/internal/agent-runtime/gateway/events', body, this.eventTimeoutMs);
-    if (!response.ok) throw new GatewayControlHttpError(response.status);
+    if (!response.ok) throw await controlHttpError(response);
     return GatewayEventAcknowledgementSchema.parse(await boundedJson(response));
   }
 
@@ -102,4 +106,21 @@ async function boundedJson(response: Response): Promise<unknown> {
 function parseBoundedText(value: string): unknown {
   if (Buffer.byteLength(value, 'utf8') > MAX_CONTROL_RESPONSE_BYTES) throw new Error('gateway_control_response_too_large');
   try { return JSON.parse(value); } catch { throw new Error('gateway_control_response_invalid'); }
+}
+
+/** Only preserves the one machine-readable restart signal needed by the native poll loop. */
+async function controlHttpError(response: Response): Promise<GatewayControlHttpError> {
+  try {
+    const payload = await boundedJson(response);
+    if (
+      typeof payload === 'object' && payload !== null
+      && (payload as { message?: unknown }).message === GATEWAY_PROCESS_REGISTRATION_MISSING
+    ) {
+      return new GatewayControlHttpError(response.status, GATEWAY_PROCESS_REGISTRATION_MISSING);
+    }
+  } catch {
+    // An error response is not a schema input. Preserve its status without
+    // giving remote response content any control meaning.
+  }
+  return new GatewayControlHttpError(response.status);
 }

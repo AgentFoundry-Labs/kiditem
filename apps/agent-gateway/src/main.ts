@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import {
@@ -37,6 +37,7 @@ const CLAUDE_REASONING_EFFORTS = Object.freeze(['low', 'medium', 'high', 'xhigh'
 export async function runNativeAgentGateway(argv: readonly string[]): Promise<never> {
   const config = await loadGatewayConfig(argv);
   const token = await readGatewayInstallationToken(config.tokenFile);
+  const mcpTransportToken = randomBytes(32).toString('base64url');
   const platform = gatewayPlatformFromNodePlatform();
   const supervisor = createPlatformProcessSupervisor({ platform, runtimeRoot: config.runtimeRoot });
   await verifyGatewayRuntimePackages(config.runtimeRoot);
@@ -59,7 +60,7 @@ export async function runNativeAgentGateway(argv: readonly string[]): Promise<ne
   if (codexLoggedIn) {
     let started: Awaited<ReturnType<typeof startCodexAppServer>> | null = null;
     try {
-      started = await startCodexAppServer({ runtimeRoot: config.runtimeRoot, workspace: config.workspace, loginRoot: config.loginRoot, mcpUrl, supervisor });
+      started = await startCodexAppServer({ runtimeRoot: config.runtimeRoot, workspace: config.workspace, loginRoot: config.loginRoot, mcpUrl, mcpTransportToken, supervisor });
       codexReadiness = codexProviderReadiness(await started.session.modelCatalog());
       codexProcess = started;
     } catch {
@@ -76,6 +77,7 @@ export async function runNativeAgentGateway(argv: readonly string[]): Promise<ne
       workspace: config.workspace,
       loginRoot: config.loginRoot,
       mcpUrl,
+      mcpTransportToken,
       configs: mcpConfigs,
       launcher: new NativeClaudeProcessLauncher({ supervisor }),
       sessions: claudeSessions,
@@ -88,7 +90,7 @@ export async function runNativeAgentGateway(argv: readonly string[]): Promise<ne
     providers: { codex_cli: codex, claude_cli: claude },
   });
   const gatewayInstanceId = randomUUID();
-  const outbox = new GatewayEventOutbox({ gatewayInstanceId, redactionTokens: [token] });
+  const outbox = new GatewayEventOutbox({ gatewayInstanceId, redactionTokens: [token, mcpTransportToken] });
   outbox.enqueue({ kind: 'gateway.readiness', readiness: await gatewayReadiness([codex, claude]) });
   const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, preferences });
   const client = new GatewayControlClient({ controlOrigin: config.controlOrigin, token });
@@ -96,7 +98,7 @@ export async function runNativeAgentGateway(argv: readonly string[]): Promise<ne
     client,
     dispatcher,
     outbox,
-    poll: { kind: 'poll', gatewayInstanceId, platform, runtimeTrain: GATEWAY_RUNTIME_TRAIN },
+    poll: { kind: 'poll', gatewayInstanceId, platform, runtimeTrain: GATEWAY_RUNTIME_TRAIN, mcpTransportToken },
     onPollLoss: async () => {
       const results = await Promise.allSettled([
         ...(codexProcess ? [codexProcess.close()] : []),

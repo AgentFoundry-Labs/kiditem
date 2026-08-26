@@ -10,10 +10,11 @@ import {
 import { SkipThrottle } from '@nestjs/throttler';
 import type { McpHttpHandler } from '@modelcontextprotocol/server';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
+import { ConversationIdSchema, MCP_CONVERSATION_ID_HEADER } from '@kiditem/shared/agent-runtime';
 import { SkipAuth } from '../../../../../auth/decorators/skip-auth.decorator';
 import {
-  ExecutionBindingRegistry,
-} from '../../../out/runtime/gateway/execution-binding.registry';
+  GatewayMcpRuntimeRegistry,
+} from '../../../out/runtime/gateway/gateway-mcp-runtime.registry';
 import {
   KidItemAgentOsMcpServer,
 } from '../../mcp/kiditem-agent-os-mcp-server';
@@ -23,14 +24,15 @@ export const MCP_WEB_ORIGIN = Symbol('MCP_WEB_ORIGIN');
 
 /**
  * Direct private ingress. Browser-session/RBAC/throttle guards are skipped;
- * this controller still validates the execution bearer before every request.
+ * this controller still validates the process transport bearer before every
+ * request. Tool callbacks resolve their active turn only when invoked.
  */
 @SkipAuth()
 @SkipThrottle()
 @Controller('internal/agent-runtime')
 export class AgentMcpHttpController {
   constructor(
-    private readonly bindings: ExecutionBindingRegistry,
+    private readonly runtime: GatewayMcpRuntimeRegistry,
     private readonly servers: KidItemAgentOsMcpServer,
     private readonly responses: McpHttpResponseAdapter,
     @Inject(MCP_WEB_ORIGIN) private readonly webOrigin: string,
@@ -42,8 +44,11 @@ export class AgentMcpHttpController {
     @Req() request: ExpressRequest,
     @Res() response: ExpressResponse,
   ): Promise<void> {
-    const binding = this.requireBinding(request);
-    const handler = this.servers.createHandler(binding, this.webOrigin);
+    const connection = this.requireConnection(request);
+    const handler = this.servers.createHandler(
+      () => this.runtime.resolveActive(connection.mcpTransportToken, connection.conversationId),
+      this.webOrigin,
+    );
     const signal = abortSignal(request, response);
     try {
       const result = await handler.fetch(toFetchRequest(request, body, signal), { parsedBody: body });
@@ -56,21 +61,31 @@ export class AgentMcpHttpController {
     }
   }
 
-  private requireBinding(request: Pick<ExpressRequest, 'headers'>) {
-    const token = executionBearer(request);
+  private requireConnection(request: Pick<ExpressRequest, 'headers'>) {
+    const mcpTransportToken = mcpTransportBearer(request);
+    const conversationId = mcpConversationId(request);
+    if (!mcpTransportToken || !conversationId) throw new UnauthorizedException('mcp_transport_invalid');
     try {
-      return this.bindings.resolve(token ?? '');
+      this.runtime.authenticate(mcpTransportToken);
+      return { mcpTransportToken, conversationId };
     } catch {
-      throw new UnauthorizedException('execution_binding_invalid');
+      throw new UnauthorizedException('mcp_transport_invalid');
     }
   }
 }
 
-export function executionBearer(request: Pick<ExpressRequest, 'headers'>): string | null {
+export function mcpTransportBearer(request: Pick<ExpressRequest, 'headers'>): string | null {
   const authorization = request.headers.authorization;
   if (typeof authorization !== 'string' || !authorization.startsWith('Bearer ')) return null;
   const token = authorization.slice('Bearer '.length).trim();
   return token || null;
+}
+
+export function mcpConversationId(request: Pick<ExpressRequest, 'headers'>): string | null {
+  const value = request.headers[MCP_CONVERSATION_ID_HEADER];
+  if (typeof value !== 'string') return null;
+  const parsed = ConversationIdSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 function abortSignal(request: ExpressRequest, response: ExpressResponse): AbortSignal {

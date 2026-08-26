@@ -26,7 +26,6 @@ type ConversationGatewayPort = Readonly<{
     message: string;
     model: string;
     reasoningEffort: string;
-    executionBinding: string;
     onEvent: (event: ProviderEvent) => void;
   }) => Promise<void>;
   sendInput: (input: { conversationId: string; turnId: string; message: string }) => Promise<void>;
@@ -44,7 +43,6 @@ const MAX_COMMAND_TOMBSTONES = 1_024;
 export class GatewayCommandDispatcher {
   private readonly applied = new Map<string, string>();
   private readonly active: ActiveTurnRegistry;
-  private readonly activeBindings = new Map<string, string>();
 
   constructor(private readonly options: Readonly<{
     gateway: ConversationGatewayPort;
@@ -79,8 +77,17 @@ export class GatewayCommandDispatcher {
   clear(): void {
     this.active.clear();
     this.applied.clear();
-    for (const binding of this.activeBindings.values()) this.options.outbox.forgetSecret(binding);
-    this.activeBindings.clear();
+  }
+
+  /**
+   * An API restart loses its active-turn authority. Stop every currently live
+   * provider turn before releasing Gateway-local fences; successful reset does
+   * not delete or recreate the provider conversation.
+   */
+  async resetAfterApiRuntimeRegistration(): Promise<void> {
+    const liveTurns = this.active.snapshot();
+    await Promise.all(liveTurns.map((turn) => this.options.gateway.interrupt(turn)));
+    this.clear();
   }
 
   private async apply(command: GatewayCommand): Promise<void> {
@@ -140,7 +147,6 @@ export class GatewayCommandDispatcher {
       case 'turn.interrupt': {
         this.active.require(command);
         await this.options.gateway.interrupt(command);
-        this.terminal(command.conversationId, command.turnId, 'interrupted');
         return;
       }
     }
@@ -148,9 +154,6 @@ export class GatewayCommandDispatcher {
 
   private async startTurn(command: Extract<GatewayCommand, { kind: 'turn.start' }>): Promise<void> {
     this.active.admit(command);
-    const key = activeTurnKey(command.conversationId, command.turnId);
-    this.activeBindings.set(key, command.executionBinding);
-    this.options.outbox.registerSecret(command.executionBinding);
     try {
       await this.options.gateway.startTurn({
         conversationId: command.conversationId,
@@ -158,13 +161,10 @@ export class GatewayCommandDispatcher {
         message: command.message,
         model: command.model,
         reasoningEffort: command.reasoningEffort,
-        executionBinding: command.executionBinding,
         onEvent: (event) => this.providerEvent(command.conversationId, command.turnId, event),
       });
     } catch (error) {
       this.active.release(command);
-      this.activeBindings.delete(key);
-      this.options.outbox.forgetSecret(command.executionBinding);
       throw error;
     }
   }
@@ -185,10 +185,6 @@ export class GatewayCommandDispatcher {
   private terminal(conversationId: string, turnId: string, status: 'completed' | 'failed' | 'interrupted' | 'disconnected'): void {
     if (!this.active.release({ conversationId, turnId })) return;
     this.options.outbox.enqueue({ kind: 'turn.terminal', conversationId, turnId, status });
-    const key = activeTurnKey(conversationId, turnId);
-    const binding = this.activeBindings.get(key);
-    this.activeBindings.delete(key);
-    if (binding) this.options.outbox.forgetSecret(binding);
   }
 
   private remember(commandId: string, serialized: string): void {
@@ -203,10 +199,6 @@ export class GatewayCommandDispatcher {
 
 function commandDigest(command: GatewayCommand): string {
   return createHash('sha256').update(JSON.stringify(command)).digest('hex');
-}
-
-function activeTurnKey(conversationId: string, turnId: string): string {
-  return `${conversationId}\u0000${turnId}`;
 }
 
 function rejectionCode(error: unknown): 'capacity' | 'invalid_state' | 'unsupported' | 'provider_error' {

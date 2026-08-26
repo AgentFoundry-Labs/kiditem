@@ -13,6 +13,7 @@ const POLL = {
   kind: 'poll' as const,
   gatewayInstanceId: 'gateway-1',
   platform: 'macos' as const,
+  mcpTransportToken: 'A'.repeat(43),
   runtimeTrain: GATEWAY_RUNTIME_TRAIN,
 };
 
@@ -97,13 +98,31 @@ describe('GatewayEventHandlerService', () => {
     expect(broker.terminal).toHaveBeenCalledWith('conversation-1', 'turn-1', 'completed');
   });
 
+  it('uses the first post-restart event sequence from the currently polled Gateway as a fresh in-memory baseline', () => {
+    const queue = { isLiveSession: vi.fn(() => true), acknowledge: vi.fn(), reject: vi.fn(), terminal: vi.fn() };
+    const broker = brokerPort();
+    const handler = new GatewayEventHandlerService({
+      queue: queue as never,
+      readiness: { update: vi.fn() } as never,
+      broker: broker as never,
+    });
+
+    expect(handler.handle({
+      gatewayInstanceId: 'gateway-after-api-restart',
+      eventSeq: 7,
+      events: [{ kind: 'command.ack', commandId: 'command-after-restart' }],
+    })).toEqual({ eventSeq: 7, accepted: true });
+    expect(queue.acknowledge).toHaveBeenCalledWith('command-after-restart');
+    expect(broker.acknowledge).toHaveBeenCalledWith('command-after-restart');
+  });
+
   it('resolves a queued create through the event handler only when its returned conversation ID matches the owner-fenced command', async () => {
     const queue = new GatewayCommandQueue({
-      bindings: bindingRegistry() as never,
+      runtime: mcpRuntime() as never,
       installationId: 'installation-1',
       longPollMs: 0,
     });
-    queue.claim('gateway-1');
+    queue.claim(POLL);
     const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
     const handler = new GatewayEventHandlerService({
       queue,
@@ -179,10 +198,11 @@ function conversation(id: string) {
   };
 }
 
-function bindingRegistry() {
+function mcpRuntime() {
   return {
-    issue: vi.fn(),
-    revokeTurn: vi.fn(),
-    revokeInstallation: vi.fn(),
+    registerProcess: vi.fn(),
+    activateTurn: vi.fn(),
+    deactivateTurn: vi.fn(),
+    disconnect: vi.fn(),
   };
 }

@@ -23,11 +23,13 @@ describe('Codex app-server real provider readiness', () => {
       workspace,
       loginRoot: homedir(),
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: 'T'.repeat(43),
       supervisor: createPlatformProcessSupervisor({ platform: gatewayPlatformFromNodePlatform(), runtimeRoot }),
     });
     let providerConversationRef: string | null = null;
     try {
       const conversation = await process.session.createConversation({
+        conversationId: 'codex-canary-empty-conversation',
         instructionProfile: gatewayInstructionProfile(null),
       });
       providerConversationRef = conversation.providerConversationRef;
@@ -51,6 +53,7 @@ describe('Codex app-server real provider readiness', () => {
       workspace,
       loginRoot: homedir(),
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: 'T'.repeat(43),
       supervisor: createPlatformProcessSupervisor({ platform: gatewayPlatformFromNodePlatform(), runtimeRoot }),
     });
     let providerConversationRef: string | null = null;
@@ -60,6 +63,7 @@ describe('Codex app-server real provider readiness', () => {
       const effort = capability.reasoningEfforts[0];
       if (!effort) throw new Error('codex_canary_effort_catalog_empty');
       const conversation = await process.session.createConversation({
+        conversationId: 'codex-canary-conversation',
         title: 'KidItem temporary Gateway readiness canary',
         instructionProfile: gatewayInstructionProfile(null),
       });
@@ -67,11 +71,11 @@ describe('Codex app-server real provider readiness', () => {
       const terminal = deferredTerminal();
       await process.session.startTurn({
         providerConversationRef,
+        conversationId: 'codex-canary-conversation',
         turnId: 'gateway-canary-turn',
         message: 'Reply with exactly READY. Do not call any tools.',
         model: capability.model,
         reasoningEffort: effort,
-        executionBinding: 'A'.repeat(43),
         instructionProfile: gatewayInstructionProfile(null),
       }, (event) => {
         if (event.kind === 'status' && event.status !== 'started') terminal.resolve(event.status);

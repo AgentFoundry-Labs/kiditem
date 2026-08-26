@@ -53,7 +53,12 @@ export class ActiveTurnRegistry {
     return [...this.active.values()].some((active) => active.conversationId === conversationId);
   }
 
-  /** Terminal/interrupt release is idempotent so duplicate provider events are harmless. */
+  /** A stable local snapshot lets the caller stop provider turns before releasing their fences. */
+  snapshot(): ActiveTurn[] {
+    return [...this.active.values()];
+  }
+
+  /** Exact provider-terminal release is idempotent so duplicate terminal events are harmless. */
   release(input: ActiveTurn): boolean {
     return this.active.delete(turnKey(input));
   }

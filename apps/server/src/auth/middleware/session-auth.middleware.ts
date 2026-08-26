@@ -11,7 +11,7 @@ export class SessionAuthMiddleware implements NestMiddleware {
   constructor(private readonly authService: AuthService) {}
 
   async use(request: Request, response: Response, next: NextFunction): Promise<void> {
-    // This bearer belongs only to the process-memory execution binding registry.
+    // This bearer belongs only to the process-memory MCP transport registry.
     // It is never a browser session token and must not trigger a DB lookup.
     if (isAgentRuntimePrivateRequest(request)) {
       next();

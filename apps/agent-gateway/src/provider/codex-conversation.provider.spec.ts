@@ -10,10 +10,10 @@ describe('CodexConversationProvider', () => {
       readiness: { runtime: 'codex_cli', version: '0.149.1', models: ['gpt-5.6'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'gpt-5.6', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
     });
 
-    await provider.create({ title: 'Thread', instructionProfile: gatewayInstructionProfile(null) });
+    await provider.create({ conversationId: 'conversation-1', title: 'Thread', instructionProfile: gatewayInstructionProfile(null) });
     await provider.rename('thread-1', 'Renamed');
     await provider.delete('thread-1');
-    await provider.startTurn({ providerConversationRef: 'thread-1', turnId: 'turn-1', message: 'Work', model: 'gpt-5.6', reasoningEffort: 'medium', executionBinding: 'A'.repeat(43), instructionProfile: gatewayInstructionProfile(null) }, () => undefined);
+    await provider.startTurn({ providerConversationRef: 'thread-1', conversationId: 'conversation-1', turnId: 'turn-1', message: 'Work', model: 'gpt-5.6', reasoningEffort: 'medium', instructionProfile: gatewayInstructionProfile(null) }, () => undefined);
     await provider.sendInput({ providerConversationRef: 'thread-1', turnId: 'turn-1', message: 'More' });
     await provider.interrupt({ providerConversationRef: 'thread-1', turnId: 'turn-1' });
 

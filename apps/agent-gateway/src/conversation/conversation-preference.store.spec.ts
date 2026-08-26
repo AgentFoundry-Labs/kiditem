@@ -115,7 +115,7 @@ describe('ConversationPreferenceStore', () => {
       'credential',
       'providerConversationRef',
       'transcript',
-      'executionBinding',
+      'mcpTransportToken',
       'capabilityInput',
       'approval',
       'operationId',

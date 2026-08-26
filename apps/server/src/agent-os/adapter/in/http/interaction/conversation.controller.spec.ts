@@ -61,7 +61,7 @@ describe('ConversationController', () => {
         agentKey: null,
         title: 'General',
         providerConversationRef: 'private',
-        executionBinding: 'private',
+        mcpTransportToken: 'private',
       },
       ORGANIZATION_ID,
       { id: USER_ID } as never,
@@ -283,7 +283,7 @@ describe('ConversationController', () => {
       providerConversationRef: 'private-provider-ref',
       providerReference: 'private-provider-ref',
       credential: 'private-credential',
-      executionBinding: 'private-binding',
+      mcpTransportToken: 'private-transport-token',
       transcript: [{ role: 'user', content: 'must not persist' }],
       unexpected: true,
     })) {

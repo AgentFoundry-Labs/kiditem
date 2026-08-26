@@ -3,6 +3,7 @@ import { gatewayInstructionProfile } from '../profile/agent-profile.catalog';
 
 const GENERAL_PROFILE = gatewayInstructionProfile(null);
 const SOURCING_PROFILE = gatewayInstructionProfile('sourcing');
+const MCP_TRANSPORT_TOKEN = 'T'.repeat(43);
 
 describe('CodexAppServerSession provider-native thread adapter', () => {
   it('names a conversation even when the caller omits a title so Codex persists the empty thread', async () => {
@@ -12,9 +13,10 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
       write: (line: string) => { lines.push(line); },
       workspace: '/gateway/workspace',
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: MCP_TRANSPORT_TOKEN,
     });
 
-    const created = session.createConversation({ instructionProfile: GENERAL_PROFILE });
+    const created = session.createConversation({ conversationId: 'conversation-empty', instructionProfile: GENERAL_PROFILE });
     answer(session, lines, 'initialize', {}); await advance();
     answer(session, lines, 'thread/start', threadResponse('provider-thread-empty')); await advance();
 
@@ -29,16 +31,17 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
     }));
   });
 
-  it('creates a persistent full-access thread, names it, and reuses that exact thread for two explicitly configured turns', async () => {
+  it('configures a persistent full-access thread once with the process token and reuses it for ordinary turns without resume', async () => {
     const { CodexAppServerSession } = await import('./codex-app-server-session');
     const lines: string[] = [];
     const session = new CodexAppServerSession({
       write: (line: string) => { lines.push(line); },
       workspace: '/gateway/workspace',
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: MCP_TRANSPORT_TOKEN,
     });
 
-    const created = session.createConversation({ title: 'Supplier research', instructionProfile: SOURCING_PROFILE });
+    const created = session.createConversation({ conversationId: 'conversation-1', title: 'Supplier research', instructionProfile: SOURCING_PROFILE });
     answer(session, lines, 'initialize', {}); await advance();
     answer(session, lines, 'thread/start', threadResponse('provider-thread-1')); await advance();
     answer(session, lines, 'thread/name/set', {}); await created;
@@ -49,6 +52,17 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
       sandbox: 'danger-full-access',
       ephemeral: false,
       developerInstructions: expect.stringContaining('KidItem Sourcing Agent'),
+      config: {
+        mcp_servers: {
+          kiditem: {
+            url: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+            http_headers: {
+              Authorization: `Bearer ${MCP_TRANSPORT_TOKEN}`,
+              'x-kiditem-conversation-id': 'conversation-1',
+            },
+          },
+        },
+      },
     }));
     expect(String(request(lines, 'thread/start').params.developerInstructions)).toEqual(expect.stringContaining('KidItem Advertising Agent'));
     expect(String(request(lines, 'thread/start').params.developerInstructions)).toEqual(expect.stringContaining('KidItem Merchandising Agent'));
@@ -58,43 +72,31 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
 
     const first = session.startTurn({
       providerConversationRef: 'provider-thread-1',
+      conversationId: 'conversation-1',
       turnId: 'gateway-turn-1',
       message: 'Find current inventory.',
       model: 'gpt-5.6',
       reasoningEffort: 'medium',
-      executionBinding: 'binding-one',
       instructionProfile: SOURCING_PROFILE,
     }, () => undefined);
     await advance();
-    answer(session, lines, 'thread/resume', threadResponse('provider-thread-1')); await advance();
     answer(session, lines, 'turn/start', { turn: { id: 'provider-turn-1' } }); await first;
     session.receive(notification('turn/completed', { threadId: 'provider-thread-1', turn: { id: 'provider-turn-1', status: 'completed', items: [] } }));
 
     const second = session.startTurn({
       providerConversationRef: 'provider-thread-1',
+      conversationId: 'conversation-1',
       turnId: 'gateway-turn-2',
       message: 'Compare the two suppliers.',
       model: 'gpt-5.6',
       reasoningEffort: 'high',
-      executionBinding: 'binding-two',
       instructionProfile: SOURCING_PROFILE,
     }, () => undefined);
     await advance();
-    answerAt(session, requests(lines, 'thread/resume'), 1, threadResponse('provider-thread-1')); await advance();
     answerAt(session, requests(lines, 'turn/start'), 1, { turn: { id: 'provider-turn-2' } }); await second;
 
     const resumes = requests(lines, 'thread/resume');
-    expect(resumes).toHaveLength(2);
-    expect(resumes.map(({ params }) => params.threadId)).toEqual(['provider-thread-1', 'provider-thread-1']);
-    expect(resumes.map(({ params }) => JSON.stringify(params.config))).toEqual([
-      expect.stringContaining('binding-one'),
-      expect.stringContaining('binding-two'),
-    ]);
-    expect(resumes.every(({ params }) => params.cwd === '/gateway/workspace' && params.approvalPolicy === 'never' && params.sandbox === 'danger-full-access')).toBe(true);
-    expect(resumes.map(({ params }) => String(params.developerInstructions))).toEqual([
-      expect.stringContaining('KidItem Sourcing Agent'),
-      expect.stringContaining('KidItem Sourcing Agent'),
-    ]);
+    expect(resumes).toHaveLength(0);
     expect(requests(lines, 'turn/start').map(({ params }) => ({
       threadId: params.threadId,
       model: params.model,
@@ -111,7 +113,7 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
   it('lists top-level provider threads, reads provider history without cache, archives before local deletion, and never starts a turn on reopen', async () => {
     const { CodexAppServerSession } = await import('./codex-app-server-session');
     const firstLines: string[] = [];
-    const first = new CodexAppServerSession({ write: (line: string) => { firstLines.push(line); }, workspace: '/gateway/workspace', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp' });
+    const first = new CodexAppServerSession({ write: (line: string) => { firstLines.push(line); }, workspace: '/gateway/workspace', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', mcpTransportToken: MCP_TRANSPORT_TOKEN });
     const list = first.listConversations();
     answer(first, firstLines, 'initialize', {}); await advance();
     answer(first, firstLines, 'thread/list', {
@@ -129,7 +131,7 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
     }]);
 
     const reopenLines: string[] = [];
-    const reopened = new CodexAppServerSession({ write: (line: string) => { reopenLines.push(line); }, workspace: '/gateway/workspace', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp' });
+    const reopened = new CodexAppServerSession({ write: (line: string) => { reopenLines.push(line); }, workspace: '/gateway/workspace', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', mcpTransportToken: MCP_TRANSPORT_TOKEN });
     const history = reopened.history('provider-thread-1');
     answer(reopened, reopenLines, 'initialize', {}); await advance();
     answer(reopened, reopenLines, 'thread/read', {
@@ -167,6 +169,7 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
       write: (line: string) => { lines.push(line); },
       workspace: '/gateway/workspace',
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: MCP_TRANSPORT_TOKEN,
     });
     const listConversationsPage = (session as unknown as {
       listConversationsPage?: (cursor?: string) => Promise<unknown>;
@@ -201,7 +204,7 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
   it('reads the Codex app-server model catalog and retains each model\'s supported reasoning efforts', async () => {
     const { CodexAppServerSession } = await import('./codex-app-server-session');
     const lines: string[] = [];
-    const session = new CodexAppServerSession({ write: (line: string) => { lines.push(line); }, workspace: '/gateway/workspace', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp' });
+    const session = new CodexAppServerSession({ write: (line: string) => { lines.push(line); }, workspace: '/gateway/workspace', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', mcpTransportToken: MCP_TRANSPORT_TOKEN });
 
     const catalog = session.modelCatalog();
     answer(session, lines, 'initialize', {}); await advance();
@@ -219,13 +222,13 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
     ]);
   });
 
-  it('uses exact provider turn coordinates for steer and interrupt, and emits bounded terminal state only for that active turn', async () => {
+  it('uses exact provider turn coordinates for steer and interrupt, and waits for the provider terminal event before closing the turn', async () => {
     const { CodexAppServerSession } = await import('./codex-app-server-session');
     const lines: string[] = [];
     const events: unknown[] = [];
-    const session = new CodexAppServerSession({ write: (line: string) => { lines.push(line); }, workspace: '/gateway/workspace', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp' });
+    const session = new CodexAppServerSession({ write: (line: string) => { lines.push(line); }, workspace: '/gateway/workspace', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', mcpTransportToken: MCP_TRANSPORT_TOKEN });
     const start = session.startTurn({
-      providerConversationRef: 'provider-thread-1', turnId: 'gateway-turn-1', message: 'Work', model: 'gpt-5.6', reasoningEffort: 'medium', executionBinding: 'binding-one',
+      providerConversationRef: 'provider-thread-1', conversationId: 'conversation-1', turnId: 'gateway-turn-1', message: 'Work', model: 'gpt-5.6', reasoningEffort: 'medium',
       instructionProfile: GENERAL_PROFILE,
     }, (event: unknown) => events.push(event));
     await advance();
@@ -242,16 +245,14 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
     });
     expect(request(lines, 'turn/interrupt').params).toEqual({ threadId: 'provider-thread-1', turnId: 'provider-turn-1' });
 
-    expect(events).toEqual([
-      { kind: 'status', status: 'started' },
-      { kind: 'status', status: 'interrupted' },
-    ]);
+    expect(events).toEqual([{ kind: 'status', status: 'started' }]);
 
     session.receive(notification('item/agentMessage/delta', { threadId: 'provider-thread-1', turnId: 'provider-turn-1', delta: 'A bounded answer.' }));
     session.receive(notification('turn/completed', { threadId: 'provider-thread-1', turn: { id: 'provider-turn-1', status: 'interrupted', items: [] } }));
     session.receive(notification('turn/completed', { threadId: 'other-thread', turn: { id: 'provider-turn-1', status: 'completed', items: [] } }));
     expect(events).toEqual([
       { kind: 'status', status: 'started' },
+      { kind: 'assistant.delta', delta: 'A bounded answer.' },
       { kind: 'status', status: 'interrupted' },
     ]);
   });
@@ -265,9 +266,10 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
       write: (line: string) => { lines.push(line); },
       workspace: '/gateway/workspace',
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: MCP_TRANSPORT_TOKEN,
     });
     const start = session.startTurn({
-      providerConversationRef: 'provider-thread-1', turnId: 'gateway-turn-1', message: 'Work', model: 'gpt-5.6', reasoningEffort: 'medium', executionBinding: 'binding-one',
+      providerConversationRef: 'provider-thread-1', conversationId: 'conversation-1', turnId: 'gateway-turn-1', message: 'Work', model: 'gpt-5.6', reasoningEffort: 'medium',
       instructionProfile: GENERAL_PROFILE,
     }, (event: unknown) => events.push(event));
     await advance();
@@ -302,9 +304,10 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
       write: () => Promise.reject(new Error('stdin closed')),
       workspace: '/gateway/workspace',
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: MCP_TRANSPORT_TOKEN,
     });
 
-    await expect(session.createConversation({ title: 'Will fail', instructionProfile: GENERAL_PROFILE }))
+    await expect(session.createConversation({ conversationId: 'conversation-failure', title: 'Will fail', instructionProfile: GENERAL_PROFILE }))
       .rejects.toThrow('codex_app_server_write_failed');
   });
 
@@ -316,14 +319,15 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
       write: (line: string) => { lines.push(line); },
       workspace: '/gateway/workspace',
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: MCP_TRANSPORT_TOKEN,
     });
     const start = session.startTurn({
       providerConversationRef: 'provider-thread-1',
+      conversationId: 'conversation-1',
       turnId: 'gateway-turn-1',
       message: 'Work',
       model: 'gpt-5.6',
       reasoningEffort: 'medium',
-      executionBinding: 'binding-one',
       instructionProfile: GENERAL_PROFILE,
     }, (event: unknown) => events.push(event));
     await advance();

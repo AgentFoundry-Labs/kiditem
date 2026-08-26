@@ -21,12 +21,14 @@ Agent
 - Incoming HTTP/MCP adapters inject only capability-named input ports, never
   concrete owner services. Owner domains never import Agent OS application
   service types.
-- MCP is a private Nest MCP v2 Streamable HTTP adapter called by the active
-  provider conversation. Every request revalidates one short-lived in-memory
-  execution binding. It has no durable MCP session, provider credential,
-  transcript store, internal signing layer, or repository bypass. The public
-  tool surface is exactly five tools over the 17-definition catalog, including
-  all ten Sourcing capabilities.
+- MCP is a private Nest MCP v2 Streamable HTTP adapter called by provider
+  conversations. Every request authenticates the Gateway process transport
+  token; business tool calls then resolve the static conversation locator
+  against Nest's current active-turn map. The token and locator grant no
+  Agent, capability, delegation, organization, or user authority. MCP has no
+  durable session, provider credential, transcript store, internal signing
+  layer, or repository bypass. The public tool surface is exactly five tools
+  over the 17-definition catalog, including all ten Sourcing capabilities.
 - Only the native `apps/agent-gateway` process may spawn Codex/Claude. It polls
   Nest for strict structured commands, posts bounded events, and exposes no
   inbound listener or raw-shell surface. Windows Office runs one Task
@@ -39,14 +41,19 @@ Agent
   for every turn and never silently defaulted.
 - Conversation descriptors, transcripts, native subagents, and provider
   history are Gateway/provider-local. Nest keeps only live owner correlation,
-  active turn streams, execution bindings, commands, and readiness in memory.
+  active turn streams, one process registration, per-conversation active-turn
+  records, commands, and readiness in memory.
 - API or Gateway restart ends live turns. It never persists/replays a prompt,
   resumes a provider run, synthesizes terminal database state, or starts
   reasoning. The user sends a normal new message if more reasoning is needed.
-- The protected installation bearer identifies one Gateway installation.
-  Short-lived execution bindings authenticate MCP requests and correlate one
-  live turn; they grant no Agent/capability/delegation authority and are never
-  persisted or logged as raw control state.
+- The protected installation bearer authenticates the Gateway control plane.
+  Separately, each running Gateway generates one opaque MCP transport token,
+  registers it during protected polling, and reuses it across Conversations
+  and turns. Nest activates at most one turn per Conversation with a fresh
+  execution ID and derives organization/user/turn authority only from that
+  server-owned record. Exact terminal events clear only their matching turn;
+  Conversation deletion or Gateway loss clears the related live state. Neither
+  token nor active-turn state is persisted or logged as raw control state.
 - A mutation requiring approval stores its exact canonical input/hash and
   expiry on `CapabilityInvocation` before work can proceed. Approval only
   authorizes a later explicit retry of that exact request; it never resumes a

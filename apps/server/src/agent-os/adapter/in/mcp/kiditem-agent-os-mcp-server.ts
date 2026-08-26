@@ -17,7 +17,10 @@ import { AgentCapabilityRegistry } from '../../../application/service/agent-capa
 import { AgentOsError } from '../../../domain/agent-os.errors';
 import type { OperationRunnerPort } from '../../../../operations/application/port/in/operation-runner.port';
 import { OPERATION_RUNNER_PORT } from '../../../../operations/application/port/in/operation-runner.port';
-import type { ResolvedExecutionBinding } from '../../out/runtime/gateway/execution-binding.registry';
+import {
+  GatewayMcpActiveTurnInactiveError,
+  type ResolvedGatewayMcpActiveTurn,
+} from '../../out/runtime/gateway/gateway-mcp-runtime.registry';
 import {
   CAPABILITY_MCP_TOOL_NAMES,
   CapabilityMcpWireInputSchemas,
@@ -36,14 +39,15 @@ export interface CapabilityMcpDependencies {
   webOrigin: string;
 }
 
+export type ResolveGatewayMcpActiveTurn = () => ResolvedGatewayMcpActiveTurn;
+
 /**
- * Creates one server for one HTTP request. The execution binding is already
- * verified by the Nest ingress and is intentionally not retained between
- * requests by any MCP transport state.
+ * Creates one server for one HTTP request. Transport authentication happens at
+ * ingress; each actual tool callback resolves the current active turn lazily.
  */
 export function createKidItemAgentOsMcpServer(
   dependencies: CapabilityMcpDependencies,
-  binding: ResolvedExecutionBinding,
+  resolveActiveTurn: ResolveGatewayMcpActiveTurn,
 ): McpServer {
   const server = new McpServer(
     { name: 'kiditem-capability-mcp', version: '2.0.0' },
@@ -54,15 +58,20 @@ export function createKidItemAgentOsMcpServer(
     description: 'Search all currently discoverable KidItem capability contracts.',
     inputSchema: CapabilityMcpWireInputSchemas.capability_catalog_search,
     outputSchema: CapabilityMcpWireOutputSchemas.capability_catalog_search,
-  }, async ({ query }) => structuredResult({
-    capabilities: searchCatalog(dependencies.capabilities.listDefinitions(), query),
-  }));
+  }, async ({ query }) => {
+    try {
+      resolveActiveTurn();
+      return structuredResult({ capabilities: searchCatalog(dependencies.capabilities.listDefinitions(), query) });
+    } catch (error) {
+      return structuredError(error, 'MCP_ACTIVE_TURN_INACTIVE');
+    }
+  });
 
   server.registerTool('capability_invoke', {
     description: 'Invoke one capability using its strict owner-domain input schema.',
     inputSchema: CapabilityMcpWireInputSchemas.capability_invoke,
     outputSchema: CapabilityMcpWireOutputSchemas.capability_invoke,
-  }, async (input) => invokeCapability(dependencies, binding, input));
+  }, async (input) => invokeCapability(dependencies, resolveActiveTurn, input));
 
   server.registerTool('invocation_status', {
     description: 'Read the durable receipt for one exact mutation admission.',
@@ -70,7 +79,8 @@ export function createKidItemAgentOsMcpServer(
     outputSchema: CapabilityMcpWireOutputSchemas.invocation_status,
   }, async ({ invocationId }) => {
     try {
-      const invocation = await getInvocation(dependencies.invocations, binding.organizationId, invocationId);
+      const active = resolveActiveTurn();
+      const invocation = await getInvocation(dependencies.invocations, active.organizationId, invocationId);
       return structuredResult({ invocation: invocationStatus(invocation) });
     } catch (error) {
       return structuredError(error, 'INVOCATION_NOT_FOUND');
@@ -83,7 +93,8 @@ export function createKidItemAgentOsMcpServer(
     outputSchema: CapabilityMcpWireOutputSchemas.operation_status,
   }, async ({ operationId }) => {
     try {
-      const operation = await dependencies.operations.get(binding.organizationId, operationId);
+      const active = resolveActiveTurn();
+      const operation = await dependencies.operations.get(active.organizationId, operationId);
       return structuredResult({ operation: operationStatus(operation) });
     } catch (error) {
       return structuredError(error, 'OPERATION_NOT_FOUND');
@@ -96,6 +107,7 @@ export function createKidItemAgentOsMcpServer(
     outputSchema: CapabilityMcpWireOutputSchemas.readiness_probe,
   }, async () => {
     try {
+      resolveActiveTurn();
       return structuredResult(dependencies.readiness.probe());
     } catch (error) {
       return structuredError(error, 'MCP_RUNTIME_NOT_READY');
@@ -117,7 +129,7 @@ export class KidItemAgentOsMcpServer {
     private readonly readiness: McpRuntimeReadinessService,
   ) {}
 
-  createHandler(binding: ResolvedExecutionBinding, webOrigin: string): McpHttpHandler {
+  createHandler(resolveActiveTurn: ResolveGatewayMcpActiveTurn, webOrigin: string): McpHttpHandler {
     const dependencies: CapabilityMcpDependencies = {
       invocations: this.invocations,
       capabilities: this.capabilities,
@@ -125,7 +137,7 @@ export class KidItemAgentOsMcpServer {
       readiness: this.readiness,
       webOrigin,
     };
-    return createRequestScopedCapabilityMcpHandler(dependencies, binding);
+    return createRequestScopedCapabilityMcpHandler(dependencies, resolveActiveTurn);
   }
 }
 
@@ -135,19 +147,19 @@ export class KidItemAgentOsMcpServer {
  */
 export function createRequestScopedCapabilityMcpHandler(
   dependencies: CapabilityMcpDependencies,
-  binding: ResolvedExecutionBinding,
+  resolveActiveTurn: ResolveGatewayMcpActiveTurn,
 ): McpHttpHandler {
   return createMcpHandler((context) => {
     if (context.era !== 'modern') {
       throw new Error('capability_mcp_legacy_rejected');
     }
-    return createKidItemAgentOsMcpServer(dependencies, binding);
+    return createKidItemAgentOsMcpServer(dependencies, resolveActiveTurn);
   }, { legacy: 'reject', responseMode: 'json' });
 }
 
 async function invokeCapability(
   dependencies: CapabilityMcpDependencies,
-  binding: ResolvedExecutionBinding,
+  resolveActiveTurn: ResolveGatewayMcpActiveTurn,
   input: {
     requestKey?: string;
     actingAgentKey?: string;
@@ -155,11 +167,13 @@ async function invokeCapability(
     input: unknown;
   },
 ) {
+  let active: ResolvedGatewayMcpActiveTurn | null = null;
   try {
+    active = resolveActiveTurn();
     const outcome = await dependencies.invocations.invoke({
-      organizationId: binding.organizationId,
-      initiatingUserId: binding.initiatingUserId,
-      executionId: binding.executionId,
+      organizationId: active.organizationId,
+      initiatingUserId: active.initiatingUserId,
+      executionId: active.executionId,
       capabilityKey: input.capabilityKey,
       ...(input.requestKey === undefined ? {} : { requestKey: input.requestKey }),
       ...(input.actingAgentKey === undefined ? {} : { actingAgentKey: input.actingAgentKey }),
@@ -179,7 +193,7 @@ async function invokeCapability(
     const invocation = outcome.invocationId
       ? invocationReceipt(await getInvocation(
         dependencies.invocations,
-        binding.organizationId,
+        active.organizationId,
         outcome.invocationId,
       ))
       : null;
@@ -189,11 +203,11 @@ async function invokeCapability(
       result: outcome.result,
     });
   } catch (error) {
-    if (isOwnerResultAmbiguous(error)) {
+    if (isOwnerResultAmbiguous(error) && active) {
       try {
         const invocation = await getInvocation(
           dependencies.invocations,
-          binding.organizationId,
+          active.organizationId,
           error.invocationId,
         );
         return structuredResult({
@@ -301,6 +315,12 @@ function structuredError(error: unknown, fallbackCode: string) {
 }
 
 function stableError(error: unknown, fallbackCode: string): { code: string; message: string } {
+  if (error instanceof GatewayMcpActiveTurnInactiveError) {
+    return {
+      code: error.code,
+      message: 'No active turn is available for this conversation.',
+    };
+  }
   if (error instanceof AgentOsError) {
     return {
       code: boundedCode(error.code, 'CAPABILITY_RUNTIME_ERROR'),

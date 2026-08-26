@@ -6,7 +6,7 @@ import {
   type ProviderEvent,
   type GatewayEvent,
 } from '@kiditem/shared/agent-runtime';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 const MAX_PENDING_COMMANDS = 64;
 const MAX_LIVE_TURN_STREAMS = 4;
@@ -21,6 +21,12 @@ export interface GatewayBrokerOwner {
 export interface GatewayBrokerTurnFence extends GatewayBrokerOwner {
   conversationId: string;
   turnId: string;
+}
+
+export interface GatewayBrokerTurnStartInput {
+  message: string;
+  model: string;
+  reasoningEffort: string;
 }
 
 export interface GatewayBrokerRequest<T> {
@@ -41,7 +47,10 @@ interface PendingCommand {
 
 interface TurnStream {
   readonly owner: GatewayBrokerOwner;
-  readonly startCommandId: string;
+  /** Canonical message/model/effort fence for exact same-turn retries. */
+  readonly startInputDigest: string;
+  /** The exact pending start request is reused by a same-owner retry. */
+  readonly start: GatewayBrokerRequest<void>;
   readonly subscribers: Map<number, (event: ProviderEvent) => void>;
 }
 
@@ -71,13 +80,20 @@ export class GatewayCommandResponseBroker {
     });
   }
 
-  /** Register before the queue emits a turn.start; the binding itself never enters this broker. */
-  beginTurnStart(input: Readonly<GatewayBrokerTurnFence & { commandId: string }>): GatewayBrokerRequest<void> {
+  /** Register before the queue emits a turn.start; transport state never enters this broker. */
+  beginTurnStart(input: Readonly<GatewayBrokerTurnFence & GatewayBrokerTurnStartInput & { commandId: string }>): GatewayBrokerRequest<void> {
     if (!validIdentifier(input.commandId) || !validIdentifier(input.conversationId) || !validIdentifier(input.turnId)) {
       throw new Error('gateway_broker_request_invalid');
     }
+    const startInputDigest = digestTurnStartInput(input);
     const key = turnKey(input.conversationId, input.turnId);
-    if (this.streams.has(key) || this.streams.size >= MAX_LIVE_TURN_STREAMS) throw new Error('gateway_broker_turn_unavailable');
+    const existing = this.streams.get(key);
+    if (existing) {
+      if (!sameOwner(existing.owner, owner(input))) throw new Error('gateway_broker_turn_unavailable');
+      if (existing.startInputDigest !== startInputDigest) throw new Error('gateway_broker_turn_start_input_conflict');
+      return existing.start;
+    }
+    if (this.streams.size >= MAX_LIVE_TURN_STREAMS) throw new Error('gateway_broker_turn_unavailable');
     const request = this.register<void>({
       commandId: input.commandId,
       kind: 'turn.start',
@@ -85,7 +101,7 @@ export class GatewayCommandResponseBroker {
       conversationId: input.conversationId,
       turnId: input.turnId,
     });
-    this.streams.set(key, { owner: owner(input), startCommandId: input.commandId, subscribers: new Map() });
+    this.streams.set(key, { owner: owner(input), startInputDigest, start: request, subscribers: new Map() });
     return request;
   }
 
@@ -137,7 +153,7 @@ export class GatewayCommandResponseBroker {
       return;
     }
     this.publish(stream, event);
-    if (event.kind === 'status') this.resolve(stream.startCommandId, 'turn.start', undefined, conversationId);
+    if (event.kind === 'status') this.resolve(stream.start.commandId, 'turn.start', undefined, conversationId);
   }
 
   terminal(conversationId: string, turnId: string, status: 'completed' | 'failed' | 'interrupted' | 'disconnected'): void {
@@ -146,7 +162,7 @@ export class GatewayCommandResponseBroker {
     if (!stream) return;
     this.streams.delete(key);
     this.publish(stream, ProviderEventSchema.parse({ kind: 'status', status }));
-    if (this.pending.has(stream.startCommandId)) this.fail(stream.startCommandId, 'gateway_turn_terminal_before_start');
+    if (this.pending.has(stream.start.commandId)) this.fail(stream.start.commandId, 'gateway_turn_terminal_before_start');
   }
 
   subscribeTurn(input: GatewayBrokerTurnFence, sink: (event: ProviderEvent) => void): () => void {
@@ -244,6 +260,22 @@ function validOwner(input: GatewayBrokerOwner): boolean {
 
 function validIdentifier(value: string): boolean {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= 200;
+}
+
+function digestTurnStartInput(input: Readonly<GatewayBrokerTurnFence & GatewayBrokerTurnStartInput & { commandId: string }>): string {
+  const parsed = GatewayCommandSchema.safeParse({
+    kind: 'turn.start',
+    commandId: input.commandId,
+    conversationId: input.conversationId,
+    turnId: input.turnId,
+    message: input.message,
+    model: input.model,
+    reasoningEffort: input.reasoningEffort,
+  });
+  if (!parsed.success || parsed.data.kind !== 'turn.start') throw new Error('gateway_broker_request_invalid');
+  return createHash('sha256')
+    .update(JSON.stringify([parsed.data.message, parsed.data.model, parsed.data.reasoningEffort]))
+    .digest('hex');
 }
 
 function turnKey(conversationId: string, turnId: string): string {

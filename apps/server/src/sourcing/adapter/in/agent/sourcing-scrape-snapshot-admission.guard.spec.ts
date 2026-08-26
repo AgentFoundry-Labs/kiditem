@@ -30,7 +30,7 @@ describe('SourcingScrapeSnapshotAdmissionGuard', () => {
       .rejects.toThrow('sourcing_scrape_snapshot_unbound');
   });
 
-  it('clears the receipt when its execution binding is revoked', async () => {
+  it('clears the receipt when its active turn context is revoked', async () => {
     const guard = new SourcingScrapeSnapshotAdmissionGuard();
     guard.recordScrapeSnapshot({ ...context, snapshot });
     guard.revokeExecution(context);

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { chmod, mkdir, readdir, unlink, writeFile } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
+import { MCP_CONVERSATION_ID_HEADER } from '@kiditem/shared/agent-runtime';
 
 /** Ephemeral per-turn Claude MCP config; never a conversation descriptor. */
 type ClaudeMcpFilesystem = Readonly<{
@@ -17,8 +18,8 @@ export class ClaudeMcpConfigStore {
     this.root = resolve(options.stateRoot, 'claude-turn-mcp');
   }
 
-  async create(input: Readonly<{ turnId: string; mcpUrl: string; executionBinding: string }>): Promise<string> {
-    if (!input.turnId || !input.executionBinding || !input.mcpUrl) throw new Error('claude_mcp_config_invalid');
+  async create(input: Readonly<{ turnId: string; conversationId: string; mcpUrl: string; mcpTransportToken: string }>): Promise<string> {
+    if (!input.turnId || !input.conversationId || !input.mcpTransportToken || !input.mcpUrl) throw new Error('claude_mcp_config_invalid');
     await mkdir(this.root, { recursive: true, mode: 0o700 });
     if (this.options.platform === 'macos') await this.chmod(this.root, 0o700);
     const name = createHash('sha256').update(`${input.turnId}\u0000${randomUUID()}`).digest('hex');
@@ -28,7 +29,10 @@ export class ClaudeMcpConfigStore {
         kiditem: {
           type: 'http',
           url: input.mcpUrl,
-          headers: { Authorization: `Bearer ${input.executionBinding}` },
+          headers: {
+            Authorization: `Bearer ${input.mcpTransportToken}`,
+            [MCP_CONVERSATION_ID_HEADER]: input.conversationId,
+          },
         },
       },
     });

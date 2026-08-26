@@ -30,7 +30,7 @@ describe('ConversationDescriptorStore', () => {
       'mcpResult',
       'invocationInput',
       'operationData',
-      'executionBinding',
+      'mcpTransportToken',
       'bearerToken',
       'providerCredential',
       'authState',

@@ -8,7 +8,7 @@ import {
 
 /**
  * The sole durable Gateway-local conversation state. Provider history, MCP
- * results, invocation data, bindings, credentials, and subagents do not fit
+ * results, invocation data, transport secrets, credentials, and subagents do not fit
  * this strict shape and therefore cannot enter the descriptor JSON.
  */
 export const ConversationDescriptorSchema = z.object({

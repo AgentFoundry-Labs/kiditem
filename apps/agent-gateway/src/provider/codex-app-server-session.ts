@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  MCP_CONVERSATION_ID_HEADER,
   ModelSchema,
   ProviderEventSchema,
   ProviderMessageSchema,
@@ -61,6 +62,7 @@ export class CodexAppServerSession {
   private readonly pending = new Map<string, { resolve(value: unknown): void; reject(error: Error): void }>();
   private readonly activeByGatewayTurn = new Map<string, ActiveTurn>();
   private readonly activeByProviderTurn = new Map<string, ActiveTurn>();
+  private readonly mcpConfiguredThreads = new Set<string>();
   private initialized: Promise<void> | null = null;
   private closed = false;
   private buffer = '';
@@ -69,6 +71,7 @@ export class CodexAppServerSession {
     write: (line: string) => void | Promise<void>;
     workspace: string;
     mcpUrl: string;
+    mcpTransportToken: string;
     maxBytes?: number;
   }>) {}
 
@@ -80,6 +83,7 @@ export class CodexAppServerSession {
       sandbox: 'danger-full-access',
       ephemeral: false,
       developerInstructions: codexDeveloperInstructions(input.instructionProfile),
+      config: this.mcpConfig(input.conversationId),
     });
     const thread = requireThread(result);
     assertFullAccess(result);
@@ -88,6 +92,7 @@ export class CodexAppServerSession {
     // name. The Web intentionally permits title-less conversation creation, so
     // persist the provider-supplied/default title before exposing the thread.
     await this.request('thread/name/set', { threadId: thread.id, name: title });
+    this.mcpConfiguredThreads.add(thread.id);
     return toProviderConversation({ ...thread, name: title });
   }
 
@@ -166,6 +171,7 @@ export class CodexAppServerSession {
   async archive(providerConversationRef: string): Promise<void> {
     await this.ensureInitialized();
     await this.request('thread/archive', { threadId: providerConversationRef });
+    this.mcpConfiguredThreads.delete(providerConversationRef);
   }
 
   async startTurn(input: StartProviderTurn, sink: ProviderEventSink): Promise<void> {
@@ -173,16 +179,19 @@ export class CodexAppServerSession {
     if (this.activeByGatewayTurn.has(gatewayTurnKey(input.providerConversationRef, input.turnId))) {
       throw new Error('codex_turn_already_live');
     }
-    const resumed = await this.request('thread/resume', {
-      threadId: input.providerConversationRef,
-      cwd: this.options.workspace,
-      approvalPolicy: 'never',
-      sandbox: 'danger-full-access',
-      model: input.model,
-      developerInstructions: codexDeveloperInstructions(input.instructionProfile),
-      config: this.mcpConfig(input.executionBinding),
-    });
-    assertFullAccess(resumed);
+    if (!this.mcpConfiguredThreads.has(input.providerConversationRef)) {
+      const resumed = await this.request('thread/resume', {
+        threadId: input.providerConversationRef,
+        cwd: this.options.workspace,
+        approvalPolicy: 'never',
+        sandbox: 'danger-full-access',
+        model: input.model,
+        developerInstructions: codexDeveloperInstructions(input.instructionProfile),
+        config: this.mcpConfig(input.conversationId),
+      });
+      assertFullAccess(resumed);
+      this.mcpConfiguredThreads.add(input.providerConversationRef);
+    }
     const started = await this.request('turn/start', {
       threadId: input.providerConversationRef,
       input: [textInput(input.message)],
@@ -219,7 +228,6 @@ export class CodexAppServerSession {
       threadId: active.providerConversationRef,
       turnId: active.providerTurnId,
     });
-    this.finish(active, 'interrupted');
   }
 
   /** Process exit/restart clears only transient RPC and active-turn state. */
@@ -227,6 +235,7 @@ export class CodexAppServerSession {
     if (this.closed) return;
     this.closed = true;
     this.buffer = '';
+    this.mcpConfiguredThreads.clear();
     for (const active of this.activeByGatewayTurn.values()) this.finish(active, 'disconnected');
     for (const pending of this.pending.values()) pending.reject(new Error('codex_app_server_closed'));
     this.pending.clear();
@@ -361,12 +370,15 @@ export class CodexAppServerSession {
     }
   }
 
-  private mcpConfig(executionBinding: string): Record<string, unknown> {
+  private mcpConfig(conversationId: string): Record<string, unknown> {
     return {
       mcp_servers: {
         kiditem: {
           url: this.options.mcpUrl,
-          http_headers: { Authorization: `Bearer ${executionBinding}` },
+          http_headers: {
+            Authorization: `Bearer ${this.options.mcpTransportToken}`,
+            [MCP_CONVERSATION_ID_HEADER]: conversationId,
+          },
         },
       },
     };

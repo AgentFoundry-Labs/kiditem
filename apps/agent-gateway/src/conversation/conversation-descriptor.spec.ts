@@ -17,6 +17,6 @@ describe('ConversationDescriptorSchema', () => {
     expect(ConversationDescriptorSchema.parse(value)).toEqual(value);
     expect(ConversationDescriptorSchema.safeParse({ ...value, createTitle: undefined }).success).toBe(false);
     expect(ConversationDescriptorSchema.safeParse({ ...value, messages: [] }).success).toBe(false);
-    expect(ConversationDescriptorSchema.safeParse({ ...value, executionBinding: 'secret' }).success).toBe(false);
+    expect(ConversationDescriptorSchema.safeParse({ ...value, mcpTransportToken: 'secret' }).success).toBe(false);
   });
 });

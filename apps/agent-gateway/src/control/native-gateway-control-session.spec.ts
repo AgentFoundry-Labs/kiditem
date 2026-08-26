@@ -34,6 +34,7 @@ describe('NativeGatewayControlSession', () => {
       outbox,
       poll: {
         kind: 'poll', gatewayInstanceId: 'gateway-1', platform: 'macos',
+        mcpTransportToken: 'A'.repeat(43),
         runtimeTrain: { controlRevision: 'kiditem-gateway-control-v1', mcpProtocolRevision: '2026-07-28', nodeMajor: 22, codexVersion: '0.149.1', claudeVersion: '2.1.245' },
       },
       onPollLoss: vi.fn(),
@@ -66,6 +67,7 @@ describe('NativeGatewayControlSession', () => {
       outbox,
       poll: {
         kind: 'poll', gatewayInstanceId: 'gateway-1', platform: 'macos',
+        mcpTransportToken: 'A'.repeat(43),
         runtimeTrain: { controlRevision: 'kiditem-gateway-control-v1', mcpProtocolRevision: '2026-07-28', nodeMajor: 22, codexVersion: '0.149.1', claudeVersion: '2.1.245' },
       },
       onPollLoss: lost,
@@ -77,6 +79,117 @@ describe('NativeGatewayControlSession', () => {
     expect(dispatcher.clear).toHaveBeenCalledOnce();
     expect(client.abortInFlight).toHaveBeenCalledOnce();
     expect(lost).toHaveBeenCalledOnce();
+  });
+
+  it('re-registers once after an API restart rejects a pending event before treating control as lost', async () => {
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const { GatewayControlHttpError } = await import('./gateway-control.client');
+    const { NativeGatewayControlSession } = await import('./native-gateway-control-session');
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
+    outbox.enqueue({ kind: 'command.ack', commandId: 'command-1' });
+    const calls: string[] = [];
+    let polls = 0;
+    let events = 0;
+    const client = {
+      poll: vi.fn(async () => {
+        calls.push('poll');
+        polls += 1;
+        if (polls < 3) return { commands: [] };
+        throw new GatewayControlHttpError(401);
+      }),
+      postEventBody: vi.fn(async (body: string) => {
+        calls.push('event');
+        events += 1;
+        if (events === 1) {
+          throw new GatewayControlHttpError(409, 'gateway_process_registration_missing');
+        }
+        return { eventSeq: JSON.parse(body).eventSeq, accepted: true as const };
+      }),
+      abortInFlight: vi.fn(),
+    };
+    const session = new NativeGatewayControlSession({
+      client,
+      dispatcher: { dispatch: vi.fn(), clear: vi.fn() },
+      outbox,
+      poll: {
+        kind: 'poll', gatewayInstanceId: 'gateway-1', platform: 'macos', mcpTransportToken: 'A'.repeat(43),
+        runtimeTrain: { controlRevision: 'kiditem-gateway-control-v1', mcpProtocolRevision: '2026-07-28', nodeMajor: 22, codexVersion: '0.149.1', claudeVersion: '2.1.245' },
+      },
+      onPollLoss: vi.fn(),
+    });
+
+    await expect(session.run()).rejects.toThrow('gateway_control_lost');
+    expect(calls).toEqual(['poll', 'event', 'poll', 'event', 'poll']);
+    expect(client.postEventBody).toHaveBeenCalledTimes(2);
+  });
+
+  it('resets live provider turns before accepting commands after a fresh API runtime registration', async () => {
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const { GatewayControlHttpError } = await import('./gateway-control.client');
+    const { NativeGatewayControlSession } = await import('./native-gateway-control-session');
+    const order: string[] = [];
+    let polls = 0;
+    const client = {
+      poll: vi.fn(async () => {
+        polls += 1;
+        if (polls === 1) return { commands: [], apiRuntimeRegistered: true };
+        if (polls === 2) return { commands: [{ kind: 'conversation.list', commandId: 'command-1' }] };
+        throw new GatewayControlHttpError(401);
+      }),
+      postEventBody: vi.fn(),
+      abortInFlight: vi.fn(),
+    };
+    const dispatcher = {
+      resetAfterApiRuntimeRegistration: vi.fn(async () => { order.push('reset'); }),
+      dispatch: vi.fn(async () => { order.push('dispatch'); }),
+      clear: vi.fn(),
+    };
+    const session = new NativeGatewayControlSession({
+      client,
+      dispatcher,
+      outbox: new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' }),
+      poll: {
+        kind: 'poll', gatewayInstanceId: 'gateway-1', platform: 'macos', mcpTransportToken: 'A'.repeat(43),
+        runtimeTrain: { controlRevision: 'kiditem-gateway-control-v1', mcpProtocolRevision: '2026-07-28', nodeMajor: 22, codexVersion: '0.149.1', claudeVersion: '2.1.245' },
+      },
+      onPollLoss: vi.fn(),
+    });
+
+    await expect(session.run()).rejects.toThrow('gateway_control_lost');
+    expect(order).toEqual(['reset', 'dispatch']);
+    expect(dispatcher.resetAfterApiRuntimeRegistration).toHaveBeenCalledOnce();
+  });
+
+  it('fails closed through the existing shutdown path when active-turn reset cannot stop a provider', async () => {
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const { NativeGatewayControlSession } = await import('./native-gateway-control-session');
+    const resetFailure = new Error('provider_interrupt_failed');
+    const onPollLoss = vi.fn();
+    const dispatcher = {
+      resetAfterApiRuntimeRegistration: vi.fn(async () => { throw resetFailure; }),
+      dispatch: vi.fn(),
+      clear: vi.fn(),
+    };
+    const session = new NativeGatewayControlSession({
+      client: {
+        poll: vi.fn(async () => ({ commands: [], apiRuntimeRegistered: true })),
+        postEventBody: vi.fn(),
+        abortInFlight: vi.fn(),
+      },
+      dispatcher,
+      outbox: new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' }),
+      poll: {
+        kind: 'poll', gatewayInstanceId: 'gateway-1', platform: 'macos', mcpTransportToken: 'A'.repeat(43),
+        runtimeTrain: { controlRevision: 'kiditem-gateway-control-v1', mcpProtocolRevision: '2026-07-28', nodeMajor: 22, codexVersion: '0.149.1', claudeVersion: '2.1.245' },
+      },
+      onPollLoss,
+    });
+
+    await expect(session.run()).rejects.toThrow('gateway_control_lost');
+    expect(dispatcher.resetAfterApiRuntimeRegistration).toHaveBeenCalledOnce();
+    expect(onPollLoss).toHaveBeenCalledOnce();
+    expect(dispatcher.clear).toHaveBeenCalledOnce();
+    expect(dispatcher.dispatch).not.toHaveBeenCalled();
   });
 
   it('terminates a running loop on manual shutdown instead of treating the aborted poll as retryable', async () => {
@@ -94,6 +207,7 @@ describe('NativeGatewayControlSession', () => {
       outbox: new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' }),
       poll: {
         kind: 'poll', gatewayInstanceId: 'gateway-1', platform: 'macos',
+        mcpTransportToken: 'A'.repeat(43),
         runtimeTrain: { controlRevision: 'kiditem-gateway-control-v1', mcpProtocolRevision: '2026-07-28', nodeMajor: 22, codexVersion: '0.149.1', claudeVersion: '2.1.245' },
       },
       onPollLoss: vi.fn(),
@@ -118,6 +232,7 @@ describe('NativeGatewayControlSession', () => {
       outbox: new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' }),
       poll: {
         kind: 'poll', gatewayInstanceId: 'gateway-1', platform: 'macos',
+        mcpTransportToken: 'A'.repeat(43),
         runtimeTrain: { controlRevision: 'kiditem-gateway-control-v1', mcpProtocolRevision: '2026-07-28', nodeMajor: 22, codexVersion: '0.149.1', claudeVersion: '2.1.245' },
       },
       onPollLoss: () => shutdownGate.promise,

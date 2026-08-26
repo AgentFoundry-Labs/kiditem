@@ -31,7 +31,6 @@ export interface GatewayTurnStart {
   message: string;
   model: Model;
   reasoningEffort: ReasoningEffort;
-  executionBinding: string;
   onEvent: (event: ProviderEvent) => void;
 }
 
@@ -82,6 +81,7 @@ export class ConversationGateway {
     let created: Awaited<ReturnType<ProviderConversationPort['create']>>;
     try {
       created = await provider.create({
+        conversationId: command.conversationId,
         title: command.title,
         instructionProfile: gatewayInstructionProfile(command.agentKey),
       });
@@ -158,11 +158,11 @@ export class ConversationGateway {
     try {
       await this.provider(descriptor.runtime).startTurn({
         providerConversationRef: descriptor.providerConversationRef,
+        conversationId: descriptor.id,
         turnId: input.turnId,
         message: input.message,
         model: input.model,
         reasoningEffort: input.reasoningEffort,
-        executionBinding: input.executionBinding,
         instructionProfile: gatewayInstructionProfile(descriptor.agentKey),
       }, (event) => input.onEvent(ProviderEventSchema.parse(event)));
     } catch {

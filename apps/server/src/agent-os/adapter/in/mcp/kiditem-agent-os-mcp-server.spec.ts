@@ -8,6 +8,7 @@ import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-ke
 import { DefinitiveMarketplaceRegistrationError } from '../../../../channels/application/port/in/capability/marketplace-registration.port';
 import { CapabilityInvocationService } from '../../../application/service/capability-invocation.service';
 import { AgentOsError } from '../../../domain/agent-os.errors';
+import { GatewayMcpActiveTurnInactiveError } from '../../out/runtime/gateway/gateway-mcp-runtime.registry';
 import { FINAL_CAPABILITY_DEFINITIONS } from '../../../domain/catalog/final-capability.catalog';
 import {
   CAPABILITY_MCP_TOOL_NAMES,
@@ -32,6 +33,47 @@ const PRODUCT_SAFE_REJECTION =
   'Coupang rejected the listing before it was created. Review the listing data and try again.';
 
 describe('KidItem stateless capability MCP server', () => {
+  it('keeps protocol discovery inactive-safe but resolves active turn authority lazily for every actual tool callback', async () => {
+    const { dependencies } = makeHandler();
+    let active: ReturnType<typeof activeTurn> | null = null;
+    const handler = createRequestScopedCapabilityMcpHandler(dependencies, (() => {
+      if (!active) throw new GatewayMcpActiveTurnInactiveError();
+      return active;
+    }) as never);
+
+    try {
+      const tools = await call(handler, 'tools/list', {});
+      expect(tools.result.tools.map((tool: { name: string }) => tool.name)).toEqual(CAPABILITY_MCP_TOOL_NAMES);
+
+      const inactive = await call(handler, 'tools/call', {
+        name: 'readiness_probe',
+        arguments: {},
+      });
+      expect(inactive.result).toMatchObject({
+        isError: true,
+        structuredContent: { kind: 'error', error: { code: 'MCP_ACTIVE_TURN_INACTIVE' } },
+      });
+
+      active = { ...activeTurn(), executionId: 'execution-live' };
+      const catalog = await call(handler, 'tools/call', {
+        name: 'capability_catalog_search',
+        arguments: {},
+      });
+      expect(catalog.result.structuredContent.capabilities).toHaveLength(17);
+
+      await call(handler, 'tools/call', {
+        name: 'capability_invoke',
+        arguments: { capabilityKey: READ_CAPABILITY, input: { period: 'month' } },
+      });
+      expect(dependencies.invocations.invoke).toHaveBeenCalledWith(expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        executionId: 'execution-live',
+      }));
+    } finally {
+      await handler.close();
+    }
+  });
+
   it('serves exactly five modern tools from independent request handlers and advertises 2020-12 strict contracts', async () => {
     const { handler, dependencies } = makeHandler();
     try {
@@ -274,7 +316,7 @@ describe('KidItem stateless capability MCP server', () => {
         }),
       },
       webOrigin: 'https://kiditem.test',
-    }, executionBinding());
+    }, () => activeTurn());
 
     try {
       const response = await call(handler, 'tools/call', {
@@ -432,15 +474,7 @@ function makeHandler(): {
     operations: { get: ReturnType<typeof vi.fn> };
   };
   return {
-    handler: createRequestScopedCapabilityMcpHandler(dependencies, {
-      executionId: 'execution-1',
-      installationId: 'installation-1',
-      organizationId: ORGANIZATION_ID,
-      initiatingUserId: USER_ID,
-      conversationId: 'conversation-1',
-      turnId: 'turn-1',
-      expiresAt: new Date('2026-08-25T04:00:00.000Z'),
-    }),
+    handler: createRequestScopedCapabilityMcpHandler(dependencies, () => activeTurn()),
     dependencies,
   };
 }
@@ -520,14 +554,14 @@ function invocationRecord() {
   };
 }
 
-function executionBinding() {
+function activeTurn() {
   return {
     executionId: 'execution-1',
     installationId: 'installation-1',
+    gatewayInstanceId: 'gateway-1',
     organizationId: ORGANIZATION_ID,
     initiatingUserId: USER_ID,
     conversationId: 'conversation-1',
     turnId: 'turn-1',
-    expiresAt: new Date('2026-08-25T04:00:00.000Z'),
   };
 }

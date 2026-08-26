@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { GATEWAY_RUNTIME_TRAIN } from '@kiditem/shared/agent-runtime';
 import { GatewayControlController } from '../gateway-control.controller';
 import { GatewayEventSequenceError } from '../../../../out/runtime/gateway/gateway-event-handler.service';
+import { GatewayProcessRegistrationMissingError } from '../../../../out/runtime/gateway/gateway-command.queue';
 import {
   GatewayInstallationBearerService,
   GatewayInstallationUnauthorizedError,
@@ -12,6 +13,7 @@ const POLL = {
   kind: 'poll' as const,
   gatewayInstanceId: 'gateway-1',
   platform: 'macos' as const,
+  mcpTransportToken: 'A'.repeat(43),
   runtimeTrain: GATEWAY_RUNTIME_TRAIN,
 };
 
@@ -35,7 +37,7 @@ describe('GatewayControlController', () => {
       POLL,
       { headers: {}, once: vi.fn(), off: vi.fn() } as never,
       { writableEnded: false, once: vi.fn() } as never,
-    )).resolves.toEqual({ commands: [] });
+    )).resolves.toEqual({ commands: [], apiRuntimeRegistered: true });
     expect(queue.poll).not.toHaveBeenCalled();
     expect(readiness.clear).toHaveBeenCalledOnce();
   });
@@ -53,7 +55,7 @@ describe('GatewayControlController', () => {
     await expect(controller.event({ gatewayInstanceId: 'gateway-1', eventSeq: 1, events: [{ kind: 'command.ack', commandId: 'command-1' }] }, request as never))
       .resolves.toEqual({ eventSeq: 1, accepted: true });
     expect(auth.require).toHaveBeenCalledWith(request.headers);
-    expect(queue.claim).toHaveBeenCalledWith('gateway-1');
+    expect(queue.claim).toHaveBeenCalledWith(POLL);
     expect(events.handle).toHaveBeenCalledOnce();
   });
 
@@ -73,6 +75,16 @@ describe('GatewayControlController', () => {
 
     await expect(controller.event({ gatewayInstanceId: 'gateway-1', eventSeq: 2, events: [{ kind: 'command.ack', commandId: 'command-1' }] }, request as never))
       .rejects.toMatchObject({ status: 409 });
+  });
+
+  it('labels only an unregistered Gateway process event as recoverable by a fresh poll', async () => {
+    const auth = { require: vi.fn() };
+    const events = { handle: vi.fn(() => { throw new GatewayProcessRegistrationMissingError(); }) };
+    const controller = new GatewayControlController(auth as never, { claim: vi.fn(), poll: vi.fn(), disconnect: vi.fn() } as never, events as never, { clear: vi.fn() } as never);
+    const request = { headers: { authorization: `Bearer ${'a'.repeat(43)}` } };
+
+    await expect(controller.event({ gatewayInstanceId: 'gateway-1', eventSeq: 2, events: [{ kind: 'command.ack', commandId: 'command-1' }] }, request as never))
+      .rejects.toMatchObject({ status: 409, message: 'gateway_process_registration_missing' });
   });
 });
 

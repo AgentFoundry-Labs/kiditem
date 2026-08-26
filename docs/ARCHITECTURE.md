@@ -43,11 +43,14 @@ apps/agent-gateway -> native host process           -> provider conversations/CL
 CopilotKit and authenticated conversation APIs. A native Agent Gateway polls
 Nest for structured commands and posts bounded events; it exposes no inbound
 listener and never accepts a raw shell command. Gateway-spawned Codex/Claude
-processes call the private Nest MCP v2 Streamable HTTP adapter with one
-short-lived in-memory execution binding. The adapter revalidates that binding
-for every request and exposes exactly five tools: `capability_catalog_search`,
-`capability_invoke`, `invocation_status`, `operation_status`, and
-`readiness_probe`. Those tools expose the 17 code-owned
+processes call the private Nest MCP v2 Streamable HTTP adapter with one opaque
+transport token generated per Gateway process. The provider MCP configuration
+and token stay stable across ordinary turns. Each request authenticates that
+transport, while an actual business tool call lazily resolves its static
+`conversationId` locator against Nest's current active-turn record. The token
+and locator grant no business authority. The adapter exposes exactly five
+tools: `capability_catalog_search`, `capability_invoke`, `invocation_status`,
+`operation_status`, and `readiness_probe`. Those tools expose the 17 code-owned
 CapabilityDefinitions, including all ten Sourcing capabilities.
 
 A cross-domain read may be invoked directly; a mutation is owned by the
@@ -61,8 +64,10 @@ Production supports exactly one API instance. API replicas, rolling overlap,
 and overlapping lifecycle ownership are unsupported. One native Gateway owns
 provider conversations and host CLI process trees; the worker owns durable
 Operations and never spawns a provider CLI. Gateway or API restart ends live
-turns and clears commands/bindings without replay, automatic Continue, or
-durable provider-session recovery. The user sends a normal new message.
+turns and clears in-memory commands, process registration, and active-turn
+records without prompt replay, automatic Continue, or durable provider-session
+recovery. A later protected Gateway poll re-registers the current process
+transport; the user sends a normal new message to start reasoning again.
 
 Frontend code never talks to the database directly. All app data flows through
 NestJS APIs and shared Zod contracts from `@kiditem/shared`.
@@ -1039,13 +1044,24 @@ history.
 The runtime keeps only the boundaries that own live correctness:
 
 - one API-side Gateway control session owns command delivery, event fencing,
-  readiness, active-turn cleanup, and short-lived execution bindings;
+  readiness, one process-scoped MCP transport registration, and exact
+  per-Conversation active-turn activation/deactivation;
 - one native Gateway control session owns polling, command dispatch, bounded
   event retry, control-loss shutdown, and provider process trees;
 - one authenticated conversation facade owner-fences create/list/history/
   rename/delete and live turn input/interrupt without persisting transcripts;
 - one request-driven CapabilityInvocation repository owns request-key
   uniqueness, input-drift conflict, exact approval, and result replay.
+
+The installation bearer authenticates protected Gateway polling and event
+delivery. The distinct process-scoped MCP token authenticates only the private
+MCP transport. Nest derives organization, user, turn, and fresh execution ID
+from its in-memory active-turn map; `conversationId` is only a lookup key. At
+most one turn is active per Conversation. An exact terminal event removes only
+its matching record, so a stale terminal cannot clear a newer turn. Idle MCP
+discovery may remain connected, but business tool calls fail closed when no
+turn is active. There is no turn bearer rotation, binding TTL, durable runtime
+session, unsubscribe barrier, cold resume, or automatic model recovery.
 
 Owner domains pair their own `CapabilityDefinition`, incoming port, and
 implementation in owner-local composition adapters. Agent OS only aggregates

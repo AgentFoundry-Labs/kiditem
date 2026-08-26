@@ -2,7 +2,10 @@ import {
   GatewayEventBatchSchema,
   type GatewayEventBatch,
 } from '@kiditem/shared/agent-runtime';
-import { GatewayCommandQueue, GatewaySessionMismatchError } from './gateway-command.queue';
+import {
+  GatewayCommandQueue,
+  GatewayProcessRegistrationMissingError,
+} from './gateway-command.queue';
 import { GatewayCommandResponseBroker } from './gateway-command-response.broker';
 import { GatewayReadinessService } from './gateway-readiness.service';
 
@@ -28,10 +31,13 @@ export class GatewayEventHandlerService {
 
   handle(input: GatewayEventBatch): { eventSeq: number; accepted: true } {
     const batch = GatewayEventBatchSchema.parse(input);
-    if (!this.options.queue.isLiveSession(batch.gatewayInstanceId)) throw new GatewaySessionMismatchError();
+    if (!this.options.queue.isLiveSession(batch.gatewayInstanceId)) throw new GatewayProcessRegistrationMissingError();
     if (this.gatewayInstanceId !== batch.gatewayInstanceId) {
       this.gatewayInstanceId = batch.gatewayInstanceId;
-      this.eventSeq = 0;
+      // An API restart deliberately loses this in-memory cursor while the
+      // Gateway process retains its ordered outbox. The first authenticated
+      // batch from the newly polled process establishes the new baseline.
+      this.eventSeq = batch.eventSeq - 1;
     }
     if (batch.eventSeq <= this.eventSeq) return { eventSeq: batch.eventSeq, accepted: true };
     if (batch.eventSeq !== this.eventSeq + 1) throw new GatewayEventSequenceError();

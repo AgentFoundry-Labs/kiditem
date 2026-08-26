@@ -3,9 +3,10 @@ import { gatewayInstructionProfile } from '../profile/agent-profile.catalog';
 
 const GENERAL_PROFILE = gatewayInstructionProfile(null);
 const SOURCING_PROFILE = gatewayInstructionProfile('sourcing');
+const MCP_TRANSPORT_TOKEN = 'T'.repeat(43);
 
 describe('ClaudeConversationProvider', () => {
-  it('creates a random provider session, uses session-id once then resume, binds fresh MCP config per turn, and reads provider-native history only', async () => {
+  it('creates a random provider session, uses session-id once then resume, and reuses the process transport token with one static conversation header', async () => {
     const { ClaudeConversationProvider } = await import('./claude-conversation.provider');
     const launcher = new FakeClaudeLauncher();
     const configs = new FakeClaudeConfigs();
@@ -15,25 +16,28 @@ describe('ClaudeConversationProvider', () => {
       remove: async () => undefined,
     };
     const provider = new ClaudeConversationProvider({
-      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', mcpTransportToken: MCP_TRANSPORT_TOKEN,
       configs, launcher, sessions, randomSessionId: () => '33333333-3333-4333-8333-333333333333',
       readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium', 'high'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium', 'high'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
     });
-    const created = await provider.create({ title: 'Claude research', instructionProfile: SOURCING_PROFILE });
+    const created = await provider.create({ conversationId: 'conversation-1', title: 'Claude research', instructionProfile: SOURCING_PROFILE });
     const events: unknown[] = [];
-    await provider.startTurn({ providerConversationRef: created.providerConversationRef, turnId: 'turn-1', message: 'First message', model: 'claude-fable-5', reasoningEffort: 'high', executionBinding: 'A'.repeat(43), instructionProfile: SOURCING_PROFILE }, (event) => events.push(event));
+    await provider.startTurn({ providerConversationRef: created.providerConversationRef, conversationId: 'conversation-1', turnId: 'turn-1', message: 'First message', model: 'claude-fable-5', reasoningEffort: 'high', instructionProfile: SOURCING_PROFILE }, (event) => events.push(event));
     launcher.emit(0, `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'First answer' }] } })}\n${JSON.stringify({ type: 'result', is_error: false })}\n`);
     launcher.exit(0, 0);
     await flush();
-    await provider.startTurn({ providerConversationRef: created.providerConversationRef, turnId: 'turn-2', message: 'Second message', model: 'claude-fable-5', reasoningEffort: 'medium', executionBinding: 'B'.repeat(43), instructionProfile: SOURCING_PROFILE }, (event) => events.push(event));
+    await provider.startTurn({ providerConversationRef: created.providerConversationRef, conversationId: 'conversation-1', turnId: 'turn-2', message: 'Second message', model: 'claude-fable-5', reasoningEffort: 'medium', instructionProfile: SOURCING_PROFILE }, (event) => events.push(event));
 
     expect(created.providerConversationRef).toBe('33333333-3333-4333-8333-333333333333');
     expect(launcher.starts.map(({ command }) => command.args)).toEqual([
       expect.arrayContaining(['--session-id', '33333333-3333-4333-8333-333333333333']),
       expect.arrayContaining(['--resume', '33333333-3333-4333-8333-333333333333']),
     ]);
-    expect(launcher.starts.map(({ command }) => command.args.join(' ')).join('\n')).not.toContain('A'.repeat(43));
-    expect(configs.created.map(({ executionBinding }) => executionBinding)).toEqual(['A'.repeat(43), 'B'.repeat(43)]);
+    expect(launcher.starts.map(({ command }) => command.args.join(' ')).join('\n')).not.toContain('T'.repeat(43));
+    expect(configs.created).toEqual([
+      expect.objectContaining({ conversationId: 'conversation-1', mcpTransportToken: MCP_TRANSPORT_TOKEN }),
+      expect.objectContaining({ conversationId: 'conversation-1', mcpTransportToken: MCP_TRANSPORT_TOKEN }),
+    ]);
     expect(await provider.history(created.providerConversationRef)).toEqual(await sessions.read());
     expect(events).toEqual([
       { kind: 'status', status: 'started' },
@@ -47,7 +51,7 @@ describe('ClaudeConversationProvider', () => {
     const { ClaudeConversationProvider } = await import('./claude-conversation.provider');
     const sessions = new FakeClaudeSessions();
     const provider = new ClaudeConversationProvider({
-      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', mcpTransportToken: MCP_TRANSPORT_TOKEN,
       configs: new FakeClaudeConfigs(), launcher: new FakeClaudeLauncher(), sessions,
       randomSessionId: () => '33333333-3333-4333-8333-333333333333',
       readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
@@ -64,12 +68,12 @@ describe('ClaudeConversationProvider', () => {
     launcher.failNext = true;
     const sessions = { exists: async () => false, read: async () => [], remove: async () => undefined };
     const provider = new ClaudeConversationProvider({
-      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', mcpTransportToken: MCP_TRANSPORT_TOKEN,
       configs: new FakeClaudeConfigs(), launcher, sessions, randomSessionId: () => '33333333-3333-4333-8333-333333333333',
       readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
     });
-    const created = await provider.create({ instructionProfile: GENERAL_PROFILE });
-    const input = { providerConversationRef: created.providerConversationRef, turnId: 'turn-1', message: 'Work', model: 'claude-fable-5', reasoningEffort: 'medium', executionBinding: 'A'.repeat(43), instructionProfile: GENERAL_PROFILE };
+    const created = await provider.create({ conversationId: 'conversation-1', instructionProfile: GENERAL_PROFILE });
+    const input = { providerConversationRef: created.providerConversationRef, conversationId: 'conversation-1', turnId: 'turn-1', message: 'Work', model: 'claude-fable-5', reasoningEffort: 'medium', instructionProfile: GENERAL_PROFILE };
 
     await expect(provider.startTurn(input, () => undefined)).rejects.toThrow('claude_launch_failed');
     const events: unknown[] = [];
@@ -89,32 +93,53 @@ describe('ClaudeConversationProvider', () => {
     const { ClaudeConversationProvider } = await import('./claude-conversation.provider');
     const launcher = new FakeClaudeLauncher();
     const provider = new ClaudeConversationProvider({
-      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', mcpTransportToken: MCP_TRANSPORT_TOKEN,
       configs: new FakeClaudeConfigs(), launcher, sessions: { exists: async () => false, read: async () => [], remove: async () => undefined },
       randomSessionId: () => '33333333-3333-4333-8333-333333333333',
       readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
     });
-    const created = await provider.create({ instructionProfile: GENERAL_PROFILE });
+    const created = await provider.create({ conversationId: 'conversation-1', instructionProfile: GENERAL_PROFILE });
     const events: unknown[] = [];
-    await provider.startTurn({ providerConversationRef: created.providerConversationRef, turnId: 'turn-1', message: 'Work', model: 'claude-fable-5', reasoningEffort: 'medium', executionBinding: 'A'.repeat(43), instructionProfile: GENERAL_PROFILE }, (event) => events.push(event));
+    await provider.startTurn({ providerConversationRef: created.providerConversationRef, conversationId: 'conversation-1', turnId: 'turn-1', message: 'Work', model: 'claude-fable-5', reasoningEffort: 'medium', instructionProfile: GENERAL_PROFILE }, (event) => events.push(event));
 
     await provider.close();
     await provider.close();
     expect(events).toEqual([{ kind: 'status', status: 'started' }, { kind: 'status', status: 'disconnected' }]);
   });
 
-  it('drops late provider output after a terminal event so an already-released Gateway turn cannot stream again', async () => {
+  it('keeps an interrupted turn active after the interrupt acknowledgement until the provider process emits its terminal exit', async () => {
     const { ClaudeConversationProvider } = await import('./claude-conversation.provider');
     const launcher = new FakeClaudeLauncher();
     const provider = new ClaudeConversationProvider({
-      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', mcpTransportToken: MCP_TRANSPORT_TOKEN,
       configs: new FakeClaudeConfigs(), launcher, sessions: { exists: async () => false, read: async () => [], remove: async () => undefined },
       randomSessionId: () => '33333333-3333-4333-8333-333333333333',
       readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
     });
-    const created = await provider.create({ instructionProfile: GENERAL_PROFILE });
+    const created = await provider.create({ conversationId: 'conversation-1', instructionProfile: GENERAL_PROFILE });
     const events: unknown[] = [];
-    await provider.startTurn({ providerConversationRef: created.providerConversationRef, turnId: 'turn-1', message: 'Work', model: 'claude-fable-5', reasoningEffort: 'medium', executionBinding: 'A'.repeat(43), instructionProfile: GENERAL_PROFILE }, (event) => events.push(event));
+    await provider.startTurn({ providerConversationRef: created.providerConversationRef, conversationId: 'conversation-1', turnId: 'turn-1', message: 'Work', model: 'claude-fable-5', reasoningEffort: 'medium', instructionProfile: GENERAL_PROFILE }, (event) => events.push(event));
+
+    await provider.interrupt({ providerConversationRef: created.providerConversationRef, turnId: 'turn-1' });
+
+    expect(events).toEqual([{ kind: 'status', status: 'started' }]);
+    launcher.exit(0, 0);
+    await flush();
+    expect(events).toEqual([{ kind: 'status', status: 'started' }, { kind: 'status', status: 'interrupted' }]);
+  });
+
+  it('drops late provider output after a terminal event so an already-released Gateway turn cannot stream again', async () => {
+    const { ClaudeConversationProvider } = await import('./claude-conversation.provider');
+    const launcher = new FakeClaudeLauncher();
+    const provider = new ClaudeConversationProvider({
+      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', mcpTransportToken: MCP_TRANSPORT_TOKEN,
+      configs: new FakeClaudeConfigs(), launcher, sessions: { exists: async () => false, read: async () => [], remove: async () => undefined },
+      randomSessionId: () => '33333333-3333-4333-8333-333333333333',
+      readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
+    });
+    const created = await provider.create({ conversationId: 'conversation-1', instructionProfile: GENERAL_PROFILE });
+    const events: unknown[] = [];
+    await provider.startTurn({ providerConversationRef: created.providerConversationRef, conversationId: 'conversation-1', turnId: 'turn-1', message: 'Work', model: 'claude-fable-5', reasoningEffort: 'medium', instructionProfile: GENERAL_PROFILE }, (event) => events.push(event));
 
     launcher.emit(0, `${JSON.stringify({ type: 'result', is_error: false })}\n`);
     launcher.emit(0, `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'late' }] } })}\n`);
@@ -130,13 +155,13 @@ describe('ClaudeConversationProvider', () => {
     const termination = deferred<void>();
     launcher.interruptGate = termination.promise;
     const provider = new ClaudeConversationProvider({
-      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', mcpTransportToken: MCP_TRANSPORT_TOKEN,
       configs: new FakeClaudeConfigs(), launcher, sessions: { exists: async () => false, read: async () => [], remove: async () => undefined },
       randomSessionId: () => '33333333-3333-4333-8333-333333333333',
       readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
     });
-    const created = await provider.create({ instructionProfile: GENERAL_PROFILE });
-    const input = { providerConversationRef: created.providerConversationRef, turnId: 'turn-malformed-output', message: 'Work', model: 'claude-fable-5', reasoningEffort: 'medium', executionBinding: 'A'.repeat(43), instructionProfile: GENERAL_PROFILE };
+    const created = await provider.create({ conversationId: 'conversation-1', instructionProfile: GENERAL_PROFILE });
+    const input = { providerConversationRef: created.providerConversationRef, conversationId: 'conversation-1', turnId: 'turn-malformed-output', message: 'Work', model: 'claude-fable-5', reasoningEffort: 'medium', instructionProfile: GENERAL_PROFILE };
     const events: unknown[] = [];
 
     await provider.startTurn(input, (event) => events.push(event));
@@ -164,13 +189,13 @@ describe('ClaudeConversationProvider', () => {
     launcher.outputBeforeReturn = '{malformed-json\n';
     launcher.interruptGate = termination.promise;
     const provider = new ClaudeConversationProvider({
-      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', mcpTransportToken: MCP_TRANSPORT_TOKEN,
       configs: new FakeClaudeConfigs(), launcher, sessions: { exists: async () => false, read: async () => [], remove: async () => undefined },
       randomSessionId: () => '33333333-3333-4333-8333-333333333333',
       readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
     });
-    const created = await provider.create({ instructionProfile: GENERAL_PROFILE });
-    const input = { providerConversationRef: created.providerConversationRef, turnId: 'turn-early-malformed-output', message: 'Work', model: 'claude-fable-5', reasoningEffort: 'medium', executionBinding: 'A'.repeat(43), instructionProfile: GENERAL_PROFILE };
+    const created = await provider.create({ conversationId: 'conversation-1', instructionProfile: GENERAL_PROFILE });
+    const input = { providerConversationRef: created.providerConversationRef, conversationId: 'conversation-1', turnId: 'turn-early-malformed-output', message: 'Work', model: 'claude-fable-5', reasoningEffort: 'medium', instructionProfile: GENERAL_PROFILE };
     const events: unknown[] = [];
 
     const starting = provider.startTurn(input, (event) => events.push(event));
@@ -187,9 +212,9 @@ describe('ClaudeConversationProvider', () => {
 });
 
 class FakeClaudeConfigs {
-  created: Array<{ turnId: string; mcpUrl: string; executionBinding: string }> = [];
+  created: Array<{ turnId: string; conversationId: string; mcpUrl: string; mcpTransportToken: string }> = [];
   removed: string[] = [];
-  async create(input: { turnId: string; mcpUrl: string; executionBinding: string }) { this.created.push(input); return `/gateway/state/${this.created.length}.json`; }
+  async create(input: { turnId: string; conversationId: string; mcpUrl: string; mcpTransportToken: string }) { this.created.push(input); return `/gateway/state/${this.created.length}.json`; }
   async remove(path: string) { this.removed.push(path); }
 }
 

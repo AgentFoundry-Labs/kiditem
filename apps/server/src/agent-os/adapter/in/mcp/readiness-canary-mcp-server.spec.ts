@@ -38,16 +38,16 @@ describe('MCP v2 readiness canary', () => {
       readiness,
       webOrigin: 'https://kiditem.test',
     } as unknown as CapabilityMcpDependencies;
-    const binding = {
+    const activeTurn = {
       executionId: 'execution-1',
       installationId: 'installation-1',
+      gatewayInstanceId: 'gateway-1',
       organizationId: '00000000-0000-4000-8000-000000000001',
       initiatingUserId: '00000000-0000-4000-8000-000000000002',
       conversationId: 'conversation-1',
       turnId: 'turn-1',
-      expiresAt: new Date('2026-08-25T04:00:00.000Z'),
     };
-    const createHandler = vi.fn(() => createRequestScopedCapabilityMcpHandler(dependencies, binding));
+    const createHandler = vi.fn(() => createRequestScopedCapabilityMcpHandler(dependencies, () => activeTurn));
 
     await expect(runMcpReadinessCanary({
       createHandler,

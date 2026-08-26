@@ -9,6 +9,7 @@ export async function startCodexAppServer(input: Readonly<{
   workspace: string;
   loginRoot: string;
   mcpUrl: string;
+  mcpTransportToken: string;
   supervisor: ProcessSupervisor;
 }>): Promise<Readonly<{ session: CodexAppServerSession; close: () => Promise<void> }>> {
   const invocation = gatewayProviderInvocation(input.runtimeRoot, 'codex');
@@ -21,6 +22,7 @@ export async function startCodexAppServer(input: Readonly<{
     },
     workspace: input.workspace,
     mcpUrl: input.mcpUrl,
+    mcpTransportToken: input.mcpTransportToken,
   });
   const close = (): Promise<void> => {
     if (!closing) {

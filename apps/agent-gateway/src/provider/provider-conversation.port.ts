@@ -19,6 +19,8 @@ export interface ProviderConversationSummary {
 export type ProviderConversation = ProviderConversationSummary;
 
 export interface CreateProviderConversation {
+  /** Static MCP routing locator configured with the provider-local conversation. */
+  conversationId: string;
   title?: string;
   /** Gateway-owned immutable profile selected from the descriptor agentKey. */
   instructionProfile: GatewayInstructionProfile;
@@ -26,12 +28,12 @@ export interface CreateProviderConversation {
 
 export interface StartProviderTurn {
   providerConversationRef: string;
+  /** Re-supplied after Gateway restart when a provider thread needs one configuration resume. */
+  conversationId: string;
   turnId: string;
   message: string;
   model: Model;
   reasoningEffort: ReasoningEffort;
-  /** Ephemeral MCP bearer, injected only into this provider turn's configuration. */
-  executionBinding: string;
   /** Re-derived from the immutable descriptor on every provider resume. */
   instructionProfile: GatewayInstructionProfile;
 }

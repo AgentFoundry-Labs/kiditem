@@ -5,7 +5,7 @@ export interface ClaudeTurnCommandInput {
   runtimeRoot: string;
   workspace: string;
   loginRoot: string;
-  /** Gateway-created 0600 file; the execution binding never enters argv. */
+  /** Gateway-created 0600 file; the MCP transport token never enters argv. */
   mcpConfigPath: string;
   sessionId: string;
   resume: boolean;

@@ -15,6 +15,7 @@ import { ZodError } from 'zod';
 import { SkipAuth } from '../../../../../auth/decorators/skip-auth.decorator';
 import {
   GatewayCommandQueue,
+  GatewayProcessRegistrationMissingError,
   GatewayRuntimeTrainError,
   GatewaySessionMismatchError,
 } from '../../../out/runtime/gateway/gateway-command.queue';
@@ -25,7 +26,11 @@ import {
   GatewayInstallationUnavailableError,
 } from '../../../out/runtime/gateway/gateway-installation-bearer.service';
 import { GatewayReadinessService } from '../../../out/runtime/gateway/gateway-readiness.service';
-import { GatewayPollSchema, type GatewayEventBatch } from '@kiditem/shared/agent-runtime';
+import {
+  GatewayPollSchema,
+  type GatewayCommandBatch,
+  type GatewayEventBatch,
+} from '@kiditem/shared/agent-runtime';
 
 /** Private Gateway control ingress. Installation-bearer validation replaces browser authentication. */
 @SkipAuth()
@@ -44,13 +49,13 @@ export class GatewayControlController {
     @Body() body: unknown,
     @Req() request: ExpressRequest,
     @Res({ passthrough: true }) response: ExpressResponse,
-  ): Promise<{ commands: unknown[] }> {
+  ): Promise<GatewayCommandBatch> {
     try {
       this.bearer.require(request.headers);
       const poll = GatewayPollSchema.parse(body);
-      if (this.commands.claim(poll.gatewayInstanceId)) {
+      if (this.commands.claim(poll)) {
         this.readiness.clear();
-        return { commands: [] };
+        return { commands: [], apiRuntimeRegistered: true };
       }
       const signal = abortSignal(request, response);
       try {
@@ -92,6 +97,9 @@ function abortSignal(request: ExpressRequest, response: ExpressResponse): AbortS
 function controlHttpError(error: unknown): Error {
   if (error instanceof GatewayInstallationUnavailableError) return new ServiceUnavailableException('gateway_installation_unavailable');
   if (error instanceof GatewayInstallationUnauthorizedError) return new UnauthorizedException('gateway_installation_unauthorized');
+  if (error instanceof GatewayProcessRegistrationMissingError) {
+    return new ConflictException('gateway_process_registration_missing');
+  }
   if (error instanceof GatewaySessionMismatchError || error instanceof GatewayRuntimeTrainError || error instanceof GatewayEventSequenceError) {
     return new ConflictException('gateway_control_session_invalid');
   }

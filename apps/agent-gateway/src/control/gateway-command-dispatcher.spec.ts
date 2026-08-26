@@ -10,11 +10,11 @@ describe('GatewayCommandDispatcher', () => {
 
     await dispatcher.dispatch({
       kind: 'turn.start', commandId: 'command-1', conversationId: 'conversation-1', turnId: 'turn-1',
-      message: 'Start work.', model: 'gpt-5.6', reasoningEffort: 'medium', executionBinding: 'binding-1',
+      message: 'Start work.', model: 'gpt-5.6', reasoningEffort: 'medium',
     });
     await dispatcher.dispatch({
       kind: 'turn.start', commandId: 'command-2', conversationId: 'conversation-1', turnId: 'turn-2',
-      message: 'Must not run concurrently.', model: 'gpt-5.6', reasoningEffort: 'medium', executionBinding: 'binding-2',
+      message: 'Must not run concurrently.', model: 'gpt-5.6', reasoningEffort: 'medium',
     });
     gateway.emit({ kind: 'status', status: 'completed' });
     gateway.emit({ kind: 'status', status: 'completed' });
@@ -34,7 +34,7 @@ describe('GatewayCommandDispatcher', () => {
 
     await dispatcher.dispatch({
       kind: 'turn.start', commandId: 'command-3', conversationId: 'conversation-1', turnId: 'turn-3',
-      message: 'May start after release.', model: 'gpt-5.6', reasoningEffort: 'medium', executionBinding: 'binding-3',
+      message: 'May start after release.', model: 'gpt-5.6', reasoningEffort: 'medium',
     });
     expect(gateway.started).toHaveLength(2);
   });
@@ -59,25 +59,86 @@ describe('GatewayCommandDispatcher', () => {
     ]));
   });
 
-  it('stores only a canonical digest of an execution binding and redacts it from every outbound provider string', async () => {
+  it('keeps the process transport token out of commands and redacts it from every outbound provider string', async () => {
     const { GatewayCommandDispatcher } = await import('./gateway-command-dispatcher');
     const { GatewayEventOutbox } = await import('./gateway-event-outbox');
-    const binding = 'B'.repeat(43);
+    const mcpTransportToken = 'B'.repeat(43);
     const gateway = new FakeConversationGateway();
-    gateway.messages = [{ id: 'message-1', role: 'assistant', content: `Provider echoed ${binding}`, createdAt: '2026-08-23T00:00:00.000Z' }];
-    const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
+    gateway.messages = [{ id: 'message-1', role: 'assistant', content: `Provider echoed ${mcpTransportToken}`, createdAt: '2026-08-23T00:00:00.000Z' }];
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1', redactionTokens: [mcpTransportToken] });
     const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, preferences: new FakeConversationPreferences() });
 
     await dispatcher.dispatch({
       kind: 'turn.start', commandId: 'command-1', conversationId: 'conversation-1', turnId: 'turn-1',
-      message: 'Start work.', model: 'gpt-5.6', reasoningEffort: 'medium', executionBinding: binding,
+      message: 'Start work.', model: 'gpt-5.6', reasoningEffort: 'medium',
     });
-    gateway.emit({ kind: 'status', status: 'started', detail: `Binding: ${binding}` });
+    gateway.emit({ kind: 'status', status: 'started', detail: `Transport: ${mcpTransportToken}` });
     await dispatcher.dispatch({ kind: 'conversation.history', commandId: 'command-2', conversationId: 'conversation-1' });
 
     const applied = (dispatcher as unknown as { applied: Map<string, string> }).applied;
-    expect(JSON.stringify([...applied.values()])).not.toContain(binding);
-    expect(outbox.peekBody()).not.toContain(binding);
+    expect(JSON.stringify([...applied.values()])).not.toContain(mcpTransportToken);
+    expect(outbox.peekBody()).not.toContain(mcpTransportToken);
+  });
+
+  it('keeps the active turn open after an interrupt acknowledgement until the provider emits its terminal event', async () => {
+    const { GatewayCommandDispatcher } = await import('./gateway-command-dispatcher');
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const gateway = new FakeConversationGateway();
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
+    const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, preferences: new FakeConversationPreferences() });
+
+    await dispatcher.dispatch({
+      kind: 'turn.start', commandId: 'command-start', conversationId: 'conversation-1', turnId: 'turn-1',
+      message: 'Start.', model: 'gpt-5.6', reasoningEffort: 'medium',
+    });
+    await dispatcher.dispatch({ kind: 'turn.interrupt', commandId: 'command-interrupt', conversationId: 'conversation-1', turnId: 'turn-1' });
+
+    let beforeTerminal: Array<Record<string, unknown>> = [];
+    await outbox.flush(async (body) => {
+      beforeTerminal = (JSON.parse(body) as { events: Array<Record<string, unknown>> }).events;
+      return { eventSeq: 1, accepted: true as const };
+    });
+    expect(beforeTerminal.filter((event) => event.kind === 'turn.terminal')).toEqual([]);
+    gateway.emit({ kind: 'status', status: 'interrupted' });
+    expect(events(outbox).filter((event) => event.kind === 'turn.terminal')).toEqual([
+      { kind: 'turn.terminal', conversationId: 'conversation-1', turnId: 'turn-1', status: 'interrupted' },
+    ]);
+  });
+
+  it('stops locally live turns after fresh API registration, preserves the provider conversation, and ignores their stale terminals', async () => {
+    const { GatewayCommandDispatcher } = await import('./gateway-command-dispatcher');
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const gateway = new FakeConversationGateway();
+    gateway.messages = [{ id: 'provider-message-1', role: 'assistant', content: 'Provider-owned history remains.', createdAt: '2026-08-23T00:00:00.000Z' }];
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
+    const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, preferences: new FakeConversationPreferences() });
+
+    await dispatcher.dispatch({
+      kind: 'turn.start', commandId: 'command-start-old', conversationId: 'conversation-1', turnId: 'turn-old',
+      message: 'Old work.', model: 'gpt-5.6', reasoningEffort: 'medium',
+    });
+
+    await dispatcher.resetAfterApiRuntimeRegistration();
+
+    expect(gateway.interrupted).toEqual([{ conversationId: 'conversation-1', turnId: 'turn-old' }]);
+    expect(gateway.deletedConversationIds).toEqual([]);
+    await expect(gateway.history('conversation-1')).resolves.toEqual(gateway.messages);
+
+    await dispatcher.dispatch({
+      kind: 'turn.start', commandId: 'command-start-new', conversationId: 'conversation-1', turnId: 'turn-new',
+      message: 'New explicit work.', model: 'gpt-5.6', reasoningEffort: 'medium',
+    });
+    gateway.emitFor('turn-old', { kind: 'status', status: 'interrupted' });
+    await dispatcher.dispatch({
+      kind: 'turn.start', commandId: 'command-start-blocked', conversationId: 'conversation-1', turnId: 'turn-blocked',
+      message: 'Must remain blocked by the newer turn.', model: 'gpt-5.6', reasoningEffort: 'medium',
+    });
+
+    expect(gateway.started).toHaveLength(2);
+    expect(events(outbox)).toEqual(expect.arrayContaining([
+      { kind: 'command.rejected', commandId: 'command-start-blocked', code: 'invalid_state' },
+    ]));
+    expect(events(outbox).filter((event) => event.kind === 'turn.terminal' && event.turnId === 'turn-old')).toEqual([]);
   });
 
   it('maps immutable create identity drift to invalid_state without emitting provider-local data', async () => {
@@ -157,7 +218,8 @@ class FakeConversationGateway {
   createInputs: unknown[] = [];
   createFailure: Error | undefined;
   deletedConversationIds: string[] = [];
-  private sink: ((event: GatewayProviderEvent) => void) | undefined;
+  interrupted: Array<{ conversationId: string; turnId: string }> = [];
+  private readonly sinks = new Map<string, (event: GatewayProviderEvent) => void>();
 
   async list() { this.listCalls += 1; return []; }
   async create(input: unknown) {
@@ -169,12 +231,15 @@ class FakeConversationGateway {
   async rename() { return { id: 'conversation-1', runtime: 'codex_cli', agentKey: null, title: 'New', createdAt: '2026-08-23T00:00:00.000Z', updatedAt: '2026-08-23T00:00:00.000Z' }; }
   async delete(conversationId: string) { this.deletedConversationIds.push(conversationId); }
   async sendInput() { return undefined; }
-  async interrupt() { return undefined; }
-  async startTurn(input: { onEvent: (event: GatewayProviderEvent) => void }) {
-    this.started.push(input);
-    this.sink = input.onEvent;
+  async interrupt(input: { conversationId: string; turnId: string }) {
+    this.interrupted.push({ conversationId: input.conversationId, turnId: input.turnId });
   }
-  emit(event: GatewayProviderEvent) { this.sink?.(event); }
+  async startTurn(input: { conversationId: string; turnId: string; onEvent: (event: GatewayProviderEvent) => void }) {
+    this.started.push(input);
+    this.sinks.set(input.turnId, input.onEvent);
+  }
+  emit(event: GatewayProviderEvent) { [...this.sinks.values()].at(-1)?.(event); }
+  emitFor(turnId: string, event: GatewayProviderEvent) { this.sinks.get(turnId)?.(event); }
 }
 
 class FakeConversationPreferences {

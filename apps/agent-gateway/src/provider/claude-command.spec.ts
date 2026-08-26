@@ -25,7 +25,7 @@ describe('buildClaudeTurnCommand', () => {
       expect(first.args).not.toContain('--no-session-persistence');
       expect(resumed.args).toEqual(expect.arrayContaining(['--resume', '33333333-3333-4333-8333-333333333333', '--effort', 'medium']));
       expect(resumed.args).not.toContain('--session-id');
-      expect(first.args.join(' ')).not.toContain('execution-binding');
+      expect(first.args.join(' ')).not.toContain('mcpTransportToken');
       expect(first.args).toEqual(expect.arrayContaining(['--append-system-prompt', expect.stringContaining('KidItem General Chat'), '--agents']));
       expect(resumed.args).toEqual(expect.arrayContaining(['--append-system-prompt', expect.stringContaining('KidItem Sourcing Agent'), '--agents']));
       const agentJson = first.args[first.args.indexOf('--agents') + 1];

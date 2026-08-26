@@ -17,6 +17,7 @@ describe('startCodexAppServer', () => {
       workspace: '/gateway/workspace',
       loginRoot: '/gateway/login',
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: 'T'.repeat(43),
       supervisor,
     } as never);
 
@@ -39,6 +40,7 @@ describe('startCodexAppServer', () => {
       workspace: '/gateway/workspace',
       loginRoot: '/gateway/login',
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: 'T'.repeat(43),
       supervisor,
     } as never);
     const catalogFrame = notification('item/started', { payload: 'a'.repeat(20_595) });
@@ -73,6 +75,7 @@ describe('startCodexAppServer', () => {
       workspace: '/gateway/workspace',
       loginRoot: '/gateway/login',
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: 'T'.repeat(43),
       supervisor,
     } as never);
 
@@ -93,6 +96,7 @@ describe('startCodexAppServer', () => {
       workspace: '/gateway/workspace',
       loginRoot: '/gateway/login',
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: 'T'.repeat(43),
       supervisor,
     } as never);
 
@@ -113,6 +117,7 @@ describe('startCodexAppServer', () => {
       workspace: '/gateway/workspace',
       loginRoot: '/gateway/login',
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: 'T'.repeat(43),
       supervisor,
     } as never);
 

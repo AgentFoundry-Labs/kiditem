@@ -5,7 +5,7 @@ import type { CapabilityDefinition } from "./capability-definition";
 export interface CapabilityExecutionContext {
   organizationId: string;
   initiatingUserId: string;
-  /** Process-memory execution binding; never a bearer or business input. */
+  /** Server-derived active-turn execution coordinate; never a bearer or business input. */
   executionId: string;
   /** Present only for mutations and derived by Agent OS from the exact input. */
   ownerIdempotencyKey?: string;

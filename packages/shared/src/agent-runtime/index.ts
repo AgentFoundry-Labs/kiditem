@@ -53,6 +53,7 @@ export {
   GATEWAY_CONTROL_CLIENT_POLL_TIMEOUT_MS,
   GATEWAY_CONTROL_EVENT_TIMEOUT_MS,
   GATEWAY_CONTROL_POLL_WAIT_MS,
+  MCP_CONVERSATION_ID_HEADER,
   GatewayEventAcknowledgementSchema,
   GatewayEventBatchSchema,
   GatewayEventSchema,

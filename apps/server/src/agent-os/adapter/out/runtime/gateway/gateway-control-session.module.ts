@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { GatewayControlController } from '../../../in/http/runtime/gateway-control.controller';
-import { ExecutionBindingRegistry } from './execution-binding.registry';
+import { GatewayMcpRuntimeRegistry } from './gateway-mcp-runtime.registry';
 import { GatewayCommandQueue } from './gateway-command.queue';
 import { GatewayCommandResponseBroker } from './gateway-command-response.broker';
 import { GatewayEventHandlerService } from './gateway-event-handler.service';
@@ -14,15 +14,15 @@ import { GatewayReadinessService } from './gateway-readiness.service';
 @Module({
   controllers: [GatewayControlController],
   providers: [
-    { provide: ExecutionBindingRegistry, useFactory: () => new ExecutionBindingRegistry() },
+    { provide: GatewayMcpRuntimeRegistry, useFactory: () => new GatewayMcpRuntimeRegistry() },
     GatewayReadinessService,
     { provide: GatewayCommandResponseBroker, useFactory: () => new GatewayCommandResponseBroker() },
     { provide: GatewayInstallationBearerService, useFactory: () => gatewayInstallationBearerFromEnvironment() },
     {
       provide: GatewayCommandQueue,
-      inject: [ExecutionBindingRegistry, GatewayInstallationBearerService, GatewayCommandResponseBroker, GatewayReadinessService],
-      useFactory: (bindings: ExecutionBindingRegistry, bearer: GatewayInstallationBearerService, broker: GatewayCommandResponseBroker, readiness: GatewayReadinessService) => new GatewayCommandQueue({
-        bindings,
+      inject: [GatewayMcpRuntimeRegistry, GatewayInstallationBearerService, GatewayCommandResponseBroker, GatewayReadinessService],
+      useFactory: (runtime: GatewayMcpRuntimeRegistry, bearer: GatewayInstallationBearerService, broker: GatewayCommandResponseBroker, readiness: GatewayReadinessService) => new GatewayCommandQueue({
+        runtime,
         installationId: bearer.installationId,
         onTransientClear: () => {
           broker.disconnect();
@@ -37,7 +37,7 @@ import { GatewayReadinessService } from './gateway-readiness.service';
     },
   ],
   exports: [
-    ExecutionBindingRegistry,
+    GatewayMcpRuntimeRegistry,
     GatewayCommandQueue,
     GatewayEventHandlerService,
     GatewayCommandResponseBroker,

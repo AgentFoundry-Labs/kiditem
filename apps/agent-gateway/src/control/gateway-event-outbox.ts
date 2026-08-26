@@ -13,7 +13,6 @@ const MAX_BUFFERED_EVENTS = 128;
 export class GatewayEventOutbox {
   private readonly events: GatewayEvent[] = [];
   private readonly redactionTokens: readonly string[];
-  private readonly liveSecrets = new Set<string>();
   private eventSeq = 1;
   private inFlight: InFlight | null = null;
   private flushTail: Promise<void> = Promise.resolve();
@@ -23,7 +22,7 @@ export class GatewayEventOutbox {
   }
 
   enqueue(event: GatewayEvent): void {
-    const parsed = GatewayEventSchema.parse(redactEvent(event, [...this.redactionTokens, ...this.liveSecrets]));
+    const parsed = GatewayEventSchema.parse(redactEvent(event, this.redactionTokens));
     if (this.events.length >= MAX_BUFFERED_EVENTS) {
       if (!dropPendingDelta(this.events, this.inFlight?.count ?? 0)) throw new Error('gateway_event_backpressure');
     }
@@ -33,14 +32,6 @@ export class GatewayEventOutbox {
   peekBody(): string | null { return this.snapshot()?.body ?? null; }
   hasPending(): boolean { return this.inFlight !== null || this.events.length > 0; }
   nextEventSeq(): number { return this.eventSeq; }
-
-  /** A live execution binding is only retained while its provider turn is live,
-   * solely to ensure a provider echo cannot cross the event boundary. */
-  registerSecret(secret: string): void {
-    if (secret) this.liveSecrets.add(secret);
-  }
-
-  forgetSecret(secret: string): void { this.liveSecrets.delete(secret); }
 
   flush(send: (body: string) => Promise<unknown>): Promise<void> {
     const task = this.flushTail.then(() => this.flushOne(send));

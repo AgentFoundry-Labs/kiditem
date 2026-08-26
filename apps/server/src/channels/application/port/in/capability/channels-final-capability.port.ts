@@ -6,7 +6,7 @@ export const CHANNELS_FINAL_CAPABILITY_PORT = Symbol(
 export interface ChannelsOwnerExecutionContext {
   organizationId: string;
   initiatingUserId: string;
-  /** Process-memory execution binding; never a business or persistence id. */
+  /** Active-turn execution coordinate; never a business or persistence id. */
   executionId: string;
   /** Invocation-derived opaque owner key, passed unchanged to Channels. */
   ownerIdempotencyKey: string;
@@ -16,7 +16,7 @@ export interface ChannelsOwnerExecutionContext {
 
 /** Minimal Agent-facing business reference; all provider state loads server-side. */
 export interface ChannelsRegistrationReference {
-  /** Frozen ProductRegistrationExecution business coordinate, not the live execution binding. */
+  /** Frozen ProductRegistrationExecution business coordinate, not a live turn coordinate. */
   registrationExecutionId: string;
   preparationId: string;
 }
