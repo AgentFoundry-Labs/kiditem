@@ -50,15 +50,13 @@ export class ConversationDescriptorStore {
   }
 
   async list(): Promise<ConversationDescriptor[]> {
-    const pending = this.mutationTail;
-    await pending;
-    return this.readCollection();
+    return this.enqueueMutation(() => this.readCollection());
   }
 
   async find(id: string): Promise<ConversationDescriptor | null> {
-    const pending = this.mutationTail;
-    await pending;
-    return (await this.readCollection()).find((descriptor) => descriptor.id === id) ?? null;
+    return this.enqueueMutation(async () => (
+      (await this.readCollection()).find((descriptor) => descriptor.id === id) ?? null
+    ));
   }
 
   async create(input: ConversationDescriptor): Promise<void> {
@@ -122,6 +120,12 @@ export class ConversationDescriptorStore {
     } catch {
       throw new Error('gateway_descriptor_invalid');
     }
+    if (isDisposablePreCreateTitleCatalog(value)) {
+      // Clean cutover: discard the complete former catalog. We deliberately
+      // do not infer immutable create inputs from mutable display titles.
+      await this.writeAtomically([]);
+      return [];
+    }
     return parseCollection(value);
   }
 
@@ -158,6 +162,21 @@ function parseCollection(value: unknown): ConversationDescriptor[] {
     ids.add(descriptor.id);
   }
   return descriptors;
+}
+
+/** Recognizes the exact former catalog only so it can be discarded wholesale. */
+function isDisposablePreCreateTitleCatalog(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_DESCRIPTORS) return false;
+  return value.every((entry) => {
+    if (!isRecord(entry) || Object.hasOwn(entry, 'createTitle')) return false;
+    // This is a discriminator, not a compatibility conversion: no legacy
+    // row is ever returned, written, or used for idempotency.
+    return ConversationDescriptorSchema.safeParse({ ...entry, createTitle: 'pre-create-title-cutover' }).success;
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isNotFound(error: unknown): boolean {

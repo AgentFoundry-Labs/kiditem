@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -176,6 +176,50 @@ describe('ConversationGateway', () => {
     });
     await expect(restarted.create(original)).resolves.toEqual(renamed);
     expect(provider.created).toHaveLength(1);
+  });
+
+  it('discards the exact pre-createTitle catalog before list/history and starts strict idempotent creates cleanly', async () => {
+    const { ConversationGateway } = await import('./conversation-gateway');
+    const root = await fixtureRoot();
+    const legacyId = 'pre-create-title-conversation';
+    const descriptorFile = join(root, 'conversations.json');
+    // Exact descriptor JSON written before the immutable createTitle field
+    // existed. This is a clean-cutover fixture, never an input to migrate.
+    await writeFile(descriptorFile, JSON.stringify([{
+      id: legacyId,
+      runtime: 'codex_cli',
+      providerConversationRef: 'pre-create-title-provider-thread',
+      agentKey: 'sourcing',
+      title: 'Supplier research',
+      createdAt: '2026-08-23T00:00:00.000Z',
+      updatedAt: '2026-08-23T00:00:00.000Z',
+      lastModel: 'gpt-5.6',
+      lastReasoningEffort: 'medium',
+    }]));
+    const provider = new FakeProvider('codex_cli');
+    const original = {
+      conversationId: 'current-schema-conversation',
+      runtime: 'codex_cli' as const,
+      agentKey: 'sourcing' as const,
+      title: 'Current supplier research',
+    };
+    const gateway = new ConversationGateway({
+      descriptors: new ConversationDescriptorStore({ stateRoot: root, platform: 'macos' }),
+      providers: { codex_cli: provider, claude_cli: new FakeProvider('claude_cli') },
+      now: () => new Date('2026-08-23T00:01:00.000Z'),
+    });
+
+    await expect(gateway.history(legacyId)).rejects.toThrow('gateway_conversation_not_found');
+    await expect(gateway.list()).resolves.toEqual([]);
+    expect(JSON.parse(await readFile(descriptorFile, 'utf8'))).toEqual([]);
+
+    const created = await gateway.create(original);
+    const renamed = await gateway.rename(created.id, 'Renamed current research');
+    await expect(gateway.create(original)).resolves.toEqual(renamed);
+    expect(JSON.parse(await readFile(descriptorFile, 'utf8'))).toEqual([expect.objectContaining({
+      createTitle: original.title,
+      title: 'Renamed current research',
+    })]);
   });
 
   it('deletes a just-created provider conversation when the descriptor write fails without exposing its provider ref', async () => {
