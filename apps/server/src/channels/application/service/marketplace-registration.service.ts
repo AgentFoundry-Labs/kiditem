@@ -201,7 +201,7 @@ export class MarketplaceRegistrationService {
         error instanceof CoupangProviderRequestError &&
         error.providerOutcome === "definitive_failure"
       ) {
-        throw new DefinitiveMarketplaceRegistrationError(error.message);
+        throw new DefinitiveMarketplaceRegistrationError();
       }
       throw error;
     }

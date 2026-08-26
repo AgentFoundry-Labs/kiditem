@@ -3,6 +3,10 @@ import {
   PROTOCOL_VERSION_META_KEY,
 } from '@modelcontextprotocol/server';
 import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
+import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
+import { DefinitiveMarketplaceRegistrationError } from '../../../../channels/application/port/in/capability/marketplace-registration.port';
+import { CapabilityInvocationService } from '../../../application/service/capability-invocation.service';
 import { AgentOsError } from '../../../domain/agent-os.errors';
 import { FINAL_CAPABILITY_DEFINITIONS } from '../../../domain/catalog/final-capability.catalog';
 import {
@@ -23,6 +27,9 @@ const READ_CAPABILITY = 'analytics.readOverview';
 const MUTATION_CAPABILITY = 'supply.create_purchase_order_draft';
 const AMBIGUOUS_CAPABILITY = 'supply.submit_purchase_order';
 const CONFLICT_CAPABILITY = 'supply.request_key_conflict';
+const PROVIDER_FAILURE_CAPABILITY = 'sourcing.provider_failure';
+const PRODUCT_SAFE_REJECTION =
+  'Coupang rejected the listing before it was created. Review the listing data and try again.';
 
 describe('KidItem stateless capability MCP server', () => {
   it('serves exactly five modern tools from independent request handlers and advertises 2020-12 strict contracts', async () => {
@@ -196,6 +203,110 @@ describe('KidItem stateless capability MCP server', () => {
       });
       expect(malformed.result.isError).toBe(true);
       expect(dependencies.invocations.invoke).not.toHaveBeenCalled();
+    } finally {
+      await handler.close();
+    }
+  });
+
+  it('keeps definitive provider diagnostics out of the durable and MCP-visible failure path', async () => {
+    const providerDiagnostic = 'provider echo: secretKey=secret-key';
+    const input = { attempt: 'provider-create' };
+    const canonicalInput = { attempt: 'provider-create' };
+    const pending = {
+      ...invocationRecord(),
+      capabilityKey: PROVIDER_FAILURE_CAPABILITY,
+      actingAgentKey: 'sourcing',
+      requestKey: 'provider-failure-1',
+      canonicalInput,
+      inputHash: canonicalOwnerInputHash(canonicalInput),
+      approvalStatus: 'not_required' as const,
+      approvalInputHash: null,
+      approvalRequestedAt: null,
+      approvalExpiresAt: null,
+    };
+    const repository = {
+      admit: vi.fn().mockResolvedValue({ kind: 'created', invocation: pending }),
+      recordSucceeded: vi.fn(),
+      recordKnownFailure: vi.fn(async ({ error }: { error: unknown }) => ({
+        ...pending,
+        status: 'failed' as const,
+        error,
+        finishedAt: new Date('2026-08-25T04:00:00.000Z'),
+      })),
+    };
+    const definition = {
+      key: PROVIDER_FAILURE_CAPABILITY,
+      ownerDomain: 'sourcing',
+      ownerInputPort: PROVIDER_FAILURE_CAPABILITY,
+      description: 'Provider failure regression.',
+      inputSchema: z.object({ attempt: z.string() }).strict(),
+      outputSchema: z.object({ candidateId: z.string().uuid() }).strict(),
+      effects: ['db_write'] as const,
+      approvalRisk: 'low' as const,
+      idempotency: 'required' as const,
+    };
+    const owner = {
+      capabilityKey: definition.key,
+      invoke: vi.fn().mockRejectedValue(
+        new DefinitiveMarketplaceRegistrationError(providerDiagnostic),
+      ),
+    };
+    const invocations = new CapabilityInvocationService(
+      repository as never,
+      {
+        resolveDefinition: (key: string) => key === definition.key ? definition : null,
+        resolveImplementation: (key: string) => key === definition.key ? owner : null,
+      } as never,
+    );
+    const handler = createRequestScopedCapabilityMcpHandler({
+      invocations,
+      capabilities: {
+        listDefinitions: () => FINAL_CAPABILITY_DEFINITIONS.slice(),
+        resolveDefinition: () => null,
+      },
+      operations: { get: vi.fn() },
+      readiness: {
+        probe: () => ({
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          sdkGeneration: 'v2' as const,
+          protocolNegotiation: 'auto' as const,
+          toolNames: CAPABILITY_MCP_TOOL_NAMES,
+        }),
+      },
+      webOrigin: 'https://kiditem.test',
+    }, executionBinding());
+
+    try {
+      const response = await call(handler, 'tools/call', {
+        name: 'capability_invoke',
+        arguments: {
+          capabilityKey: definition.key,
+          requestKey: pending.requestKey,
+          actingAgentKey: 'sourcing',
+          input,
+        },
+      });
+
+      expect(repository.recordKnownFailure).toHaveBeenCalledWith(expect.objectContaining({
+        error: {
+          code: 'MARKETPLACE_REGISTRATION_REJECTED',
+          message: PRODUCT_SAFE_REJECTION,
+        },
+      }));
+      expect(response.result).toMatchObject({
+        isError: true,
+        structuredContent: {
+          kind: 'error',
+          error: {
+            code: 'MARKETPLACE_REGISTRATION_REJECTED',
+            message: PRODUCT_SAFE_REJECTION,
+          },
+        },
+      });
+      expect(JSON.stringify({
+        persistence: repository.recordKnownFailure.mock.calls,
+        publicResult: response.result,
+      })).not.toContain(providerDiagnostic);
     } finally {
       await handler.close();
     }
@@ -406,5 +517,17 @@ function invocationRecord() {
     createdAt: new Date('2026-08-25T00:00:00.000Z'),
     updatedAt: new Date('2026-08-25T00:00:00.000Z'),
     finishedAt: null,
+  };
+}
+
+function executionBinding() {
+  return {
+    executionId: 'execution-1',
+    installationId: 'installation-1',
+    organizationId: ORGANIZATION_ID,
+    initiatingUserId: USER_ID,
+    conversationId: 'conversation-1',
+    turnId: 'turn-1',
+    expiresAt: new Date('2026-08-25T04:00:00.000Z'),
   };
 }

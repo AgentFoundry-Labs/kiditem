@@ -135,7 +135,6 @@ export class ConversationDescriptorStore {
       });
       if (this.options.platform === 'macos') await this.storage.chmod(temporary, 0o600);
       await this.storage.rename(temporary, this.stateFile);
-      if (this.options.platform === 'macos') await this.storage.chmod(this.stateFile, 0o600);
     } catch {
       try { await this.storage.unlink(temporary); } catch { /* no temporary file to remove */ }
       throw new Error('gateway_descriptor_write_failed');

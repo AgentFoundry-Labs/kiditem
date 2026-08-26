@@ -7,6 +7,8 @@ import { CapabilityInvocationCard } from '../CapabilityInvocationCard';
 
 vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn() } }));
 
+const IDENTITY = { userId: 'user-1', organizationId: 'org-1' };
+
 describe('CapabilityInvocationCard', () => {
   it('loads the authenticated receipt and approves only its exact Invocation', async () => {
     const invocationId = '00000000-0000-4000-8000-000000000001';
@@ -21,7 +23,7 @@ describe('CapabilityInvocationCard', () => {
     } as never);
     vi.mocked(apiClient.post).mockResolvedValue({ approvalStatus: 'approved' } as never);
     const user = userEvent.setup();
-    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><CapabilityInvocationCard invocationId={invocationId} /></QueryClientProvider>);
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><CapabilityInvocationCard identity={IDENTITY} invocationId={invocationId} /></QueryClientProvider>);
 
     await user.click(await screen.findByRole('button', { name: 'Approve' }));
     await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(
@@ -46,7 +48,7 @@ describe('CapabilityInvocationCard', () => {
     } as never);
     vi.mocked(apiClient.post).mockResolvedValue({ approvalStatus: 'rejected' } as never);
     const user = userEvent.setup();
-    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><CapabilityInvocationCard invocationId={invocationId} /></QueryClientProvider>);
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><CapabilityInvocationCard identity={IDENTITY} invocationId={invocationId} /></QueryClientProvider>);
 
     await user.click(await screen.findByRole('button', { name: 'Reject' }));
     expect(await screen.findByText('The request was rejected.')).toBeVisible();
@@ -68,7 +70,7 @@ describe('CapabilityInvocationCard', () => {
       approvalStatus,
       approvalExpiresAt: null,
     } as never);
-    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><CapabilityInvocationCard invocationId={invocationId} /></QueryClientProvider>);
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><CapabilityInvocationCard identity={IDENTITY} invocationId={invocationId} /></QueryClientProvider>);
 
     expect(await screen.findByRole('heading', { name: 'Capability approval' })).toBeVisible();
     expect(screen.getByText(expectedCopy)).toBeVisible();

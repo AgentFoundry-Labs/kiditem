@@ -16,6 +16,8 @@ export const ConversationDescriptorSchema = z.object({
   runtime: ProviderRuntimeSchema,
   providerConversationRef: z.string().trim().min(1).max(500),
   agentKey: AgentKeySchema.nullable(),
+  /** Immutable canonical input used only for durable create idempotency. */
+  createTitle: z.string().trim().min(1).max(200),
   title: z.string().trim().min(1).max(200),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),

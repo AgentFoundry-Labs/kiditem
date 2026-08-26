@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
-import { queryKeys } from '@/lib/query-keys';
+import { queryKeys, type ConversationIdentity } from '@/lib/query-keys';
 import { formatDateTime } from '@/lib/utils';
 
 interface InvocationReceipt {
@@ -17,10 +17,16 @@ interface InvocationReceipt {
 }
 
 /** Exact Invocation receipt and approval boundary; this component never starts work. */
-export function CapabilityInvocationCard({ invocationId }: { invocationId: string }) {
+export function CapabilityInvocationCard({
+  invocationId,
+  identity,
+}: {
+  invocationId: string;
+  identity: ConversationIdentity;
+}) {
   const queryClient = useQueryClient();
   const receipt = useQuery({
-    queryKey: queryKeys.conversations.invocation(invocationId),
+    queryKey: queryKeys.conversations.invocation(identity, invocationId),
     queryFn: () => apiClient.get<InvocationReceipt>(`/api/agent-os/invocations/${encodeURIComponent(invocationId)}`),
   });
   const decision = useMutation({
@@ -28,7 +34,9 @@ export function CapabilityInvocationCard({ invocationId }: { invocationId: strin
       `/api/agent-os/invocations/${encodeURIComponent(invocationId)}/decision`,
       { decision: value },
     ),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.conversations.invocation(invocationId) }),
+    onSuccess: () => void queryClient.invalidateQueries({
+      queryKey: queryKeys.conversations.invocation(identity, invocationId),
+    }),
   });
 
   if (receipt.isLoading) return <p role="status" className="text-sm text-muted-foreground">Loading approval details…</p>;

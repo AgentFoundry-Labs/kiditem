@@ -123,6 +123,22 @@ describe('ConversationPreferenceStore', () => {
       'Operation',
     ]) expect(raw).not.toContain(forbidden);
   });
+
+  it('never reports an already-renamed macOS preference document as failed because a portable fake rejects an obsolete final chmod', async () => {
+    const { ConversationPreferenceStore } = await import('./conversation-preference.store');
+    const root = await fixtureRoot();
+    const storage = inMemoryFilesystem();
+    const store = new ConversationPreferenceStore({ stateRoot: root, platform: 'macos', filesystem: storage.filesystem as never });
+    await store.set({ context: 'general', runtime: 'codex_cli', model: 'gpt-5.6', reasoningEffort: 'medium' });
+    storage.failFinalChmod = true;
+
+    await expect(store.set({ context: 'general', runtime: 'codex_cli', model: 'gpt-5.7', reasoningEffort: 'high' }))
+      .resolves.toEqual({
+        schemaVersion: 1,
+        contexts: { general: { codex_cli: { model: 'gpt-5.7', reasoningEffort: 'high' } } },
+      });
+    expect(storage.chmodPaths).not.toContain(join(root, 'conversation-preferences.json'));
+  });
 });
 
 async function fixtureRoot(): Promise<string> {
@@ -131,13 +147,23 @@ async function fixtureRoot(): Promise<string> {
   return root;
 }
 
-function inMemoryFilesystem(): { filesystem: { [key: string]: unknown }; failRename: boolean } {
+function inMemoryFilesystem(): {
+  filesystem: { [key: string]: unknown };
+  failRename: boolean;
+  failFinalChmod: boolean;
+  chmodPaths: string[];
+} {
   const files = new Map<string, string>();
   const result = {
     failRename: false,
+    failFinalChmod: false,
+    chmodPaths: [] as string[],
     filesystem: {
       mkdir: async () => undefined,
-      chmod: async () => undefined,
+      chmod: async (path: string) => {
+        result.chmodPaths.push(path);
+        if (result.failFinalChmod && path.endsWith('conversation-preferences.json')) throw new Error('final chmod denied');
+      },
       readFile: async (path: string) => {
         const value = files.get(path);
         if (value === undefined) throw Object.assign(new Error('missing'), { code: 'ENOENT' });

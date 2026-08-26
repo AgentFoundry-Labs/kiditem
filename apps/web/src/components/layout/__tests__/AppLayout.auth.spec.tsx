@@ -397,6 +397,38 @@ describe('AppLayout auth gate', () => {
     expect(conversationSurfaceState.pendingDraft).toBeNull();
   });
 
+  it.each([
+    ['user', { id: 'user-2', organizationId: 'org-1' }],
+    ['organization', { id: 'user-1', organizationId: 'org-2' }],
+  ])('remounts the authenticated conversation runtime shell when the %s identity coordinate changes', (_coordinate, nextUser) => {
+    let authState: {
+      status: 'ready';
+      user: { id: string; organizationId: string };
+      isLoading: boolean;
+      logout: ReturnType<typeof vi.fn>;
+    } = {
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    };
+    useAuthMock.mockImplementation(() => authState);
+    const view = renderLayout();
+
+    authState = {
+      status: 'ready',
+      user: nextUser,
+      isLoading: false,
+      logout: vi.fn(),
+    };
+    view.rerender(<AppLayout><main data-testid="protected-child">Protected child</main></AppLayout>);
+
+    expect(runtimeOwnershipMocks.providerUnmounted).toHaveBeenCalledTimes(1);
+    expect(runtimeOwnershipMocks.hostUnmounted).toHaveBeenCalledTimes(1);
+    expect(runtimeOwnershipMocks.providerMounted).toHaveBeenCalledTimes(2);
+    expect(runtimeOwnershipMocks.hostMounted).toHaveBeenCalledTimes(2);
+  });
+
   it('preserves the same user\'s right surface and unsent draft across route and loading refreshes', () => {
     let authState: {
       status: 'loading' | 'ready';

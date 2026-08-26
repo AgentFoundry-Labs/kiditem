@@ -146,6 +146,38 @@ describe('ConversationGateway', () => {
     expect(provider.created).toHaveLength(1);
   });
 
+  it('replays the immutable original create title after a display rename while rejecting create-title drift', async () => {
+    const { ConversationGateway } = await import('./conversation-gateway');
+    const root = await fixtureRoot();
+    const provider = new FakeProvider('codex_cli');
+    const original = {
+      conversationId: 'browser-renamed-idempotent-conversation',
+      runtime: 'codex_cli' as const,
+      agentKey: null,
+      title: 'Original supplier research',
+    };
+    const gateway = new ConversationGateway({
+      descriptors: new ConversationDescriptorStore({ stateRoot: root, platform: 'macos' }),
+      providers: { codex_cli: provider, claude_cli: new FakeProvider('claude_cli') },
+      now: () => new Date('2026-08-23T00:01:00.000Z'),
+    });
+
+    await gateway.create(original);
+    const renamed = await gateway.rename(original.conversationId, 'Renamed supplier research');
+
+    await expect(gateway.create(original)).resolves.toEqual(renamed);
+    await expect(gateway.create({ ...original, title: 'Conflicting create title' }))
+      .rejects.toThrow('gateway_conversation_create_conflict');
+
+    const restarted = new ConversationGateway({
+      descriptors: new ConversationDescriptorStore({ stateRoot: root, platform: 'macos' }),
+      providers: { codex_cli: provider, claude_cli: new FakeProvider('claude_cli') },
+      now: () => new Date('2026-08-23T00:02:00.000Z'),
+    });
+    await expect(restarted.create(original)).resolves.toEqual(renamed);
+    expect(provider.created).toHaveLength(1);
+  });
+
   it('deletes a just-created provider conversation when the descriptor write fails without exposing its provider ref', async () => {
     const { ConversationGateway } = await import('./conversation-gateway');
     const provider = new FakeProvider('codex_cli');
@@ -269,7 +301,7 @@ describe('ConversationGateway', () => {
     expect(provider.renameCalls).toEqual([]);
   });
 
-  it('never restores a descriptor after a racing provider-backed rename or turn update loses to delete', async () => {
+  it('never restores a descriptor after a racing provider-backed rename or best-effort turn metadata update loses to delete', async () => {
     const { ConversationGateway } = await import('./conversation-gateway');
     const root = await fixtureRoot();
     const provider = new FakeProvider('codex_cli');
@@ -300,7 +332,7 @@ describe('ConversationGateway', () => {
     turnGate.resolve();
 
     await expect(rename).rejects.toThrow('gateway_descriptor_not_found');
-    await expect(turn).rejects.toThrow('gateway_descriptor_not_found');
+    await expect(turn).resolves.toBeUndefined();
     expect(await gateway.list()).toEqual([]);
   });
 });

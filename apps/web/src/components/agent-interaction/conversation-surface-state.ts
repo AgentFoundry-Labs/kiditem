@@ -39,6 +39,7 @@ interface ConversationSurfaceState {
   openConversation(input: NewConversationRequest): NewConversationDraft;
   updateDraft(patch: Partial<Omit<NewConversationDraft, 'conversationId'>>): void;
   discardDraft(): void;
+  completePromotedDraft(conversationId: string): void;
   openSettings(trigger?: HTMLElement | null): void;
   closeSettings(): void;
   reset(): void;
@@ -107,6 +108,11 @@ export const useConversationSurfaceState = create<ConversationSurfaceState>((set
       : state.activeConversationId,
     pendingDraft: null,
   })),
+  completePromotedDraft: (conversationId) => set((state) => (
+    state.pendingDraft?.conversationId === conversationId
+      ? { pendingDraft: null }
+      : state
+  )),
   openSettings: (trigger) => {
     settingsTrigger = trigger ?? activeElement();
     set({ settingsOpen: true });

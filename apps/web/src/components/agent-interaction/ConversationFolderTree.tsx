@@ -11,7 +11,6 @@ export function ConversationFolderTree({
   conversations,
   selectedContext,
   activeConversationId,
-  onSelectContext,
   onSelectConversation,
   onNewConversation,
   onOpenSettings,
@@ -22,7 +21,6 @@ export function ConversationFolderTree({
   conversations: ConversationSummary[];
   selectedContext: ConversationContextKey;
   activeConversationId: string | null;
-  onSelectContext(context: ConversationContextKey): void;
   onSelectConversation(conversation: ConversationSummary): void;
   onNewConversation(context: ConversationContextKey): void;
   onOpenSettings(trigger: HTMLElement): void;
@@ -46,7 +44,6 @@ export function ConversationFolderTree({
   }, [activeConversationId, conversations, expand]);
 
   const toggleFolder = (context: ConversationContextKey) => {
-    onSelectContext(context);
     setExpanded((current) => {
       const next = new Set(current);
       if (next.has(context)) next.delete(context);

@@ -2,13 +2,28 @@ import { describe, expect, it } from 'vitest';
 import { queryKeys } from './query-keys';
 
 describe('conversation query keys', () => {
-  it('keeps summaries, history, readiness, and preferences in independently invalidatable families', () => {
-    expect(queryKeys.conversations.list()).toEqual(['agent-os', 'conversations', 'list']);
-    expect(queryKeys.conversations.history('conversation-1')).toEqual([
-      'agent-os', 'conversations', 'history', 'conversation-1',
+  it('keeps each authenticated identity isolated across summaries, history, readiness, preferences, and invocations', () => {
+    const firstIdentity = { userId: 'user-1', organizationId: 'org-1' };
+    const secondIdentity = { userId: 'user-2', organizationId: 'org-1' };
+
+    expect(queryKeys.conversations.list(firstIdentity)).toEqual([
+      'agent-os', 'conversations', 'identity', 'user-1', 'org-1', 'list',
     ]);
-    expect(queryKeys.conversations.readiness()).toEqual(['agent-os', 'conversations', 'readiness']);
-    expect(queryKeys.conversations.preferences()).toEqual(['agent-os', 'conversations', 'preferences']);
+    expect(queryKeys.conversations.history(firstIdentity, 'conversation-1')).toEqual([
+      'agent-os', 'conversations', 'identity', 'user-1', 'org-1', 'history', 'conversation-1',
+    ]);
+    expect(queryKeys.conversations.readiness(firstIdentity)).toEqual([
+      'agent-os', 'conversations', 'identity', 'user-1', 'org-1', 'readiness',
+    ]);
+    expect(queryKeys.conversations.preferences(firstIdentity)).toEqual([
+      'agent-os', 'conversations', 'identity', 'user-1', 'org-1', 'preferences',
+    ]);
+    expect(queryKeys.conversations.invocation(firstIdentity, 'invocation-1')).toEqual([
+      'agent-os', 'conversations', 'identity', 'user-1', 'org-1', 'invocation', 'invocation-1',
+    ]);
+    expect(queryKeys.conversations.list(firstIdentity)).not.toEqual(
+      queryKeys.conversations.list(secondIdentity),
+    );
   });
 });
 

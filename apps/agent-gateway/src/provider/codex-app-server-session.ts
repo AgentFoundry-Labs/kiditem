@@ -223,7 +223,6 @@ export class CodexAppServerSession {
     if (this.closed) return;
     this.buffer += chunk;
     if (Buffer.byteLength(this.buffer, 'utf8') > (this.options.maxBytes ?? MAX_RPC_BUFFER_BYTES)) {
-      this.close();
       throw new Error('codex_app_server_output_too_large');
     }
     while (this.buffer.includes('\n')) {

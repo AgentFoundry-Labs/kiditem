@@ -159,6 +159,21 @@ describe('ConversationDescriptorStore', () => {
 
     expect(await store.list()).toEqual([before]);
   });
+
+  it('never reports an already-renamed macOS catalog as failed because a portable fake rejects an obsolete final chmod', async () => {
+    const { ConversationDescriptorStore } = await import('./conversation-descriptor.store');
+    const root = await fixtureRoot();
+    const storage = inMemoryFilesystem();
+    const store = new ConversationDescriptorStore({ stateRoot: root, platform: 'macos', filesystem: storage.filesystem as never });
+    const before = fixtureDescriptor();
+    const after = { ...before, title: 'Committed rename', updatedAt: '2026-08-23T00:01:00.000Z' };
+    await store.create(before);
+    storage.failFinalChmod = true;
+
+    await expect(store.update(before.id, () => after)).resolves.toEqual(after);
+    expect(await store.list()).toEqual([after]);
+    expect(storage.chmodPaths).not.toContain(join(root, 'conversations.json'));
+  });
 });
 
 async function fixtureRoot(): Promise<string> {
@@ -173,6 +188,7 @@ function fixtureDescriptor() {
     runtime: 'codex_cli' as const,
     providerConversationRef: 'provider-thread-1',
     agentKey: 'sourcing' as const,
+    createTitle: 'Supplier research',
     title: 'Supplier research',
     createdAt: '2026-08-23T00:00:00.000Z',
     updatedAt: '2026-08-23T00:00:00.000Z',
@@ -185,16 +201,23 @@ function inMemoryFilesystem(): {
   filesystem: { [key: string]: unknown };
   failRename: boolean;
   failWrite: boolean;
+  failFinalChmod: boolean;
+  chmodPaths: string[];
   writeFileCalls: number;
 } {
   const files = new Map<string, string>();
   const result = {
     failRename: false,
     failWrite: false,
+    failFinalChmod: false,
+    chmodPaths: [] as string[],
     writeFileCalls: 0,
     filesystem: {
       mkdir: async () => undefined,
-      chmod: async () => undefined,
+      chmod: async (path: string) => {
+        result.chmodPaths.push(path);
+        if (result.failFinalChmod && path.endsWith('conversations.json')) throw new Error('final chmod denied');
+      },
       readFile: async (path: string) => {
         const value = files.get(path);
         if (value === undefined) {

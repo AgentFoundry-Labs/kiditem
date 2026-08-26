@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import {
@@ -29,6 +28,8 @@ import { buildClaudeAuthStatusCommand } from './provider/claude-command';
 import { gatewayProviderInvocation, providerEnvironment } from './provider/provider-command';
 import type { ProviderConversationPort } from './provider/provider-conversation.port';
 import type { CodexModelCapability } from './provider/codex-app-server-session';
+import { createPlatformProcessSupervisor } from './platform/platform-process-supervisor';
+import type { ProcessSupervisor, SupervisedProcess } from './platform/process-supervisor';
 
 const CLAUDE_MODELS = Object.freeze(['claude-opus-4-6', 'claude-sonnet-4-5']);
 const CLAUDE_REASONING_EFFORTS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
@@ -37,12 +38,20 @@ export async function runNativeAgentGateway(argv: readonly string[]): Promise<ne
   const config = await loadGatewayConfig(argv);
   const token = await readGatewayInstallationToken(config.tokenFile);
   const platform = gatewayPlatformFromNodePlatform();
+  const supervisor = createPlatformProcessSupervisor({ platform, runtimeRoot: config.runtimeRoot });
   await verifyGatewayRuntimePackages(config.runtimeRoot);
   const mcpUrl = `${config.controlOrigin}/internal/agent-runtime/mcp`;
-  const [codexLoggedIn, claudeLoggedIn] = await Promise.all([
-    verifyProviderLogin('codex_cli', config.runtimeRoot, config.loginRoot),
-    verifyProviderLogin('claude_cli', config.runtimeRoot, config.loginRoot),
-  ]);
+  let codexLoggedIn: boolean;
+  let claudeLoggedIn: boolean;
+  try {
+    [codexLoggedIn, claudeLoggedIn] = await Promise.all([
+      verifyProviderLogin('codex_cli', config.runtimeRoot, config.loginRoot, supervisor),
+      verifyProviderLogin('claude_cli', config.runtimeRoot, config.loginRoot, supervisor),
+    ]);
+  } catch (error) {
+    await supervisor.shutdown().catch(() => undefined);
+    throw error;
+  }
   const mcpConfigs = new ClaudeMcpConfigStore({ stateRoot: config.stateRoot, platform });
   await mcpConfigs.cleanup();
   let codexProcess: Awaited<ReturnType<typeof startCodexAppServer>> | null = null;
@@ -50,11 +59,11 @@ export async function runNativeAgentGateway(argv: readonly string[]): Promise<ne
   if (codexLoggedIn) {
     let started: Awaited<ReturnType<typeof startCodexAppServer>> | null = null;
     try {
-      started = await startCodexAppServer({ runtimeRoot: config.runtimeRoot, workspace: config.workspace, loginRoot: config.loginRoot, mcpUrl });
+      started = await startCodexAppServer({ runtimeRoot: config.runtimeRoot, workspace: config.workspace, loginRoot: config.loginRoot, mcpUrl, supervisor });
       codexReadiness = codexProviderReadiness(await started.session.modelCatalog());
       codexProcess = started;
     } catch {
-      started?.close();
+      await started?.close();
     }
   }
   const codex = codexProcess && codexReadiness
@@ -68,7 +77,7 @@ export async function runNativeAgentGateway(argv: readonly string[]): Promise<ne
       loginRoot: config.loginRoot,
       mcpUrl,
       configs: mcpConfigs,
-      launcher: new NativeClaudeProcessLauncher(),
+      launcher: new NativeClaudeProcessLauncher({ supervisor }),
       sessions: claudeSessions,
       readiness: claudeProviderReadiness(),
     })
@@ -89,8 +98,14 @@ export async function runNativeAgentGateway(argv: readonly string[]): Promise<ne
     outbox,
     poll: { kind: 'poll', gatewayInstanceId, platform, runtimeTrain: GATEWAY_RUNTIME_TRAIN },
     onPollLoss: async () => {
-      codexProcess?.close();
-      if (claude instanceof ClaudeConversationProvider) await claude.close();
+      const results = await Promise.allSettled([
+        ...(codexProcess ? [codexProcess.close()] : []),
+        ...(claude instanceof ClaudeConversationProvider ? [claude.close()] : []),
+      ]);
+      const failures = results.flatMap((result) => result.status === 'rejected' ? [result.reason] : []);
+      try { await supervisor.shutdown(); }
+      catch (error) { failures.push(error); }
+      if (failures.length) throw new AggregateError(failures, 'gateway_provider_tree_shutdown_failed');
     },
   });
   const shutdown = (): void => { void control.shutdown().catch(() => undefined); };
@@ -164,7 +179,12 @@ async function exactPackageVersion(runtimeRoot: string, packageName: string, exp
 }
 
 /** Boolean-only provider login check; provider output and credential bytes never cross this boundary. */
-async function verifyProviderLogin(runtime: ProviderRuntime, runtimeRoot: string, loginRoot: string): Promise<boolean> {
+export async function verifyProviderLogin(
+  runtime: ProviderRuntime,
+  runtimeRoot: string,
+  loginRoot: string,
+  supervisor: ProcessSupervisor,
+): Promise<boolean> {
   const command = runtime === 'codex_cli'
     ? (() => {
       const invocation = gatewayProviderInvocation(runtimeRoot, 'codex');
@@ -176,20 +196,50 @@ async function verifyProviderLogin(runtime: ProviderRuntime, runtimeRoot: string
       };
     })()
     : buildClaudeAuthStatusCommand(runtimeRoot, loginRoot);
-  return exitZero(command, 10_000);
+  return exitZero(command, supervisor, 10_000);
 }
 
-function exitZero(command: Readonly<{ executable: string; args: readonly string[]; cwd: string; env: NodeJS.ProcessEnv }>, timeoutMs: number): Promise<boolean> {
-  return new Promise((resolveStatus) => {
-    let child: ReturnType<typeof spawn>;
-    try { child = spawn(command.executable, [...command.args], { cwd: command.cwd, env: command.env, stdio: ['ignore', 'ignore', 'ignore'] }); }
-    catch { resolveStatus(false); return; }
-    let settled = false;
-    const settle = (value: boolean): void => { if (!settled) { settled = true; resolveStatus(value); } };
-    const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* exited */ } settle(false); }, timeoutMs);
-    child.once('error', () => { clearTimeout(timer); settle(false); });
-    child.once('close', (code) => { clearTimeout(timer); settle(code === 0); });
+async function exitZero(
+  command: Readonly<{ executable: string; args: readonly string[]; cwd: string; env: NodeJS.ProcessEnv }>,
+  supervisor: ProcessSupervisor,
+  timeoutMs: number,
+): Promise<boolean> {
+  let process: SupervisedProcess;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let settled = false;
+  let resolveStatus!: (value: boolean) => void;
+  let rejectStatus!: (error: Error) => void;
+  const result = new Promise<boolean>((resolveStatusValue, rejectStatusValue) => {
+    resolveStatus = resolveStatusValue;
+    rejectStatus = rejectStatusValue;
   });
+  const settle = (value: boolean): void => {
+    if (settled) return;
+    settled = true;
+    if (timer) clearTimeout(timer);
+    resolveStatus(value);
+  };
+  const fail = (error: Error): void => {
+    if (settled) return;
+    settled = true;
+    if (timer) clearTimeout(timer);
+    rejectStatus(error);
+  };
+  try {
+    process = await supervisor.launch(command, {
+      onExit: (exit) => settle(exit.code === 0),
+      onFatal: fail,
+    });
+  } catch {
+    return false;
+  }
+  if (!settled) {
+    timer = setTimeout(() => {
+      void process.terminate().then(() => settle(false), (error) => fail(error instanceof Error ? error : new Error('gateway_login_tree_termination_failed')));
+    }, timeoutMs);
+    timer.unref();
+  }
+  return result;
 }
 
 class UnavailableProvider implements ProviderConversationPort {

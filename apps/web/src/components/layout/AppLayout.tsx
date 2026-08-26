@@ -15,6 +15,7 @@ import { useAuth } from '@/hooks/useAuth';
 import RebuildReadinessBanner from '@/components/RebuildReadinessBanner';
 import { ConversationProvider } from '@/components/agent-interaction/ConversationProvider';
 import { ConversationRuntimeHost } from '@/components/agent-interaction/ConversationRuntimeHost';
+import { conversationIdentityKey, type ConversationIdentity } from '@/lib/query-keys';
 import {
   openConversation,
   useConversationSurfaceState,
@@ -28,10 +29,16 @@ function NotificationDataMount() {
   return null;
 }
 
-function ConversationRuntimeShell({ children }: { children: React.ReactNode }) {
+function ConversationRuntimeShell({
+  children,
+  identity,
+}: {
+  children: React.ReactNode;
+  identity: ConversationIdentity;
+}) {
   return (
     <ConversationProvider>
-      <ConversationRuntimeHost>{children}</ConversationRuntimeHost>
+      <ConversationRuntimeHost identity={identity}>{children}</ConversationRuntimeHost>
     </ConversationProvider>
   );
 }
@@ -51,8 +58,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const authenticatedIdentityRef = useRef<string | null>(null);
   const activeConversationId = useConversationSurfaceState((state) => state.activeConversationId);
   const resetConversationSurface = useConversationSurfaceState((state) => state.reset);
-  const authenticatedIdentity = auth.status === 'ready' && auth.user
-    ? `${auth.user.id}:${auth.user.organizationId}`
+  const authenticatedIdentity = auth.status === 'ready' && auth.user?.organizationId
+    ? { userId: auth.user.id, organizationId: auth.user.organizationId }
+    : null;
+  const authenticatedIdentityKey = authenticatedIdentity
+    ? conversationIdentityKey(authenticatedIdentity)
     : null;
 
   // Public/isolated surfaces render their own layout. `/agent-os` is fullscreen
@@ -77,12 +87,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (auth.status === 'loading') return;
 
     const previousIdentity = authenticatedIdentityRef.current;
-    if (previousIdentity && previousIdentity !== authenticatedIdentity) {
+    if (previousIdentity && previousIdentity !== authenticatedIdentityKey) {
       resetRightSurface();
       resetConversationSurface();
     }
-    authenticatedIdentityRef.current = authenticatedIdentity;
-  }, [auth.status, authenticatedIdentity, resetConversationSurface, resetRightSurface]);
+    authenticatedIdentityRef.current = authenticatedIdentityKey;
+  }, [auth.status, authenticatedIdentityKey, resetConversationSurface, resetRightSurface]);
 
   if (isPublicOrIsolatedSurface) {
     return <>{children}</>;
@@ -209,7 +219,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <ConversationRuntimeShell>
+    <ConversationRuntimeShell key={authenticatedIdentityKey} identity={authenticatedIdentity!}>
       <NotificationDataMount />
       <RightSurfaceLauncherProvider openConversationFromLauncher={openConversationFromLauncher}>
         {isAgentWorkspace ? children : content}

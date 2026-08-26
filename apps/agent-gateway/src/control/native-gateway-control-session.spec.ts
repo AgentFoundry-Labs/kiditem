@@ -106,4 +106,37 @@ describe('NativeGatewayControlSession', () => {
     expect(client.abortInFlight).toHaveBeenCalledOnce();
     expect(dispatcher.clear).toHaveBeenCalledOnce();
   });
+
+  it('retains dispatcher turn fences until the provider shutdown path proves its process trees are gone', async () => {
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const { NativeGatewayControlSession } = await import('./native-gateway-control-session');
+    const shutdownGate = deferred<void>();
+    const dispatcher = { dispatch: vi.fn(), clear: vi.fn() };
+    const session = new NativeGatewayControlSession({
+      client: { poll: vi.fn(), postEventBody: vi.fn(), abortInFlight: vi.fn() },
+      dispatcher,
+      outbox: new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' }),
+      poll: {
+        kind: 'poll', gatewayInstanceId: 'gateway-1', platform: 'macos',
+        runtimeTrain: { controlRevision: 'kiditem-gateway-control-v1', mcpProtocolRevision: '2026-07-28', nodeMajor: 22, codexVersion: '0.149.1', claudeVersion: '2.1.245' },
+      },
+      onPollLoss: () => shutdownGate.promise,
+    });
+
+    const shutdown = session.shutdown();
+    await Promise.resolve();
+    expect(dispatcher.clear).not.toHaveBeenCalled();
+
+    shutdownGate.resolve();
+    await shutdown;
+    expect(dispatcher.clear).toHaveBeenCalledOnce();
+  });
 });
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  return {
+    promise: new Promise<T>((resolvePromise) => { resolve = resolvePromise; }),
+    resolve: (value: T) => resolve(value),
+  };
+}

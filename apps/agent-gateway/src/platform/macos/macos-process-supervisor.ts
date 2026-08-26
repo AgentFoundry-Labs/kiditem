@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import type { ProviderCommand } from '../../provider/provider-command';
+import type { GatewayProviderCommand } from '../../provider/provider-command';
 import type { ProcessCallbacks, ProcessExit, ProcessSupervisor, SupervisedProcess } from '../process-supervisor';
 import { startProcessTreeWatchdog, type ProcessTreeWatchdog } from './process-tree-watchdog';
 
@@ -9,7 +9,7 @@ const TERMINATION_GRACE_MS = 1_000;
 export class MacosProcessSupervisor implements ProcessSupervisor {
   private readonly live = new Set<MacosSupervisedProcess>();
 
-  async launch(command: ProviderCommand, callbacks: ProcessCallbacks = {}): Promise<MacosSupervisedProcess> {
+  async launch(command: GatewayProviderCommand, callbacks: ProcessCallbacks = {}): Promise<MacosSupervisedProcess> {
     const child = spawn(command.executable, [...command.args], {
       cwd: command.cwd,
       env: command.env,

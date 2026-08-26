@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { canonicalOwnerInputHash } from '../../../common/owner-idempotency-key';
+import {
+  canonicalizeOwnerInput,
+  canonicalOwnerInputHash,
+} from '../../../common/owner-idempotency-key';
+import { DefinitiveMarketplaceRegistrationError } from '../../../channels/application/port/in/capability/marketplace-registration.port';
+import { SourcingScrapeSnapshotAdmissionGuard } from '../../../sourcing/adapter/in/agent/sourcing-scrape-snapshot-admission.guard';
+import { SOURCING_CAPABILITIES } from '../../../sourcing/domain/capability/sourcing.capabilities';
 import { AgentOsError } from '../../domain/agent-os.errors';
 import {
   CapabilityInvocationService,
@@ -172,6 +178,259 @@ describe('CapabilityInvocationService', () => {
     expect(repository.recordKnownFailure).toHaveBeenCalledTimes(2);
   });
 
+  it('persists a definitive marketplace rejection with its allowlisted product-safe failure', async () => {
+    const input = { alpha: 'candidate', nested: { a: 1, b: 2 } };
+    const providerDiagnostic = 'provider echo: secretKey=secret-key';
+    const pending = invocation({ input, status: 'pending' });
+    const failed = {
+      ...invocation({ input, status: 'failed' }),
+      error: {
+        code: 'MARKETPLACE_REGISTRATION_REJECTED',
+        message: 'Coupang rejected the listing before it was created. Review the listing data and try again.',
+      },
+    };
+    const repository = {
+      admit: vi.fn().mockResolvedValue({ kind: 'created', invocation: pending }),
+      recordKnownFailure: vi.fn().mockResolvedValue(failed),
+      recordSucceeded: vi.fn(),
+    };
+    const owner = {
+      capabilityKey: mutationDefinition.key,
+      invoke: vi.fn().mockRejectedValue(
+        new DefinitiveMarketplaceRegistrationError(providerDiagnostic),
+      ),
+    };
+    const service = new CapabilityInvocationService(
+      repository as never,
+      registry(mutationDefinition, owner) as never,
+    );
+
+    await expect(service.invoke(mutationRequest(input))).rejects.toMatchObject({
+      code: 'MARKETPLACE_REGISTRATION_REJECTED',
+      message: 'Coupang rejected the listing before it was created. Review the listing data and try again.',
+    } satisfies Partial<AgentOsError>);
+    expect(repository.recordKnownFailure).toHaveBeenCalledWith(expect.objectContaining({
+      invocationId: INVOCATION_ID,
+      error: {
+        code: 'MARKETPLACE_REGISTRATION_REJECTED',
+        message: 'Coupang rejected the listing before it was created. Review the listing data and try again.',
+      },
+    }));
+    expect(JSON.stringify(repository.recordKnownFailure.mock.calls)).not.toContain(
+      providerDiagnostic,
+    );
+  });
+
+  it('does not let an owner repurpose non-owner invocation error codes', async () => {
+    const input = { alpha: 'candidate', nested: { a: 1, b: 2 } };
+    const pending = invocation({ input, status: 'pending' });
+    const failed = {
+      ...invocation({ input, status: 'failed' }),
+      error: {
+        code: 'OWNER_KNOWN_FAILURE',
+        message: 'Owner reported a known failure before commit.',
+      },
+    };
+    const repository = {
+      admit: vi.fn().mockResolvedValue({ kind: 'created', invocation: pending }),
+      recordKnownFailure: vi.fn().mockResolvedValue(failed),
+      recordSucceeded: vi.fn(),
+    };
+    const owner = {
+      capabilityKey: mutationDefinition.key,
+      invoke: vi.fn().mockRejectedValue(Object.assign(
+        new Error('Provider rejected before commit.'),
+        { knownNoCommit: true as const, code: 'REQUEST_KEY_CONFLICT' },
+      )),
+    };
+    const service = new CapabilityInvocationService(
+      repository as never,
+      registry(mutationDefinition, owner) as never,
+    );
+
+    await expect(service.invoke(mutationRequest(input))).rejects.toMatchObject({
+      code: 'OWNER_KNOWN_FAILURE',
+    } satisfies Partial<AgentOsError>);
+    expect(repository.recordKnownFailure).toHaveBeenCalledWith(expect.objectContaining({
+      error: expect.objectContaining({ code: 'OWNER_KNOWN_FAILURE' }),
+    }));
+  });
+
+  it('replays a durable exact sourcing ingest after a crash loses its expired scrape receipt', async () => {
+    let now = 1_000;
+    const input = { snapshot: sourcingSnapshot() };
+    const guard = new SourcingScrapeSnapshotAdmissionGuard({
+      now: () => new Date(now),
+      ttlMs: 100,
+    });
+    const admitScrapeReceipt = vi.spyOn(guard, 'admit');
+    guard.recordScrapeSnapshot({
+      organizationId: ORGANIZATION_ID,
+      initiatingUserId: USER_ID,
+      executionId: 'execution-before-crash',
+      snapshot: input.snapshot,
+    });
+    now += 101;
+
+    const definition = SOURCING_CAPABILITIES.find(
+      (candidate) => candidate.key === 'sourcing.ingestCandidate',
+    );
+    if (!definition) throw new Error('sourcing_ingest_definition_missing');
+    const pending = {
+      ...invocation({ input, status: 'pending' }),
+      capabilityKey: definition.key,
+      requestKey: 'retry-after-owner-commit',
+      canonicalInput: canonicalizeOwnerInput(input),
+      inputHash: canonicalOwnerInputHash(input),
+    };
+    const result = completedResult();
+    const succeeded = {
+      ...pending,
+      status: 'succeeded' as const,
+      result,
+      finishedAt: new Date(now),
+    };
+    const repository = {
+      findByRequestKey: vi.fn().mockResolvedValue(pending),
+      admit: vi.fn().mockResolvedValue({ kind: 'replay', invocation: pending }),
+      recordSucceeded: vi.fn().mockResolvedValue(succeeded),
+      recordKnownFailure: vi.fn(),
+    };
+    const owner = {
+      capabilityKey: definition.key,
+      invoke: vi.fn().mockResolvedValue(result),
+    };
+    const service = new CapabilityInvocationService(
+      repository as never,
+      registry(definition, owner) as never,
+      () => new Date(now),
+      guard,
+    );
+
+    await expect(service.invoke({
+      organizationId: ORGANIZATION_ID,
+      initiatingUserId: USER_ID,
+      executionId: 'execution-after-crash',
+      capabilityKey: definition.key,
+      requestKey: pending.requestKey,
+      actingAgentKey: 'sourcing',
+      input,
+    })).resolves.toMatchObject({
+      kind: 'completed',
+      invocationId: INVOCATION_ID,
+      result,
+    });
+
+    expect(repository.findByRequestKey).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      requestKey: pending.requestKey,
+    });
+    expect(admitScrapeReceipt).not.toHaveBeenCalled();
+    expect(repository.admit).toHaveBeenCalledWith(expect.objectContaining({
+      capabilityKey: definition.key,
+      actingAgentKey: 'sourcing',
+      canonicalInput: input,
+    }));
+    expect(owner.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      context: expect.objectContaining({
+        ownerIdempotencyKey: `capability-invocation:${INVOCATION_ID}`,
+      }),
+    }));
+  });
+
+  it('conflicts a changed sourcing ingest before considering expired scrape evidence', async () => {
+    const input = { snapshot: sourcingSnapshot() };
+    const changedInput = {
+      snapshot: { ...input.snapshot, title: 'Changed after the crash' },
+    };
+    const definition = SOURCING_CAPABILITIES.find(
+      (candidate) => candidate.key === 'sourcing.ingestCandidate',
+    );
+    if (!definition) throw new Error('sourcing_ingest_definition_missing');
+    const pending = {
+      ...invocation({ input, status: 'pending' }),
+      capabilityKey: definition.key,
+      requestKey: 'retry-with-changed-input',
+      canonicalInput: canonicalizeOwnerInput(input),
+      inputHash: canonicalOwnerInputHash(input),
+    };
+    const repository = {
+      findByRequestKey: vi.fn().mockResolvedValue(pending),
+      admit: vi.fn(),
+      recordSucceeded: vi.fn(),
+      recordKnownFailure: vi.fn(),
+    };
+    const owner = { capabilityKey: definition.key, invoke: vi.fn() };
+    const service = new CapabilityInvocationService(
+      repository as never,
+      registry(definition, owner) as never,
+      undefined,
+      new SourcingScrapeSnapshotAdmissionGuard(),
+    );
+
+    await expect(service.invoke({
+      organizationId: ORGANIZATION_ID,
+      initiatingUserId: USER_ID,
+      executionId: 'execution-after-crash',
+      capabilityKey: definition.key,
+      requestKey: pending.requestKey,
+      actingAgentKey: 'sourcing',
+      input: changedInput,
+    })).rejects.toMatchObject({
+      code: 'REQUEST_KEY_CONFLICT',
+    } satisfies Partial<AgentOsError>);
+    expect(repository.admit).not.toHaveBeenCalled();
+    expect(owner.invoke).not.toHaveBeenCalled();
+  });
+
+  it('does not resume a durable sourcing ingest across initiating users', async () => {
+    const input = { snapshot: sourcingSnapshot() };
+    const definition = SOURCING_CAPABILITIES.find(
+      (candidate) => candidate.key === 'sourcing.ingestCandidate',
+    );
+    if (!definition) throw new Error('sourcing_ingest_definition_missing');
+    const pending = {
+      ...invocation({ input, status: 'pending' }),
+      capabilityKey: definition.key,
+      requestKey: 'retry-from-another-user',
+      canonicalInput: canonicalizeOwnerInput(input),
+      inputHash: canonicalOwnerInputHash(input),
+    };
+    const replay = {
+      ...pending,
+      status: 'succeeded' as const,
+      result: completedResult(),
+      finishedAt: new Date('2026-08-25T00:00:00.000Z'),
+    };
+    const repository = {
+      findByRequestKey: vi.fn().mockResolvedValue(pending),
+      admit: vi.fn().mockResolvedValue({ kind: 'replay', invocation: replay }),
+      recordSucceeded: vi.fn(),
+      recordKnownFailure: vi.fn(),
+    };
+    const owner = { capabilityKey: definition.key, invoke: vi.fn() };
+    const service = new CapabilityInvocationService(
+      repository as never,
+      registry(definition, owner) as never,
+      undefined,
+      new SourcingScrapeSnapshotAdmissionGuard(),
+    );
+
+    await expect(service.invoke({
+      organizationId: ORGANIZATION_ID,
+      initiatingUserId: '00000000-0000-4000-8000-000000000009',
+      executionId: 'execution-after-crash',
+      capabilityKey: definition.key,
+      requestKey: pending.requestKey,
+      actingAgentKey: 'sourcing',
+      input,
+    })).rejects.toMatchObject({
+      code: 'REQUEST_KEY_CONFLICT',
+    } satisfies Partial<AgentOsError>);
+    expect(repository.admit).not.toHaveBeenCalled();
+    expect(owner.invoke).not.toHaveBeenCalled();
+  });
+
   it('returns the conditional finalization winner instead of inventing a second outcome', async () => {
     const input = { alpha: 'candidate', nested: { a: 1, b: 2 } };
     const rejected = {
@@ -249,6 +508,19 @@ function completedResult() {
     resourceRefs: [{ kind: 'sourcing_candidate', id: '00000000-0000-4000-8000-000000000004', version: null }],
     operationRefs: [],
     output: { candidateId: '00000000-0000-4000-8000-000000000004' },
+  };
+}
+
+function sourcingSnapshot() {
+  return {
+    sourceUrl: 'https://detail.1688.com/offer/1.html',
+    platform: '1688' as const,
+    title: 'Toy',
+    price: 1,
+    currency: 'CNY',
+    variantKeyNormalized: '',
+    images: [],
+    contentHash: 'a'.repeat(64),
   };
 }
 

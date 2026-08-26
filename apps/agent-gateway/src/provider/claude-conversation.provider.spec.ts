@@ -123,6 +123,67 @@ describe('ClaudeConversationProvider', () => {
 
     expect(events).toEqual([{ kind: 'status', status: 'started' }, { kind: 'status', status: 'completed' }]);
   });
+
+  it('waits for a still-running child to terminate after malformed output before releasing its active turn', async () => {
+    const { ClaudeConversationProvider } = await import('./claude-conversation.provider');
+    const launcher = new FakeClaudeLauncher();
+    const termination = deferred<void>();
+    launcher.interruptGate = termination.promise;
+    const provider = new ClaudeConversationProvider({
+      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      configs: new FakeClaudeConfigs(), launcher, sessions: { exists: async () => false, read: async () => [], remove: async () => undefined },
+      randomSessionId: () => '33333333-3333-4333-8333-333333333333',
+      readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
+    });
+    const created = await provider.create({ instructionProfile: GENERAL_PROFILE });
+    const input = { providerConversationRef: created.providerConversationRef, turnId: 'turn-malformed-output', message: 'Work', model: 'claude-fable-5', reasoningEffort: 'medium', executionBinding: 'A'.repeat(43), instructionProfile: GENERAL_PROFILE };
+    const events: unknown[] = [];
+
+    await provider.startTurn(input, (event) => events.push(event));
+    launcher.emit(0, '{malformed-json\n');
+    await flush();
+
+    expect(launcher.interruptCalls).toBe(1);
+    expect(events).toEqual([{ kind: 'status', status: 'started' }]);
+    // A parent-exit notification is not enough: the terminate promise is the
+    // supervised proof that its descendant tree is gone.
+    launcher.exit(0, 0);
+    await flush();
+    expect(events).toEqual([{ kind: 'status', status: 'started' }]);
+    await expect(provider.startTurn(input, () => undefined)).rejects.toThrow('claude_turn_already_live');
+
+    termination.resolve();
+    await flush();
+    expect(events).toEqual([{ kind: 'status', status: 'started' }, { kind: 'status', status: 'failed' }]);
+  });
+
+  it('also waits for tree termination when malformed output arrives before the launcher returns its handle', async () => {
+    const { ClaudeConversationProvider } = await import('./claude-conversation.provider');
+    const launcher = new FakeClaudeLauncher();
+    const termination = deferred<void>();
+    launcher.outputBeforeReturn = '{malformed-json\n';
+    launcher.interruptGate = termination.promise;
+    const provider = new ClaudeConversationProvider({
+      runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      configs: new FakeClaudeConfigs(), launcher, sessions: { exists: async () => false, read: async () => [], remove: async () => undefined },
+      randomSessionId: () => '33333333-3333-4333-8333-333333333333',
+      readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
+    });
+    const created = await provider.create({ instructionProfile: GENERAL_PROFILE });
+    const input = { providerConversationRef: created.providerConversationRef, turnId: 'turn-early-malformed-output', message: 'Work', model: 'claude-fable-5', reasoningEffort: 'medium', executionBinding: 'A'.repeat(43), instructionProfile: GENERAL_PROFILE };
+    const events: unknown[] = [];
+
+    const starting = provider.startTurn(input, (event) => events.push(event));
+    await flush();
+
+    expect(launcher.interruptCalls).toBe(1);
+    expect(events).toEqual([{ kind: 'status', status: 'started' }]);
+    await expect(provider.startTurn(input, () => undefined)).rejects.toThrow('claude_turn_already_live');
+
+    termination.resolve();
+    await starting;
+    expect(events).toEqual([{ kind: 'status', status: 'started' }, { kind: 'status', status: 'failed' }]);
+  });
 });
 
 class FakeClaudeConfigs {
@@ -144,15 +205,31 @@ class FakeClaudeLauncher {
   failNext = false;
   outputBeforeReturn: string | undefined;
   exitBeforeReturn: number | null | undefined;
+  interruptCalls = 0;
+  interruptGate: Promise<void> | undefined;
   async start(input: { command: { args: readonly string[] }; input: string; onOutput: (chunk: string) => void; onExit: (code: number | null) => void }) {
     this.starts.push(input);
     if (this.failNext) { this.failNext = false; throw new Error('claude_launch_failed'); }
     if (this.outputBeforeReturn) input.onOutput(this.outputBeforeReturn);
     if (this.exitBeforeReturn !== undefined) input.onExit(this.exitBeforeReturn);
-    return { sendInput: async () => undefined, interrupt: async () => undefined };
+    return {
+      sendInput: async () => undefined,
+      interrupt: async () => {
+        this.interruptCalls += 1;
+        await this.interruptGate;
+      },
+    };
   }
   emit(index: number, chunk: string) { this.starts[index]?.onOutput(chunk); }
   exit(index: number, code: number | null) { this.starts[index]?.onExit(code); }
 }
 
 async function flush(): Promise<void> { for (let index = 0; index < 4; index += 1) await Promise.resolve(); }
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  return {
+    promise: new Promise<T>((resolvePromise) => { resolve = resolvePromise; }),
+    resolve: (value: T) => resolve(value),
+  };
+}

@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 import {
   ConversationRuntimeHost,
   useConversationRuntime,
@@ -48,6 +49,8 @@ const FIRST = {
 const SECOND = {
   ...FIRST, id: 'conversation-2', title: 'Second conversation', updatedAt: '2026-08-26T00:01:00.000Z',
 };
+const FIRST_IDENTITY = { userId: 'user-a', organizationId: 'org-a' };
+const SECOND_IDENTITY = { userId: 'user-b', organizationId: 'org-b' };
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -68,6 +71,16 @@ function RuntimeProbe() {
   );
 }
 
+function IdentityProbe() {
+  const runtime = useConversationRuntime();
+  return (
+    <output data-testid="identity-probe">
+      {runtime.activeConversation?.title ?? 'no active conversation'}|
+      {runtime.historyMessages.map((message) => message.content).join(',')}
+    </output>
+  );
+}
+
 function SettingsTriggers() {
   const openSettings = useConversationSurfaceState((state) => state.openSettings);
   return (
@@ -77,7 +90,6 @@ function SettingsTriggers() {
         conversations={[]}
         selectedContext={null}
         activeConversationId={null}
-        onSelectContext={vi.fn()}
         onSelectConversation={vi.fn()}
         onNewConversation={vi.fn()}
         onOpenSettings={openSettings}
@@ -89,10 +101,11 @@ function SettingsTriggers() {
 function renderHost(
   children: React.ReactNode,
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+  identity = FIRST_IDENTITY,
 ) {
   return render(
     <QueryClientProvider client={queryClient}>
-      <ConversationRuntimeHost>{children}</ConversationRuntimeHost>
+      <ConversationRuntimeHost identity={identity}>{children}</ConversationRuntimeHost>
     </QueryClientProvider>,
   );
 }
@@ -135,6 +148,72 @@ describe('ConversationRuntimeHost', () => {
     expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
   });
 
+  it('does not expose cached User A data or retain User A late history after a direct shared-QueryClient identity swap', async () => {
+    const sharedConversationId = 'shared-conversation-id';
+    const userAConversation = {
+      ...FIRST,
+      id: sharedConversationId,
+      title: 'User A confidential conversation',
+    };
+    const userBConversation = {
+      ...FIRST,
+      id: sharedConversationId,
+      title: 'User B conversation',
+    };
+    const userAHistory = [{
+      id: 'a-secret', role: 'assistant', content: 'User A confidential history',
+      createdAt: '2026-08-26T00:00:00.000Z',
+    }];
+    const userBHistory = [{
+      id: 'b-history', role: 'assistant', content: 'User B history',
+      createdAt: '2026-08-26T00:00:00.000Z',
+    }];
+    const lateUserAHistory = deferred<typeof userAHistory>();
+    let conversationRequests = 0;
+    let historyRequests = 0;
+    vi.mocked(apiClient.get).mockImplementation((path: string) => {
+      if (path === '/api/agent-os/conversations') {
+        conversationRequests += 1;
+        return Promise.resolve(
+          (conversationRequests === 1 ? [userAConversation] : [userBConversation]) as never,
+        );
+      }
+      if (path.endsWith('/history')) {
+        historyRequests += 1;
+        return historyRequests === 1
+          ? lateUserAHistory.promise as never
+          : Promise.resolve(userBHistory as never);
+      }
+      return Promise.resolve({ schemaVersion: 1, contexts: {} } as never);
+    });
+    useConversationSurfaceState.getState().selectConversation(userAConversation);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = renderHost(<IdentityProbe />, queryClient, FIRST_IDENTITY);
+
+    await waitFor(() => expect(screen.getByTestId('identity-probe')).toHaveTextContent(
+      'User A confidential conversation',
+    ));
+    await waitFor(() => expect(historyRequests).toBe(1));
+
+    view.rerender(
+      <QueryClientProvider client={queryClient}>
+        <ConversationRuntimeHost
+          key={JSON.stringify([SECOND_IDENTITY.userId, SECOND_IDENTITY.organizationId])}
+          identity={SECOND_IDENTITY}
+        >
+          <IdentityProbe />
+        </ConversationRuntimeHost>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('identity-probe')).toHaveTextContent('User B conversation'));
+    expect(screen.getByTestId('identity-probe')).not.toHaveTextContent('User A confidential');
+    await act(async () => lateUserAHistory.resolve(userAHistory));
+    await waitFor(() => expect(queryClient.getQueryData(
+      queryKeys.conversations.history(FIRST_IDENTITY, sharedConversationId),
+    )).toBeUndefined());
+  });
+
   it('promotes one reserved draft through one create and one exact run without recreating its binding', async () => {
     renderHost(<RuntimeProbe />);
     const draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
@@ -174,6 +253,10 @@ describe('ConversationRuntimeHost', () => {
       forwardedProps: { model: 'gpt-5.6', reasoningEffort: 'low' },
     }));
     expect(runtimeMocks.subscriptions).toHaveLength(1);
+    expect(useConversationSurfaceState.getState()).toMatchObject({
+      activeConversationId: draft.conversationId,
+      pendingDraft: null,
+    });
   });
 
   it('does not replace a newer draft or run a disposed draft after its create resolves', async () => {
@@ -255,6 +338,10 @@ describe('ConversationRuntimeHost', () => {
       .not.toBe(runtimeMocks.runAgent.mock.calls[0][0].runId);
     expect(vi.mocked(apiClient.post).mock.calls.filter(([path]) => path === '/api/agent-os/conversations'))
       .toHaveLength(1);
+    expect(useConversationSurfaceState.getState()).toMatchObject({
+      activeConversationId: draft.conversationId,
+      pendingDraft: null,
+    });
   });
 
   it('rejects a missing per-turn model or reasoning effort instead of applying a fallback', async () => {
@@ -390,6 +477,83 @@ describe('ConversationRuntimeHost', () => {
     });
   });
 
+  it('requires an explicit pair after a cached preference refetch fails', async () => {
+    const preferences = {
+      schemaVersion: 1,
+      contexts: { sourcing: { codex_cli: { model: 'gpt-5.6', reasoningEffort: 'low' } } },
+    };
+    const readinessInfo = {
+      agents: { conversation: { capabilities: { custom: { gatewayReadiness: [{
+        runtime: 'codex_cli', ready: true,
+        readiness: {
+          runtime: 'codex_cli', version: '0.149.1', models: ['gpt-5.6'], reasoningEfforts: ['low'],
+          modelReasoningEfforts: [{ model: 'gpt-5.6', reasoningEfforts: ['low'] }],
+          loginVerified: true, mcpProtocolRevision: '2026-07-28',
+        },
+      }, { runtime: 'claude_cli', ready: false, code: 'selected_engine_unavailable' }] } } } },
+    };
+    const refetchedReadiness = deferred<unknown>();
+    let preferenceRequests = 0;
+    let readinessRequests = 0;
+    vi.mocked(apiClient.get).mockImplementation((path: string) => {
+      if (path === '/api/agent-os/conversations') return Promise.resolve([] as never);
+      if (path === '/api/agent-os/conversation-preferences') {
+        preferenceRequests += 1;
+        return preferenceRequests === 1
+          ? Promise.resolve(preferences as never)
+          : Promise.reject(new Error('preferences unavailable'));
+      }
+      return Promise.resolve([] as never);
+    });
+    vi.mocked(apiClient.post).mockImplementation((path: string) => {
+      if (path !== '/api/copilotkit') return Promise.resolve({} as never);
+      readinessRequests += 1;
+      return readinessRequests === 1
+        ? Promise.resolve(readinessInfo as never)
+        : refetchedReadiness.promise as never;
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderHost(<RuntimeProbe />, queryClient);
+
+    act(() => useConversationSurfaceState.getState().openSettings());
+    await waitFor(() => expect(latestRuntime?.preferences).toEqual(preferences));
+    await waitFor(() => expect(readinessRequests).toBe(1));
+    act(() => useConversationSurfaceState.getState().closeSettings());
+    await act(async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.conversations.preferences(FIRST_IDENTITY),
+          refetchType: 'none',
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.conversations.readiness(FIRST_IDENTITY),
+          refetchType: 'none',
+        }),
+      ]);
+    });
+
+    act(() => {
+      useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
+      useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
+    });
+    await waitFor(() => expect(preferenceRequests).toBe(2));
+    await waitFor(() => expect(readinessRequests).toBe(2));
+    await waitFor(() => expect(latestRuntime?.preferencesError).toBe(true));
+
+    await act(async () => refetchedReadiness.resolve(readinessInfo));
+
+    await waitFor(() => expect(latestRuntime?.readiness).toEqual(expect.arrayContaining([
+      expect.objectContaining({ runtime: 'codex_cli', ready: true }),
+    ])));
+    expect(latestRuntime?.preferences).toBeNull();
+    expect(latestRuntime?.turnPreference).toEqual({
+      model: null, reasoningEffort: null, needsReview: false,
+    });
+    expect(useConversationSurfaceState.getState().pendingDraft).toMatchObject({
+      model: null, reasoningEffort: null,
+    });
+  });
+
   it('mounts exactly one settings dialog for panel and tree triggers, returning focus to each trigger', async () => {
     renderHost(<SettingsTriggers />);
     await screen.findByRole('navigation', { name: '대화 목록' });
@@ -430,10 +594,10 @@ describe('ConversationRuntimeHost', () => {
     }));
 
     view.rerender(<QueryClientProvider client={queryClient}>
-      <ConversationRuntimeHost>{null}</ConversationRuntimeHost>
+      <ConversationRuntimeHost identity={FIRST_IDENTITY}>{null}</ConversationRuntimeHost>
     </QueryClientProvider>);
     view.rerender(<QueryClientProvider client={queryClient}>
-      <ConversationRuntimeHost><RuntimeProbe /></ConversationRuntimeHost>
+      <ConversationRuntimeHost identity={FIRST_IDENTITY}><RuntimeProbe /></ConversationRuntimeHost>
     </QueryClientProvider>);
 
     expect(runtimeMocks.subscriptions).toHaveLength(1);

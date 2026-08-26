@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import type { ProviderCommand } from '../../provider/provider-command';
+import type { GatewayProviderCommand } from '../../provider/provider-command';
 import type { ProcessCallbacks, ProcessExit, ProcessSupervisor, SupervisedProcess } from '../process-supervisor';
 
 /** Windows helper boundary: the helper alone owns a kill-on-close Job Object. */
@@ -7,7 +7,7 @@ export class WindowsJobSupervisor implements ProcessSupervisor {
   private readonly live = new Set<WindowsJobProcess>();
   constructor(private readonly options: Readonly<{ helperPath: string }>) {}
 
-  async launch(command: ProviderCommand, callbacks: ProcessCallbacks = {}): Promise<SupervisedProcess> {
+  async launch(command: GatewayProviderCommand, callbacks: ProcessCallbacks = {}): Promise<SupervisedProcess> {
     const helper = spawn(this.options.helperPath, [], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }) as ChildProcessWithoutNullStreams;
     let running!: WindowsJobProcess;
     running = new WindowsJobProcess(helper, () => this.live.delete(running));

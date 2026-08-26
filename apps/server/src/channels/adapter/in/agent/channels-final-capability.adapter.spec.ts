@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   canonicalOwnerInputHash,
 } from "../../../../common/owner-idempotency-key";
+import { DefinitiveMarketplaceRegistrationError } from "../../../application/port/in/capability/marketplace-registration.port";
 import { ChannelsFinalCapabilityAdapter } from "./channels-final-capability.adapter";
 
 const submissionInput = {
@@ -201,6 +202,57 @@ describe("ChannelsFinalCapabilityAdapter", () => {
     expect(registrations.reconcileProductRegistration).not.toHaveBeenCalled();
     expect(registrations.submitProductRegistration).not.toHaveBeenCalled();
     expect(executions.finalizeProviderWrite).not.toHaveBeenCalled();
+  });
+
+  it("maps definitive provider diagnostics to the fixed owner failure before persistence", async () => {
+    const providerDiagnostic = "provider echo: secretKey=secret-key";
+    const providerError = new DefinitiveMarketplaceRegistrationError();
+    providerError.message = providerDiagnostic;
+    const executionContext = context(
+      "channels.submit_coupang_listing",
+      submissionInput,
+    );
+    const registrations = {
+      reconcileProductRegistration: vi.fn().mockResolvedValue(null),
+      submitProductRegistration: vi.fn().mockRejectedValue(providerError),
+      resolveProductRegistrationWithOwnerReceipt: vi.fn(),
+      assertExternalProductRegistrationAccount: vi.fn(),
+    };
+    const executions = {
+      claimProviderWrite: vi
+        .fn()
+        .mockResolvedValue({ mode: "create", leaseToken: "lease-1" }),
+      finalizeProviderWrite: vi.fn(),
+      markProviderWriteUncertain: vi.fn(),
+      markProviderWriteDefinitiveFailure: vi.fn().mockResolvedValue(undefined),
+    };
+    const provenance = {
+      loadSubmission: vi.fn().mockResolvedValue(frozen),
+      loadExternalConfirmation: vi.fn(),
+    };
+    const adapter = new ChannelsFinalCapabilityAdapter(
+      registrations as never,
+      provenance as never,
+      { $transaction: vi.fn() } as never,
+      executions as never,
+    );
+
+    await expect(adapter.submitCoupangListing({
+      context: executionContext,
+      input: submissionInput,
+    })).rejects.toMatchObject({
+      code: "MARKETPLACE_REGISTRATION_REJECTED",
+      message:
+        "Coupang rejected the listing before it was created. Review the listing data and try again.",
+    });
+    expect(executions.markProviderWriteDefinitiveFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message:
+          "Coupang rejected the listing before it was created. Review the listing data and try again.",
+      }),
+    );
+    expect(JSON.stringify(executions.markProviderWriteDefinitiveFailure.mock.calls))
+      .not.toContain(providerDiagnostic);
   });
 
   it("requires the exact derived owner key before loading or claiming a provider submission", async () => {

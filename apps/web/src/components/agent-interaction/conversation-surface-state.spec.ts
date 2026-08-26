@@ -32,6 +32,7 @@ describe('conversation surface state', () => {
     expect(Object.keys(useConversationSurfaceState.getState()).sort()).toEqual([
       'activeConversationId',
       'closeSettings',
+      'completePromotedDraft',
       'discardDraft',
       'openConversation',
       'openSettings',
@@ -73,6 +74,22 @@ describe('conversation surface state', () => {
     expect(useConversationSurfaceState.getState().pendingDraft?.conversationId)
       .toBe('conversation-reserved-2');
     expect(randomUUID).toHaveBeenCalledTimes(2);
+  });
+
+  it('completes only the matching promoted draft while retaining its selected conversation', () => {
+    vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'conversation-promoted') });
+    openConversation({ fixedAgentKey: 'sourcing', draft: 'First message' });
+    useConversationSurfaceState.getState().selectConversation({
+      id: 'conversation-promoted', agentKey: 'sourcing',
+    });
+
+    useConversationSurfaceState.getState().completePromotedDraft('conversation-promoted');
+
+    expect(useConversationSurfaceState.getState()).toMatchObject({
+      activeConversationId: 'conversation-promoted',
+      pendingDraft: null,
+      selectedContext: 'sourcing',
+    });
   });
 
   it('opens the exact draft context in the global AI chat surface', () => {

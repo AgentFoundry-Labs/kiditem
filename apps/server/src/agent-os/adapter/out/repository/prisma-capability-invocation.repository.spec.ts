@@ -25,8 +25,39 @@ describe('PrismaCapabilityInvocationRepository', () => {
       kind: 'conflict',
       invocation: { id: INVOCATION_ID },
     });
-    expect(create).toHaveBeenCalledTimes(2);
+    await expect(
+      repository.admit({
+        ...admission(),
+        initiatingUserId: '00000000-0000-4000-8000-000000000009',
+      }),
+    ).resolves.toMatchObject({
+      kind: 'conflict',
+      invocation: { id: INVOCATION_ID },
+    });
+    expect(create).toHaveBeenCalledTimes(3);
     expect(findFirst).toHaveBeenCalledWith({
+      where: { organizationId: ORGANIZATION_ID, requestKey: 'request-1' },
+    });
+  });
+
+  it('looks up a durable request key only inside its organization fence', async () => {
+    const findFirst = vi.fn().mockResolvedValue(invocationRow());
+    const repository = subject({ create: vi.fn(), findFirst, updateMany: vi.fn() });
+
+    await expect(repository.findByRequestKey({
+      organizationId: ORGANIZATION_ID,
+      requestKey: 'request-1',
+    })).resolves.toMatchObject({
+      id: INVOCATION_ID,
+      organizationId: ORGANIZATION_ID,
+      requestKey: 'request-1',
+    });
+
+    expect(findFirst).toHaveBeenCalledTimes(2);
+    expect(findFirst).toHaveBeenNthCalledWith(1, {
+      where: { organizationId: ORGANIZATION_ID, requestKey: 'request-1' },
+    });
+    expect(findFirst).toHaveBeenNthCalledWith(2, {
       where: { organizationId: ORGANIZATION_ID, requestKey: 'request-1' },
     });
   });

@@ -50,6 +50,11 @@ export interface InvocationFence {
   invocationId: string;
 }
 
+export interface InvocationRequestKeyFence {
+  organizationId: string;
+  requestKey: string;
+}
+
 export interface AdmitCapabilityInvocation {
   organizationId: string;
   initiatingUserId: string;
@@ -95,6 +100,9 @@ export interface RecordInvocationFailure extends InvocationFence {
 export interface CapabilityInvocationRepositoryPort {
   admit(input: AdmitCapabilityInvocation): Promise<AdmissionResult>;
   findById(input: InvocationFence): Promise<CapabilityInvocationRecord | null>;
+  findByRequestKey(
+    input: InvocationRequestKeyFence,
+  ): Promise<CapabilityInvocationRecord | null>;
   decideApproval(
     input: DecideInvocationApproval,
   ): Promise<CapabilityInvocationRecord>;

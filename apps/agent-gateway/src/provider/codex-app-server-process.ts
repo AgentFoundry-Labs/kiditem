@@ -1,5 +1,5 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { join } from 'node:path';
+import type { ProcessSupervisor, SupervisedProcess } from '../platform/process-supervisor';
 import { providerEnvironment, gatewayProviderInvocation } from './provider-command';
 import { CodexAppServerSession } from './codex-app-server-session';
 
@@ -9,42 +9,52 @@ export async function startCodexAppServer(input: Readonly<{
   workspace: string;
   loginRoot: string;
   mcpUrl: string;
-}>): Promise<Readonly<{ session: CodexAppServerSession; close: () => void }>> {
+  supervisor: ProcessSupervisor;
+}>): Promise<Readonly<{ session: CodexAppServerSession; close: () => Promise<void> }>> {
   const invocation = gatewayProviderInvocation(input.runtimeRoot, 'codex');
-  let child: ChildProcessWithoutNullStreams;
-  let session!: CodexAppServerSession;
+  let running: SupervisedProcess | null = null;
+  let closing: Promise<void> | null = null;
+  const session = new CodexAppServerSession({
+    write: (line) => {
+      if (!running) return Promise.reject(new Error('codex_app_server_not_started'));
+      return running.input(line);
+    },
+    workspace: input.workspace,
+    mcpUrl: input.mcpUrl,
+  });
+  const close = (): Promise<void> => {
+    if (!closing) {
+      closing = (async () => {
+        if (!running) throw new Error('codex_app_server_not_started');
+        await running.terminate();
+        session.close();
+      })();
+    }
+    return closing;
+  };
   try {
-    child = spawn(invocation.executable, [...invocation.argsPrefix, 'app-server'], {
+    running = await input.supervisor.launch({
+      executable: invocation.executable,
+      args: [...invocation.argsPrefix, 'app-server'],
       cwd: input.workspace,
       env: providerEnvironment({
         home: input.loginRoot,
         providerHome: { key: 'CODEX_HOME', path: join(input.loginRoot, '.codex') },
         ...(process.platform === 'darwin' ? { includeMacosUserIdentity: true } : {}),
       }),
-      stdio: ['pipe', 'pipe', 'ignore'],
+    }, {
+      onStdout: (chunk) => {
+        try { session.receive(chunk); }
+        catch { void close().catch(() => undefined); }
+      },
+      // A supervisor emits exit only after it proves descendant-tree death.
+      onExit: () => session.close(),
     });
   } catch {
     throw new Error('codex_app_server_spawn_failed');
   }
-  session = new CodexAppServerSession({
-    write: (line) => new Promise<void>((resolve, reject) => {
-      try { child.stdin.write(line, 'utf8', (error) => error ? reject(error) : resolve()); }
-      catch (error) { reject(error); }
-    }),
-    workspace: input.workspace,
-    mcpUrl: input.mcpUrl,
-  });
-  child.stdout.on('data', (chunk: Buffer) => {
-    try { session.receive(chunk.toString('utf8')); }
-    catch { session.close(); try { child.kill('SIGTERM'); } catch { /* already closed */ } }
-  });
-  child.once('error', () => session.close());
-  child.once('close', () => session.close());
   return Object.freeze({
     session,
-    close: () => {
-      session.close();
-      try { child.kill('SIGTERM'); } catch { /* already closed */ }
-    },
+    close,
   });
 }

@@ -37,8 +37,8 @@ export class NativeGatewayControlSession {
     this.resolveStop();
     this.shutdownTask = (async () => {
       this.options.client.abortInFlight();
-      this.options.dispatcher.clear();
       await this.options.onPollLoss();
+      this.options.dispatcher.clear();
     })();
     return this.shutdownTask;
   }

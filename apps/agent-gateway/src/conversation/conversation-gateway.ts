@@ -94,6 +94,7 @@ export class ConversationGateway {
       runtime: command.runtime,
       providerConversationRef: created.providerConversationRef,
       agentKey: command.agentKey,
+      createTitle: command.title,
       title: command.title,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -167,12 +168,19 @@ export class ConversationGateway {
     } catch {
       throw new Error('gateway_provider_turn_failed');
     }
-    await this.options.descriptors.update(descriptor.id, (current) => ({
-      ...current,
-      updatedAt: this.now().toISOString(),
-      lastModel: input.model,
-      lastReasoningEffort: input.reasoningEffort,
-    }));
+    // The provider has accepted the turn at this point. Sidebar metadata is
+    // non-authoritative, so its local I/O failure must not release the live
+    // control-plane fence while the provider keeps running.
+    try {
+      await this.options.descriptors.update(descriptor.id, (current) => ({
+        ...current,
+        updatedAt: this.now().toISOString(),
+        lastModel: input.model,
+        lastReasoningEffort: input.reasoningEffort,
+      }));
+    } catch {
+      // Best-effort only after successful provider launch.
+    }
   }
 
   async sendInput(input: Readonly<{ conversationId: string; turnId: string; message: string }>): Promise<void> {
@@ -239,7 +247,7 @@ export class ConversationGateway {
     if (
       descriptor.runtime !== command.runtime
       || descriptor.agentKey !== command.agentKey
-      || descriptor.title !== command.title
+      || descriptor.createTitle !== command.title
     ) {
       throw new Error('gateway_conversation_create_conflict');
     }
@@ -248,6 +256,10 @@ export class ConversationGateway {
 }
 
 function toPublicConversation(descriptor: ConversationDescriptor): ConversationSummary {
-  const { providerConversationRef: _providerConversationRef, ...conversation } = descriptor;
+  const {
+    providerConversationRef: _providerConversationRef,
+    createTitle: _createTitle,
+    ...conversation
+  } = descriptor;
   return conversation;
 }

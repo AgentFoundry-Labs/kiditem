@@ -7,6 +7,8 @@ import { GatewayControlClient } from '../control/gateway-control.client';
 import { GatewayCommandDispatcher } from '../control/gateway-command-dispatcher';
 import { GatewayEventOutbox } from '../control/gateway-event-outbox';
 import { NativeGatewayControlSession } from '../control/native-gateway-control-session';
+import { ConversationDescriptorStore } from '../conversation/conversation-descriptor.store';
+import { ConversationGateway } from '../conversation/conversation-gateway';
 import { ConversationPreferenceStore } from '../conversation/conversation-preference.store';
 import { ExecutionBindingRegistry } from '../../../server/src/agent-os/adapter/out/runtime/gateway/execution-binding.registry';
 import { GatewayCommandQueue } from '../../../server/src/agent-os/adapter/out/runtime/gateway/gateway-command.queue';
@@ -244,6 +246,105 @@ describe('Gateway ↔ Nest loopback', () => {
     expect(raw).not.toContain('executionBinding');
   });
 
+  it('delivers a provider terminal through the real Nest loopback when non-authoritative launch metadata persistence fails', async () => {
+    const root = await fixtureRoot();
+    const bindings = new ExecutionBindingRegistry();
+    const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
+    const readiness = new GatewayReadinessService();
+    const queue = new GatewayCommandQueue({
+      bindings,
+      installationId: 'installation-loopback',
+      longPollMs: 0,
+      onTransientClear: () => { broker.disconnect(); readiness.clear(); },
+    });
+    const controller = new GatewayControlController(
+      new GatewayInstallationBearerService({ token: TOKEN, installationId: 'installation-loopback' }),
+      queue,
+      new GatewayEventHandlerService({ queue, readiness, broker }),
+      readiness,
+    );
+    const client = new GatewayControlClient({ controlOrigin: 'http://127.0.0.1:4000', token: TOKEN, fetch: loopbackFetch(controller) });
+    const poll = { kind: 'poll' as const, gatewayInstanceId: 'gateway-loopback-metadata', platform: 'macos' as const, runtimeTrain: GATEWAY_RUNTIME_TRAIN };
+    const provider = new MetadataFailingTurnProvider();
+    const gateway = new ConversationGateway({
+      descriptors: new ConversationDescriptorStore({
+        stateRoot: root,
+        platform: 'macos',
+        filesystem: metadataFailingDescriptorFilesystem() as never,
+      }),
+      providers: { codex_cli: provider, claude_cli: new MetadataFailingTurnProvider('claude_cli') },
+      now: () => new Date('2026-08-26T00:00:00.000Z'),
+    });
+    await gateway.create({
+      conversationId: 'browser-metadata-failure', runtime: 'codex_cli', agentKey: null, title: 'Metadata failure regression',
+    });
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: poll.gatewayInstanceId, redactionTokens: [TOKEN] });
+    const dispatcher = new GatewayCommandDispatcher({
+      // The dispatcher port is deliberately structurally broader than the
+      // schema-validated concrete Gateway; this loopback exercises the real
+      // implementation rather than duplicating a looser fake.
+      gateway: gateway as never,
+      outbox,
+      preferences: { read: async () => ({ schemaVersion: 1 as const, contexts: {} }), set: async () => ({ schemaVersion: 1 as const, contexts: {} }) },
+    });
+    await client.poll(poll);
+    const commandId = broker.nextCommandId();
+    const turn = broker.beginTurnStart({
+      ...OWNER,
+      commandId,
+      conversationId: 'browser-metadata-failure',
+      turnId: 'turn-metadata-failure',
+    });
+    const received: unknown[] = [];
+    broker.subscribeTurn({ ...OWNER, conversationId: 'browser-metadata-failure', turnId: 'turn-metadata-failure' }, (event) => received.push(event));
+    queue.enqueueTurnStart({
+      ...OWNER,
+      commandId,
+      conversationId: 'browser-metadata-failure',
+      turnId: 'turn-metadata-failure',
+      message: 'Continue provider work despite sidebar metadata failure.',
+      model: 'gpt-5.6',
+      reasoningEffort: 'medium',
+    });
+
+    const batch = await client.poll(poll);
+    const queued = batch?.commands[0];
+    if (!queued) throw new Error('gateway_loopback_turn_command_missing');
+    await dispatcher.dispatch(queued);
+    expect(events(outbox.peekBody() ?? '')).toEqual([
+      {
+        kind: 'turn.event',
+        conversationId: 'browser-metadata-failure',
+        turnId: 'turn-metadata-failure',
+        event: { kind: 'status', status: 'started' },
+      },
+      { kind: 'command.ack', commandId },
+    ]);
+    await outbox.flush((body) => client.postEventBody(body));
+    await expect(turn.result).resolves.toBeUndefined();
+
+    provider.complete();
+    expect(events(outbox.peekBody() ?? '')).toEqual([
+      {
+        kind: 'turn.event',
+        conversationId: 'browser-metadata-failure',
+        turnId: 'turn-metadata-failure',
+        event: { kind: 'status', status: 'completed' },
+      },
+      {
+        kind: 'turn.terminal',
+        conversationId: 'browser-metadata-failure',
+        turnId: 'turn-metadata-failure',
+        status: 'completed',
+      },
+    ]);
+    await outbox.flush((body) => client.postEventBody(body));
+    expect(received).toEqual([
+      { kind: 'status', status: 'started' },
+      { kind: 'status', status: 'completed' },
+    ]);
+  });
+
   it('lets a normal empty 25-second Nest long-poll return before the Gateway client deadline', async () => {
     vi.useFakeTimers();
     try {
@@ -354,7 +455,7 @@ async function dispatchAndPeek(input: Readonly<{
 }>): Promise<string> {
   input.queue.enqueue(input.command);
   const batch = await input.client.poll(input.poll);
-  const command = batch.commands[0];
+  const command = batch?.commands[0];
   if (!command) throw new Error('gateway_loopback_command_missing');
   await input.dispatcher.dispatch(command);
   const body = input.outbox.peekBody();
@@ -364,4 +465,72 @@ async function dispatchAndPeek(input: Readonly<{
 
 function events(body: string): Array<Record<string, unknown>> {
   return (JSON.parse(body) as { events: Array<Record<string, unknown>> }).events;
+}
+
+class MetadataFailingTurnProvider {
+  readonly runtime: 'codex_cli' | 'claude_cli';
+  private sink: ((event: { kind: 'status'; status: 'started' | 'completed' }) => void) | undefined;
+  private nextRef = 1;
+
+  constructor(runtime: 'codex_cli' | 'claude_cli' = 'codex_cli') {
+    this.runtime = runtime;
+  }
+
+  async list() { return []; }
+  async create(input: { title?: string }) {
+    return {
+      providerConversationRef: `provider-thread-${this.nextRef++}`,
+      title: input.title ?? 'New conversation',
+      createdAt: '2026-08-26T00:00:00.000Z',
+      updatedAt: '2026-08-26T00:00:00.000Z',
+    };
+  }
+  async history() { return []; }
+  async rename() { return undefined; }
+  async delete() { return undefined; }
+  async startTurn(_input: unknown, sink: (event: { kind: 'status'; status: 'started' | 'completed' }) => void) {
+    this.sink = sink;
+    sink({ kind: 'status', status: 'started' });
+  }
+  async sendInput() { return undefined; }
+  async interrupt() { return undefined; }
+  async readiness() {
+    return {
+      runtime: this.runtime,
+      version: 'test-version',
+      models: this.runtime === 'codex_cli' ? ['gpt-5.6'] : ['claude-fable-5'],
+      reasoningEfforts: ['medium'],
+      modelReasoningEfforts: [{ model: this.runtime === 'codex_cli' ? 'gpt-5.6' : 'claude-fable-5', reasoningEfforts: ['medium'] }],
+      loginVerified: true as const,
+      mcpProtocolRevision: '2026-07-28' as const,
+    };
+  }
+
+  complete(): void { this.sink?.({ kind: 'status', status: 'completed' }); }
+}
+
+function metadataFailingDescriptorFilesystem() {
+  const files = new Map<string, string>();
+  let writes = 0;
+  return {
+    mkdir: async () => undefined,
+    chmod: async () => undefined,
+    readFile: async (path: string) => {
+      const value = files.get(path);
+      if (value === undefined) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      return value;
+    },
+    writeFile: async (path: string, value: string) => {
+      writes += 1;
+      if (writes > 1) throw new Error('sidebar metadata write failed');
+      files.set(path, value);
+    },
+    rename: async (from: string, to: string) => {
+      const value = files.get(from);
+      if (value === undefined) throw new Error('temporary descriptor missing');
+      files.set(to, value);
+      files.delete(from);
+    },
+    unlink: async (path: string) => { files.delete(path); },
+  };
 }

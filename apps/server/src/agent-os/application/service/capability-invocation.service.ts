@@ -17,6 +17,7 @@ import {
   ownerInvocationKey,
   requiresUserApproval,
   CAPABILITY_APPROVAL_WINDOW_MS,
+  isOwnerKnownFailureCode,
 } from '../../domain/capability/capability-invocation.policy';
 import type { AgentCapabilityRegistry } from './agent-capability-registry.service';
 import type {
@@ -152,7 +153,43 @@ export class CapabilityInvocationService implements CapabilityInvocationPort {
       throw new AgentOsError('CAPABILITY_INPUT_INVALID', 'Capability input is not canonical JSON.');
     }
 
-    if (this.sourcingAdmission) {
+    let inputHash = canonicalOwnerInputHash(canonicalInput);
+    const requiresTransientSourcingReceipt =
+      definition.key === 'sourcing.ingestCandidate';
+    if (this.sourcingAdmission && requiresTransientSourcingReceipt) {
+      const existing = await this.repository.findByRequestKey({
+        organizationId: input.organizationId,
+        requestKey: input.requestKey,
+      });
+      if (existing && !isSameMutationRequest(existing, {
+        initiatingUserId: input.initiatingUserId,
+        capabilityKey: definition.key,
+        actingAgentKey: input.actingAgentKey,
+        canonicalInput,
+        inputHash,
+      })) {
+        throw new AgentOsError(
+          'REQUEST_KEY_CONFLICT',
+          'requestKey was already used with different input.',
+        );
+      }
+      if (!existing) {
+        try {
+          const admitted = await this.sourcingAdmission.admit({
+            capabilityKey: definition.key,
+            organizationId: input.organizationId,
+            initiatingUserId: input.initiatingUserId,
+            executionId: input.executionId,
+            input: canonicalInput,
+          });
+          canonicalInput = admitted.canonicalInput as Record<string, unknown>;
+          inputHash = canonicalOwnerInputHash(canonicalInput);
+        } catch (error) {
+          if (error instanceof AgentOsError) throw error;
+          throw new AgentOsError('CAPABILITY_INPUT_INVALID', 'Capability input was not admitted.');
+        }
+      }
+    } else if (this.sourcingAdmission) {
       try {
         const admitted = await this.sourcingAdmission.admit({
           capabilityKey: definition.key,
@@ -162,13 +199,13 @@ export class CapabilityInvocationService implements CapabilityInvocationPort {
           input: canonicalInput,
         });
         canonicalInput = admitted.canonicalInput as Record<string, unknown>;
+        inputHash = canonicalOwnerInputHash(canonicalInput);
       } catch (error) {
         if (error instanceof AgentOsError) throw error;
         throw new AgentOsError('CAPABILITY_INPUT_INVALID', 'Capability input was not admitted.');
       }
     }
 
-    const inputHash = canonicalOwnerInputHash(canonicalInput);
     const at = this.now();
     const approvalRequired = requiresUserApproval(definition.approvalRisk);
     const admission = await this.repository.admit({
@@ -299,7 +336,7 @@ export class CapabilityInvocationService implements CapabilityInvocationPort {
           organizationId: input.input.organizationId,
           invocationId: input.invocation.id,
           error: {
-            code: 'OWNER_KNOWN_FAILURE',
+            code: knownFailureCode(error),
             message: boundedMessage(error.message, 'Owner reported a known failure before commit.'),
           },
           finishedAt: this.now(),
@@ -324,8 +361,36 @@ function isKnownNoCommitOwnerFailure(
   );
 }
 
+function knownFailureCode(
+  error: Error & { readonly knownNoCommit: true },
+) {
+  const code = (error as { readonly code?: unknown }).code;
+  return isOwnerKnownFailureCode(code)
+    ? code
+    : 'OWNER_KNOWN_FAILURE';
+}
+
 function isMutation(effects: readonly string[]): boolean {
   return effects.some((effect) => MUTATION_EFFECTS.has(effect as never));
+}
+
+function isSameMutationRequest(
+  invocation: CapabilityInvocationRecord,
+  input: {
+    initiatingUserId: string;
+    capabilityKey: string;
+    actingAgentKey: string;
+    canonicalInput: Record<string, unknown>;
+    inputHash: string;
+  },
+): boolean {
+  return (
+    invocation.initiatingUserId === input.initiatingUserId
+    && invocation.capabilityKey === input.capabilityKey
+    && invocation.actingAgentKey === input.actingAgentKey
+    && invocation.inputHash === input.inputHash
+    && JSON.stringify(invocation.canonicalInput) === JSON.stringify(input.canonicalInput)
+  );
 }
 
 function completedFromRecord(

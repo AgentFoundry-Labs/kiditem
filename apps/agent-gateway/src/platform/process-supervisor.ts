@@ -1,4 +1,4 @@
-import type { ProviderCommand } from '../provider/provider-command';
+import type { GatewayProviderCommand } from '../provider/provider-command';
 
 export type ProcessExit = Readonly<{ code: number | null; signal: NodeJS.Signals | null }>;
 export type ProcessCallbacks = Readonly<{
@@ -17,6 +17,6 @@ export interface SupervisedProcess {
 }
 
 export interface ProcessSupervisor {
-  launch(command: ProviderCommand, callbacks?: ProcessCallbacks): Promise<SupervisedProcess>;
+  launch(command: GatewayProviderCommand, callbacks?: ProcessCallbacks): Promise<SupervisedProcess>;
   shutdown(): Promise<void>;
 }

@@ -84,7 +84,6 @@ export async function coupangRequest<T = unknown>({
     const response = await fetch(url, fetchOptions);
 
     if (!response.ok) {
-      const errorText = await response.text();
       const providerOutcome = response.status >= 400
         && response.status < 500
         && response.status !== 408
@@ -92,7 +91,7 @@ export async function coupangRequest<T = unknown>({
         ? 'definitive_failure'
         : 'uncertain';
       throw new CoupangProviderRequestError(
-        `Coupang API error ${response.status}: ${errorText}`,
+        `Coupang API request failed with HTTP ${response.status}.`,
         response.status,
         providerOutcome,
       );
@@ -100,10 +99,7 @@ export async function coupangRequest<T = unknown>({
 
     const contentType = response.headers.get('content-type') || '';
     if (!contentType.includes('json')) {
-      const text = await response.text();
-      throw new Error(
-        `Coupang API returned non-JSON response: ${text.substring(0, 200)}`,
-      );
+      throw new Error('Coupang API returned a non-JSON response.');
     }
 
     return response.json() as Promise<T>;

@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAgent } from '@copilotkit/react-core/v2';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { queryKeys } from '@/lib/query-keys';
+import { conversationIdentityKey, queryKeys, type ConversationIdentity } from '@/lib/query-keys';
 import { ConversationFirstSendCoordinator, type ConversationFirstSend } from './conversation-first-send.coordinator';
 import { ConversationSettingsDialog } from './ConversationSettingsDialog';
 import { conversationTitleFromMessage } from './conversation-title';
@@ -45,14 +45,45 @@ const ConversationRuntimeContext = createContext<ConversationRuntimeContextValue
  * Route-stable owner for a single selected conversation binding. Presentations
  * can mount and unmount beneath it without recreating CopilotKit state.
  */
-export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
+export function ConversationRuntimeHost({
+  children,
+  identity: requestedIdentity,
+}: {
+  children: ReactNode;
+  identity: ConversationIdentity;
+}) {
   const queryClient = useQueryClient();
+  const requestedIdentityKey = conversationIdentityKey(requestedIdentity);
+  const identityLifetimeRef = useRef({
+    identity: requestedIdentity,
+    key: requestedIdentityKey,
+    active: true,
+  });
+  if (identityLifetimeRef.current.key !== requestedIdentityKey) {
+    identityLifetimeRef.current.active = false;
+    identityLifetimeRef.current = {
+      identity: requestedIdentity,
+      key: requestedIdentityKey,
+      active: true,
+    };
+  }
+  const identityLifetime = identityLifetimeRef.current;
+  const identity = identityLifetime.identity;
+  const identityIsActive = () => (
+    identityLifetimeRef.current === identityLifetime && identityLifetime.active
+  );
+  useEffect(() => () => {
+    identityLifetime.active = false;
+    const queryKey = queryKeys.conversations.all(identityLifetime.identity);
+    void queryClient.cancelQueries({ queryKey });
+    queryClient.removeQueries({ queryKey });
+  }, [identityLifetime, queryClient]);
   const activeConversationId = useConversationSurfaceState((state) => state.activeConversationId);
   const pendingDraft = useConversationSurfaceState((state) => state.pendingDraft);
   const updateDraft = useConversationSurfaceState((state) => state.updateDraft);
   const settingsOpen = useConversationSurfaceState((state) => state.settingsOpen);
   const conversationsQuery = useQuery({
-    queryKey: queryKeys.conversations.list(),
+    queryKey: queryKeys.conversations.list(identity),
     queryFn: listConversations,
     staleTime: 15_000,
   });
@@ -72,28 +103,35 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
     ? binding.conversation.runtime
     : binding?.draft.provider ?? null;
   const readinessQuery = useQuery({
-    queryKey: queryKeys.conversations.readiness(),
+    queryKey: queryKeys.conversations.readiness(identity),
     queryFn: loadConversationReadiness,
     staleTime: 30_000,
     enabled: selectedRuntime !== null || settingsOpen,
   });
   const readiness = readinessQuery.isError ? null : readinessQuery.data;
   const preferencesQuery = useQuery({
-    queryKey: queryKeys.conversations.preferences(),
+    queryKey: queryKeys.conversations.preferences(identity),
     queryFn: getConversationPreferences,
     staleTime: 30_000,
     enabled: selectedRuntime !== null || settingsOpen,
   });
+  // A cached preference is not safe to apply while its refetch is unresolved;
+  // otherwise a failed refresh can persist a stale pair into a new draft.
+  const preferences = preferencesQuery.isError || preferencesQuery.isFetching
+    ? null
+    : preferencesQuery.data;
   const setPreferenceMutation = useMutation({
     mutationFn: setConversationPreference,
     onSuccess: (preferences) => {
-      queryClient.setQueryData(queryKeys.conversations.preferences(), preferences);
+      if (!identityIsActive()) return;
+      queryClient.setQueryData(queryKeys.conversations.preferences(identity), preferences);
     },
   });
   const renameConversationMutation = useMutation({
     mutationFn: ({ conversationId, title }: { conversationId: string; title: string }) => renameConversation(conversationId, title),
     onSuccess: (renamed) => {
-      queryClient.setQueryData<ConversationSummary[]>(queryKeys.conversations.list(), (current = []) => current.map(
+      if (!identityIsActive()) return;
+      queryClient.setQueryData<ConversationSummary[]>(queryKeys.conversations.list(identity), (current = []) => current.map(
         (conversation) => conversation.id === renamed.id ? renamed : conversation,
       ));
     },
@@ -101,8 +139,9 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
   const deleteConversationMutation = useMutation({
     mutationFn: deleteConversation,
     onSuccess: (_, conversationId) => {
+      if (!identityIsActive()) return;
       let deleted: ConversationSummary | undefined;
-      queryClient.setQueryData<ConversationSummary[]>(queryKeys.conversations.list(), (current = []) => {
+      queryClient.setQueryData<ConversationSummary[]>(queryKeys.conversations.list(identity), (current = []) => {
         deleted = current.find((conversation) => conversation.id === conversationId);
         return current.filter((conversation) => conversation.id !== conversationId);
       });
@@ -115,7 +154,7 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
     conversation: activeConversation,
     draftContext: activeDraft?.agentKey ?? null,
     runtime: selectedRuntime,
-    preferences: preferencesQuery.data,
+    preferences,
     readiness,
   });
   useEffect(() => {
@@ -127,24 +166,31 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
   const latestHostRef = useRef({ queryClient, runtimeHandleRef });
   latestHostRef.current = { queryClient, runtimeHandleRef };
   const coordinatorRef = useRef<ConversationFirstSendCoordinator | null>(null);
-  if (!coordinatorRef.current) {
+  const coordinatorLifetimeRef = useRef<typeof identityLifetime | null>(null);
+  if (coordinatorLifetimeRef.current !== identityLifetime) {
     coordinatorRef.current = new ConversationFirstSendCoordinator({
       createConversation,
       cacheSummary: (summary) => {
+        if (!identityIsActive()) return;
         latestHostRef.current.queryClient.setQueryData<ConversationSummary[]>(
-          queryKeys.conversations.list(),
+          queryKeys.conversations.list(identity),
           (current = []) => [summary, ...current.filter((item) => item.id !== summary.id)],
         );
       },
       selectConversation: (summary) => {
+        if (!identityIsActive()) return;
         useConversationSurfaceState.getState().selectConversation(summary);
       },
       isCurrent: (conversationId) => {
+        if (!identityIsActive()) return false;
         const state = useConversationSurfaceState.getState();
         return state.activeConversationId === conversationId
           && state.pendingDraft?.conversationId === conversationId;
       },
       handoff: (input) => {
+        if (!identityIsActive()) {
+          return Promise.reject(new Error('conversation_identity_no_longer_active'));
+        }
         const runtimeHandle = latestHostRef.current.runtimeHandleRef.current;
         if (!runtimeHandle || runtimeHandle.conversationId !== input.conversationId) {
           return Promise.reject(new Error('conversation_runtime_binding_unavailable'));
@@ -152,6 +198,7 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
         return runtimeHandle.handoff(input);
       },
     });
+    coordinatorLifetimeRef.current = identityLifetime;
   }
   const previousDraftIdRef = useRef<string | null>(pendingDraft?.conversationId ?? null);
   useEffect(() => {
@@ -167,7 +214,7 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
     conversationsLoading: conversationsQuery.isLoading,
     conversationsError: conversationsQuery.isError,
     readiness,
-    preferences: preferencesQuery.data,
+    preferences,
     preferencesLoading: preferencesQuery.isLoading,
     preferencesError: preferencesQuery.isError,
     turnPreference,
@@ -188,19 +235,20 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
 
   return (
     <ActiveConversationRuntime
-      key={conversationIdForBinding(binding)}
+      key={JSON.stringify([identity.userId, identity.organizationId, conversationIdForBinding(binding)])}
+      identity={identity}
       binding={binding}
       retainedDraft={activeDraft}
       conversations={conversations}
       conversationsLoading={conversationsQuery.isLoading}
       conversationsError={conversationsQuery.isError}
       readiness={readiness}
-      preferences={preferencesQuery.data}
+      preferences={preferences}
       preferencesLoading={preferencesQuery.isLoading}
       preferencesError={preferencesQuery.isError}
       turnPreference={turnPreference}
       retryReadiness={() => { void readinessQuery.refetch(); }}
-      coordinator={coordinatorRef.current}
+      coordinator={coordinatorRef.current!}
       runtimeHandleRef={runtimeHandleRef}
       updateDraft={updateDraft}
       setPreference={setPreferenceMutation.mutateAsync}
@@ -214,6 +262,7 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
 
 function ActiveConversationRuntime({
   binding,
+  identity,
   retainedDraft,
   conversations,
   conversationsLoading,
@@ -233,6 +282,7 @@ function ActiveConversationRuntime({
   children,
 }: {
   binding: RuntimeBinding;
+  identity: ConversationIdentity;
   retainedDraft: NewConversationDraft | null;
   conversations: ConversationSummary[];
   conversationsLoading: boolean;
@@ -271,7 +321,7 @@ function ActiveConversationRuntime({
   const historyBaseline = useRef<Map<string, number> | null>(null);
   const liveMessagesRef = useRef<LiveMessage[]>([]);
   const history = useQuery({
-    queryKey: queryKeys.conversations.history(conversationId),
+    queryKey: queryKeys.conversations.history(identity, conversationId),
     queryFn: () => getConversationHistory(conversationId),
     staleTime: 15_000,
     enabled: binding.kind === 'existing',
@@ -297,22 +347,22 @@ function ActiveConversationRuntime({
       try {
         await Promise.all([
           queryClient.invalidateQueries({
-            queryKey: queryKeys.conversations.history(conversationId),
+            queryKey: queryKeys.conversations.history(identity, conversationId),
             refetchType: 'none',
           }),
           queryClient.invalidateQueries({
-            queryKey: queryKeys.conversations.list(),
+            queryKey: queryKeys.conversations.list(identity),
             refetchType: 'none',
           }),
         ]);
         const [refreshedHistory] = await Promise.all([
           queryClient.fetchQuery({
-            queryKey: queryKeys.conversations.history(conversationId),
+            queryKey: queryKeys.conversations.history(identity, conversationId),
             queryFn: () => getConversationHistory(conversationId),
             staleTime: 0,
           }),
           queryClient.fetchQuery({
-            queryKey: queryKeys.conversations.list(),
+            queryKey: queryKeys.conversations.list(identity),
             queryFn: listConversations,
             staleTime: 0,
           }),
@@ -327,7 +377,7 @@ function ActiveConversationRuntime({
       if (terminalHistoryRefresh.current === refresh) terminalHistoryRefresh.current = null;
     });
     return refresh;
-  }, [clearCoveredLiveState, conversationId, queryClient]);
+  }, [clearCoveredLiveState, conversationId, identity, queryClient]);
 
   useEffect(() => {
     const lifetime = { conversationId };
@@ -417,7 +467,7 @@ function ActiveConversationRuntime({
       throw new Error('conversation_no_longer_active');
     }
     const providerHistory = history.data ?? await queryClient.fetchQuery({
-      queryKey: queryKeys.conversations.history(conversationId),
+      queryKey: queryKeys.conversations.history(identity, conversationId),
       queryFn: () => getConversationHistory(conversationId),
       staleTime: 0,
     });
@@ -426,7 +476,7 @@ function ActiveConversationRuntime({
     }
     if (!providerHistory) throw new Error('conversation_history_unavailable');
     return issueRun(input, messageCoverageCounts(providerHistory));
-  }, [binding.kind, conversationId, history.data, issueRun, queryClient]);
+  }, [binding.kind, conversationId, history.data, identity, issueRun, queryClient]);
 
   const handoffFirstSend = useCallback(async (input: ConversationFirstSend) => {
     if (input.conversationId !== conversationId) {
@@ -456,7 +506,11 @@ function ActiveConversationRuntime({
     model: string;
     reasoningEffort: string;
   }) => {
-    if (binding.kind === 'existing') return startExisting(input);
+    if (binding.kind === 'existing') {
+      await startExisting(input);
+      useConversationSurfaceState.getState().completePromotedDraft(conversationId);
+      return;
+    }
     if (!binding.draft.provider) throw new Error('conversation_runtime_required');
     const title = conversationTitleFromMessage(input.message);
     updateDraft({
@@ -474,8 +528,7 @@ function ActiveConversationRuntime({
       model: input.model,
       reasoningEffort: input.reasoningEffort,
     });
-    const state = useConversationSurfaceState.getState();
-    if (state.pendingDraft?.conversationId === conversationId) state.discardDraft();
+    useConversationSurfaceState.getState().completePromotedDraft(conversationId);
   }, [binding, conversationId, coordinator, startExisting, updateDraft]);
   const sendInput = useCallback(async (message: string) => {
     if (!activeTurnId) throw new Error('conversation_turn_not_active');

@@ -474,14 +474,15 @@ describe('MarketplaceRegistrationService application orchestration', () => {
     })).rejects.toBeInstanceOf(DefinitiveMarketplaceRegistrationError);
   });
 
-  it('maps a typed HTTP validation rejection to the cross-domain definitive failure', async () => {
+  it('maps a typed HTTP validation rejection to a stable product-safe definitive failure', async () => {
+    const providerDiagnostic = 'provider echo: secretKey=secret-key';
     const repository = {
       assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
     };
     const coupang = {
       createSellerProduct: vi.fn().mockRejectedValue(
         new CoupangProviderRequestError(
-          'Coupang API error 400: invalid category',
+          `Coupang API error 400: ${providerDiagnostic}`,
           400,
           'definitive_failure',
         ),
@@ -507,7 +508,15 @@ describe('MarketplaceRegistrationService application orchestration', () => {
       isRetry: false,
       providerOutcome: 'uncertain',
       providerCreateAllowed: true,
-    })).rejects.toBeInstanceOf(DefinitiveMarketplaceRegistrationError);
+    })).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(DefinitiveMarketplaceRegistrationError);
+      expect(error).toMatchObject({
+        code: 'MARKETPLACE_REGISTRATION_REJECTED',
+        message: 'Coupang rejected the listing before it was created. Review the listing data and try again.',
+      });
+      expect((error as Error).message).not.toContain(providerDiagnostic);
+      return true;
+    });
   });
 
   it('reconciles recorded provider identity through the same channel account before create', async () => {

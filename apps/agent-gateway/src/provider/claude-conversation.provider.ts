@@ -59,6 +59,7 @@ type ActiveClaudeTurn = Readonly<{
 export class ClaudeConversationProvider implements ProviderConversationPort {
   readonly runtime = 'claude_cli' as const;
   private readonly active = new Map<string, ActiveClaudeTurn>();
+  private readonly terminating = new Map<string, Promise<void>>();
 
   constructor(private readonly options: Readonly<{
     runtimeRoot: string;
@@ -138,7 +139,7 @@ export class ClaudeConversationProvider implements ProviderConversationPort {
           let events: ProviderEvent[];
           try { events = parser.receive(chunk); }
           catch {
-            if (active) this.finish(active, 'failed');
+            if (active) void this.terminateAndFinish(active, 'failed').catch(() => undefined);
             else earlyOutputFailed = true;
             return;
           }
@@ -151,6 +152,11 @@ export class ClaudeConversationProvider implements ProviderConversationPort {
         },
         onExit: (code) => {
           if (!active) { earlyExit = code; return; }
+          // A parse failure, disconnect, or explicit interrupt has already
+          // begun supervised termination. Do not let a parent-exit callback
+          // release its Gateway fence before that termination promise proves
+          // the complete process tree is gone.
+          if (this.terminating.has(key)) return;
           this.finish(active, code === 0 ? 'completed' : 'failed');
         },
       });
@@ -164,7 +170,7 @@ export class ClaudeConversationProvider implements ProviderConversationPort {
       this.active.set(key, active);
       sink({ kind: 'status', status: 'started' });
       if (earlyOutputFailed) {
-        this.finish(active, 'failed');
+        await this.terminateAndFinish(active, 'failed').catch(() => undefined);
         return;
       }
       for (const event of earlyEvents) {
@@ -173,6 +179,10 @@ export class ClaudeConversationProvider implements ProviderConversationPort {
       }
       if (this.active.get(key) === active && earlyExit !== undefined) this.finish(active, earlyExit === 0 ? 'completed' : 'failed');
     } catch (error) {
+      if (active) {
+        await this.terminateAndFinish(active, 'failed').catch(() => undefined);
+        return;
+      }
       await this.options.configs.remove(configPath).catch(() => undefined);
       throw error;
     }
@@ -184,8 +194,7 @@ export class ClaudeConversationProvider implements ProviderConversationPort {
 
   async interrupt(input: InterruptProviderTurn): Promise<void> {
     const active = this.require(input.providerConversationRef, input.turnId);
-    await active.handle.interrupt();
-    this.finish(active, 'interrupted');
+    await this.terminateAndFinish(active, 'interrupted');
   }
 
   async readiness(): Promise<ProviderReadiness> {
@@ -195,11 +204,7 @@ export class ClaudeConversationProvider implements ProviderConversationPort {
 
   /** Gateway loss never leaves a provider child holding an execution binding. */
   async close(): Promise<void> {
-    await Promise.all([...this.active.values()].map(async (active) => {
-      try { await active.handle.interrupt(); }
-      catch { /* process may already have exited */ }
-      this.finish(active, 'disconnected');
-    }));
+    await Promise.all([...this.active.values()].map((active) => this.terminateAndFinish(active, 'disconnected')));
   }
 
   private require(providerConversationRef: string, turnId: string): ActiveClaudeTurn {
@@ -224,6 +229,29 @@ export class ClaudeConversationProvider implements ProviderConversationPort {
     this.active.delete(key);
     void this.options.configs.remove(active.configPath).catch(() => undefined);
     if (!terminalAlreadyEmitted) active.sink({ kind: 'status', status });
+  }
+
+  /** A failure terminal is valid only after the launcher proves the child tree is gone. */
+  private terminateAndFinish(
+    active: ActiveClaudeTurn,
+    status: 'completed' | 'failed' | 'interrupted' | 'disconnected',
+  ): Promise<void> {
+    const key = turnKey(active.providerConversationRef, active.turnId);
+    if (this.active.get(key) !== active) return Promise.resolve();
+    const existing = this.terminating.get(key);
+    if (existing) return existing;
+    // Register before invoking the handle: an implementation may report a
+    // parent exit synchronously while its tree-proof promise is still pending.
+    const completion = Promise.resolve().then(async () => {
+      await active.handle.interrupt();
+      this.finish(active, status);
+    });
+    this.terminating.set(key, completion);
+    void completion.then(
+      () => { if (this.terminating.get(key) === completion) this.terminating.delete(key); },
+      () => { if (this.terminating.get(key) === completion) this.terminating.delete(key); },
+    );
+    return completion;
   }
 }
 

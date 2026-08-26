@@ -21,7 +21,6 @@ function AgentConversationSurfaceLayout() {
   const runtime = useConversationRuntime();
   const selectedContext = useConversationSurfaceState((state) => state.selectedContext);
   const activeConversationId = useConversationSurfaceState((state) => state.activeConversationId);
-  const selectContext = useConversationSurfaceState((state) => state.selectContext);
   const selectConversation = useConversationSurfaceState((state) => state.selectConversation);
   const openSettings = useConversationSurfaceState((state) => state.openSettings);
   const { openConversation } = useNewConversationDraft();
@@ -37,10 +36,6 @@ function AgentConversationSurfaceLayout() {
     openConversation({ fixedAgentKey: agentKey });
     closeDrawer();
   }, [closeDrawer, openConversation]);
-  const chooseContext = useCallback((agentKey: AgentConversationKey | null) => {
-    selectContext(agentKey);
-    closeDrawer();
-  }, [closeDrawer, selectContext]);
   const chooseConversation = useCallback((conversation: ConversationSummary) => {
     selectConversation(conversation);
     closeDrawer();
@@ -50,7 +45,6 @@ function AgentConversationSurfaceLayout() {
       conversations={runtime.conversations}
       selectedContext={selectedContext}
       activeConversationId={activeConversationId}
-      onSelectContext={chooseContext}
       onSelectConversation={chooseConversation}
       onNewConversation={openDraft}
       onOpenSettings={openSettings}

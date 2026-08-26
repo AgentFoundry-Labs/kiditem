@@ -3,11 +3,18 @@ import type {
   MarketplaceSubmissionResult,
 } from "@kiditem/shared/channel-listing";
 
+export const MARKETPLACE_REGISTRATION_REJECTED = {
+  code: "MARKETPLACE_REGISTRATION_REJECTED",
+  message:
+    "Coupang rejected the listing before it was created. Review the listing data and try again.",
+} as const;
+
 export class DefinitiveMarketplaceRegistrationError extends Error {
   readonly knownNoCommit = true;
+  readonly code = MARKETPLACE_REGISTRATION_REJECTED.code;
 
-  constructor(message: string) {
-    super(message);
+  constructor(_providerMessage?: string) {
+    super(MARKETPLACE_REGISTRATION_REJECTED.message);
     this.name = "DefinitiveMarketplaceRegistrationError";
   }
 }

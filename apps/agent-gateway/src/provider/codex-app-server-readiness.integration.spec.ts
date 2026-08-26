@@ -3,6 +3,8 @@ import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { gatewayInstructionProfile } from '../profile/agent-profile.catalog';
+import { createPlatformProcessSupervisor } from '../platform/platform-process-supervisor';
+import { gatewayPlatformFromNodePlatform } from '@kiditem/shared/agent-runtime';
 import { startCodexAppServer } from './codex-app-server-process';
 
 const RUN_REAL_CODEX_CANARY = process.env.KIDITEM_RUN_REAL_CODEX_CANARY === '1';
@@ -21,6 +23,7 @@ describe('Codex app-server real provider readiness', () => {
       workspace,
       loginRoot: homedir(),
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      supervisor: createPlatformProcessSupervisor({ platform: gatewayPlatformFromNodePlatform(), runtimeRoot }),
     });
     let providerConversationRef: string | null = null;
     try {
@@ -35,7 +38,7 @@ describe('Codex app-server real provider readiness', () => {
       if (providerConversationRef) {
         try { await process.session.archive(providerConversationRef); } catch { /* provider process may already be unavailable */ }
       }
-      process.close();
+      await process.close();
       await rm(workspace, { recursive: true, force: true });
     }
   }, 30_000);
@@ -48,6 +51,7 @@ describe('Codex app-server real provider readiness', () => {
       workspace,
       loginRoot: homedir(),
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      supervisor: createPlatformProcessSupervisor({ platform: gatewayPlatformFromNodePlatform(), runtimeRoot }),
     });
     let providerConversationRef: string | null = null;
     try {
@@ -81,7 +85,7 @@ describe('Codex app-server real provider readiness', () => {
       if (providerConversationRef) {
         try { await process.session.archive(providerConversationRef); } catch { /* provider process may already be unavailable */ }
       }
-      process.close();
+      await process.close();
       await rm(workspace, { recursive: true, force: true });
     }
   }, 60_000);

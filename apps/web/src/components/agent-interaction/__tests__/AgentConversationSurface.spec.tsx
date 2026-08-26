@@ -16,12 +16,14 @@ const runtimeMocks = vi.hoisted(() => {
   const runAgent = vi.fn();
   const addMessage = vi.fn();
   const setMessages = vi.fn();
+  const unsubscribes: Array<ReturnType<typeof vi.fn>> = [];
   return {
     useAgent: vi.fn(),
     runAgent,
     addMessage,
     setMessages,
     subscriptions,
+    unsubscribes,
     agent: {
       messages: [],
       runAgent,
@@ -29,7 +31,9 @@ const runtimeMocks = vi.hoisted(() => {
       setMessages,
       subscribe: (subscriber: Record<string, unknown>) => {
         subscriptions.push(subscriber);
-        return { unsubscribe: vi.fn() };
+        const unsubscribe = vi.fn();
+        unsubscribes.push(unsubscribe);
+        return { unsubscribe };
       },
     },
   };
@@ -45,6 +49,7 @@ const CONVERSATION = {
   id: 'conversation-1', runtime: 'codex_cli' as const, agentKey: null,
   title: 'Supplier research', createdAt: '2026-08-26T00:00:00.000Z', updatedAt: '2026-08-26T00:00:00.000Z',
 };
+const IDENTITY = { userId: 'user-1', organizationId: 'org-1' };
 const READINESS_INFO = {
   agents: {
     conversation: {
@@ -77,7 +82,7 @@ const READINESS_INFO = {
 function renderSurface(queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   return render(
     <QueryClientProvider client={queryClient}>
-      <ConversationRuntimeHost><AgentConversationSurface /></ConversationRuntimeHost>
+      <ConversationRuntimeHost identity={IDENTITY}><AgentConversationSurface /></ConversationRuntimeHost>
     </QueryClientProvider>,
   );
 }
@@ -96,6 +101,7 @@ describe('AgentConversationSurface', () => {
     runtimeMocks.addMessage.mockReset();
     runtimeMocks.setMessages.mockReset();
     runtimeMocks.subscriptions.length = 0;
+    runtimeMocks.unsubscribes.length = 0;
     useConversationSurfaceState.getState().reset();
     useConversationSurfaceState.getState().selectConversation(CONVERSATION);
     vi.mocked(apiClient.get).mockImplementation((path: string) => {
@@ -232,6 +238,26 @@ describe('AgentConversationSurface', () => {
     await waitFor(() => expect(runtimeMocks.runAgent).toHaveBeenCalledWith(expect.objectContaining({
       forwardedProps: { model: 'gpt-5.6', reasoningEffort: 'low' },
     })));
+  });
+
+  it('keeps the active conversation and its one subscription while another folder expands during a turn', async () => {
+    const running = new Promise<void>(() => undefined);
+    runtimeMocks.runAgent.mockReturnValue(running);
+    const user = userEvent.setup();
+    renderSurface();
+    const composer = await screen.findByPlaceholderText('무엇을 도와드릴까요?');
+    await chooseCodexPair(user);
+    await user.type(composer, 'Keep this active.');
+    await user.click(screen.getByRole('button', { name: '보내기' }));
+    await waitFor(() => expect(runtimeMocks.subscriptions).toHaveLength(1));
+    const unsubscribe = runtimeMocks.unsubscribes[0];
+
+    await user.click(screen.getByRole('button', { name: '상품 Agent' }));
+
+    expect(useConversationSurfaceState.getState().activeConversationId).toBe(CONVERSATION.id);
+    expect(screen.getByPlaceholderText('무엇을 도와드릴까요?')).toBeInTheDocument();
+    expect(runtimeMocks.subscriptions).toHaveLength(1);
+    expect(unsubscribe).not.toHaveBeenCalled();
   });
 
   it('keeps live messages and tool cards in the shared flow until refreshed history covers the terminal reply', async () => {

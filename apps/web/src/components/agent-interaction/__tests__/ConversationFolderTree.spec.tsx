@@ -28,7 +28,6 @@ function renderTree(overrides: Partial<ComponentProps<typeof ConversationFolderT
     conversations,
     selectedContext: null,
     activeConversationId: 'source-newer',
-    onSelectContext: vi.fn(),
     onSelectConversation: vi.fn(),
     onNewConversation: vi.fn(),
     onOpenSettings: vi.fn(),

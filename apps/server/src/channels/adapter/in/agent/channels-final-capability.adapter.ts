@@ -113,20 +113,25 @@ export class ChannelsFinalCapabilityAdapter implements ChannelsFinalCapabilityPo
         });
       }
     } catch (error) {
+      const definitiveFailure =
+        error instanceof DefinitiveMarketplaceRegistrationError
+          ? new DefinitiveMarketplaceRegistrationError()
+          : null;
       if (claim.mode !== "replay" && claim.leaseToken) {
         const failure = {
           organizationId: context.organizationId,
           executionId: frozen.executionId,
           leaseToken: claim.leaseToken,
-          message: error instanceof Error ? error.message : String(error),
+          message: definitiveFailure?.message
+            ?? (error instanceof Error ? error.message : String(error)),
         };
-        if (error instanceof DefinitiveMarketplaceRegistrationError) {
+        if (definitiveFailure) {
           await this.executions.markProviderWriteDefinitiveFailure(failure);
         } else {
           await this.executions.markProviderWriteUncertain(failure);
         }
       }
-      throw error;
+      throw definitiveFailure ?? error;
     }
     const listing = await this.prisma.$transaction((tx) =>
       this.registrations.resolveProductRegistrationWithOwnerReceipt(

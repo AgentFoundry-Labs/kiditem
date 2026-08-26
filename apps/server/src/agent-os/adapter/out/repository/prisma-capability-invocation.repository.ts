@@ -13,6 +13,7 @@ import type {
   CapabilityInvocationRepositoryPort,
   DecideInvocationApproval,
   InvocationFence,
+  InvocationRequestKeyFence,
   RecordInvocationFailure,
   RecordInvocationSucceeded,
 } from '../../../application/port/out/capability-invocation.repository.port';
@@ -58,7 +59,10 @@ export class PrismaCapabilityInvocationRepository
       if (!isUniqueRequestKeyViolation(error)) throw error;
       // PostgreSQL's unique index makes this a winner lookup, never a
       // check-then-insert race. The losing insert waits for the winner.
-      const winner = await this.findByIdempotency(input.organizationId, input.requestKey);
+      const winner = await this.findByRequestKey({
+        organizationId: input.organizationId,
+        requestKey: input.requestKey,
+      });
       if (!winner) throw error;
       return sameRequest(winner, input)
         ? { kind: 'replay', invocation: winner }
@@ -74,6 +78,27 @@ export class PrismaCapabilityInvocationRepository
     await this.expireIfNecessary(parseRow(row), this.now());
     const current = await this.prisma.capabilityInvocation.findFirst({
       where: { id: input.invocationId, organizationId: input.organizationId },
+    });
+    return current ? parseRow(current) : null;
+  }
+
+  async findByRequestKey(
+    input: InvocationRequestKeyFence,
+  ): Promise<CapabilityInvocationRecord | null> {
+    const row = await this.prisma.capabilityInvocation.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        requestKey: input.requestKey,
+      },
+    });
+    if (!row) return null;
+    const parsed = parseRow(row);
+    await this.expireIfNecessary(parsed, this.now());
+    const current = await this.prisma.capabilityInvocation.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        requestKey: input.requestKey,
+      },
     });
     return current ? parseRow(current) : null;
   }
@@ -199,22 +224,6 @@ export class PrismaCapabilityInvocationRepository
     return current;
   }
 
-  private async findByIdempotency(
-    organizationId: string,
-    requestKey: string,
-  ): Promise<CapabilityInvocationRecord | null> {
-    const row = await this.prisma.capabilityInvocation.findFirst({
-      where: { organizationId, requestKey },
-    });
-    if (!row) return null;
-    const parsed = parseRow(row);
-    await this.expireIfNecessary(parsed, this.now());
-    const current = await this.prisma.capabilityInvocation.findFirst({
-      where: { organizationId, requestKey },
-    });
-    return current ? parseRow(current) : null;
-  }
-
   /** Conditional update is the row-lock fence for lazy expiry. */
   private async expireIfNecessary(
     invocation: CapabilityInvocationRecord,
@@ -258,6 +267,7 @@ function sameRequest(
   input: AdmitCapabilityInvocation,
 ): boolean {
   return (
+    winner.initiatingUserId === input.initiatingUserId &&
     winner.capabilityKey === input.capabilityKey &&
     winner.actingAgentKey === input.actingAgentKey &&
     winner.inputHash === input.inputHash
