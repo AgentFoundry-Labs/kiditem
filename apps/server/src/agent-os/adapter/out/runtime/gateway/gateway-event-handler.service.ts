@@ -22,6 +22,7 @@ export class GatewayEventHandlerService {
       'acknowledge' | 'reject'
       | 'resolveConversationListed' | 'resolveConversationCreated' | 'resolveConversationHistory'
       | 'resolveConversationRenamed' | 'resolveConversationDeleted'
+      | 'resolvePreferenceLoaded' | 'resolvePreferenceUpdated'
       | 'publishTurnEvent' | 'terminal'>;
   }>) {}
 
@@ -63,6 +64,12 @@ export class GatewayEventHandlerService {
         return;
       case 'conversation.deleted':
         this.options.broker.resolveConversationDeleted(event);
+        return;
+      case 'conversation.preferences.loaded':
+        this.options.broker.resolvePreferenceLoaded(event);
+        return;
+      case 'conversation.preferences.updated':
+        this.options.broker.resolvePreferenceUpdated(event);
         return;
       case 'turn.terminal':
         this.options.queue.terminal(event.conversationId, event.turnId);

@@ -1,4 +1,5 @@
 import {
+  type ConversationPreferences,
   GatewayCommandSchema,
   ProviderEventSchema,
   type GatewayCommand,
@@ -119,6 +120,14 @@ export class GatewayCommandResponseBroker {
     this.resolve(event.commandId, 'conversation.delete', undefined, event.conversationId);
   }
 
+  resolvePreferenceLoaded(event: Extract<GatewayEvent, { kind: 'conversation.preferences.loaded' }>): void {
+    this.resolve<ConversationPreferences>(event.commandId, 'conversation.preferences.get', event.preferences);
+  }
+
+  resolvePreferenceUpdated(event: Extract<GatewayEvent, { kind: 'conversation.preferences.updated' }>): void {
+    this.resolve<ConversationPreferences>(event.commandId, 'conversation.preferences.set', event.preferences);
+  }
+
   publishTurnEvent(conversationId: string, turnId: string, input: ProviderEvent): void {
     const event = ProviderEventSchema.parse(input);
     const stream = this.streams.get(turnKey(conversationId, turnId));
@@ -180,7 +189,7 @@ export class GatewayCommandResponseBroker {
     return { commandId: input.commandId, result };
   }
 
-  private resolve(commandId: string, expectedKind: GatewayCommand['kind'], value: unknown, conversationId?: string): void {
+  private resolve<T = unknown>(commandId: string, expectedKind: GatewayCommand['kind'], value: T, conversationId?: string): void {
     const pending = this.pending.get(commandId);
     if (!pending || pending.kind !== expectedKind) return;
     if (pending.conversationId && pending.conversationId !== conversationId) {

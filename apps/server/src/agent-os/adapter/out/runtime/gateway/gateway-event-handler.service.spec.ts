@@ -47,6 +47,22 @@ describe('GatewayEventHandlerService', () => {
         { kind: 'conversation.history', commandId: 'history-1', conversationId: 'conversation-1', messages: [] },
         { kind: 'conversation.renamed', commandId: 'rename-1', conversation: conversation('renamed') },
         { kind: 'conversation.deleted', commandId: 'delete-1', conversationId: 'conversation-1' },
+        {
+          kind: 'conversation.preferences.loaded',
+          commandId: 'preferences-get-1',
+          preferences: {
+            schemaVersion: 1,
+            contexts: { general: { codex_cli: { model: 'gpt-5.6', reasoningEffort: 'low' } } },
+          },
+        },
+        {
+          kind: 'conversation.preferences.updated',
+          commandId: 'preferences-set-1',
+          preferences: {
+            schemaVersion: 1,
+            contexts: { advertising: { claude_cli: { model: 'claude-sonnet', reasoningEffort: 'high' } } },
+          },
+        },
         { kind: 'turn.terminal', conversationId: 'conversation-1', turnId: 'turn-1', status: 'completed' },
       ],
     });
@@ -57,6 +73,12 @@ describe('GatewayEventHandlerService', () => {
     expect(broker.resolveConversationHistory).toHaveBeenCalledOnce();
     expect(broker.resolveConversationRenamed).toHaveBeenCalledOnce();
     expect(broker.resolveConversationDeleted).toHaveBeenCalledOnce();
+    expect(broker.resolvePreferenceLoaded).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'conversation.preferences.loaded', commandId: 'preferences-get-1',
+    }));
+    expect(broker.resolvePreferenceUpdated).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'conversation.preferences.updated', commandId: 'preferences-set-1',
+    }));
     expect(broker.terminal).toHaveBeenCalledWith('conversation-1', 'turn-1', 'completed');
   });
 });
@@ -70,6 +92,8 @@ function brokerPort() {
     resolveConversationHistory: vi.fn(),
     resolveConversationRenamed: vi.fn(),
     resolveConversationDeleted: vi.fn(),
+    resolvePreferenceLoaded: vi.fn(),
+    resolvePreferenceUpdated: vi.fn(),
     publishTurnEvent: vi.fn(),
     terminal: vi.fn(),
   };

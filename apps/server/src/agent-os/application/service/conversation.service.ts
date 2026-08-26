@@ -1,5 +1,11 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { AgentKeySchema, type ConversationSummary } from '@kiditem/shared/agent-runtime';
+import {
+  AgentKeySchema,
+  type ConversationPreferences,
+  type ConversationSummary,
+  type CreateConversationCommand,
+  type SetConversationPreferenceCommand,
+} from '@kiditem/shared/agent-runtime';
 import { AgentOsRuntimeError } from '../../domain/agent-os.errors';
 import {
   type ConversationCoordinates,
@@ -23,11 +29,7 @@ interface StoredConversation {
 
 interface StoredTurn extends ConversationTurnCoordinates {}
 
-type CreateConversationInput = ConversationOwner & {
-  runtime: ConversationSummary['runtime'];
-  agentKey: string | null;
-  title?: string;
-};
+type CreateConversationInput = ConversationOwner & CreateConversationCommand;
 
 type StartConversationInput = ConversationCoordinates & {
   turnId?: string;
@@ -70,16 +72,41 @@ export class ConversationService implements ConversationPort {
 
   async create(input: CreateConversationInput): Promise<ConversationSummary> {
     assertOwner(input);
+    assertCreateInput(input);
+    const current = this.conversations.get(input.conversationId);
+    if (current && !sameOwner(current.owner, input)) {
+      throw new AgentOsRuntimeError('conversation_not_found');
+    }
     const agentKey = parseAgent(input.agentKey);
     const summary = await this.gateway.create({
       ...copyOwner(input),
+      conversationId: input.conversationId,
       runtime: input.runtime,
       agentKey,
-      ...(input.title ? { title: input.title } : {}),
+      title: input.title,
     });
+    if (summary.id !== input.conversationId) throw new AgentOsRuntimeError('conversation_not_found');
     assertAgent(summary.agentKey);
     this.rememberConversation(input, summary);
     return summary;
+  }
+
+  async preferences(input: ConversationOwner): Promise<ConversationPreferences> {
+    assertOwner(input);
+    return this.gateway.preferences(copyOwner(input));
+  }
+
+  async setPreference(input: ConversationOwner & SetConversationPreferenceCommand): Promise<ConversationPreferences> {
+    assertOwner(input);
+    assertPreferenceSettings(input);
+    this.requireReadiness(input.runtime, input.model, input.reasoningEffort);
+    return this.gateway.setPreference({
+      ...copyOwner(input),
+      context: input.context,
+      runtime: input.runtime,
+      model: input.model,
+      reasoningEffort: input.reasoningEffort,
+    });
   }
 
   async history(input: ConversationCoordinates) {
@@ -233,6 +260,16 @@ function parseAgent(agentKey: string | null) {
 
 function assertTurnSettings(input: StartConversationInput): void {
   if (!validIdentifier(input.message)) throw new AgentOsRuntimeError('conversation_message_required');
+  if (!validIdentifier(input.model)) throw new AgentOsRuntimeError('conversation_model_required');
+  if (!validIdentifier(input.reasoningEffort)) throw new AgentOsRuntimeError('conversation_reasoning_effort_required');
+}
+
+function assertCreateInput(input: CreateConversationInput): void {
+  if (!validIdentifier(input.conversationId)) throw new AgentOsRuntimeError('conversation_id_required');
+  if (!validIdentifier(input.title)) throw new AgentOsRuntimeError('conversation_title_required');
+}
+
+function assertPreferenceSettings(input: SetConversationPreferenceCommand): void {
   if (!validIdentifier(input.model)) throw new AgentOsRuntimeError('conversation_model_required');
   if (!validIdentifier(input.reasoningEffort)) throw new AgentOsRuntimeError('conversation_reasoning_effort_required');
 }

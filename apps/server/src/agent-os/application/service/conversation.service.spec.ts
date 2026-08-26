@@ -19,10 +19,38 @@ const GENERAL_CONVERSATION = {
   updatedAt: '2026-08-26T00:01:00.000Z',
 };
 
-function readyGateway(): GatewayConversationPort {
+const PREFERENCES = {
+  schemaVersion: 1 as const,
+  contexts: {
+    general: {
+      codex_cli: { model: 'gpt-5.6', reasoningEffort: 'low' },
+    },
+    advertising: {
+      claude_cli: { model: 'obsolete-model', reasoningEffort: 'obsolete-effort' },
+    },
+  },
+};
+
+type GatewayDouble = GatewayConversationPort & {
+  preferences: () => Promise<typeof PREFERENCES>;
+  setPreference: (input: unknown) => Promise<typeof PREFERENCES>;
+};
+
+function readyGateway(): GatewayDouble {
   return {
     list: vi.fn().mockResolvedValue([GENERAL_CONVERSATION]),
-    create: vi.fn().mockResolvedValue(GENERAL_CONVERSATION),
+    create: vi.fn().mockImplementation(async (input: {
+      conversationId: string;
+      runtime: 'codex_cli' | 'claude_cli';
+      agentKey: string | null;
+      title: string;
+    }) => ({
+      ...GENERAL_CONVERSATION,
+      id: input.conversationId,
+      runtime: input.runtime,
+      agentKey: input.agentKey,
+      title: input.title,
+    })),
     history: vi.fn().mockResolvedValue([]),
     rename: vi.fn().mockResolvedValue({ ...GENERAL_CONVERSATION, title: 'Renamed' }),
     delete: vi.fn().mockResolvedValue(undefined),
@@ -34,6 +62,8 @@ function readyGateway(): GatewayConversationPort {
     input: vi.fn().mockResolvedValue(undefined),
     interrupt: vi.fn().mockResolvedValue(undefined),
     disconnect: vi.fn(),
+    preferences: vi.fn().mockResolvedValue(PREFERENCES),
+    setPreference: vi.fn().mockResolvedValue(PREFERENCES),
     readiness: vi.fn().mockReturnValue([
       {
         runtime: 'codex_cli',
@@ -50,7 +80,7 @@ function readyGateway(): GatewayConversationPort {
       },
       { runtime: 'claude_cli', ready: false, code: 'gateway_provider_unavailable' },
     ]),
-  };
+  } as unknown as GatewayDouble;
 }
 
 describe('ConversationService', () => {
@@ -81,24 +111,46 @@ describe('ConversationService', () => {
     expect(gateway.history).toHaveBeenCalledWith({ ...OWNER, conversationId: GENERAL_CONVERSATION.id });
   });
 
-  it('creates General with agentKey null and accepts only the five fixed Agent keys', async () => {
+  it('creates the browser-selected immutable identity and accepts only the five fixed Agent keys', async () => {
     const gateway = readyGateway();
     const service = new ConversationService(gateway, () => 'turn-1');
 
-    await service.create({ ...OWNER, runtime: 'codex_cli', agentKey: null });
-    await service.create({ ...OWNER, runtime: 'codex_cli', agentKey: 'sourcing' });
+    await service.create({
+      ...OWNER,
+      conversationId: 'conversation-general',
+      runtime: 'codex_cli',
+      agentKey: null,
+      title: 'General planning',
+    });
+    await service.create({
+      ...OWNER,
+      conversationId: 'conversation-sourcing',
+      runtime: 'codex_cli',
+      agentKey: 'sourcing',
+      title: 'Sourcing planning',
+    });
 
     expect(gateway.create).toHaveBeenNthCalledWith(1, {
       ...OWNER,
+      conversationId: 'conversation-general',
       runtime: 'codex_cli',
       agentKey: null,
+      title: 'General planning',
     });
     expect(gateway.create).toHaveBeenNthCalledWith(2, {
       ...OWNER,
+      conversationId: 'conversation-sourcing',
       runtime: 'codex_cli',
       agentKey: 'sourcing',
+      title: 'Sourcing planning',
     });
-    await expect(service.create({ ...OWNER, runtime: 'codex_cli', agentKey: 'operator' }))
+    await expect(service.create({
+      ...OWNER,
+      conversationId: 'conversation-invalid',
+      runtime: 'codex_cli',
+      agentKey: 'operator',
+      title: 'Invalid Agent',
+    }))
       .rejects.toThrow('conversation_agent_invalid');
   });
 
@@ -110,13 +162,26 @@ describe('ConversationService', () => {
       userId: '00000000-0000-4000-8000-000000000003',
     };
 
-    await service.create({ ...OWNER, runtime: 'codex_cli', agentKey: null });
-    await expect(service.create({ ...otherOwner, runtime: 'codex_cli', agentKey: null }))
+    await service.create({
+      ...OWNER,
+      conversationId: GENERAL_CONVERSATION.id,
+      runtime: 'codex_cli',
+      agentKey: null,
+      title: GENERAL_CONVERSATION.title,
+    });
+    await expect(service.create({
+      ...otherOwner,
+      conversationId: GENERAL_CONVERSATION.id,
+      runtime: 'codex_cli',
+      agentKey: null,
+      title: GENERAL_CONVERSATION.title,
+    }))
       .rejects.toThrow('conversation_not_found');
 
     await expect(service.history({ ...OWNER, conversationId: GENERAL_CONVERSATION.id })).resolves.toEqual([]);
     await expect(service.history({ ...otherOwner, conversationId: GENERAL_CONVERSATION.id }))
       .rejects.toThrow('conversation_not_found');
+    expect(gateway.create).toHaveBeenCalledTimes(1);
   });
 
   it('requires a supported model and effort for every explicit turn without a fallback', async () => {
@@ -154,6 +219,45 @@ describe('ConversationService', () => {
       model: 'gpt-5.6',
       reasoningEffort: 'xhigh',
     });
+  });
+
+  it('forwards the exact stored preference document while validating an explicit supported selection before dispatch', async () => {
+    const gateway = readyGateway();
+    const service = new ConversationService(gateway, () => 'turn-1') as unknown as {
+      preferences(input: typeof OWNER): Promise<typeof PREFERENCES>;
+      setPreference(input: typeof OWNER & {
+        context: 'general';
+        runtime: 'codex_cli';
+        model: string;
+        reasoningEffort: string;
+      }): Promise<typeof PREFERENCES>;
+    };
+
+    await expect(service.preferences(OWNER)).resolves.toEqual(PREFERENCES);
+    await expect(service.setPreference({
+      ...OWNER,
+      context: 'general',
+      runtime: 'codex_cli',
+      model: 'gpt-5.6',
+      reasoningEffort: 'xhigh',
+    })).resolves.toEqual(PREFERENCES);
+    expect(gateway.preferences).toHaveBeenCalledWith(OWNER);
+    expect(gateway.setPreference).toHaveBeenCalledWith({
+      ...OWNER,
+      context: 'general',
+      runtime: 'codex_cli',
+      model: 'gpt-5.6',
+      reasoningEffort: 'xhigh',
+    });
+
+    await expect(service.setPreference({
+      ...OWNER,
+      context: 'general',
+      runtime: 'codex_cli',
+      model: 'gpt-5.6',
+      reasoningEffort: 'high',
+    })).rejects.toThrow('conversation_reasoning_effort_unsupported');
+    expect(gateway.setPreference).toHaveBeenCalledTimes(1);
   });
 
   it('does not create a restart turn when a live stream reports disconnection', async () => {

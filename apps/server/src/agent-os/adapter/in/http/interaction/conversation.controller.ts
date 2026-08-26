@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Delete,
   Get,
@@ -10,10 +11,13 @@ import {
   Patch,
   Post,
   ServiceUnavailableException,
+  Put,
 } from '@nestjs/common';
 import {
   AgentKeySchema,
   ConversationIdSchema,
+  ConversationPreferenceContextSchema,
+  ConversationPreferencesSchema,
   ConversationTitleSchema,
   ModelSchema,
   ProviderRuntimeSchema,
@@ -32,9 +36,16 @@ import {
 } from '../../../../application/port/in/capability/conversation.port';
 
 const CreateConversationSchema = z.object({
+  conversationId: ConversationIdSchema,
   runtime: ProviderRuntimeSchema,
   agentKey: AgentKeySchema.nullable(),
-  title: ConversationTitleSchema.optional(),
+  title: ConversationTitleSchema,
+}).strict();
+const SetConversationPreferenceSchema = z.object({
+  context: ConversationPreferenceContextSchema,
+  runtime: ProviderRuntimeSchema,
+  model: ModelSchema,
+  reasoningEffort: ReasoningEffortSchema,
 }).strict();
 const RenameConversationSchema = z.object({
   title: ConversationTitleSchema,
@@ -49,14 +60,14 @@ const InputTurnSchema = z.object({
 }).strict();
 
 /** Same-origin browser facade. It never accepts provider or execution coordinates. */
-@Controller('agent-os/conversations')
+@Controller('agent-os')
 export class ConversationController {
   constructor(
     @Inject(CONVERSATION_PORT)
     private readonly conversations: ConversationPort,
   ) {}
 
-  @Get()
+  @Get('conversations')
   list(
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
@@ -64,7 +75,7 @@ export class ConversationController {
     return this.conversations.list(owner(organizationId, user));
   }
 
-  @Post()
+  @Post('conversations')
   async create(
     @Body() body: unknown,
     @CurrentOrganization() organizationId: string,
@@ -78,7 +89,33 @@ export class ConversationController {
     }
   }
 
-  @Get(':conversationId/history')
+  @Get('conversation-preferences')
+  async preferences(
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    try {
+      return strictPreferences(await this.conversations.preferences(owner(organizationId, user)));
+    } catch (error) {
+      rethrowConversationError(error);
+    }
+  }
+
+  @Put('conversation-preferences')
+  async setPreference(
+    @Body() body: unknown,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const command = parse(SetConversationPreferenceSchema, body, 'Invalid conversation preference request.');
+    try {
+      return strictPreferences(await this.conversations.setPreference({ ...owner(organizationId, user), ...command }));
+    } catch (error) {
+      rethrowConversationError(error);
+    }
+  }
+
+  @Get('conversations/:conversationId/history')
   async history(
     @Param('conversationId') conversationId: string,
     @CurrentOrganization() organizationId: string,
@@ -94,7 +131,7 @@ export class ConversationController {
     }
   }
 
-  @Patch(':conversationId')
+  @Patch('conversations/:conversationId')
   async rename(
     @Param('conversationId') conversationId: string,
     @Body() body: unknown,
@@ -113,7 +150,7 @@ export class ConversationController {
     }
   }
 
-  @Delete(':conversationId')
+  @Delete('conversations/:conversationId')
   async delete(
     @Param('conversationId') conversationId: string,
     @CurrentOrganization() organizationId: string,
@@ -130,7 +167,7 @@ export class ConversationController {
     }
   }
 
-  @Post(':conversationId/turns')
+  @Post('conversations/:conversationId/turns')
   async start(
     @Param('conversationId') conversationId: string,
     @Body() body: unknown,
@@ -150,7 +187,7 @@ export class ConversationController {
     }
   }
 
-  @Post(':conversationId/turns/:turnId/input')
+  @Post('conversations/:conversationId/turns/:turnId/input')
   async input(
     @Param('conversationId') conversationId: string,
     @Param('turnId') turnId: string,
@@ -172,7 +209,7 @@ export class ConversationController {
     }
   }
 
-  @Post(':conversationId/turns/:turnId/interrupt')
+  @Post('conversations/:conversationId/turns/:turnId/interrupt')
   async interrupt(
     @Param('conversationId') conversationId: string,
     @Param('turnId') turnId: string,
@@ -208,6 +245,12 @@ function parseId<T extends z.ZodTypeAny>(schema: T, input: string, label: string
   return parsed.data;
 }
 
+function strictPreferences(input: unknown) {
+  const parsed = ConversationPreferencesSchema.safeParse(input);
+  if (!parsed.success) throw new AgentOsRuntimeError('conversation_gateway_unavailable');
+  return parsed.data;
+}
+
 function rethrowConversationError(error: unknown): never {
   if (error instanceof AgentOsRuntimeError && error.code === 'conversation_not_found') {
     throw new NotFoundException('Conversation was not found.');
@@ -216,14 +259,22 @@ function rethrowConversationError(error: unknown): never {
     throw new ServiceUnavailableException('The provider Gateway is unavailable.');
   }
   if (error instanceof AgentOsRuntimeError && [
+    'conversation_create_conflict',
+    'conversation_turn_live',
+  ].includes(error.code)) {
+    throw new ConflictException('Conversation state changed. Refresh and try again.');
+  }
+  if (error instanceof AgentOsRuntimeError && [
     'conversation_agent_invalid',
+    'conversation_id_required',
     'conversation_message_required',
     'conversation_model_required',
     'conversation_model_unsupported',
     'conversation_reasoning_effort_required',
     'conversation_reasoning_effort_unsupported',
+    'conversation_title_required',
   ].includes(error.code)) {
     throw new BadRequestException(error.code);
   }
-  throw error;
+  throw new ServiceUnavailableException('The provider Gateway is unavailable.');
 }

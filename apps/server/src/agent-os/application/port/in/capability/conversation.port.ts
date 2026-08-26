@@ -1,10 +1,11 @@
 import type {
-  AgentKey,
+  CreateConversationCommand,
+  ConversationPreferences,
   ConversationSummary,
   GatewayProviderReadiness,
   ProviderEvent,
   ProviderMessage,
-  ProviderRuntime,
+  SetConversationPreferenceCommand,
 } from '@kiditem/shared/agent-runtime';
 import { z } from 'zod';
 
@@ -31,11 +32,9 @@ export interface ConversationLiveTurn {
 
 export interface ConversationPort {
   list(input: ConversationOwner): Promise<ConversationSummary[]>;
-  create(input: ConversationOwner & {
-    runtime: ProviderRuntime;
-    agentKey: AgentKey | null;
-    title?: string;
-  }): Promise<ConversationSummary>;
+  create(input: ConversationOwner & CreateConversationCommand): Promise<ConversationSummary>;
+  preferences(owner: ConversationOwner): Promise<ConversationPreferences>;
+  setPreference(input: ConversationOwner & SetConversationPreferenceCommand): Promise<ConversationPreferences>;
   history(input: ConversationCoordinates): Promise<ProviderMessage[]>;
   rename(input: ConversationCoordinates & { title: string }): Promise<ConversationSummary>;
   delete(input: ConversationCoordinates): Promise<void>;

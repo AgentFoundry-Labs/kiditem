@@ -6,6 +6,15 @@ const OWNER = {
   initiatingUserId: '00000000-0000-4000-8000-000000000002',
 };
 
+const PREFERENCES = {
+  schemaVersion: 1 as const,
+  contexts: {
+    general: {
+      codex_cli: { model: 'gpt-5.6', reasoningEffort: 'low' },
+    },
+  },
+};
+
 describe('GatewayCommandResponseBroker', () => {
   it('keeps a command correlation through transport acknowledgement until its bounded provider result arrives', async () => {
     const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
@@ -80,5 +89,51 @@ describe('GatewayCommandResponseBroker', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('keeps preference result correlation live through acknowledgement until the exact loaded or updated event arrives', async () => {
+    const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 }) as GatewayCommandResponseBroker & {
+      resolvePreferenceLoaded(event: {
+        kind: 'conversation.preferences.loaded';
+        commandId: string;
+        preferences: typeof PREFERENCES;
+      }): void;
+      resolvePreferenceUpdated(event: {
+        kind: 'conversation.preferences.updated';
+        commandId: string;
+        preferences: typeof PREFERENCES;
+      }): void;
+    };
+    const loaded = broker.begin<typeof PREFERENCES>({
+      ...OWNER,
+      command: { kind: 'conversation.preferences.get', commandId: 'preferences-get' },
+    });
+    const updated = broker.begin<typeof PREFERENCES>({
+      ...OWNER,
+      command: {
+        kind: 'conversation.preferences.set',
+        commandId: 'preferences-set',
+        context: 'general',
+        runtime: 'codex_cli',
+        model: 'gpt-5.6',
+        reasoningEffort: 'low',
+      },
+    });
+
+    broker.acknowledge('preferences-get');
+    broker.acknowledge('preferences-set');
+    broker.resolvePreferenceLoaded({
+      kind: 'conversation.preferences.loaded',
+      commandId: 'preferences-get',
+      preferences: PREFERENCES,
+    });
+    broker.resolvePreferenceUpdated({
+      kind: 'conversation.preferences.updated',
+      commandId: 'preferences-set',
+      preferences: PREFERENCES,
+    });
+
+    await expect(loaded.result).resolves.toEqual(PREFERENCES);
+    await expect(updated.result).resolves.toEqual(PREFERENCES);
   });
 });

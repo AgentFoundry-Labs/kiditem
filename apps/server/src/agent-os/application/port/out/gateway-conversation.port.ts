@@ -1,10 +1,11 @@
 import type {
-  AgentKey,
+  CreateConversationCommand,
+  ConversationPreferences,
   ConversationSummary,
   GatewayProviderReadiness,
   ProviderEvent,
   ProviderMessage,
-  ProviderRuntime,
+  SetConversationPreferenceCommand,
 } from '@kiditem/shared/agent-runtime';
 
 /** Server-side owner fence. It is never accepted from a browser payload. */
@@ -29,11 +30,9 @@ export interface GatewayLiveTurn {
 
 export interface GatewayConversationPort {
   list(input: GatewayConversationOwner): Promise<ConversationSummary[]>;
-  create(input: GatewayConversationOwner & {
-    runtime: ProviderRuntime;
-    agentKey: AgentKey | null;
-    title?: string;
-  }): Promise<ConversationSummary>;
+  create(input: GatewayConversationOwner & CreateConversationCommand): Promise<ConversationSummary>;
+  preferences(owner: GatewayConversationOwner): Promise<ConversationPreferences>;
+  setPreference(input: GatewayConversationOwner & SetConversationPreferenceCommand): Promise<ConversationPreferences>;
   history(input: GatewayConversationCoordinates): Promise<ProviderMessage[]>;
   rename(input: GatewayConversationCoordinates & { title: string }): Promise<ConversationSummary>;
   delete(input: GatewayConversationCoordinates): Promise<void>;

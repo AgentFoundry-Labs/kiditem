@@ -1,7 +1,9 @@
 import type {
+  ConversationPreferences,
   ConversationSummary,
   GatewayCommand,
   ProviderMessage,
+  SetConversationPreferenceCommand,
 } from '@kiditem/shared/agent-runtime';
 import type {
   GatewayConversationCoordinates,
@@ -10,6 +12,7 @@ import type {
   GatewayLiveTurn,
   GatewayTurnCoordinates,
 } from '../../../../application/port/out/gateway-conversation.port';
+import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
 import { GatewayCommandQueue } from './gateway-command.queue';
 import { GatewayCommandResponseBroker } from './gateway-command-response.broker';
 import { GatewayReadinessService } from './gateway-readiness.service';
@@ -20,6 +23,10 @@ type BrokerPort = Pick<
   'nextCommandId' | 'begin' | 'beginTurnStart' | 'subscribeTurn' | 'reject' | 'terminal'
 >;
 type ReadinessPort = Pick<GatewayReadinessService, 'snapshot'>;
+interface BrokerRequest<T> {
+  commandId: string;
+  result: Promise<T>;
+}
 
 /**
  * Provider-native conversation commands stay inside the Gateway control plane.
@@ -37,16 +44,36 @@ export class GatewayConversationAdapter implements GatewayConversationPort {
   }
 
   create(input: GatewayConversationOwner & {
+    conversationId: string;
     runtime: ConversationSummary['runtime'];
     agentKey: ConversationSummary['agentKey'];
-    title?: string;
+    title: string;
   }): Promise<ConversationSummary> {
     return this.dispatch(input, {
       kind: 'conversation.create',
       commandId: this.broker.nextCommandId(),
+      conversationId: input.conversationId,
       runtime: input.runtime,
       agentKey: input.agentKey,
-      ...(input.title ? { title: input.title } : {}),
+      title: input.title,
+    });
+  }
+
+  preferences(input: GatewayConversationOwner): Promise<ConversationPreferences> {
+    return this.dispatch(input, {
+      kind: 'conversation.preferences.get',
+      commandId: this.broker.nextCommandId(),
+    });
+  }
+
+  setPreference(input: GatewayConversationOwner & SetConversationPreferenceCommand): Promise<ConversationPreferences> {
+    return this.dispatch(input, {
+      kind: 'conversation.preferences.set',
+      commandId: this.broker.nextCommandId(),
+      context: input.context,
+      runtime: input.runtime,
+      model: input.model,
+      reasoningEffort: input.reasoningEffort,
     });
   }
 
@@ -81,13 +108,18 @@ export class GatewayConversationAdapter implements GatewayConversationPort {
     reasoningEffort: string;
   }): GatewayLiveTurn {
     const commandId = this.broker.nextCommandId();
-    const request = this.broker.beginTurnStart({
-      organizationId: input.organizationId,
-      initiatingUserId: input.userId,
-      conversationId: input.conversationId,
-      turnId: input.turnId,
-      commandId,
-    });
+    let request: BrokerRequest<void>;
+    try {
+      request = this.broker.beginTurnStart({
+        organizationId: input.organizationId,
+        initiatingUserId: input.userId,
+        conversationId: input.conversationId,
+        turnId: input.turnId,
+        commandId,
+      });
+    } catch (error) {
+      throw gatewayError(error, 'turn.start');
+    }
     try {
       this.queue.enqueueTurnStart({
         organizationId: input.organizationId,
@@ -103,14 +135,15 @@ export class GatewayConversationAdapter implements GatewayConversationPort {
       void request.result.catch(() => undefined);
       this.broker.reject(request.commandId, 'gateway_command_not_enqueued');
       this.queue.terminal(input.conversationId, input.turnId);
-      throw error;
+      throw gatewayError(error, 'turn.start');
     }
-    void request.result.catch(() => {
+    const ready = request.result.catch((error) => {
       this.queue.terminal(input.conversationId, input.turnId);
+      throw gatewayError(error, 'turn.start');
     });
     return {
       turnId: input.turnId,
-      ready: request.result,
+      ready,
       subscribe: (sink) => this.broker.subscribeTurn({
         organizationId: input.organizationId,
         initiatingUserId: input.userId,
@@ -153,18 +186,35 @@ export class GatewayConversationAdapter implements GatewayConversationPort {
   }
 
   private dispatch<T>(owner: GatewayConversationOwner, command: Exclude<GatewayCommand, { kind: 'turn.start' }>): Promise<T> {
-    const request = this.broker.begin<T>({
-      command,
-      organizationId: owner.organizationId,
-      initiatingUserId: owner.userId,
-    });
+    let request: BrokerRequest<T>;
+    try {
+      request = this.broker.begin<T>({
+        command,
+        organizationId: owner.organizationId,
+        initiatingUserId: owner.userId,
+      });
+    } catch (error) {
+      return Promise.reject(gatewayError(error, command.kind));
+    }
     try {
       this.queue.enqueue(command);
     } catch (error) {
       void request.result.catch(() => undefined);
       this.broker.reject(request.commandId, 'gateway_command_not_enqueued');
-      return Promise.reject(error);
+      return Promise.reject(gatewayError(error, command.kind));
     }
-    return request.result;
+    return request.result.catch((error) => {
+      throw gatewayError(error, command.kind);
+    });
   }
+}
+
+function gatewayError(error: unknown, commandKind: GatewayCommand['kind']): AgentOsRuntimeError {
+  if (error instanceof AgentOsRuntimeError) return error;
+  const message = error instanceof Error ? error.message : '';
+  if (message === 'gateway_command_rejected_invalid_state') {
+    if (commandKind === 'conversation.create') return new AgentOsRuntimeError('conversation_create_conflict');
+    if (commandKind === 'conversation.delete') return new AgentOsRuntimeError('conversation_turn_live');
+  }
+  return new AgentOsRuntimeError('conversation_gateway_unavailable');
 }
