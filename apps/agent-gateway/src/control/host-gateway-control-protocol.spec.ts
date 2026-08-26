@@ -15,4 +15,21 @@ describe('Native Gateway control protocol ownership', () => {
     expect(session).not.toContain('lease');
     expect(session).toContain('onPollLoss');
   });
+
+  it('wires one provider-owned Claude session store for history, resume checks, and deletion', () => {
+    const main = readFileSync(resolve(import.meta.dirname, '..', 'main.ts'), 'utf8');
+
+    expect(main).toContain('ClaudeProviderSessionStore');
+    expect(main).toContain('sessions: claudeSessions');
+    expect(main).not.toContain('ClaudeProviderSessionHistoryReader');
+  });
+
+  it('wires one installation-local preference store with the descriptor state root and no listener', () => {
+    const main = readFileSync(resolve(import.meta.dirname, '..', 'main.ts'), 'utf8');
+
+    expect(main).toContain('ConversationPreferenceStore');
+    expect(main).toContain('new ConversationPreferenceStore({ stateRoot: config.stateRoot, platform })');
+    expect(main).toContain('preferences });');
+    expect(main).not.toContain('listen(');
+  });
 });

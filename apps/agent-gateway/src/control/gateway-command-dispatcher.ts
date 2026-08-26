@@ -1,8 +1,10 @@
 import {
   GatewayCommandSchema,
   ProviderEventSchema,
+  type ConversationPreferences,
   type GatewayCommand,
   type ProviderEvent,
+  type SetConversationPreferenceCommand,
 } from '@kiditem/shared/agent-runtime';
 import { createHash } from 'node:crypto';
 import {
@@ -31,6 +33,11 @@ type ConversationGatewayPort = Readonly<{
   interrupt: (input: { conversationId: string; turnId: string }) => Promise<void>;
 }>;
 
+type ConversationPreferencePort = Readonly<{
+  read: () => Promise<ConversationPreferences>;
+  set: (input: SetConversationPreferenceCommand) => Promise<ConversationPreferences>;
+}>;
+
 const MAX_COMMAND_TOMBSTONES = 1_024;
 
 /** Applies each process-local Gateway command at most once. No durable queue exists. */
@@ -42,6 +49,7 @@ export class GatewayCommandDispatcher {
   constructor(private readonly options: Readonly<{
     gateway: ConversationGatewayPort;
     outbox: GatewayEventOutbox;
+    preferences: ConversationPreferencePort;
     activeTurns?: ActiveTurnRegistry;
   }>) {
     this.active = options.activeTurns ?? new ActiveTurnRegistry();
@@ -106,6 +114,21 @@ export class GatewayCommandDispatcher {
         if (this.active.hasConversation(command.conversationId)) throw new ActiveTurnAlreadyLiveError();
         await this.options.gateway.delete(command.conversationId);
         this.options.outbox.enqueue({ kind: 'conversation.deleted', commandId: command.commandId, conversationId: command.conversationId });
+        return;
+      }
+      case 'conversation.preferences.get': {
+        const preferences = await this.options.preferences.read();
+        this.options.outbox.enqueue({ kind: 'conversation.preferences.loaded', commandId: command.commandId, preferences });
+        return;
+      }
+      case 'conversation.preferences.set': {
+        const preferences = await this.options.preferences.set({
+          context: command.context,
+          runtime: command.runtime,
+          model: command.model,
+          reasoningEffort: command.reasoningEffort,
+        });
+        this.options.outbox.enqueue({ kind: 'conversation.preferences.updated', commandId: command.commandId, preferences });
         return;
       }
       case 'turn.start': return this.startTurn(command);

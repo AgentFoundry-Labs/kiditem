@@ -1,9 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GATEWAY_RUNTIME_TRAIN } from '@kiditem/shared/agent-runtime';
 import { GatewayControlClient } from '../control/gateway-control.client';
 import { GatewayCommandDispatcher } from '../control/gateway-command-dispatcher';
 import { GatewayEventOutbox } from '../control/gateway-event-outbox';
 import { NativeGatewayControlSession } from '../control/native-gateway-control-session';
+import { ConversationPreferenceStore } from '../conversation/conversation-preference.store';
 import { ExecutionBindingRegistry } from '../../../server/src/agent-os/adapter/out/runtime/gateway/execution-binding.registry';
 import { GatewayCommandQueue } from '../../../server/src/agent-os/adapter/out/runtime/gateway/gateway-command.queue';
 import { GatewayCommandResponseBroker } from '../../../server/src/agent-os/adapter/out/runtime/gateway/gateway-command-response.broker';
@@ -18,6 +22,11 @@ const OWNER = {
   organizationId: '00000000-0000-4000-8000-000000000001',
   initiatingUserId: '00000000-0000-4000-8000-000000000002',
 };
+const roots: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
 
 describe('Gateway ↔ Nest loopback', () => {
   it('polls strict Gateway commands, delivers the correlated provider result before transport ack retirement, and stores exact readiness', async () => {
@@ -51,6 +60,7 @@ describe('Gateway ↔ Nest loopback', () => {
     const dispatcher = new GatewayCommandDispatcher({
       gateway: { list: async () => [], create: async () => undefined, history: async () => [], rename: async () => undefined, delete: async () => undefined, startTurn: async () => undefined, sendInput: async () => undefined, interrupt: async () => undefined },
       outbox,
+      preferences: { read: async () => ({ schemaVersion: 1 as const, contexts: {} }), set: async () => ({ schemaVersion: 1 as const, contexts: {} }) },
     });
     const batch = await client.poll(poll);
     expect(batch?.commands).toEqual([command]);
@@ -69,6 +79,82 @@ describe('Gateway ↔ Nest loopback', () => {
       gatewayInstanceId: GATEWAY_INSTANCE_ID,
       readiness: [expect.objectContaining({ runtime: 'codex_cli', ready: true }), expect.objectContaining({ runtime: 'claude_cli', ready: false })],
     });
+  });
+
+  it('round-trips installation-local preference commands without putting authenticated owner data in the file or Gateway events', async () => {
+    const root = await fixtureRoot();
+    const bindings = new ExecutionBindingRegistry();
+    const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
+    const readiness = new GatewayReadinessService();
+    const queue = new GatewayCommandQueue({
+      bindings,
+      installationId: 'installation-loopback',
+      longPollMs: 0,
+      onTransientClear: () => { broker.disconnect(); readiness.clear(); },
+    });
+    const controller = new GatewayControlController(
+      new GatewayInstallationBearerService({ token: TOKEN, installationId: 'installation-loopback' }),
+      queue,
+      new GatewayEventHandlerService({ queue, readiness, broker }),
+      readiness,
+    );
+    const client = new GatewayControlClient({ controlOrigin: 'http://127.0.0.1:4000', token: TOKEN, fetch: loopbackFetch(controller) });
+    const poll = { kind: 'poll' as const, gatewayInstanceId: 'gateway-loopback-preferences', platform: 'macos' as const, runtimeTrain: GATEWAY_RUNTIME_TRAIN };
+    const preferences = new ConversationPreferenceStore({ stateRoot: root, platform: 'macos' });
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: poll.gatewayInstanceId, redactionTokens: [TOKEN] });
+    const dispatcher = new GatewayCommandDispatcher({
+      gateway: { list: async () => [], create: async () => undefined, history: async () => [], rename: async () => undefined, delete: async () => undefined, startTurn: async () => undefined, sendInput: async () => undefined, interrupt: async () => undefined },
+      outbox,
+      preferences,
+    });
+
+    await client.poll(poll);
+
+    const firstGet = { kind: 'conversation.preferences.get' as const, commandId: broker.nextCommandId() };
+    const firstGetBody = await dispatchAndPeek({ client, dispatcher, outbox, poll, queue, command: firstGet });
+    expect(events(firstGetBody)).toEqual([
+      { kind: 'conversation.preferences.loaded', commandId: firstGet.commandId, preferences: { schemaVersion: 1, contexts: {} } },
+      { kind: 'command.ack', commandId: firstGet.commandId },
+    ]);
+    await outbox.flush((body) => client.postEventBody(body));
+
+    const set = {
+      kind: 'conversation.preferences.set' as const,
+      commandId: broker.nextCommandId(),
+      context: 'general' as const,
+      runtime: 'codex_cli' as const,
+      model: 'gpt-5.6',
+      reasoningEffort: 'medium',
+    };
+    const setBody = await dispatchAndPeek({ client, dispatcher, outbox, poll, queue, command: set });
+    expect(events(setBody)).toEqual([
+      {
+        kind: 'conversation.preferences.updated', commandId: set.commandId, preferences: {
+          schemaVersion: 1,
+          contexts: { general: { codex_cli: { model: 'gpt-5.6', reasoningEffort: 'medium' } } },
+        },
+      },
+      { kind: 'command.ack', commandId: set.commandId },
+    ]);
+    expect(setBody).not.toContain(OWNER.organizationId);
+    expect(setBody).not.toContain(OWNER.initiatingUserId);
+    await outbox.flush((body) => client.postEventBody(body));
+
+    const secondGet = { kind: 'conversation.preferences.get' as const, commandId: broker.nextCommandId() };
+    const secondGetBody = await dispatchAndPeek({ client, dispatcher, outbox, poll, queue, command: secondGet });
+    expect(events(secondGetBody)[0]).toEqual({
+      kind: 'conversation.preferences.loaded', commandId: secondGet.commandId, preferences: {
+        schemaVersion: 1,
+        contexts: { general: { codex_cli: { model: 'gpt-5.6', reasoningEffort: 'medium' } } },
+      },
+    });
+    await outbox.flush((body) => client.postEventBody(body));
+
+    const raw = await readFile(join(root, 'conversation-preferences.json'), 'utf8');
+    expect(raw).not.toContain(OWNER.organizationId);
+    expect(raw).not.toContain(OWNER.initiatingUserId);
+    expect(raw).not.toContain('providerConversationRef');
+    expect(raw).not.toContain('executionBinding');
   });
 
   it('lets a normal empty 25-second Nest long-poll return before the Gateway client deadline', async () => {
@@ -161,4 +247,34 @@ function loopbackFetch(controllerSource: GatewayControlController | (() => Gatew
       return new Response(null, { status });
     }
   };
+}
+
+async function fixtureRoot(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'kiditem-gateway-loopback-'));
+  roots.push(root);
+  return root;
+}
+
+async function dispatchAndPeek(input: Readonly<{
+  client: GatewayControlClient;
+  dispatcher: GatewayCommandDispatcher;
+  outbox: GatewayEventOutbox;
+  poll: { kind: 'poll'; gatewayInstanceId: string; platform: 'macos'; runtimeTrain: typeof GATEWAY_RUNTIME_TRAIN };
+  queue: GatewayCommandQueue;
+  command: { kind: 'conversation.preferences.get'; commandId: string } | {
+    kind: 'conversation.preferences.set'; commandId: string; context: 'general'; runtime: 'codex_cli'; model: string; reasoningEffort: string;
+  };
+}>): Promise<string> {
+  input.queue.enqueue(input.command);
+  const batch = await input.client.poll(input.poll);
+  const command = batch.commands[0];
+  if (!command) throw new Error('gateway_loopback_command_missing');
+  await input.dispatcher.dispatch(command);
+  const body = input.outbox.peekBody();
+  if (!body) throw new Error('gateway_loopback_preferences_event_missing');
+  return body;
+}
+
+function events(body: string): Array<Record<string, unknown>> {
+  return (JSON.parse(body) as { events: Array<Record<string, unknown>> }).events;
 }

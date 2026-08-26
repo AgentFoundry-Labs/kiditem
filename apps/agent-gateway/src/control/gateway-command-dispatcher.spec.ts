@@ -6,7 +6,7 @@ describe('GatewayCommandDispatcher', () => {
     const { GatewayEventOutbox } = await import('./gateway-event-outbox');
     const gateway = new FakeConversationGateway();
     const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
-    const dispatcher = new GatewayCommandDispatcher({ gateway, outbox });
+    const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, preferences: new FakeConversationPreferences() });
 
     await dispatcher.dispatch({
       kind: 'turn.start', commandId: 'command-1', conversationId: 'conversation-1', turnId: 'turn-1',
@@ -44,7 +44,7 @@ describe('GatewayCommandDispatcher', () => {
     const { GatewayEventOutbox } = await import('./gateway-event-outbox');
     const gateway = new FakeConversationGateway();
     const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
-    const dispatcher = new GatewayCommandDispatcher({ gateway, outbox });
+    const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, preferences: new FakeConversationPreferences() });
     const command = { kind: 'conversation.list' as const, commandId: 'command-1' };
 
     await dispatcher.dispatch(command);
@@ -66,7 +66,7 @@ describe('GatewayCommandDispatcher', () => {
     const gateway = new FakeConversationGateway();
     gateway.messages = [{ id: 'message-1', role: 'assistant', content: `Provider echoed ${binding}`, createdAt: '2026-08-23T00:00:00.000Z' }];
     const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
-    const dispatcher = new GatewayCommandDispatcher({ gateway, outbox });
+    const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, preferences: new FakeConversationPreferences() });
 
     await dispatcher.dispatch({
       kind: 'turn.start', commandId: 'command-1', conversationId: 'conversation-1', turnId: 'turn-1',
@@ -86,7 +86,7 @@ describe('GatewayCommandDispatcher', () => {
     const gateway = new FakeConversationGateway();
     gateway.createFailure = new Error('gateway_conversation_create_conflict');
     const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
-    const dispatcher = new GatewayCommandDispatcher({ gateway, outbox });
+    const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, preferences: new FakeConversationPreferences() });
 
     await dispatcher.dispatch({
       kind: 'conversation.create', commandId: 'command-create-conflict', conversationId: 'browser-conversation-conflict',
@@ -108,12 +108,39 @@ describe('GatewayCommandDispatcher', () => {
     const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
     const activeTurns = new ActiveTurnRegistry();
     activeTurns.admit({ conversationId: 'conversation-live', turnId: 'turn-live' });
-    const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, activeTurns });
+    const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, activeTurns, preferences: new FakeConversationPreferences() });
 
     await dispatcher.dispatch({ kind: 'conversation.delete', commandId: 'command-delete-live', conversationId: 'conversation-live' });
 
     expect(gateway.deletedConversationIds).toEqual([]);
     expect(events(outbox)).toEqual([{ kind: 'command.rejected', commandId: 'command-delete-live', code: 'invalid_state' }]);
+  });
+
+  it('emits exact local preference results before acknowledging get and set commands', async () => {
+    const { GatewayCommandDispatcher } = await import('./gateway-command-dispatcher');
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const gateway = new FakeConversationGateway();
+    const preferences = new FakeConversationPreferences();
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
+    const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, preferences });
+
+    await dispatcher.dispatch({ kind: 'conversation.preferences.get', commandId: 'command-preferences-get' });
+    await dispatcher.dispatch({
+      kind: 'conversation.preferences.set', commandId: 'command-preferences-set', context: 'general', runtime: 'codex_cli',
+      model: 'gpt-5.6', reasoningEffort: 'medium',
+    });
+
+    expect(events(outbox)).toEqual([
+      { kind: 'conversation.preferences.loaded', commandId: 'command-preferences-get', preferences: { schemaVersion: 1, contexts: {} } },
+      { kind: 'command.ack', commandId: 'command-preferences-get' },
+      {
+        kind: 'conversation.preferences.updated', commandId: 'command-preferences-set', preferences: {
+          schemaVersion: 1,
+          contexts: { general: { codex_cli: { model: 'gpt-5.6', reasoningEffort: 'medium' } } },
+        },
+      },
+      { kind: 'command.ack', commandId: 'command-preferences-set' },
+    ]);
   });
 });
 
@@ -148,6 +175,29 @@ class FakeConversationGateway {
     this.sink = input.onEvent;
   }
   emit(event: GatewayProviderEvent) { this.sink?.(event); }
+}
+
+class FakeConversationPreferences {
+  private document: { schemaVersion: 1; contexts: Record<string, Record<string, { model: string; reasoningEffort: string }> | undefined> } = {
+    schemaVersion: 1,
+    contexts: {},
+  };
+
+  async read() { return this.document; }
+
+  async set(input: { context: string; runtime: string; model: string; reasoningEffort: string }) {
+    this.document = {
+      schemaVersion: 1,
+      contexts: {
+        ...this.document.contexts,
+        [input.context]: {
+          ...this.document.contexts[input.context],
+          [input.runtime]: { model: input.model, reasoningEffort: input.reasoningEffort },
+        },
+      },
+    };
+    return this.document;
+  }
 }
 
 type GatewayProviderEvent =

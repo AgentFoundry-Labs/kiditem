@@ -18,6 +18,7 @@ import { GatewayEventOutbox } from './control/gateway-event-outbox';
 import { NativeGatewayControlSession } from './control/native-gateway-control-session';
 import { ConversationDescriptorStore } from './conversation/conversation-descriptor.store';
 import { ConversationGateway } from './conversation/conversation-gateway';
+import { ConversationPreferenceStore } from './conversation/conversation-preference.store';
 import { ClaudeConversationProvider } from './provider/claude-conversation.provider';
 import { ClaudeMcpConfigStore } from './provider/claude-mcp-config';
 import { NativeClaudeProcessLauncher } from './provider/claude-process-launcher';
@@ -72,6 +73,7 @@ export async function runNativeAgentGateway(argv: readonly string[]): Promise<ne
       readiness: claudeProviderReadiness(),
     })
     : new UnavailableProvider('claude_cli');
+  const preferences = new ConversationPreferenceStore({ stateRoot: config.stateRoot, platform });
   const gateway = new ConversationGateway({
     descriptors: new ConversationDescriptorStore({ stateRoot: config.stateRoot, platform }),
     providers: { codex_cli: codex, claude_cli: claude },
@@ -79,7 +81,7 @@ export async function runNativeAgentGateway(argv: readonly string[]): Promise<ne
   const gatewayInstanceId = randomUUID();
   const outbox = new GatewayEventOutbox({ gatewayInstanceId, redactionTokens: [token] });
   outbox.enqueue({ kind: 'gateway.readiness', readiness: await gatewayReadiness([codex, claude]) });
-  const dispatcher = new GatewayCommandDispatcher({ gateway, outbox });
+  const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, preferences });
   const client = new GatewayControlClient({ controlOrigin: config.controlOrigin, token });
   const control = new NativeGatewayControlSession({
     client,
