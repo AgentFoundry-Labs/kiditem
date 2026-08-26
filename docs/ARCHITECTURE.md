@@ -611,6 +611,22 @@ Frontend route code must not add `app/api/**/route.ts`, import Prisma/`pg`/DB
 clients, send `organizationId` in API payloads, or call backend APIs with raw
 `fetch`.
 
+### Global Conversation Workspace
+
+The authenticated app shell mounts one route-stable `ConversationProvider` and
+`RuntimeHost`. The global AI chat panel is one presentation of that runtime;
+Agent OS presents the same conversation history and workspace, suppressing
+only the duplicate chat body while preserving the live runtime.
+
+`RightAuxiliaryPanel` is the only right-side surface. Its mutually exclusive
+`notifications | ai_chat | null` state renders `NotificationPanelContent` or
+`ConversationPanel`; there is no `PanelSheet` shell or panel-open store.
+
+The native Gateway serializes conversation descriptors and preferences in its
+local state, owns provider history, and deletes the exact provider conversation
+before removing its descriptor. Nest exposes the authenticated facade only;
+PostgreSQL has no conversation or preference model.
+
 ## Durable Direct AI Media Execution
 
 Thumbnail generation, detail-page generation, image edit, and thumbnail

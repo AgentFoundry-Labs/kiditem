@@ -76,9 +76,20 @@ KID-25의 provider-native runtime은 다음 경계를 따로 증명한다.
   replay, 다른 입력 conflict, concurrent approval, ambiguous owner 결과를
   실제 unique/conditional-write 경계에서 증명한다.
 - `apps/agent-gateway` tests는 outbound long-poll/event 계약, provider-local
-  conversation/history, active-turn cleanup, explicit model/effort, macOS
-  process supervision과 deterministic Windows 계약을 다룬다. Provider login과
-  history는 host account가 소유하며 Nest, DB, worker, 브라우저로 복사하지 않는다.
+  conversation/history, serialized descriptor/preference state, provider-first
+  exact deletion, active-turn cleanup, explicit model/effort, macOS process
+  supervision과 deterministic Windows 계약을 다룬다. Provider login과 history는
+  host account가 소유하며 Nest, DB, worker, 브라우저로 복사하지 않는다.
+- `apps/web` focused tests는 authenticated route-stable
+  `ConversationProvider`/`RuntimeHost`, Agent OS history versus global chat
+  presentation, and the one `notifications | ai_chat | null`
+  `RightAuxiliaryPanel` state machine을 검증한다. Desktop은 고정 420 px
+  non-modal panel, viewport 768 px 미만은 full-width modal drawer이며 focus와
+  close behavior도 같은 contract에 포함한다.
+- Cutover regression tests require retired presentation paths to be absent,
+  including `PanelSheet`, panel-open stores, and duplicate conversation UI.
+  `DashboardChartPanel.agent-os-cutover.regression-1.spec.ts`
+  keeps Dashboard Agent OS labels, charts, cards, and actions unchanged.
 - `npm run qa:agent-os:clean-cutover`는 자체 Testcontainer만 대상으로 legacy
   rows를 버리고 one-model schema를 적용한다. 개발/Office DB, `--force-reset`,
   검증되지 않은 URL은 거절한다. `--serve-browser-qa`는 내장 deterministic
@@ -209,12 +220,14 @@ npm run test:integration -- src/inventory/__tests__/inventory-flow.pg.integratio
 ### Agent interaction cross-process acceptance
 
 Final Agent OS에는 generic Task, Attempt, KidItem-owned transcript 또는 browser-owned
-session graph가 없다. `npm run smoke:interaction-os`는 Gateway readiness,
-conversation create/history, 정확히 다섯 MCP tool, 한 read invocation, 실행하지
-않는 approval-pending mutation까지 실제 HTTP sequence로 확인한다. Real
-PostgreSQL integration specs는 durable `CapabilityInvocation`, exact-input
-approval, owner idempotency, Operation, organization fence를 독립 Testcontainer에서
-검증한다.
+session graph가 없다. `npm run smoke:interaction-os`는 authenticated facade에서
+bounded disposable conversation create의 exact-ID replay와 title-drift `409`,
+preference read/set/read, provider history, exact disposable deletion을 확인한 뒤
+정확히 다섯 MCP tool, 한 read invocation, 실행하지 않는 approval-pending mutation
+sequence를 확인한다. Preference traffic은 native serialized state로 끝나며
+PostgreSQL persistence를 뜻하지 않는다. Real PostgreSQL integration specs는 durable
+`CapabilityInvocation`, exact-input approval, owner idempotency, Operation,
+organization fence를 독립 Testcontainer에서 검증한다.
 
 Release acceptance는 `npm run qa:agent-os:clean-cutover`의 명시적으로 격리된
 PostgreSQL 17에 compiled API, Operations worker, Web을 부팅하고 native macOS
@@ -224,6 +237,14 @@ read, provider-native delegation, approval 후 explicit retry, Operation card,
 interrupt/restart/no-auto-turn, four-active-turn cap, conversation deletion의
 business-record 비연쇄 삭제, nginx internal-route 404를 확인한 뒤 모든 process와
 QA container를 종료한다.
+
+Authenticated browser QA is a release gate for one runtime across Dashboard,
+work routes, and Agent OS; first-send retry without duplicate streams; global
+chat/history presentation replacement; one right auxiliary surface; and the
+desktop/mobile panel contracts. It also verifies exact disposable provider
+deletion, focus restoration, clean retired-surface removal, and the Dashboard
+regression contract without printing credentials, provider payloads, or
+transcripts.
 
 ### Tier 3 추가 시 체크리스트
 
