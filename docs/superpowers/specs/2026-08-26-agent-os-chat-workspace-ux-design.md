@@ -2,18 +2,19 @@
 
 **Date:** 2026-08-26  
 **Status:** Ready for review  
-**Scope:** KID-25 global chat dock, Agent OS history workspace, Gateway-local conversation preferences, and conversation-history management
+**Scope:** KID-25 global AI chat panel, Agent OS history workspace, Gateway-local conversation preferences, and conversation-history management
 
 ## 1. Summary
 
-Every authenticated KidItem work surface gains immediate access to a conversation-first AI chat dock. The Dashboard and ordinary work screens are where conversations naturally begin while the user works; Agent OS becomes the full history, search, settings, and conversation-resume workspace.
+Every authenticated KidItem work surface gains immediate access to a conversation-first AI chat panel in the app shell's single right auxiliary surface. The Dashboard and ordinary work screens are where conversations naturally begin while the user works; Agent OS becomes the full history, search, settings, and conversation-resume workspace.
 
 The workspace keeps its existing provider-native conversation architecture. It does not add a KidItem database conversation model, provider credential persistence, AgentVersion model policy, native-subagent conversation rows, or a second task lifecycle.
 
 The user-facing changes are:
 
-- a global right-side AI chat dock owned by the authenticated app shell;
-- the existing bottom-sidebar `AI 챗` utility wired as the normal dock trigger without coupling chat state to sidebar composition;
+- one global right auxiliary surface owned by the authenticated app shell;
+- `notifications | ai_chat | null` as its complete visible-state model, where `null` means closed;
+- the existing bottom-sidebar `AI 챗` utility wired as the AI chat trigger without coupling chat state to sidebar composition;
 - the existing Dashboard `Agent OS` organization chart, label, cards, and action semantics preserved without chat-driven redesign;
 - an explicit Dashboard return action;
 - one folder tree containing General chat and the five code-owned Agents;
@@ -29,7 +30,7 @@ The user-facing changes are:
 1. Let a user open AI chat from every authenticated work screen without first navigating to Agent OS.
 2. Keep an open conversation available while the user navigates between work screens.
 3. Let a user return from Agent OS to the Dashboard without relying on browser history.
-4. Make both the chat dock and Agent OS look and behave like first-party KidItem surfaces.
+4. Make both the AI chat panel and Agent OS look and behave like first-party KidItem surfaces.
 5. Let a user start ordinary General chat immediately without a setup dialog.
 6. Organize top-level conversations as a familiar folder tree by General or Agent context.
 7. Preserve the immutable Provider choice while allowing model and reasoning effort to change between turns.
@@ -72,13 +73,23 @@ The normal workspace does not show `Gateway`, `provider-local`, `descriptor`, `e
 
 ## 5. Information Architecture
 
-### 5.1 Global chat dock
+### 5.1 Global right auxiliary panel
 
-The authenticated `AppLayout` owns one global conversation dock and its launcher contract. The dock is mounted independently from route content, Dashboard composition, and sidebar menu definitions.
+The authenticated `AppLayout` owns one global right auxiliary panel and its launcher contract. Exactly one of the following states is visible:
 
-The existing bottom-sidebar `AI 챗` utility is wired to this dock wherever the ordinary KidItem sidebar is rendered. It remains available as an icon when the sidebar is collapsed. It is an app-shell utility, not a navigation route or an Agent OS tab.
+```typescript
+type ActiveRightSurface = 'notifications' | 'ai_chat' | null;
+```
 
-The underlying dock controller does not live inside `Sidebar`. A future sidebar redesign can move or replace its launcher without changing conversation state, APIs, or the dock. Authenticated full-screen surfaces that do not render the ordinary sidebar must provide the same launcher through their shell, unless the surface is Agent OS itself and already shows the active conversation. Login and public rendering surfaces never mount it.
+Selecting the already active surface closes it. Selecting the other surface replaces the current content in the same panel slot. Notification and AI chat content bodies are never mounted as competing right-side overlays.
+
+After authentication succeeds, `AppLayout` also mounts exactly one route-stable `ConversationProvider` and one `ConversationRuntimeHost`. The runtime host owns the active `useAgent` binding, live turn correlation, interrupt control, and live projection for the selected Conversation. Ordinary route changes, including navigation between a work screen and `/agent-os`, change only the presentation view; they do not unmount or duplicate the runtime host. The AI chat panel and Agent OS must never create two active subscriptions for the same Conversation.
+
+While `/agent-os` is active, the auxiliary AI chat body is suppressed because Agent OS already presents the selected Conversation. This does not clear the selected Conversation or stop the runtime host. Returning to an ordinary work screen restores the prior auxiliary-panel state without starting another subscription.
+
+The existing bottom-sidebar `AI 챗` utility selects `ai_chat` wherever the ordinary KidItem sidebar is rendered. The notification trigger selects `notifications`. Both use the same app-shell controller. The AI chat utility remains available as an icon when the sidebar is collapsed. It is an app-shell utility, not a navigation route or an Agent OS tab.
+
+The underlying right-surface controller does not live inside `Sidebar` or notification state. A future sidebar redesign can move or replace either launcher without changing conversation state, APIs, or the auxiliary panel. Authenticated full-screen surfaces that do not render the ordinary sidebar must provide the same AI chat launcher through their shell, unless the surface is Agent OS itself and already shows the active conversation. Login and public rendering surfaces never mount it.
 
 Opening the global launcher:
 
@@ -89,9 +100,9 @@ Opening the global launcher:
 
 The existing Dashboard `Agent OS` region remains unchanged. Its `Agent OS` label, organization chart, business cards, and existing action semantics do not become chat launchers and are not renamed in this scope.
 
-An Agent-bound draft is selected from the dock's new-conversation context menu or from the matching Agent OS folder `+` action. A future explicit domain entry point may call the same dock controller, but this design does not add or repurpose one inside the Dashboard `Agent OS` region.
+An Agent-bound draft is selected from the AI chat panel's new-conversation context menu or from the matching Agent OS folder `+` action. A future explicit domain entry point may call the same right-surface controller, but this design does not add or repurpose one inside the Dashboard `Agent OS` region.
 
-The dock header contains:
+The AI chat panel header contains:
 
 - General or fixed Agent identity;
 - conversation title when one exists;
@@ -100,7 +111,9 @@ The dock header contains:
 - a Settings action; and
 - `전체 기록`, which opens `/agent-os` at the current conversation or selected context.
 
-At wide desktop sizes the dock occupies a bounded right column and keeps the work surface visible. At narrower sizes it becomes an overlay drawer. It has its own scroll region and reuses the same conversation stream, cards, composer, draft behavior, and Query state as Agent OS.
+On desktop, the auxiliary panel is a fixed 420-pixel non-modal surface attached to the right edge. It has no page-wide modal overlay, leaves the uncovered work surface interactive, and does not resize, reflow, or calculate the remaining width of the current work screen. Below 768 pixels it uses the same state and content in a full-width modal drawer. This is one responsive panel shell, not separate dock and drawer features.
+
+The Quick Action FAB does not move in response to the panel. It is hidden while either auxiliary surface is open and restored when the panel closes. Notification data collection and the conversation runtime remain mounted independently from which panel content is visible. Replacing AI chat with notifications therefore hides only the chat presentation; it does not interrupt the active turn or discard the selected Conversation. The AI chat content has its own scroll region and reuses the same route-stable conversation stream, cards, composer, draft behavior, and Query state as Agent OS.
 
 ### 5.2 Agent OS history workspace
 
@@ -142,7 +155,12 @@ Expansion state is disposable UI state. Selecting a conversation expands its own
 
 The tree has a visually primary `새 AI 대화` action. It opens an unsaved General draft immediately and focuses the composer. It does not open a runtime-selection modal and does not create a provider Conversation merely by opening or closing the draft.
 
-The global sidebar `AI 챗` utility, any authenticated full-screen launcher, and the existing Quick Action entry call the same dock controller and use the same General draft behavior. The dock context menu and Agent OS folder actions call that controller with the exact fixed Agent key.
+The global sidebar `AI 챗` utility, any authenticated full-screen launcher, and the existing Quick Action entry call the same right-surface controller and use the same General draft behavior. The AI chat panel context menu and Agent OS folder actions call that controller with the exact fixed Agent key.
+
+The existing Sourcing decision-center question action also calls this controller
+with its fixed Sourcing context and prepared question. Its product label becomes
+`소싱 Agent에게 묻기`; it no longer says `AgentOS에서 묻기` or navigates to
+`/agent-os` merely to expose a composer.
 
 No entry point owns transcript state, creates its own CopilotKit provider, or implements a separate conversation panel.
 
@@ -154,6 +172,8 @@ A draft contains only disposable browser state:
 
 ```typescript
 type NewConversationDraft = {
+  /** Browser-reserved ID; creating a draft still creates no Provider session. */
+  conversationId: string;
   agentKey: AgentKey | null;
   provider: 'codex_cli' | 'claude_cli' | null;
   model: string | null;
@@ -162,7 +182,9 @@ type NewConversationDraft = {
 };
 ```
 
-It contains no provider reference, transcript, capability grant, credential, Task, Attempt, or durable lifecycle state.
+The browser generates `conversationId` once when it opens a new draft and reuses it for every retry of that draft. Reserving this opaque ID creates no Provider session and writes no durable state. It becomes the local Conversation descriptor ID only after successful creation.
+
+The draft contains no provider reference, transcript, capability grant, credential, Task, Attempt, or durable lifecycle state.
 
 ### 6.2 First send
 
@@ -174,13 +196,15 @@ Open General or Agent draft
   -> apply valid context/provider preference
   -> user may change model and reasoning effort
   -> user sends the first message
-  -> create provider Conversation
+  -> create provider Conversation with the exact draft conversationId
   -> Provider becomes immutable
   -> bind the CopilotKit conversation surface
   -> start the first turn with explicit model and reasoning effort
 ```
 
 Provider may change while the draft is unsaved. It becomes immutable when Conversation creation succeeds. Opening and abandoning a draft produces no provider session and no conversation-list entry.
+
+Conversation creation is idempotent at the native owner boundary. The same `conversationId` plus the same canonical runtime, Agent context, and title returns the existing Conversation without creating another Provider session. Reusing that ID with different canonical input is a conflict. The first-turn handoff is consumed at most once for that ID, so double-clicks, response loss, React remounts, and explicit retries cannot create duplicate Conversations or start the first turn twice.
 
 The initial title is a deterministic, bounded title derived from the normalized first message. It does not require an LLM call. The user may rename it later.
 
@@ -200,7 +224,7 @@ The user may select a supported model and reasoning effort before every new turn
 
 The composer follows the attached ChatGPT reference's compact visual hierarchy without copying unsupported controls.
 
-The global dock and Agent OS workspace render the same composer component and conversation flow. A conversation opened in the dock is the same provider Conversation when opened through `전체 기록`; it is not copied or restarted.
+The global AI chat panel and Agent OS workspace render the same composer component and conversation flow. A conversation opened in the panel is the same provider Conversation when opened through `전체 기록`; it is not copied or restarted.
 
 It consists of one rounded, border-first container with:
 
@@ -271,7 +295,7 @@ There is no silent Provider, model, or reasoning-effort fallback.
 
 ### 8.3 Storage ownership
 
-The native Host Runner stores preferences as a strict, versioned, bounded local file alongside its existing conversation descriptor catalog. Writes are atomic and use the same operating-system account protections as conversation descriptors.
+The native Host Runner stores preferences as a strict, versioned, bounded local file alongside its existing conversation descriptor catalog. Writes are atomic, serialized, and use the same operating-system account protections as conversation descriptors.
 
 The preference file contains no:
 
@@ -283,11 +307,11 @@ The preference file contains no:
 - approval or Operation state; or
 - model fallback policy.
 
-Nest exposes authenticated, organization-scoped preference read/update commands through the existing Host Runner control boundary. It does not copy preferences into PostgreSQL.
+Preferences are scoped to the dedicated Host Runner installation user, matching the current single-user home-server product target. Nest requires the current authenticated user and organization fence before issuing preference read/update commands through the existing Host Runner control boundary, but organization ID is not a preference-storage key and does not create per-organization copies. Nest does not copy preferences into PostgreSQL.
 
 ### 8.4 Settings interface
 
-A Settings action in the global dock and a Settings button at the bottom of the Agent OS conversation tree open the same dialog with:
+A Settings action in the global AI chat panel and a Settings button at the bottom of the Agent OS conversation tree open the same dialog with:
 
 - `대화 기본값`; and
 - `채팅 기록`.
@@ -299,7 +323,7 @@ A Settings action in the global dock and a Settings button at the bottom of the 
 - a currently supported model; and
 - a supported reasoning effort.
 
-Unavailable or obsolete stored selections appear as needing review. The UI never silently replaces them.
+Unavailable or obsolete stored selections appear as needing review. The UI never silently replaces them. Provider login, installation, and readiness recovery remain operator-owned runbook concerns; this dialog does not expose operational status, login controls, Gateway terminology, or Host Runner management.
 
 ## 9. Chat History Management
 
@@ -317,23 +341,30 @@ Search and filtering are client projections over the bounded conversation summar
 
 ### 9.1 Deletion
 
-Deletion preserves the existing owner order:
+Deletion presents one Provider-independent user action while preserving the existing owner order:
 
 ```text
-Provider conversation delete/archive
+Provider-owned conversation removal
   -> local descriptor removal
   -> Web query cache removal
 ```
 
-The UI removes a row only after success. A failure leaves the conversation visible and retryable.
+The native Provider adapter owns the concrete removal mechanism:
 
-Bulk deletion uses bounded-concurrency individual deletes so partial Provider failures are observable and retryable. Before execution, the confirmation dialog shows the exact scope and conversation count. The result reports success and failure counts and retains every failed row.
+- Codex archives the exact Provider thread.
+- Claude resolves the exact session below the canonical Claude project root and removes its main transcript plus exact session-owned subkeys or sidecars. It never accepts a path from Nest or Web.
+
+A Conversation with a live turn is not deletable until that turn is interrupted or terminal. Removal is idempotent: already-absent Provider state is success for the same Conversation, after which the descriptor is removed. The UI removes a row only after success. A genuine failure leaves the conversation visible and retryable.
+
+All conversation descriptor create, rename, turn-metadata update, and remove operations pass through one serialized store mutation queue. Atomic file replacement prevents torn files; serialization prevents concurrent read-modify-write operations from restoring deleted rows or losing newer metadata.
+
+Bulk deletion may use small bounded concurrency for Provider-owned removal, but every descriptor mutation remains serialized. Partial Provider failures are observable and retryable. Before execution, the confirmation dialog shows the exact scope and conversation count. The result reports success and failure counts and retains every failed row.
 
 There is no Archive state, automatic retention period, soft-delete model, or restore workflow in this scope.
 
 ## 10. Visual Language
 
-The global chat dock and Agent OS use the same semantic tokens and interaction language as the Dashboard:
+The global AI chat panel and Agent OS use the same semantic tokens and interaction language as the Dashboard:
 
 - KidItem purple for primary actions, selected conversation, and focus;
 - neutral page, card, sunken, border, and text tokens;
@@ -343,13 +374,18 @@ The global chat dock and Agent OS use the same semantic tokens and interaction l
 - 8-pixel navigation/action radii and a 12-14-pixel composer radius; and
 - 100-150 millisecond reduced-motion-aware state transitions.
 
-The dock and workspace are not ChatGPT clones. The screenshot informs the compact composer hierarchy only. KidItem's branding, Agent folders, capability cards, and Dashboard semantics remain authoritative.
+The panel and workspace are not ChatGPT clones. The screenshot informs the compact composer hierarchy only. KidItem's branding, Agent folders, capability cards, and Dashboard semantics remain authoritative.
 
 ## 11. Responsive and Accessibility Behavior
 
-- At 1280 pixels and above, the global dock uses a bounded 400-480-pixel right column and keeps the underlying work surface visible.
-- Below 1280 pixels, the global dock becomes an overlay drawer so route layouts do not collapse.
-- Dock open state and the selected conversation survive ordinary client-side route navigation.
+- The global right auxiliary surface has exactly `notifications | ai_chat | null` visible states; `null` means closed.
+- Selecting one surface atomically replaces the other; selecting the active surface closes the panel.
+- At 768 pixels and above, the panel is a fixed 420-pixel non-modal surface that does not reflow the current work screen.
+- Below 768 pixels, the same panel becomes a full-width modal drawer.
+- Desktop presentation does not trap focus or block the uncovered work surface; the mobile modal drawer does trap focus until dismissed.
+- The Quick Action FAB never repositions and remains hidden while the auxiliary panel is open.
+- Panel state and the selected conversation survive ordinary client-side route navigation.
+- Switching to notifications or closing the panel does not interrupt an active chat turn.
 - At 1024 pixels and above, the Agent OS 288-pixel folder tree remains visible.
 - Below 1024 pixels, the tree becomes a modal drawer and the conversation keeps the full content width.
 - Below 640 pixels, composer controls wrap without placing the selector over the input.
@@ -366,7 +402,7 @@ The dock and workspace are not ChatGPT clones. The screenshot informs the compac
 
 | Condition | User-facing behavior |
 |---|---|
-| Codex/Claude unavailable | Explain that the selected conversation engine cannot currently be used and link to Settings |
+| Codex/Claude unavailable | State only that the selected conversation engine cannot currently be used. Preserve the draft or existing conversation and offer Retry; a draft may select another available Provider. Do not expose operator login or readiness controls in the product UI. |
 | Stored model no longer supported | Mark the combined selector and require reselection |
 | Conversation creation failure | Preserve draft, Provider, model, reasoning effort, and message for retry |
 | First turn failure after creation | Keep the new conversation visible and preserve the message for explicit retry |
@@ -383,16 +419,19 @@ User messages do not contain `Gateway`, `descriptor`, `provider-local`, `binding
 
 Expected Web ownership:
 
-- `AppLayout` owns one global dock mount and passes the existing `Sidebar` utility a toggle callback.
+- `AppLayout` owns one authenticated, route-stable `ConversationProvider`, `ConversationRuntimeHost`, and right auxiliary panel mount, and passes the existing launchers explicit surface-selection callbacks.
 - `Sidebar` remains a launcher only and does not own conversation state or final sidebar composition.
-- a focused `ConversationDock` renders the active conversation beside authenticated route content.
+- a focused `RightAuxiliaryPanel` owns the shared shell, focus behavior, dismissal, and desktop/mobile presentation.
+- `NotificationPanelContent` and `ConversationPanel` are mutually exclusive bodies of that shell; neither owns the global right-surface state.
+- `ConversationPanel` and the Agent OS workspace are presentation views over the same runtime host; neither independently mounts `useAgent` for the selected Conversation.
 - `AgentConversationSurface` becomes the Agent OS history-workspace composition and is split before additional behavior makes it larger.
-- `AgentConversationSidebar` becomes a folder-tree composition.
+- `ConversationFolderTree` replaces the old flat `AgentConversationSidebar`; the
+  old component and export are deleted rather than retained as a wrapper.
 - a focused new-draft hook owns unsaved first-message state and creation handoff.
-- `AgentConversationComposer` owns compact input and the combined selector and is shared by dock and workspace modes.
+- `AgentConversationComposer` owns compact input and the combined selector and is shared by panel and workspace modes.
 - a settings dialog owns preference and history-management views.
 - React Query remains the owner of conversation summaries, history, readiness, and preferences.
-- Zustand holds only dock open, open folder, selected conversation, pending draft, and dialog UI coordinates.
+- the app-shell UI store holds one `activeRightSurface`; conversation UI state holds only open folder, selected conversation, pending draft, and dialog coordinates.
 
 Expected backend ownership:
 
@@ -401,44 +440,98 @@ Expected backend ownership:
 - the native Host Runner owns the strict local preference store and provider conversation deletion.
 - no business domain or Prisma adapter participates.
 
-The existing 500-plus-line `AgentConversationSurface` must be decomposed into shared conversation flow, dock composition, and Agent OS history composition rather than expanded further.
+The existing notification `PanelSheet` shell and the future AI chat shell must
+contract into one `RightAuxiliaryPanel`; their domain-specific contents remain
+separate. `PanelSheet` is renamed and reduced to `NotificationPanelContent`,
+with no Dialog shell, compatibility export, or hidden wrapper left behind. The
+existing 500-plus-line `AgentConversationSurface` must be decomposed into shared
+conversation flow, panel composition, and Agent OS history composition rather
+than expanded further.
+
+### 13.1 Clean cutover and legacy removal
+
+This is a clean replacement, not a compatibility migration. The implementation
+removes every superseded presentation path in the same change:
+
+- delete the old `PanelSheet` component name, import path, Dialog shell, and
+  `PanelSheet`-named tests after moving its notification body into
+  `NotificationPanelContent`; replace the old `PanelMount` wrapper with a
+  data-only `NotificationDataMount` that renders no hidden UI;
+- remove `panel-store.isOpen`, `panel-store.setOpen`,
+  `kiditem.panel.open`, and their fixtures. `activeRightSurface` is the only
+  presentation-state authority and the obsolete localStorage value is simply
+  ignored rather than migrated;
+- remove notification-row code that mutates the retired panel-open state.
+  Ordinary route navigation preserves the app-shell right-surface selection;
+- delete `AgentConversationSidebar` after `ConversationFolderTree` takes over;
+- remove the route-local ConversationProvider branch, the old
+  `CreateConversationDialog`, `pendingOpen`, `consumePendingOpen`, and automatic
+  `/agent-os` navigation and `AgentOS에서 묻기` label used only to expose chat;
+  and
+- remove obsolete mocks, fixtures, exports, and tests together with each deleted
+  production path.
+
+No dual-write state, compatibility alias, deprecated prop, hidden component, or
+one-time migration is added. Notification SSE/data recovery remains mounted
+because it is active product behavior; only its retired presentation lifecycle
+is removed. ConversationRuntimeHost likewise remains mounted independently of
+whether its presentation body is visible.
 
 ## 14. Verification
 
 ### 14.1 Web behavior
 
-- existing bottom-sidebar `AI 챗` utility opens the global dock while remaining independent of menu definitions
+- existing bottom-sidebar `AI 챗` utility selects the global AI chat panel while remaining independent of menu definitions
 - collapsed-sidebar and authenticated full-screen launcher behavior
-- dock state and active conversation survive ordinary route navigation
-- Dashboard remains visible beside the dock at wide desktop sizes
+- the exact `notifications | ai_chat | null` state machine, including same-trigger close and cross-trigger replacement
+- panel state and active conversation survive ordinary route navigation
+- one active turn, subscription, live projection, and interrupt control survive AI Chat panel -> Agent OS -> Dashboard navigation without remount or duplication
+- Agent OS suppresses the auxiliary AI chat body without clearing its selected Conversation, and returning restores the prior panel state
+- while Agent OS suppresses `ai_chat`, an already-selected `notifications`
+  surface remains available because only the duplicate chat presentation is
+  excluded
+- desktop auxiliary panel overlays only its fixed rectangle without reflowing the Dashboard
+- the same auxiliary panel uses a full-width modal drawer below 768 pixels
+- Quick Action FAB is hidden without repositioning while either auxiliary surface is open
+- notification selection and panel close do not interrupt an active chat turn
 - Dashboard `Agent OS` label, organization chart, cards, and existing actions remain unchanged
-- dock new-conversation context menu opens an Agent-bound draft without touching Dashboard Agent UI
+- AI chat panel new-conversation context menu opens an Agent-bound draft without touching Dashboard Agent UI
 - `전체 기록` opens Agent OS at the current conversation or context
-- dock and Agent OS reuse one conversation flow without duplicate transcript state
+- AI chat panel and Agent OS reuse one conversation flow without duplicate transcript state
 - Dashboard return and KidItem visual tokens
 - General plus exactly five Agent folders in stable order
 - folder expansion, selection, nested sessions, and `updatedAt` ordering
 - primary General draft and folder-specific Agent drafts
 - no Conversation API call merely from opening or closing a draft
 - first Send creates the conversation and fixes Provider
+- same reserved conversation ID plus the same canonical create input replays one Conversation; input drift conflicts
+- double-click, response-loss retry, and React remount do not create a duplicate Conversation or start the first turn twice
 - combined selector supports Provider only before creation and model/effort between turns
 - General/Agent plus Provider preference selection
 - existing conversation last-selection precedence
 - invalid stored selection requires explicit user action
 - search, folder filter, rename, individual delete, folder delete, and delete all
 - partial bulk-delete result behavior
-- keyboard, focus return, IME-safe Enter, reduced motion, and responsive drawer
+- keyboard, focus transfer between auxiliary surfaces, focus return, IME-safe Enter, reduced motion, and responsive drawer
 - Invocation, Operation, resource cards, live messages, and terminal history reconciliation regressions
+- no `PanelSheet`, `AgentConversationSidebar`, route-local provider branch,
+  `CreateConversationDialog`, `pendingOpen`, panel `isOpen`/`setOpen`, or
+  `kiditem.panel.open` production path remains
 
 ### 14.2 Server and Host Runner behavior
 
 - strict preference input/output schemas
 - organization and current-user fence on preference and history APIs
 - atomic preference-file writes and invalid-file rejection
+- serialized preference and conversation-descriptor mutations under concurrent requests
+- installation-user preference scope without per-organization copies
 - no secret, credential, transcript, provider reference, or execution binding in preferences
 - create only on first Send
 - immutable Provider and Agent binding after creation
 - same existing delete ordering: Provider first, descriptor second
+- Codex archive and Claude exact session/subkey deletion satisfy the same product deletion contract
+- deletion rejects a live turn, treats already-absent Provider state as success, and remains retryable
+- concurrent rename, turn metadata update, individual delete, and bulk delete cannot lose or restore descriptor state
 - bulk operation partial failure remains retryable
 
 ### 14.3 Browser QA
@@ -446,17 +539,19 @@ The existing 500-plus-line `AgentConversationSurface` must be decomposed into sh
 Run authenticated browser QA for:
 
 1. open General chat from the bottom-sidebar utility on multiple authenticated routes;
-2. keep the dock and active conversation while navigating between work screens;
+2. keep the AI chat panel and active conversation while navigating between work screens, and keep one live turn while navigating AI Chat panel -> Agent OS -> Dashboard;
 3. verify the Dashboard `Agent OS` label, organization chart, cards, and existing actions are unchanged;
-4. open an Agent-bound draft from the dock context menu;
+4. open an Agent-bound draft from the AI chat panel context menu;
 5. open the same conversation through `전체 기록` and return to Dashboard;
 6. immediate General chat start;
 7. Agent-folder chat start;
 8. model/reasoning override between turns;
 9. settings save and reuse in a new draft;
-10. rename, search, individual delete, and confirmed bulk delete against disposable QA conversations;
-11. docked desktop, overlay drawer, Agent OS desktop, and Agent OS drawer layouts; and
-12. console/network checks confirming one conversation transport, no retired Agent OS endpoints, and no internal-error toasts.
+10. rename, search, individual delete, and confirmed bulk delete against disposable Codex and Claude QA conversations;
+11. Agent OS suppressing only the duplicate AI chat body while preserving its runtime and any selected notification body;
+12. focus transfer when replacing notification/chat content and focus return after close or Escape;
+13. desktop fixed auxiliary panel, mobile full-width auxiliary drawer, Agent OS desktop, and Agent OS tree-drawer layouts; and
+14. console/network checks confirming one conversation transport, no retired Agent OS endpoints, and no internal-error toasts.
 
 ## 15. Schema and Deployment Impact
 

@@ -1,10 +1,10 @@
-# Agent OS Global Chat Dock and History Implementation Plan
+# Agent OS Global Chat Panel and History Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make one provider-native KidItem conversation available from every authenticated work screen, keep its live runtime stable across route changes, and add the approved Agent OS folder/history/settings UX without adding PostgreSQL conversation state.
 
-**Architecture:** The authenticated Web app shell mounts exactly one CopilotKit provider and one conversation runtime host. Nest remains the authenticated same-origin facade. The native Agent Gateway remains the owner of provider conversation references, a serialized local descriptor catalog, provider deletion, and one strict installation-user preference file. Conversation creation uses a browser-reserved opaque ID and is idempotent at the Gateway owner boundary; presentation components never own a second runtime subscription.
+**Architecture:** The authenticated Web app shell mounts exactly one CopilotKit provider, one conversation runtime host, and one right auxiliary panel whose visible state is `notifications | ai_chat | null`. Nest remains the authenticated same-origin facade. The native Agent Gateway remains the owner of provider conversation references, a serialized local descriptor catalog, provider deletion, and one strict installation-user preference file. Conversation creation uses a browser-reserved opaque ID and is idempotent at the Gateway owner boundary; presentation components never own a second runtime subscription.
 
 **Tech Stack:** Next.js App Router, React 19, TypeScript, Zustand, TanStack Query, CopilotKit 1.69.0 v2 hooks, Radix UI, NestJS, Zod, native Codex app-server, Claude CLI provider-local JSONL state, Vitest, Testing Library.
 
@@ -22,6 +22,18 @@ The 2026-08-26 design controls this UX extension. The older KID-25 plan remains
 the source for capability, approval, MCP, execution-binding, and Gateway
 process contracts.
 
+Execute the seven integrated Tasks below. Task 2 keeps its three tightly
+coupled Gateway-owner phases together, and Task 6 keeps Agent OS history and
+Settings/history management together. Preserve focused tests and commits inside
+those phases; do not turn them back into separate Task-level review boundaries.
+Task 7 is the single cross-process acceptance and browser-QA checkpoint.
+
+Execution uses Terra(max) implementation workers. Do not run a full Sol review
+after every Task or phase. Use focused tests continuously, review only a
+critical owner/runtime boundary when evidence warrants it, and use Task 7 QA as
+the default completion gate. If an integrated final model review is still
+needed after QA, run it once with Sol(max).
+
 The following decisions are fixed:
 
 | Concern | Fixed decision |
@@ -35,17 +47,18 @@ The following decisions are fixed:
 | Model and reasoning | Explicit every turn; saved defaults are preferences, never fallback policy |
 | Agent folders | General plus the exact five code-owned Agents |
 | Native subagents | Stay inside the parent provider conversation |
-| Global access | One app-shell dock from every authenticated normal work surface |
+| Global access | One app-shell AI chat panel from every authenticated normal work surface |
 | Dashboard Agent OS UI | Label, organization chart, cards, and current actions remain unchanged |
-| Right panels | Notification panel and chat dock are mutually exclusive |
-| Dock mode | Side-by-side only when measured remaining work width is at least 960 px |
+| Right surface | Exactly `notifications | ai_chat | null`; selecting one replaces the other |
+| Panel mode | Fixed 420 px non-modal desktop panel; full-width modal drawer below 768 px; no remaining-width calculation |
 | History deletion | Provider removal first, descriptor removal second |
 | Preferences | One strict Host Runner installation-user file; no organization copies |
 | Schema | No Prisma change and no new Task, Session, Attempt, folder, archive, or retention model |
+| Legacy cutover | Delete replaced UI shells, state, fixtures, exports, and route jumps; no wrappers, aliases, dual state, or migration |
 
 Do not modify DESIGN.md or the user-edited KID-25 source documents while
 implementing this plan. Update only the architecture/testing documents named in
-Task 10 when their owned description becomes stale.
+Task 7 when their owned description becomes stale.
 
 ## First-Send Correctness Model
 
@@ -213,7 +226,14 @@ rtk git add packages/shared/src/agent-runtime
 rtk git commit -m "feat(agent-os): define conversation preference contracts"
 ~~~
 
-## Task 2: Make Descriptor Mutation and Conversation Creation Race-Safe
+## Task 2: Make Gateway Conversation Ownership Race-Safe
+
+Task 2 is one Gateway-owner checkpoint with three phases: descriptor/create
+correctness, Provider-independent deletion, and the installation-user
+preference store. The phases may commit separately, but they do not create
+compatibility boundaries or independent implementation Tasks.
+
+### Phase 2A: Serialize Descriptors and Make Create Idempotent
 
 **Files:**
 
@@ -339,7 +359,7 @@ rtk git add apps/agent-gateway/src/conversation apps/agent-gateway/src/control/g
 rtk git commit -m "fix(agent-os): serialize provider conversation ownership"
 ~~~
 
-## Task 3: Implement Provider-Independent History Deletion
+### Phase 2B: Implement Provider-Independent History Deletion
 
 **Files:**
 
@@ -456,7 +476,7 @@ rtk git add apps/agent-gateway/src/provider apps/agent-gateway/src/turn apps/age
 rtk git commit -m "feat(agent-os): delete provider-native conversation history"
 ~~~
 
-## Task 4: Add the Installation-User Preference Store and Control Commands
+### Phase 2C: Add the Installation-User Preference Store and Control Commands
 
 **Files:**
 
@@ -551,7 +571,7 @@ rtk git add apps/agent-gateway/src/conversation/conversation-preference.store.ts
 rtk git commit -m "feat(agent-os): store local conversation defaults"
 ~~~
 
-## Task 5: Extend the Authenticated Nest Conversation Facade
+## Task 3: Extend the Authenticated Nest Conversation Facade
 
 **Files:**
 
@@ -674,7 +694,7 @@ rtk git add apps/server/src/agent-os
 rtk git commit -m "feat(agent-os): expose conversation defaults securely"
 ~~~
 
-## Task 6: Build One Route-Stable Web Runtime and First-Send Coordinator
+## Task 4: Build One Route-Stable Web Runtime and First-Send Coordinator
 
 **Files:**
 
@@ -751,6 +771,13 @@ folders, and settings coordinates. It does not store server summaries,
 provider history, credentials, grants, Task/Attempt state, or provider
 references.
 
+Replace the old OpenConversationInput/pendingOpen/consumePendingOpen handoff
+with the actual NewConversationDraft value and one synchronous openConversation
+action that installs that draft. Do not keep aliases, deprecated fields, or a
+second consumed-intent path. Existing callers may keep the public action name;
+Task 5 removes their automatic /agent-os navigation when the app-shell panel
+becomes the presentation entry point.
+
 Reserve conversationId with globalThis.crypto.randomUUID exactly once per new
 draft. If secure random UUID generation is unavailable, fail draft creation
 explicitly; do not add a Date/Math.random fallback.
@@ -800,7 +827,7 @@ ConversationRuntimeHost:
   render-effect race;
 - owns useAgent, subscription, active turn, live messages, tool projections,
   terminal-history reconciliation, input, and interrupt;
-- exposes a React context consumed by both dock and Agent OS presentations;
+- exposes a React context consumed by both AI chat panel and Agent OS presentations;
 - leaves React Query as owner of summaries, provider history, readiness, and
   preferences; and
 - never starts or resumes a turn from a route effect.
@@ -811,7 +838,7 @@ regression tests when extracting it.
 Extract ConversationFlow in this task as the shared messages/cards/composer
 presentation over the runtime context. Temporarily keep the current Agent OS
 layout around it. AgentConversationSurface must no longer call useAgent before
-the global dock is introduced in Task 7.
+the global AI chat panel is introduced in Task 5.
 
 - [ ] **Step 6: Extend Web API and query keys**
 
@@ -851,57 +878,83 @@ rtk git add apps/web/src/components/agent-interaction apps/web/src/lib/query-key
 rtk git commit -m "refactor(agent-os): keep one conversation runtime host"
 ~~~
 
-## Task 7: Wire the Global Dock and Right-Surface Layout
+## Task 5: Wire the Single Right Auxiliary Panel
 
 **Files:**
 
-- Create: apps/web/src/components/agent-interaction/ConversationDock.tsx
-- Create: apps/web/src/components/agent-interaction/useConversationDockMode.ts
-- Create: apps/web/src/components/agent-interaction/__tests__/ConversationDock.spec.tsx
-- Create: apps/web/src/components/agent-interaction/__tests__/useConversationDockMode.spec.tsx
+- Create: apps/web/src/components/agent-interaction/ConversationPanel.tsx
+- Create: apps/web/src/components/agent-interaction/__tests__/ConversationPanel.spec.tsx
+- Create: apps/web/src/components/agent-interaction/conversation-context.catalog.ts
+- Create: apps/web/src/components/layout/RightAuxiliaryPanel.tsx
+- Create: apps/web/src/components/layout/__tests__/RightAuxiliaryPanel.spec.tsx
 - Modify: apps/web/src/components/layout/AppLayout.tsx
 - Modify: apps/web/src/components/layout/__tests__/AppLayout.auth.spec.tsx
 - Modify: apps/web/src/components/layout/Sidebar.tsx
 - Modify: apps/web/src/components/layout/__tests__/Sidebar.product-pipeline.spec.ts
 - Modify: apps/web/src/store/useStore.ts
-- Modify: apps/web/src/components/panel/PanelSheet.tsx
-- Modify: apps/web/src/components/panel/__tests__/PanelSheet.spec.tsx
+- Modify: apps/web/src/components/agent-interaction/conversation-surface-state.ts
+- Modify: apps/web/src/components/agent-interaction/conversation-surface-state.spec.ts
+- Rename: apps/web/src/components/panel/PanelSheet.tsx
+  to apps/web/src/components/panel/NotificationPanelContent.tsx
+- Rename: apps/web/src/components/panel/__tests__/PanelSheet.spec.tsx
+  to apps/web/src/components/panel/__tests__/NotificationPanelContent.spec.tsx
+- Modify: apps/web/src/components/panel/PanelAlertRow.tsx
+- Modify: apps/web/src/components/panel/__tests__/PanelAlertRow.spec.tsx
 - Modify: apps/web/src/components/panel/lib/panel-store.ts
 - Modify: apps/web/src/components/panel/lib/__tests__/panel-store.spec.ts
+- Modify: apps/web/src/components/panel/hooks/__tests__/usePanelStream.spec.tsx
+- Modify: apps/web/src/components/__tests__/GenerationCompletionWatcher.spec.tsx
+- Modify: apps/web/src/app/(analytics)/dashboard/components/DashboardSidePanel.spec.tsx
+- Modify: apps/web/src/app/(sourcing-ai)/sourcing-ai/decision-center/components/EntryRecommendationBoard.tsx
+- Modify: apps/web/src/app/(sourcing-ai)/sourcing-ai/decision-center/components/EntryRecommendationBoard.spec.tsx
+- Modify: apps/web/src/app/(sourcing-ai)/sourcing-ai/decision-center/components/EntryRecommendationDetail.tsx
 - Modify: apps/web/src/components/QuickActionFab.tsx
 - Modify: apps/web/src/components/__tests__/QuickActionFab.spec.tsx
 - Modify: apps/web/src/components/panel/AGENTS.md
 - Modify: apps/web/src/store/AGENTS.md
 
-- [ ] **Step 1: Add failing app-shell and measured-layout tests**
+- [ ] **Step 1: Add failing app-shell and single-surface tests**
 
 Test:
 
 - authenticated AppLayout mounts exactly one ConversationProvider and one
   ConversationRuntimeHost for normal routes and /agent-os;
 - loading, anonymous, no-organization, error, and public surfaces mount neither;
-- the existing bottom Sidebar AI 챗 button opens/closes the dock when expanded
+- the existing bottom Sidebar AI 챗 button opens/closes the panel when expanded
   or collapsed;
 - opening notifications closes chat and opening chat closes notifications;
+- selecting the already active surface closes the panel;
 - route navigation preserves right-surface state and selected Conversation;
-- measured shell width chooses docked only when actual remaining work width
-  after the 440 px dock is at least 960 px;
-- the same viewport can choose different modes when sidebar width changes;
-- docked mode leaves work content visible;
-- overlay mode uses a focus-managed drawer;
-- Quick Action FAB moves left by the actual dock width in docked mode and is
-  hidden while overlay chat is open; and
+- Agent OS suppresses an active ai_chat body without clearing its state, while
+  an active notifications body remains available; returning to a normal route
+  restores the same chat presentation and subscription;
+- desktop uses one fixed 420 px non-modal panel, leaves the uncovered work
+  surface interactive, and never reflows route content;
+- below 768 px the same active surface uses a full-width focus-managed modal
+  drawer;
+- switching notification and AI chat bodies transfers focus to the new body,
+  while closing with the close action or Escape restores focus to the launcher;
+- no ResizeObserver, remaining-work-width calculation, route-specific minimum,
+  or dock/overlay state exists;
+- Quick Action FAB never moves and is hidden while either surface is open;
+- replacing or closing chat does not interrupt its active turn;
+- 전체 기록 navigates with the current conversation/context and does not mount
+  another runtime subscription;
+- the existing Sourcing decision-center entry opens its fixed draft in ai_chat
+  under the label 소싱 Agent에게 묻기, without retaining AgentOS에서 묻기 or
+  navigating to /agent-os; and
 - Dashboard Agent OS regression fixture remains byte/semantic equivalent in
   label, chart, cards, and actions.
 
 Run:
 
 ~~~bash
-rtk npm exec --workspace=apps/web vitest -- run src/components/layout/__tests__/AppLayout.auth.spec.tsx src/components/agent-interaction/__tests__/ConversationDock.spec.tsx src/components/agent-interaction/__tests__/useConversationDockMode.spec.tsx src/components/panel/__tests__/PanelSheet.spec.tsx src/components/panel/lib/__tests__/panel-store.spec.ts src/components/__tests__/QuickActionFab.spec.tsx 'src/app/(analytics)/dashboard/components/DashboardChartPanel.agent-os-cutover.regression-1.spec.ts'
+rtk npm exec --workspace=apps/web vitest -- run src/components/layout/__tests__/AppLayout.auth.spec.tsx src/components/layout/__tests__/RightAuxiliaryPanel.spec.tsx src/components/agent-interaction/__tests__/ConversationPanel.spec.tsx src/components/agent-interaction/conversation-surface-state.spec.ts src/components/panel/__tests__/NotificationPanelContent.spec.tsx src/components/panel/__tests__/PanelAlertRow.spec.tsx src/components/panel/lib/__tests__/panel-store.spec.ts src/components/__tests__/QuickActionFab.spec.tsx 'src/app/(sourcing-ai)/sourcing-ai/decision-center/components/EntryRecommendationBoard.spec.tsx' 'src/app/(analytics)/dashboard/components/DashboardChartPanel.agent-os-cutover.regression-1.spec.ts'
 ~~~
 
 Expected: FAIL because the provider is route-specific, Sidebar chat is not
-wired, and panel open state is independent.
+wired, notifications still own an independent Dialog/open state, and the
+decision-center entry still jumps to Agent OS.
 
 - [ ] **Step 2: Make AppLayout the single authenticated runtime mount**
 
@@ -910,48 +963,87 @@ After the auth and organization gates, render:
 ~~~text
 ConversationProvider
   ConversationRuntimeHost
-    Agent OS presentation
-      OR
-    normal app shell + ConversationDock
+    Agent OS presentation OR normal app shell
+    RightAuxiliaryPanel(visibleRightSurface)
 ~~~
 
 The pathname branch changes presentation only. It must not create separate
-providers around /agent-os and normal routes. Agent OS does not render a second
-dock because its workspace already presents the selected Conversation.
+providers around /agent-os and normal routes. Agent OS suppresses the auxiliary
+AI chat body because its workspace already presents the selected Conversation,
+but it does not clear panel state or the selected Conversation. Returning to a
+normal route restores the prior panel state without another subscription.
+
+Derive presentation without mutating the stored coordinate:
+
+~~~typescript
+const visibleRightSurface = isAgentWorkspace && activeRightSurface === 'ai_chat'
+  ? null
+  : activeRightSurface;
+~~~
+
+This keeps notifications available on Agent OS and suppresses only the duplicate
+chat body.
 
 - [ ] **Step 3: Centralize right-surface UI state**
 
 Move only the open surface coordinate into the global Zustand app store:
 
 ~~~typescript
-type RightSurface = 'none' | 'notifications' | 'chat';
+type ActiveRightSurface = 'notifications' | 'ai_chat' | null;
 ~~~
 
-Panel data, SSE state, hidden rows, and recovery remain in panel-store.
-PanelSheet becomes controlled by AppLayout. Update the two scoped AGENTS.md
-files to reflect that app-shell state ownership moved while panel data did not.
+Expose selectRightSurface(surface) so selecting the current value writes null
+and selecting the other value replaces it in one state transition. Expose
+closeRightSurface() for the shell close action.
+
+Panel data, SSE state, hidden rows, and recovery remain in panel-store. Remove
+isOpen, setOpen, PANEL_OPEN_LS_KEY, readOpenFromStorage, every related fixture,
+and every caller. Do not read, clear, or migrate the obsolete browser key.
+
+Rename PanelSheet to NotificationPanelContent, remove its Dialog imports,
+Root/Portal/Overlay/Content, close button, and open-state selectors, and render
+it only as the notification body inside RightAuxiliaryPanel. Recovery runs when
+that content body mounts and when its connection state changes. Keep
+usePanelStream mounted independently in AppLayout through a
+NotificationDataMount that returns null. Remove the old PanelMount function and
+its PanelSheet render rather than repurposing it as an invisible UI wrapper.
+
+Remove PanelAlertRow's retired setPanelOpen dependency and its close-on-link
+test. Notification navigation preserves activeRightSurface like every other
+ordinary route navigation. Update the two scoped AGENTS.md files to reflect
+that app-shell state ownership moved while panel data did not.
 
 Sidebar remains a launcher: AppLayout passes notification/chat callbacks and
 open state. Do not add chat to menu definitions or make it a route link.
 
-- [ ] **Step 4: Measure dock mode without breakpoint feedback**
+Update the existing openConversation action so it installs the exact draft and
+selects ai_chat. Remove the AppLayout and Sourcing decision-center /agent-os
+pushes; both become callers of this single launcher. Rename the Sourcing action
+from AgentOS에서 묻기 to 소싱 Agent에게 묻기. Do not keep a route-jump variant,
+old product label, or compatibility alias.
 
-Attach ResizeObserver to the stable content region after the current sidebar
-offset and before applying the dock column. Use one 440 px default dock width
-within the approved 400-480 px bound.
+- [ ] **Step 4: Build one responsive auxiliary panel shell**
 
-Choose:
+RightAuxiliaryPanel renders the one active content body. At 768 px and above it
+is a fixed 420 px non-modal surface attached to the right edge. It adds no
+page-wide overlay, does not trap focus, leaves the uncovered work surface
+interactive, and never changes content width or sidebar offsets. Below 768 px
+the same component uses a full-width Radix modal drawer with focus trapping.
 
-~~~typescript
-const docked = measuredContentWidth - dockWidth >= 960;
-~~~
+Use one matchMedia('(max-width: 767px)') result only to select Radix modality;
+do not create a second shell. AppLayout captures the launcher element in a ref.
+On open or cross-surface replacement, focus the new body's labelled heading;
+on close or Escape, restore focus to the most recent launcher. Keep DOM refs
+out of Zustand.
 
-Use CSS grid for docked mode and a Radix Dialog portal for overlay mode. Do not
-base this choice on window.innerWidth or a 1280 px media query alone.
+Do not add ResizeObserver, measured-content state, page-specific width rules,
+CSS-grid dock columns, or separate dock and overlay components. The responsive
+change affects only the panel shell; notification data and ConversationRuntimeHost
+remain mounted independently.
 
-- [ ] **Step 5: Build the dock shell**
+- [ ] **Step 5: Build the AI chat panel content**
 
-ConversationDock provides:
+ConversationPanel provides:
 
 - fixed General/Agent identity and existing title;
 - new-conversation menu for General plus the exact five Agents;
@@ -964,15 +1056,45 @@ ConversationDock provides:
 It does not render Gateway/readiness management, provider-local terminology,
 Dashboard Agent cards, or its own useAgent.
 
+Use conversation-context.catalog.ts as the single ordered General/five-Agent
+label source for this menu and the Task 6 folder tree. Do not import labels from
+the retired AgentConversationSidebar.
+
+~~~typescript
+export const conversationContexts = [
+  { key: null, label: '일반 AI 챗', placeholder: '무엇을 도와드릴까요?' },
+  { key: 'sourcing', label: '소싱 Agent', placeholder: '소싱 Agent에게 무엇을 요청할까요?' },
+  { key: 'merchandising', label: '상품 Agent', placeholder: '상품 Agent에게 무엇을 요청할까요?' },
+  { key: 'supply', label: '공급 Agent', placeholder: '공급 Agent에게 무엇을 요청할까요?' },
+  { key: 'channel_operations', label: '채널 운영 Agent', placeholder: '채널 운영 Agent에게 무엇을 요청할까요?' },
+  { key: 'advertising', label: '광고 Agent', placeholder: '광고 Agent에게 무엇을 요청할까요?' },
+] as const;
+~~~
+
 - [ ] **Step 6: Coordinate Quick Action and notifications**
 
 The existing Quick Action conversation entry opens the same unsaved General
-draft in the dock; it no longer navigates first to /agent-os.
+draft in the AI chat panel; it no longer navigates first to /agent-os.
 
-Pass the docked offset and overlay-hidden state into QuickActionFab. Preserve
-all existing product/detail/thumbnail actions unchanged.
+QuickActionFab receives only whether an auxiliary surface is open. It never
+moves and is hidden until the surface closes. Preserve all existing
+product/detail/thumbnail actions unchanged. Opening notifications atomically
+replaces AI chat; closing or replacing the chat presentation must not interrupt
+the active turn owned by ConversationRuntimeHost.
 
-- [ ] **Step 7: Run layout regressions and build**
+- [ ] **Step 7: Verify the notification-shell cutover removed legacy code**
+
+Run:
+
+~~~bash
+rtk rg -n 'PanelSheet|function PanelMount|kiditem\.panel\.open|readOpenFromStorage|setPanelOpen' apps/web/src/components/panel apps/web/src/components/layout apps/web/src/store
+rtk rg -n '^\s*(isOpen|setOpen):' apps/web/src/components/panel/lib/panel-store.ts apps/web/src/components/panel/lib/__tests__/panel-store.spec.ts
+~~~
+
+Expected: both commands return no matches. Remove stale imports, mocks, fixture
+fields, and tests instead of exempting them.
+
+- [ ] **Step 8: Run layout regressions and build**
 
 ~~~bash
 rtk npm exec --workspace=apps/web vitest -- run src/components/layout src/components/agent-interaction src/components/panel src/components/__tests__/QuickActionFab.spec.tsx 'src/app/(analytics)/dashboard/components/DashboardChartPanel.agent-os-cutover.regression-1.spec.ts'
@@ -982,15 +1104,17 @@ rtk npm run build --workspace=apps/web
 Expected: tests and production Web build pass; Dashboard Agent OS UI remains
 unchanged.
 
-- [ ] **Step 8: Check instruction hygiene and commit**
+- [ ] **Step 9: Check instruction hygiene and commit**
 
 ~~~bash
 rtk npm run check:agents-hygiene
-rtk git add apps/web/src/components/agent-interaction apps/web/src/components/layout apps/web/src/components/panel apps/web/src/components/QuickActionFab.tsx apps/web/src/components/__tests__/QuickActionFab.spec.tsx apps/web/src/store
-rtk git commit -m "feat(agent-os): add authenticated global chat dock"
+rtk git add apps/web/src/components/agent-interaction apps/web/src/components/layout apps/web/src/components/panel apps/web/src/components/QuickActionFab.tsx apps/web/src/components/__tests__/QuickActionFab.spec.tsx apps/web/src/components/__tests__/GenerationCompletionWatcher.spec.tsx apps/web/src/store 'apps/web/src/app/(analytics)/dashboard/components/DashboardSidePanel.spec.tsx' 'apps/web/src/app/(sourcing-ai)/sourcing-ai/decision-center/components/EntryRecommendationBoard.tsx' 'apps/web/src/app/(sourcing-ai)/sourcing-ai/decision-center/components/EntryRecommendationBoard.spec.tsx' 'apps/web/src/app/(sourcing-ai)/sourcing-ai/decision-center/components/EntryRecommendationDetail.tsx'
+rtk git commit -m "feat(agent-os): add single global chat panel"
 ~~~
 
-## Task 8: Rebuild Agent OS as the Full Folder/History Workspace
+## Task 6: Build the Agent OS History, Settings, and Management Workspace
+
+### Phase 6A: Replace the Flat Agent OS Conversation Workspace
 
 **Files:**
 
@@ -1001,7 +1125,7 @@ rtk git commit -m "feat(agent-os): add authenticated global chat dock"
 - Create: apps/web/src/components/agent-interaction/__tests__/ConversationFolderTree.spec.tsx
 - Create: apps/web/src/components/agent-interaction/__tests__/ConversationCombinedSelector.spec.tsx
 - Modify: apps/web/src/components/agent-interaction/AgentConversationSurface.tsx
-- Modify: apps/web/src/components/agent-interaction/AgentConversationSidebar.tsx
+- Delete: apps/web/src/components/agent-interaction/AgentConversationSidebar.tsx
 - Modify: apps/web/src/components/agent-interaction/AgentConversationComposer.tsx
 - Modify: apps/web/src/components/agent-interaction/__tests__/AgentConversationSurface.spec.tsx
 - Modify: apps/web/src/app/agent-os/page.tsx
@@ -1042,7 +1166,7 @@ Expected: FAIL against the flat English sidebar and runtime-selection modal.
 - [ ] **Step 2: Finish the shared conversation presentation**
 
 Keep message history, live projection rendering, capability/tool/reference
-cards, and composer composition in the ConversationFlow extracted in Task 6.
+cards, and composer composition in the ConversationFlow extracted in Task 4.
 Finish its workspace header and compact-composer composition here. It consumes
 ConversationRuntimeHost context and React Query data; it does not mount
 useAgent.
@@ -1063,6 +1187,11 @@ Folders are a pure projection of ConversationSummary.agentKey. Store expansion
 as disposable UI state only. There is no folder API or persisted folder
 descriptor.
 
+Delete AgentConversationSidebar and its agentConversationDestinations export
+after ConversationFolderTree is wired. Do not retain an adapter component or
+re-export. Both ConversationPanel and ConversationFolderTree use the Task 5
+conversation-context catalog.
+
 Use stable product labels:
 
 ~~~text
@@ -1078,11 +1207,15 @@ Use stable product labels:
 
 Every new entry point creates only a browser draft. The initial compact
 composer contains Provider/model/reasoning choices and message. First Send
-calls the Task 6 coordinator, then fixes Provider and Agent context.
+calls the Task 4 coordinator, then fixes Provider and Agent context.
 
 Creation failure keeps every draft field. A provider-unavailable error says
 only that the selected engine cannot currently be used, keeps Retry, and lets a
 draft choose the other available provider.
+
+Delete CreateConversationDialog and its createOpen, initialDraft, pendingOpen,
+consumePendingOpen, and runtime-modal branches from AgentConversationSurface.
+Do not hide them behind a false condition or retain their tests.
 
 - [ ] **Step 5: Build the compact composer and combined selector**
 
@@ -1092,7 +1225,19 @@ errors, reduced motion, and control wrapping below 640 px.
 
 Do not render separate persistent Model and Reasoning select rows.
 
-- [ ] **Step 6: Run focused Agent OS tests and Web build**
+- [ ] **Step 6: Verify the Agent OS presentation cutover removed legacy code**
+
+Run:
+
+~~~bash
+rtk rg -n 'AgentConversationSidebar|agentConversationDestinations|CreateConversationDialog|pendingOpen|consumePendingOpen' apps/web/src/components/agent-interaction
+rtk rg -n 'router\.push\(.*?/agent-os|AgentOS에서 묻기|AgentOS 대화 열기' apps/web/src/components/layout/AppLayout.tsx apps/web/src/components/layout/__tests__/AppLayout.auth.spec.tsx 'apps/web/src/app/(sourcing-ai)/sourcing-ai/decision-center/components/EntryRecommendationBoard.tsx' 'apps/web/src/app/(sourcing-ai)/sourcing-ai/decision-center/components/EntryRecommendationBoard.spec.tsx' 'apps/web/src/app/(sourcing-ai)/sourcing-ai/decision-center/components/EntryRecommendationDetail.tsx'
+~~~
+
+Expected: both commands return no matches. The intentional 전체 기록
+navigation lives only in ConversationPanel and is not part of this scan.
+
+- [ ] **Step 7: Run focused Agent OS tests and Web build**
 
 ~~~bash
 rtk npm exec --workspace=apps/web vitest -- run src/components/agent-interaction
@@ -1102,14 +1247,14 @@ rtk npm run build --workspace=apps/web
 Expected: all folder, draft, composer, history reconciliation, and reference
 card tests pass.
 
-- [ ] **Step 7: Commit the Agent OS workspace**
+- [ ] **Step 8: Commit the Agent OS workspace**
 
 ~~~bash
 rtk git add apps/web/src/app/agent-os apps/web/src/components/agent-interaction
 rtk git commit -m "feat(agent-os): organize provider conversations by agent"
 ~~~
 
-## Task 9: Add Settings and Complete History Management
+### Phase 6B: Add Settings and Complete History Management
 
 **Files:**
 
@@ -1121,7 +1266,7 @@ rtk git commit -m "feat(agent-os): organize provider conversations by agent"
 - Create: apps/web/src/components/agent-interaction/__tests__/ConversationSettingsDialog.spec.tsx
 - Create: apps/web/src/components/agent-interaction/__tests__/conversation-preference-selection.spec.ts
 - Create: apps/web/src/components/agent-interaction/__tests__/conversation-bulk-delete.spec.ts
-- Modify: apps/web/src/components/agent-interaction/ConversationDock.tsx
+- Modify: apps/web/src/components/agent-interaction/ConversationPanel.tsx
 - Modify: apps/web/src/components/agent-interaction/ConversationFolderTree.tsx
 - Modify: apps/web/src/components/agent-interaction/ConversationFlow.tsx
 - Modify: apps/web/src/components/agent-interaction/ConversationRuntimeHost.tsx
@@ -1133,7 +1278,7 @@ rtk git commit -m "feat(agent-os): organize provider conversations by agent"
 
 Test:
 
-- Settings opens from the dock and Agent OS tree and returns focus to trigger;
+- Settings opens from the AI chat panel and Agent OS tree and returns focus to trigger;
 - defaults are editable for all six contexts times two providers;
 - new draft selection uses a supported matching preference;
 - existing conversation selection prefers supported lastModel and
@@ -1189,8 +1334,8 @@ readiness option implicitly.
 preference endpoint.
 
 채팅 기록 projects the bounded summary list for search/filter/rename/delete.
-Mount one ConversationSettingsDialog below ConversationRuntimeHost. The dock
-and Agent OS tree are triggers for that one app-shell-controlled instance; they
+Mount one ConversationSettingsDialog below ConversationRuntimeHost. The AI chat
+panel and Agent OS tree are triggers for that one app-shell-controlled instance; they
 must not mount competing dialog copies.
 
 - [ ] **Step 4: Implement bounded bulk deletion**
@@ -1237,7 +1382,7 @@ rtk git add apps/web/src/components/agent-interaction
 rtk git commit -m "feat(agent-os): manage chat defaults and history"
 ~~~
 
-## Task 10: Update Cross-Process Acceptance, Documentation, and Run Final QA
+## Task 7: Update Cross-Process Acceptance, Documentation, and Run Final QA
 
 **Files:**
 
@@ -1277,14 +1422,17 @@ Expected: smoke and script contract tests pass.
 In docs/ARCHITECTURE.md record:
 
 - one authenticated route-stable ConversationProvider/RuntimeHost;
-- global dock versus Agent OS history presentation;
+- global AI chat panel versus Agent OS history presentation;
+- one RightAuxiliaryPanel with NotificationPanelContent/ConversationPanel and
+  no retained PanelSheet shell or panel-open store;
 - native serialized descriptor/preference ownership;
 - provider-first deletion; and
 - no PostgreSQL conversation/preferences model.
 
 In docs/TESTING.md add the new create replay/drift, serialized local-state,
-provider deletion, route-stable runtime, measured dock, Dashboard regression,
-and browser QA gates.
+provider deletion, route-stable runtime, single-right-surface state machine,
+desktop/mobile panel behavior, clean legacy-surface removal, Dashboard
+regression, and browser QA gates.
 
 Do not modify the user-owned design source or DESIGN.md.
 
@@ -1355,12 +1503,19 @@ Verify:
    disposable QA Conversations.
 9. Codex archive is executed for a disposable Codex thread. Claude destructive
    behavior is deterministic-test-backed only when live Claude login is absent.
-10. Notification panel and chat dock exclude each other.
-11. A measured layout with at least 960 px remaining uses the side dock; a
-    layout below it uses the overlay even when the viewport width alone is
-    large.
-12. Quick Action FAB shifts in docked mode and hides in overlay mode.
-13. Browser console has no internal-error toast and network shows one
+10. Notification and AI chat content replace each other in one right auxiliary
+    panel; selecting the active surface closes it.
+11. On Agent OS, ai_chat presentation is suppressed without losing its turn;
+    notifications remain present when selected, and returning restores chat.
+12. 전체 기록 opens Agent OS at the exact current Conversation/context and
+    returning does not create another subscription.
+13. Cross-surface replacement moves focus into the new body; close and Escape
+    restore focus to the latest launcher.
+14. Desktop uses the fixed 420 px non-modal panel without reflow, while a
+    viewport below 768 px uses the full-width modal drawer.
+15. Quick Action FAB never moves and remains hidden while either auxiliary
+    surface is open.
+16. Browser console has no internal-error toast and network shows one
     CopilotKit conversation transport.
 
 Capture failures as code defects or the explicit Claude environment limitation;
@@ -1383,8 +1538,14 @@ Confirm:
 - no Dashboard Agent OS semantic change entered the diff;
 - no duplicate useAgent or ConversationProvider mount exists;
 - no provider path/reference enters Web or Nest public DTOs;
-- no silent model/reasoning fallback exists; and
-- no archive/retention/Task/Session compatibility layer was added.
+- no silent model/reasoning fallback exists;
+- no archive/retention/Task/Session compatibility layer was added;
+- no PanelSheet, AgentConversationSidebar, CreateConversationDialog,
+  pendingOpen/consumePendingOpen, panel isOpen/setOpen, obsolete panel local
+  storage key, AgentOS에서 묻기 label, or automatic chat-to-Agent-OS route jump
+  remains; and
+- no compatibility wrapper, alias, dual right-surface state, or migration was
+  added for the removed presentation paths.
 
 - [ ] **Step 8: Commit documentation and acceptance updates**
 
@@ -1407,11 +1568,14 @@ rtk git commit -m "docs(agent-os): verify global conversation workspace"
 - [ ] Nest derives user/organization scope for every API and exposes no provider
   coordinate.
 - [ ] One authenticated ConversationProvider/RuntimeHost survives route changes.
-- [ ] Dock and Agent OS share one runtime, flow, composer, Query cache, and
+- [ ] AI chat panel and Agent OS share one runtime, flow, composer, Query cache, and
   first-send coordinator.
-- [ ] Notification panel and chat dock are mutually exclusive.
-- [ ] Measured remaining work width, not viewport breakpoint alone, selects dock
-  versus overlay.
+- [ ] Notification and AI chat content are mutually exclusive bodies of one
+  `notifications | ai_chat | null` right surface.
+- [ ] Desktop uses one fixed 420 px non-modal panel; below 768 px the same panel
+  becomes a full-width modal drawer without remaining-width calculation.
+- [ ] Agent OS suppresses only duplicate ai_chat presentation; notification
+  presentation and the preserved chat runtime follow the fixed route rule.
 - [ ] Dashboard Agent OS UI and business actions are unchanged.
 - [ ] General plus exactly five Agent folders organize top-level conversations;
   native subagents stay inside parent streams.
@@ -1419,6 +1583,9 @@ rtk git commit -m "docs(agent-os): verify global conversation workspace"
   turn with no silent fallback.
 - [ ] Search, rename, individual delete, folder delete, and delete all satisfy
   retry/partial-failure behavior.
+- [ ] Replaced panel/sidebar/modal state and components are deleted with their
+  imports, fixtures, storage key, mocks, and tests; no compatibility layer
+  remains.
 - [ ] Shared, Gateway, server, Web, scanner, build, boot, macOS, smoke, and
   browser QA evidence is recorded.
 - [ ] The only live limitation, when still applicable, is unavailable Claude
