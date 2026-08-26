@@ -1,17 +1,20 @@
 # Agent OS Chat Workspace UX Design
 
 **Date:** 2026-08-26  
-**Status:** Approved  
-**Scope:** KID-25 Agent OS Web workspace, Gateway-local conversation preferences, and conversation-history management
+**Status:** Ready for review  
+**Scope:** KID-25 global chat dock, Agent OS history workspace, Gateway-local conversation preferences, and conversation-history management
 
 ## 1. Summary
 
-Agent OS becomes a user-facing chat workspace that follows KidItem's Dashboard visual language and ChatGPT's conversation-first interaction model.
+Every authenticated KidItem work surface gains immediate access to a conversation-first AI chat dock. The Dashboard and ordinary work screens are where conversations naturally begin while the user works; Agent OS becomes the full history, search, settings, and conversation-resume workspace.
 
 The workspace keeps its existing provider-native conversation architecture. It does not add a KidItem database conversation model, provider credential persistence, AgentVersion model policy, native-subagent conversation rows, or a second task lifecycle.
 
 The user-facing changes are:
 
+- a global right-side AI chat dock owned by the authenticated app shell;
+- the existing bottom-sidebar `AI 챗` utility wired as the normal dock trigger without coupling chat state to sidebar composition;
+- Dashboard Agent entry points that open an Agent-bound draft in the same dock;
 - an explicit Dashboard return action;
 - one folder tree containing General chat and the five code-owned Agents;
 - conversations nested below their General or Agent folder;
@@ -23,14 +26,16 @@ The user-facing changes are:
 
 ## 2. Goals
 
-1. Let a user return from Agent OS to the Dashboard without relying on browser history.
-2. Make Agent OS look and behave like a first-party KidItem surface.
-3. Let a user start ordinary General chat immediately without a setup dialog.
-4. Organize top-level conversations as a familiar folder tree by General or Agent context.
-5. Preserve the immutable Provider choice while allowing model and reasoning effort to change between turns.
-6. Let the user configure useful defaults without moving provider policy into AgentVersion.
-7. Let the user find, rename, and delete provider-native conversation history.
-8. Preserve the existing live CopilotKit stream, capability cards, owner boundaries, and no-transcript-in-PostgreSQL rule.
+1. Let a user open AI chat from every authenticated work screen without first navigating to Agent OS.
+2. Keep an open conversation available while the user navigates between work screens.
+3. Let a user return from Agent OS to the Dashboard without relying on browser history.
+4. Make both the chat dock and Agent OS look and behave like first-party KidItem surfaces.
+5. Let a user start ordinary General chat immediately without a setup dialog.
+6. Organize top-level conversations as a familiar folder tree by General or Agent context.
+7. Preserve the immutable Provider choice while allowing model and reasoning effort to change between turns.
+8. Let the user configure useful defaults without moving provider policy into AgentVersion.
+9. Let the user find, rename, and delete provider-native conversation history.
+10. Preserve the existing live CopilotKit stream, capability cards, owner boundaries, and no-transcript-in-PostgreSQL rule.
 
 ## 3. Non-goals
 
@@ -42,6 +47,8 @@ The user-facing changes are:
 - Adding automatic expiration or deletion of chat history
 - Adding history export, sharing, favorites, or Agent creation
 - Adding visual controls for unsupported attachment, microphone, voice, or media capabilities
+- Fixing the final composition or order of the product navigation sidebar
+- Making chat lifecycle or state depend on one sidebar implementation
 - Restoring an interaction gateway application or a separate port
 
 ## 4. Product Vocabulary
@@ -64,9 +71,38 @@ The normal workspace does not show `Gateway`, `provider-local`, `descriptor`, `e
 
 ## 5. Information Architecture
 
-### 5.1 Workspace shell
+### 5.1 Global chat dock
+
+The authenticated `AppLayout` owns one global conversation dock and its launcher contract. The dock is mounted independently from route content, Dashboard composition, and sidebar menu definitions.
+
+The existing bottom-sidebar `AI 챗` utility is wired to this dock wherever the ordinary KidItem sidebar is rendered. It remains available as an icon when the sidebar is collapsed. It is an app-shell utility, not a navigation route or an Agent OS tab.
+
+The underlying dock controller does not live inside `Sidebar`. A future sidebar redesign can move or replace its launcher without changing conversation state, APIs, or the dock. Authenticated full-screen surfaces that do not render the ordinary sidebar must provide the same launcher through their shell, unless the surface is Agent OS itself and already shows the active conversation. Login and public rendering surfaces never mount it.
+
+Opening the global launcher:
+
+- restores the currently selected conversation when one exists;
+- otherwise opens an unsaved General draft;
+- never creates a Conversation merely by opening the panel; and
+- preserves the panel and selected conversation across ordinary client-side route navigation.
+
+The Dashboard Agent cards and other explicit domain entry points may open the same dock with a fixed Agent draft. They do not create a second chat implementation.
+
+The dock header contains:
+
+- General or fixed Agent identity;
+- conversation title when one exists;
+- a close action;
+- a Settings action; and
+- `전체 기록`, which opens `/agent-os` at the current conversation or selected context.
+
+At wide desktop sizes the dock occupies a bounded right column and keeps the work surface visible. At narrower sizes it becomes an overlay drawer. It has its own scroll region and reuses the same conversation stream, cards, composer, draft behavior, and Query state as Agent OS.
+
+### 5.2 Agent OS history workspace
 
 `/agent-os` remains a focused full-height workspace. It does not mount the complete Dashboard navigation sidebar because two simultaneous sidebars would reduce conversation space and duplicate navigation.
+
+Agent OS is not the required starting point for ordinary chat. It is the complete conversation-history workspace for browsing folders, resuming a conversation, searching, renaming, deleting, and editing settings.
 
 The Agent OS shell contains:
 
@@ -76,7 +112,7 @@ The Agent OS shell contains:
 
 The tree header contains KidItem identity and an explicit `← 대시보드` action. Both the return action and KidItem mark navigate to `/dashboard`. Browser Back remains available but is not the product's primary return mechanism.
 
-### 5.2 Folder tree
+### 5.3 Folder tree
 
 The stable folder order is:
 
@@ -98,11 +134,13 @@ Each folder:
 
 Expansion state is disposable UI state. Selecting a conversation expands its owner folder. Native provider subagents and tool activity stay inside the parent conversation stream.
 
-### 5.3 Primary General chat action
+### 5.4 Conversation entry points
 
 The tree has a visually primary `새 AI 대화` action. It opens an unsaved General draft immediately and focuses the composer. It does not open a runtime-selection modal and does not create a provider Conversation merely by opening or closing the draft.
 
-The Dashboard AI Chat entry and Quick Action entry use the same General draft behavior.
+The global sidebar `AI 챗` utility, any authenticated full-screen launcher, the Dashboard entry, and the existing Quick Action entry call the same dock controller and use the same General draft behavior. A domain Agent entry calls that controller with the exact fixed Agent key.
+
+No entry point owns transcript state, creates its own CopilotKit provider, or implements a separate conversation panel.
 
 ## 6. Conversation Creation and Selection
 
@@ -157,6 +195,8 @@ The user may select a supported model and reasoning effort before every new turn
 ## 7. Composer Design
 
 The composer follows the attached ChatGPT reference's compact visual hierarchy without copying unsupported controls.
+
+The global dock and Agent OS workspace render the same composer component and conversation flow. A conversation opened in the dock is the same provider Conversation when opened through `전체 기록`; it is not copied or restarted.
 
 It consists of one rounded, border-first container with:
 
@@ -243,7 +283,7 @@ Nest exposes authenticated, organization-scoped preference read/update commands 
 
 ### 8.4 Settings interface
 
-A Settings button at the bottom of the conversation tree opens a dialog with:
+A Settings action in the global dock and a Settings button at the bottom of the Agent OS conversation tree open the same dialog with:
 
 - `대화 기본값`; and
 - `채팅 기록`.
@@ -289,7 +329,7 @@ There is no Archive state, automatic retention period, soft-delete model, or res
 
 ## 10. Visual Language
 
-Agent OS uses the same semantic tokens and interaction language as the Dashboard:
+The global chat dock and Agent OS use the same semantic tokens and interaction language as the Dashboard:
 
 - KidItem purple for primary actions, selected conversation, and focus;
 - neutral page, card, sunken, border, and text tokens;
@@ -299,15 +339,19 @@ Agent OS uses the same semantic tokens and interaction language as the Dashboard
 - 8-pixel navigation/action radii and a 12-14-pixel composer radius; and
 - 100-150 millisecond reduced-motion-aware state transitions.
 
-The workspace is not a ChatGPT clone. The screenshot informs the compact composer hierarchy only. KidItem's branding, Agent folders, capability cards, and Dashboard semantics remain authoritative.
+The dock and workspace are not ChatGPT clones. The screenshot informs the compact composer hierarchy only. KidItem's branding, Agent folders, capability cards, and Dashboard semantics remain authoritative.
 
 ## 11. Responsive and Accessibility Behavior
 
-- At 1024 pixels and above, the 288-pixel folder tree remains visible.
+- At 1280 pixels and above, the global dock uses a bounded 400-480-pixel right column and keeps the underlying work surface visible.
+- Below 1280 pixels, the global dock becomes an overlay drawer so route layouts do not collapse.
+- Dock open state and the selected conversation survive ordinary client-side route navigation.
+- At 1024 pixels and above, the Agent OS 288-pixel folder tree remains visible.
 - Below 1024 pixels, the tree becomes a modal drawer and the conversation keeps the full content width.
 - Below 640 pixels, composer controls wrap without placing the selector over the input.
 - Conversation and tree scroll regions remain independent.
-- The Dashboard return action is first in keyboard order.
+- The global `AI 챗` utility remains keyboard reachable when the ordinary sidebar is expanded or collapsed.
+- The Dashboard return action is first in Agent OS keyboard order.
 - Folder controls expose expanded state with `aria-expanded`.
 - The selected conversation uses `aria-current`.
 - Menus and settings dialogs return focus to their trigger.
@@ -335,13 +379,16 @@ User messages do not contain `Gateway`, `descriptor`, `provider-local`, `binding
 
 Expected Web ownership:
 
-- `AgentConversationSurface` remains orchestration and is split before additional behavior makes it larger.
+- `AppLayout` owns one global dock mount and passes the existing `Sidebar` utility a toggle callback.
+- `Sidebar` remains a launcher only and does not own conversation state or final sidebar composition.
+- a focused `ConversationDock` renders the active conversation beside authenticated route content.
+- `AgentConversationSurface` becomes the Agent OS history-workspace composition and is split before additional behavior makes it larger.
 - `AgentConversationSidebar` becomes a folder-tree composition.
 - a focused new-draft hook owns unsaved first-message state and creation handoff.
-- `AgentConversationComposer` owns compact input and the combined selector.
+- `AgentConversationComposer` owns compact input and the combined selector and is shared by dock and workspace modes.
 - a settings dialog owns preference and history-management views.
 - React Query remains the owner of conversation summaries, history, readiness, and preferences.
-- Zustand holds only open folder, selected conversation, pending draft, and dialog UI coordinates.
+- Zustand holds only dock open, open folder, selected conversation, pending draft, and dialog UI coordinates.
 
 Expected backend ownership:
 
@@ -350,12 +397,19 @@ Expected backend ownership:
 - the native Host Runner owns the strict local preference store and provider conversation deletion.
 - no business domain or Prisma adapter participates.
 
-The existing 500-plus-line `AgentConversationSurface` must be decomposed along these responsibilities rather than expanded further.
+The existing 500-plus-line `AgentConversationSurface` must be decomposed into shared conversation flow, dock composition, and Agent OS history composition rather than expanded further.
 
 ## 14. Verification
 
 ### 14.1 Web behavior
 
+- existing bottom-sidebar `AI 챗` utility opens the global dock while remaining independent of menu definitions
+- collapsed-sidebar and authenticated full-screen launcher behavior
+- dock state and active conversation survive ordinary route navigation
+- Dashboard remains visible beside the dock at wide desktop sizes
+- Dashboard Agent entry opens an Agent-bound draft in the same dock
+- `전체 기록` opens Agent OS at the current conversation or context
+- dock and Agent OS reuse one conversation flow without duplicate transcript state
 - Dashboard return and KidItem visual tokens
 - General plus exactly five Agent folders in stable order
 - folder expansion, selection, nested sessions, and `updatedAt` ordering
@@ -386,14 +440,17 @@ The existing 500-plus-line `AgentConversationSurface` must be decomposed along t
 
 Run authenticated browser QA for:
 
-1. Dashboard to Agent OS and explicit return;
-2. immediate General chat start;
-3. Agent-folder chat start;
-4. model/reasoning override between turns;
-5. settings save and reuse in a new draft;
-6. rename, search, individual delete, and confirmed bulk delete against disposable QA conversations;
-7. desktop and drawer layouts; and
-8. console/network checks confirming no retired Agent OS endpoints or internal-error toasts.
+1. open General chat from the bottom-sidebar utility on multiple authenticated routes;
+2. keep the dock and active conversation while navigating between work screens;
+3. open an Agent-bound draft from a Dashboard Agent entry;
+4. open the same conversation through `전체 기록` and return to Dashboard;
+5. immediate General chat start;
+6. Agent-folder chat start;
+7. model/reasoning override between turns;
+8. settings save and reuse in a new draft;
+9. rename, search, individual delete, and confirmed bulk delete against disposable QA conversations;
+10. docked desktop, overlay drawer, Agent OS desktop, and Agent OS drawer layouts; and
+11. console/network checks confirming one conversation transport, no retired Agent OS endpoints, and no internal-error toasts.
 
 ## 15. Schema and Deployment Impact
 
@@ -401,8 +458,9 @@ Run authenticated browser QA for:
 - KidItem durable business data: no change
 - Nginx/public ports: no change
 - CopilotKit endpoint: no change
+- public route and sidebar-menu schema: no required change
 - Host Runner state: one versioned, bounded preference file
 - Provider login state: no change
 - Windows/macOS process lifecycle: no change
 
-This is a focused conversation-workspace UX and Host Runner preference extension. It does not reopen KID-25 lifecycle, capability, approval, MCP, or database architecture.
+This is a focused global conversation-access, history-workspace UX, and Host Runner preference extension. It does not fix the final product sidebar composition and does not reopen KID-25 lifecycle, capability, approval, MCP, or database architecture.
