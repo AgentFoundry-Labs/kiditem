@@ -8,8 +8,8 @@ here affect every route.
 
 - QueryClient construction and default query options
 - Global QueryCache error toast behavior
-- Auth session state, cross-tab/extension synchronization, absolute expiry, and
-  signed-out redirect ownership
+- Cookie-backed `/api/auth/me` state, cross-tab revalidation, explicit
+  extension handoff, expiry, and signed-out redirect ownership
 - React Query devtools lazy loading policy
 - Sellpia freshness projection. `SellpiaInventorySyncProvider` only keeps
   freshness query state warm; server-issued OperationRuns and the extension
@@ -21,8 +21,9 @@ here affect every route.
 
 - `AuthProvider` must stay inside `QueryProvider` because it uses
   `useQueryClient()`.
-- `apiClient` owns local-session clearing for `auth_required`; global query
-  error handling must not duplicate session-expired toasts or retry 401s.
+- `apiClient` emits `auth_required`; `AuthProvider` clears projections and
+  redirects. Global query error handling must not duplicate session-expired
+  toasts or retry 401s.
 - Route queries that render their own local error UI may opt out of the global
   toast with `meta: { suppressGlobalErrorToast: true }`.
 - `installQueryClientErrorHandler()` exists so HMR-created QueryClient
@@ -33,8 +34,8 @@ here affect every route.
 
 ## Boundary Rules
 
-- Do not clear auth storage or redirect directly from routes; use the shared
-  local-session/AuthProvider flow.
+- Do not persist browser credentials or redirect directly from routes; use the
+  cookie-backed `AuthProvider` flow.
 - Do not add route-specific query defaults here.
 - Do not show generic global error toasts for transient dev fetch/chunk failures
   or handled auth-required errors.

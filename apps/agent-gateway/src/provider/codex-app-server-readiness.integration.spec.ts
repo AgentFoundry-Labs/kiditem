@@ -13,6 +13,33 @@ const RUN_REAL_CODEX_CANARY = process.env.KIDITEM_RUN_REAL_CODEX_CANARY === '1';
  * response, reads provider history, archives the thread, and exits.
  */
 describe('Codex app-server real provider readiness', () => {
+  it.skipIf(!RUN_REAL_CODEX_CANARY)('reads a newly created empty provider conversation before its first turn', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'kiditem-gateway-codex-empty-canary-'));
+    const runtimeRoot = resolve(import.meta.dirname, '../../../..');
+    const process = await startCodexAppServer({
+      runtimeRoot,
+      workspace,
+      loginRoot: homedir(),
+      mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+    });
+    let providerConversationRef: string | null = null;
+    try {
+      const conversation = await process.session.createConversation({
+        instructionProfile: gatewayInstructionProfile(null),
+      });
+      providerConversationRef = conversation.providerConversationRef;
+      await expect(process.session.history(providerConversationRef)).resolves.toEqual([]);
+      await process.session.archive(providerConversationRef);
+      providerConversationRef = null;
+    } finally {
+      if (providerConversationRef) {
+        try { await process.session.archive(providerConversationRef); } catch { /* provider process may already be unavailable */ }
+      }
+      process.close();
+      await rm(workspace, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it.skipIf(!RUN_REAL_CODEX_CANARY)('creates, resumes, reads, and archives one temporary provider-native conversation', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'kiditem-gateway-codex-canary-'));
     const runtimeRoot = resolve(import.meta.dirname, '../../../..');

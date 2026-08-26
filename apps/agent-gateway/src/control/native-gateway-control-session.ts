@@ -44,10 +44,11 @@ export class NativeGatewayControlSession {
   }
 
   private async loop(): Promise<never> {
+    let controlSessionClaimed = false;
     try {
       for (;;) {
         if (this.stopped) throw new GatewayControlStoppedError();
-        if (this.options.outbox.hasPending()) {
+        if (controlSessionClaimed && this.options.outbox.hasPending()) {
           try {
             await this.raceStop(this.options.outbox.flush((body) => this.options.client.postEventBody(body)));
           } catch (error) {
@@ -60,6 +61,7 @@ export class NativeGatewayControlSession {
         let batch: GatewayCommandBatch | null;
         try {
           batch = await this.raceStop(this.options.client.poll(this.options.poll));
+          controlSessionClaimed = true;
         } catch (error) {
           if (error instanceof GatewayControlStoppedError) throw error;
           if (isTerminalControlError(error)) throw error;

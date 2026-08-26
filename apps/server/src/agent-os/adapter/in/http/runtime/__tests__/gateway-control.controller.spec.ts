@@ -16,6 +16,30 @@ const POLL = {
 };
 
 describe('GatewayControlController', () => {
+  it('acknowledges a new Gateway claim immediately before accepting startup events', async () => {
+    const auth = { require: vi.fn() };
+    const queue = {
+      claim: vi.fn(() => true),
+      poll: vi.fn(async () => new Promise<never>(() => undefined)),
+      disconnect: vi.fn(),
+    };
+    const readiness = { clear: vi.fn() };
+    const controller = new GatewayControlController(
+      auth as never,
+      queue as never,
+      { handle: vi.fn() } as never,
+      readiness as never,
+    );
+
+    await expect(controller.poll(
+      POLL,
+      { headers: {}, once: vi.fn(), off: vi.fn() } as never,
+      { writableEnded: false, once: vi.fn() } as never,
+    )).resolves.toEqual({ commands: [] });
+    expect(queue.poll).not.toHaveBeenCalled();
+    expect(readiness.clear).toHaveBeenCalledOnce();
+  });
+
   it('accepts only the installation bearer, routes a bounded poll, and acknowledges retry-safe events', async () => {
     const auth = { require: vi.fn() };
     const queue = { claim: vi.fn(() => false), poll: vi.fn(async () => ({ commands: [] })), disconnect: vi.fn() };

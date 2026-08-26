@@ -20,12 +20,6 @@ vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => useAuthMock(),
 }));
 
-// Current AppLayout used to depend on useAuthSession directly. Keep this mock
-// permissive so this test proves the new protected-shell gate, not provider setup.
-vi.mock('@/components/providers/AuthProvider', () => ({
-  useAuthSession: () => ({ session: null, isLoading: false }),
-}));
-
 vi.mock('@/store/useStore', () => ({
   useStore: () => ({ sidebarOpen: true }),
 }));

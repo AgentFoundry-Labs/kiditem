@@ -1,5 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AUTH_ME_QUERY_KEY } from '@/lib/auth/browser-auth';
 
 const toastInfoMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
@@ -7,14 +9,12 @@ const toastErrorMock = vi.hoisted(() => vi.fn());
 const replaceMock = vi.hoisted(() => vi.fn());
 const refreshMock = vi.hoisted(() => vi.fn());
 const apiPostMock = vi.hoisted(() => vi.fn());
-const setAuthSessionMock = vi.hoisted(() => vi.fn());
-const clearAuthSessionMock = vi.hoisted(() => vi.fn());
+const publishAuthChangedMock = vi.hoisted(() => vi.fn());
 const searchParamsValue = vi.hoisted(() => ({
   current: new URLSearchParams() as URLSearchParams,
 }));
 
 const LOGIN_RESPONSE = {
-  session: { token: 'a'.repeat(43), expiresAt: '2026-08-29T03:00:00.000Z' },
   user: {
     id: '11111111-1111-4111-8111-111111111111',
     email: 'kiditem@example.com',
@@ -39,17 +39,26 @@ vi.mock('@/lib/api-client', () => ({
   apiClient: { post: (...args: unknown[]) => apiPostMock(...args) },
 }));
 
-vi.mock('@/lib/auth/session', () => ({
-  setAuthSession: (...args: unknown[]) => setAuthSessionMock(...args),
-  clearAuthSession: (...args: unknown[]) => clearAuthSessionMock(...args),
+vi.mock('@/lib/auth/browser-auth', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/auth/browser-auth')>(),
+  publishAuthChanged: (...args: unknown[]) => publishAuthChangedMock(...args),
 }));
 
 vi.mock('@/lib/auth-redirect', () => ({
   sanitizeInternalRedirectPath: (path: string | null) => path ?? '/',
 }));
 
+function wrapper(queryClient: QueryClient) {
+  return function Wrapper({ children }: { children: React.ReactNode }) {
+    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  };
+}
+
 describe('useLoginForm', () => {
+  let queryClient: QueryClient;
+
   beforeEach(() => {
+    queryClient = new QueryClient();
     toastInfoMock.mockReset();
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
@@ -57,15 +66,14 @@ describe('useLoginForm', () => {
     refreshMock.mockReset();
     apiPostMock.mockReset();
     apiPostMock.mockResolvedValue(LOGIN_RESPONSE);
-    setAuthSessionMock.mockReset();
-    clearAuthSessionMock.mockReset();
+    publishAuthChangedMock.mockReset();
     window.localStorage.clear();
   });
 
   it('shows the absolute-expiry message only for session_expired redirects', async () => {
     searchParamsValue.current = new URLSearchParams('reason=session_expired');
     const { useLoginForm } = await import('../useLoginForm');
-    renderHook(() => useLoginForm());
+    renderHook(() => useLoginForm(), { wrapper: wrapper(queryClient) });
 
     expect(toastInfoMock).toHaveBeenCalledWith(
       '세션이 만료되어 다시 로그인이 필요합니다.',
@@ -73,10 +81,12 @@ describe('useLoginForm', () => {
     );
   });
 
-  it('posts credentials, persists the returned KidItem session, and navigates', async () => {
+  it('posts credentials, projects the cookie session through /auth/me data, and navigates', async () => {
     searchParamsValue.current = new URLSearchParams('next=/dashboard');
     const { useLoginForm } = await import('../useLoginForm');
-    const { result } = renderHook(() => useLoginForm());
+    const { result } = renderHook(() => useLoginForm(), {
+      wrapper: wrapper(queryClient),
+    });
 
     act(() => {
       result.current.setEmail('kiditem@example.com');
@@ -90,29 +100,32 @@ describe('useLoginForm', () => {
       email: 'kiditem@example.com',
       password: 'correct password',
     });
-    expect(setAuthSessionMock).toHaveBeenCalledWith(LOGIN_RESPONSE.session);
+    expect(queryClient.getQueryData(AUTH_ME_QUERY_KEY)).toEqual(LOGIN_RESPONSE.user);
+    expect(window.localStorage.getItem('kiditem.auth.session.v1')).toBeNull();
+    expect(publishAuthChangedMock).toHaveBeenCalledWith('login');
     expect(replaceMock).toHaveBeenCalledWith('/dashboard');
     expect(refreshMock).toHaveBeenCalledOnce();
     expect(toastSuccessMock).toHaveBeenCalledWith('로그인 성공');
   });
 
-  it('revokes and clears a newly issued session when the user has no organization', async () => {
+  it('revokes a newly issued cookie when the user has no organization', async () => {
     searchParamsValue.current = new URLSearchParams('next=/dashboard');
     apiPostMock
       .mockResolvedValueOnce({
-        ...LOGIN_RESPONSE,
         user: { ...LOGIN_RESPONSE.user, organizationId: null, membershipId: null },
       })
       .mockResolvedValueOnce({});
     const { useLoginForm } = await import('../useLoginForm');
-    const { result } = renderHook(() => useLoginForm());
+    const { result } = renderHook(() => useLoginForm(), {
+      wrapper: wrapper(queryClient),
+    });
 
     await act(async () => {
       await result.current.onSubmit({ preventDefault: vi.fn() } as unknown as React.FormEvent);
     });
 
     expect(apiPostMock).toHaveBeenNthCalledWith(2, '/api/auth/logout');
-    expect(clearAuthSessionMock).toHaveBeenCalledWith('manual');
+    expect(queryClient.getQueryData(AUTH_ME_QUERY_KEY)).toBeUndefined();
     expect(replaceMock).not.toHaveBeenCalled();
     expect(toastErrorMock).toHaveBeenCalledWith(
       '조직에 속해있지 않습니다. 관리자에게 문의해주세요.',

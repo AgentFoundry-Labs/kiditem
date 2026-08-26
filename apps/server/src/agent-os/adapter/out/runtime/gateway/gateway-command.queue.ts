@@ -49,13 +49,13 @@ export class GatewayCommandQueue {
     onTransientClear?: () => void;
   }>) {}
 
-  /** Claiming a new instance means the old Gateway process is gone: clear all transient state. */
+  /** Returns true exactly once for each new instance; replacement clears transient state. */
   claim(gatewayInstanceId: string): boolean {
     if (this.gatewayInstanceId === gatewayInstanceId) return false;
     const replaced = this.gatewayInstanceId !== null;
     if (replaced) this.clearTransientState();
     this.gatewayInstanceId = gatewayInstanceId;
-    return replaced;
+    return true;
   }
 
   async poll(input: GatewayPoll, signal?: AbortSignal): Promise<GatewayCommandBatch> {

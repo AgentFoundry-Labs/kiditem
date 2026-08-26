@@ -1,6 +1,48 @@
 import { describe, expect, it, vi } from 'vitest';
 
 describe('NativeGatewayControlSession', () => {
+  it('claims the Nest control session before flushing startup readiness', async () => {
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const { GatewayControlHttpError } = await import('./gateway-control.client');
+    const { NativeGatewayControlSession } = await import('./native-gateway-control-session');
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
+    outbox.enqueue({
+      kind: 'gateway.readiness',
+      readiness: [
+        { runtime: 'codex_cli', ready: false, code: 'gateway_provider_unavailable' },
+        { runtime: 'claude_cli', ready: false, code: 'gateway_provider_unavailable' },
+      ],
+    });
+    const calls: string[] = [];
+    let polls = 0;
+    const client = {
+      poll: vi.fn(async () => {
+        calls.push('poll');
+        polls += 1;
+        if (polls === 1) return { commands: [] };
+        throw new GatewayControlHttpError(401);
+      }),
+      postEventBody: vi.fn(async (body: string) => {
+        calls.push('event');
+        return { eventSeq: JSON.parse(body).eventSeq, accepted: true as const };
+      }),
+      abortInFlight: vi.fn(),
+    };
+    const session = new NativeGatewayControlSession({
+      client,
+      dispatcher: { dispatch: vi.fn(), clear: vi.fn() },
+      outbox,
+      poll: {
+        kind: 'poll', gatewayInstanceId: 'gateway-1', platform: 'macos',
+        runtimeTrain: { controlRevision: 'kiditem-gateway-control-v1', mcpProtocolRevision: '2026-07-28', nodeMajor: 22, codexVersion: '0.149.1', claudeVersion: '2.1.245' },
+      },
+      onPollLoss: vi.fn(),
+    });
+
+    await expect(session.run()).rejects.toThrow('gateway_control_lost');
+    expect(calls).toEqual(['poll', 'event', 'poll']);
+  });
+
   it('serializes poll, dispatch, stable outbox acknowledgement, and process-local cleanup on control loss', async () => {
     const { GatewayEventOutbox } = await import('./gateway-event-outbox');
     const { GatewayControlHttpError } = await import('./gateway-control.client');

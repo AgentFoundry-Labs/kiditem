@@ -48,7 +48,10 @@ export class GatewayControlController {
     try {
       this.bearer.require(request.headers);
       const poll = GatewayPollSchema.parse(body);
-      if (this.commands.claim(poll.gatewayInstanceId)) this.readiness.clear();
+      if (this.commands.claim(poll.gatewayInstanceId)) {
+        this.readiness.clear();
+        return { commands: [] };
+      }
       const signal = abortSignal(request, response);
       try {
         return await this.commands.poll(poll, signal);

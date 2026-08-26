@@ -5,6 +5,30 @@ const GENERAL_PROFILE = gatewayInstructionProfile(null);
 const SOURCING_PROFILE = gatewayInstructionProfile('sourcing');
 
 describe('CodexAppServerSession provider-native thread adapter', () => {
+  it('names a conversation even when the caller omits a title so Codex persists the empty thread', async () => {
+    const { CodexAppServerSession } = await import('./codex-app-server-session');
+    const lines: string[] = [];
+    const session = new CodexAppServerSession({
+      write: (line: string) => { lines.push(line); },
+      workspace: '/gateway/workspace',
+      mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+    });
+
+    const created = session.createConversation({ instructionProfile: GENERAL_PROFILE });
+    answer(session, lines, 'initialize', {}); await advance();
+    answer(session, lines, 'thread/start', threadResponse('provider-thread-empty')); await advance();
+
+    expect(request(lines, 'thread/name/set').params).toEqual({
+      threadId: 'provider-thread-empty',
+      name: 'Thread title',
+    });
+    answer(session, lines, 'thread/name/set', {});
+    await expect(created).resolves.toEqual(expect.objectContaining({
+      providerConversationRef: 'provider-thread-empty',
+      title: 'Thread title',
+    }));
+  });
+
   it('creates a persistent full-access thread, names it, and reuses that exact thread for two explicitly configured turns', async () => {
     const { CodexAppServerSession } = await import('./codex-app-server-session');
     const lines: string[] = [];

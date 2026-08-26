@@ -6,6 +6,7 @@ import {
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
 import { syncBrowserCollectionAlert } from '@/lib/browser-collection-session';
 import { sendToExtension } from '@/lib/extension-bridge';
+import { transferExtensionAuthTo } from '@/lib/extension-auth';
 import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
 
 export const READINESS_COLLECTION_PRODUCERS = {
@@ -46,17 +47,11 @@ type PingResponse = {
   capabilities?: { browserCollectionSessions?: boolean };
 };
 
-type AuthResponse = {
-  success?: boolean;
-  error?: string;
-};
-
 export type ReadinessExtensionCollectionInput = {
   check: ReadinessCheck;
   producer: BrowserCollectionProducer;
   extensionId: string;
   runId: string;
-  accessToken: string | null | undefined;
   onStarted?: () => void;
   onPoll?: () => Promise<unknown> | unknown;
   onSession?: (session: BrowserCollectionSessionView) => void;
@@ -97,7 +92,6 @@ export async function runReadinessExtensionCollection({
   producer,
   extensionId,
   runId,
-  accessToken,
   onStarted,
   onPoll,
   onSession,
@@ -106,18 +100,7 @@ export async function runReadinessExtensionCollection({
   if (urls.length === 0) throw new Error('수집 URL 없음');
 
   await assertCompatibleCoupangCollectionExtension(extensionId);
-
-  if (accessToken) {
-    const auth = await sendToExtension<AuthResponse>(extensionId, {
-      action: 'setAuthToken',
-      token: accessToken,
-    });
-    if (auth?.success === false) {
-      throw new Error(
-        auth.error ?? '확장프로그램에 KidItem 로그인을 연결하지 못했습니다.',
-      );
-    }
-  }
+  await transferExtensionAuthTo(extensionId);
 
   const started = await sendToExtension<StartResponse>(extensionId, {
     action: 'scrapeTargets',

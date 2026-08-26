@@ -1,35 +1,20 @@
 import { ZodType, ZodTypeDef, ZodError } from 'zod';
 import { getApiBase } from './api';
 import { ApiError } from './api-error';
-import { clearAuthSession, getAuthSession } from './auth/session';
+import { notifyAuthRequired } from './auth/browser-auth';
 import { composeRequestSignal } from './request-deadline';
 
 const DEFAULT_READ_TIMEOUT_MS = 15_000;
 
 /**
- * KidItem opaque session token 을 `Authorization: Bearer <token>` 헤더로 첨부.
- *
- * `credentials: 'include'` 는 local cross-origin 개발(web:3000 → server:4000)과
- * local/Office same-origin `/api/*` routing 양쪽에서 cookie 전달을 일관되게 둔다.
- * Authorization 헤더가 없는 요청도 같은 HttpOnly cookie 를 사용할 수 있다.
- *
- * 30일 절대 만료 세션은 refresh token 이 없다. 401 `auth_required` 는 저장된
- * 세션을 즉시 지우고 AuthProvider 가 로그인 화면 전환을 소유하며 원 요청은
- * 재시도하지 않는다.
+ * Browser authentication is exclusively the HttpOnly cookie. The API client
+ * always includes cookie credentials and never reads or attaches a bearer.
+ * A 401 `auth_required` notifies AuthProvider and is never retried.
  * `no_organization_context` 401 은 인증은 유효하나 조직 미할당 상태이므로 refresh 도,
  * signOut 도 일으키지 않고 caller 가 결정한다 (토스트 등).
  */
-async function getAccessToken(): Promise<string | null> {
-  return getAuthSession()?.token ?? null;
-}
-
-async function withAuthHeaders(init?: RequestInit): Promise<RequestInit> {
-  const headers = new Headers(init?.headers);
-  const token = await getAccessToken();
-  if (token && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-  return { credentials: 'include', ...init, headers };
+function withCookieCredentials(init?: RequestInit): RequestInit {
+  return { credentials: 'include', ...init };
 }
 
 function isAbortError(err: unknown): boolean {
@@ -118,7 +103,7 @@ async function fetchApiResponse(
   signal: AbortSignal,
   suppressNetworkErrorLog: boolean,
 ): Promise<Response> {
-  const authenticatedInit = await raceWithSignal(signal, () => withAuthHeaders(init));
+  const authenticatedInit = await raceWithSignal(signal, () => withCookieCredentials(init));
   try {
     return await raceWithSignal(signal, () => fetch(`${getApiBase()}${path}`, {
       ...authenticatedInit,
@@ -154,13 +139,14 @@ async function read401Message(
 async function consumeResponse<T>(
   res: Response,
   signal: AbortSignal,
+  path: string,
   options?: RequestOptions,
 ): Promise<T> {
   if (res.status === 401) {
     const message = await read401Message(res, signal);
 
     if (message === 'auth_required') {
-      clearAuthSession('session_expired');
+      if (path !== '/api/auth/me') notifyAuthRequired();
       throw new ApiError(401, 'auth_required', '세션이 만료되었습니다. 다시 로그인해주세요.');
     }
 
@@ -219,7 +205,7 @@ async function request<T>(
       composedSignal.signal,
       options?.suppressNetworkErrorLog === true,
     );
-    return await consumeResponse<T>(response, composedSignal.signal, options);
+    return await consumeResponse<T>(response, composedSignal.signal, path, options);
   } catch (error) {
     if (error instanceof RequestSignalAbort) {
       throw composedSignal.didTimeout
@@ -242,7 +228,7 @@ async function fetchRaw(
 ): Promise<Response> {
   const signal = init?.signal ?? undefined;
   try {
-    const authenticatedInit = await raceWithSignal(signal, () => withAuthHeaders(init));
+    const authenticatedInit = await raceWithSignal(signal, () => withCookieCredentials(init));
     const res = await raceWithSignal(signal, () => fetch(
       `${getApiBase()}${path}`,
       authenticatedInit,
@@ -250,7 +236,7 @@ async function fetchRaw(
     if (res.status === 401) {
       const message = await read401Message(res, signal);
       if (message === 'auth_required') {
-        clearAuthSession('session_expired');
+        if (path !== '/api/auth/me') notifyAuthRequired();
       }
     }
     return res;
@@ -401,7 +387,7 @@ export const apiClient = {
     request<T>(path, { method: 'POST', body: formData }),
   /**
    * Response 객체 직접 반환 (blob, stream 등 non-JSON 응답용).
-   * 401 auth_required 시 세션을 지우고 raw Response 를 그대로 반환하므로 caller 는
+   * 401 auth_required 시 AuthProvider 에 알리고 raw Response 를 그대로 반환하므로 caller 는
    * `res.status === 401` 체크 책임.
    */
   fetchRaw: async (path: string, init?: RequestInit): Promise<Response> =>

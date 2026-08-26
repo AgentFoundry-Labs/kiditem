@@ -10,6 +10,18 @@ const POLL = {
 };
 
 describe('GatewayCommandQueue', () => {
+  it('reports the first and replacement instance claims exactly once', () => {
+    const queue = new GatewayCommandQueue({
+      bindings: bindingRegistry() as never,
+      installationId: 'installation-1',
+      longPollMs: 0,
+    });
+
+    expect(queue.claim('gateway-1')).toBe(true);
+    expect(queue.claim('gateway-1')).toBe(false);
+    expect(queue.claim('gateway-2')).toBe(true);
+  });
+
   it('issues one execution binding immediately before a queued turn start and revokes it on terminal state', async () => {
     const bindings = bindingRegistry();
     const queue = new GatewayCommandQueue({

@@ -10,7 +10,6 @@ import {
   rankExtensionGateMessage,
   runWingSalesRankCheck,
 } from '@/app/(advertising)/rank-tracking/lib/rank-extension';
-import { useAuthSession } from '@/components/providers/AuthProvider';
 import { useAuth } from '@/hooks/useAuth';
 import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import { apiClient } from '@/lib/api-client';
@@ -105,7 +104,6 @@ export function useReadinessCollection({
   const settledBackgroundRunIdRef = useRef<string | null>(null);
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const { session: authSession } = useAuthSession();
   const backgroundSessionQuery = useBrowserCollectionSession(
     backgroundRun?.runId ?? null,
   );
@@ -174,7 +172,6 @@ export function useReadinessCollection({
       producer,
       extensionId,
       runId,
-      accessToken: authSession?.token,
       onPoll: refetchReadiness,
       onSession: setActiveSession,
     });
@@ -223,9 +220,6 @@ export function useReadinessCollection({
       setActiveSession(null);
       settledBackgroundRunIdRef.current = null;
       try {
-    if (!authSession?.token) {
-          throw new Error('로그인 세션을 확인할 수 없습니다.');
-        }
         const accounts = await apiClient.get<ChannelAccountOption[]>(
           '/api/channels/accounts',
         );
@@ -249,7 +243,6 @@ export function useReadinessCollection({
         await startCoupangCatalogBrowser({
           channelAccountId: account.id,
           runId: run.id,
-        accessToken: authSession.token,
         });
         setBackgroundRun({
           runId: run.id,

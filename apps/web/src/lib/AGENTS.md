@@ -17,8 +17,9 @@ multiple route groups.
   required field reads back `undefined`. A GET whose handler can return `null`
   uses `getNullable`, which normalizes the empty body to `null`. Do not flip
   the `get` default or re-implement the check at the call site.
-- `apiClient` attaches the current opaque bearer token and owns local-session
-  clearing for `auth_required`; it never refreshes or retries a 401.
+- `apiClient` sends the HttpOnly cookie with `credentials: 'include'` and never
+  reads or attaches a browser bearer token. It emits `auth_required` and never
+  refreshes or retries a 401.
 
 ## Query Key Rules
 
@@ -33,8 +34,10 @@ multiple route groups.
   runtime messaging helpers.
 - Extension IDs may be cached in `localStorage`; extension data itself should
   remain route/domain-owned.
-- `auth/session.ts` owns validated local storage, same-tab/cross-tab change
-  events, and absolute-expiry rejection for the opaque session.
+- `auth/browser-auth.ts` owns credential-free same-tab/cross-tab revalidation
+  events and one-time removal of the retired localStorage bearer record.
+- `extension-auth.ts` owns the explicit, just-in-time extension token handoff;
+  no general browser API caller may consume that token.
 - `sellpia-inventory-extension.ts` is the only Sellpia inventory command
   adapter. React code passes the claimed token as the extension `runId` and
   never sends extension messages directly.

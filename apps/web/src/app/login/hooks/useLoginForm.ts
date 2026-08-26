@@ -1,18 +1,23 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { sanitizeInternalRedirectPath } from '@/lib/auth-redirect';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
-import { clearAuthSession, setAuthSession } from '@/lib/auth/session';
+import {
+  AUTH_ME_QUERY_KEY,
+  publishAuthChanged,
+} from '@/lib/auth/browser-auth';
 import { safeStorageGet, safeStorageRemove, safeStorageSet } from '@/lib/browser-storage';
 import { LoginResponseSchema } from '@kiditem/shared/auth';
 
 const REMEMBERED_EMAIL_KEY = 'kiditem.login.rememberedEmail';
 
 export function useLoginForm() {
+  const queryClient = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = sanitizeInternalRedirectPath(searchParams.get('next'));
@@ -42,18 +47,12 @@ export function useLoginForm() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    let sessionIssued = false;
+    let cookieIssued = false;
     try {
       const login = LoginResponseSchema.parse(
         await apiClient.post<unknown>('/api/auth/login', { email, password }),
       );
-      sessionIssued = true;
-      setAuthSession({
-        token: login.session.token,
-        expiresAt: login.session.expiresAt instanceof Date
-          ? login.session.expiresAt.toISOString()
-          : login.session.expiresAt,
-      });
+      cookieIssued = true;
       if (!login.user.organizationId) {
         throw new Error('조직에 속해있지 않습니다. 관리자에게 문의해주세요.');
       }
@@ -61,13 +60,15 @@ export function useLoginForm() {
       else safeStorageRemove('local', REMEMBERED_EMAIL_KEY);
       // 로그인 직후 ReadinessModal 자동 재표시 trigger — 세션마다 한 번 점검.
       safeStorageRemove('session', 'kiditem.readiness.dismissed');
+      queryClient.setQueryData(AUTH_ME_QUERY_KEY, login.user);
+      publishAuthChanged('login');
       toast.success('로그인 성공');
       router.replace(next);
       router.refresh();
     } catch (err) {
-      if (sessionIssued) {
+      if (cookieIssued) {
         await apiClient.post('/api/auth/logout').catch(() => undefined);
-        clearAuthSession('manual');
+        queryClient.removeQueries({ queryKey: AUTH_ME_QUERY_KEY });
       }
       const message = isApiError(err) && err.status === 401
         ? '이메일 또는 비밀번호가 올바르지 않습니다.'

@@ -71,7 +71,10 @@ export class CodexAppServerSession {
     const thread = requireThread(result);
     assertFullAccess(result);
     const title = input.title ?? thread.name ?? 'New conversation';
-    if (input.title) await this.request('thread/name/set', { threadId: thread.id, name: input.title });
+    // Codex does not make a newly started empty thread readable until it has a
+    // name. The Web intentionally permits title-less conversation creation, so
+    // persist the provider-supplied/default title before exposing the thread.
+    await this.request('thread/name/set', { threadId: thread.id, name: title });
     return toProviderConversation({ ...thread, name: title });
   }
 

@@ -22,12 +22,6 @@ const mocks = vi.hoisted(() => ({
   updateBrowserCollectionSessionCache: vi.fn(),
 }));
 
-vi.mock('@/components/providers/AuthProvider', () => ({
-  useAuthSession: () => ({
-    session: { token: 'test-token', expiresAt: '2026-08-29T03:00:00.000Z' },
-  }),
-}));
-
 vi.mock('@/lib/extension-bridge', () => ({
   detectExtensionId: mocks.detectExtensionId,
   isChromeExtensionRuntimeAvailable: mocks.isChromeExtensionRuntimeAvailable,
@@ -153,7 +147,6 @@ describe('useCoupangCatalogImport', () => {
       actual.startCoupangCatalogBrowser({
         channelAccountId: ACCOUNT_ID,
         runId: RUN_ID,
-        accessToken: 'test-token',
       }),
     ).rejects.toThrow('새로고침');
     expect(mocks.sendToExtension).toHaveBeenCalledTimes(1);

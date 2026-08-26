@@ -30,12 +30,14 @@ the nearest scoped guide owns route-specific composition.
 
 ## Auth And Transport
 
-`lib/auth/session.ts` owns opaque local-session persistence;
-`AuthProvider.tsx` owns lifecycle, cross-tab propagation, expiry, extension
-sync, and redirect. `apiClient` attaches the bearer token and clears the
-session on `auth_required`; there is no refresh or 401 retry path. CopilotKit
-uses same-origin `/api/copilotkit`; do not add a Next.js route handler for
-Nest-owned APIs.
+The HttpOnly `kiditem_session` cookie is the browser's sole credential.
+`AuthProvider.tsx` projects `/api/auth/me` through React Query and owns
+cross-tab revalidation, expiry, and redirect. `apiClient` always uses cookie
+credentials, never reads or attaches a browser bearer token, and emits
+`auth_required` without retrying a 401. Extensions receive a token only through
+the explicit `/api/auth/extension-handoff` boundary. CopilotKit uses
+same-origin `/api/copilotkit`; do not add a Next.js route handler for Nest-owned
+APIs.
 
 Agent interaction bootstrap is React Query server state. Its Zustand store may
 hold only open/agent/session-thread/draft ephemeral UI state; never persist or

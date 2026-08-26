@@ -20,6 +20,7 @@ const AUTH_USER: AuthUser = {
 function makeAuthService(overrides: Partial<AuthService> = {}): AuthService {
   return {
     login: vi.fn(),
+    authenticateToken: vi.fn(),
     logout: vi.fn(),
     getCurrentUser: vi.fn(),
     ...overrides,
@@ -75,7 +76,7 @@ describe('AuthController.me', () => {
 });
 
 describe('AuthController session endpoints', () => {
-  it('sets the same raw 30-day session token returned to the browser for extension sync', async () => {
+  it('sets the HttpOnly session cookie without returning its raw token to browser code', async () => {
     const result = {
       session: { token: 'a'.repeat(43), expiresAt: '2026-08-29T03:00:00.000Z' },
       user: {
@@ -92,7 +93,7 @@ describe('AuthController session endpoints', () => {
         { email: 'test@kiditem.local', password: 'correct password' },
         response,
       ),
-    ).resolves.toEqual(result);
+    ).resolves.toEqual({ user: result.user });
     expect(response.cookie).toHaveBeenCalledWith(
       AUTH_SESSION_COOKIE,
       result.session.token,
@@ -103,6 +104,55 @@ describe('AuthController session endpoints', () => {
         maxAge: 30 * 24 * 60 * 60 * 1_000,
       }),
     );
+  });
+
+  it('returns the cookie token only through an explicit authenticated extension handoff', async () => {
+    const token = 'a'.repeat(43);
+    const authenticateToken = vi.fn().mockResolvedValue({
+      sessionId: 'session-id',
+      authUser: AUTH_USER,
+    });
+    const controller = new AuthController(makeAuthService({
+      authenticateToken,
+    } as Partial<AuthService>));
+
+    await expect(
+      controller.extensionHandoff(
+        AUTH_USER,
+        {
+          authSessionId: 'session-id',
+          cookies: { [AUTH_SESSION_COOKIE]: token },
+        } as any,
+      ),
+    ).resolves.toEqual({ token });
+    expect(authenticateToken).toHaveBeenCalledWith(token);
+  });
+
+  it('rejects extension handoff without the authenticated browser cookie', async () => {
+    const controller = new AuthController(makeAuthService());
+
+    await expect(
+      controller.extensionHandoff(AUTH_USER, { cookies: {} } as any),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('rejects extension handoff when the cookie does not match the middleware session', async () => {
+    const controller = new AuthController(makeAuthService({
+      authenticateToken: vi.fn().mockResolvedValue({
+        sessionId: 'different-session-id',
+        authUser: AUTH_USER,
+      }),
+    } as Partial<AuthService>));
+
+    await expect(
+      controller.extensionHandoff(
+        AUTH_USER,
+        {
+          authSessionId: 'session-id',
+          cookies: { [AUTH_SESSION_COOKIE]: 'a'.repeat(43) },
+        } as any,
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('revokes only the current session and clears its cookie on logout', async () => {

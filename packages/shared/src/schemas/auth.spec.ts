@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { LoginRequestSchema, LoginResponseSchema } from './auth.js';
+import {
+  ExtensionAuthHandoffSchema,
+  LoginRequestSchema,
+  LoginResponseSchema,
+} from './auth.js';
 
 const authUser = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -31,16 +35,23 @@ describe('Office local auth contracts', () => {
     ).toThrow();
   });
 
-  it('parses an opaque session token and ISO expiry in the login response', () => {
+  it('keeps the browser login response free of raw session credentials', () => {
     const result = LoginResponseSchema.parse({
-      session: {
-        token: 'a'.repeat(43),
-        expiresAt: '2026-08-29T03:00:00.000Z',
-      },
       user: authUser,
     });
 
-    expect(result.session.token).toHaveLength(43);
     expect(result.user.organizationId).toBe(authUser.organizationId);
+    expect(
+      LoginResponseSchema.safeParse({
+        session: { token: 'a'.repeat(43) },
+        user: authUser,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('exposes a raw token only through the explicit extension handoff contract', () => {
+    expect(
+      ExtensionAuthHandoffSchema.parse({ token: 'a'.repeat(43) }),
+    ).toEqual({ token: 'a'.repeat(43) });
   });
 });

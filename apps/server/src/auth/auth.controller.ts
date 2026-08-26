@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   Post,
   Req,
@@ -9,7 +10,11 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import type { AuthUserPublic, LoginResponse } from '@kiditem/shared/auth';
+import type {
+  AuthUserPublic,
+  ExtensionAuthHandoff,
+  LoginResponse,
+} from '@kiditem/shared/auth';
 import type { Request, Response } from 'express';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { SkipAuth } from './decorators/skip-auth.decorator';
@@ -42,7 +47,34 @@ export class AuthController {
       result.session.token,
       authSessionCookieOptions(),
     );
-    return result;
+    return { user: result.user };
+  }
+
+  /**
+   * The only browser-JS boundary allowed to reveal an opaque session token.
+   * It exists solely so an installed KidItem extension can authenticate its
+   * own API calls. Ordinary browser requests remain HttpOnly-cookie only.
+   */
+  @Post('extension-handoff')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  async extensionHandoff(
+    @CurrentUser() authUser: AuthUser,
+    @Req() request: Request,
+  ): Promise<ExtensionAuthHandoff> {
+    const token = request.cookies?.[AUTH_SESSION_COOKIE];
+    if (typeof token !== 'string' || !request.authSessionId) {
+      throw new UnauthorizedException('auth_required');
+    }
+    const authenticated = await this.authService.authenticateToken(token);
+    if (
+      !authenticated ||
+      authenticated.sessionId !== request.authSessionId ||
+      authenticated.authUser.id !== authUser.id
+    ) {
+      throw new UnauthorizedException('auth_required');
+    }
+    return { token };
   }
 
   @SkipAuth()

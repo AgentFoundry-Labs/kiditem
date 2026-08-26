@@ -6,7 +6,6 @@ import {
   COUPANG_CATALOG_COLLECTOR_VERSION,
   type CoupangCatalogBrowserStatus,
 } from '@kiditem/shared/coupang-catalog-snapshot';
-import { useAuthSession } from '@/components/providers/AuthProvider';
 import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import {
   findBrowserCollectionSession,
@@ -35,7 +34,6 @@ export function useCoupangCatalogImport(
   linkedRunId: string | null = null,
 ) {
   const queryClient = useQueryClient();
-  const { session } = useAuthSession();
   const [activeRun, setActiveRun] = useState<ActiveRun | null>(() => readActiveRun());
   const [extensionId, setExtensionId] = useState<string | null>(null);
   const collectionSession = useBrowserCollectionSession(
@@ -112,7 +110,6 @@ export function useCoupangCatalogImport(
       const detected = await startCoupangCatalogBrowser({
         channelAccountId,
         runId: run.id,
-      accessToken: session?.token,
       });
       setExtensionId(detected);
       try {

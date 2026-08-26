@@ -4,12 +4,10 @@ import { apiClient } from '../api-client';
 import { normalizeLoopbackApiBase } from '../api';
 import { ApiError, isApiError } from '../api-error';
 
-const getAuthSessionMock = vi.fn();
-const clearAuthSessionMock = vi.fn();
+const notifyAuthRequiredMock = vi.fn();
 
-vi.mock('../auth/session', () => ({
-  getAuthSession: () => getAuthSessionMock(),
-  clearAuthSession: (...args: unknown[]) => clearAuthSessionMock(...args),
+vi.mock('../auth/browser-auth', () => ({
+  notifyAuthRequired: (...args: unknown[]) => notifyAuthRequiredMock(...args),
 }));
 
 const DataSchema = z.object({
@@ -37,9 +35,7 @@ function jsonResponse(status: number, body: unknown, ok = status < 400): Respons
 describe('apiClient.getParsed', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
-    getAuthSessionMock.mockReset();
-    getAuthSessionMock.mockReturnValue(null);
-    clearAuthSessionMock.mockReset();
+    notifyAuthRequiredMock.mockReset();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -75,26 +71,21 @@ describe('apiClient.getParsed', () => {
     expect(result).toHaveLength(1);
   });
 
-  it('attaches the KidItem browser session token as Authorization', async () => {
-    getAuthSessionMock.mockReturnValue({
-      token: 'a'.repeat(43),
-      expiresAt: '2026-08-29T03:00:00.000Z',
-    });
+  it('uses only cookie credentials and never attaches a browser bearer token', async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(jsonResponse(200, { ok: true }));
 
     await apiClient.post('/api/test');
 
     const init = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as RequestInit;
-    expect(new Headers(init.headers).get('Authorization')).toBe(`Bearer ${'a'.repeat(43)}`);
+    expect(init.credentials).toBe('include');
+    expect(new Headers(init.headers).has('Authorization')).toBe(false);
   });
 });
 
 describe('apiClient HTTP method envelopes', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
-    getAuthSessionMock.mockReset();
-    getAuthSessionMock.mockReturnValue(null);
-    clearAuthSessionMock.mockReset();
+    notifyAuthRequiredMock.mockReset();
   });
 
   afterEach(() => {
@@ -238,9 +229,7 @@ describe('apiClient HTTP method envelopes', () => {
 describe('apiClient — 본문 없는 200 처리', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
-    getAuthSessionMock.mockReset();
-    getAuthSessionMock.mockReturnValue(null);
-    clearAuthSessionMock.mockReset();
+    notifyAuthRequiredMock.mockReset();
   });
 
   afterEach(() => {
@@ -292,15 +281,13 @@ describe('apiClient — 본문 없는 200 처리', () => {
 describe('apiClient — 401 interceptor', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
-    getAuthSessionMock.mockReset();
-    getAuthSessionMock.mockReturnValue(null);
-    clearAuthSessionMock.mockReset();
+    notifyAuthRequiredMock.mockReset();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it('AC1: GET 401 auth_required clears the absolute session without retrying', async () => {
+  it('AC1: GET 401 auth_required notifies the cookie-backed auth owner without retrying', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce(
       jsonResponse(401, {
@@ -317,7 +304,7 @@ describe('apiClient — 401 interceptor', () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(clearAuthSessionMock).toHaveBeenCalledWith('session_expired');
+    expect(notifyAuthRequiredMock).toHaveBeenCalledOnce();
   });
 
   it('AC2: POST FormData follows the same single-attempt expiry path', async () => {
@@ -341,7 +328,7 @@ describe('apiClient — 401 interceptor', () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(clearAuthSessionMock).toHaveBeenCalledWith('session_expired');
+    expect(notifyAuthRequiredMock).toHaveBeenCalledOnce();
   });
 
   it('AC3: GET 401 no_organization_context does not clear a valid session', async () => {
@@ -361,7 +348,7 @@ describe('apiClient — 401 interceptor', () => {
       code: 'no_organization_context',
     });
 
-    expect(clearAuthSessionMock).not.toHaveBeenCalled();
+    expect(notifyAuthRequiredMock).not.toHaveBeenCalled();
   });
 
   it('AC4: GET 401 unknown_message throws a generic ApiError without clearing', async () => {
@@ -386,7 +373,7 @@ describe('apiClient — 401 interceptor', () => {
     expect(isApiError(caught)).toBe(true);
     expect((caught as ApiError).status).toBe(401);
     expect((caught as ApiError).code).toBe('Unauthorized');
-    expect(clearAuthSessionMock).not.toHaveBeenCalled();
+    expect(notifyAuthRequiredMock).not.toHaveBeenCalled();
   });
 
   it('AC5: GET 500 preserves the backend error code', async () => {
@@ -412,10 +399,10 @@ describe('apiClient — 401 interceptor', () => {
     expect((caught as ApiError).status).toBe(500);
     expect((caught as ApiError).code).toBe('INTERNAL');
     expect((caught as ApiError).detail).toBe('database connection lost');
-    expect(clearAuthSessionMock).not.toHaveBeenCalled();
+    expect(notifyAuthRequiredMock).not.toHaveBeenCalled();
   });
 
-  it('AC6: fetchRaw 401 clears the session and returns the original response', async () => {
+  it('AC6: fetchRaw 401 notifies auth and returns the original response', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce(
       jsonResponse(401, {
@@ -430,7 +417,7 @@ describe('apiClient — 401 interceptor', () => {
 
     expect(res.status).toBe(401);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(clearAuthSessionMock).toHaveBeenCalledWith('session_expired');
+    expect(notifyAuthRequiredMock).toHaveBeenCalledOnce();
   });
 });
 
@@ -451,9 +438,7 @@ describe('apiClient request deadlines', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.stubGlobal('fetch', vi.fn());
-    getAuthSessionMock.mockReset();
-    getAuthSessionMock.mockReturnValue(null);
-    clearAuthSessionMock.mockReset();
+    notifyAuthRequiredMock.mockReset();
   });
 
   afterEach(() => {
