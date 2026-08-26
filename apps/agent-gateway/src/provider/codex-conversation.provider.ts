@@ -25,7 +25,20 @@ export class CodexConversationProvider implements ProviderConversationPort {
   create(input: CreateProviderConversation): Promise<ProviderConversation> { return this.options.session.createConversation(input); }
   history(providerConversationRef: string): Promise<ProviderMessage[]> { return this.options.session.history(providerConversationRef); }
   rename(providerConversationRef: string, title: string): Promise<void> { return this.options.session.rename(providerConversationRef, title); }
-  delete(providerConversationRef: string): Promise<void> { return this.options.session.archive(providerConversationRef); }
+  async delete(providerConversationRef: string): Promise<void> {
+    try {
+      await this.options.session.archive(providerConversationRef);
+      return;
+    } catch {
+      try {
+        const conversations = await this.options.session.listConversations();
+        if (!conversations.some((conversation) => conversation.providerConversationRef === providerConversationRef)) return;
+      } catch {
+        // Preserve a bounded adapter failure rather than raw app-server data.
+      }
+      throw new Error('codex_provider_delete_failed');
+    }
+  }
   startTurn(input: StartProviderTurn, sink: ProviderEventSink): Promise<void> { return this.options.session.startTurn(input, sink); }
   sendInput(input: SendProviderInput): Promise<void> { return this.options.session.steer(input); }
   interrupt(input: InterruptProviderTurn): Promise<void> { return this.options.session.interrupt(input); }

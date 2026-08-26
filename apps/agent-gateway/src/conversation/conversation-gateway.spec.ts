@@ -247,6 +247,9 @@ describe('ConversationGateway', () => {
     await gateway.delete('browser-conversation-3');
     expect(provider.deleted).toEqual(['provider-thread-1']);
     expect(await gateway.list()).toEqual([]);
+
+    await expect(gateway.delete('browser-conversation-3')).resolves.toBeUndefined();
+    expect(provider.deleted).toEqual(['provider-thread-1']);
   });
 
   it('revalidates bounded provider history and a rename title before either crosses the Gateway boundary', async () => {

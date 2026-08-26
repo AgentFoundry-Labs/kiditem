@@ -1,5 +1,5 @@
-import { readdir, readFile, realpath, stat } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { readdir, readFile, realpath, rm, stat } from 'node:fs/promises';
+import { dirname, join, relative } from 'node:path';
 import { ProviderMessageSchema, type ProviderMessage } from '@kiditem/shared/agent-runtime';
 
 const MAX_HISTORY_BYTES = 8 * 1024 * 1024;
@@ -7,19 +7,30 @@ const MAX_HISTORY_MESSAGES = 1_000;
 const MAX_SCAN_ENTRIES = 2_000;
 const MAX_TRACKED_TOOLS = 64;
 
-/** Reads Claude's provider-owned JSONL session file on demand; nothing is copied into KidItem state. */
-export class ClaudeProviderSessionHistoryReader {
+type SessionArtifacts = Readonly<{
+  transcripts: readonly string[];
+  sidecarDirectories: readonly string[];
+}>;
+
+/** Owns bounded access to Claude's provider-native session artifacts. */
+export class ClaudeProviderSessionStore {
   constructor(private readonly options: Readonly<{ loginRoot: string }>) {}
 
   async exists(sessionId: string): Promise<boolean> {
     if (!/^[a-zA-Z0-9-]{1,200}$/.test(sessionId)) return false;
-    return (await findSessionFile(this.options.loginRoot, `${sessionId}.jsonl`)) !== null;
+    const artifacts = await findSessionArtifacts(this.options.loginRoot, sessionId);
+    if (artifacts.transcripts.length > 1) throw new Error('claude_provider_session_ambiguous');
+    return artifacts.transcripts.length === 1;
   }
 
   async read(sessionId: string): Promise<ProviderMessage[]> {
     if (!/^[a-zA-Z0-9-]{1,200}$/.test(sessionId)) throw new Error('claude_provider_history_unavailable');
-    const path = await findSessionFile(this.options.loginRoot, `${sessionId}.jsonl`);
-    if (!path) throw new Error('claude_provider_history_unavailable');
+    const artifacts = await findSessionArtifacts(this.options.loginRoot, sessionId);
+    if (artifacts.transcripts.length !== 1) {
+      if (artifacts.transcripts.length > 1) throw new Error('claude_provider_session_ambiguous');
+      throw new Error('claude_provider_history_unavailable');
+    }
+    const path = artifacts.transcripts[0]!;
     let info;
     try { info = await stat(path); }
     catch (error) {
@@ -46,36 +57,61 @@ export class ClaudeProviderSessionHistoryReader {
     }
     return messages;
   }
+
+  async remove(sessionId: string): Promise<void> {
+    if (!/^[a-zA-Z0-9-]{1,200}$/.test(sessionId)) throw new Error('claude_provider_session_invalid');
+    const artifacts = await findSessionArtifacts(this.options.loginRoot, sessionId);
+    if (artifacts.transcripts.length > 1 || artifacts.sidecarDirectories.length > 1) {
+      throw new Error('claude_provider_session_ambiguous');
+    }
+    const transcript = artifacts.transcripts[0];
+    const sidecars = artifacts.sidecarDirectories[0];
+    if (transcript && sidecars && dirname(transcript) !== dirname(sidecars)) {
+      throw new Error('claude_provider_session_ambiguous');
+    }
+    try {
+      if (transcript) await rm(transcript, { force: true });
+      if (sidecars) await rm(sidecars, { recursive: true, force: true });
+    } catch {
+      throw new Error('claude_provider_session_delete_failed');
+    }
+  }
 }
 
-async function findSessionFile(loginRoot: string, expectedName: string): Promise<string | null> {
+async function findSessionArtifacts(loginRoot: string, sessionId: string): Promise<SessionArtifacts> {
   const canonicalLoginRoot = await canonicalPathOrMissing(loginRoot);
-  if (!canonicalLoginRoot) return null;
+  if (!canonicalLoginRoot) return emptyArtifacts();
   const canonicalRoot = await canonicalPathOrMissing(join(canonicalLoginRoot, '.claude', 'projects'));
-  if (!canonicalRoot) return null;
+  if (!canonicalRoot) return emptyArtifacts();
   if (!isWithin(canonicalRoot, canonicalLoginRoot)) throw new Error('claude_provider_history_path_invalid');
+  const transcripts: string[] = [];
+  const sidecarDirectories: string[] = [];
   let scanned = 0;
-  async function scan(directory: string, depth: number): Promise<string | null> {
-    if (depth > 5 || scanned >= MAX_SCAN_ENTRIES) return null;
+  async function scan(directory: string, depth: number): Promise<void> {
+    if (depth > 5) return;
     const entries = await readDirectoryOrMissing(directory);
-    if (!entries) return null;
+    if (!entries) return;
     for (const entry of entries) {
       scanned += 1;
-      if (scanned > MAX_SCAN_ENTRIES) return null;
+      if (scanned > MAX_SCAN_ENTRIES) throw new Error('claude_provider_session_scan_limit');
       if (entry.isSymbolicLink()) continue;
       const path = join(directory, entry.name);
       const canonicalPath = await canonicalPathOrMissing(path);
       if (!canonicalPath) continue;
       if (!isWithin(canonicalPath, canonicalRoot)) throw new Error('claude_provider_history_path_invalid');
-      if (entry.isFile() && entry.name === expectedName) return canonicalPath;
+      if (entry.isFile() && entry.name === `${sessionId}.jsonl`) transcripts.push(canonicalPath);
       if (entry.isDirectory()) {
-        const found = await scan(canonicalPath, depth + 1);
-        if (found) return found;
+        if (entry.name === sessionId) sidecarDirectories.push(canonicalPath);
+        await scan(canonicalPath, depth + 1);
       }
     }
-    return null;
   }
-  return scan(canonicalRoot, 0);
+  await scan(canonicalRoot, 0);
+  return { transcripts, sidecarDirectories };
+}
+
+function emptyArtifacts(): SessionArtifacts {
+  return { transcripts: [], sidecarDirectories: [] };
 }
 
 async function canonicalPathOrMissing(path: string): Promise<string | null> {

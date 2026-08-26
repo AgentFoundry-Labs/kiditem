@@ -23,9 +23,10 @@ export interface ClaudeMcpConfigPort {
   remove(path: string): Promise<void>;
 }
 
-export interface ClaudeProviderHistoryPort {
+export interface ClaudeProviderSessionStorePort {
   exists(sessionId: string): Promise<boolean>;
   read(sessionId: string): Promise<ProviderMessage[]>;
+  remove(sessionId: string): Promise<void>;
 }
 
 export interface ClaudeTurnHandle {
@@ -52,9 +53,8 @@ type ActiveClaudeTurn = Readonly<{
 
 /**
  * Claude Code has documented session create/resume stream flags, but no native
- * list, title, or destructive session endpoint. List/name are descriptor
- * concerns; delete explicitly reports bounded provider unavailability so the
- * local descriptor is never removed under a false provider success.
+ * list or title endpoint. List/name are descriptor concerns; the exact
+ * provider-owned session artifacts are deleted only through the native store.
  */
 export class ClaudeConversationProvider implements ProviderConversationPort {
   readonly runtime = 'claude_cli' as const;
@@ -67,7 +67,7 @@ export class ClaudeConversationProvider implements ProviderConversationPort {
     mcpUrl: string;
     configs: ClaudeMcpConfigPort;
     launcher: ClaudeProcessLauncher;
-    history: ClaudeProviderHistoryPort;
+    sessions: ClaudeProviderSessionStorePort;
     readiness: ProviderReadiness;
     randomSessionId?: () => string;
   }>) {}
@@ -81,7 +81,7 @@ export class ClaudeConversationProvider implements ProviderConversationPort {
   }
 
   history(providerConversationRef: string): Promise<ProviderMessage[]> {
-    return this.options.history.read(providerConversationRef);
+    return this.options.sessions.read(providerConversationRef);
   }
 
   async rename(_providerConversationRef: string, _title: string): Promise<void> {
@@ -89,8 +89,12 @@ export class ClaudeConversationProvider implements ProviderConversationPort {
     // bounded descriptor metadata and never represented as provider history.
   }
 
-  async delete(_providerConversationRef: string): Promise<void> {
-    throw new Error('claude_provider_delete_unsupported');
+  async delete(providerConversationRef: string): Promise<void> {
+    try {
+      await this.options.sessions.remove(providerConversationRef);
+    } catch {
+      throw new Error('claude_provider_delete_failed');
+    }
   }
 
   async startTurn(input: StartProviderTurn, sink: ProviderEventSink): Promise<void> {
@@ -105,7 +109,7 @@ export class ClaudeConversationProvider implements ProviderConversationPort {
     try {
       // Provider state, not Gateway process memory, decides first-session
       // versus resume semantics after a Gateway restart.
-      resume = await this.options.history.exists(input.providerConversationRef);
+      resume = await this.options.sessions.exists(input.providerConversationRef);
     } catch {
       await this.options.configs.remove(configPath).catch(() => undefined);
       throw new Error('claude_provider_session_state_unavailable');

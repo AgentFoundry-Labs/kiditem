@@ -99,6 +99,22 @@ describe('GatewayCommandDispatcher', () => {
     expect(events(outbox)).toEqual([{ kind: 'command.rejected', commandId: 'command-create-conflict', code: 'invalid_state' }]);
     expect(outbox.peekBody()).not.toContain('provider-thread');
   });
+
+  it('rejects deletion of an exact conversation with a live local turn before it reaches the provider gateway', async () => {
+    const { GatewayCommandDispatcher } = await import('./gateway-command-dispatcher');
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const { ActiveTurnRegistry } = await import('../turn/active-turn.registry');
+    const gateway = new FakeConversationGateway();
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
+    const activeTurns = new ActiveTurnRegistry();
+    activeTurns.admit({ conversationId: 'conversation-live', turnId: 'turn-live' });
+    const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, activeTurns });
+
+    await dispatcher.dispatch({ kind: 'conversation.delete', commandId: 'command-delete-live', conversationId: 'conversation-live' });
+
+    expect(gateway.deletedConversationIds).toEqual([]);
+    expect(events(outbox)).toEqual([{ kind: 'command.rejected', commandId: 'command-delete-live', code: 'invalid_state' }]);
+  });
 });
 
 function events(outbox: { peekBody(): string | null }): Array<Record<string, unknown>> {
@@ -113,6 +129,7 @@ class FakeConversationGateway {
   messages: unknown[] = [];
   createInputs: unknown[] = [];
   createFailure: Error | undefined;
+  deletedConversationIds: string[] = [];
   private sink: ((event: GatewayProviderEvent) => void) | undefined;
 
   async list() { this.listCalls += 1; return []; }
@@ -123,7 +140,7 @@ class FakeConversationGateway {
   }
   async history() { return this.messages; }
   async rename() { return { id: 'conversation-1', runtime: 'codex_cli', agentKey: null, title: 'New', createdAt: '2026-08-23T00:00:00.000Z', updatedAt: '2026-08-23T00:00:00.000Z' }; }
-  async delete() { return undefined; }
+  async delete(conversationId: string) { this.deletedConversationIds.push(conversationId); }
   async sendInput() { return undefined; }
   async interrupt() { return undefined; }
   async startTurn(input: { onEvent: (event: GatewayProviderEvent) => void }) {

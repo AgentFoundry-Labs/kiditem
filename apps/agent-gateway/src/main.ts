@@ -21,7 +21,7 @@ import { ConversationGateway } from './conversation/conversation-gateway';
 import { ClaudeConversationProvider } from './provider/claude-conversation.provider';
 import { ClaudeMcpConfigStore } from './provider/claude-mcp-config';
 import { NativeClaudeProcessLauncher } from './provider/claude-process-launcher';
-import { ClaudeProviderSessionHistoryReader } from './provider/claude-session-history.reader';
+import { ClaudeProviderSessionStore } from './provider/claude-session.store';
 import { startCodexAppServer } from './provider/codex-app-server-process';
 import { CodexConversationProvider } from './provider/codex-conversation.provider';
 import { buildClaudeAuthStatusCommand } from './provider/claude-command';
@@ -59,6 +59,7 @@ export async function runNativeAgentGateway(argv: readonly string[]): Promise<ne
   const codex = codexProcess && codexReadiness
     ? new CodexConversationProvider({ session: codexProcess.session, readiness: codexReadiness })
     : new UnavailableProvider('codex_cli');
+  const claudeSessions = new ClaudeProviderSessionStore({ loginRoot: config.loginRoot });
   const claude = claudeLoggedIn
     ? new ClaudeConversationProvider({
       runtimeRoot: config.runtimeRoot,
@@ -67,7 +68,7 @@ export async function runNativeAgentGateway(argv: readonly string[]): Promise<ne
       mcpUrl,
       configs: mcpConfigs,
       launcher: new NativeClaudeProcessLauncher(),
-      history: new ClaudeProviderSessionHistoryReader({ loginRoot: config.loginRoot }),
+      sessions: claudeSessions,
       readiness: claudeProviderReadiness(),
     })
     : new UnavailableProvider('claude_cli');

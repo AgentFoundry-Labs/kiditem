@@ -43,6 +43,18 @@ describe('ActiveTurnRegistry', () => {
     });
   });
 
+  it('reports whether any exact conversation currently owns a live turn', () => {
+    return import('./active-turn.registry').then(({ ActiveTurnRegistry }) => {
+      const registry = new ActiveTurnRegistry();
+      registry.admit({ conversationId: 'conversation-1', turnId: 'turn-1' });
+
+      expect(registry.hasConversation('conversation-1')).toBe(true);
+      expect(registry.hasConversation('conversation-2')).toBe(false);
+      registry.release({ conversationId: 'conversation-1', turnId: 'turn-1' });
+      expect(registry.hasConversation('conversation-1')).toBe(false);
+    });
+  });
+
   it('releases terminal turns once and clears all transient slots on a Gateway disconnect', () => {
     return import('./active-turn.registry').then(({ ActiveTurnRegistry }) => {
     const registry = new ActiveTurnRegistry();

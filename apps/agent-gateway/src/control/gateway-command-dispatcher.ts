@@ -103,6 +103,7 @@ export class GatewayCommandDispatcher {
         return;
       }
       case 'conversation.delete': {
+        if (this.active.hasConversation(command.conversationId)) throw new ActiveTurnAlreadyLiveError();
         await this.options.gateway.delete(command.conversationId);
         this.options.outbox.enqueue({ kind: 'conversation.deleted', commandId: command.commandId, conversationId: command.conversationId });
         return;

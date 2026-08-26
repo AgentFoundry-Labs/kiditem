@@ -9,13 +9,14 @@ describe('ClaudeConversationProvider', () => {
     const { ClaudeConversationProvider } = await import('./claude-conversation.provider');
     const launcher = new FakeClaudeLauncher();
     const configs = new FakeClaudeConfigs();
-    const history = {
+    const sessions = {
       exists: async () => launcher.starts.length > 0,
       read: async () => [{ id: 'provider-message-1', role: 'assistant' as const, content: 'Provider-owned history', createdAt: '2026-08-23T00:00:00.000Z' }],
+      remove: async () => undefined,
     };
     const provider = new ClaudeConversationProvider({
       runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
-      configs, launcher, history, randomSessionId: () => '33333333-3333-4333-8333-333333333333',
+      configs, launcher, sessions, randomSessionId: () => '33333333-3333-4333-8333-333333333333',
       readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium', 'high'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium', 'high'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
     });
     const created = await provider.create({ title: 'Claude research', instructionProfile: SOURCING_PROFILE });
@@ -33,7 +34,7 @@ describe('ClaudeConversationProvider', () => {
     ]);
     expect(launcher.starts.map(({ command }) => command.args.join(' ')).join('\n')).not.toContain('A'.repeat(43));
     expect(configs.created.map(({ executionBinding }) => executionBinding)).toEqual(['A'.repeat(43), 'B'.repeat(43)]);
-    expect(await provider.history(created.providerConversationRef)).toEqual(await history.read());
+    expect(await provider.history(created.providerConversationRef)).toEqual(await sessions.read());
     expect(events).toEqual([
       { kind: 'status', status: 'started' },
       { kind: 'assistant.delta', delta: 'First answer' },
@@ -42,27 +43,29 @@ describe('ClaudeConversationProvider', () => {
     ]);
   });
 
-  it('has no Claude transcript cache and returns bounded provider errors for unsupported destructive session operations', async () => {
+  it('has no Claude transcript cache and removes only the opaque provider session through the native session store', async () => {
     const { ClaudeConversationProvider } = await import('./claude-conversation.provider');
+    const sessions = new FakeClaudeSessions();
     const provider = new ClaudeConversationProvider({
       runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
-      configs: new FakeClaudeConfigs(), launcher: new FakeClaudeLauncher(), history: { exists: async () => false, read: async () => [] },
+      configs: new FakeClaudeConfigs(), launcher: new FakeClaudeLauncher(), sessions,
       randomSessionId: () => '33333333-3333-4333-8333-333333333333',
       readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
     });
 
     expect(JSON.stringify(provider)).not.toContain('transcript');
-    await expect(provider.delete('33333333-3333-4333-8333-333333333333')).rejects.toThrow('claude_provider_delete_unsupported');
+    await expect(provider.delete('33333333-3333-4333-8333-333333333333')).resolves.toBeUndefined();
+    expect(sessions.removed).toEqual(['33333333-3333-4333-8333-333333333333']);
   });
 
   it('checks provider-owned session existence on every start, retains session-id after launch failure, and replays output that arrives before the handle', async () => {
     const { ClaudeConversationProvider } = await import('./claude-conversation.provider');
     const launcher = new FakeClaudeLauncher();
     launcher.failNext = true;
-    const history = { exists: async () => false, read: async () => [] };
+    const sessions = { exists: async () => false, read: async () => [], remove: async () => undefined };
     const provider = new ClaudeConversationProvider({
       runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
-      configs: new FakeClaudeConfigs(), launcher, history, randomSessionId: () => '33333333-3333-4333-8333-333333333333',
+      configs: new FakeClaudeConfigs(), launcher, sessions, randomSessionId: () => '33333333-3333-4333-8333-333333333333',
       readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
     });
     const created = await provider.create({ instructionProfile: GENERAL_PROFILE });
@@ -87,7 +90,7 @@ describe('ClaudeConversationProvider', () => {
     const launcher = new FakeClaudeLauncher();
     const provider = new ClaudeConversationProvider({
       runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
-      configs: new FakeClaudeConfigs(), launcher, history: { exists: async () => false, read: async () => [] },
+      configs: new FakeClaudeConfigs(), launcher, sessions: { exists: async () => false, read: async () => [], remove: async () => undefined },
       randomSessionId: () => '33333333-3333-4333-8333-333333333333',
       readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
     });
@@ -105,7 +108,7 @@ describe('ClaudeConversationProvider', () => {
     const launcher = new FakeClaudeLauncher();
     const provider = new ClaudeConversationProvider({
       runtimeRoot: process.cwd(), workspace: '/gateway/workspace', loginRoot: '/gateway/login', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
-      configs: new FakeClaudeConfigs(), launcher, history: { exists: async () => false, read: async () => [] },
+      configs: new FakeClaudeConfigs(), launcher, sessions: { exists: async () => false, read: async () => [], remove: async () => undefined },
       randomSessionId: () => '33333333-3333-4333-8333-333333333333',
       readiness: { runtime: 'claude_cli', version: '2.1.245', models: ['claude-fable-5'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'claude-fable-5', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
     });
@@ -127,6 +130,13 @@ class FakeClaudeConfigs {
   removed: string[] = [];
   async create(input: { turnId: string; mcpUrl: string; executionBinding: string }) { this.created.push(input); return `/gateway/state/${this.created.length}.json`; }
   async remove(path: string) { this.removed.push(path); }
+}
+
+class FakeClaudeSessions {
+  removed: string[] = [];
+  async exists() { return false; }
+  async read() { return []; }
+  async remove(sessionId: string) { this.removed.push(sessionId); }
 }
 
 class FakeClaudeLauncher {

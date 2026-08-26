@@ -49,6 +49,10 @@ export class ActiveTurnRegistry {
     return active;
   }
 
+  hasConversation(conversationId: string): boolean {
+    return [...this.active.values()].some((active) => active.conversationId === conversationId);
+  }
+
   /** Terminal/interrupt release is idempotent so duplicate provider events are harmless. */
   release(input: ActiveTurn): boolean {
     return this.active.delete(turnKey(input));
