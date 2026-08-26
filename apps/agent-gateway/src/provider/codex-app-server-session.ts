@@ -34,6 +34,19 @@ type ActiveTurn = Readonly<{
 const MAX_RPC_BUFFER_BYTES = 64 * 1024;
 const MAX_HISTORY_MESSAGES = 1_000;
 
+export type CodexAppServerFramingFaultCode = 'codex_app_server_output_invalid' | 'codex_app_server_output_too_large';
+
+/** Bounded parser fault metadata intentionally omits the provider frame. */
+export class CodexAppServerFramingError extends Error {
+  constructor(
+    readonly code: CodexAppServerFramingFaultCode,
+    readonly byteCount: number,
+  ) {
+    super(code);
+    this.name = 'CodexAppServerFramingError';
+  }
+}
+
 /** Exact app-server model/list facts; no model or effort defaults are inferred. */
 export interface CodexModelCapability {
   model: string;
@@ -222,18 +235,30 @@ export class CodexAppServerSession {
   receive(chunk: string): void {
     if (this.closed) return;
     this.buffer += chunk;
-    if (Buffer.byteLength(this.buffer, 'utf8') > (this.options.maxBytes ?? MAX_RPC_BUFFER_BYTES)) {
-      throw new Error('codex_app_server_output_too_large');
-    }
+    const maxBytes = this.options.maxBytes ?? MAX_RPC_BUFFER_BYTES;
     while (this.buffer.includes('\n')) {
       const index = this.buffer.indexOf('\n');
       const line = this.buffer.slice(0, index);
       this.buffer = this.buffer.slice(index + 1);
+      const lineBytes = Buffer.byteLength(line, 'utf8');
+      if (lineBytes > maxBytes) {
+        this.buffer = '';
+        throw new CodexAppServerFramingError('codex_app_server_output_too_large', boundedFrameByteCount(lineBytes, maxBytes));
+      }
       if (!line.trim()) continue;
       let message: RpcResponse;
-      try { message = JSON.parse(line) as RpcResponse; } catch { throw new Error('codex_app_server_output_invalid'); }
+      try { message = JSON.parse(line) as RpcResponse; }
+      catch {
+        this.buffer = '';
+        throw new CodexAppServerFramingError('codex_app_server_output_invalid', boundedFrameByteCount(lineBytes, maxBytes));
+      }
       if (message.id) this.resolveResponse(message);
       else if (message.method) this.handleNotification(message.method, message.params);
+    }
+    const bufferBytes = Buffer.byteLength(this.buffer, 'utf8');
+    if (bufferBytes > maxBytes) {
+      this.buffer = '';
+      throw new CodexAppServerFramingError('codex_app_server_output_too_large', boundedFrameByteCount(bufferBytes, maxBytes));
     }
   }
 
@@ -407,6 +432,10 @@ function terminalStatus(status: string): 'completed' | 'failed' | 'interrupted' 
   if (status === 'completed') return 'completed';
   if (status === 'cancelled' || status === 'interrupted') return 'interrupted';
   return 'failed';
+}
+
+function boundedFrameByteCount(byteCount: number, maxBytes: number): number {
+  return Math.min(byteCount, maxBytes + 1);
 }
 
 /** App-server item notifications may contain raw MCP arguments/results: expose neither. */

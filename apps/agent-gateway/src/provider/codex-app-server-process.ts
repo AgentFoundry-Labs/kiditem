@@ -1,7 +1,7 @@
 import { join } from 'node:path';
-import type { ProcessSupervisor, SupervisedProcess } from '../platform/process-supervisor';
+import type { ProcessExit, ProcessSupervisor, SupervisedProcess } from '../platform/process-supervisor';
 import { providerEnvironment, gatewayProviderInvocation } from './provider-command';
-import { CodexAppServerSession } from './codex-app-server-session';
+import { CodexAppServerFramingError, CodexAppServerSession } from './codex-app-server-session';
 
 /** Starts the pinned Codex app-server and binds its lifetime to one Gateway session. */
 export async function startCodexAppServer(input: Readonly<{
@@ -45,10 +45,16 @@ export async function startCodexAppServer(input: Readonly<{
     }, {
       onStdout: (chunk) => {
         try { session.receive(chunk); }
-        catch { void close().catch(() => undefined); }
+        catch (error) {
+          reportCodexAppServerSessionFault(error);
+          session.close();
+        }
       },
       // A supervisor emits exit only after it proves descendant-tree death.
-      onExit: () => session.close(),
+      onExit: (exit) => {
+        if (!closing) reportCodexAppServerNativeExit(exit);
+        session.close();
+      },
     });
   } catch {
     throw new Error('codex_app_server_spawn_failed');
@@ -57,4 +63,16 @@ export async function startCodexAppServer(input: Readonly<{
     session,
     close,
   });
+}
+
+function reportCodexAppServerSessionFault(error: unknown): void {
+  if (error instanceof CodexAppServerFramingError) {
+    console.error(`agent_gateway_codex_app_server_session_framing_fault code=${error.code} bytes=${error.byteCount}`);
+    return;
+  }
+  console.error('agent_gateway_codex_app_server_session_framing_fault code=codex_app_server_output_failed bytes=0');
+}
+
+function reportCodexAppServerNativeExit(exit: ProcessExit): void {
+  console.error(`agent_gateway_codex_app_server_native_exit code=${exit.code ?? 'null'} signal=${exit.signal ?? 'null'}`);
 }
