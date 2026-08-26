@@ -98,6 +98,20 @@ describe('conversation surface state', () => {
     expect(useStore.getState().activeRightSurface).toBe('ai_chat');
   });
 
+  it('clears an unsent draft and its navigation coordinates through reset', () => {
+    vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'conversation-private-draft') });
+    openConversation({ fixedAgentKey: 'sourcing', draft: 'Keep this private' });
+
+    useConversationSurfaceState.getState().reset();
+
+    expect(useConversationSurfaceState.getState()).toMatchObject({
+      selectedContext: null,
+      activeConversationId: null,
+      pendingDraft: null,
+      settingsOpen: false,
+    });
+  });
+
   it('stores only the disposable settings coordinate for the shared settings dialog', () => {
     const state = useConversationSurfaceState.getState() as {
       settingsOpen?: boolean;

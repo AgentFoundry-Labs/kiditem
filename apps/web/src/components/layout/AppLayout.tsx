@@ -42,12 +42,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     activeRightSurface,
     selectRightSurface,
     closeRightSurface,
+    resetRightSurface,
   } = useStore();
   const auth = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const launcherRef = useRef<HTMLElement | null>(null);
+  const authenticatedIdentityRef = useRef<string | null>(null);
   const activeConversationId = useConversationSurfaceState((state) => state.activeConversationId);
+  const resetConversationSurface = useConversationSurfaceState((state) => state.reset);
+  const authenticatedIdentity = auth.status === 'ready' && auth.user
+    ? `${auth.user.id}:${auth.user.organizationId}`
+    : null;
 
   // Public/isolated surfaces render their own layout. `/agent-os` is fullscreen
   // too, but remains a protected surface before its provider can mount.
@@ -63,6 +69,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     const nextPath = `${pathname}${window.location.search}`;
     router.replace(`/login?next=${encodeURIComponent(nextPath)}`);
   }, [auth.status, isPublicOrIsolatedSurface, pathname, router]);
+
+  useEffect(() => {
+    // A refetch may briefly report loading while retaining the same session.
+    // Keep the last ready identity until auth resolves before deciding whether
+    // ephemeral cross-user UI state must be discarded.
+    if (auth.status === 'loading') return;
+
+    const previousIdentity = authenticatedIdentityRef.current;
+    if (previousIdentity && previousIdentity !== authenticatedIdentity) {
+      resetRightSurface();
+      resetConversationSurface();
+    }
+    authenticatedIdentityRef.current = authenticatedIdentity;
+  }, [auth.status, authenticatedIdentity, resetConversationSurface, resetRightSurface]);
 
   if (isPublicOrIsolatedSurface) {
     return <>{children}</>;

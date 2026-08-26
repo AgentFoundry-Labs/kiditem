@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
@@ -128,6 +128,53 @@ describe('AgentConversationSurface', () => {
     expect(tree.parentElement).toHaveClass('hidden', 'lg:flex');
     fireEvent.click(screen.getByRole('button', { name: '대화 목록 열기' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('traps keyboard focus in the mobile folder drawer', async () => {
+    renderSurface();
+    await screen.findByPlaceholderText('무엇을 도와드릴까요?');
+
+    fireEvent.click(await screen.findByRole('button', { name: '대화 목록 열기' }));
+    const drawer = await screen.findByRole('dialog');
+    const closeButton = within(drawer).getByRole('button', { name: '대화 목록 닫기' });
+    const firstFocusable = within(drawer).getByRole('button', { name: '새 AI 대화' });
+
+    closeButton.focus();
+    const tabHandled = fireEvent.keyDown(closeButton, { key: 'Tab' });
+
+    expect(tabHandled).toBe(false);
+    expect(firstFocusable).toHaveFocus();
+  });
+
+  it('lets a topmost settings dialog consume Escape without dismissing the mobile folder drawer', async () => {
+    renderSurface();
+    await screen.findByPlaceholderText('무엇을 도와드릴까요?');
+
+    const opener = await screen.findByRole('button', { name: '대화 목록 열기' });
+    opener.focus();
+    fireEvent.click(opener);
+    const drawer = await screen.findByRole('dialog');
+    fireEvent.click(within(drawer).getByRole('button', { name: '대화 설정' }));
+    const settingsDialog = await screen.findByRole('dialog', { name: '대화 설정' });
+    fireEvent.keyDown(settingsDialog, { key: 'Escape' });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '대화 설정' })).not.toBeInTheDocument();
+    });
+    expect(drawer).toBeInTheDocument();
+  });
+
+  it('restores focus to the exact mobile folder drawer opener after close', async () => {
+    renderSurface();
+    await screen.findByPlaceholderText('무엇을 도와드릴까요?');
+
+    const opener = await screen.findByRole('button', { name: '대화 목록 열기' });
+    opener.focus();
+    fireEvent.click(opener);
+    await screen.findByRole('dialog');
+    fireEvent.click(await screen.findByRole('button', { name: '대화 목록 닫기' }));
+
+    await waitFor(() => expect(opener).toHaveFocus());
   });
 
   it('opens the primary General draft without a conversation request and focuses its compact composer', async () => {

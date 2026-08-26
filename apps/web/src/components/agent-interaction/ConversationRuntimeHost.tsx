@@ -77,6 +77,7 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
     staleTime: 30_000,
     enabled: selectedRuntime !== null || settingsOpen,
   });
+  const readiness = readinessQuery.isError ? null : readinessQuery.data;
   const preferencesQuery = useQuery({
     queryKey: queryKeys.conversations.preferences(),
     queryFn: getConversationPreferences,
@@ -115,7 +116,7 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
     draftContext: activeDraft?.agentKey ?? null,
     runtime: selectedRuntime,
     preferences: preferencesQuery.data,
-    readiness: readinessQuery.data,
+    readiness,
   });
   useEffect(() => {
     if (!activeDraft || !selectedRuntime || activeDraft.model !== null || activeDraft.reasoningEffort !== null) return;
@@ -165,7 +166,7 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
     conversations,
     conversationsLoading: conversationsQuery.isLoading,
     conversationsError: conversationsQuery.isError,
-    readiness: readinessQuery.data,
+    readiness,
     preferences: preferencesQuery.data,
     preferencesLoading: preferencesQuery.isLoading,
     preferencesError: preferencesQuery.isError,
@@ -193,7 +194,7 @@ export function ConversationRuntimeHost({ children }: { children: ReactNode }) {
       conversations={conversations}
       conversationsLoading={conversationsQuery.isLoading}
       conversationsError={conversationsQuery.isError}
-      readiness={readinessQuery.data}
+      readiness={readiness}
       preferences={preferencesQuery.data}
       preferencesLoading={preferencesQuery.isLoading}
       preferencesError={preferencesQuery.isError}
@@ -294,15 +295,28 @@ function ActiveConversationRuntime({
     if (terminalHistoryRefresh.current) return terminalHistoryRefresh.current;
     const refresh = (async () => {
       try {
-        await queryClient.invalidateQueries({
-          queryKey: queryKeys.conversations.history(conversationId),
-          refetchType: 'none',
-        });
-        const refreshedHistory = await queryClient.fetchQuery({
-          queryKey: queryKeys.conversations.history(conversationId),
-          queryFn: () => getConversationHistory(conversationId),
-          staleTime: 0,
-        });
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.conversations.history(conversationId),
+            refetchType: 'none',
+          }),
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.conversations.list(),
+            refetchType: 'none',
+          }),
+        ]);
+        const [refreshedHistory] = await Promise.all([
+          queryClient.fetchQuery({
+            queryKey: queryKeys.conversations.history(conversationId),
+            queryFn: () => getConversationHistory(conversationId),
+            staleTime: 0,
+          }),
+          queryClient.fetchQuery({
+            queryKey: queryKeys.conversations.list(),
+            queryFn: listConversations,
+            staleTime: 0,
+          }),
+        ]);
         clearCoveredLiveState(refreshedHistory);
       } catch {
         // Keep live provider state until durable history really covers it.

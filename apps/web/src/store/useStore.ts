@@ -18,6 +18,7 @@ interface AppStore {
   activeRightSurface: ActiveRightSurface;
   selectRightSurface: (surface: Exclude<ActiveRightSurface, null>) => void;
   closeRightSurface: () => void;
+  resetRightSurface: () => void;
   editorDirty: boolean;
   setEditorDirty: (dirty: boolean) => void;
   confirmDialog: ConfirmDialogState | null;
@@ -34,6 +35,7 @@ export const useStore = create<AppStore>((set) => ({
     activeRightSurface: state.activeRightSurface === surface ? null : surface,
   })),
   closeRightSurface: () => set({ activeRightSurface: null }),
+  resetRightSurface: () => set({ activeRightSurface: null }),
   editorDirty: false,
   setEditorDirty: (dirty: boolean) => set({ editorDirty: dirty }),
   confirmDialog: null,

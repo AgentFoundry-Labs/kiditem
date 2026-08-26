@@ -1,7 +1,7 @@
 'use client';
 
-import { Send, Square } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Send, Square } from 'lucide-react';
 import { ConversationCombinedSelector } from './ConversationCombinedSelector';
 import { isSupportedConversationPair } from './conversation-preference-selection';
 import type { ConversationRuntime, GatewayReadiness } from './conversation-api';
@@ -12,6 +12,8 @@ type DraftPatch = {
   reasoningEffort?: string | null;
   message?: string;
 };
+
+type PendingAction = 'launch' | 'input' | 'interrupt' | null;
 
 export function AgentConversationComposer({
   conversationId,
@@ -52,9 +54,16 @@ export function AgentConversationComposer({
   const [message, setMessage] = useState(initialMessage ?? '');
   const [model, setModel] = useState<string | null>(initialModel ?? null);
   const [reasoningEffort, setReasoningEffort] = useState<string | null>(initialReasoningEffort ?? null);
-  const [submitting, setSubmitting] = useState(false);
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [isComposing, setIsComposing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const initializedMessageIdentity = useRef<string | null>(null);
+  const messageIdentity = `${conversationId}:${isDraft ? 'draft' : 'conversation'}`;
+  const launchPending = pendingAction === 'launch' && !activeTurnId;
+  const inputPending = pendingAction === 'input';
+  const interruptPending = pendingAction === 'interrupt';
+  const selectorDisabled = Boolean(activeTurnId) || pendingAction !== null;
+  const messageDisabled = launchPending || inputPending || interruptPending;
   const pairSupported = useMemo(() => isSupportedConversationPair({
     runtime,
     model,
@@ -62,15 +71,19 @@ export function AgentConversationComposer({
     readiness,
   }), [model, readiness, reasoningEffort, runtime]);
   const selectionNeedsReview = needsReview || Boolean((model || reasoningEffort) && !pairSupported);
-  const canStart = Boolean(message.trim() && runtime && pairSupported && !submitting);
-  const canInput = Boolean(message.trim() && activeTurnId && !submitting);
+  const canStart = Boolean(message.trim() && runtime && pairSupported && !activeTurnId && !pendingAction);
+  const canInput = Boolean(message.trim() && activeTurnId && !inputPending && !interruptPending);
 
   useEffect(() => {
+    if (initializedMessageIdentity.current === messageIdentity) return;
+    initializedMessageIdentity.current = messageIdentity;
     setMessage(initialMessage ?? '');
+    setError(null);
+  }, [initialMessage, messageIdentity]);
+  useEffect(() => {
     setModel(initialModel ?? null);
     setReasoningEffort(initialReasoningEffort ?? null);
-    setError(null);
-  }, [conversationId, initialMessage, initialModel, initialReasoningEffort]);
+  }, [conversationId, initialModel, initialReasoningEffort]);
   useEffect(() => {
     if (!isDraft) return;
     messageRef.current?.focus();
@@ -102,31 +115,35 @@ export function AgentConversationComposer({
   };
   const submit = async () => {
     if (!(activeTurnId ? canInput : canStart)) return;
-    setSubmitting(true);
+    const action = activeTurnId ? 'input' : 'launch';
+    const submittedMessage = message.trim();
+    setPendingAction(action);
     setError(null);
+    setMessage('');
     try {
-      if (activeTurnId) await onInput(message.trim());
+      if (action === 'input') await onInput(submittedMessage);
       else await onStart({
-        message: message.trim(),
+        message: submittedMessage,
         model: model ?? '',
         reasoningEffort: reasoningEffort ?? '',
       });
-      updateMessage('');
     } catch {
-      setError(activeTurnId ? '메시지를 보낼 수 없습니다.' : '선택한 대화 엔진을 현재 사용할 수 없습니다.');
+      if (!messageRef.current?.value) updateMessage(submittedMessage);
+      setError(action === 'input' ? '메시지를 보낼 수 없습니다.' : '선택한 대화 엔진을 현재 사용할 수 없습니다.');
     } finally {
-      setSubmitting(false);
+      setPendingAction((current) => current === action ? null : current);
     }
   };
   const interrupt = async () => {
-    setSubmitting(true);
+    if (!activeTurnId || interruptPending) return;
+    setPendingAction('interrupt');
     setError(null);
     try {
       await onInterrupt();
     } catch {
       setError('대화를 중단할 수 없습니다.');
     } finally {
-      setSubmitting(false);
+      setPendingAction((current) => current === 'interrupt' ? null : current);
     }
   };
 
@@ -154,6 +171,7 @@ export function AgentConversationComposer({
           maxLength={16_000}
           value={message}
           onChange={(event) => updateMessage(event.target.value)}
+          disabled={messageDisabled}
           onCompositionStart={() => setIsComposing(true)}
           onCompositionEnd={() => setIsComposing(false)}
           onKeyDown={(event) => {
@@ -172,7 +190,7 @@ export function AgentConversationComposer({
             model={model}
             reasoningEffort={reasoningEffort}
             providerEditable={isDraft}
-            disabled={Boolean(activeTurnId)}
+            disabled={selectorDisabled}
             needsReview={selectionNeedsReview}
             onRuntimeChange={updateRuntime}
             onModelChange={updateModel}
@@ -183,7 +201,7 @@ export function AgentConversationComposer({
               type="button"
               aria-label="대화 중단"
               onClick={() => void interrupt()}
-              disabled={submitting}
+              disabled={interruptPending}
               className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-full border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 max-lg:min-h-11 max-lg:min-w-11"
             >
               <Square aria-hidden="true" size={16} />

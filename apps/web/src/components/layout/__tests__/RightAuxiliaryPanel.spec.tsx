@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ConversationSettingsDialog } from '@/components/agent-interaction/ConversationSettingsDialog';
+import { useConversationSurfaceState } from '@/components/agent-interaction/conversation-surface-state';
 import { RightAuxiliaryPanel } from '../RightAuxiliaryPanel';
 
 vi.mock('@/components/panel/NotificationPanelContent', () => ({
@@ -45,7 +48,56 @@ function launcherRef(surface = 'ai_chat') {
   return { current: launcher };
 }
 
+function SettingsOverPanelHarness({
+  launcherRef: panelLauncherRef,
+  onPanelClose,
+  onSettingsClose,
+}: {
+  launcherRef: ReturnType<typeof launcherRef>;
+  onPanelClose(): void;
+  onSettingsClose(): void;
+}) {
+  const [activeRightSurface, setActiveRightSurface] = useState<'ai_chat' | null>('ai_chat');
+  const settingsOpen = useConversationSurfaceState((state) => state.settingsOpen);
+  const openSettings = useConversationSurfaceState((state) => state.openSettings);
+  const closeSettings = useConversationSurfaceState((state) => state.closeSettings);
+
+  return (
+    <>
+      <button type="button" onClick={(event) => openSettings(event.currentTarget)}>대화 설정 열기</button>
+      <RightAuxiliaryPanel
+        activeRightSurface={activeRightSurface}
+        onClose={() => {
+          onPanelClose();
+          setActiveRightSurface(null);
+        }}
+        launcherRef={panelLauncherRef}
+      />
+      <ConversationSettingsDialog
+        open={settingsOpen}
+        onClose={() => {
+          onSettingsClose();
+          closeSettings();
+        }}
+        conversations={[]}
+        activeConversationId={null}
+        activeTurnId={null}
+        preferences={{ schemaVersion: 1, contexts: {} }}
+        preferencesLoading={false}
+        preferencesError={false}
+        readiness={[]}
+        onSavePreference={async () => ({ schemaVersion: 1, contexts: {} })}
+        onRenameConversation={async () => {
+          throw new Error('not expected');
+        }}
+        onDeleteConversation={async () => {}}
+      />
+    </>
+  );
+}
+
 afterEach(() => {
+  useConversationSurfaceState.getState().reset();
   document.querySelectorAll('[data-test-launcher]').forEach((node) => node.remove());
 });
 
@@ -99,6 +151,36 @@ describe('RightAuxiliaryPanel', () => {
       <RightAuxiliaryPanel activeRightSurface={null} onClose={closeMock} launcherRef={ref} />,
     );
     await waitFor(() => expect(ref.current).toHaveFocus());
+  });
+
+  it('lets a topmost conversation settings dialog consume Escape while AI chat remains open and focused', async () => {
+    mockViewport(false);
+    const panelCloseMock = vi.fn();
+    const settingsCloseMock = vi.fn();
+    const ref = launcherRef();
+
+    render(
+      <SettingsOverPanelHarness
+        launcherRef={ref}
+        onPanelClose={panelCloseMock}
+        onSettingsClose={settingsCloseMock}
+      />,
+    );
+
+    const chatHeading = screen.getByRole('heading', { name: '일반 AI 챗' });
+    await waitFor(() => expect(chatHeading).toHaveFocus());
+    const settingsTrigger = screen.getByRole('button', { name: '대화 설정 열기' });
+    fireEvent.click(settingsTrigger);
+
+    const settingsDialog = await screen.findByRole('dialog', { name: '대화 설정' });
+    fireEvent.keyDown(settingsDialog, { key: 'Escape' });
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '대화 설정' })).not.toBeInTheDocument());
+    expect(settingsCloseMock).toHaveBeenCalledTimes(1);
+    expect(panelCloseMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('right-auxiliary-panel')).toBeInTheDocument();
+    await waitFor(() => expect(settingsTrigger).toHaveFocus());
+    expect(ref.current).not.toHaveFocus();
   });
 
   it('replaces the body in one slot and focuses the replacement without interrupting a conversation runtime', async () => {

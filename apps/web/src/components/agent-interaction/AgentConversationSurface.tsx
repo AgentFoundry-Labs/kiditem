@@ -1,7 +1,8 @@
 'use client';
 
-import { X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
+import { Menu, X } from 'lucide-react';
+import { useCallback, useState } from 'react';
 import { ConversationFlow } from './ConversationFlow';
 import { ConversationFolderTree } from './ConversationFolderTree';
 import { ConversationHeader } from './ConversationHeader';
@@ -25,23 +26,12 @@ function AgentConversationSurfaceLayout() {
   const openSettings = useConversationSurfaceState((state) => state.openSettings);
   const { openConversation } = useNewConversationDraft();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const drawerCloseRef = useRef<HTMLButtonElement>(null);
   const context = conversationContextFor(
     runtime.activeConversation?.agentKey ?? runtime.draft?.agentKey ?? selectedContext,
   );
 
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
   const openDrawer = useCallback(() => setDrawerOpen(true), []);
-  useEffect(() => {
-    if (!drawerOpen) return undefined;
-
-    drawerCloseRef.current?.focus();
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeDrawer();
-    };
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [closeDrawer, drawerOpen]);
 
   const openDraft = useCallback((agentKey: AgentConversationKey | null) => {
     openConversation({ fixedAgentKey: agentKey });
@@ -71,32 +61,46 @@ function AgentConversationSurfaceLayout() {
   );
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-background text-foreground">
-      <main className="order-2 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <ConversationHeader
-          contextLabel={context.label}
-          title={runtime.activeConversation?.title ?? null}
-          onOpenFolders={openDrawer}
-        />
-        {runtime.conversationsError ? <p role="alert" className="mx-auto w-full max-w-3xl px-4 pt-4 text-sm text-destructive">대화 목록을 불러올 수 없습니다.</p> : null}
-        {runtime.conversationId ? <ConversationFlow /> : <EmptyConversationState contextLabel={context.label} onNewConversation={() => openDraft(selectedContext)} />}
-      </main>
+    <Dialog.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
+      <div className="flex h-dvh overflow-hidden bg-background text-foreground">
+        <main className="order-2 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <ConversationHeader
+            contextLabel={context.label}
+            title={runtime.activeConversation?.title ?? null}
+            onOpenFolders={openDrawer}
+            folderControl={(
+              <Dialog.Trigger asChild>
+                <button
+                  type="button"
+                  aria-label="대화 목록 열기"
+                  className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-md border hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 max-lg:min-h-11 max-lg:min-w-11 lg:hidden"
+                >
+                  <Menu aria-hidden="true" size={20} />
+                </button>
+              </Dialog.Trigger>
+            )}
+          />
+          {runtime.conversationsError ? <p role="alert" className="mx-auto w-full max-w-3xl px-4 pt-4 text-sm text-destructive">대화 목록을 불러올 수 없습니다.</p> : null}
+          {runtime.conversationId ? <ConversationFlow /> : <EmptyConversationState contextLabel={context.label} onNewConversation={() => openDraft(selectedContext)} />}
+        </main>
 
-      <aside className="order-1 hidden min-h-0 lg:flex">
-        {renderTree()}
-      </aside>
-      {drawerOpen ? (
-        <div>
-          <div aria-hidden="true" className="fixed inset-0 z-40 bg-black/25" onClick={closeDrawer} />
-          <aside role="dialog" aria-modal="true" aria-label="대화 목록" className="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[calc(100vw-2rem)] outline-none">
+        <aside className="order-1 hidden min-h-0 lg:flex">
+          {renderTree()}
+        </aside>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-40 bg-black/25" />
+          <Dialog.Content aria-label="대화 목록" aria-describedby={undefined} className="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[calc(100vw-2rem)] outline-none">
+            <Dialog.Title className="sr-only">대화 목록</Dialog.Title>
             {renderTree()}
-            <button ref={drawerCloseRef} type="button" aria-label="대화 목록 닫기" onClick={closeDrawer} className="absolute right-2 top-2 inline-flex min-h-10 min-w-10 items-center justify-center rounded-md bg-background/90 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 max-lg:min-h-11 max-lg:min-w-11">
-              <X aria-hidden="true" size={18} />
-            </button>
-          </aside>
-        </div>
-      ) : null}
-    </div>
+            <Dialog.Close asChild>
+              <button type="button" aria-label="대화 목록 닫기" className="absolute right-2 top-2 inline-flex min-h-10 min-w-10 items-center justify-center rounded-md bg-background/90 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 max-lg:min-h-11 max-lg:min-w-11">
+                <X aria-hidden="true" size={18} />
+              </button>
+            </Dialog.Close>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </div>
+    </Dialog.Root>
   );
 }
 

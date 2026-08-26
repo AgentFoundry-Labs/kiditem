@@ -13,7 +13,14 @@ const readinessMock = vi.hoisted(() => vi.fn(() => null));
 const generationWatcherMock = vi.hoisted(() => vi.fn(() => null));
 const openConversationMock = vi.hoisted(() => vi.fn());
 const rightAuxiliaryPropsMock = vi.hoisted(() => vi.fn());
-const conversationSurfaceState = vi.hoisted(() => ({ activeConversationId: null as string | null }));
+const conversationSurfaceState = vi.hoisted(() => ({
+  activeConversationId: null as string | null,
+  pendingDraft: null as { conversationId: string; message: string } | null,
+  reset: vi.fn(() => {
+    conversationSurfaceState.activeConversationId = null;
+    conversationSurfaceState.pendingDraft = null;
+  }),
+}));
 const appStoreState = vi.hoisted(() => ({
   sidebarOpen: true,
   activeRightSurface: null as 'notifications' | 'ai_chat' | null,
@@ -23,6 +30,9 @@ const appStoreState = vi.hoisted(() => ({
   closeRightSurface() {
     appStoreState.activeRightSurface = null;
   },
+  resetRightSurface: vi.fn(() => {
+    appStoreState.activeRightSurface = null;
+  }),
 }));
 const runtimeOwnershipMocks = vi.hoisted(() => ({
   providerMounted: vi.fn(),
@@ -182,8 +192,11 @@ describe('AppLayout auth gate', () => {
     openConversationMock.mockReset();
     rightAuxiliaryPropsMock.mockReset();
     conversationSurfaceState.activeConversationId = null;
+    conversationSurfaceState.pendingDraft = null;
+    conversationSurfaceState.reset.mockClear();
     appStoreState.sidebarOpen = true;
     appStoreState.activeRightSurface = null;
+    appStoreState.resetRightSurface.mockClear();
     Object.values(runtimeOwnershipMocks).forEach((mock) => mock.mockReset());
     usePathnameMock.mockReturnValue('/dashboard');
     window.history.pushState({}, '', '/dashboard');
@@ -297,6 +310,140 @@ describe('AppLayout auth gate', () => {
     expect(screen.queryByTestId('conversation-provider')).not.toBeInTheDocument();
     expect(screen.queryByTestId('conversation-runtime-host')).not.toBeInTheDocument();
     expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
+  });
+
+  it('clears the prior user\'s right surface and unsent draft before a second user enters after logout', async () => {
+    let authState: {
+      status: 'ready' | 'anonymous';
+      user: { id: string; organizationId: string } | null;
+      isLoading: boolean;
+      logout: ReturnType<typeof vi.fn>;
+    } = {
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    };
+    useAuthMock.mockImplementation(() => authState);
+    appStoreState.activeRightSurface = 'ai_chat';
+    conversationSurfaceState.activeConversationId = 'draft-user-1';
+    conversationSurfaceState.pendingDraft = {
+      conversationId: 'draft-user-1',
+      message: 'Keep this private',
+    };
+    const view = renderLayout();
+
+    authState = {
+      status: 'anonymous',
+      user: null,
+      isLoading: false,
+      logout: vi.fn(),
+    };
+    view.rerender(<AppLayout><main data-testid="protected-child">Protected child</main></AppLayout>);
+
+    await waitFor(() => {
+      expect(appStoreState.resetRightSurface).toHaveBeenCalledTimes(1);
+      expect(conversationSurfaceState.reset).toHaveBeenCalledTimes(1);
+    });
+    expect(appStoreState.activeRightSurface).toBeNull();
+    expect(conversationSurfaceState.pendingDraft).toBeNull();
+
+    authState = {
+      status: 'ready',
+      user: { id: 'user-2', organizationId: 'org-2' },
+      isLoading: false,
+      logout: vi.fn(),
+    };
+    view.rerender(<AppLayout><main data-testid="protected-child">Protected child</main></AppLayout>);
+
+    expect(appStoreState.activeRightSurface).toBeNull();
+    expect(conversationSurfaceState.pendingDraft).toBeNull();
+  });
+
+  it('clears the prior user\'s right surface and unsent draft on direct identity replacement', async () => {
+    let authState: {
+      status: 'ready';
+      user: { id: string; organizationId: string };
+      isLoading: boolean;
+      logout: ReturnType<typeof vi.fn>;
+    } = {
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    };
+    useAuthMock.mockImplementation(() => authState);
+    appStoreState.activeRightSurface = 'ai_chat';
+    conversationSurfaceState.activeConversationId = 'draft-user-1';
+    conversationSurfaceState.pendingDraft = {
+      conversationId: 'draft-user-1',
+      message: 'Keep this private',
+    };
+    const view = renderLayout();
+
+    authState = {
+      status: 'ready',
+      user: { id: 'user-2', organizationId: 'org-2' },
+      isLoading: false,
+      logout: vi.fn(),
+    };
+    view.rerender(<AppLayout><main data-testid="protected-child">Protected child</main></AppLayout>);
+
+    await waitFor(() => {
+      expect(appStoreState.resetRightSurface).toHaveBeenCalledTimes(1);
+      expect(conversationSurfaceState.reset).toHaveBeenCalledTimes(1);
+    });
+    expect(appStoreState.activeRightSurface).toBeNull();
+    expect(conversationSurfaceState.pendingDraft).toBeNull();
+  });
+
+  it('preserves the same user\'s right surface and unsent draft across route and loading refreshes', () => {
+    let authState: {
+      status: 'loading' | 'ready';
+      user: { id: string; organizationId: string } | null;
+      isLoading: boolean;
+      logout: ReturnType<typeof vi.fn>;
+    } = {
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    };
+    useAuthMock.mockImplementation(() => authState);
+    appStoreState.activeRightSurface = 'ai_chat';
+    conversationSurfaceState.activeConversationId = 'draft-user-1';
+    conversationSurfaceState.pendingDraft = {
+      conversationId: 'draft-user-1',
+      message: 'Keep this private',
+    };
+    const view = renderLayout();
+
+    usePathnameMock.mockReturnValue('/orders');
+    view.rerender(<AppLayout><main data-testid="protected-child">Protected child</main></AppLayout>);
+
+    authState = {
+      status: 'loading',
+      user: null,
+      isLoading: true,
+      logout: vi.fn(),
+    };
+    view.rerender(<AppLayout><main data-testid="protected-child">Protected child</main></AppLayout>);
+
+    authState = {
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    };
+    view.rerender(<AppLayout><main data-testid="protected-child">Protected child</main></AppLayout>);
+
+    expect(appStoreState.resetRightSurface).not.toHaveBeenCalled();
+    expect(conversationSurfaceState.reset).not.toHaveBeenCalled();
+    expect(appStoreState.activeRightSurface).toBe('ai_chat');
+    expect(conversationSurfaceState.pendingDraft).toEqual({
+      conversationId: 'draft-user-1',
+      message: 'Keep this private',
+    });
   });
 
   it('mounts protected children and background runtime once KidItem identity is ready', () => {

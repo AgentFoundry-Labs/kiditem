@@ -215,12 +215,21 @@ describe('ConversationRuntimeHost', () => {
   });
 
   it('does not replay a failed first handoff; an explicit retry uses the promoted existing conversation', async () => {
+    let conversations = [FIRST, SECOND];
+    vi.mocked(apiClient.get).mockImplementation((path: string) => {
+      if (path === '/api/agent-os/conversations') return Promise.resolve(conversations as never);
+      if (path.endsWith('/history')) return Promise.resolve([] as never);
+      return Promise.resolve({ schemaVersion: 1, contexts: {} } as never);
+    });
     renderHost(<RuntimeProbe />);
     const draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
     useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
     const promoted = { ...FIRST, id: draft.conversationId, title: 'Review the supplier evidence' };
     vi.mocked(apiClient.post).mockImplementation((path: string) => {
-      if (path === '/api/agent-os/conversations') return Promise.resolve(promoted as never);
+      if (path === '/api/agent-os/conversations') {
+        conversations = [promoted, ...conversations.filter((item) => item.id !== promoted.id)];
+        return Promise.resolve(promoted as never);
+      }
       if (path === '/api/copilotkit') return Promise.resolve({ agents: {} } as never);
       return Promise.resolve({} as never);
     });
@@ -260,6 +269,80 @@ describe('ConversationRuntimeHost', () => {
       message: 'Review evidence', model: 'gpt-5.6', reasoningEffort: '',
     })).rejects.toThrow('conversation_reasoning_effort_required');
     expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
+  });
+
+  it('maps a rejected readiness request to retryable unavailable state without selecting a saved pair', async () => {
+    const remembered = { ...FIRST, lastModel: 'gpt-5.6', lastReasoningEffort: 'low' };
+    useConversationSurfaceState.getState().selectConversation(remembered);
+    vi.mocked(apiClient.get).mockImplementation((path: string) => {
+      if (path === '/api/agent-os/conversations') return Promise.resolve([remembered] as never);
+      if (path.endsWith('/history')) return Promise.resolve([] as never);
+      return Promise.resolve({ schemaVersion: 1, contexts: {} } as never);
+    });
+    let readinessRequests = 0;
+    vi.mocked(apiClient.post).mockImplementation((path: string) => {
+      if (path !== '/api/copilotkit') return Promise.resolve({} as never);
+      readinessRequests += 1;
+      if (readinessRequests === 1) return Promise.reject(new Error('gateway unavailable'));
+      return Promise.resolve({
+        agents: { conversation: { capabilities: { custom: { gatewayReadiness: [{
+          runtime: 'codex_cli', ready: true,
+          readiness: {
+            runtime: 'codex_cli', version: '0.149.1', models: ['gpt-5.6'], reasoningEfforts: ['low'],
+            modelReasoningEfforts: [{ model: 'gpt-5.6', reasoningEfforts: ['low'] }],
+            loginVerified: true, mcpProtocolRevision: '2026-07-28',
+          },
+        }, { runtime: 'claude_cli', ready: false, code: 'selected_engine_unavailable' }] } } } },
+      } as never);
+    });
+
+    renderHost(<RuntimeProbe />);
+
+    await waitFor(() => expect(latestRuntime?.readiness).toBeNull());
+    expect(latestRuntime?.turnPreference).toEqual({
+      model: null, reasoningEffort: null, needsReview: false,
+    });
+
+    act(() => latestRuntime?.retryReadiness());
+
+    await waitFor(() => expect(readinessRequests).toBe(2));
+    await waitFor(() => expect(latestRuntime?.readiness).toEqual(expect.arrayContaining([
+      expect.objectContaining({ runtime: 'codex_cli', ready: true }),
+    ])));
+  });
+
+  it('refreshes ordered conversation summaries after a terminal completion without another runtime subscription', async () => {
+    const completed = {
+      ...FIRST,
+      updatedAt: '2026-08-26T00:02:00.000Z',
+      lastModel: 'gpt-5.6',
+      lastReasoningEffort: 'low',
+    };
+    let conversations = [FIRST, SECOND];
+    vi.mocked(apiClient.get).mockImplementation((path: string) => {
+      if (path === '/api/agent-os/conversations') return Promise.resolve(conversations as never);
+      if (path.endsWith('/history')) return Promise.resolve([] as never);
+      return Promise.resolve({ schemaVersion: 1, contexts: {} } as never);
+    });
+    useConversationSurfaceState.getState().selectConversation(FIRST);
+    renderHost(<RuntimeProbe />);
+
+    await waitFor(() => expect(runtimeMocks.subscriptions).toHaveLength(1));
+    await waitFor(() => expect(latestRuntime?.conversations).toEqual([FIRST, SECOND]));
+    conversations = [SECOND, completed];
+    const subscriber = runtimeMocks.subscriptions[0].subscriber as {
+      onRunFinalized?: () => void;
+    };
+
+    await act(async () => subscriber.onRunFinalized?.());
+
+    await waitFor(() => expect(latestRuntime?.conversations).toEqual([SECOND, completed]));
+    expect(latestRuntime?.activeConversation).toMatchObject({
+      id: FIRST.id,
+      lastModel: 'gpt-5.6',
+      lastReasoningEffort: 'low',
+    });
+    expect(runtimeMocks.subscriptions).toHaveLength(1);
   });
 
   it('applies only a supported matching preference pair to a newly selected draft', async () => {

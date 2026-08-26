@@ -40,7 +40,7 @@ export function RightAuxiliaryPanel({
   useEffect(() => {
     if (!activeRightSurface) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
       event.preventDefault();
       onClose();
     };
