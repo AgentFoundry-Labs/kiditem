@@ -2,9 +2,12 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make one provider-native KidItem conversation available from every authenticated work screen, keep its live runtime stable across route changes, and add the approved Agent OS folder/history/settings UX without adding PostgreSQL conversation state.
+**Status:** Approved revision
+**Revised:** 2026-08-27
 
-**Architecture:** The authenticated Web app shell mounts exactly one CopilotKit provider, one conversation runtime host, and one right auxiliary panel whose visible state is `notifications | ai_chat | null`. Nest remains the authenticated same-origin facade. The native Agent Gateway remains the owner of provider conversation references, a serialized local descriptor catalog, provider deletion, and one strict installation-user preference file. Conversation creation uses a browser-reserved opaque ID and is idempotent at the Gateway owner boundary; presentation components never own a second runtime subscription.
+**Goal:** Make one provider-native KidItem conversation available from every authenticated work screen, restore CopilotKit as the interaction owner, and deliver the approved KidItem Agent OS/Dashboard chat design without adding PostgreSQL conversation state.
+
+**Architecture:** The authenticated Web app shell mounts exactly one CopilotKit provider, one route-stable presentation host, and one right auxiliary surface whose visible state is `notifications | ai_chat | null`. CopilotKit owns run/connect/running/stop; Nest remains the authenticated active-turn authority, and the native Agent Gateway owns provider conversations and bounded local metadata. On `xl` screens the 352-pixel auxiliary surface reduces the work-surface width, while Agent OS uses one 260-pixel conversation tree and the same message/composer/card primitives as the compact Dashboard dock.
 
 **Tech Stack:** Next.js App Router, React 19, TypeScript, Zustand, TanStack Query, CopilotKit 1.69.0 v2 hooks, Radix UI, NestJS, Zod, native Codex app-server, Claude CLI provider-local JSONL state, Vitest, Testing Library.
 
@@ -18,9 +21,11 @@ Implement this plan on top of the current KID-25 branch and the approved design:
 - docs/superpowers/specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md
 - docs/superpowers/plans/2026-08-23-kid-25-agent-os-clean-contraction.md
 
-The 2026-08-26 design controls this UX extension. The older KID-25 plan remains
-the source for capability, approval, MCP, execution-binding, and Gateway
-process contracts.
+The 2026-08-26 design controls this UX extension. The clean-contraction design
+remains the source for capability and approval contracts. The current
+process-token, provider-Conversation, and exact-terminal runtime in
+`docs/ARCHITECTURE.md` and the scoped Agent OS/Gateway `AGENTS.md` files
+supersedes the older per-turn execution-binding and Task/Attempt runtime text.
 
 Execute the seven integrated Tasks below. Task 2 keeps its three tightly
 coupled Gateway-owner phases together, and Task 6 keeps Agent OS history and
@@ -58,15 +63,48 @@ The following decisions are fixed:
 | Global access | One app-shell AI chat panel from every authenticated normal work surface |
 | Dashboard Agent OS UI | Label, organization chart, cards, and current actions remain unchanged |
 | Right surface | Exactly `notifications | ai_chat | null`; selecting one replaces the other |
-| Panel mode | Fixed 420 px non-modal desktop panel; full-width modal drawer below 768 px; no remaining-width calculation |
+| Panel mode | 352 px `xl` push dock; 352 px tablet overlay; full-width modal drawer below 768 px; CSS breakpoints only |
 | History deletion | Provider removal first, descriptor removal second |
 | Preferences | One strict Host Runner installation-user file; no organization copies |
 | Schema | No Prisma change and no new Task, Session, Attempt, folder, archive, or retention model |
 | Legacy cutover | Delete replaced UI shells, state, fixtures, exports, and route jumps; no wrappers, aliases, dual state, or migration |
 
-Do not modify DESIGN.md or the user-edited KID-25 source documents while
-implementing this plan. Update only the architecture/testing documents named in
-Task 7 when their owned description becomes stale.
+## 2026-08-27 Current-Diff Integration Status
+
+This revision is applied on top of the existing KID-25 diff. The commits below
+are implementation evidence, not permission to reset or recreate those files:
+
+| Area | Existing implementation | Remaining work in this revision |
+|---|---|---|
+| Tasks 1-3 contracts/Gateway/Nest | `2feca802`, `f2c14118`, `a2d07724`, `776471f1`, `c28c32db`, `a427ef87` | Preserve; rerun deterministic gates after the remaining changes |
+| Task 4 route-stable baseline | `5aabc8e0`, `3d067503` | Remove the fake stateless runner and duplicate Web lifecycle; make CopilotKit run/connect/running/stop real |
+| Task 5 global surface baseline | `c01babbf` | Replace the interim 420px overlay contract with the approved 352px responsive push-dock presentation |
+| Task 6 history/settings baseline | `66e15d0d`, `bb5d5693`, `fc0052ed` | Align the interim generic UI with the approved KidItem full workspace, inline business cards, and centered settings layout |
+| Prior integration/QA | `bb19e66c`, `7aa31181`, later QA fixes | Evidence remains useful, but final Sol review and browser QA reopen after runtime and visual changes |
+
+Current completion summary:
+
+- [x] Tasks 1-3 implementation and Batch A review
+- [ ] Task 4 CopilotKit ownership revision and affected regression gates
+- [ ] Task 5 approved responsive dock revision
+- [ ] Task 6 approved Agent OS/settings visual revision and Batch B review
+- [ ] Task 7 final deterministic gates, Sol(max) integration review, business eval, and browser QA
+
+The detailed unchecked steps below describe the current-target acceptance
+recipe. They do not reopen the completed Tasks 1-3; this status summary is the
+authoritative execution boundary for continuing on the existing diff.
+
+Do not delete the existing implementation or replay completed Tasks 1-3. For
+Tasks 4-6, write the revised failing tests against the current files and make
+the smallest integrated change. Existing dirty Gateway/outbox, Sourcing owner,
+and runtime fixes remain in place and are not part of the visual refactor unless
+a revised regression test reaches them.
+
+Do not modify DESIGN.md while implementing this plan. The approved UX spec is
+the visual source of truth and already records how brainstorming shorthand maps
+to production semantic tokens and Lucide icons. Update only the
+architecture/testing documents named in Task 7 when their owned description
+becomes stale.
 
 ## First-Send Correctness Model
 
@@ -214,8 +252,15 @@ Add exact command/event variants:
 }
 ~~~
 
-Keep organizationId and userId out of the Gateway wire command. Nest uses them
-only to authenticate and fence the broker request.
+Nest derives `organizationId` from authenticated context and includes it only
+on Gateway Conversation-facing commands. The Gateway persists it in
+`ConversationDescriptor` and fences create/list/history/rename/delete/turn
+start/input/interrupt by exact organization. `userId` never enters the Gateway
+wire: a live Turn remains initiating-user scoped in Nest. Provider terminal,
+watchdog, process-exit, and Gateway-registration lifecycle messages carry no
+organization. Descriptor ownership is an access fence, never MCP business
+authority; MCP callbacks still resolve org/user/turn/execution only from the
+current Nest active-Turn record.
 
 - [ ] **Step 5: Run the shared gates**
 
@@ -258,6 +303,13 @@ compatibility boundaries or independent implementation Tasks.
 Add Gateway tests that prove:
 
 - the exact requested conversationId becomes the public descriptor ID;
+- every descriptor persists the server-derived organization while public
+  summaries and provider calls expose no organization field;
+- the same organization can share a Conversation across authenticated users,
+  while another organization receives not-found for every Conversation-facing
+  operation, including an active Conversation;
+- a former descriptor catalog without organization ownership is discarded as
+  a clean cutover and is never adopted by the first caller after API restart;
 - sequential and concurrent same-ID/same-input creation call provider.create
   exactly once and return the same Conversation;
 - same ID with changed runtime, agentKey, or title throws
@@ -319,11 +371,14 @@ update must fail if the row disappeared; it must never reinsert it.
 ConversationGateway.create accepts the strict shared command. Before calling a
 provider:
 
-1. read the descriptor by input.conversationId;
-2. if present, compare runtime, agentKey, and title exactly;
-3. replay its public summary on equality;
-4. throw gateway_conversation_create_conflict on drift; and
-5. coalesce concurrent missing-row creates in a process-local map keyed only by
+1. parse the server-derived organization and read the descriptor by
+   input.conversationId;
+2. if present with another organization, fail as conversation-not-found;
+3. if present in the same organization, compare runtime, agentKey, and title
+   exactly;
+4. replay its public summary on equality;
+5. throw gateway_conversation_create_conflict on same-organization drift; and
+6. coalesce concurrent missing-row creates in a process-local map keyed only by
    conversationId. Each entry stores the canonical JSON of runtime, agentKey,
    and title beside its one create promise. A matching call reuses that promise;
    a drifted call fails before another provider.create call.
@@ -612,7 +667,7 @@ Test:
   model, and reasoningEffort;
 - preference write requires that exact model/effort pair in current readiness;
 - current authenticated user and organization fence every preference command,
-  but neither enters the Gateway wire payload or local storage key;
+  but neither enters the preference wire payload or local storage key;
 - delete of a live Conversation returns HTTP 409;
 - provider unavailability returns HTTP 503 with no raw provider error; and
 - no Prisma provider or repository is added to the module.
@@ -717,18 +772,18 @@ the batch acceptance criteria, batch base/head SHAs, focused test evidence, and
 the exact batch diff. Fix Critical/Important findings with TDD. Re-review only
 the previous finding IDs against their fix diff before starting Task 4.
 
-## Task 4: Build One Route-Stable Web Runtime and First-Send Coordinator
+## Task 4: Restore CopilotKit Ownership behind the Route-Stable Presentation
 
 **Files:**
 
-- Create: apps/web/src/components/agent-interaction/ConversationRuntimeHost.tsx
-- Create: apps/web/src/components/agent-interaction/ConversationFlow.tsx
-- Create: apps/web/src/components/agent-interaction/conversation-first-send.coordinator.ts
-- Create: apps/web/src/components/agent-interaction/conversation-title.ts
-- Create: apps/web/src/components/agent-interaction/useNewConversationDraft.ts
-- Create: apps/web/src/components/agent-interaction/__tests__/ConversationRuntimeHost.spec.tsx
-- Create: apps/web/src/components/agent-interaction/__tests__/conversation-first-send.coordinator.spec.ts
-- Create: apps/web/src/components/agent-interaction/__tests__/useNewConversationDraft.spec.tsx
+- Modify: apps/web/src/components/agent-interaction/ConversationRuntimeHost.tsx
+- Modify: apps/web/src/components/agent-interaction/ConversationFlow.tsx
+- Modify: apps/web/src/components/agent-interaction/conversation-first-send.coordinator.ts
+- Modify: apps/web/src/components/agent-interaction/conversation-title.ts
+- Modify: apps/web/src/components/agent-interaction/useNewConversationDraft.ts
+- Modify: apps/web/src/components/agent-interaction/__tests__/ConversationRuntimeHost.spec.tsx
+- Modify: apps/web/src/components/agent-interaction/__tests__/conversation-first-send.coordinator.spec.ts
+- Modify: apps/web/src/components/agent-interaction/__tests__/useNewConversationDraft.spec.tsx
 - Modify: apps/web/src/components/agent-interaction/conversation-api.ts
 - Modify: apps/web/src/components/agent-interaction/conversation-api.spec.ts
 - Modify: apps/web/src/components/agent-interaction/conversation-surface-state.ts
@@ -737,8 +792,17 @@ the previous finding IDs against their fix diff before starting Task 4.
 - Modify: apps/web/src/components/agent-interaction/__tests__/ConversationProvider.spec.tsx
 - Modify: apps/web/src/components/agent-interaction/AgentConversationSurface.tsx
 - Modify: apps/web/src/components/agent-interaction/__tests__/AgentConversationSurface.spec.tsx
+- Delete: apps/web/src/components/agent-interaction/conversation-runtime-reconciliation.ts
+- Delete: apps/web/src/components/agent-interaction/__tests__/conversation-runtime-reconciliation.spec.ts
 - Modify: apps/web/src/lib/query-keys.ts
 - Modify: apps/web/src/lib/query-keys.spec.ts
+- Modify: apps/server/src/agent-os/application/port/in/capability/conversation.port.ts
+- Modify: apps/server/src/agent-os/application/service/conversation.service.ts
+- Modify: apps/server/src/agent-os/application/service/conversation.service.spec.ts
+- Modify: apps/server/src/agent-os/adapter/in/http/interaction/conversation-copilotkit.controller.ts
+- Modify: apps/server/src/agent-os/adapter/in/http/interaction/conversation-copilotkit.controller.spec.ts
+- Modify: apps/server/src/agent-os/adapter/in/http/interaction/conversation.controller.ts
+- Modify: apps/server/src/agent-os/adapter/in/http/interaction/conversation.controller.spec.ts
 
 - [ ] **Step 1: Add failing draft and runtime-lifetime tests**
 
@@ -760,19 +824,31 @@ Test:
   create, CopilotKit run, history request, or durable write;
 - a presentation child unmount/remount does not recreate useAgent or add a
   second subscription;
-- changing routes without changing active Conversation keeps active turn ID,
-  live messages, tool projections, and interrupt control; and
+- changing routes without changing active Conversation keeps the same
+  CopilotKit interaction, running state, live messages, tool projections, and
+  stop control; and
 - changing the selected Conversation disposes the old subscription before
-  creating the next exact binding.
+  creating the next exact binding;
+- runner `connect` returns one bounded authenticated `MESSAGES_SNAPSHOT` built
+  from provider history without copying it into PostgreSQL or a Web cache;
+- runner `isRunning` reads the exact organization/user/conversation active turn;
+- runner `stop` interrupts that exact active turn, returns false when none is
+  active, and does not clear the active turn on interrupt acknowledgement; and
+- exact provider terminal clears running state while a stale terminal cannot
+  clear a newer turn; and
+- the retired public history GET, Web API function, Query key, and custom
+  reconciliation module are absent after runner `connect` owns history.
 
 Run:
 
 ~~~bash
+rtk npm exec --workspace=apps/server vitest -- run src/agent-os/application/service/conversation.service.spec.ts src/agent-os/adapter/in/http/interaction/conversation-copilotkit.controller.spec.ts
 rtk npm exec --workspace=apps/web vitest -- run src/components/agent-interaction/__tests__/ConversationRuntimeHost.spec.tsx src/components/agent-interaction/__tests__/conversation-first-send.coordinator.spec.ts src/components/agent-interaction/__tests__/useNewConversationDraft.spec.tsx src/components/agent-interaction/__tests__/AgentConversationSurface.spec.tsx src/components/agent-interaction/conversation-api.spec.ts src/components/agent-interaction/conversation-surface-state.spec.ts
 ~~~
 
-Expected: FAIL because useAgent and live state are owned by the route-local
-AgentConversationSurface.
+Expected: the new server runner tests FAIL because connect/isRunning/stop are
+fake, and the revised Web tests FAIL while custom history/active-turn
+reconciliation still duplicates CopilotKit.
 
 - [ ] **Step 2: Define disposable draft state**
 
@@ -836,9 +912,90 @@ cannot reissue it. A handed-off turn is never
 automatically invoked again; after terminal failure an explicit retry uses the
 normal existing-conversation path and a new turn ID.
 
-- [ ] **Step 5: Move useAgent and live projection into ConversationRuntimeHost**
+- [ ] **Step 5: Restore CopilotKit interaction ownership behind the route-stable host**
 
-ConversationProvider contains the CopilotKit transport only.
+Remove `StatelessConversationAgentRunner`. Add the two exact active-turn
+operations to the owner-facing Conversation port:
+
+~~~typescript
+interface ConversationPort {
+  // existing methods stay unchanged
+  isRunning(input: ConversationCoordinates): Promise<boolean>;
+  stop(input: ConversationCoordinates): Promise<boolean>;
+}
+~~~
+
+`ConversationService.isRunning` returns whether its exact
+organization/user/conversation key currently owns a turn. `stop` looks up that
+same stored turn and calls `gateway.interrupt(storedCoordinates)`; it returns
+false without mutation when no exact turn exists. It never deletes the turn on
+interrupt acknowledgement. Existing exact-terminal handling remains the only
+clear operation, so a stale terminal cannot clear a successor.
+
+Replace the fake runner with an authenticated request-scoped runner bound to
+`ConversationPort` and the controller-derived owner. Import `from`, `map`, and
+`Observable` from `rxjs`; import `ConversationOwner` from the incoming port:
+
+~~~typescript
+class GatewayConversationAgentRunner extends AgentRunner {
+  constructor(
+    private readonly conversations: ConversationPort,
+    private readonly owner: ConversationOwner,
+  ) {
+    super();
+  }
+
+  run(request: AgentRunnerRunRequest): Observable<BaseEvent> {
+    return request.agent.run(request.input);
+  }
+
+  connect(request: AgentRunnerConnectRequest): Observable<BaseEvent> {
+    return from(this.conversations.history({
+      ...this.owner,
+      conversationId: request.threadId,
+    })).pipe(map((history) => ({
+      type: EventType.MESSAGES_SNAPSHOT,
+      messages: history
+        .filter((message) => message.role === 'user' || message.role === 'assistant')
+        .map(({ id, role, content }) => ({ id, role, content })),
+    })));
+  }
+
+  isRunning(request: AgentRunnerIsRunningRequest): Promise<boolean> {
+    return this.conversations.isRunning({
+      ...this.owner,
+      conversationId: request.threadId,
+    });
+  }
+
+  stop(request: AgentRunnerStopRequest): Promise<boolean> {
+    return this.conversations.stop({
+      ...this.owner,
+      conversationId: request.threadId,
+    });
+  }
+}
+~~~
+
+Use this runner when constructing the request-scoped `CopilotRuntime`. The
+runner owns the CopilotKit run/connect/running/stop contract; Nest remains the
+only business authority and active-turn record. Do not add a runner store,
+transcript table, custom protocol, or another runtime state machine.
+
+After `connect` is green, delete the duplicate public Web history path:
+
+- remove `GET /api/agent-os/conversations/:conversationId/history` from
+  ConversationController and its tests;
+- remove `getConversationHistory` from conversation-api.ts and its tests;
+- remove only `queryKeys.conversations.history`; and
+- remove the corresponding Query call and custom history/live reconciliation
+  from ConversationRuntimeHost.
+
+Keep `ConversationPort.history` because the authenticated CopilotKit runner
+uses that internal owner seam. Do not remove Gateway/provider history support
+or expose provider coordinates to CopilotKit input.
+
+ConversationProvider contains the CopilotKit transport and interaction owner.
 ConversationRuntimeHost:
 
 - mounts one ActiveConversationRuntime child for the selected existing
@@ -848,15 +1005,21 @@ ConversationRuntimeHost:
 - keeps that exact binding mounted when first Send promotes the reserved draft
   ID to an existing Conversation, so the coordinator can hand off without a
   render-effect race;
-- owns useAgent, subscription, active turn, live messages, tool projections,
-  terminal-history reconciliation, input, and interrupt;
+- adapts the selected Conversation, draft promotion, explicit model/effort,
+  messages, tool projections, and CopilotKit interaction into shared React
+  presentation state;
+- derives running/stop behavior from CopilotKit and does not own a second
+  active-turn ref, interrupt marker, stale-settlement fence, or provider-history
+  reconciliation state;
 - exposes a React context consumed by both AI chat panel and Agent OS presentations;
-- leaves React Query as owner of summaries, provider history, readiness, and
-  preferences; and
+- leaves React Query as owner of summaries, readiness, preferences, and
+  business-resource queries; provider history enters the CopilotKit interaction
+  through runner `connect`; and
 - never starts or resumes a turn from a route effect.
 
-Keep the existing covered-live-message reconciliation algorithm and its
-regression tests when extracting it.
+Delete the covered-live-message reconciliation algorithm and custom Web
+lifecycle tests after equivalent CopilotKit run/connect/stop contract tests are
+green. Keep first-send coalescing as its separate deep module.
 
 Extract ConversationFlow in this task as the shared messages/cards/composer
 presentation over the runtime context. Temporarily keep the current Agent OS
@@ -888,36 +1051,40 @@ browser-only drafts or live stream events.
 - [ ] **Step 7: Run focused Web state/runtime tests**
 
 ~~~bash
+rtk npm exec --workspace=apps/server vitest -- run src/agent-os/application/service/conversation.service.spec.ts src/agent-os/adapter/in/http/interaction/conversation-copilotkit.controller.spec.ts
 rtk npm exec --workspace=apps/web vitest -- run src/components/agent-interaction src/lib/query-keys.spec.ts
 ~~~
 
-Expected: all current card/history reconciliation tests and new coordinator
-tests pass with one runtime subscription.
+Expected: authenticated runner connect/running/stop, exact terminal behavior,
+all current card/message tests, and new coordinator tests pass with one
+CopilotKit interaction and no Web history reconciliation owner.
 
 - [ ] **Step 8: Commit the route-stable runtime**
 
 ~~~bash
-rtk git add apps/web/src/components/agent-interaction apps/web/src/lib/query-keys.ts apps/web/src/lib/query-keys.spec.ts
-rtk git commit -m "refactor(agent-os): keep one conversation runtime host"
+rtk git add apps/server/src/agent-os/application/port/in/capability/conversation.port.ts apps/server/src/agent-os/application/service/conversation.service.ts apps/server/src/agent-os/application/service/conversation.service.spec.ts apps/server/src/agent-os/adapter/in/http/interaction/conversation-copilotkit.controller.ts apps/server/src/agent-os/adapter/in/http/interaction/conversation-copilotkit.controller.spec.ts apps/server/src/agent-os/adapter/in/http/interaction/conversation.controller.ts apps/server/src/agent-os/adapter/in/http/interaction/conversation.controller.spec.ts apps/web/src/components/agent-interaction apps/web/src/lib/query-keys.ts apps/web/src/lib/query-keys.spec.ts
+rtk git commit -m "refactor(agent-os): restore CopilotKit interaction ownership"
 ~~~
 
 ### Terra(max) Task 4 Contract Check
 
 Review only browser-reserved draft identity, create canonicalization,
-first-send coalescing/drift rejection, one-handoff semantics, and preservation
-of one runtime binding across presentation and route changes. Do not perform a
-general UI quality review here. Fix findings with TDD and re-review only the
-reported finding IDs.
+first-send coalescing/drift rejection, one-handoff semantics, authenticated
+runner connect/isRunning/stop, exact-terminal ownership, removal of the public
+history/query/reconciliation duplicate, and preservation of one CopilotKit
+interaction across presentation and route changes. Do not perform a general UI
+quality review here. Fix findings with TDD and re-review only the reported
+finding IDs.
 
-## Task 5: Wire the Single Right Auxiliary Panel
+## Task 5: Align the Single Right Auxiliary Panel with the Approved Dock
 
 **Files:**
 
-- Create: apps/web/src/components/agent-interaction/ConversationPanel.tsx
-- Create: apps/web/src/components/agent-interaction/__tests__/ConversationPanel.spec.tsx
-- Create: apps/web/src/components/agent-interaction/conversation-context.catalog.ts
-- Create: apps/web/src/components/layout/RightAuxiliaryPanel.tsx
-- Create: apps/web/src/components/layout/__tests__/RightAuxiliaryPanel.spec.tsx
+- Modify: apps/web/src/components/agent-interaction/ConversationPanel.tsx
+- Modify: apps/web/src/components/agent-interaction/__tests__/ConversationPanel.spec.tsx
+- Modify: apps/web/src/components/agent-interaction/conversation-context.catalog.ts
+- Modify: apps/web/src/components/layout/RightAuxiliaryPanel.tsx
+- Modify: apps/web/src/components/layout/__tests__/RightAuxiliaryPanel.spec.tsx
 - Modify: apps/web/src/components/layout/AppLayout.tsx
 - Modify: apps/web/src/components/layout/__tests__/AppLayout.auth.spec.tsx
 - Modify: apps/web/src/components/layout/Sidebar.tsx
@@ -925,10 +1092,8 @@ reported finding IDs.
 - Modify: apps/web/src/store/useStore.ts
 - Modify: apps/web/src/components/agent-interaction/conversation-surface-state.ts
 - Modify: apps/web/src/components/agent-interaction/conversation-surface-state.spec.ts
-- Rename: apps/web/src/components/panel/PanelSheet.tsx
-  to apps/web/src/components/panel/NotificationPanelContent.tsx
-- Rename: apps/web/src/components/panel/__tests__/PanelSheet.spec.tsx
-  to apps/web/src/components/panel/__tests__/NotificationPanelContent.spec.tsx
+- Modify: apps/web/src/components/panel/NotificationPanelContent.tsx
+- Modify: apps/web/src/components/panel/__tests__/NotificationPanelContent.spec.tsx
 - Modify: apps/web/src/components/panel/PanelAlertRow.tsx
 - Modify: apps/web/src/components/panel/__tests__/PanelAlertRow.spec.tsx
 - Modify: apps/web/src/components/panel/lib/panel-store.ts
@@ -959,14 +1124,16 @@ Test:
 - Agent OS suppresses an active ai_chat body without clearing its state, while
   an active notifications body remains available; returning to a normal route
   restores the same chat presentation and subscription;
-- desktop uses one fixed 420 px non-modal panel, leaves the uncovered work
-  surface interactive, and never reflows route content;
+- `xl` and wider uses one 352 px non-modal dock and applies exactly one
+  `xl:mr-[352px]` work-surface offset while the right surface is visible;
+- from 768 px through `xl`, the same 352 px panel overlays the work surface
+  without a second state owner;
 - below 768 px the same active surface uses a full-width focus-managed modal
   drawer;
 - switching notification and AI chat bodies transfers focus to the new body,
   while closing with the close action or Escape restores focus to the launcher;
-- no ResizeObserver, remaining-work-width calculation, route-specific minimum,
-  or dock/overlay state exists;
+- no ResizeObserver, measured remaining-width calculation, route-specific
+  minimum, or persisted dock/overlay state exists;
 - Quick Action FAB never moves and is hidden while either surface is open;
 - replacing or closing chat does not interrupt its active turn;
 - 전체 기록 navigates with the current conversation/context and does not mount
@@ -983,9 +1150,9 @@ Run:
 rtk npm exec --workspace=apps/web vitest -- run src/components/layout/__tests__/AppLayout.auth.spec.tsx src/components/layout/__tests__/RightAuxiliaryPanel.spec.tsx src/components/agent-interaction/__tests__/ConversationPanel.spec.tsx src/components/agent-interaction/conversation-surface-state.spec.ts src/components/panel/__tests__/NotificationPanelContent.spec.tsx src/components/panel/__tests__/PanelAlertRow.spec.tsx src/components/panel/lib/__tests__/panel-store.spec.ts src/components/__tests__/QuickActionFab.spec.tsx 'src/app/(sourcing-ai)/sourcing-ai/decision-center/components/EntryRecommendationBoard.spec.tsx' 'src/app/(analytics)/dashboard/components/DashboardChartPanel.agent-os-cutover.regression-1.spec.ts'
 ~~~
 
-Expected: FAIL because the provider is route-specific, Sidebar chat is not
-wired, notifications still own an independent Dialog/open state, and the
-decision-center entry still jumps to Agent OS.
+Expected: existing single-surface tests remain green, while the revised width
+and work-surface assertions FAIL because the interim implementation still uses
+one 420-pixel overlay and applies no `xl` content offset.
 
 - [ ] **Step 2: Make AppLayout the single authenticated runtime mount**
 
@@ -1017,7 +1184,7 @@ chat body.
 
 - [ ] **Step 3: Centralize right-surface UI state**
 
-Move only the open surface coordinate into the global Zustand app store:
+Keep only the open surface coordinate in the global Zustand app store:
 
 ~~~typescript
 type ActiveRightSurface = 'notifications' | 'ai_chat' | null;
@@ -1031,46 +1198,74 @@ Panel data, SSE state, hidden rows, and recovery remain in panel-store. Remove
 isOpen, setOpen, PANEL_OPEN_LS_KEY, readOpenFromStorage, every related fixture,
 and every caller. Do not read, clear, or migrate the obsolete browser key.
 
-Rename PanelSheet to NotificationPanelContent, remove its Dialog imports,
-Root/Portal/Overlay/Content, close button, and open-state selectors, and render
-it only as the notification body inside RightAuxiliaryPanel. Recovery runs when
-that content body mounts and when its connection state changes. Keep
-usePanelStream mounted independently in AppLayout through a
-NotificationDataMount that returns null. Remove the old PanelMount function and
-its PanelSheet render rather than repurposing it as an invisible UI wrapper.
+Preserve the completed PanelSheet-to-NotificationPanelContent cutover: it has no
+Dialog shell or open-state selectors and renders only as the notification body
+inside RightAuxiliaryPanel. Keep usePanelStream mounted independently in
+AppLayout through NotificationDataMount. Do not recreate PanelMount,
+PanelSheet, or an invisible compatibility UI wrapper while changing the dock.
 
-Remove PanelAlertRow's retired setPanelOpen dependency and its close-on-link
-test. Notification navigation preserves activeRightSurface like every other
-ordinary route navigation. Update the two scoped AGENTS.md files to reflect
-that app-shell state ownership moved while panel data did not.
+Keep PanelAlertRow free of the retired setPanelOpen dependency. Notification
+navigation preserves activeRightSurface like every other ordinary route
+navigation. Change the scoped AGENTS.md files only if the approved responsive
+ownership makes their current text false.
 
 Sidebar remains a launcher: AppLayout passes notification/chat callbacks and
 open state. Do not add chat to menu definitions or make it a route link.
 
-Update the existing openConversation action so it installs the exact draft and
-selects ai_chat. Remove the AppLayout and Sourcing decision-center /agent-os
-pushes; both become callers of this single launcher. Rename the Sourcing action
-from AgentOS에서 묻기 to 소싱 Agent에게 묻기. Do not keep a route-jump variant,
-old product label, or compatibility alias.
+Keep the existing openConversation action as the exact draft plus ai_chat
+launcher. AppLayout and Sourcing decision-center remain callers of this one
+path, with no automatic /agent-os push, old AgentOS에서 묻기 label, route-jump
+variant, or compatibility alias.
 
 - [ ] **Step 4: Build one responsive auxiliary panel shell**
 
-RightAuxiliaryPanel renders the one active content body. At 768 px and above it
-is a fixed 420 px non-modal surface attached to the right edge. It adds no
-page-wide overlay, does not trap focus, leaves the uncovered work surface
-interactive, and never changes content width or sidebar offsets. Below 768 px
-the same component uses a full-width Radix modal drawer with focus trapping.
+RightAuxiliaryPanel renders the one active content body. Its non-mobile frame is
+always a fixed 352-pixel surface:
+
+~~~tsx
+<section
+  data-testid="right-auxiliary-panel"
+  role="complementary"
+  className="fixed inset-y-0 right-0 z-[90] flex w-[352px] max-w-full flex-col border-l bg-background shadow-sm"
+>
+  {children}
+</section>
+~~~
+
+AppLayout wraps both the normal work surface and Agent OS presentation in one
+width owner and applies the desktop offset through CSS only:
+
+~~~tsx
+const auxiliaryVisible = visibleRightSurface !== null;
+
+<div
+  data-testid="authenticated-work-surface"
+  className={cn(
+    'min-w-0 transition-[margin] duration-150 motion-reduce:transition-none',
+    auxiliaryVisible && 'xl:mr-[352px]',
+  )}
+>
+  {isAgentWorkspace ? children : content}
+</div>
+~~~
+
+At `xl` and wider this reduces the work-surface width, including Dashboard,
+without covering it. From 768 pixels through `xl`, the margin utility is
+inactive and the same fixed 352-pixel frame behaves as an overlay. Below 768
+pixels, the existing mobile branch renders the same content in a full-width
+Radix modal drawer with focus trapping.
 
 Use one matchMedia('(max-width: 767px)') result only to select Radix modality;
-do not create a second shell. AppLayout captures the launcher element in a ref.
+do not create a dock/overlay state or a second content body. AppLayout captures
+the launcher element in a ref.
 On open or cross-surface replacement, focus the new body's labelled heading;
 on close or Escape, restore focus to the most recent launcher. Keep DOM refs
 out of Zustand.
 
 Do not add ResizeObserver, measured-content state, page-specific width rules,
-CSS-grid dock columns, or separate dock and overlay components. The responsive
-change affects only the panel shell; notification data and ConversationRuntimeHost
-remain mounted independently.
+or separate dock and overlay components. The responsive change affects only
+the shared authenticated work-surface wrapper and panel shell; notification
+data and ConversationRuntimeHost remain mounted independently.
 
 - [ ] **Step 5: Build the AI chat panel content**
 
@@ -1083,6 +1278,14 @@ ConversationPanel provides:
   /agent-os;
 - close; and
 - the shared conversation flow/composer presentation.
+
+Use the approved compact hierarchy: context mark plus title on the left,
+icon-only New/Settings/전체 기록/Close actions on the right, an independent
+message scroll region, and the shared composer at the bottom. Keep all normal
+Gateway, provider-local, transport, and execution labels absent. Empty panel
+state uses the shared ConversationEmptyState added in Task 6; until that file is
+introduced, retain the current functional placeholder rather than adding a
+second interim empty-state component.
 
 It does not render Gateway/readiness management, provider-local terminology,
 Dashboard Agent cards, or its own useAgent.
@@ -1110,8 +1313,8 @@ draft in the AI chat panel; it no longer navigates first to /agent-os.
 QuickActionFab receives only whether an auxiliary surface is open. It never
 moves and is hidden until the surface closes. Preserve all existing
 product/detail/thumbnail actions unchanged. Opening notifications atomically
-replaces AI chat; closing or replacing the chat presentation must not interrupt
-the active turn owned by ConversationRuntimeHost.
+replaces AI chat; closing or replacing the chat presentation must not stop the
+active CopilotKit interaction.
 
 - [ ] **Step 7: Verify the notification-shell cutover removed legacy code**
 
@@ -1140,25 +1343,34 @@ unchanged.
 ~~~bash
 rtk npm run check:agents-hygiene
 rtk git add apps/web/src/components/agent-interaction apps/web/src/components/layout apps/web/src/components/panel apps/web/src/components/QuickActionFab.tsx apps/web/src/components/__tests__/QuickActionFab.spec.tsx apps/web/src/components/__tests__/GenerationCompletionWatcher.spec.tsx apps/web/src/store 'apps/web/src/app/(analytics)/dashboard/components/DashboardSidePanel.spec.tsx' 'apps/web/src/app/(sourcing-ai)/sourcing-ai/decision-center/components/EntryRecommendationBoard.tsx' 'apps/web/src/app/(sourcing-ai)/sourcing-ai/decision-center/components/EntryRecommendationBoard.spec.tsx' 'apps/web/src/app/(sourcing-ai)/sourcing-ai/decision-center/components/EntryRecommendationDetail.tsx'
-rtk git commit -m "feat(agent-os): add single global chat panel"
+rtk git commit -m "refactor(agent-os): align the responsive chat dock"
 ~~~
 
-## Task 6: Build the Agent OS History, Settings, and Management Workspace
+## Task 6: Align the Agent OS History, Settings, and Conversation Workspace
 
-### Phase 6A: Replace the Flat Agent OS Conversation Workspace
+### Phase 6A: Align the Full Agent OS Conversation Workspace
 
 **Files:**
 
 - Modify: apps/web/src/components/agent-interaction/ConversationFlow.tsx
-- Create: apps/web/src/components/agent-interaction/ConversationHeader.tsx
-- Create: apps/web/src/components/agent-interaction/ConversationFolderTree.tsx
-- Create: apps/web/src/components/agent-interaction/ConversationCombinedSelector.tsx
-- Create: apps/web/src/components/agent-interaction/__tests__/ConversationFolderTree.spec.tsx
-- Create: apps/web/src/components/agent-interaction/__tests__/ConversationCombinedSelector.spec.tsx
+- Modify: apps/web/src/components/agent-interaction/ConversationHeader.tsx
+- Modify: apps/web/src/components/agent-interaction/ConversationFolderTree.tsx
+- Modify: apps/web/src/components/agent-interaction/ConversationCombinedSelector.tsx
+- Create: apps/web/src/components/agent-interaction/ConversationEmptyState.tsx
+- Create: apps/web/src/components/agent-interaction/ConversationCardFrame.tsx
+- Modify: apps/web/src/components/agent-interaction/__tests__/ConversationFolderTree.spec.tsx
+- Modify: apps/web/src/components/agent-interaction/__tests__/ConversationCombinedSelector.spec.tsx
+- Create: apps/web/src/components/agent-interaction/__tests__/ConversationPresentation.spec.tsx
 - Modify: apps/web/src/components/agent-interaction/AgentConversationSurface.tsx
-- Delete: apps/web/src/components/agent-interaction/AgentConversationSidebar.tsx
+- Verify absent: apps/web/src/components/agent-interaction/AgentConversationSidebar.tsx
 - Modify: apps/web/src/components/agent-interaction/AgentConversationComposer.tsx
+- Modify: apps/web/src/components/agent-interaction/AgentConversationMessage.tsx
+- Modify: apps/web/src/components/agent-interaction/CapabilityInvocationCard.tsx
+- Modify: apps/web/src/components/agent-interaction/OperationReferenceCard.tsx
+- Modify: apps/web/src/components/agent-interaction/ResourceReferenceCard.tsx
 - Modify: apps/web/src/components/agent-interaction/__tests__/AgentConversationSurface.spec.tsx
+- Modify: apps/web/src/components/agent-interaction/__tests__/CapabilityInvocationCard.spec.tsx
+- Modify: apps/web/src/components/agent-interaction/__tests__/ReferenceCards.spec.tsx
 - Modify: apps/web/src/app/agent-os/page.tsx
 
 - [ ] **Step 1: Add failing workspace, tree, and composer tests**
@@ -1175,32 +1387,47 @@ Test:
 - native subagents/tool events never become tree rows;
 - the primary 새 AI 대화 and each folder plus button open an unsaved draft and
   focus the composer without an API call;
-- below 1024 px the tree is one modal drawer; above it the 288 px tree remains;
+- below 1024 px the tree is one modal drawer; above it the 260 px tree remains;
+- the tree header shows KidItem plus the Dashboard return, the selected row uses
+  the semantic purple surface, and rename/delete appear only after opening the
+  row `•••` menu;
 - General uses `무엇을 도와드릴까요?`, while Agent contexts use
   `<Agent 이름>에게 무엇을 요청할까요?`;
+- an empty draft shows the approved centered context mark, description, and at
+  most three suggestion chips; selecting one only fills the draft message and
+  performs no API, CopilotKit run, or capability call;
+- user messages are right-aligned on a soft-purple surface while assistant
+  messages remain on the neutral page with one labelled identity header;
+- evidence, Approval, Operation, resource, and live tool projections use one
+  border-first card frame inside the message column rather than a separate
+  page-level strip;
 - provider/model/reasoning appear in one combined selector;
 - provider is editable only before create; model/effort remain editable between
   terminal turns;
 - Enter sends only outside IME composition, Shift+Enter inserts a newline, and
   Escape closes the selector; and
 - unsupported attachment, microphone, voice, media, Gateway, and session
-  controls do not render.
+  controls do not render; and
+- production output uses semantic tokens and Lucide icons with no decorative
+  gradients, emoji icons, or second font stack.
 
 Run:
 
 ~~~bash
-rtk npm exec --workspace=apps/web vitest -- run src/components/agent-interaction/__tests__/AgentConversationSurface.spec.tsx src/components/agent-interaction/__tests__/ConversationFolderTree.spec.tsx src/components/agent-interaction/__tests__/ConversationCombinedSelector.spec.tsx
+rtk npm exec --workspace=apps/web vitest -- run src/components/agent-interaction/__tests__/AgentConversationSurface.spec.tsx src/components/agent-interaction/__tests__/ConversationFolderTree.spec.tsx src/components/agent-interaction/__tests__/ConversationCombinedSelector.spec.tsx src/components/agent-interaction/__tests__/ConversationPresentation.spec.tsx src/components/agent-interaction/__tests__/CapabilityInvocationCard.spec.tsx src/components/agent-interaction/__tests__/ReferenceCards.spec.tsx
 ~~~
 
-Expected: FAIL against the flat English sidebar and runtime-selection modal.
+Expected: the new presentation assertions FAIL against the interim 288-pixel
+generic tree, always-visible row actions, ungrouped card treatment, and plain
+empty state while existing conversation behavior tests stay green.
 
 - [ ] **Step 2: Finish the shared conversation presentation**
 
-Keep message history, live projection rendering, capability/tool/reference
+Keep CopilotKit messages, live projection rendering, capability/tool/reference
 cards, and composer composition in the ConversationFlow extracted in Task 4.
 Finish its workspace header and compact-composer composition here. It consumes
-ConversationRuntimeHost context and React Query data; it does not mount
-useAgent.
+ConversationRuntimeHost presentation context; it does not mount `useAgent`,
+query provider history separately, or reconcile a second transcript.
 
 AgentConversationSurface becomes only:
 
@@ -1210,7 +1437,33 @@ AgentConversationSurface becomes only:
 - selected draft/conversation presentation; and
 - shared settings trigger.
 
-Keep each resulting component below the existing 500-line surface.
+Add two presentation-only primitives:
+
+~~~typescript
+export interface ConversationEmptyStateProps {
+  contextLabel: string;
+  description: string;
+  suggestions: readonly string[];
+  compact?: boolean;
+  onStart(): void;
+  onSuggestion?(message: string): void;
+}
+
+export interface ConversationCardFrameProps {
+  icon: ReactNode;
+  title: string;
+  subtitle?: string;
+  tone?: 'neutral' | 'approval' | 'success' | 'warning';
+  children: ReactNode;
+  actions?: ReactNode;
+}
+~~~
+
+`ConversationEmptyState` is shared by the full workspace and compact panel.
+Suggestion clicks call only the existing draft update/open action with the
+selected text. `ConversationCardFrame` owns border, spacing, heading, and tone
+classes only; capability admission, approval mutation, Operation polling, and
+resource navigation stay in their existing owner components.
 
 - [ ] **Step 3: Replace the flat sidebar with the folder tree**
 
@@ -1218,10 +1471,27 @@ Folders are a pure projection of ConversationSummary.agentKey. Store expansion
 as disposable UI state only. There is no folder API or persisted folder
 descriptor.
 
-Delete AgentConversationSidebar and its agentConversationDestinations export
-after ConversationFolderTree is wired. Do not retain an adapter component or
-re-export. Both ConversationPanel and ConversationFolderTree use the Task 5
-conversation-context catalog.
+Keep the already completed deletion of AgentConversationSidebar and its
+agentConversationDestinations export. Both ConversationPanel and
+ConversationFolderTree use the Task 5 conversation-context catalog.
+
+Set the desktop tree to `w-[260px]`. Replace the always-visible row actions with
+one accessible local menu:
+
+~~~tsx
+<button
+  type="button"
+  aria-label={`${conversation.title} 메뉴`}
+  aria-expanded={menuOpen}
+  aria-haspopup="menu"
+  onClick={() => setMenuOpen((open) => !open)}
+>
+  <MoreHorizontal aria-hidden="true" size={16} />
+</button>
+~~~
+
+The menu contains Rename and Delete, closes on Escape/selection/outside focus,
+and returns focus to its trigger. Do not add a menu store or dependency.
 
 Use stable product labels:
 
@@ -1251,12 +1521,37 @@ Do not hide them behind a false condition or retain their tests.
 - [ ] **Step 5: Build the compact composer and combined selector**
 
 Use one rounded border-first container, growing textarea, combined selector,
-and one circular Send/Interrupt position. Preserve visible focus, live-region
-errors, reduced motion, and control wrapping below 640 px.
+and one circular Send/Interrupt position. Center it on the same 720-768 pixel
+message column, give only the composer a subtle elevation, and remove the extra
+full-width footer-card impression. Preserve visible focus, live-region errors,
+reduced motion, and control wrapping below 640 px.
 
-Do not render separate persistent Model and Reasoning select rows.
+Do not render separate persistent Model and Reasoning select rows. Draft mode
+keeps Provider/model/effort editable in the composed control; existing
+Conversation mode disables Provider and leaves model/effort editable between
+terminal turns.
 
-- [ ] **Step 6: Verify the Agent OS presentation cutover removed legacy code**
+- [ ] **Step 6: Align messages and business cards inside the conversation flow**
+
+Pass the current context label into `AgentConversationMessage`. Render user
+messages on `bg-primary/10` at the right and assistant messages on the neutral
+page with a solid semantic-purple/Lucide identity marker. Do not render raw
+`tool` or `status` role names as user-facing headings.
+
+Use `ConversationCardFrame` in CapabilityInvocationCard,
+OperationReferenceCard, ResourceReferenceCard, and ToolStatusCards. Move the
+Agent OS `approvalContent` slot into `ConversationFlow`'s centered message lane:
+
+~~~tsx
+<ConversationFlow supplementalContent={approvalContent} />
+~~~
+
+The card frame must not parse canonical input or own any query/mutation. Keep
+the existing exact approval query and decision calls inside
+CapabilityInvocationCard. Format only bounded user-relevant fields; never show
+raw provider payloads, transport state, or internal correlation IDs.
+
+- [ ] **Step 7: Verify the Agent OS presentation cutover removed legacy code**
 
 Run:
 
@@ -1268,35 +1563,35 @@ rtk rg -n 'router\.push\(.*?/agent-os|AgentOS에서 묻기|AgentOS 대화 열기
 Expected: both commands return no matches. The intentional 전체 기록
 navigation lives only in ConversationPanel and is not part of this scan.
 
-- [ ] **Step 7: Run focused Agent OS tests and Web build**
+- [ ] **Step 8: Run focused Agent OS tests and Web build**
 
 ~~~bash
 rtk npm exec --workspace=apps/web vitest -- run src/components/agent-interaction
 rtk npm run build --workspace=apps/web
 ~~~
 
-Expected: all folder, draft, composer, history reconciliation, and reference
-card tests pass.
+Expected: all folder, draft, composer, authenticated history snapshot, live
+message, and reference-card tests pass.
 
-- [ ] **Step 8: Commit the Agent OS workspace**
+- [ ] **Step 9: Commit the Agent OS workspace**
 
 ~~~bash
 rtk git add apps/web/src/app/agent-os apps/web/src/components/agent-interaction
-rtk git commit -m "feat(agent-os): organize provider conversations by agent"
+rtk git commit -m "refactor(agent-os): restore the KidItem chat workspace design"
 ~~~
 
-### Phase 6B: Add Settings and Complete History Management
+### Phase 6B: Align Settings and Preserve Complete History Management
 
 **Files:**
 
-- Create: apps/web/src/components/agent-interaction/ConversationSettingsDialog.tsx
-- Create: apps/web/src/components/agent-interaction/ConversationDefaultsSettings.tsx
-- Create: apps/web/src/components/agent-interaction/ConversationHistorySettings.tsx
-- Create: apps/web/src/components/agent-interaction/conversation-preference-selection.ts
-- Create: apps/web/src/components/agent-interaction/conversation-bulk-delete.ts
-- Create: apps/web/src/components/agent-interaction/__tests__/ConversationSettingsDialog.spec.tsx
-- Create: apps/web/src/components/agent-interaction/__tests__/conversation-preference-selection.spec.ts
-- Create: apps/web/src/components/agent-interaction/__tests__/conversation-bulk-delete.spec.ts
+- Modify: apps/web/src/components/agent-interaction/ConversationSettingsDialog.tsx
+- Modify: apps/web/src/components/agent-interaction/ConversationDefaultsSettings.tsx
+- Modify: apps/web/src/components/agent-interaction/ConversationHistorySettings.tsx
+- Modify: apps/web/src/components/agent-interaction/conversation-preference-selection.ts
+- Modify: apps/web/src/components/agent-interaction/conversation-bulk-delete.ts
+- Modify: apps/web/src/components/agent-interaction/__tests__/ConversationSettingsDialog.spec.tsx
+- Modify: apps/web/src/components/agent-interaction/__tests__/conversation-preference-selection.spec.ts
+- Modify: apps/web/src/components/agent-interaction/__tests__/conversation-bulk-delete.spec.ts
 - Modify: apps/web/src/components/agent-interaction/ConversationPanel.tsx
 - Modify: apps/web/src/components/agent-interaction/ConversationFolderTree.tsx
 - Modify: apps/web/src/components/agent-interaction/ConversationFlow.tsx
@@ -1310,6 +1605,8 @@ rtk git commit -m "feat(agent-os): organize provider conversations by agent"
 Test:
 
 - Settings opens from the AI chat panel and Agent OS tree and returns focus to trigger;
+- Settings uses one centered dialog with a compact left navigation above the
+  mobile breakpoint and one stacked navigation/content column below it;
 - defaults are editable for all six contexts times two providers;
 - new draft selection uses a supported matching preference;
 - existing conversation selection prefers supported lastModel and
@@ -1319,6 +1616,8 @@ Test:
 - missing/failed preference reads require explicit selection;
 - search is case-insensitive, folder filtering is exact, and sorting is newest
   updatedAt first;
+- each history row exposes rename/delete through `•••`; destructive controls are
+  not permanently rendered beside every title;
 - rename failure preserves the prior title;
 - individual deletion waits for provider success before cache removal;
 - current live Conversation cannot be deleted;
@@ -1335,7 +1634,9 @@ Run:
 rtk npm exec --workspace=apps/web vitest -- run src/components/agent-interaction/__tests__/ConversationSettingsDialog.spec.tsx src/components/agent-interaction/__tests__/ConversationRuntimeHost.spec.tsx src/components/agent-interaction/__tests__/conversation-preference-selection.spec.ts src/components/agent-interaction/__tests__/conversation-bulk-delete.spec.ts
 ~~~
 
-Expected: FAIL because settings and bulk history controls do not exist.
+Expected: existing preference and history behavior stays green, while the new
+centered left-navigation and row-overflow assertions FAIL against the interim
+horizontal tabs and permanently visible history actions.
 
 - [ ] **Step 2: Implement explicit preference precedence**
 
@@ -1368,6 +1669,24 @@ preference endpoint.
 Mount one ConversationSettingsDialog below ConversationRuntimeHost. The AI chat
 panel and Agent OS tree are triggers for that one app-shell-controlled instance; they
 must not mount competing dialog copies.
+
+Use one centered `max-w-[760px]` dialog and responsive two-column composition:
+
+~~~tsx
+<Dialog.Content className="fixed left-1/2 top-1/2 grid max-h-[90vh] w-[calc(100%-2rem)] max-w-[760px] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border bg-background shadow-lg sm:grid-cols-[160px_minmax(0,1fr)]">
+  <nav aria-label="대화 설정" className="border-b bg-muted/30 p-3 sm:border-b-0 sm:border-r">
+    {/* 대화 기본값 / 채팅 기록 */}
+  </nav>
+  <section className="min-h-0 overflow-y-auto p-5 sm:p-6">
+    {tab === 'defaults' ? defaultsContent : historyContent}
+  </section>
+</Dialog.Content>
+~~~
+
+The left navigation is only presentation over the existing local `tab` union;
+do not add a settings route or global tab store. Reuse the same local accessible
+row-menu pattern as ConversationFolderTree in chat history. Bulk-delete buttons
+remain explicit at the bottom with exact scope/count confirmation.
 
 - [ ] **Step 4: Implement bounded bulk deletion**
 
@@ -1410,7 +1729,7 @@ Expected: full interaction tests and Web production build pass.
 
 ~~~bash
 rtk git add apps/web/src/components/agent-interaction
-rtk git commit -m "feat(agent-os): manage chat defaults and history"
+rtk git commit -m "refactor(agent-os): align chat settings and history"
 ~~~
 
 ## Sol(max) Batch Review B: Tasks 4-6
@@ -1418,9 +1737,11 @@ rtk git commit -m "feat(agent-os): manage chat defaults and history"
 Review only the Tasks 4-6 batch diff and these architecture invariants:
 
 - one route-stable provider/runtime/subscription and race-safe first Send;
-- one `notifications | ai_chat | null` right-surface owner with no page reflow;
+- one `notifications | ai_chat | null` right-surface owner with the exact
+  352-pixel `xl` push offset and no measured/persisted layout state;
 - complete removal of legacy panel/sidebar/create-modal state and wrappers;
-- Agent OS folder/history/settings presentations sharing the same runtime; and
+- Agent OS folder/history/settings presentations sharing the same runtime and
+  approved KidItem message/card/composer primitives; and
 - explicit provider/model/reasoning selection with no silent fallback.
 
 Provide the batch acceptance criteria, batch base/head SHAs, focused tests, and
@@ -1450,10 +1771,15 @@ conversationId and include a deterministic bounded title. Assert:
 - preference read/set/read crosses the authenticated facade without entering
   PostgreSQL;
 - provider history remains readable; and
-- the existing five MCP tool and approval-pending sequence is unchanged.
+- the smoke never accepts a caller-injected MCP token or calls the internal MCP
+  endpoint outside a real provider turn.
 
 The live smoke must delete/archive only the disposable conversation it creates.
 Do not delete existing provider history.
+
+Process-token MCP admission, the exact five tools, and approval-pending behavior
+remain covered by the Gateway loopback/MCP tests and authenticated Terra(max)
+provider-turn browser QA.
 
 Run:
 
@@ -1475,10 +1801,15 @@ In docs/ARCHITECTURE.md record:
 - provider-first deletion; and
 - no PostgreSQL conversation/preferences model.
 
+Record only top-level UI ownership: CopilotKit interaction, route-stable Web
+presentation, 352-pixel responsive right surface, and 260-pixel Agent OS
+history workspace. Do not copy pixel-level styling into ARCHITECTURE.md.
+
 In docs/TESTING.md add the new create replay/drift, serialized local-state,
 provider deletion, route-stable runtime, single-right-surface state machine,
-desktop/mobile panel behavior, clean legacy-surface removal, Dashboard
-regression, and browser QA gates.
+desktop push/tablet overlay/mobile drawer behavior, approved Agent OS visual
+regressions, clean legacy-surface removal, Dashboard regression, and browser QA
+gates.
 
 Do not modify the user-owned design source or DESIGN.md.
 
@@ -1538,10 +1869,16 @@ review must cover at least:
 - Gateway create idempotency, serialized local state, exact provider deletion,
   and live-turn fences;
 - Nest authentication/error mapping and absence of conversation persistence;
-- one route-stable Web runtime, first-send handoff correctness, and explicit
-  model/reasoning selection;
+- CopilotKit runner ownership of run/connect/running/stop, absence of duplicate
+  Web lifecycle state, route-stable presentation, first-send handoff
+  correctness, and explicit model/reasoning selection;
 - single right-surface ownership and complete legacy presentation removal;
-- Agent OS folder/history/settings behavior without a second runtime; and
+- exact 352-pixel push/overlay/drawer presentation without measured layout
+  state;
+- Agent OS folder/history/settings behavior and approved KidItem visual
+  hierarchy without a second runtime;
+- business cards remain presentational wrappers over existing owner/query
+  behavior, with no raw provider/internal identifiers; and
 - test quality, race coverage, security boundaries, and maintainability.
 
 Use `gpt-5.6-sol` with reasoning effort `max`. Fix every Critical and Important
@@ -1549,10 +1886,49 @@ finding with a failing regression test first, rerun the affected deterministic
 gates, and return the fix diff to the same review boundary until no such finding
 remains. Do not begin browser QA while integrated review findings are open.
 
-- [ ] **Step 7: Run authenticated browser QA**
+- [ ] **Step 7: Run the Codex/Terra(max) Dashboard business eval**
+
+Run the actual Dashboard AI chat against a freshly initialized isolated
+browser-QA fixture. Use Codex with `gpt-5.6-terra` and `max`; do not silently
+substitute another model or effort. Run each case three times:
+
+1. a real-data read using the appropriate read capability, with no canonical
+   write;
+2. an approval-gated mutation, proving no write before approval and exactly one
+   owner-domain result or Operation after approval; and
+3. the same provider-local Conversation across two turns and an API/Gateway
+   restart, with MCP still usable, exact retry producing no duplicate mutation,
+   and no automatic reasoning before the next explicit user message.
+
+Use `supply.submit_purchase_order` for case 2 with an isolated, disposable,
+providerless purchase-order fixture. The approved canonical input must carry a
+synthetic `externalOrderId`; no real provider call or external order is part of
+this evaluation.
+
+Before the live model trial for case 3, run a deterministic
+`sourcing.scrapeUrlWorkflow` gate that commits the owner result, injects result
+loss, restarts the API boundary, and proves that replaying the exact
+`requestKey` and canonical input returns the committed result without another
+candidate or `OperationRun`. The same key with changed canonical input must
+return the owner idempotency conflict. The live Codex trial then evaluates only
+the model's recovery judgment on top of that proven owner contract.
+
+Judge the final business outcome and forbidden behavior rather than exact prose
+or one fixed tool sequence. Organization intrusion, approval bypass, fabricated
+canonical input, and duplicate writes must be absent in all three trials. Each
+case must complete normally in at least two of three trials. Promote only an
+observed failure to a regression test.
+
+Evidence must contain only case/trial, model/effort, Conversation/Turn/Execution
+correlation, capability key, canonical input hash, sanitized Approval/Operation/
+resource references, and the final domain snapshot. Never store credentials,
+cookies, bearers/tokens, provider raw payloads, private reasoning, or production
+transcripts. Claude live QA remains non-blocking while a paid login is absent.
+
+- [ ] **Step 8: Run authenticated browser QA**
 
 Use the isolated Agent OS QA environment and the current development account.
-Do not print credentials, cookies, Gateway bearer, execution binding, provider
+Do not print credentials, cookies, Gateway bearer, MCP transport token, provider
 payloads, or transcripts.
 
 Verify:
@@ -1579,17 +1955,24 @@ Verify:
     returning does not create another subscription.
 13. Cross-surface replacement moves focus into the new body; close and Escape
     restore focus to the latest launcher.
-14. Desktop uses the fixed 420 px non-modal panel without reflow, while a
-    viewport below 768 px uses the full-width modal drawer.
+14. An `xl` viewport uses the 352 px push dock and reduces Dashboard content
+    width; a 768-to-`xl` viewport uses the 352 px overlay, and a viewport below
+    768 px uses the full-width modal drawer.
 15. Quick Action FAB never moves and remains hidden while either auxiliary
     surface is open.
-16. Browser console has no internal-error toast and network shows one
+16. Agent OS shows the 260 px tree, row overflow actions, soft-purple user
+    messages, neutral assistant groups, inline Evidence/Approval/Operation/
+    resource cards, and the centered two-section Settings dialog.
+17. Empty draft suggestions only fill the composer and cause no API/tool call;
+    normal success and idle UI shows no Gateway/provider-local/transport/
+    execution label.
+18. Browser console has no internal-error toast and network shows one
     CopilotKit conversation transport.
 
 Capture failures as code defects or the explicit Claude environment limitation;
 do not add operator readiness/login UI to make QA pass.
 
-- [ ] **Step 8: Review the final diff against the approved design**
+- [ ] **Step 9: Review the final diff against the approved design**
 
 Run:
 
@@ -1604,6 +1987,9 @@ Confirm:
 - no Prisma file changed;
 - no user-owned design document was overwritten;
 - no Dashboard Agent OS semantic change entered the diff;
+- the desktop work-surface offset is exactly the shared 352-pixel auxiliary
+  width and there is no ResizeObserver, measured width, or persisted layout
+  mode;
 - no duplicate useAgent or ConversationProvider mount exists;
 - no provider path/reference enters Web or Nest public DTOs;
 - no silent model/reasoning fallback exists;
@@ -1613,9 +1999,13 @@ Confirm:
   storage key, AgentOS에서 묻기 label, or automatic chat-to-Agent-OS route jump
   remains; and
 - no compatibility wrapper, alias, dual right-surface state, or migration was
-  added for the removed presentation paths.
+  added for the removed presentation paths;
+- no decorative gradient, emoji icon, non-system font, or unsupported chat
+  control entered the production UI; and
+- folder and settings history rows use accessible overflow actions instead of
+  permanent rename/delete button clutter.
 
-- [ ] **Step 9: Commit documentation and acceptance updates**
+- [ ] **Step 10: Commit documentation and acceptance updates**
 
 ~~~bash
 rtk git add scripts/smoke-interaction-os.mjs scripts/__tests__/smoke-interaction-os.test.mjs docs/ARCHITECTURE.md docs/TESTING.md
@@ -1635,16 +2025,23 @@ rtk git commit -m "docs(agent-os): verify global conversation workspace"
   scoped, and absent from PostgreSQL.
 - [ ] Nest derives user/organization scope for every API and exposes no provider
   coordinate.
-- [ ] One authenticated ConversationProvider/RuntimeHost survives route changes.
+- [ ] One authenticated CopilotKit interaction survives route changes through
+  the route-stable ConversationProvider/RuntimeHost presentation adapter.
+- [ ] CopilotKit owns run/connect/running/stop; the fake stateless runner and
+  duplicate Web active-turn/reconciliation lifecycle are absent.
 - [ ] AI chat panel and Agent OS share one runtime, flow, composer, Query cache, and
   first-send coordinator.
 - [ ] Notification and AI chat content are mutually exclusive bodies of one
   `notifications | ai_chat | null` right surface.
-- [ ] Desktop uses one fixed 420 px non-modal panel; below 768 px the same panel
-  becomes a full-width modal drawer without remaining-width calculation.
+- [ ] Desktop `xl` uses one 352 px push dock, tablet uses the same 352 px body as
+  an overlay, and below 768 px it becomes a full-width modal drawer without
+  measured or persisted layout state.
 - [ ] Agent OS suppresses only duplicate ai_chat presentation; notification
   presentation and the preserved chat runtime follow the fixed route rule.
 - [ ] Dashboard Agent OS UI and business actions are unchanged.
+- [ ] Agent OS uses the approved 260 px tree, quiet header, centered message
+  column, compact composer, inline business cards, and centered Settings/history
+  dialog with KidItem semantic tokens.
 - [ ] General plus exactly five Agent folders organize top-level conversations;
   native subagents stay inside parent streams.
 - [ ] Provider is immutable after create; model/reasoning remain explicit per
@@ -1656,6 +2053,9 @@ rtk git commit -m "docs(agent-os): verify global conversation workspace"
   remains.
 - [ ] Shared, Gateway, server, Web, scanner, build, boot, macOS, smoke, and
   browser QA evidence is recorded.
+- [ ] Codex/Terra(max) Dashboard business eval passed all three cases at 3 trials
+  each, with every forbidden behavior absent and at least 2/3 normal completion
+  per case.
 - [ ] One Sol(max) integrated review passed before browser QA with no open
   Critical or Important finding.
 - [ ] The only live limitation, when still applicable, is unavailable Claude

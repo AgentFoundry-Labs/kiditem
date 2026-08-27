@@ -1,7 +1,7 @@
 # Agent OS Chat Workspace UX Design
 
 **Date:** 2026-08-26
-**Status:** Ready for review
+**Status:** Approved
 **Revised:** 2026-08-27
 **Scope:** KID-25 global AI chat panel, Agent OS history workspace, KidItem visual alignment, Gateway-local conversation preferences, and conversation-history management
 
@@ -566,7 +566,10 @@ Expected Web ownership:
   variants, but they consume the same conversation data and CopilotKit
   interaction.
 - a settings dialog owns preference and history-management views.
-- React Query remains the owner of conversation summaries, history, readiness, and preferences.
+- React Query remains the owner of conversation summaries, readiness,
+  preferences, and business-resource queries. Authenticated provider history is
+  projected into the CopilotKit interaction through runner `connect`; Web does
+  not keep a second history/reconciliation owner.
 - the app-shell UI store holds one `activeRightSurface`; conversation UI state holds only open folder, selected conversation, pending draft, and dialog coordinates.
 
 Expected backend ownership:
@@ -666,7 +669,8 @@ rather than a second interaction lifecycle owner.
 - search, folder filter, rename, individual delete, folder delete, and delete all
 - partial bulk-delete result behavior
 - keyboard, focus transfer between auxiliary surfaces, focus return, IME-safe Enter, reduced motion, and responsive drawer
-- Invocation, Operation, resource cards, live messages, and terminal history reconciliation regressions
+- Invocation, Operation, resource cards, authenticated history snapshots, and
+  live CopilotKit message regressions
 - no `PanelSheet`, `AgentConversationSidebar`, route-local provider branch,
   `CreateConversationDialog`, `pendingOpen`, panel `isOpen`/`setOpen`, or
   `kiditem.panel.open` production path remains
@@ -674,7 +678,7 @@ rather than a second interaction lifecycle owner.
 ### 14.2 Server and Host Runner behavior
 
 - strict preference input/output schemas
-- organization and current-user fence on preference and history APIs
+- organization and current-user fence on preference and conversation-catalog APIs
 - atomic preference-file writes and invalid-file rejection
 - serialized preference and conversation-descriptor mutations under concurrent requests
 - installation-user preference scope without per-organization copies
