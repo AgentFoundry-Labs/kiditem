@@ -126,7 +126,7 @@ describe('AgentConversationComposer', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('선택한 대화 엔진을 현재 사용할 수 없습니다.');
   });
 
-  it('sends a follow-up after a turn id arrives before its launch promise settles', async () => {
+  it('retains a typed follow-up until the live turn becomes terminal instead of steering it', async () => {
     const launch = deferred();
     const onInput = vi.fn(async () => undefined);
     const onStart = vi.fn(() => launch.promise);
@@ -142,8 +142,9 @@ describe('AgentConversationComposer', () => {
     await user.type(message, 'Follow up with the supplier.');
     await user.keyboard('{Enter}');
 
-    await waitFor(() => expect(onInput).toHaveBeenCalledWith('Follow up with the supplier.'));
+    expect(onInput).not.toHaveBeenCalled();
     expect(onStart).toHaveBeenCalledTimes(1);
+    expect(message).toHaveValue('Follow up with the supplier.');
 
     await act(async () => launch.resolve());
   });

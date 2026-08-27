@@ -22,11 +22,6 @@ import {
   type GatewayLiveTurn,
 } from '../port/out/gateway-conversation.port';
 
-interface StoredConversation {
-  owner: ConversationOwner;
-  summary: ConversationSummary;
-}
-
 interface StoredTurn extends ConversationTurnCoordinates {}
 
 type CreateConversationInput = ConversationOwner & CreateConversationCommand;
@@ -39,13 +34,11 @@ type StartConversationInput = ConversationCoordinates & {
 };
 
 /**
- * A deliberately transient, owner-fenced facade over the installed Gateway.
- * Provider history remains provider-native; this only remembers enough live
- * metadata to enforce browser ownership while a Nest process is running.
+ * An organization-scoped facade over the installed Gateway. Provider history
+ * remains provider-native; only initiating-user live-turn metadata is transient.
  */
 @Injectable()
 export class ConversationService implements ConversationPort {
-  private readonly conversations = new Map<string, StoredConversation>();
   private readonly turns = new Map<string, StoredTurn>();
 
   constructor(
@@ -58,25 +51,15 @@ export class ConversationService implements ConversationPort {
   async list(input: ConversationOwner): Promise<ConversationSummary[]> {
     assertOwner(input);
     const summaries = await this.gateway.list(input);
-    const visible: ConversationSummary[] = [];
     for (const summary of summaries) {
       assertAgent(summary.agentKey);
-      const current = this.conversations.get(summary.id);
-      if (!current || sameOwner(current.owner, input)) {
-        this.conversations.set(summary.id, { owner: copyOwner(input), summary });
-        visible.push(summary);
-      }
     }
-    return visible;
+    return summaries;
   }
 
   async create(input: CreateConversationInput): Promise<ConversationSummary> {
     assertOwner(input);
     assertCreateInput(input);
-    const current = this.conversations.get(input.conversationId);
-    if (current && !sameOwner(current.owner, input)) {
-      throw new AgentOsRuntimeError('conversation_not_found');
-    }
     const agentKey = parseAgent(input.agentKey);
     const summary = await this.gateway.create({
       ...copyOwner(input),
@@ -87,7 +70,6 @@ export class ConversationService implements ConversationPort {
     });
     if (summary.id !== input.conversationId) throw new AgentOsRuntimeError('conversation_not_found');
     assertAgent(summary.agentKey);
-    this.rememberConversation(input, summary);
     return summary;
   }
 
@@ -110,31 +92,42 @@ export class ConversationService implements ConversationPort {
   }
 
   async history(input: ConversationCoordinates) {
-    this.requireConversation(input);
+    assertConversation(input);
     return this.gateway.history(input);
   }
 
+  async isRunning(input: ConversationCoordinates): Promise<boolean> {
+    assertConversation(input);
+    return this.turns.has(activeTurnKey(input));
+  }
+
+  async stop(input: ConversationCoordinates): Promise<boolean> {
+    assertConversation(input);
+    const turn = this.turns.get(activeTurnKey(input));
+    if (!turn || !sameOwner(turn, input)) return false;
+    await this.gateway.interrupt(turn);
+    return true;
+  }
+
   async rename(input: ConversationCoordinates & { title: string }): Promise<ConversationSummary> {
-    this.requireConversation(input);
+    assertConversation(input);
     const summary = await this.gateway.rename(input);
     assertAgent(summary.agentKey);
-    this.rememberConversation(input, summary);
     return summary;
   }
 
   async delete(input: ConversationCoordinates): Promise<void> {
-    this.requireConversation(input);
+    assertConversation(input);
     await this.gateway.delete(input);
-    this.conversations.delete(input.conversationId);
     for (const [key, turn] of this.turns) {
       if (turn.conversationId === input.conversationId && sameOwner(turn, input)) this.turns.delete(key);
     }
   }
 
   async start(input: StartConversationInput): Promise<ConversationLiveTurn> {
-    const conversation = this.requireConversation(input);
+    const conversation = await this.requireConversation(input);
     assertTurnSettings(input);
-    this.requireReadiness(conversation.summary.runtime, input.model, input.reasoningEffort);
+    this.requireReadiness(conversation.runtime, input.model, input.reasoningEffort);
     const turnId = input.turnId ?? this.nextTurnId();
     const gatewayTurn = this.gateway.start({
       ...copyOwner(input),
@@ -145,12 +138,12 @@ export class ConversationService implements ConversationPort {
       reasoningEffort: input.reasoningEffort,
     });
     const coordinates = { ...copyOwner(input), conversationId: input.conversationId, turnId };
-    this.turns.set(turnKey(coordinates), coordinates);
+    this.turns.set(activeTurnKey(coordinates), coordinates);
     let unsubscribeLifecycle: (() => void) | null = null;
     let terminalBeforeSubscriptionReturned = false;
     const lifecycleSubscription = gatewayTurn.subscribe((event) => {
       if (event.kind === 'status' && event.status !== 'started') {
-        this.turns.delete(turnKey(coordinates));
+        this.clearTurn(coordinates);
         if (unsubscribeLifecycle) {
           const cleanup = unsubscribeLifecycle;
           unsubscribeLifecycle = null;
@@ -169,20 +162,19 @@ export class ConversationService implements ConversationPort {
   }
 
   async input(input: ConversationTurnCoordinates & { message: string }): Promise<void> {
-    this.requireTurn(input);
+    await this.requireTurn(input);
     await this.gateway.input(input);
   }
 
   async interrupt(input: ConversationTurnCoordinates): Promise<void> {
-    this.requireTurn(input);
+    await this.requireTurn(input);
     await this.gateway.interrupt(input);
-    this.turns.delete(turnKey(input));
   }
 
   disconnect(input: ConversationTurnCoordinates): void {
-    const stored = this.turns.get(turnKey(input));
-    if (!stored || !sameOwner(stored, input)) return;
-    this.turns.delete(turnKey(input));
+    const stored = this.turns.get(activeTurnKey(input));
+    if (!stored || !sameTurn(stored, input)) return;
+    this.clearTurn(input);
     this.gateway.disconnect(input);
   }
 
@@ -192,34 +184,41 @@ export class ConversationService implements ConversationPort {
 
   private bindLiveTurn(turn: GatewayLiveTurn, coordinates: ConversationTurnCoordinates): ConversationLiveTurn {
     void turn.ready.catch(() => {
-      this.turns.delete(turnKey(coordinates));
+      this.clearTurn(coordinates);
     });
     return {
       turnId: turn.turnId,
       ready: turn.ready,
       subscribe: (sink) => turn.subscribe((event) => {
         if (event.kind === 'status' && event.status !== 'started') {
-          this.turns.delete(turnKey(coordinates));
+          this.clearTurn(coordinates);
         }
         sink(event);
       }),
     };
   }
 
-  private requireConversation(input: ConversationCoordinates): StoredConversation {
-    assertOwner(input);
-    const conversation = this.conversations.get(input.conversationId);
-    if (!conversation || !sameOwner(conversation.owner, input)) {
+  private async requireConversation(input: ConversationCoordinates): Promise<ConversationSummary> {
+    assertConversation(input);
+    const conversations = await this.gateway.list(copyOwner(input));
+    const conversation = conversations.find((summary) => summary.id === input.conversationId);
+    if (!conversation) {
       throw new AgentOsRuntimeError('conversation_not_found');
     }
+    assertAgent(conversation.agentKey);
     return conversation;
   }
 
-  private requireTurn(input: ConversationTurnCoordinates): StoredTurn {
-    this.requireConversation(input);
-    const turn = this.turns.get(turnKey(input));
-    if (!turn || !sameOwner(turn, input)) throw new AgentOsRuntimeError('conversation_not_found');
+  private async requireTurn(input: ConversationTurnCoordinates): Promise<StoredTurn> {
+    assertTurn(input);
+    const turn = this.turns.get(activeTurnKey(input));
+    if (!turn || !sameTurn(turn, input)) throw new AgentOsRuntimeError('conversation_not_found');
     return turn;
+  }
+
+  private clearTurn(coordinates: ConversationTurnCoordinates): void {
+    const key = activeTurnKey(coordinates);
+    if (sameTurn(this.turns.get(key), coordinates)) this.turns.delete(key);
   }
 
   private requireReadiness(runtime: ConversationSummary['runtime'], model: string, reasoningEffort: string): void {
@@ -231,20 +230,22 @@ export class ConversationService implements ConversationPort {
       throw new AgentOsRuntimeError('conversation_reasoning_effort_unsupported');
     }
   }
-
-  private rememberConversation(owner: ConversationOwner, summary: ConversationSummary): void {
-    const current = this.conversations.get(summary.id);
-    if (current && !sameOwner(current.owner, owner)) {
-      throw new AgentOsRuntimeError('conversation_not_found');
-    }
-    this.conversations.set(summary.id, { owner: copyOwner(owner), summary });
-  }
 }
 
 function assertOwner(input: ConversationOwner): void {
   if (!validIdentifier(input.organizationId) || !validIdentifier(input.userId)) {
     throw new AgentOsRuntimeError('conversation_owner_invalid');
   }
+}
+
+function assertConversation(input: ConversationCoordinates): void {
+  assertOwner(input);
+  if (!validIdentifier(input.conversationId)) throw new AgentOsRuntimeError('conversation_not_found');
+}
+
+function assertTurn(input: ConversationTurnCoordinates): void {
+  assertConversation(input);
+  if (!validIdentifier(input.turnId)) throw new AgentOsRuntimeError('conversation_not_found');
 }
 
 function assertAgent(agentKey: string | null): void {
@@ -286,6 +287,10 @@ function sameOwner(left: ConversationOwner, right: ConversationOwner): boolean {
   return left.organizationId === right.organizationId && left.userId === right.userId;
 }
 
-function turnKey(input: ConversationTurnCoordinates): string {
-  return `${input.organizationId}\u0000${input.userId}\u0000${input.conversationId}\u0000${input.turnId}`;
+function sameTurn(left: ConversationTurnCoordinates | undefined, right: ConversationTurnCoordinates): boolean {
+  return Boolean(left && sameOwner(left, right) && left.conversationId === right.conversationId && left.turnId === right.turnId);
+}
+
+function activeTurnKey(input: ConversationCoordinates): string {
+  return `${input.organizationId}\u0000${input.userId}\u0000${input.conversationId}`;
 }

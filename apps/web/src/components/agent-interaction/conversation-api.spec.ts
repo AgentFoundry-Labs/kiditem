@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
+import * as conversationApi from './conversation-api';
 import {
   createConversation,
   deleteConversation,
   getConversationPreferences,
-  getConversationHistory,
   interruptConversation,
   listConversations,
   loadConversationReadiness,
@@ -21,7 +21,7 @@ vi.mock('@/lib/api-client', () => ({
 describe('conversation API', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('uses only authenticated same-origin conversation endpoints and public DTOs', async () => {
+  it('uses only authenticated same-origin summary and preference endpoints; provider history belongs to CopilotKit connect', async () => {
     const conversation = {
       id: 'conversation-1', runtime: 'codex_cli', agentKey: null, title: 'General',
       createdAt: '2026-08-26T00:00:00.000Z', updatedAt: '2026-08-26T00:00:00.000Z',
@@ -46,7 +46,6 @@ describe('conversation API', () => {
     await setConversationPreference({
       context: 'general', runtime: 'codex_cli', model: 'gpt-5.6', reasoningEffort: 'xhigh',
     });
-    await getConversationHistory('conversation-1');
     await renameConversation('conversation-1', 'Renamed');
     await startConversationTurn('conversation-1', {
       message: 'Review the evidence.', model: 'gpt-5.6', reasoningEffort: 'xhigh',
@@ -63,7 +62,7 @@ describe('conversation API', () => {
     expect(apiClient.put).toHaveBeenCalledWith('/api/agent-os/conversation-preferences', {
       context: 'general', runtime: 'codex_cli', model: 'gpt-5.6', reasoningEffort: 'xhigh',
     });
-    expect(apiClient.get).toHaveBeenNthCalledWith(3, '/api/agent-os/conversations/conversation-1/history');
+    expect(conversationApi).not.toHaveProperty('getConversationHistory');
     expect(apiClient.patch).toHaveBeenCalledWith('/api/agent-os/conversations/conversation-1', { title: 'Renamed' });
     expect(apiClient.post).toHaveBeenNthCalledWith(2, '/api/agent-os/conversations/conversation-1/turns', {
       message: 'Review the evidence.', model: 'gpt-5.6', reasoningEffort: 'xhigh',

@@ -36,6 +36,8 @@ export interface ConversationPort {
   preferences(owner: ConversationOwner): Promise<ConversationPreferences>;
   setPreference(input: ConversationOwner & SetConversationPreferenceCommand): Promise<ConversationPreferences>;
   history(input: ConversationCoordinates): Promise<ProviderMessage[]>;
+  isRunning(input: ConversationCoordinates): Promise<boolean>;
+  stop(input: ConversationCoordinates): Promise<boolean>;
   rename(input: ConversationCoordinates & { title: string }): Promise<ConversationSummary>;
   delete(input: ConversationCoordinates): Promise<void>;
   start(input: ConversationCoordinates & {

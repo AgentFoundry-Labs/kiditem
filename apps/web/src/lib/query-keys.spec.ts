@@ -2,16 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { queryKeys } from './query-keys';
 
 describe('conversation query keys', () => {
-  it('keeps each authenticated identity isolated across summaries, history, readiness, preferences, and invocations', () => {
+  it('keeps each authenticated identity isolated across summaries, readiness, preferences, and invocations without a provider-history cache', () => {
     const firstIdentity = { userId: 'user-1', organizationId: 'org-1' };
     const secondIdentity = { userId: 'user-2', organizationId: 'org-1' };
 
     expect(queryKeys.conversations.list(firstIdentity)).toEqual([
       'agent-os', 'conversations', 'identity', 'user-1', 'org-1', 'list',
     ]);
-    expect(queryKeys.conversations.history(firstIdentity, 'conversation-1')).toEqual([
-      'agent-os', 'conversations', 'identity', 'user-1', 'org-1', 'history', 'conversation-1',
-    ]);
+    expect(queryKeys.conversations).not.toHaveProperty('history');
     expect(queryKeys.conversations.readiness(firstIdentity)).toEqual([
       'agent-os', 'conversations', 'identity', 'user-1', 'org-1', 'readiness',
     ]);

@@ -6,7 +6,6 @@ import {
   ConversationPreferencesSchema,
   ConversationSummarySchema,
   GatewayReadinessSchema,
-  ProviderMessageSchema,
   type AgentKey,
   type ConversationPreferences as SharedConversationPreferences,
   type ConversationSummary as SharedConversationSummary,
@@ -54,10 +53,6 @@ export async function setConversationPreference(
   return ConversationPreferencesSchema.parse(
     await apiClient.put<unknown>('/api/agent-os/conversation-preferences', command),
   );
-}
-
-export async function getConversationHistory(conversationId: string): Promise<ConversationMessage[]> {
-  return ProviderMessageSchema.array().parse(await apiClient.get<unknown>(`/api/agent-os/conversations/${encodeURIComponent(conversationId)}/history`));
 }
 
 export async function renameConversation(conversationId: string, title: string): Promise<ConversationSummary> {

@@ -13,9 +13,6 @@ export const queryKeys = {
       'agent-os', 'conversations', 'identity', identity.userId, identity.organizationId,
     ] as const,
     list: (identity: ConversationIdentity) => [...queryKeys.conversations.all(identity), 'list'] as const,
-    history: (identity: ConversationIdentity, conversationId: string) => [
-      ...queryKeys.conversations.all(identity), 'history', conversationId,
-    ] as const,
     readiness: (identity: ConversationIdentity) => [
       ...queryKeys.conversations.all(identity), 'readiness',
     ] as const,

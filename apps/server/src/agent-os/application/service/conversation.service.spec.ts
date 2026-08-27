@@ -98,8 +98,12 @@ describe('ConversationService', () => {
     await moduleRef.close();
   });
 
-  it('returns only Gateway descriptors and fences a provider conversation to its owner', async () => {
+  it('returns only Gateway descriptors and forwards conversation operations with authenticated organization scope', async () => {
     const gateway = readyGateway();
+    vi.mocked(gateway.history).mockImplementation(async (input) => {
+      if (input.organizationId === 'foreign-org') throw new Error('conversation_not_found');
+      return [];
+    });
     const service = new ConversationService(gateway, () => 'turn-1');
 
     await expect(service.list(OWNER)).resolves.toEqual([GENERAL_CONVERSATION]);
@@ -154,34 +158,47 @@ describe('ConversationService', () => {
       .rejects.toThrow('conversation_agent_invalid');
   });
 
-  it('fails closed when a provider returns one conversation ID for different owners', async () => {
+  it('shares a descriptor with another authenticated user in the same organization, while a fresh service fails closed for another organization', async () => {
     const gateway = readyGateway();
-    const service = new ConversationService(gateway, () => 'turn-1');
-    const otherOwner = {
+    const sameOrganizationUser = {
       organizationId: OWNER.organizationId,
       userId: '00000000-0000-4000-8000-000000000003',
     };
+    const foreignOwner = {
+      organizationId: '00000000-0000-4000-8000-000000000004',
+      userId: '00000000-0000-4000-8000-000000000005',
+    };
+    vi.mocked(gateway.list).mockImplementation(async (owner) => (
+      owner.organizationId === OWNER.organizationId ? [GENERAL_CONVERSATION] : []
+    ));
+    vi.mocked(gateway.history).mockImplementation(async (input) => {
+      if (input.organizationId !== OWNER.organizationId) throw new Error('conversation_not_found');
+      return [];
+    });
+    const firstApi = new ConversationService(gateway, () => 'turn-1');
 
-    await service.create({
+    await firstApi.create({
       ...OWNER,
       conversationId: GENERAL_CONVERSATION.id,
       runtime: 'codex_cli',
       agentKey: null,
       title: GENERAL_CONVERSATION.title,
     });
-    await expect(service.create({
-      ...otherOwner,
+    await expect(firstApi.create({
+      ...sameOrganizationUser,
       conversationId: GENERAL_CONVERSATION.id,
       runtime: 'codex_cli',
       agentKey: null,
       title: GENERAL_CONVERSATION.title,
-    }))
-      .rejects.toThrow('conversation_not_found');
+    })).resolves.toMatchObject({ id: GENERAL_CONVERSATION.id });
+    await expect(firstApi.history({ ...sameOrganizationUser, conversationId: GENERAL_CONVERSATION.id })).resolves.toEqual([]);
 
-    await expect(service.history({ ...OWNER, conversationId: GENERAL_CONVERSATION.id })).resolves.toEqual([]);
-    await expect(service.history({ ...otherOwner, conversationId: GENERAL_CONVERSATION.id }))
+    const restartedApi = new ConversationService(gateway, () => 'turn-2');
+    await expect(restartedApi.list(sameOrganizationUser)).resolves.toEqual([GENERAL_CONVERSATION]);
+    await expect(restartedApi.history({ ...sameOrganizationUser, conversationId: GENERAL_CONVERSATION.id })).resolves.toEqual([]);
+    await expect(restartedApi.history({ ...foreignOwner, conversationId: GENERAL_CONVERSATION.id }))
       .rejects.toThrow('conversation_not_found');
-    expect(gateway.create).toHaveBeenCalledTimes(1);
+    expect(gateway.create).toHaveBeenCalledTimes(2);
   });
 
   it('requires a supported model and effort for every explicit turn without a fallback', async () => {
@@ -323,6 +340,145 @@ describe('ConversationService', () => {
       turnId: 'turn-1',
       message: 'Do not reuse a disconnected turn.',
     })).rejects.toThrow('conversation_not_found');
+  });
+
+  it('retains interrupt control for an exact live turn until its provider terminal arrives', async () => {
+    const gateway = readyGateway();
+    let lifecycleSink: ((event: { kind: 'status'; status: 'interrupted' }) => void) | undefined;
+    vi.mocked(gateway.start).mockReturnValue({
+      turnId: 'turn-1',
+      ready: Promise.resolve(),
+      subscribe: (sink) => {
+        lifecycleSink = sink as typeof lifecycleSink;
+        return () => undefined;
+      },
+    });
+    const service = new ConversationService(gateway, () => 'turn-1');
+    await service.list(OWNER);
+    await service.start({
+      ...OWNER,
+      conversationId: GENERAL_CONVERSATION.id,
+      message: 'Keep the current turn fenced.',
+      model: 'gpt-5.6',
+      reasoningEffort: 'low',
+    });
+
+    await service.interrupt({ ...OWNER, conversationId: GENERAL_CONVERSATION.id, turnId: 'turn-1' });
+    await expect(service.input({
+      ...OWNER,
+      conversationId: GENERAL_CONVERSATION.id,
+      turnId: 'turn-1',
+      message: 'Interrupt acknowledgement is not a terminal.',
+    })).resolves.toBeUndefined();
+
+    lifecycleSink?.({ kind: 'status', status: 'interrupted' });
+    await expect(service.input({
+      ...OWNER,
+      conversationId: GENERAL_CONVERSATION.id,
+      turnId: 'turn-1',
+      message: 'Only the exact terminal may release this turn.',
+    })).rejects.toThrow('conversation_not_found');
+  });
+
+  it('reports and stops only the exact owner conversation turn, retaining it until its exact terminal', async () => {
+    const gateway = readyGateway();
+    let lifecycleSink: ((event: { kind: 'status'; status: 'completed' | 'interrupted' }) => void) | undefined;
+    vi.mocked(gateway.start).mockReturnValue({
+      turnId: 'turn-1',
+      ready: Promise.resolve(),
+      subscribe: (sink) => {
+        lifecycleSink = sink as typeof lifecycleSink;
+        return () => undefined;
+      },
+    });
+    const service = new ConversationService(gateway, () => 'turn-1');
+    await service.start({
+      ...OWNER,
+      conversationId: GENERAL_CONVERSATION.id,
+      message: 'Keep ownership exact.',
+      model: 'gpt-5.6',
+      reasoningEffort: 'low',
+    });
+
+    await expect(service.isRunning({
+      ...OWNER,
+      conversationId: GENERAL_CONVERSATION.id,
+    })).resolves.toBe(true);
+    await expect(service.isRunning({
+      ...OWNER,
+      userId: '00000000-0000-4000-8000-000000000003',
+      conversationId: GENERAL_CONVERSATION.id,
+    })).resolves.toBe(false);
+    await expect(service.stop({
+      ...OWNER,
+      conversationId: GENERAL_CONVERSATION.id,
+    })).resolves.toBe(true);
+    expect(gateway.interrupt).toHaveBeenCalledWith({
+      ...OWNER,
+      conversationId: GENERAL_CONVERSATION.id,
+      turnId: 'turn-1',
+    });
+    await expect(service.isRunning({
+      ...OWNER,
+      conversationId: GENERAL_CONVERSATION.id,
+    })).resolves.toBe(true);
+
+    lifecycleSink?.({ kind: 'status', status: 'interrupted' });
+
+    await expect(service.isRunning({
+      ...OWNER,
+      conversationId: GENERAL_CONVERSATION.id,
+    })).resolves.toBe(false);
+    await expect(service.stop({
+      ...OWNER,
+      conversationId: GENERAL_CONVERSATION.id,
+    })).resolves.toBe(false);
+    expect(gateway.interrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let a stale terminal clear a successor turn for the same exact owner conversation', async () => {
+    const gateway = readyGateway();
+    const lifecycleSinks: Array<(event: { kind: 'status'; status: 'completed' }) => void> = [];
+    vi.mocked(gateway.start)
+      .mockReturnValueOnce({
+        turnId: 'turn-1',
+        ready: Promise.resolve(),
+        subscribe: (sink) => {
+          lifecycleSinks.push(sink as (event: { kind: 'status'; status: 'completed' }) => void);
+          return () => undefined;
+        },
+      })
+      .mockReturnValueOnce({
+        turnId: 'turn-2',
+        ready: Promise.resolve(),
+        subscribe: (sink) => {
+          lifecycleSinks.push(sink as (event: { kind: 'status'; status: 'completed' }) => void);
+          return () => undefined;
+        },
+      });
+    const service = new ConversationService(gateway, () => 'generated-turn');
+    const start = {
+      ...OWNER,
+      conversationId: GENERAL_CONVERSATION.id,
+      message: 'One active turn at a time.',
+      model: 'gpt-5.6',
+      reasoningEffort: 'low',
+    };
+
+    await service.start({ ...start, turnId: 'turn-1' });
+    lifecycleSinks[0]?.({ kind: 'status', status: 'completed' });
+    await service.start({ ...start, turnId: 'turn-2' });
+    lifecycleSinks[0]?.({ kind: 'status', status: 'completed' });
+
+    await expect(service.isRunning({
+      ...OWNER,
+      conversationId: GENERAL_CONVERSATION.id,
+    })).resolves.toBe(true);
+    lifecycleSinks[1]?.({ kind: 'status', status: 'completed' });
+    await expect(service.isRunning({
+      ...OWNER,
+      conversationId: GENERAL_CONVERSATION.id,
+    })).resolves.toBe(false);
   });
 
   it('forwards every Gateway command only after the owner fence is established', async () => {

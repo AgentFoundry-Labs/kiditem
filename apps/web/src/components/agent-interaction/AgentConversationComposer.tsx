@@ -72,7 +72,10 @@ export function AgentConversationComposer({
   }), [model, readiness, reasoningEffort, runtime]);
   const selectionNeedsReview = needsReview || Boolean((model || reasoningEffort) && !pairSupported);
   const canStart = Boolean(message.trim() && runtime && pairSupported && !activeTurnId && !pendingAction);
-  const canInput = Boolean(message.trim() && activeTurnId && !inputPending && !interruptPending);
+  // Codex may accept a steer just as the current turn reaches its terminal
+  // boundary, persisting the user message without beginning another model
+  // step. Keep a drafted follow-up in the composer until this turn is idle.
+  const canInput = false;
 
   useEffect(() => {
     if (initializedMessageIdentity.current === messageIdentity) return;

@@ -119,23 +119,6 @@ export class ConversationController {
     }
   }
 
-  @Get('conversations/:conversationId/history')
-  async history(
-    @Param('conversationId') conversationId: string,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    const parsedConversationId = parseId(ConversationIdSchema, conversationId, 'conversationId');
-    try {
-      return await this.conversations.history({
-        ...owner(organizationId, user),
-        conversationId: parsedConversationId,
-      });
-    } catch (error) {
-      rethrowConversationError(error);
-    }
-  }
-
   @Patch('conversations/:conversationId')
   async rename(
     @Param('conversationId') conversationId: string,

@@ -2,17 +2,41 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAgent } from '@copilotkit/react-core/v2';
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject,
+  type ReactNode,
+} from 'react';
 import { conversationIdentityKey, queryKeys, type ConversationIdentity } from '@/lib/query-keys';
 import { ConversationFirstSendCoordinator, type ConversationFirstSend } from './conversation-first-send.coordinator';
 import { ConversationSettingsDialog } from './ConversationSettingsDialog';
 import { conversationTitleFromMessage } from './conversation-title';
 import { selectTurnPreference, type TurnPreferenceSelection } from './conversation-preference-selection';
-import { createConversation, deleteConversation, getConversationHistory, getConversationPreferences, interruptConversation, listConversations, loadConversationReadiness, renameConversation, sendConversationInput, setConversationPreference, type ConversationMessage, type ConversationPreferences, type ConversationRuntime, type ConversationSummary, type GatewayReadiness, type SetConversationPreferenceCommand } from './conversation-api';
-import { historyCoversLiveMessages, messageCoverageCounts, toLiveMessages, toolProjectionFromEvent, type LiveMessage, type ToolProjection } from './conversation-runtime-reconciliation';
+import {
+  createConversation,
+  deleteConversation,
+  getConversationPreferences,
+  listConversations,
+  loadConversationReadiness,
+  renameConversation,
+  setConversationPreference,
+  type ConversationMessage,
+  type ConversationPreferences,
+  type ConversationRuntime,
+  type ConversationSummary,
+  type GatewayReadiness,
+  type SetConversationPreferenceCommand,
+} from './conversation-api';
 import { useConversationSurfaceState, type NewConversationDraft } from './conversation-surface-state';
 
-export type { LiveMessage, ToolProjection } from './conversation-runtime-reconciliation';
+export type LiveMessage = Pick<ConversationMessage, 'id' | 'role' | 'content'>;
+export type ToolProjection = { id: string; title: string; detail?: string };
 
 type TurnInput = { message: string; model: string; reasoningEffort: string };
 type DraftPatch = Partial<Omit<NewConversationDraft, 'conversationId'>>;
@@ -24,8 +48,7 @@ export interface ConversationRuntimeContextValue {
   activeConversation: ConversationSummary | null; draft: NewConversationDraft | null;
   conversationId: string | null; runtime: ConversationRuntime | null; isDraft: boolean;
   turnPreference: TurnPreferenceSelection;
-  historyMessages: ConversationMessage[]; historyLoading: boolean; historyError: boolean;
-  liveMessages: LiveMessage[]; toolProjections: ToolProjection[];
+  messages: LiveMessage[]; toolProjections: ToolProjection[];
   activeTurnId: string | null; turnEnded: string | null;
   start(input: TurnInput): Promise<void>;
   sendInput(message: string): Promise<void>;
@@ -72,12 +95,16 @@ export function ConversationRuntimeHost({
   const identityIsActive = () => (
     identityLifetimeRef.current === identityLifetime && identityLifetime.active
   );
-  useEffect(() => () => {
-    identityLifetime.active = false;
-    const queryKey = queryKeys.conversations.all(identityLifetime.identity);
-    void queryClient.cancelQueries({ queryKey });
-    queryClient.removeQueries({ queryKey });
+  useEffect(() => {
+    if (identityLifetimeRef.current === identityLifetime) identityLifetime.active = true;
+    return () => {
+      identityLifetime.active = false;
+      const queryKey = queryKeys.conversations.all(identityLifetime.identity);
+      void queryClient.cancelQueries({ queryKey });
+      queryClient.removeQueries({ queryKey });
+    };
   }, [identityLifetime, queryClient]);
+
   const activeConversationId = useConversationSurfaceState((state) => state.activeConversationId);
   const pendingDraft = useConversationSurfaceState((state) => state.pendingDraft);
   const updateDraft = useConversationSurfaceState((state) => state.updateDraft);
@@ -115,16 +142,14 @@ export function ConversationRuntimeHost({
     staleTime: 30_000,
     enabled: selectedRuntime !== null || settingsOpen,
   });
-  // A cached preference is not safe to apply while its refetch is unresolved;
-  // otherwise a failed refresh can persist a stale pair into a new draft.
   const preferences = preferencesQuery.isError || preferencesQuery.isFetching
     ? null
     : preferencesQuery.data;
   const setPreferenceMutation = useMutation({
     mutationFn: setConversationPreference,
-    onSuccess: (preferences) => {
+    onSuccess: (nextPreferences) => {
       if (!identityIsActive()) return;
-      queryClient.setQueryData(queryKeys.conversations.preferences(identity), preferences);
+      queryClient.setQueryData(queryKeys.conversations.preferences(identity), nextPreferences);
     },
   });
   const renameConversationMutation = useMutation({
@@ -162,6 +187,7 @@ export function ConversationRuntimeHost({
     if (!turnPreference.model || !turnPreference.reasoningEffort) return;
     updateDraft({ model: turnPreference.model, reasoningEffort: turnPreference.reasoningEffort });
   }, [activeDraft, selectedRuntime, turnPreference.model, turnPreference.reasoningEffort, updateDraft]);
+
   const runtimeHandleRef = useRef<RuntimeHandle | null>(null);
   const latestHostRef = useRef({ queryClient, runtimeHandleRef });
   latestHostRef.current = { queryClient, runtimeHandleRef };
@@ -209,6 +235,7 @@ export function ConversationRuntimeHost({
     }
     previousDraftIdRef.current = currentDraftId;
   }, [pendingDraft?.conversationId]);
+
   const inactiveValue = inactiveRuntimeValue({
     conversations,
     conversationsLoading: conversationsQuery.isLoading,
@@ -261,8 +288,8 @@ export function ConversationRuntimeHost({
 }
 
 function ActiveConversationRuntime({
-  binding,
   identity,
+  binding,
   retainedDraft,
   conversations,
   conversationsLoading,
@@ -281,8 +308,8 @@ function ActiveConversationRuntime({
   deleteConversation,
   children,
 }: {
-  binding: RuntimeBinding;
   identity: ConversationIdentity;
+  binding: RuntimeBinding;
   retainedDraft: NewConversationDraft | null;
   conversations: ConversationSummary[];
   conversationsLoading: boolean;
@@ -294,7 +321,7 @@ function ActiveConversationRuntime({
   turnPreference: TurnPreferenceSelection;
   retryReadiness(): void;
   coordinator: ConversationFirstSendCoordinator;
-  runtimeHandleRef: React.MutableRefObject<RuntimeHandle | null>;
+  runtimeHandleRef: MutableRefObject<RuntimeHandle | null>;
   updateDraft(patch: Partial<Omit<NewConversationDraft, 'conversationId'>>): void;
   setPreference(input: SetConversationPreferenceCommand): Promise<ConversationPreferences>;
   renameConversation(conversationId: string, title: string): Promise<ConversationSummary>;
@@ -311,182 +338,94 @@ function ActiveConversationRuntime({
     runtimeAgentId: 'conversation',
     threadId: conversationId,
   });
-  const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
-  const [turnEnded, setTurnEnded] = useState<string | null>(null);
-  const [liveMessages, setLiveMessages] = useState<LiveMessage[]>([]);
+  const [presentationRevision, setPresentationRevision] = useState(0);
   const [toolProjections, setToolProjections] = useState<ToolProjection[]>([]);
-  const conversationLifetime = useRef<{ conversationId: string } | null>({ conversationId });
-  const terminalHistoryRefresh = useRef<Promise<void> | null>(null);
-  const terminalHistoryPending = useRef(false);
-  const historyBaseline = useRef<Map<string, number> | null>(null);
-  const liveMessagesRef = useRef<LiveMessage[]>([]);
-  const history = useQuery({
-    queryKey: queryKeys.conversations.history(identity, conversationId),
-    queryFn: () => getConversationHistory(conversationId),
-    staleTime: 15_000,
-    enabled: binding.kind === 'existing',
-  });
-  const setLiveSnapshot = useCallback((messages: LiveMessage[]) => {
-    liveMessagesRef.current = messages;
-    setLiveMessages(messages);
+  const [turnEnded, setTurnEnded] = useState<string | null>(null);
+  const refreshPresentation = useCallback(() => {
+    setPresentationRevision((current) => current + 1);
   }, []);
-  const clearCoveredLiveState = useCallback((providerHistory: readonly ConversationMessage[]) => {
-    const baseline = historyBaseline.current;
-    if (!terminalHistoryPending.current || !baseline) return false;
-    if (!historyCoversLiveMessages(providerHistory, liveMessagesRef.current, baseline)) return false;
-    agent.setMessages([]);
-    setLiveSnapshot([]);
-    setToolProjections([]);
-    terminalHistoryPending.current = false;
-    historyBaseline.current = messageCoverageCounts(providerHistory);
-    return true;
-  }, [agent, setLiveSnapshot]);
-  const reconcileTerminalHistory = useCallback(() => {
-    if (terminalHistoryRefresh.current) return terminalHistoryRefresh.current;
-    const refresh = (async () => {
-      try {
-        await Promise.all([
-          queryClient.invalidateQueries({
-            queryKey: queryKeys.conversations.history(identity, conversationId),
-            refetchType: 'none',
-          }),
-          queryClient.invalidateQueries({
-            queryKey: queryKeys.conversations.list(identity),
-            refetchType: 'none',
-          }),
-        ]);
-        const [refreshedHistory] = await Promise.all([
-          queryClient.fetchQuery({
-            queryKey: queryKeys.conversations.history(identity, conversationId),
-            queryFn: () => getConversationHistory(conversationId),
-            staleTime: 0,
-          }),
-          queryClient.fetchQuery({
-            queryKey: queryKeys.conversations.list(identity),
-            queryFn: listConversations,
-            staleTime: 0,
-          }),
-        ]);
-        clearCoveredLiveState(refreshedHistory);
-      } catch {
-        // Keep live provider state until durable history really covers it.
-      }
-    })();
-    terminalHistoryRefresh.current = refresh;
-    void refresh.finally(() => {
-      if (terminalHistoryRefresh.current === refresh) terminalHistoryRefresh.current = null;
+  const messages = useMemo(
+    () => toPresentationMessages(agent.messages),
+    [agent, presentationRevision],
+  );
+  const activeTurnId = agent.isRunning ? conversationId : null;
+  const refreshSummaries = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.conversations.list(identity),
+      refetchType: 'active',
     });
-    return refresh;
-  }, [clearCoveredLiveState, conversationId, identity, queryClient]);
+  }, [identity, queryClient]);
 
   useEffect(() => {
-    const lifetime = { conversationId };
-    conversationLifetime.current = lifetime;
-    return () => {
-      if (conversationLifetime.current === lifetime) conversationLifetime.current = null;
-    };
-  }, [conversationId]);
-  useEffect(() => {
-    setLiveSnapshot([]);
     setToolProjections([]);
-    setActiveTurnId(null);
     setTurnEnded(null);
-    terminalHistoryPending.current = false;
-    historyBaseline.current = null;
-  }, [conversationId, setLiveSnapshot]);
-  useEffect(() => {
-    if (history.data) clearCoveredLiveState(history.data);
-  }, [clearCoveredLiveState, history.data]);
+    refreshPresentation();
+  }, [conversationId, refreshPresentation]);
   useEffect(() => {
     if (!isReady) return;
     const subscription = agent.subscribe({
-      onMessagesChanged: ({ messages }) => setLiveSnapshot(toLiveMessages(messages)),
+      onMessagesChanged: refreshPresentation,
       onCustomEvent: ({ event }) => {
         const projection = toolProjectionFromEvent(event.name, event.value);
-        if (projection) {
-          setToolProjections((current) => current.some((item) => item.id === projection.id)
-            ? current
-            : [...current, projection]);
-        }
+        if (!projection) return;
+        setToolProjections((current) => current.some((item) => item.id === projection.id)
+          ? current
+          : [...current, projection]);
       },
-      onRunErrorEvent: () => {
-        setActiveTurnId(null);
-        setTurnEnded('This turn ended. Send a new message when you are ready.');
-        terminalHistoryPending.current = true;
-        void reconcileTerminalHistory();
+      onRunInitialized: () => {
+        setTurnEnded(null);
+        refreshPresentation();
       },
       onRunFinalized: () => {
-        setActiveTurnId(null);
-        terminalHistoryPending.current = true;
-        void reconcileTerminalHistory();
+        refreshPresentation();
+        refreshSummaries();
+      },
+      onRunFailed: () => {
+        setTurnEnded('This turn ended. Send a new message when you are ready.');
+        refreshPresentation();
+        refreshSummaries();
+      },
+      onRunErrorEvent: () => {
+        setTurnEnded('This turn ended. Send a new message when you are ready.');
+        refreshPresentation();
       },
     });
     return subscription.unsubscribe;
-  }, [agent, isReady, reconcileTerminalHistory, setLiveSnapshot]);
+  }, [agent, isReady, refreshPresentation, refreshSummaries]);
 
-  const issueRun = useCallback(async (
-    input: { message: string; model: string; reasoningEffort: string },
-    baseline: Map<string, number>,
-  ) => {
+  const issueRun = useCallback(async (input: TurnInput) => {
     if (!input.model.trim()) throw new Error('conversation_model_required');
     if (!input.reasoningEffort.trim()) throw new Error('conversation_reasoning_effort_required');
     if (!isReady) throw new Error('conversation_runtime_not_ready');
-    const lifetime = conversationLifetime.current;
-    if (!lifetime || lifetime.conversationId !== conversationId) {
-      throw new Error('conversation_no_longer_active');
-    }
+    if (agent.isRunning) throw new Error('conversation_turn_active');
     const turnId = newTurnId();
     setTurnEnded(null);
-    setActiveTurnId(turnId);
-    terminalHistoryPending.current = false;
-    historyBaseline.current = baseline;
     agent.addMessage({ id: `user-${turnId}`, role: 'user', content: input.message });
     try {
       await agent.runAgent({
         runId: turnId,
         forwardedProps: { model: input.model, reasoningEffort: input.reasoningEffort },
       });
+      refreshPresentation();
     } catch {
       setTurnEnded('This turn ended. Send a new message when you are ready.');
-      terminalHistoryPending.current = true;
-      void reconcileTerminalHistory();
+      refreshPresentation();
       throw new Error('conversation_turn_ended');
-    } finally {
-      setActiveTurnId((current) => current === turnId ? null : current);
     }
-  }, [agent, conversationId, isReady, reconcileTerminalHistory]);
-
-  const startExisting = useCallback(async (input: {
-    message: string;
-    model: string;
-    reasoningEffort: string;
-  }) => {
+  }, [agent, isReady, refreshPresentation]);
+  const startExisting = useCallback(async (input: TurnInput) => {
     if (binding.kind !== 'existing') throw new Error('conversation_draft_not_promoted');
-    const lifetime = conversationLifetime.current;
-    if (!lifetime || lifetime.conversationId !== conversationId) {
-      throw new Error('conversation_no_longer_active');
-    }
-    const providerHistory = history.data ?? await queryClient.fetchQuery({
-      queryKey: queryKeys.conversations.history(identity, conversationId),
-      queryFn: () => getConversationHistory(conversationId),
-      staleTime: 0,
-    });
-    if (conversationLifetime.current !== lifetime) {
-      throw new Error('conversation_no_longer_active');
-    }
-    if (!providerHistory) throw new Error('conversation_history_unavailable');
-    return issueRun(input, messageCoverageCounts(providerHistory));
-  }, [binding.kind, conversationId, history.data, identity, issueRun, queryClient]);
-
+    await issueRun(input);
+  }, [binding.kind, issueRun]);
   const handoffFirstSend = useCallback(async (input: ConversationFirstSend) => {
     if (input.conversationId !== conversationId) {
       throw new Error('conversation_runtime_binding_unavailable');
     }
-    return issueRun({
+    await issueRun({
       message: input.message,
       model: input.model,
       reasoningEffort: input.reasoningEffort,
-    }, new Map());
+    });
   }, [conversationId, issueRun]);
   const handoffRef = useRef(handoffFirstSend);
   handoffRef.current = handoffFirstSend;
@@ -501,11 +440,7 @@ function ActiveConversationRuntime({
     };
   }, [conversationId, runtimeHandleRef]);
 
-  const start = useCallback(async (input: {
-    message: string;
-    model: string;
-    reasoningEffort: string;
-  }) => {
+  const start = useCallback(async (input: TurnInput) => {
     if (binding.kind === 'existing') {
       await startExisting(input);
       useConversationSurfaceState.getState().completePromotedDraft(conversationId);
@@ -519,6 +454,7 @@ function ActiveConversationRuntime({
       reasoningEffort: input.reasoningEffort,
       message: input.message,
     });
+    if (!isReady) throw new Error('conversation_runtime_not_ready');
     await coordinator.send({
       conversationId,
       runtime: binding.draft.provider,
@@ -529,19 +465,15 @@ function ActiveConversationRuntime({
       reasoningEffort: input.reasoningEffort,
     });
     useConversationSurfaceState.getState().completePromotedDraft(conversationId);
-  }, [binding, conversationId, coordinator, startExisting, updateDraft]);
-  const sendInput = useCallback(async (message: string) => {
-    if (!activeTurnId) throw new Error('conversation_turn_not_active');
-    await sendConversationInput(conversationId, activeTurnId, message);
-  }, [activeTurnId, conversationId]);
+  }, [binding, conversationId, coordinator, isReady, startExisting, updateDraft]);
+  const sendInput = useCallback(async (_message: string) => {
+    throw new Error('conversation_turn_not_active');
+  }, []);
   const interrupt = useCallback(async () => {
-    if (!activeTurnId) return;
-    await interruptConversation(conversationId, activeTurnId);
-    setActiveTurnId(null);
-    setTurnEnded('This turn was interrupted. Send a new message when you are ready.');
-    terminalHistoryPending.current = true;
-    void reconcileTerminalHistory();
-  }, [activeTurnId, conversationId, reconcileTerminalHistory]);
+    if (!agent.isRunning) return;
+    agent.abortRun();
+    refreshPresentation();
+  }, [agent, refreshPresentation]);
 
   const value: ConversationRuntimeContextValue = {
     conversations,
@@ -557,10 +489,7 @@ function ActiveConversationRuntime({
     runtime,
     isDraft: binding.kind === 'draft',
     turnPreference,
-    historyMessages: history.data ?? [],
-    historyLoading: history.isLoading,
-    historyError: history.isError,
-    liveMessages,
+    messages,
     toolProjections,
     activeTurnId,
     turnEnded,
@@ -654,10 +583,7 @@ function inactiveRuntimeValue({
     runtime: null,
     isDraft: false,
     turnPreference,
-    historyMessages: [],
-    historyLoading: false,
-    historyError: false,
-    liveMessages: [],
+    messages: [],
     toolProjections: [],
     activeTurnId: null,
     turnEnded: null,
@@ -671,13 +597,58 @@ function inactiveRuntimeValue({
     deleteConversation,
   };
 }
+
 function conversationIdForBinding(binding: RuntimeBinding): string {
   return binding.kind === 'existing' ? binding.conversation.id : binding.draft.conversationId;
 }
+
 function newTurnId(): string {
   const randomUUID = globalThis.crypto?.randomUUID;
   if (typeof randomUUID !== 'function') throw new Error('conversation_turn_id_unavailable');
   const turnId = randomUUID.call(globalThis.crypto);
   if (!turnId) throw new Error('conversation_turn_id_unavailable');
   return turnId;
+}
+
+function toPresentationMessages(messages: readonly unknown[]): LiveMessage[] {
+  return messages.flatMap((message, index) => {
+    const record = asRecord(message);
+    if (!record || !isConversationRole(record.role)) return [];
+    const content = textContent(record.content);
+    if (!content) return [];
+    return [{
+      id: typeof record.id === 'string' ? record.id : `copilotkit-${index}`,
+      role: record.role,
+      content,
+    }];
+  });
+}
+
+function toolProjectionFromEvent(name: string, value: unknown): ToolProjection | null {
+  const payload = asRecord(value);
+  if (name !== 'kiditem.provider_tool_status' || !payload
+    || typeof payload.name !== 'string' || typeof payload.status !== 'string') return null;
+  return {
+    id: `tool-${payload.name}-${payload.status}`,
+    title: payload.name,
+    detail: `${payload.status}${typeof payload.detail === 'string' ? ` · ${payload.detail}` : ''}`,
+  };
+}
+
+function isConversationRole(value: unknown): value is LiveMessage['role'] {
+  return value === 'user' || value === 'assistant' || value === 'tool' || value === 'status';
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null ? value as Record<string, unknown> : null;
+}
+
+function textContent(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  if (!Array.isArray(value)) return null;
+  const text = value.flatMap((part) => {
+    const record = asRecord(part);
+    return record?.type === 'text' && typeof record.text === 'string' ? [record.text] : [];
+  }).join('');
+  return text || null;
 }

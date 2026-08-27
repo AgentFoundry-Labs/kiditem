@@ -20,7 +20,7 @@ import {
   type ProviderEvent,
 } from '@kiditem/shared/agent-runtime';
 import type { NextFunction, Request, Response, Router } from 'express';
-import { EMPTY, Observable } from 'rxjs';
+import { from, map, Observable } from 'rxjs';
 import { z } from 'zod';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../../auth/decorators/current-user.decorator';
@@ -28,6 +28,7 @@ import type { AuthUser } from '../../../../../auth/auth.types';
 import {
   CONVERSATION_PORT,
   ConversationTurnMessageSchema,
+  type ConversationOwner,
   type ConversationPort,
 } from '../../../../application/port/in/capability/conversation.port';
 
@@ -76,7 +77,7 @@ export function createConversationCopilotkitExpressHandler(
     agents: {
       conversation: new GatewayConversationAgUiAgent(conversations, owner),
     },
-    runner: new StatelessConversationAgentRunner(),
+    runner: new GatewayConversationAgentRunner(conversations, owner),
   });
   return createCopilotExpressHandler({
     runtime,
@@ -89,24 +90,45 @@ export function createConversationCopilotkitExpressHandler(
 
 /**
  * CopilotKit is only a live protocol adapter here. Provider history remains
- * the transcript authority, so connect/stop never address process-global
- * thread state and cannot cross an authenticated owner boundary.
+ * the transcript authority, and every runner operation derives its exact
+ * conversation coordinates from the authenticated request owner.
  */
-class StatelessConversationAgentRunner extends AgentRunner {
+export class GatewayConversationAgentRunner extends AgentRunner {
+  constructor(
+    private readonly conversations: ConversationPort,
+    private readonly owner: ConversationOwner,
+  ) {
+    super();
+  }
+
   run(request: AgentRunnerRunRequest): Observable<BaseEvent> {
     return request.agent.run(request.input);
   }
 
-  connect(_request: AgentRunnerConnectRequest): Observable<BaseEvent> {
-    return EMPTY;
+  connect(request: AgentRunnerConnectRequest): Observable<BaseEvent> {
+    return from(this.conversations.history({
+      ...this.owner,
+      conversationId: request.threadId,
+    })).pipe(map((history) => ({
+      type: EventType.MESSAGES_SNAPSHOT,
+      messages: history
+        .filter((message) => message.role === 'user' || message.role === 'assistant')
+        .map(({ id, role, content }) => ({ id, role, content })),
+    })));
   }
 
-  isRunning(_request: AgentRunnerIsRunningRequest): Promise<boolean> {
-    return Promise.resolve(false);
+  isRunning(request: AgentRunnerIsRunningRequest): Promise<boolean> {
+    return this.conversations.isRunning({
+      ...this.owner,
+      conversationId: request.threadId,
+    });
   }
 
-  stop(_request: AgentRunnerStopRequest): Promise<boolean | undefined> {
-    return Promise.resolve(false);
+  stop(request: AgentRunnerStopRequest): Promise<boolean> {
+    return this.conversations.stop({
+      ...this.owner,
+      conversationId: request.threadId,
+    });
   }
 }
 
@@ -253,7 +275,9 @@ class GatewayConversationAgUiAgent extends AbstractAgent {
         void turn.ready.catch(() => {
           if (!mapper.isTerminal) emitFailure();
         });
-      }).catch(() => emitFailure());
+      }).catch(() => {
+        emitFailure();
+      });
 
       return () => {
         closed = true;

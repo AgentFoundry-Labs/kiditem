@@ -1,14 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
-import { queryKeys } from '@/lib/query-keys';
 import {
   ConversationRuntimeHost,
   useConversationRuntime,
   type ConversationRuntimeContextValue,
 } from '../ConversationRuntimeHost';
-import { ConversationFolderTree } from '../ConversationFolderTree';
 import { useConversationSurfaceState } from '../conversation-surface-state';
 
 vi.mock('@/lib/api-client', () => ({
@@ -19,7 +17,7 @@ const runtimeMocks = vi.hoisted(() => {
   const subscriptions: Array<{ unsubscribe: ReturnType<typeof vi.fn>; subscriber: Record<string, unknown> }> = [];
   const runAgent = vi.fn();
   const addMessage = vi.fn();
-  const setMessages = vi.fn();
+  const abortRun = vi.fn();
   const useAgent = vi.fn();
   const subscribe = vi.fn((subscriber: Record<string, unknown>) => {
     const subscription = { unsubscribe: vi.fn(), subscriber };
@@ -27,18 +25,32 @@ const runtimeMocks = vi.hoisted(() => {
     return subscription;
   });
   const agent = {
+    messages: [] as unknown[],
+    isRunning: false,
     addMessage,
     runAgent,
-    setMessages,
+    abortRun,
     subscribe,
   };
-  return { subscriptions, runAgent, addMessage, setMessages, useAgent, subscribe, agent };
+  let isReady = true;
+  return {
+    subscriptions,
+    runAgent,
+    addMessage,
+    abortRun,
+    subscribe,
+    useAgent,
+    agent,
+    get isReady() { return isReady; },
+    set isReady(value: boolean) { isReady = value; },
+  };
 });
 
 vi.mock('@copilotkit/react-core/v2', () => ({
   useAgent: (input: unknown) => {
     runtimeMocks.useAgent(input);
-    return { agent: runtimeMocks.agent, isReady: true };
+    runtimeMocks.subscribe.mockName('agent.subscribe');
+    return { agent: runtimeMocks.agent, isReady: runtimeMocks.isReady };
   },
 }));
 
@@ -49,13 +61,16 @@ const FIRST = {
 const SECOND = {
   ...FIRST, id: 'conversation-2', title: 'Second conversation', updatedAt: '2026-08-26T00:01:00.000Z',
 };
-const FIRST_IDENTITY = { userId: 'user-a', organizationId: 'org-a' };
-const SECOND_IDENTITY = { userId: 'user-b', organizationId: 'org-b' };
+const IDENTITY = { userId: 'user-a', organizationId: 'org-a' };
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
-  const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; });
-  return { promise, resolve };
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 let latestRuntime: ConversationRuntimeContextValue | null = null;
@@ -65,47 +80,19 @@ function RuntimeProbe() {
   return (
     <output data-testid="runtime-probe">
       {latestRuntime.conversationId}|{latestRuntime.activeTurnId ?? 'idle'}|
-      {latestRuntime.liveMessages.map((message) => message.content).join(',')}|
+      {latestRuntime.messages.map((message) => message.content).join(',')}|
       {latestRuntime.toolProjections.map((projection) => projection.title).join(',')}
     </output>
-  );
-}
-
-function IdentityProbe() {
-  const runtime = useConversationRuntime();
-  return (
-    <output data-testid="identity-probe">
-      {runtime.activeConversation?.title ?? 'no active conversation'}|
-      {runtime.historyMessages.map((message) => message.content).join(',')}
-    </output>
-  );
-}
-
-function SettingsTriggers() {
-  const openSettings = useConversationSurfaceState((state) => state.openSettings);
-  return (
-    <>
-      <button type="button" aria-label="패널 대화 설정" onClick={(event) => openSettings(event.currentTarget)}>패널 설정</button>
-      <ConversationFolderTree
-        conversations={[]}
-        selectedContext={null}
-        activeConversationId={null}
-        onSelectConversation={vi.fn()}
-        onNewConversation={vi.fn()}
-        onOpenSettings={openSettings}
-      />
-    </>
   );
 }
 
 function renderHost(
   children: React.ReactNode,
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
-  identity = FIRST_IDENTITY,
 ) {
   return render(
     <QueryClientProvider client={queryClient}>
-      <ConversationRuntimeHost identity={identity}>{children}</ConversationRuntimeHost>
+      <ConversationRuntimeHost identity={IDENTITY}>{children}</ConversationRuntimeHost>
     </QueryClientProvider>,
   );
 }
@@ -114,11 +101,22 @@ describe('ConversationRuntimeHost', () => {
   beforeEach(() => {
     latestRuntime = null;
     vi.clearAllMocks();
+    let uuid = 0;
+    vi.stubGlobal('crypto', { randomUUID: vi.fn(() => `uuid-${++uuid}`) });
+    runtimeMocks.runAgent.mockReset();
+    runtimeMocks.runAgent.mockResolvedValue(undefined);
+    runtimeMocks.addMessage.mockReset();
+    runtimeMocks.abortRun.mockReset();
+    runtimeMocks.useAgent.mockReset();
+    runtimeMocks.abortRun.mockImplementation(() => { runtimeMocks.agent.isRunning = false; });
+    runtimeMocks.subscribe.mockClear();
     runtimeMocks.subscriptions.length = 0;
+    runtimeMocks.agent.messages = [];
+    runtimeMocks.agent.isRunning = false;
+    runtimeMocks.isReady = true;
     useConversationSurfaceState.getState().reset();
     vi.mocked(apiClient.get).mockImplementation((path: string) => {
       if (path === '/api/agent-os/conversations') return Promise.resolve([FIRST, SECOND] as never);
-      if (path.endsWith('/history')) return Promise.resolve([] as never);
       return Promise.resolve({ schemaVersion: 1, contexts: {} } as never);
     });
     vi.mocked(apiClient.post).mockImplementation((path: string) => {
@@ -127,7 +125,9 @@ describe('ConversationRuntimeHost', () => {
     });
   });
 
-  it('binds a draft to its reserved ID without provider create, history, durable writes, or a CopilotKit run', async () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('binds a draft to its one reserved ID without a create, history request, durable write, or CopilotKit run', async () => {
     renderHost(<RuntimeProbe />);
     await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/agent-os/conversations'));
     vi.clearAllMocks();
@@ -137,103 +137,40 @@ describe('ConversationRuntimeHost', () => {
       draft: 'Review the supplier evidence.',
     }));
 
-    await waitFor(() => expect(runtimeMocks.useAgent).toHaveBeenCalledWith({
-      agentId: expect.stringMatching(/^kiditem-conversation:/),
+    await waitFor(() => expect(latestRuntime?.conversationId).toBe('uuid-1'));
+    expect(runtimeMocks.useAgent).toHaveBeenLastCalledWith({
+      agentId: 'kiditem-conversation:uuid-1',
       runtimeAgentId: 'conversation',
-      threadId: useConversationSurfaceState.getState().pendingDraft?.conversationId,
-    }));
+      threadId: 'uuid-1',
+    });
+    expect(useConversationSurfaceState.getState().pendingDraft).toMatchObject({
+      conversationId: 'uuid-1', agentKey: 'sourcing', message: 'Review the supplier evidence.',
+    });
     expect(apiClient.post).not.toHaveBeenCalled();
     expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringMatching(/\/history$/));
     expect(runtimeMocks.addMessage).not.toHaveBeenCalled();
     expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
   });
 
-  it('does not expose cached User A data or retain User A late history after a direct shared-QueryClient identity swap', async () => {
-    const sharedConversationId = 'shared-conversation-id';
-    const userAConversation = {
-      ...FIRST,
-      id: sharedConversationId,
-      title: 'User A confidential conversation',
-    };
-    const userBConversation = {
-      ...FIRST,
-      id: sharedConversationId,
-      title: 'User B conversation',
-    };
-    const userAHistory = [{
-      id: 'a-secret', role: 'assistant', content: 'User A confidential history',
-      createdAt: '2026-08-26T00:00:00.000Z',
-    }];
-    const userBHistory = [{
-      id: 'b-history', role: 'assistant', content: 'User B history',
-      createdAt: '2026-08-26T00:00:00.000Z',
-    }];
-    const lateUserAHistory = deferred<typeof userAHistory>();
-    let conversationRequests = 0;
-    let historyRequests = 0;
-    vi.mocked(apiClient.get).mockImplementation((path: string) => {
-      if (path === '/api/agent-os/conversations') {
-        conversationRequests += 1;
-        return Promise.resolve(
-          (conversationRequests === 1 ? [userAConversation] : [userBConversation]) as never,
-        );
-      }
-      if (path.endsWith('/history')) {
-        historyRequests += 1;
-        return historyRequests === 1
-          ? lateUserAHistory.promise as never
-          : Promise.resolve(userBHistory as never);
-      }
-      return Promise.resolve({ schemaVersion: 1, contexts: {} } as never);
-    });
-    useConversationSurfaceState.getState().selectConversation(userAConversation);
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const view = renderHost(<IdentityProbe />, queryClient, FIRST_IDENTITY);
-
-    await waitFor(() => expect(screen.getByTestId('identity-probe')).toHaveTextContent(
-      'User A confidential conversation',
-    ));
-    await waitFor(() => expect(historyRequests).toBe(1));
-
-    view.rerender(
-      <QueryClientProvider client={queryClient}>
-        <ConversationRuntimeHost
-          key={JSON.stringify([SECOND_IDENTITY.userId, SECOND_IDENTITY.organizationId])}
-          identity={SECOND_IDENTITY}
-        >
-          <IdentityProbe />
-        </ConversationRuntimeHost>
-      </QueryClientProvider>,
-    );
-
-    await waitFor(() => expect(screen.getByTestId('identity-probe')).toHaveTextContent('User B conversation'));
-    expect(screen.getByTestId('identity-probe')).not.toHaveTextContent('User A confidential');
-    await act(async () => lateUserAHistory.resolve(userAHistory));
-    await waitFor(() => expect(queryClient.getQueryData(
-      queryKeys.conversations.history(FIRST_IDENTITY, sharedConversationId),
-    )).toBeUndefined());
-  });
-
-  it('promotes one reserved draft through one create and one exact run without recreating its binding', async () => {
+  it('promotes matching concurrent first sends through one exact create and one CopilotKit handoff', async () => {
     renderHost(<RuntimeProbe />);
-    const draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
-    useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
-    const promoted = {
-      ...FIRST,
-      id: draft.conversationId,
-      title: 'Review the supplier evidence',
-    };
-    vi.mocked(apiClient.post).mockImplementation((path: string) => {
-      if (path === '/api/agent-os/conversations') return Promise.resolve(promoted as never);
-      if (path === '/api/copilotkit') return Promise.resolve({ agents: {} } as never);
-      return Promise.resolve({} as never);
+    let draft!: ReturnType<typeof useConversationSurfaceState.getState.openConversation>;
+    act(() => {
+      draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
+      useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
     });
+    const promoted = { ...FIRST, id: draft.conversationId, title: 'Review the supplier evidence' };
+    vi.mocked(apiClient.post).mockImplementation((path: string) => (
+      path === '/api/agent-os/conversations'
+        ? Promise.resolve(promoted as never)
+        : Promise.resolve({ agents: {} } as never)
+    ));
 
     await waitFor(() => expect(runtimeMocks.subscriptions).toHaveLength(1));
-    const first = latestRuntime?.start({
+    const first = latestRuntime!.start({
       message: 'Review the supplier evidence', model: 'gpt-5.6', reasoningEffort: 'low',
     });
-    const second = latestRuntime?.start({
+    const second = latestRuntime!.start({
       message: 'Review the supplier evidence', model: 'gpt-5.6', reasoningEffort: 'low',
     });
     await Promise.all([first, second]);
@@ -245,13 +182,14 @@ describe('ConversationRuntimeHost', () => {
       title: 'Review the supplier evidence',
     });
     expect(runtimeMocks.addMessage).toHaveBeenCalledTimes(1);
-    expect(runtimeMocks.addMessage).toHaveBeenCalledWith(expect.objectContaining({
-      role: 'user', content: 'Review the supplier evidence',
-    }));
+    expect(runtimeMocks.addMessage).toHaveBeenCalledWith({
+      id: `user-uuid-2`, role: 'user', content: 'Review the supplier evidence',
+    });
     expect(runtimeMocks.runAgent).toHaveBeenCalledTimes(1);
-    expect(runtimeMocks.runAgent).toHaveBeenCalledWith(expect.objectContaining({
+    expect(runtimeMocks.runAgent).toHaveBeenCalledWith({
+      runId: 'uuid-2',
       forwardedProps: { model: 'gpt-5.6', reasoningEffort: 'low' },
-    }));
+    });
     expect(runtimeMocks.subscriptions).toHaveLength(1);
     expect(useConversationSurfaceState.getState()).toMatchObject({
       activeConversationId: draft.conversationId,
@@ -259,357 +197,144 @@ describe('ConversationRuntimeHost', () => {
     });
   });
 
-  it('does not replace a newer draft or run a disposed draft after its create resolves', async () => {
+  it('clears only a failed create attempt so the same draft ID can retry', async () => {
     renderHost(<RuntimeProbe />);
-    const firstDraft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
-    useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
-    const created = deferred<typeof FIRST>();
+    let draft!: ReturnType<typeof useConversationSurfaceState.getState.openConversation>;
+    act(() => {
+      draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
+      useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
+    });
+    const promoted = { ...FIRST, id: draft.conversationId, title: 'Retry this message' };
+    let createAttempts = 0;
     vi.mocked(apiClient.post).mockImplementation((path: string) => {
-      if (path === '/api/agent-os/conversations') return created.promise as never;
       if (path === '/api/copilotkit') return Promise.resolve({ agents: {} } as never);
-      return Promise.resolve({} as never);
+      if (path !== '/api/agent-os/conversations') return Promise.resolve({} as never);
+      createAttempts += 1;
+      return createAttempts === 1
+        ? Promise.reject(new Error('gateway unavailable')) as never
+        : Promise.resolve(promoted as never);
     });
 
     await waitFor(() => expect(runtimeMocks.subscriptions).toHaveLength(1));
-    const firstSend = latestRuntime?.start({
-      message: 'Review the supplier evidence', model: 'gpt-5.6', reasoningEffort: 'low',
+    await expect(latestRuntime!.start({
+      message: 'Retry this message', model: 'gpt-5.6', reasoningEffort: 'low',
+    })).rejects.toThrow('gateway unavailable');
+    expect(useConversationSurfaceState.getState().pendingDraft?.conversationId).toBe(draft.conversationId);
+
+    await latestRuntime!.start({
+      message: 'Retry this message', model: 'gpt-5.6', reasoningEffort: 'low',
     });
-    await waitFor(() => expect(vi.mocked(apiClient.post)).toHaveBeenCalledWith(
-      '/api/agent-os/conversations',
-      expect.objectContaining({ conversationId: firstDraft.conversationId }),
-    ));
-
-    const secondDraft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
-    useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
-    await waitFor(() => expect(runtimeMocks.useAgent).toHaveBeenLastCalledWith({
-      agentId: `kiditem-conversation:${secondDraft.conversationId}`,
-      runtimeAgentId: 'conversation',
-      threadId: secondDraft.conversationId,
-    }));
-
-    await act(async () => {
-      created.resolve({ ...FIRST, id: firstDraft.conversationId, title: 'Review the supplier evidence' });
-      await firstSend;
-    });
-
-    expect(useConversationSurfaceState.getState().activeConversationId).toBe(secondDraft.conversationId);
-    expect(runtimeMocks.addMessage).not.toHaveBeenCalled();
-    expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
+    const creates = vi.mocked(apiClient.post).mock.calls.filter(([path]) => path === '/api/agent-os/conversations');
+    expect(creates).toHaveLength(2);
+    expect(creates.map(([, input]) => (input as { conversationId: string }).conversationId))
+      .toEqual([draft.conversationId, draft.conversationId]);
   });
 
-  it('does not replay a failed first handoff; an explicit retry uses the promoted existing conversation', async () => {
-    let conversations = [FIRST, SECOND];
-    vi.mocked(apiClient.get).mockImplementation((path: string) => {
-      if (path === '/api/agent-os/conversations') return Promise.resolve(conversations as never);
-      if (path.endsWith('/history')) return Promise.resolve([] as never);
-      return Promise.resolve({ schemaVersion: 1, contexts: {} } as never);
-    });
+  it('keeps a failed first handoff consumed and retries it as a normal existing-conversation turn', async () => {
     renderHost(<RuntimeProbe />);
-    const draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
-    useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
-    const promoted = { ...FIRST, id: draft.conversationId, title: 'Review the supplier evidence' };
-    vi.mocked(apiClient.post).mockImplementation((path: string) => {
-      if (path === '/api/agent-os/conversations') {
-        conversations = [promoted, ...conversations.filter((item) => item.id !== promoted.id)];
-        return Promise.resolve(promoted as never);
-      }
-      if (path === '/api/copilotkit') return Promise.resolve({ agents: {} } as never);
-      return Promise.resolve({} as never);
+    let draft!: ReturnType<typeof useConversationSurfaceState.getState.openConversation>;
+    act(() => {
+      draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
+      useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
     });
+    const promoted = { ...FIRST, id: draft.conversationId, title: 'First request' };
+    vi.mocked(apiClient.post).mockImplementation((path: string) => (
+      path === '/api/agent-os/conversations'
+        ? Promise.resolve(promoted as never)
+        : Promise.resolve({ agents: {} } as never)
+    ));
     runtimeMocks.runAgent
       .mockRejectedValueOnce(new Error('provider ended'))
       .mockResolvedValueOnce(undefined);
 
     await waitFor(() => expect(runtimeMocks.subscriptions).toHaveLength(1));
-    await expect(latestRuntime?.start({
-      message: 'Review the supplier evidence', model: 'gpt-5.6', reasoningEffort: 'low',
+    await expect(latestRuntime!.start({
+      message: 'First request', model: 'gpt-5.6', reasoningEffort: 'low',
     })).rejects.toThrow('conversation_turn_ended');
-    expect(runtimeMocks.runAgent).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(latestRuntime?.isDraft).toBe(false));
-    expect(latestRuntime?.draft).toMatchObject({
-      message: 'Review the supplier evidence', model: 'gpt-5.6', reasoningEffort: 'low',
-    });
 
-    await latestRuntime?.start({
-      message: 'Try the same request again', model: 'gpt-5.6', reasoningEffort: 'low',
+    await latestRuntime!.start({
+      message: 'Try again', model: 'gpt-5.6', reasoningEffort: 'low',
     });
     expect(runtimeMocks.runAgent).toHaveBeenCalledTimes(2);
     expect(runtimeMocks.runAgent.mock.calls[1][0].runId)
       .not.toBe(runtimeMocks.runAgent.mock.calls[0][0].runId);
     expect(vi.mocked(apiClient.post).mock.calls.filter(([path]) => path === '/api/agent-os/conversations'))
       .toHaveLength(1);
-    expect(useConversationSurfaceState.getState()).toMatchObject({
-      activeConversationId: draft.conversationId,
-      pendingDraft: null,
-    });
   });
 
-  it('rejects a missing per-turn model or reasoning effort instead of applying a fallback', async () => {
-    useConversationSurfaceState.getState().selectConversation(FIRST);
+  it('does not create a draft before the exact CopilotKit binding is ready', async () => {
+    runtimeMocks.isReady = false;
     renderHost(<RuntimeProbe />);
-    await waitFor(() => expect(runtimeMocks.subscriptions).toHaveLength(1));
-
-    await expect(latestRuntime?.start({
-      message: 'Review evidence', model: '', reasoningEffort: 'low',
-    })).rejects.toThrow('conversation_model_required');
-    await expect(latestRuntime?.start({
-      message: 'Review evidence', model: 'gpt-5.6', reasoningEffort: '',
-    })).rejects.toThrow('conversation_reasoning_effort_required');
-    expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
-  });
-
-  it('maps a rejected readiness request to retryable unavailable state without selecting a saved pair', async () => {
-    const remembered = { ...FIRST, lastModel: 'gpt-5.6', lastReasoningEffort: 'low' };
-    useConversationSurfaceState.getState().selectConversation(remembered);
-    vi.mocked(apiClient.get).mockImplementation((path: string) => {
-      if (path === '/api/agent-os/conversations') return Promise.resolve([remembered] as never);
-      if (path.endsWith('/history')) return Promise.resolve([] as never);
-      return Promise.resolve({ schemaVersion: 1, contexts: {} } as never);
-    });
-    let readinessRequests = 0;
-    vi.mocked(apiClient.post).mockImplementation((path: string) => {
-      if (path !== '/api/copilotkit') return Promise.resolve({} as never);
-      readinessRequests += 1;
-      if (readinessRequests === 1) return Promise.reject(new Error('gateway unavailable'));
-      return Promise.resolve({
-        agents: { conversation: { capabilities: { custom: { gatewayReadiness: [{
-          runtime: 'codex_cli', ready: true,
-          readiness: {
-            runtime: 'codex_cli', version: '0.149.1', models: ['gpt-5.6'], reasoningEfforts: ['low'],
-            modelReasoningEfforts: [{ model: 'gpt-5.6', reasoningEfforts: ['low'] }],
-            loginVerified: true, mcpProtocolRevision: '2026-07-28',
-          },
-        }, { runtime: 'claude_cli', ready: false, code: 'selected_engine_unavailable' }] } } } },
-      } as never);
-    });
-
-    renderHost(<RuntimeProbe />);
-
-    await waitFor(() => expect(latestRuntime?.readiness).toBeNull());
-    expect(latestRuntime?.turnPreference).toEqual({
-      model: null, reasoningEffort: null, needsReview: false,
-    });
-
-    act(() => latestRuntime?.retryReadiness());
-
-    await waitFor(() => expect(readinessRequests).toBe(2));
-    await waitFor(() => expect(latestRuntime?.readiness).toEqual(expect.arrayContaining([
-      expect.objectContaining({ runtime: 'codex_cli', ready: true }),
-    ])));
-  });
-
-  it('refreshes ordered conversation summaries after a terminal completion without another runtime subscription', async () => {
-    const completed = {
-      ...FIRST,
-      updatedAt: '2026-08-26T00:02:00.000Z',
-      lastModel: 'gpt-5.6',
-      lastReasoningEffort: 'low',
-    };
-    let conversations = [FIRST, SECOND];
-    vi.mocked(apiClient.get).mockImplementation((path: string) => {
-      if (path === '/api/agent-os/conversations') return Promise.resolve(conversations as never);
-      if (path.endsWith('/history')) return Promise.resolve([] as never);
-      return Promise.resolve({ schemaVersion: 1, contexts: {} } as never);
-    });
-    useConversationSurfaceState.getState().selectConversation(FIRST);
-    renderHost(<RuntimeProbe />);
-
-    await waitFor(() => expect(runtimeMocks.subscriptions).toHaveLength(1));
-    await waitFor(() => expect(latestRuntime?.conversations).toEqual([FIRST, SECOND]));
-    conversations = [SECOND, completed];
-    const subscriber = runtimeMocks.subscriptions[0].subscriber as {
-      onRunFinalized?: () => void;
-    };
-
-    await act(async () => subscriber.onRunFinalized?.());
-
-    await waitFor(() => expect(latestRuntime?.conversations).toEqual([SECOND, completed]));
-    expect(latestRuntime?.activeConversation).toMatchObject({
-      id: FIRST.id,
-      lastModel: 'gpt-5.6',
-      lastReasoningEffort: 'low',
-    });
-    expect(runtimeMocks.subscriptions).toHaveLength(1);
-  });
-
-  it('applies only a supported matching preference pair to a newly selected draft', async () => {
-    vi.mocked(apiClient.get).mockImplementation((path: string) => {
-      if (path === '/api/agent-os/conversations') return Promise.resolve([] as never);
-      return Promise.resolve({
-        schemaVersion: 1,
-        contexts: { sourcing: { codex_cli: { model: 'gpt-5.6', reasoningEffort: 'low' } } },
-      } as never);
-    });
-    vi.mocked(apiClient.post).mockImplementation((path: string) => {
-      if (path !== '/api/copilotkit') return Promise.resolve({} as never);
-      return Promise.resolve({
-        agents: { conversation: { capabilities: { custom: { gatewayReadiness: [{
-          runtime: 'codex_cli', ready: true,
-          readiness: {
-            runtime: 'codex_cli', version: '0.149.1', models: ['gpt-5.6'], reasoningEfforts: ['low'],
-            modelReasoningEfforts: [{ model: 'gpt-5.6', reasoningEfforts: ['low'] }],
-            loginVerified: true, mcpProtocolRevision: '2026-07-28',
-          },
-        }, { runtime: 'claude_cli', ready: false, code: 'selected_engine_unavailable' }] } } } },
-      } as never);
-    });
-    renderHost(<RuntimeProbe />);
+    let draft!: ReturnType<typeof useConversationSurfaceState.getState.openConversation>;
     act(() => {
-      useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
+      draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
       useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
     });
 
-    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/copilotkit', {
-      method: 'info', params: {}, body: {},
-    }));
-    await waitFor(() => expect(latestRuntime?.readiness).not.toBeUndefined());
-    expect(latestRuntime?.readiness).toEqual(expect.arrayContaining([
-      expect.objectContaining({ runtime: 'codex_cli', ready: true }),
-    ]));
-    expect(latestRuntime?.preferences).toEqual(expect.objectContaining({
-      contexts: expect.objectContaining({ sourcing: expect.any(Object) }),
-    }));
-    await waitFor(() => expect(latestRuntime?.turnPreference).toEqual({
-      model: 'gpt-5.6', reasoningEffort: 'low', needsReview: false,
-    }));
+    await expect(latestRuntime!.start({
+      message: 'Wait for the binding', model: 'gpt-5.6', reasoningEffort: 'low',
+    })).rejects.toThrow('conversation_runtime_not_ready');
+    expect(apiClient.post).not.toHaveBeenCalledWith('/api/agent-os/conversations', expect.anything());
     expect(useConversationSurfaceState.getState().pendingDraft).toMatchObject({
-      model: 'gpt-5.6', reasoningEffort: 'low',
+      conversationId: draft.conversationId,
+      message: 'Wait for the binding',
+      model: 'gpt-5.6',
+      reasoningEffort: 'low',
     });
   });
 
-  it('requires an explicit pair after a cached preference refetch fails', async () => {
-    const preferences = {
-      schemaVersion: 1,
-      contexts: { sourcing: { codex_cli: { model: 'gpt-5.6', reasoningEffort: 'low' } } },
-    };
-    const readinessInfo = {
-      agents: { conversation: { capabilities: { custom: { gatewayReadiness: [{
-        runtime: 'codex_cli', ready: true,
-        readiness: {
-          runtime: 'codex_cli', version: '0.149.1', models: ['gpt-5.6'], reasoningEfforts: ['low'],
-          modelReasoningEfforts: [{ model: 'gpt-5.6', reasoningEfforts: ['low'] }],
-          loginVerified: true, mcpProtocolRevision: '2026-07-28',
-        },
-      }, { runtime: 'claude_cli', ready: false, code: 'selected_engine_unavailable' }] } } } },
-    };
-    const refetchedReadiness = deferred<unknown>();
-    let preferenceRequests = 0;
-    let readinessRequests = 0;
-    vi.mocked(apiClient.get).mockImplementation((path: string) => {
-      if (path === '/api/agent-os/conversations') return Promise.resolve([] as never);
-      if (path === '/api/agent-os/conversation-preferences') {
-        preferenceRequests += 1;
-        return preferenceRequests === 1
-          ? Promise.resolve(preferences as never)
-          : Promise.reject(new Error('preferences unavailable'));
-      }
-      return Promise.resolve([] as never);
-    });
-    vi.mocked(apiClient.post).mockImplementation((path: string) => {
-      if (path !== '/api/copilotkit') return Promise.resolve({} as never);
-      readinessRequests += 1;
-      return readinessRequests === 1
-        ? Promise.resolve(readinessInfo as never)
-        : refetchedReadiness.promise as never;
-    });
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    renderHost(<RuntimeProbe />, queryClient);
-
-    act(() => useConversationSurfaceState.getState().openSettings());
-    await waitFor(() => expect(latestRuntime?.preferences).toEqual(preferences));
-    await waitFor(() => expect(readinessRequests).toBe(1));
-    act(() => useConversationSurfaceState.getState().closeSettings());
-    await act(async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.conversations.preferences(FIRST_IDENTITY),
-          refetchType: 'none',
-        }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.conversations.readiness(FIRST_IDENTITY),
-          refetchType: 'none',
-        }),
-      ]);
-    });
-
-    act(() => {
-      useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
-      useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
-    });
-    await waitFor(() => expect(preferenceRequests).toBe(2));
-    await waitFor(() => expect(readinessRequests).toBe(2));
-    await waitFor(() => expect(latestRuntime?.preferencesError).toBe(true));
-
-    await act(async () => refetchedReadiness.resolve(readinessInfo));
-
-    await waitFor(() => expect(latestRuntime?.readiness).toEqual(expect.arrayContaining([
-      expect.objectContaining({ runtime: 'codex_cli', ready: true }),
-    ])));
-    expect(latestRuntime?.preferences).toBeNull();
-    expect(latestRuntime?.turnPreference).toEqual({
-      model: null, reasoningEffort: null, needsReview: false,
-    });
-    expect(useConversationSurfaceState.getState().pendingDraft).toMatchObject({
-      model: null, reasoningEffort: null,
-    });
-  });
-
-  it('mounts exactly one settings dialog for panel and tree triggers, returning focus to each trigger', async () => {
-    renderHost(<SettingsTriggers />);
-    await screen.findByRole('navigation', { name: '대화 목록' });
-    const panelTrigger = screen.getByRole('button', { name: '패널 대화 설정' });
-    act(() => panelTrigger.focus());
-    act(() => panelTrigger.click());
-    expect(screen.getAllByRole('dialog', { name: '대화 설정' })).toHaveLength(1);
-    screen.getByRole('button', { name: '닫기' }).click();
-    await waitFor(() => expect(panelTrigger).toHaveFocus());
-
-    const treeTrigger = screen.getByRole('button', { name: '대화 설정' });
-    act(() => treeTrigger.focus());
-    act(() => treeTrigger.click());
-    expect(screen.getAllByRole('dialog', { name: '대화 설정' })).toHaveLength(1);
-    screen.getByRole('button', { name: '닫기' }).click();
-    await waitFor(() => expect(treeTrigger).toHaveFocus());
-  });
-
-  it('keeps one subscription and the active turn, live messages, tool projections, and interrupt across presentation route remounts', async () => {
+  it('keeps one CopilotKit interaction across presentation remounts and derives running and stop from that interaction', async () => {
     useConversationSurfaceState.getState().selectConversation(FIRST);
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const running = deferred<void>();
-    runtimeMocks.runAgent.mockReturnValue(running.promise);
+    runtimeMocks.runAgent.mockImplementation(() => {
+      runtimeMocks.agent.isRunning = true;
+      return running.promise;
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const view = renderHost(<RuntimeProbe />, queryClient);
 
     await waitFor(() => expect(runtimeMocks.subscriptions).toHaveLength(1));
-    act(() => { void latestRuntime?.start({ message: 'Review evidence', model: 'gpt-5.6', reasoningEffort: 'low' }); });
+    const start = latestRuntime!.start({
+      message: 'Review evidence', model: 'gpt-5.6', reasoningEffort: 'low',
+    });
     await waitFor(() => expect(runtimeMocks.runAgent).toHaveBeenCalledTimes(1));
     const subscriber = runtimeMocks.subscriptions[0].subscriber as {
-      onMessagesChanged?: (input: { messages: unknown[] }) => void;
+      onRunInitialized?: () => void;
+      onMessagesChanged?: () => void;
       onCustomEvent?: (input: { event: { name: string; value: unknown } }) => void;
     };
-    await act(async () => subscriber.onMessagesChanged?.({
-      messages: [{ id: 'live-1', role: 'assistant', content: 'Provider reply' }],
-    }));
+    act(() => subscriber.onRunInitialized?.());
+    runtimeMocks.agent.messages = [{ id: 'assistant-1', role: 'assistant', content: 'Provider reply' }];
+    await act(async () => subscriber.onMessagesChanged?.());
     await act(async () => subscriber.onCustomEvent?.({
       event: { name: 'kiditem.provider_tool_status', value: { name: 'source_search', status: 'running' } },
     }));
 
-    view.rerender(<QueryClientProvider client={queryClient}>
-      <ConversationRuntimeHost identity={FIRST_IDENTITY}>{null}</ConversationRuntimeHost>
-    </QueryClientProvider>);
-    view.rerender(<QueryClientProvider client={queryClient}>
-      <ConversationRuntimeHost identity={FIRST_IDENTITY}><RuntimeProbe /></ConversationRuntimeHost>
-    </QueryClientProvider>);
+    view.rerender(
+      <QueryClientProvider client={queryClient}>
+        <ConversationRuntimeHost identity={IDENTITY}>{null}</ConversationRuntimeHost>
+      </QueryClientProvider>,
+    );
+    view.rerender(
+      <QueryClientProvider client={queryClient}>
+        <ConversationRuntimeHost identity={IDENTITY}><RuntimeProbe /></ConversationRuntimeHost>
+      </QueryClientProvider>,
+    );
 
     expect(runtimeMocks.subscriptions).toHaveLength(1);
     expect(runtimeMocks.subscriptions[0].unsubscribe).not.toHaveBeenCalled();
-    expect(screen.getByTestId('runtime-probe')).toHaveTextContent('Provider reply');
-    expect(screen.getByTestId('runtime-probe')).toHaveTextContent('source_search');
-    await act(async () => latestRuntime?.interrupt());
-    expect(apiClient.post).toHaveBeenCalledWith(expect.stringMatching(/\/interrupt$/));
-    running.resolve();
+    expect(screen.getByTestId('runtime-probe')).toHaveTextContent('conversation-1|conversation-1|Provider reply|source_search');
+    await act(async () => latestRuntime!.interrupt());
+    expect(runtimeMocks.abortRun).toHaveBeenCalledTimes(1);
+    expect(apiClient.post).not.toHaveBeenCalledWith(expect.stringMatching(/\/interrupt$/), expect.anything());
+    await act(async () => {
+      running.resolve();
+      await start;
+    });
   });
 
-  it('disposes the old subscription before binding the exact newly selected conversation', async () => {
+  it('disposes the previous subscription before binding a different selected conversation', async () => {
     useConversationSurfaceState.getState().selectConversation(FIRST);
     renderHost(<RuntimeProbe />);
 
@@ -617,13 +342,22 @@ describe('ConversationRuntimeHost', () => {
     const firstSubscription = runtimeMocks.subscriptions[0];
     act(() => useConversationSurfaceState.getState().selectConversation(SECOND));
 
-    await waitFor(() => expect(runtimeMocks.useAgent).toHaveBeenLastCalledWith({
-      agentId: 'kiditem-conversation:conversation-2', runtimeAgentId: 'conversation', threadId: 'conversation-2',
-    }));
+    await waitFor(() => expect(latestRuntime?.conversationId).toBe(SECOND.id));
     expect(firstSubscription.unsubscribe).toHaveBeenCalledTimes(1);
     expect(runtimeMocks.subscriptions).toHaveLength(2);
     expect(firstSubscription.unsubscribe.mock.invocationCallOrder[0]).toBeLessThan(
       runtimeMocks.subscribe.mock.invocationCallOrder[1],
     );
+  });
+
+  it('does not expose a web history query, history context, or reconciliation cache', async () => {
+    useConversationSurfaceState.getState().selectConversation(FIRST);
+    renderHost(<RuntimeProbe />);
+
+    await waitFor(() => expect(runtimeMocks.subscriptions).toHaveLength(1));
+    expect(vi.mocked(apiClient.get).mock.calls.map(([path]) => String(path)))
+      .not.toContain('/api/agent-os/conversations/conversation-1/history');
+    expect(latestRuntime).not.toHaveProperty('historyMessages');
+    expect(latestRuntime).not.toHaveProperty('liveMessages');
   });
 });

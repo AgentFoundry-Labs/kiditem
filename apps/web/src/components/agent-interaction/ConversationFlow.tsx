@@ -24,10 +24,7 @@ export function ConversationFlow() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <section aria-label="대화 메시지" className="mx-auto w-full max-w-3xl flex-1 space-y-4 overflow-y-auto px-4 py-6 sm:px-6">
-        {runtime.historyLoading ? <p role="status" className="text-sm text-muted-foreground">대화 기록을 불러오는 중입니다.</p> : null}
-        {runtime.historyError ? <p role="alert" className="text-sm text-destructive">대화 기록을 불러올 수 없습니다.</p> : null}
-        {runtime.historyMessages.map((message) => <AgentConversationMessage key={message.id} message={message} />)}
-        {runtime.liveMessages.map((message) => <AgentConversationMessage key={`live-${message.id}`} message={message} live />)}
+        {runtime.messages.map((message) => <AgentConversationMessage key={message.id} message={message} />)}
         <ToolStatusCards projections={runtime.toolProjections} />
         {runtime.turnEnded ? <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{runtime.turnEnded}</p> : null}
       </section>

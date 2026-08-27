@@ -31,7 +31,6 @@ describe('ConversationController', () => {
     const conversations = {
       list: vi.fn().mockResolvedValue([]),
       create: vi.fn().mockResolvedValue({ id: 'conversation-1' }),
-      history: vi.fn(),
       rename: vi.fn(),
       delete: vi.fn(),
       start: vi.fn(),
@@ -60,6 +59,7 @@ describe('ConversationController', () => {
         runtime: 'codex_cli',
         agentKey: null,
         title: 'General',
+        organizationId: 'browser-must-not-choose-organization',
         providerConversationRef: 'private',
         mcpTransportToken: 'private',
       },
@@ -70,7 +70,7 @@ describe('ConversationController', () => {
 
   it('requires model and reasoning effort on each turn and does not accept runtime patching', async () => {
     const conversations = {
-      list: vi.fn(), create: vi.fn(), history: vi.fn(), rename: vi.fn(), delete: vi.fn(),
+      list: vi.fn(), create: vi.fn(), rename: vi.fn(), delete: vi.fn(),
       start: vi.fn().mockResolvedValue({ turnId: 'turn-1' }), input: vi.fn(), interrupt: vi.fn(),
     };
     const controller = new ConversationController(conversations as never);
@@ -115,7 +115,6 @@ describe('ConversationController', () => {
     const conversations = {
       list: vi.fn().mockResolvedValue([]),
       create: vi.fn(),
-      history: vi.fn().mockResolvedValue([]),
       rename: vi.fn().mockResolvedValue({ id: 'conversation-1' }),
       delete: vi.fn().mockResolvedValue(undefined),
       start: vi.fn(),
@@ -126,7 +125,6 @@ describe('ConversationController', () => {
     const user = { id: USER_ID } as never;
 
     await controller.list(ORGANIZATION_ID, user);
-    await controller.history('conversation-1', ORGANIZATION_ID, user);
     await controller.rename('conversation-1', { title: 'Renamed' }, ORGANIZATION_ID, user);
     await controller.input('conversation-1', 'turn-1', { message: 'More context.' }, ORGANIZATION_ID, user);
     await controller.interrupt('conversation-1', 'turn-1', ORGANIZATION_ID, user);
@@ -134,7 +132,6 @@ describe('ConversationController', () => {
 
     const owner = { organizationId: ORGANIZATION_ID, userId: USER_ID };
     expect(conversations.list).toHaveBeenCalledWith(owner);
-    expect(conversations.history).toHaveBeenCalledWith({ ...owner, conversationId: 'conversation-1' });
     expect(conversations.rename).toHaveBeenCalledWith({ ...owner, conversationId: 'conversation-1', title: 'Renamed' });
     expect(conversations.input).toHaveBeenCalledWith({ ...owner, conversationId: 'conversation-1', turnId: 'turn-1', message: 'More context.' });
     expect(conversations.interrupt).toHaveBeenCalledWith({ ...owner, conversationId: 'conversation-1', turnId: 'turn-1' });
@@ -143,7 +140,7 @@ describe('ConversationController', () => {
 
   it('maps turn validation to 400 and Gateway absence to 503 instead of leaking 500', async () => {
     const conversations = {
-      list: vi.fn(), create: vi.fn(), history: vi.fn(), rename: vi.fn(), delete: vi.fn(),
+      list: vi.fn(), create: vi.fn(), rename: vi.fn(), delete: vi.fn(),
       start: vi.fn()
         .mockRejectedValueOnce(new AgentOsRuntimeError('conversation_model_unsupported'))
         .mockRejectedValueOnce(new AgentOsRuntimeError('conversation_gateway_unavailable')),
@@ -172,7 +169,7 @@ describe('ConversationController', () => {
 
   it('keeps invalid conversation and turn route IDs at HTTP 400 on every parameterized route', async () => {
     const conversations = {
-      list: vi.fn(), create: vi.fn(), history: vi.fn(), rename: vi.fn(), delete: vi.fn(),
+      list: vi.fn(), create: vi.fn(), rename: vi.fn(), delete: vi.fn(),
       start: vi.fn(), input: vi.fn(), interrupt: vi.fn(),
     };
     const server = await interactionApp(conversations);
@@ -180,7 +177,6 @@ describe('ConversationController', () => {
     const turn = { message: 'Review this.', model: 'gpt-5.6', reasoningEffort: 'low' };
     const input = { message: 'More context.' };
     const routes = [
-      () => request(server.getHttpServer()).get(`/api/agent-os/conversations/${invalid}/history`),
       () => request(server.getHttpServer()).patch(`/api/agent-os/conversations/${invalid}`).send({ title: 'Renamed' }),
       () => request(server.getHttpServer()).delete(`/api/agent-os/conversations/${invalid}`),
       () => request(server.getHttpServer()).post(`/api/agent-os/conversations/${invalid}/turns`).send(turn),
@@ -192,7 +188,6 @@ describe('ConversationController', () => {
 
     for (const route of routes) await route().expect(400);
 
-    expect(conversations.history).not.toHaveBeenCalled();
     expect(conversations.rename).not.toHaveBeenCalled();
     expect(conversations.delete).not.toHaveBeenCalled();
     expect(conversations.start).not.toHaveBeenCalled();
@@ -230,7 +225,6 @@ describe('ConversationController', () => {
           updatedAt: '2026-08-26T00:00:00.000Z',
         };
       }),
-      history: vi.fn().mockResolvedValue([]),
       rename: vi.fn(),
       delete: vi.fn().mockResolvedValue(undefined),
       start: vi.fn(),
@@ -335,7 +329,6 @@ describe('ConversationController', () => {
       create: vi.fn()
         .mockRejectedValueOnce(new AgentOsRuntimeError('conversation_create_conflict'))
         .mockRejectedValueOnce(new Error('provider thread private-reference-123 failed')),
-      history: vi.fn().mockRejectedValue(new AgentOsRuntimeError('conversation_not_found')),
       rename: vi.fn(),
       delete: vi.fn().mockRejectedValue(new AgentOsRuntimeError('conversation_turn_live')),
       start: vi.fn(),
@@ -351,13 +344,23 @@ describe('ConversationController', () => {
       .rejects.toMatchObject({ status: 409 });
     await expect(controller.delete('conversation-1', ORGANIZATION_ID, { id: USER_ID } as never))
       .rejects.toMatchObject({ status: 409 });
-    await expect(controller.history('conversation-absent', ORGANIZATION_ID, { id: USER_ID } as never))
-      .rejects.toMatchObject({ status: 404 });
-
     const unavailable = await controller.create(create, ORGANIZATION_ID, { id: USER_ID } as never)
       .catch((error: unknown) => error as { status: number; getResponse(): unknown });
     expect(unavailable).toMatchObject({ status: 503 });
     expect(JSON.stringify(unavailable.getResponse())).not.toContain('private-reference-123');
+  });
+
+  it('does not expose provider history through the public conversation controller', async () => {
+    const conversations = {
+      list: vi.fn(), create: vi.fn(), rename: vi.fn(), delete: vi.fn(),
+      start: vi.fn(), input: vi.fn(), interrupt: vi.fn(),
+    };
+    const server = await interactionApp(conversations);
+
+    await request(server.getHttpServer())
+      .get('/api/agent-os/conversations/conversation-1/history')
+      .expect(404);
+    expect(conversations).not.toHaveProperty('history');
   });
 });
 

@@ -2,7 +2,7 @@
 
 import * as Dialog from '@radix-ui/react-dialog';
 import { Menu, X } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { ConversationFlow } from './ConversationFlow';
 import { ConversationFolderTree } from './ConversationFolderTree';
 import { ConversationHeader } from './ConversationHeader';
@@ -13,11 +13,15 @@ import { useConversationSurfaceState } from './conversation-surface-state';
 import { useNewConversationDraft } from './useNewConversationDraft';
 
 /** Full-height Agent OS history presentation over the route-stable runtime. */
-export function AgentConversationSurface() {
-  return <AgentConversationSurfaceLayout />;
+export function AgentConversationSurface({
+  approvalContent,
+}: {
+  approvalContent?: ReactNode;
+}) {
+  return <AgentConversationSurfaceLayout approvalContent={approvalContent} />;
 }
 
-function AgentConversationSurfaceLayout() {
+function AgentConversationSurfaceLayout({ approvalContent }: { approvalContent?: ReactNode }) {
   const runtime = useConversationRuntime();
   const selectedContext = useConversationSurfaceState((state) => state.selectedContext);
   const activeConversationId = useConversationSurfaceState((state) => state.activeConversationId);
@@ -74,6 +78,11 @@ function AgentConversationSurfaceLayout() {
               </Dialog.Trigger>
             )}
           />
+          {approvalContent ? (
+            <div className="shrink-0 border-b bg-background px-4 py-3 sm:px-6">
+              <div className="mx-auto w-full max-w-3xl">{approvalContent}</div>
+            </div>
+          ) : null}
           {runtime.conversationsError ? <p role="alert" className="mx-auto w-full max-w-3xl px-4 pt-4 text-sm text-destructive">대화 목록을 불러올 수 없습니다.</p> : null}
           {runtime.conversationId ? <ConversationFlow /> : <EmptyConversationState contextLabel={context.label} onNewConversation={() => openDraft(selectedContext)} />}
         </main>

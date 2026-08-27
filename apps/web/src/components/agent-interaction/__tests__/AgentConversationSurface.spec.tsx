@@ -315,15 +315,9 @@ describe('AgentConversationSurface', () => {
     expect(unsubscribe).not.toHaveBeenCalled();
   });
 
-  it('keeps live messages and tool cards in the shared flow until refreshed history covers the terminal reply', async () => {
-    let history: unknown[] = [];
+  it('renders CopilotKit messages and tool cards without a web history reconciliation query', async () => {
     let resolveRun: (() => void) | undefined;
     runtimeMocks.runAgent.mockImplementation(() => new Promise<void>((resolve) => { resolveRun = resolve; }));
-    vi.mocked(apiClient.get).mockImplementation((path: string) => {
-      if (path === '/api/agent-os/conversations') return Promise.resolve([CONVERSATION] as never);
-      if (path.endsWith('/history')) return Promise.resolve(history as never);
-      return Promise.resolve({ schemaVersion: 1, contexts: {} } as never);
-    });
     const user = userEvent.setup();
     renderSurface();
     const composer = await screen.findByPlaceholderText('무엇을 도와드릴까요?');
@@ -331,28 +325,22 @@ describe('AgentConversationSurface', () => {
     await user.type(composer, 'Review the evidence.');
     await user.click(screen.getByRole('button', { name: '보내기' }));
     await waitFor(() => expect(runtimeMocks.subscriptions).toHaveLength(1));
+    await waitFor(() => expect(runtimeMocks.runAgent).toHaveBeenCalledTimes(1));
     const subscriber = runtimeMocks.subscriptions[0] as {
-      onMessagesChanged?: (input: { messages: unknown[] }) => void;
+      onMessagesChanged?: () => void;
       onCustomEvent?: (input: { event: { name: string; value: unknown } }) => void;
-      onRunFinalized?: () => void;
     };
 
-    await act(async () => subscriber.onMessagesChanged?.({
-      messages: [{ id: 'live-reply', role: 'assistant', content: 'Provider reply' }],
-    }));
+    runtimeMocks.agent.messages = [{ id: 'copilotkit-reply', role: 'assistant', content: 'Provider reply' }];
+    await act(async () => subscriber.onMessagesChanged?.());
     await act(async () => subscriber.onCustomEvent?.({
       event: { name: 'kiditem.provider_tool_status', value: { name: 'source_search', status: 'running' } },
     }));
     expect(screen.getByText('Provider reply')).toBeVisible();
     expect(screen.getByText('source_search')).toBeVisible();
 
-    history = [{
-      id: 'history-reply', role: 'assistant', content: 'Provider reply', createdAt: '2026-08-26T00:01:00.000Z',
-    }];
-    await act(async () => subscriber.onRunFinalized?.());
-
-    await waitFor(() => expect(screen.getAllByText('Provider reply')).toHaveLength(1));
-    expect(screen.queryByText('source_search')).not.toBeInTheDocument();
+    expect(vi.mocked(apiClient.get).mock.calls.map(([path]) => String(path)))
+      .not.toContain('/api/agent-os/conversations/conversation-1/history');
     await act(async () => resolveRun?.());
   });
 });

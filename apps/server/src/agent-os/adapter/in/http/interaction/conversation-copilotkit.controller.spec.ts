@@ -3,9 +3,11 @@ import { CONVERSATION_PORT } from '../../../../application/port/in/capability/co
 import { Test } from '@nestjs/testing';
 import type { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
+import { firstValueFrom } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ConversationCopilotkitController,
+  GatewayConversationAgentRunner,
   GatewayAgUiEventMapper,
 } from './conversation-copilotkit.controller';
 
@@ -17,6 +19,37 @@ afterEach(async () => {
 });
 
 describe('GatewayAgUiEventMapper', () => {
+  it('projects one bounded owner-fenced provider history snapshot through the CopilotKit runner', async () => {
+    const conversations = {
+      history: vi.fn().mockResolvedValue([
+        { id: 'user-1', role: 'user', content: 'Review this supplier.' },
+        { id: 'assistant-1', role: 'assistant', content: 'I will review it.' },
+        { id: 'tool-1', role: 'tool', content: 'private tool payload' },
+      ]),
+      isRunning: vi.fn().mockResolvedValue(true),
+      stop: vi.fn().mockResolvedValue(true),
+    };
+    const owner = {
+      organizationId: '00000000-0000-4000-8000-000000000001',
+      userId: '00000000-0000-4000-8000-000000000002',
+    };
+    const runner = new GatewayConversationAgentRunner(conversations as never, owner);
+
+    await expect(firstValueFrom(runner.connect({ threadId: 'conversation-1' })))
+      .resolves.toEqual({
+        type: 'MESSAGES_SNAPSHOT',
+        messages: [
+          { id: 'user-1', role: 'user', content: 'Review this supplier.' },
+          { id: 'assistant-1', role: 'assistant', content: 'I will review it.' },
+        ],
+      });
+    await expect(runner.isRunning({ threadId: 'conversation-1' })).resolves.toBe(true);
+    await expect(runner.stop({ threadId: 'conversation-1' })).resolves.toBe(true);
+    expect(conversations.history).toHaveBeenCalledWith({ ...owner, conversationId: 'conversation-1' });
+    expect(conversations.isRunning).toHaveBeenCalledWith({ ...owner, conversationId: 'conversation-1' });
+    expect(conversations.stop).toHaveBeenCalledWith({ ...owner, conversationId: 'conversation-1' });
+  });
+
   it('opens one assistant message across many deltas and closes a disconnected turn with RUN_ERROR only', () => {
     const mapper = new GatewayAgUiEventMapper({
       threadId: 'conversation-1',
