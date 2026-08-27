@@ -93,6 +93,11 @@ function RuntimeProbe() {
   );
 }
 
+function TerminalNoticeProbe() {
+  const { turnEnded } = useConversationRuntime();
+  return <output data-testid="terminal-notice">{turnEnded ?? ''}</output>;
+}
+
 function SettingsTrigger() {
   const openSettings = useConversationSurfaceState((state) => state.openSettings);
   return <button type="button" onClick={(event) => openSettings(event.currentTarget)}>설정 열기</button>;
@@ -441,6 +446,28 @@ describe('ConversationRuntimeHost', () => {
       running.resolve();
       await start;
     });
+  });
+
+  it('keeps a successfully finalized turn free of terminal copy after a prior runtime failure', async () => {
+    useConversationSurfaceState.getState().selectConversation(FIRST);
+    renderHost(<TerminalNoticeProbe />);
+
+    await waitFor(() => expect(runtimeMocks.subscriptions).toHaveLength(1));
+    const subscriber = runtimeMocks.subscriptions[0].subscriber as {
+      onRunFailed?: () => void;
+      onRunFinalized?: () => void;
+    };
+
+    act(() => subscriber.onRunFailed?.());
+    expect(screen.getByTestId('terminal-notice')).toHaveTextContent(
+      '응답을 완료하지 못했습니다. 다시 시도해 주세요.',
+    );
+
+    act(() => subscriber.onRunFinalized?.());
+    expect(screen.getByTestId('terminal-notice')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('terminal-notice')).not.toHaveTextContent(
+      'This turn ended. Send a new message when you are ready.',
+    );
   });
 
   it('keeps raw tool and status role content out of the conversation transcript', async () => {

@@ -43,6 +43,10 @@ export type LiveMessage = {
 type TurnInput = { message: string; model: string; reasoningEffort: string };
 type DraftPatch = Partial<Omit<NewConversationDraft, 'conversationId'>>;
 
+const TURN_FAILURE_NOTICE = '응답을 완료하지 못했습니다. 다시 시도해 주세요.';
+const TURN_CONNECTION_NOTICE = '대화 연결이 끊어졌습니다. 다시 시도해 주세요.';
+const HISTORY_CONNECTION_NOTICE = '대화 기록을 불러오지 못했습니다. 다시 시도해 주세요.';
+
 export interface ConversationRuntimeContextValue {
   conversations: ConversationSummary[]; conversationsLoading: boolean; conversationsError: boolean;
   readiness: GatewayReadiness[] | null | undefined;
@@ -420,16 +424,17 @@ function ActiveConversationRuntime({
         refreshPresentation();
       },
       onRunFinalized: () => {
+        setTurnEnded(null);
         refreshPresentation();
         refreshSummaries();
       },
       onRunFailed: () => {
-        setTurnEnded('This turn ended. Send a new message when you are ready.');
+        setTurnEnded(TURN_FAILURE_NOTICE);
         refreshPresentation();
         refreshSummaries();
       },
       onRunErrorEvent: () => {
-        setTurnEnded('This turn ended. Send a new message when you are ready.');
+        setTurnEnded(TURN_CONNECTION_NOTICE);
         refreshPresentation();
       },
     });
@@ -438,7 +443,7 @@ function ActiveConversationRuntime({
   useEffect(() => {
     if (binding.kind !== 'existing' || !isReady) return;
     void ensureConnected().catch(() => {
-      setTurnEnded('Conversation history could not be connected. Try again.');
+      setTurnEnded(HISTORY_CONNECTION_NOTICE);
     });
   }, [binding.kind, ensureConnected, isReady]);
 
@@ -457,7 +462,7 @@ function ActiveConversationRuntime({
       });
       refreshPresentation();
     } catch {
-      setTurnEnded('This turn ended. Send a new message when you are ready.');
+      setTurnEnded(TURN_FAILURE_NOTICE);
       refreshPresentation();
       throw new Error('conversation_turn_ended');
     }
