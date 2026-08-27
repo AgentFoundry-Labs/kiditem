@@ -339,18 +339,21 @@ describe('CapabilityInvocation PostgreSQL races', () => {
         input: SCRAPE_WORKFLOW_INPUT,
       }));
       expect(invocationId(replay)).toBe(pending.id);
-      expect(replay).toMatchObject({
-        kind: 'completed',
-        result: {
-          operationRefs: [{ kind: 'operation_run' }],
-          output: { kind: 'enqueued', status: 'queued' },
-        },
-      });
       const operation = await restartedPrisma.operationRun.findFirstOrThrow({
         where: {
           organizationId: TEST_ORGANIZATION_ID,
           operationKey: SOURCING_SCRAPE_URL_OPERATION.key,
           idempotencyKey: ownerInvocationKey(pending.id),
+        },
+      });
+      expect(replay).toEqual({
+        kind: 'completed',
+        invocationId: pending.id,
+        status: 'succeeded',
+        result: {
+          summary: '상품 수집 작업을 처리했습니다.',
+          resourceRefs: [],
+          operationRefs: [{ kind: 'operation_run', id: operation.id }],
         },
       });
       expect(operation.input).toEqual(SCRAPE_WORKFLOW_INPUT);
