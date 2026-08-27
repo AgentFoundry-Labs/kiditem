@@ -55,6 +55,94 @@ describe('GatewayEventOutbox', () => {
     expect(outbox.peekBody()).toBe(stable);
   });
 
+  it('losslessly coalesces a high-frequency consecutive assistant stream for one live turn before protected event backpressure', async () => {
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
+    const fragments = Array.from({ length: 256 }, (_value, index) => `${index}:`);
+
+    for (const fragment of fragments) {
+      outbox.enqueue({
+        kind: 'turn.event',
+        conversationId: 'conversation-1',
+        turnId: 'turn-1',
+        event: { kind: 'assistant.delta', delta: fragment },
+      });
+    }
+
+    const body = outbox.peekBody();
+    expect(body).not.toBeNull();
+    expect(JSON.parse(body!).events).toEqual([{
+      kind: 'turn.event',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      event: { kind: 'assistant.delta', delta: fragments.join('') },
+    }]);
+
+    await outbox.flush(async (stableBody) => ({ eventSeq: JSON.parse(stableBody).eventSeq, accepted: true }));
+    expect(outbox.peekBody()).toBeNull();
+  });
+
+  it('does not mutate an in-flight assistant delta body when later deltas arrive for the same turn', async () => {
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
+    outbox.enqueue({
+      kind: 'turn.event',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      event: { kind: 'assistant.delta', delta: 'first ' },
+    });
+    const firstBody = outbox.peekBody();
+
+    outbox.enqueue({
+      kind: 'turn.event',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      event: { kind: 'assistant.delta', delta: 'second' },
+    });
+    outbox.enqueue({
+      kind: 'turn.event',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      event: { kind: 'assistant.delta', delta: ' third' },
+    });
+
+    expect(outbox.peekBody()).toBe(firstBody);
+    await expect(outbox.flush(async (stableBody) => {
+      expect(stableBody).toBe(firstBody);
+      throw new Error('temporary transport loss');
+    })).rejects.toThrow('temporary transport loss');
+    expect(outbox.peekBody()).toBe(firstBody);
+    await outbox.flush(async (stableBody) => ({ eventSeq: JSON.parse(stableBody).eventSeq, accepted: true }));
+    expect(JSON.parse(outbox.peekBody()!).events).toEqual([{
+      kind: 'turn.event',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      event: { kind: 'assistant.delta', delta: 'second third' },
+    }]);
+  });
+
+  it('fails closed when same-turn deltas cannot be coalesced within the provider delta contract', async () => {
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
+    const maxDelta = 'x'.repeat(16_000);
+
+    for (let index = 0; index < 128; index += 1) {
+      outbox.enqueue({
+        kind: 'turn.event',
+        conversationId: 'conversation-1',
+        turnId: 'turn-1',
+        event: { kind: 'assistant.delta', delta: maxDelta },
+      });
+    }
+
+    expect(() => outbox.enqueue({
+      kind: 'turn.event',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      event: { kind: 'assistant.delta', delta: maxDelta },
+    })).toThrow('gateway_event_backpressure');
+  });
+
   it('fails the control session instead of evicting a retained assistant delta for a later terminal', async () => {
     const { GatewayEventOutbox } = await import('./gateway-event-outbox');
     const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });

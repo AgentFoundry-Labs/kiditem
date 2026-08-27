@@ -8,6 +8,9 @@ import { redactForGatewayEvent } from '../security/redaction';
 
 type InFlight = Readonly<{ body: string; count: number; eventSeq: number }>;
 const MAX_BUFFERED_EVENTS = 128;
+// Keep this in lockstep with ProviderEventSchema's assistant.delta bound. A
+// combined delta is revalidated below, so the wire contract remains final.
+const MAX_PROVIDER_ASSISTANT_DELTA_LENGTH = 16_000;
 
 export class GatewayEventOutboxBackpressureError extends Error {
   constructor() {
@@ -33,6 +36,7 @@ export class GatewayEventOutbox {
   enqueue(event: GatewayEvent): void {
     if (this.failure) throw this.failure;
     const parsed = GatewayEventSchema.parse(redactEvent(event, this.redactionTokens));
+    if (this.coalesceAssistantDelta(parsed)) return;
     if (this.events.length >= MAX_BUFFERED_EVENTS) {
       // Completed AG-UI history is assembled from these deltas. Losing either
       // a pending or newly received delta would make a later terminal look
@@ -79,6 +83,31 @@ export class GatewayEventOutbox {
     });
     this.inFlight = Object.freeze({ body: JSON.stringify(batch), count: events.length, eventSeq: this.eventSeq });
     return this.inFlight;
+  }
+
+  /**
+   * Provider text can arrive as many tiny notifications while Nest holds a
+   * long poll. Merge only the mutable tail for one exact turn; an already
+   * serialized in-flight batch must stay byte-for-byte stable for retry.
+   */
+  private coalesceAssistantDelta(event: GatewayEvent): boolean {
+    if (event.kind !== 'turn.event' || event.event.kind !== 'assistant.delta') return false;
+    const previousIndex = this.events.length - 1;
+    if (previousIndex < 0 || (this.inFlight && previousIndex < this.inFlight.count)) return false;
+    const previous = this.events[previousIndex];
+    if (
+      previous.kind !== 'turn.event'
+      || previous.event.kind !== 'assistant.delta'
+      || previous.conversationId !== event.conversationId
+      || previous.turnId !== event.turnId
+    ) return false;
+    const delta = `${previous.event.delta}${event.event.delta}`;
+    if (delta.length > MAX_PROVIDER_ASSISTANT_DELTA_LENGTH) return false;
+    this.events[previousIndex] = GatewayEventSchema.parse({
+      ...previous,
+      event: { kind: 'assistant.delta', delta },
+    });
+    return true;
   }
 
   private failBackpressure(): GatewayEventOutboxBackpressureError {

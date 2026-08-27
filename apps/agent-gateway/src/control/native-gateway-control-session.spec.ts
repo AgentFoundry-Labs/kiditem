@@ -389,6 +389,60 @@ describe('NativeGatewayControlSession', () => {
     expect(dispatcher.clear).toHaveBeenCalledOnce();
   });
 
+  it('retains a normal high-frequency assistant stream while an authenticated long poll is active', async () => {
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const { NativeGatewayControlSession } = await import('./native-gateway-control-session');
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
+    const pollStarted = deferred<void>();
+    const onPollLoss = vi.fn();
+    const client = {
+      poll: vi.fn(() => {
+        pollStarted.resolve();
+        return new Promise<never>(() => undefined);
+      }),
+      postEventBody: vi.fn(),
+      abortInFlight: vi.fn(),
+    };
+    const dispatcher = { dispatch: vi.fn(), clear: vi.fn() };
+    const session = new NativeGatewayControlSession({
+      client,
+      dispatcher,
+      outbox,
+      poll: {
+        kind: 'poll', gatewayInstanceId: 'gateway-1', platform: 'macos',
+        mcpTransportToken: 'A'.repeat(43),
+        runtimeTrain: { controlRevision: 'kiditem-gateway-control-v1', mcpProtocolRevision: '2026-07-28', nodeMajor: 22, codexVersion: '0.149.1', claudeVersion: '2.1.245' },
+      },
+      onPollLoss,
+    });
+
+    const running = session.run();
+    await pollStarted.promise;
+    const fragments = Array.from({ length: 256 }, (_value, index) => `${index}:`);
+    for (const fragment of fragments) {
+      outbox.enqueue({
+        kind: 'turn.event',
+        conversationId: 'conversation-1',
+        turnId: 'turn-1',
+        event: { kind: 'assistant.delta', delta: fragment },
+      });
+    }
+
+    expect(JSON.parse(outbox.peekBody()!).events).toEqual([{
+      kind: 'turn.event',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      event: { kind: 'assistant.delta', delta: fragments.join('') },
+    }]);
+    expect(client.postEventBody).not.toHaveBeenCalled();
+
+    await session.shutdown();
+    await expect(running).rejects.toThrow('gateway_control_stopped');
+    expect(client.abortInFlight).toHaveBeenCalledOnce();
+    expect(onPollLoss).toHaveBeenCalledOnce();
+    expect(dispatcher.clear).toHaveBeenCalledOnce();
+  });
+
   it('retains dispatcher turn fences until the provider shutdown path proves its process trees are gone', async () => {
     const { GatewayEventOutbox } = await import('./gateway-event-outbox');
     const { NativeGatewayControlSession } = await import('./native-gateway-control-session');

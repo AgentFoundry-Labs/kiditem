@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import type { ProcessExit, ProcessSupervisor, SupervisedProcess } from '../../platform/process-supervisor';
+import { GatewayEventOutboxBackpressureError } from '../../control/gateway-event-outbox';
 import { providerEnvironment, gatewayProviderInvocation } from '../provider-command';
 import { CodexAppServerFramingError, CodexAppServerSession } from './codex-app-server-session';
 
@@ -83,6 +84,10 @@ export async function startCodexAppServer(input: Readonly<{
 }
 
 function reportCodexAppServerSessionFault(error: unknown): void {
+  if (error instanceof GatewayEventOutboxBackpressureError) {
+    console.error('agent_gateway_codex_app_server_session_framing_fault code=gateway_event_backpressure bytes=0');
+    return;
+  }
   if (error instanceof CodexAppServerFramingError) {
     console.error(`agent_gateway_codex_app_server_session_framing_fault code=${error.code} bytes=${error.byteCount}`);
     return;

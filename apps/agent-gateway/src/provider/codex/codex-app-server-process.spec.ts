@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProcessCallbacks, ProcessExit } from '../../platform/process-supervisor';
 import { gatewayInstructionProfile } from '../../profile/agent-profile.catalog';
-import { GatewayEventOutbox } from '../../control/gateway-event-outbox';
+import { GatewayEventOutbox, GatewayEventOutboxBackpressureError } from '../../control/gateway-event-outbox';
 import { NativeGatewayControlSession } from '../../control/native-gateway-control-session';
 
 const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }));
@@ -172,6 +172,52 @@ describe('startCodexAppServer', () => {
     expect(supervisor.process.terminateCalls).toBe(1);
     await expect(process.session.modelCatalog()).rejects.toThrow('codex_app_server_closed');
     await expect(provider.readiness()).rejects.toThrow('codex_app_server_closed');
+  });
+
+  it('classifies an outbox backpressure callback without logging provider output', async () => {
+    const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { startCodexAppServer } = await import('./codex-app-server-process');
+    const supervisor = new RecordingSupervisor();
+    const process = await startCodexAppServer({
+      runtimeRoot: '/gateway/runtime',
+      workspace: '/gateway/workspace',
+      loginRoot: '/gateway/login',
+      mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: 'T'.repeat(43),
+      supervisor,
+      onFatal: () => undefined,
+    } as never);
+    const started = process.session.startTurn({
+      providerConversationRef: 'provider-thread-1',
+      conversationId: 'conversation-1',
+      turnId: 'gateway-turn-1',
+      message: 'List available resources.',
+      model: 'gpt-5.6',
+      reasoningEffort: 'medium',
+      instructionProfile: gatewayInstructionProfile(null),
+    }, (event) => {
+      if (event.kind === 'assistant.delta') throw new GatewayEventOutboxBackpressureError();
+    });
+    await advance();
+    answer(supervisor, 'initialize', {});
+    await advance();
+    answer(supervisor, 'thread/resume', { approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' } });
+    await advance();
+    answer(supervisor, 'turn/start', { turn: { id: 'provider-turn-1' } });
+
+    await started;
+
+    const providerPayload = 'provider-only-output';
+    supervisor.emitStdout(notification('item/agentMessage/delta', {
+      threadId: 'provider-thread-1',
+      turnId: 'provider-turn-1',
+      delta: providerPayload,
+    }));
+    await advance();
+
+    expect(diagnostic).toHaveBeenCalledWith('agent_gateway_codex_app_server_session_framing_fault code=gateway_event_backpressure bytes=0');
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(providerPayload);
+    expect(supervisor.process.terminateCalls).toBe(1);
   });
 
   it('propagates a malformed Codex frame once through the Gateway control shutdown and provider-tree close', async () => {
