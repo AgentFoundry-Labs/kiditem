@@ -1,5 +1,5 @@
 import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 interface CollapsibleSidebarShellProps {
@@ -32,6 +32,9 @@ export function CollapsibleSidebarShell({
   onDesktopToggle,
   onMobileOpenChange,
 }: CollapsibleSidebarShellProps) {
+  const sidebarRef = useRef<HTMLElement>(null);
+  const mobileOpenControlRef = useRef<HTMLButtonElement>(null);
+  const wasMobileOpenRef = useRef(false);
   const wideHeader = mobile || expanded;
   const desktopClasses = desktopBreakpoint === 'lg'
     ? {
@@ -51,6 +54,30 @@ export function CollapsibleSidebarShell({
   const controlAction = mobile
     ? () => onMobileOpenChange?.(false)
     : onDesktopToggle;
+  const mobileDrawerHidden = mobile && !mobileOpen;
+
+  useEffect(() => {
+    if (!mobile) {
+      wasMobileOpenRef.current = false;
+      return;
+    }
+
+    if (mobileOpen) {
+      wasMobileOpenRef.current = true;
+      const frame = window.requestAnimationFrame(() => {
+        sidebarRef.current
+          ?.querySelector<HTMLButtonElement>('[data-sidebar-toggle="close-drawer"]')
+          ?.focus();
+      });
+
+      return () => window.cancelAnimationFrame(frame);
+    }
+
+    if (wasMobileOpenRef.current) {
+      wasMobileOpenRef.current = false;
+      mobileOpenControlRef.current?.focus();
+    }
+  }, [mobile, mobileOpen]);
 
   return (
     <>
@@ -73,14 +100,24 @@ export function CollapsibleSidebarShell({
             desktopClasses.hiddenOnMobile,
           )}
           onClick={() => onMobileOpenChange(true)}
+          ref={mobileOpenControlRef}
         >
           <Menu aria-hidden="true" size={19} />
         </button>
       )}
       <aside
+        ref={sidebarRef}
         data-testid="collapsible-sidebar-shell"
         data-desktop-width={expanded ? '256' : '64'}
         aria-label="KidItem navigation"
+        aria-hidden={mobileDrawerHidden || undefined}
+        inert={mobileDrawerHidden || undefined}
+        onKeyDown={(event) => {
+          if (mobile && mobileOpen && event.key === 'Escape') {
+            event.preventDefault();
+            onMobileOpenChange?.(false);
+          }
+        }}
         className={cn(
           'fixed left-0 top-0 z-50 flex h-screen w-[256px] flex-col overflow-hidden border-r border-[var(--border-subtle)] bg-[var(--surface)] font-sans',
           'transition-[width,transform] duration-150 motion-reduce:transition-none',

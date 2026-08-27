@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 describe('CollapsibleSidebarShell', () => {
@@ -85,6 +86,59 @@ describe('CollapsibleSidebarShell', () => {
     fireEvent.click(openDrawer);
     expect(onMobileOpenChange).toHaveBeenCalledWith(true);
     expect(onDesktopToggle).not.toHaveBeenCalled();
+  });
+
+  it('removes a closed mobile drawer from the accessibility tree and restores focus after Escape', async () => {
+    const { CollapsibleSidebarShell } = await import('../CollapsibleSidebarShell');
+
+    function MobileDrawerHarness() {
+      const [mobileOpen, setMobileOpen] = useState(false);
+
+      return (
+        <CollapsibleSidebarShell
+          expanded
+          mobile
+          mobileOpen={mobileOpen}
+          home={<a aria-label="KidItem 홈" href="/">KidItem</a>}
+          body={(
+            <nav aria-label="Dashboard navigation">
+              <a href="/dashboard">대시보드</a>
+            </nav>
+          )}
+          footer={<button type="button">AI 챗</button>}
+          onMobileOpenChange={setMobileOpen}
+        />
+      );
+    }
+
+    render(<MobileDrawerHarness />);
+
+    const openDrawer = screen.getByRole('button', { name: '메뉴 열기' });
+    const shell = screen.getByTestId('collapsible-sidebar-shell');
+
+    expect(shell).toHaveAttribute('aria-hidden', 'true');
+    expect(shell).toHaveAttribute('inert');
+    expect(screen.queryByRole('navigation', { name: 'Dashboard navigation' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: '대시보드' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '메뉴 닫기' })).not.toBeInTheDocument();
+
+    fireEvent.click(openDrawer);
+
+    const closeDrawer = within(shell).getByRole('button', { name: '메뉴 닫기' });
+    expect(shell).not.toHaveAttribute('aria-hidden');
+    expect(shell).not.toHaveAttribute('inert');
+    expect(screen.getByRole('navigation', { name: 'Dashboard navigation' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '대시보드' })).toBeInTheDocument();
+    await waitFor(() => expect(closeDrawer).toHaveFocus());
+
+    fireEvent.keyDown(closeDrawer, { key: 'Escape' });
+
+    await waitFor(() => {
+      expect(shell).toHaveAttribute('aria-hidden', 'true');
+      expect(shell).toHaveAttribute('inert');
+      expect(screen.queryByRole('link', { name: '대시보드' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '메뉴 열기' })).toHaveFocus();
+    });
   });
 
   it('stays presentation-only and does not own Dashboard menu, runtime, query, or provider state', () => {
