@@ -222,6 +222,25 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
     ]);
   });
 
+  it('classifies a frame above an injected byte limit without retaining its payload', async () => {
+    const { CodexAppServerFramingError, CodexAppServerSession } = await import('./codex-app-server-session');
+    const session = new CodexAppServerSession({
+      write: () => undefined,
+      workspace: '/gateway/workspace',
+      mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: MCP_TRANSPORT_TOKEN,
+      maxBytes: 32,
+    });
+
+    let fault: unknown;
+    try { session.receive('x'.repeat(33)); }
+    catch (error) { fault = error; }
+
+    expect(fault).toBeInstanceOf(CodexAppServerFramingError);
+    expect(fault).toMatchObject({ code: 'codex_app_server_output_too_large', byteCount: 33 });
+    expect(() => session.receive('\n')).not.toThrow();
+  });
+
   it('uses exact provider turn coordinates for steer and interrupt, and waits for the provider terminal event before closing the turn', async () => {
     const { CodexAppServerSession } = await import('./codex-app-server-session');
     const lines: string[] = [];

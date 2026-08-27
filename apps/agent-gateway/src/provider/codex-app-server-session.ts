@@ -32,7 +32,12 @@ type ActiveTurn = Readonly<{
   sink: ProviderEventSink;
 }>;
 
-const MAX_RPC_BUFFER_BYTES = 64 * 1024;
+// The current Codex MCP stdio transport contract bounds serialized JSON-RPC
+// lines at 8 MiB. A valid app-server item/completed notification wraps that
+// result in its own JSON-RPC/item envelope, so retain a small allowance.
+const MAX_UPSTREAM_MCP_JSON_RPC_LINE_BYTES = 8 * 1024 * 1024;
+const MAX_APP_SERVER_FRAME_ENVELOPE_BYTES = 64 * 1024;
+const MAX_RPC_FRAME_BYTES = MAX_UPSTREAM_MCP_JSON_RPC_LINE_BYTES + MAX_APP_SERVER_FRAME_ENVELOPE_BYTES;
 const MAX_HISTORY_MESSAGES = 1_000;
 
 export type CodexAppServerFramingFaultCode = 'codex_app_server_output_invalid' | 'codex_app_server_output_too_large';
@@ -244,7 +249,7 @@ export class CodexAppServerSession {
   receive(chunk: string): void {
     if (this.closed) return;
     this.buffer += chunk;
-    const maxBytes = this.options.maxBytes ?? MAX_RPC_BUFFER_BYTES;
+    const maxBytes = this.options.maxBytes ?? MAX_RPC_FRAME_BYTES;
     while (this.buffer.includes('\n')) {
       const index = this.buffer.indexOf('\n');
       const line = this.buffer.slice(0, index);

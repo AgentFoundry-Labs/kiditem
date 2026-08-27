@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProcessCallbacks, ProcessExit } from '../platform/process-supervisor';
+import { gatewayInstructionProfile } from '../profile/agent-profile.catalog';
 
 const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }));
 vi.mock('node:child_process', () => ({ spawn: spawnMock }));
@@ -66,6 +67,78 @@ describe('startCodexAppServer', () => {
     await expect(catalog).resolves.toEqual([{ model: 'gpt-5.6', reasoningEfforts: ['medium'] }]);
   });
 
+  it('keeps the session usable after a valid Codex MCP item-completed frame exceeds 64 KiB', async () => {
+    const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { startCodexAppServer } = await import('./codex-app-server-process');
+    const supervisor = new RecordingSupervisor();
+    const process = await startCodexAppServer({
+      runtimeRoot: '/gateway/runtime',
+      workspace: '/gateway/workspace',
+      loginRoot: '/gateway/login',
+      mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: 'T'.repeat(43),
+      supervisor,
+    } as never);
+    const events: unknown[] = [];
+    const started = process.session.startTurn({
+      providerConversationRef: 'provider-thread-1',
+      conversationId: 'conversation-1',
+      turnId: 'gateway-turn-1',
+      message: 'List available resources.',
+      model: 'gpt-5.6',
+      reasoningEffort: 'medium',
+      instructionProfile: gatewayInstructionProfile(null),
+    }, (event) => events.push(event));
+    await advance();
+    answer(supervisor, 'initialize', {});
+    await advance();
+    answer(supervisor, 'thread/resume', { approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' } });
+    await advance();
+    answer(supervisor, 'turn/start', { turn: { id: 'provider-turn-1' } });
+    await started;
+
+    const mcpResult = 'r'.repeat(64 * 1024);
+    const completed = notification('item/completed', {
+      threadId: 'provider-thread-1',
+      turnId: 'provider-turn-1',
+      completedAtMs: 1,
+      item: {
+        type: 'mcpToolCall',
+        id: 'mcp-list-resources',
+        server: 'kiditem',
+        tool: 'codex.list_mcp_resources',
+        status: 'completed',
+        arguments: {},
+        appContext: null,
+        mcpAppResourceUri: null,
+        pluginId: null,
+        readOnlyHint: true,
+        result: { content: [{ type: 'text', text: mcpResult }], isError: false },
+        error: null,
+        durationMs: 1,
+      },
+    });
+    expect(Buffer.byteLength(completed, 'utf8')).toBeGreaterThan(64 * 1024);
+    expect(Buffer.byteLength(completed, 'utf8')).toBeLessThan(128 * 1024);
+
+    supervisor.emitStdout(completed);
+    await advance();
+
+    expect(diagnostic).not.toHaveBeenCalled();
+    expect(supervisor.process.terminateCalls).toBe(0);
+    expect(events).toEqual([
+      { kind: 'status', status: 'started' },
+      { kind: 'tool.status', name: 'kiditem.codex.list_mcp_resources', status: 'completed' },
+    ]);
+    expect(JSON.stringify(events)).not.toContain(mcpResult);
+    const catalog = process.session.modelCatalog();
+    await advance();
+    answer(supervisor, 'model/list', {
+      data: [{ model: 'gpt-5.6', supportedReasoningEfforts: [{ reasoningEffort: 'medium' }] }],
+    });
+    await expect(catalog).resolves.toEqual([{ model: 'gpt-5.6', reasoningEfforts: ['medium'] }]);
+  });
+
   it('reports a bounded session framing fault without terminating the provider tree', async () => {
     const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const { startCodexAppServer } = await import('./codex-app-server-process');
@@ -83,27 +156,6 @@ describe('startCodexAppServer', () => {
     await advance();
 
     expect(diagnostic).toHaveBeenCalledWith('agent_gateway_codex_app_server_session_framing_fault code=codex_app_server_output_invalid bytes=5');
-    expect(supervisor.process.terminateCalls).toBe(0);
-    await expect(process.session.modelCatalog()).rejects.toThrow('codex_app_server_closed');
-  });
-
-  it('reports a bounded oversized-frame classification without terminating the provider tree', async () => {
-    const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const { startCodexAppServer } = await import('./codex-app-server-process');
-    const supervisor = new RecordingSupervisor();
-    const process = await startCodexAppServer({
-      runtimeRoot: '/gateway/runtime',
-      workspace: '/gateway/workspace',
-      loginRoot: '/gateway/login',
-      mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
-      mcpTransportToken: 'T'.repeat(43),
-      supervisor,
-    } as never);
-
-    supervisor.emitStdout('x'.repeat((64 * 1024) + 1));
-    await advance();
-
-    expect(diagnostic).toHaveBeenCalledWith('agent_gateway_codex_app_server_session_framing_fault code=codex_app_server_output_too_large bytes=65537');
     expect(supervisor.process.terminateCalls).toBe(0);
     await expect(process.session.modelCatalog()).rejects.toThrow('codex_app_server_closed');
   });
