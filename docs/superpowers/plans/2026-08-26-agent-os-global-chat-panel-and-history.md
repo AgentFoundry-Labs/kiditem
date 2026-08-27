@@ -5,11 +5,11 @@
 **Status:** Approved revision
 **Revised:** 2026-08-27
 
-**Goal:** Make one provider-native KidItem conversation available from every authenticated work screen, restore CopilotKit as the interaction owner, and deliver the approved KidItem Agent OS/Dashboard chat design without adding PostgreSQL conversation state.
+**Goal:** Make one provider-native KidItem conversation available from every authenticated work screen, restore CopilotKit OSS as the interaction owner with its real SQLite event-history runner, and deliver the approved KidItem Agent OS/Dashboard chat design without adding PostgreSQL conversation state or a paid CopilotKit service.
 
-**Architecture:** The authenticated Web app shell mounts exactly one CopilotKit provider, one route-stable presentation host, and one right auxiliary surface whose visible state is `notifications | ai_chat | null`. CopilotKit owns run/connect/running/stop; Nest remains the authenticated active-turn authority, and the native Agent Gateway owns provider conversations and bounded local metadata. On `xl` screens the 352-pixel auxiliary surface reduces the work-surface width, while Agent OS uses one 260-pixel conversation tree and the same message/composer/card primitives as the compact Dashboard dock.
+**Architecture:** The authenticated Web app shell mounts exactly one CopilotKit provider, one route-stable presentation host, and one right auxiliary surface whose visible state is `notifications | ai_chat | null`. The stock CopilotKit OSS SQLite runner owns AG-UI run events, reconnect replay, and run serialization in one API-local file; Nest remains the authenticated active-turn authority and exact provider-stop bridge, while the native Agent Gateway owns provider model continuity and bounded conversation metadata. On `xl` screens the 352-pixel auxiliary surface reduces the work-surface width, while Agent OS uses one 260-pixel conversation tree and the same message/composer/card primitives as the compact Dashboard dock.
 
-**Tech Stack:** Next.js App Router, React 19, TypeScript, Zustand, TanStack Query, CopilotKit 1.69.0 v2 hooks, Radix UI, NestJS, Zod, native Codex app-server, Claude CLI provider-local JSONL state, Vitest, Testing Library.
+**Tech Stack:** Next.js App Router, React 19, TypeScript, Zustand, TanStack Query, CopilotKit OSS 1.69.0 v2 hooks/runtime and SQLite-runner semantics, `better-sqlite3` 12.2.0, Radix UI, NestJS, Zod, native Codex app-server, Claude CLI provider-local JSONL state, Vitest, Testing Library. Use upstream `@copilotkit/sqlite-runner` 1.69.0 directly only if its characterization contract passes; otherwise use one provenance-preserving workspace fork of that package and nothing else in CopilotKit.
 
 ---
 
@@ -51,9 +51,10 @@ The following decisions are fixed:
 
 | Concern | Fixed decision |
 |---|---|
-| Conversation truth | Provider-native Codex thread or Claude session |
+| Provider model continuity | Provider-native Codex thread or Claude session |
 | KidItem durable conversation state | Gateway-local bounded descriptor only |
-| Transcript persistence | Provider-owned; never copied into PostgreSQL or preferences |
+| Interaction history | CopilotKit OSS SQLite runner's full canonical AG-UI event log for completed interactions; never PostgreSQL, provider raw payload, credential, token, or private reasoning |
+| CopilotKit service boundary | Local OSS packages only; no CopilotKit Intelligence, cloud runtime, or paid hosted persistence |
 | Conversation creation | Browser reserves one opaque ID; first Send creates |
 | Create idempotency | Same ID plus same runtime/Agent/title replays; drift conflicts |
 | Provider | Selectable in a draft, immutable after creation |
@@ -64,9 +65,9 @@ The following decisions are fixed:
 | Dashboard Agent OS UI | Label, organization chart, cards, and current actions remain unchanged |
 | Right surface | Exactly `notifications | ai_chat | null`; selecting one replaces the other |
 | Panel mode | 352 px `xl` push dock; 352 px tablet overlay; full-width modal drawer below 768 px; CSS breakpoints only |
-| History deletion | Provider removal first, descriptor removal second |
+| History deletion | Provider removal first, descriptor removal second, exact namespaced SQLite event history last; an absent-provider retry still finishes local cleanup |
 | Preferences | One strict Host Runner installation-user file; no organization copies |
-| Schema | No Prisma change and no new Task, Session, Attempt, folder, archive, or retention model |
+| Schema | No Prisma change and no new Task, Session, Attempt, folder, archive, or retention model; the runner's local SQLite schema is adapter-owned |
 | Legacy cutover | Delete replaced UI shells, state, fixtures, exports, and route jumps; no wrappers, aliases, dual state, or migration |
 
 ## 2026-08-27 Current-Diff Integration Status
@@ -77,7 +78,7 @@ are implementation evidence, not permission to reset or recreate those files:
 | Area | Existing implementation | Remaining work in this revision |
 |---|---|---|
 | Tasks 1-3 contracts/Gateway/Nest | `2feca802`, `f2c14118`, `a2d07724`, `776471f1`, `c28c32db`, `a427ef87` | Preserve; rerun deterministic gates after the remaining changes |
-| Task 4 route-stable baseline | `5aabc8e0`, `3d067503` | Remove the fake stateless runner and duplicate Web lifecycle; make CopilotKit run/connect/running/stop real |
+| Task 4 route-stable baseline | `5aabc8e0`, `3d067503`, `cccc9f55` | Preserve the first-send/public-history cleanup, replace the shallow custom runner with the stock OSS SQLite event-history runner, and remove the obsolete provider-history control plane |
 | Task 5 global surface baseline | `c01babbf` | Replace the interim 420px overlay contract with the approved 352px responsive push-dock presentation |
 | Task 6 history/settings baseline | `66e15d0d`, `bb5d5693`, `fc0052ed` | Align the interim generic UI with the approved KidItem full workspace, inline business cards, and centered settings layout |
 | Prior integration/QA | `bb19e66c`, `7aa31181`, later QA fixes | Evidence remains useful, but final Sol review and browser QA reopen after runtime and visual changes |
@@ -772,7 +773,7 @@ the batch acceptance criteria, batch base/head SHAs, focused test evidence, and
 the exact batch diff. Fix Critical/Important findings with TDD. Re-review only
 the previous finding IDs against their fix diff before starting Task 4.
 
-## Task 4: Restore CopilotKit Ownership behind the Route-Stable Presentation
+## Task 4: Adopt the CopilotKit OSS SQLite Event-History Runner
 
 **Files:**
 
@@ -803,6 +804,18 @@ the previous finding IDs against their fix diff before starting Task 4.
 - Modify: apps/server/src/agent-os/adapter/in/http/interaction/conversation-copilotkit.controller.spec.ts
 - Modify: apps/server/src/agent-os/adapter/in/http/interaction/conversation.controller.ts
 - Modify: apps/server/src/agent-os/adapter/in/http/interaction/conversation.controller.spec.ts
+- Add: apps/server/src/agent-os/adapter/in/http/interaction/copilotkit-sqlite-event-history.ts
+- Add: apps/server/src/agent-os/application/port/out/conversation-event-history.port.ts
+- Modify: apps/server/src/agent-os/agent-os-interaction-http.module.ts
+- Modify: apps/server/package.json
+- Modify: package-lock.json
+- Add only if upstream characterization fails: packages/copilotkit-sqlite-runner/* as the narrow, attributed 1.69.0 fork
+- Modify/Delete: packages/shared/src/agent-runtime/provider-message.ts and exact exports/tests when orphaned
+- Modify/Delete: apps/server/src/agent-os/adapter/out/runtime/gateway/*history* and exact command/event branches
+- Modify/Delete: apps/agent-gateway/src/control/*, apps/agent-gateway/src/conversation/*, and apps/agent-gateway/src/provider/* history-only branches
+- Modify: apps/server/Dockerfile
+- Modify: deploy/office/compose.office.yml
+- Modify: docs/runbooks/environment-variables.md
 
 - [ ] **Step 1: Add failing draft and runtime-lifetime tests**
 
@@ -829,15 +842,29 @@ Test:
   stop control; and
 - changing the selected Conversation disposes the old subscription before
   creating the next exact binding;
-- runner `connect` returns one bounded authenticated `MESSAGES_SNAPSHOT` built
-  from provider history without copying it into PostgreSQL or a Web cache;
+- stock runner `connect` replays valid ordered AG-UI events from a real SQLite
+  file across runner/service reconstruction without copying them into
+  PostgreSQL or a Web cache;
+- the same public conversation ID in two organizations resolves to distinct
+  internal runner thread keys and cannot replay across the owner fence;
+- browser stream unsubscribe detaches only that subscriber and does not clear
+  Nest active-turn authority or terminate the provider run;
 - runner `isRunning` reads the exact organization/user/conversation active turn;
 - runner `stop` interrupts that exact active turn, returns false when none is
   active, and does not clear the active turn on interrupt acknowledgement; and
 - exact provider terminal clears running state while a stale terminal cannot
-  clear a newer turn; and
+  clear a newer turn;
+- API restart leaves no durable running lock; the new process accepts the next
+  explicit user turn without resuming reasoning or creating a recovery workflow;
+- exact Conversation deletion removes its namespaced SQLite events after the
+  provider/descriptor delete, and an idempotent retry finishes that cleanup;
+- an existing Conversation calls `connectAgent` once per selected runtime
+  binding, while a draft, StrictMode remount, and presentation route change do
+  not add another connect;
 - the retired public history GET, Web API function, Query key, and custom
-  reconciliation module are absent after runner `connect` owns history.
+  reconciliation module are absent after runner `connect` owns history; and
+- provider-history commands, events, mappers, and `ProviderMessage` contracts
+  are absent once no production caller remains.
 
 Run:
 
@@ -846,9 +873,9 @@ rtk npm exec --workspace=apps/server vitest -- run src/agent-os/application/serv
 rtk npm exec --workspace=apps/web vitest -- run src/components/agent-interaction/__tests__/ConversationRuntimeHost.spec.tsx src/components/agent-interaction/__tests__/conversation-first-send.coordinator.spec.ts src/components/agent-interaction/__tests__/useNewConversationDraft.spec.tsx src/components/agent-interaction/__tests__/AgentConversationSurface.spec.tsx src/components/agent-interaction/conversation-api.spec.ts src/components/agent-interaction/conversation-surface-state.spec.ts
 ~~~
 
-Expected: the new server runner tests FAIL because connect/isRunning/stop are
-fake, and the revised Web tests FAIL while custom history/active-turn
-reconciliation still duplicates CopilotKit.
+Expected: the new server tests FAIL while the request-scoped custom runner has
+no real event store, stream teardown clears authority, provider history remains
+a second control plane, and existing Conversations do not connect exactly once.
 
 - [ ] **Step 2: Define disposable draft state**
 
@@ -914,8 +941,61 @@ normal existing-conversation path and a new turn ID.
 
 - [ ] **Step 5: Restore CopilotKit interaction ownership behind the route-stable host**
 
-Remove `StatelessConversationAgentRunner`. Add the two exact active-turn
-operations to the owner-facing Conversation port:
+Keep the already-completed removal of `StatelessConversationAgentRunner`.
+First install the upstream open-source runner at the fixed CopilotKit 1.69.0
+release train for characterization:
+
+~~~json
+{
+  "@copilotkit/sqlite-runner": "1.69.0",
+  "better-sqlite3": "12.2.0"
+}
+~~~
+
+Before production wiring, run package-level characterization tests against the
+unmodified upstream runner for all five contracts:
+
+1. a `run` continues and records its exact terminal event when the original
+   HTTP/SSE subscriber leaves;
+2. process reconstruction cannot leave a stale durable running lock;
+3. stop acknowledgement does not release the run before the exact provider
+   terminal;
+4. the same public Conversation ID in two organization namespaces cannot
+   collide; and
+5. exact per-thread deletion removes only that Conversation's completed event
+   chain.
+
+Use upstream directly only if all five pass. If any contract fails, create one
+narrow workspace fork of `@copilotkit/sqlite-runner` 1.69.0, retain its license
+and upstream provenance, and change only the failing lifecycle/storage seams.
+Do not fork CopilotKit runtime, AG-UI, React hooks, or Web integration; do not
+copy the runner into an Agent OS service. The fork must keep upstream's event
+compaction/replay semantics and public AgentRunner behavior, with its delta
+covered by focused package tests.
+
+Do not call CopilotKit Intelligence, a hosted CopilotKit API, or any paid
+persistence service. Configure one Nest-owned runner over
+`KIDITEM_COPILOTKIT_SQLITE_PATH`; use `:memory:` or a disposable temporary file
+in tests, a resolved `.kiditem/agent-os/copilotkit-events.sqlite` default in
+development, and require an explicit persistent path in production.
+
+The runner owns the full canonical AG-UI event recording for completed
+interactions, ordered replay, active connection bridging, and in-process
+one-run-at-a-time serialization. SQLite must not become execution authority:
+Nest's in-memory exact active-turn record remains the only authority for whether
+a provider turn is running or may be stopped. Do not persist a running lock
+across API restart. Provider-local Codex/Claude history remains model continuity
+only; it is not separately projected into the Web interaction. Keep no parallel
+`MESSAGES_SNAPSHOT` synthesis.
+
+Wrap the singleton with a thin authenticated owner-scoped runner. It must map
+the public `threadId` to a collision-free internal key derived from the
+server-authenticated `organizationId` and conversation ID before every
+SQLite-runner operation. The public event/input thread ID remains the original
+conversation ID. Never derive business authority from the namespaced string or
+from CopilotKit input.
+
+Keep the two exact active-turn operations on the owner-facing Conversation port:
 
 ~~~typescript
 interface ConversationPort {
@@ -932,57 +1012,38 @@ false without mutation when no exact turn exists. It never deletes the turn on
 interrupt acknowledgement. Existing exact-terminal handling remains the only
 clear operation, so a stale terminal cannot clear a successor.
 
-Replace the fake runner with an authenticated request-scoped runner bound to
-`ConversationPort` and the controller-derived owner. Import `from`, `map`, and
-`Observable` from `rxjs`; import `ConversationOwner` from the incoming port:
+For `run` and `connect`, the thin wrapper delegates to the singleton SQLite
+runner with the authenticated namespaced thread key. For `isRunning`, consult
+the exact Nest `ConversationService` active-turn record. For `stop`, call only
+the exact provider interrupt through `ConversationService`; do not invoke the
+stock runner's early `stop` path because interrupt acknowledgement is not
+terminal. The underlying provider terminal must complete the AG-UI run, which
+then closes the SQLite run and clears the exact Nest active turn. A stale
+terminal cannot clear a successor, and `ConversationService.start` must refuse
+to overwrite an already active exact Conversation.
 
-~~~typescript
-class GatewayConversationAgentRunner extends AgentRunner {
-  constructor(
-    private readonly conversations: ConversationPort,
-    private readonly owner: ConversationOwner,
-  ) {
-    super();
-  }
+Remove controller observable-finalize calls that treat browser/SSE unsubscribe
+as provider terminal. Runner execution continues independently of that
+subscriber; disconnect only detaches the browser observer. Delete the obsolete
+`ConversationPort.disconnect` path if it has no remaining true terminal use.
 
-  run(request: AgentRunnerRunRequest): Observable<BaseEvent> {
-    return request.agent.run(request.input);
-  }
+On one single-instance API boot there must be no stale SQLite lock capable of
+blocking the next explicit turn. Prefer removing durable `run_state` authority
+in the narrow fork and using only an in-process runner guard plus Nest active
+turn; if direct upstream use remains viable, its startup handling must provide
+the same externally tested result. API boot never restores or continues
+provider reasoning. Do not add a retry loop, recovery state machine, durable
+active-turn table, or automatic Continue.
 
-  connect(request: AgentRunnerConnectRequest): Observable<BaseEvent> {
-    return from(this.conversations.history({
-      ...this.owner,
-      conversationId: request.threadId,
-    })).pipe(map((history) => ({
-      type: EventType.MESSAGES_SNAPSHOT,
-      messages: history
-        .filter((message) => message.role === 'user' || message.role === 'assistant')
-        .map(({ id, role, content }) => ({ id, role, content })),
-    })));
-  }
+The runner package owns a narrow exact-thread deletion seam: delete the exact
+completed `agent_runs` chain and any runner-private coordination row for one
+authenticated namespaced Conversation after Gateway provider-first/
+descriptor-second deletion succeeds. Invoke this seam even when the provider/
+descriptor is already absent so a retry can finish prior local cleanup. Do not
+implement TTL, retention, transcript export, or a compatibility importer.
 
-  isRunning(request: AgentRunnerIsRunningRequest): Promise<boolean> {
-    return this.conversations.isRunning({
-      ...this.owner,
-      conversationId: request.threadId,
-    });
-  }
-
-  stop(request: AgentRunnerStopRequest): Promise<boolean> {
-    return this.conversations.stop({
-      ...this.owner,
-      conversationId: request.threadId,
-    });
-  }
-}
-~~~
-
-Use this runner when constructing the request-scoped `CopilotRuntime`. The
-runner owns the CopilotKit run/connect/running/stop contract; Nest remains the
-only business authority and active-turn record. Do not add a runner store,
-transcript table, custom protocol, or another runtime state machine.
-
-After `connect` is green, delete the duplicate public Web history path:
+After SQLite `connect` is green, keep the completed deletion of the duplicate
+public Web history path:
 
 - remove `GET /api/agent-os/conversations/:conversationId/history` from
   ConversationController and its tests;
@@ -991,9 +1052,12 @@ After `connect` is green, delete the duplicate public Web history path:
 - remove the corresponding Query call and custom history/live reconciliation
   from ConversationRuntimeHost.
 
-Keep `ConversationPort.history` because the authenticated CopilotKit runner
-uses that internal owner seam. Do not remove Gateway/provider history support
-or expose provider coordinates to CopilotKit input.
+Then remove `ConversationPort.history` and the exact Gateway/provider history
+control plane, because the SQLite runner is now the sole UI event-history seam.
+Delete orphaned `ProviderMessage` schemas, Claude JSONL-to-message projection,
+Codex history conversion, commands/events, brokers, and tests rather than
+retaining a compatibility layer. Do not remove provider session persistence
+itself: Codex threads and Claude sessions still own model continuity.
 
 ConversationProvider contains the CopilotKit transport and interaction owner.
 ConversationRuntimeHost:
@@ -1001,7 +1065,7 @@ ConversationRuntimeHost:
 - mounts one ActiveConversationRuntime child for the selected existing
   Conversation or the selected draft's reserved conversationId;
 - treats draft binding as local setup only: it must not create a Provider
-  conversation, fetch provider history, or run a turn;
+  conversation, connect event history, or run a turn;
 - keeps that exact binding mounted when first Send promotes the reserved draft
   ID to an existing Conversation, so the coordinator can hand off without a
   render-effect race;
@@ -1013,9 +1077,15 @@ ConversationRuntimeHost:
   reconciliation state;
 - exposes a React context consumed by both AI chat panel and Agent OS presentations;
 - leaves React Query as owner of summaries, readiness, preferences, and
-  business-resource queries; provider history enters the CopilotKit interaction
-  through runner `connect`; and
+  business-resource queries; AG-UI event history enters through the stock
+  SQLite runner's `connect`; and
 - never starts or resumes a turn from a route effect.
+
+For an existing selected Conversation, call `agent.connectAgent()` exactly
+once for that mounted runtime binding. A draft performs no connect. React
+StrictMode, presentation remounts, and ordinary route changes must not create a
+second connect; selecting a different Conversation disposes the old binding and
+connects the new one once.
 
 Delete the covered-live-message reconciliation algorithm and custom Web
 lifecycle tests after equivalent CopilotKit run/connect/stop contract tests are
@@ -1055,26 +1125,28 @@ rtk npm exec --workspace=apps/server vitest -- run src/agent-os/application/serv
 rtk npm exec --workspace=apps/web vitest -- run src/components/agent-interaction src/lib/query-keys.spec.ts
 ~~~
 
-Expected: authenticated runner connect/running/stop, exact terminal behavior,
-all current card/message tests, and new coordinator tests pass with one
-CopilotKit interaction and no Web history reconciliation owner.
+Expected: real SQLite event replay, authenticated owner fencing, disconnect and
+interrupt races, exact terminal behavior, existing-conversation connect, all
+current card/message tests, and new coordinator tests pass with one CopilotKit
+interaction and no provider/Web history reconciliation owner.
 
 - [ ] **Step 8: Commit the route-stable runtime**
 
 ~~~bash
-rtk git add apps/server/src/agent-os/application/port/in/capability/conversation.port.ts apps/server/src/agent-os/application/service/conversation.service.ts apps/server/src/agent-os/application/service/conversation.service.spec.ts apps/server/src/agent-os/adapter/in/http/interaction/conversation-copilotkit.controller.ts apps/server/src/agent-os/adapter/in/http/interaction/conversation-copilotkit.controller.spec.ts apps/server/src/agent-os/adapter/in/http/interaction/conversation.controller.ts apps/server/src/agent-os/adapter/in/http/interaction/conversation.controller.spec.ts apps/web/src/components/agent-interaction apps/web/src/lib/query-keys.ts apps/web/src/lib/query-keys.spec.ts
-rtk git commit -m "refactor(agent-os): restore CopilotKit interaction ownership"
+rtk git add apps/server/package.json package-lock.json apps/server/Dockerfile apps/server/src/agent-os apps/agent-gateway/src packages/shared/src/agent-runtime apps/web/src/components/agent-interaction apps/web/src/lib/query-keys.ts apps/web/src/lib/query-keys.spec.ts deploy/office/compose.office.yml docs/runbooks/environment-variables.md
+rtk git commit -m "refactor(agent-os): adopt CopilotKit SQLite event runner"
 ~~~
 
 ### Terra(max) Task 4 Contract Check
 
 Review only browser-reserved draft identity, create canonicalization,
-first-send coalescing/drift rejection, one-handoff semantics, authenticated
-runner connect/isRunning/stop, exact-terminal ownership, removal of the public
-history/query/reconciliation duplicate, and preservation of one CopilotKit
-interaction across presentation and route changes. Do not perform a general UI
-quality review here. Fix findings with TDD and re-review only the reported
-finding IDs.
+first-send coalescing/drift rejection, one-handoff semantics, stock OSS SQLite
+event replay, organization namespacing, browser disconnect versus provider
+terminal, exact interrupt/terminal ownership, stale-start recovery, exact
+event-history deletion, removal of both public and provider history duplicates,
+and preservation of one CopilotKit interaction across presentation and route
+changes. Do not perform a general UI quality review here. Fix findings with TDD
+and re-review only the reported finding IDs.
 
 ## Task 5: Align the Single Right Auxiliary Panel with the Approved Dock
 
@@ -1427,7 +1499,8 @@ Keep CopilotKit messages, live projection rendering, capability/tool/reference
 cards, and composer composition in the ConversationFlow extracted in Task 4.
 Finish its workspace header and compact-composer composition here. It consumes
 ConversationRuntimeHost presentation context; it does not mount `useAgent`,
-query provider history separately, or reconcile a second transcript.
+query provider history or SQLite events separately, or reconcile a second
+transcript.
 
 AgentConversationSurface becomes only:
 
@@ -1753,6 +1826,9 @@ starting Task 7.
 
 **Files:**
 
+- Modify: apps/server/Dockerfile
+- Modify: deploy/office/compose.office.yml
+- Modify: docs/runbooks/environment-variables.md
 - Modify: scripts/smoke-interaction-os.mjs
 - Modify: scripts/__tests__/smoke-interaction-os.test.mjs
 - Modify: docs/ARCHITECTURE.md
@@ -1770,12 +1846,13 @@ conversationId and include a deterministic bounded title. Assert:
 - a changed-title POST for that ID returns 409 in the integration fixture;
 - preference read/set/read crosses the authenticated facade without entering
   PostgreSQL;
-- provider history remains readable; and
+- completed CopilotKit AG-UI event history reconnects from the exact local
+  SQLite Conversation namespace; and
 - the smoke never accepts a caller-injected MCP token or calls the internal MCP
   endpoint outside a real provider turn.
 
 The live smoke must delete/archive only the disposable conversation it creates.
-Do not delete existing provider history.
+Do not delete existing provider sessions or unrelated SQLite event history.
 
 Process-token MCP admission, the exact five tools, and approval-pending behavior
 remain covered by the Gateway loopback/MCP tests and authenticated Terra(max)
@@ -1799,7 +1876,17 @@ In docs/ARCHITECTURE.md record:
   no retained PanelSheet shell or panel-open store;
 - native serialized descriptor/preference ownership;
 - provider-first deletion; and
+- CopilotKit OSS SQLite completed-event history, Nest-only active-turn
+  authority, and any narrowly documented upstream sqlite-runner fork delta; and
 - no PostgreSQL conversation/preferences model.
+
+Give the Office API one API-only persistent volume mounted at
+`/var/lib/kiditem/agent-os` and set
+`KIDITEM_COPILOTKIT_SQLITE_PATH=/var/lib/kiditem/agent-os/copilotkit-events.sqlite`.
+The worker does not mount or open this file. Ensure the production image
+contains a Node 22-compatible `better-sqlite3` native binary despite the
+runtime-stage `npm ci --ignore-scripts`, and add a build-time load/open smoke
+for the selected runner package plus `better-sqlite3(':memory:')`.
 
 Record only top-level UI ownership: CopilotKit interaction, route-stable Web
 presentation, 352-pixel responsive right surface, and 260-pixel Agent OS
@@ -1818,6 +1905,7 @@ Do not modify the user-owned design source or DESIGN.md.
 ~~~bash
 rtk npm exec --workspace=packages/shared vitest -- run src/agent-runtime
 rtk npm run build --workspace=packages/shared
+rtk npm exec --workspace=packages/copilotkit-sqlite-runner vitest -- run
 rtk npm exec --workspace=apps/agent-gateway vitest -- run
 rtk npm run build --workspace=apps/agent-gateway
 rtk npm exec --workspace=apps/server vitest -- run src/agent-os
@@ -1869,9 +1957,13 @@ review must cover at least:
 - Gateway create idempotency, serialized local state, exact provider deletion,
   and live-turn fences;
 - Nest authentication/error mapping and absence of conversation persistence;
-- CopilotKit runner ownership of run/connect/running/stop, absence of duplicate
-  Web lifecycle state, route-stable presentation, first-send handoff
-  correctness, and explicit model/reasoning selection;
+- CopilotKit SQLite runner ownership of full completed AG-UI event
+  run/connect/replay, Nest-only running/stop authority, subscriber/restart/
+  exact-stop/organization/delete contracts, absence of duplicate Web lifecycle
+  state, route-stable presentation, first-send handoff correctness, and
+  explicit model/reasoning selection;
+- any sqlite-runner fork remains an attributed package-level delta from 1.69.0
+  and does not fork CopilotKit runtime, AG-UI, React, or Web integration;
 - single right-surface ownership and complete legacy presentation removal;
 - exact 352-pixel push/overlay/drawer presentation without measured layout
   state;
@@ -2027,8 +2119,12 @@ rtk git commit -m "docs(agent-os): verify global conversation workspace"
   coordinate.
 - [ ] One authenticated CopilotKit interaction survives route changes through
   the route-stable ConversationProvider/RuntimeHost presentation adapter.
-- [ ] CopilotKit owns run/connect/running/stop; the fake stateless runner and
-  duplicate Web active-turn/reconciliation lifecycle are absent.
+- [ ] CopilotKit SQLite semantics own full completed-event run/connect/replay;
+  Nest alone owns active-turn running/stop authority, and the fake runner plus
+  duplicate Web/provider reconciliation lifecycles are absent.
+- [ ] Upstream sqlite-runner characterization covers subscriber departure,
+  restart stale lock, exact stop, organization namespace, and exact deletion;
+  any required fork is limited to that package with provenance and delta tests.
 - [ ] AI chat panel and Agent OS share one runtime, flow, composer, Query cache, and
   first-send coordinator.
 - [ ] Notification and AI chat content are mutually exclusive bodies of one

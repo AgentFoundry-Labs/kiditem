@@ -9,7 +9,14 @@
 
 Every authenticated KidItem work surface gains immediate access to a conversation-first AI chat panel in the app shell's single right auxiliary surface. The Dashboard and ordinary work screens are where conversations naturally begin while the user works; Agent OS becomes the full history, search, settings, and conversation-resume workspace.
 
-The workspace keeps its existing provider-native conversation architecture. It does not add a KidItem database conversation model, provider credential persistence, AgentVersion model policy, native-subagent conversation rows, or a second task lifecycle.
+The workspace keeps provider-native model continuity and uses the local
+CopilotKit OSS SQLite-runner semantics as the canonical interaction
+event-history owner. The upstream package is used directly only when its
+lifecycle/storage characterization passes; otherwise one narrow attributed
+fork of that package supplies the missing contracts. It does
+not add a KidItem PostgreSQL conversation model, paid CopilotKit service,
+provider credential persistence, AgentVersion model policy, native-subagent
+conversation rows, or a second task lifecycle.
 
 The user-facing changes are:
 
@@ -45,13 +52,14 @@ ownership.
 7. Preserve the immutable Provider choice while allowing model and reasoning effort to change between turns.
 8. Let the user configure useful defaults without moving provider policy into AgentVersion.
 9. Let the user find, rename, and delete provider-native conversation history.
-10. Preserve the existing live CopilotKit stream, capability cards, owner boundaries, and no-transcript-in-PostgreSQL rule.
+10. Preserve the existing live CopilotKit stream, capability cards, owner boundaries, and no-transcript-in-PostgreSQL rule while letting its SQLite runner own the full canonical AG-UI event replay for completed interactions.
 11. Restore the accepted KidItem conversation visual hierarchy across Agent OS
     and the Dashboard dock without redesigning the Dashboard business surface.
 
 ## 3. Non-goals
 
 - Persisting transcript messages or provider session history in KidItem PostgreSQL
+- Using CopilotKit Intelligence, hosted CopilotKit persistence, or another paid CopilotKit service
 - Adding `AgentSession`, generic Task, folder, archive, or retention-policy models
 - Adding model, reasoning effort, Provider, credential, or provider-session fields to AgentVersion or CapabilityDefinition
 - Showing native Codex/Claude subagents as top-level conversations
@@ -567,9 +575,11 @@ Expected Web ownership:
   interaction.
 - a settings dialog owns preference and history-management views.
 - React Query remains the owner of conversation summaries, readiness,
-  preferences, and business-resource queries. Authenticated provider history is
-  projected into the CopilotKit interaction through runner `connect`; Web does
-  not keep a second history/reconciliation owner.
+  preferences, and business-resource queries. The CopilotKit OSS SQLite runner
+  records and replays full canonical AG-UI events for completed interactions
+  through `connect`; Web and the
+  provider-history control plane do not keep a second history/reconciliation
+  owner. Provider-local sessions remain solely for model continuity.
 - the app-shell UI store holds one `activeRightSurface`; conversation UI state holds only open folder, selected conversation, pending draft, and dialog coordinates.
 
 Expected backend ownership:
@@ -582,6 +592,13 @@ Expected backend ownership:
   other organization; initiating-user ownership remains only on the live Turn
   in Nest.
 - the native Host Runner owns the strict local preference store and provider conversation deletion.
+- one API-local CopilotKit SQLite file owns completed interaction events, is namespaced by
+  server-authenticated organization plus Conversation, and is deleted with the
+  exact provider Conversation; it stores no credential, bearer/token, raw
+  provider payload, or private reasoning.
+- Nest's in-memory active-turn record remains the only execution authority;
+  SQLite never resumes reasoning or persists a lock that can block the next
+  explicit turn after API restart.
 - no business domain or Prisma adapter participates.
 
 The existing notification `PanelSheet` shell and the future AI chat shell must
