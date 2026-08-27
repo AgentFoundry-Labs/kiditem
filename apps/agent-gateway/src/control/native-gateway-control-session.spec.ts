@@ -44,6 +44,59 @@ describe('NativeGatewayControlSession', () => {
     expect(calls).toEqual(['poll', 'event', 'poll']);
   });
 
+  it('emits cached readiness for every fresh API runtime registration', async () => {
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const { GatewayControlHttpError } = await import('./gateway-control.client');
+    const { NativeGatewayControlSession } = await import('./native-gateway-control-session');
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
+    const readiness = [
+      { runtime: 'codex_cli' as const, ready: false as const, code: 'gateway_provider_unavailable' as const },
+      { runtime: 'claude_cli' as const, ready: false as const, code: 'gateway_provider_unavailable' as const },
+    ];
+    const calls: string[] = [];
+    let polls = 0;
+    const client = {
+      poll: vi.fn(async () => {
+        calls.push('poll');
+        polls += 1;
+        if (polls < 3) return { commands: [], apiRuntimeRegistered: true };
+        throw new GatewayControlHttpError(401);
+      }),
+      postEventBody: vi.fn(async (body: string) => {
+        calls.push('event');
+        return { eventSeq: JSON.parse(body).eventSeq, accepted: true as const };
+      }),
+      abortInFlight: vi.fn(),
+    };
+    const dispatcher = {
+      resetAfterApiRuntimeRegistration: vi.fn(async () => { calls.push('reset'); }),
+      dispatch: vi.fn(),
+      clear: vi.fn(),
+    };
+    const session = new NativeGatewayControlSession({
+      client,
+      dispatcher,
+      outbox,
+      poll: {
+        kind: 'poll', gatewayInstanceId: 'gateway-1', platform: 'macos',
+        mcpTransportToken: 'A'.repeat(43),
+        runtimeTrain: { controlRevision: 'kiditem-gateway-control-v1', mcpProtocolRevision: '2026-07-28', nodeMajor: 22, codexVersion: '0.149.1', claudeVersion: '2.1.245' },
+      },
+      onApiRuntimeRegistered: () => {
+        calls.push('readiness');
+        outbox.enqueue({ kind: 'gateway.readiness', readiness });
+      },
+      onPollLoss: vi.fn(),
+    });
+
+    await expect(session.run()).rejects.toThrow('gateway_control_lost');
+    expect(calls).toEqual(['poll', 'reset', 'readiness', 'event', 'poll', 'reset', 'readiness', 'event', 'poll']);
+    expect(client.postEventBody.mock.calls.map(([body]) => JSON.parse(body).events)).toEqual([
+      [{ kind: 'gateway.readiness', readiness }],
+      [{ kind: 'gateway.readiness', readiness }],
+    ]);
+  });
+
   it('serializes poll, dispatch, stable outbox acknowledgement, and process-local cleanup on control loss', async () => {
     const { GatewayEventOutbox } = await import('./gateway-event-outbox');
     const { GatewayControlHttpError } = await import('./gateway-control.client');

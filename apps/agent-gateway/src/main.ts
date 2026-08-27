@@ -91,7 +91,7 @@ export async function runNativeAgentGateway(argv: readonly string[]): Promise<ne
   });
   const gatewayInstanceId = randomUUID();
   const outbox = new GatewayEventOutbox({ gatewayInstanceId, redactionTokens: [token, mcpTransportToken] });
-  outbox.enqueue({ kind: 'gateway.readiness', readiness: await gatewayReadiness([codex, claude]) });
+  const readiness = await gatewayReadiness([codex, claude]);
   const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, preferences });
   const client = new GatewayControlClient({ controlOrigin: config.controlOrigin, token });
   const control = new NativeGatewayControlSession({
@@ -99,6 +99,7 @@ export async function runNativeAgentGateway(argv: readonly string[]): Promise<ne
     dispatcher,
     outbox,
     poll: { kind: 'poll', gatewayInstanceId, platform, runtimeTrain: GATEWAY_RUNTIME_TRAIN, mcpTransportToken },
+    onApiRuntimeRegistered: () => { outbox.enqueue({ kind: 'gateway.readiness', readiness }); },
     onPollLoss: async () => {
       const results = await Promise.allSettled([
         ...(codexProcess ? [codexProcess.close()] : []),

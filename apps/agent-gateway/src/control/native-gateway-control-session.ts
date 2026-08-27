@@ -25,6 +25,7 @@ export class NativeGatewayControlSession {
     dispatcher: Pick<GatewayCommandDispatcher, 'dispatch' | 'clear' | 'resetAfterApiRuntimeRegistration'>;
     outbox: GatewayEventOutbox;
     poll: GatewayPoll;
+    onApiRuntimeRegistered?: () => void | Promise<void>;
     onPollLoss: () => void | Promise<void>;
     sleep?: (milliseconds: number) => Promise<void>;
   }>) {}
@@ -84,6 +85,7 @@ export class NativeGatewayControlSession {
           // A failed provider interrupt leaves local execution state
           // indeterminate. It is not a retryable control transport failure.
           await this.raceStop(this.options.dispatcher.resetAfterApiRuntimeRegistration());
+          await this.raceStop(Promise.resolve(this.options.onApiRuntimeRegistered?.()));
         }
         controlSessionClaimed = true;
         if (!batch) continue;
