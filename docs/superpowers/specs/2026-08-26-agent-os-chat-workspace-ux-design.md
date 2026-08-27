@@ -1,8 +1,9 @@
 # Agent OS Chat Workspace UX Design
 
-**Date:** 2026-08-26  
-**Status:** Ready for review  
-**Scope:** KID-25 global AI chat panel, Agent OS history workspace, Gateway-local conversation preferences, and conversation-history management
+**Date:** 2026-08-26
+**Status:** Ready for review
+**Revised:** 2026-08-27
+**Scope:** KID-25 global AI chat panel, Agent OS history workspace, KidItem visual alignment, Gateway-local conversation preferences, and conversation-history management
 
 ## 1. Summary
 
@@ -25,6 +26,14 @@ The user-facing changes are:
 - conversation search, rename, individual delete, folder delete, and delete-all controls; and
 - removal of implementation terms such as Gateway, provider-local storage, descriptor, binding, and session-creation timing from the normal UI.
 
+The approved visual direction is **original-design operational**. It restores
+the information hierarchy and KidItem visual language from the accepted
+brainstorming mockups instead of merely reskinning the current generic chat
+layout. Existing production behavior such as approvals, Operation/resource
+results, responsive navigation, and actionable error states is composed into
+that design. It is not a pixel-for-pixel copy and does not reopen runtime
+ownership.
+
 ## 2. Goals
 
 1. Let a user open AI chat from every authenticated work screen without first navigating to Agent OS.
@@ -37,6 +46,8 @@ The user-facing changes are:
 8. Let the user configure useful defaults without moving provider policy into AgentVersion.
 9. Let the user find, rename, and delete provider-native conversation history.
 10. Preserve the existing live CopilotKit stream, capability cards, owner boundaries, and no-transcript-in-PostgreSQL rule.
+11. Restore the accepted KidItem conversation visual hierarchy across Agent OS
+    and the Dashboard dock without redesigning the Dashboard business surface.
 
 ## 3. Non-goals
 
@@ -52,6 +63,9 @@ The user-facing changes are:
 - Making chat lifecycle or state depend on one sidebar implementation
 - Renaming, restructuring, or repurposing the Dashboard `Agent OS` organization chart and action cards
 - Restoring an interaction gateway application or a separate port
+- Replacing CopilotKit interaction ownership while implementing the visual refresh
+- Treating the approved mockup as a reason to add decorative controls that have
+  no production behavior
 
 ## 4. Product Vocabulary
 
@@ -83,7 +97,16 @@ type ActiveRightSurface = 'notifications' | 'ai_chat' | null;
 
 Selecting the already active surface closes it. Selecting the other surface replaces the current content in the same panel slot. Notification and AI chat content bodies are never mounted as competing right-side overlays.
 
-After authentication succeeds, `AppLayout` also mounts exactly one route-stable `ConversationProvider` and one `ConversationRuntimeHost`. The runtime host owns the active `useAgent` binding, live turn correlation, interrupt control, and live projection for the selected Conversation. Ordinary route changes, including navigation between a work screen and `/agent-os`, change only the presentation view; they do not unmount or duplicate the runtime host. The AI chat panel and Agent OS must never create two active subscriptions for the same Conversation.
+After authentication succeeds, `AppLayout` also mounts exactly one route-stable
+`ConversationProvider` and one `ConversationRuntimeHost`. CopilotKit owns the
+interaction lifecycle for the selected Conversation: run, stream, connect,
+running state, and stop. `ConversationRuntimeHost` is the route-stable
+presentation adapter over that lifecycle; it must not recreate active-turn,
+interrupt-acknowledgement, stale-settlement, or provider-history reconciliation
+state. Ordinary route changes, including navigation between a work screen and
+`/agent-os`, change only the presentation view; they do not unmount or duplicate
+the CopilotKit interaction. The AI chat panel and Agent OS must never create two
+active subscriptions for the same Conversation.
 
 While `/agent-os` is active, the auxiliary AI chat body is suppressed because Agent OS already presents the selected Conversation. This does not clear the selected Conversation or stop the runtime host. Returning to an ordinary work screen restores the prior auxiliary-panel state without starting another subscription.
 
@@ -111,7 +134,14 @@ The AI chat panel header contains:
 - a Settings action; and
 - `전체 기록`, which opens `/agent-os` at the current conversation or selected context.
 
-On desktop, the auxiliary panel is a fixed 420-pixel non-modal surface attached to the right edge. It has no page-wide modal overlay, leaves the uncovered work surface interactive, and does not resize, reflow, or calculate the remaining width of the current work screen. Below 768 pixels it uses the same state and content in a full-width modal drawer. This is one responsive panel shell, not separate dock and drawer features.
+At the desktop `xl` breakpoint and above, the auxiliary panel is a 352-pixel
+non-modal dock that participates in `AppLayout` width. Opening it reduces the
+Dashboard or current work-surface content width; it does not cover that content.
+The uncovered work surface remains interactive. From 768 pixels through the
+`xl` breakpoint, the same 352-pixel content uses a right overlay sheet so the
+business surface does not become unusably narrow. Below 768 pixels it becomes a
+full-width modal drawer. These are responsive presentations of one panel state
+and one content body, not separate dock, overlay, and drawer features.
 
 The Quick Action FAB does not move in response to the panel. It is hidden while either auxiliary surface is open and restored when the panel closes. Notification data collection and the conversation runtime remain mounted independently from which panel content is visible. Replacing AI chat with notifications therefore hides only the chat presentation; it does not interrupt the active turn or discard the selected Conversation. The AI chat content has its own scroll region and reuses the same route-stable conversation stream, cards, composer, draft behavior, and Query state as Agent OS.
 
@@ -123,11 +153,18 @@ Agent OS is not the required starting point for ordinary chat. It is the complet
 
 The Agent OS shell contains:
 
-1. a 288-pixel conversation tree on desktop;
+1. a 260-pixel conversation tree on desktop;
 2. one conversation surface in the remaining viewport; and
 3. a drawer version of the tree below 1024 pixels.
 
 The tree header contains KidItem identity and an explicit `← 대시보드` action. Both the return action and KidItem mark navigate to `/dashboard`. Browser Back remains available but is not the product's primary return mechanism.
+
+The desktop shell deliberately does not mount the ordinary product-navigation
+sidebar. The 260-pixel conversation tree is the only navigation column, and the
+conversation occupies the remaining viewport. The shell uses the KidItem mark,
+purple selected state, neutral page background, and compact hierarchy from the
+approved visual direction rather than the generic card-and-button density of
+the interim implementation.
 
 ### 5.3 Folder tree
 
@@ -148,6 +185,11 @@ Each folder:
 - shows its conversations ordered by `updatedAt` descending;
 - has a `+` action that opens a new draft fixed to that General or Agent context; and
 - shows rename and delete actions for each existing conversation.
+
+Rename and delete are placed inside a row-level `•••` menu. They are not
+permanently rendered as text buttons beside every title. The active
+conversation uses a quiet purple selection surface; folder-level `+` remains a
+separate accessible action.
 
 Expansion state is disposable UI state. Selecting a conversation expands its owner folder. Native provider subagents and tool activity stay inside the parent conversation stream.
 
@@ -233,6 +275,12 @@ It consists of one rounded, border-first container with:
 - one circular Send button; and
 - a circular Interrupt button in the same location while a turn is active.
 
+The composer is visually elevated above the neutral conversation background
+with a subtle shadow, not boxed inside an additional footer card. It stays
+centered with the message column at approximately 720-768 pixels. Provider,
+model, and reasoning effort read as one compact composed control; its segments
+may open focused menus without becoming three unrelated settings panels.
+
 The combined selector opens structured choices for:
 
 - Codex or Claude while the conversation is still a draft;
@@ -244,6 +292,11 @@ After Conversation creation, Provider remains visible but disabled; model and re
 The composer does not show nonfunctional attachment, microphone, voice, or media icons. Those controls require a separate supported product contract before appearing.
 
 General uses the placeholder `무엇을 도와드릴까요?`. Agent drafts and conversations use `<Agent 이름>에게 무엇을 요청할까요?`.
+
+An empty General or Agent draft uses a centered KidItem/Agent mark, a short
+user-facing description, and up to three bounded suggestion chips. A suggestion
+only fills the composer; it never invokes a capability or creates a
+Conversation by itself.
 
 Keyboard behavior:
 
@@ -316,6 +369,11 @@ A Settings action in the global AI chat panel and a Settings button at the botto
 - `대화 기본값`; and
 - `채팅 기록`.
 
+This is one centered dialog with a compact left settings navigation and one
+content pane. It is not a full route, nested drawer, or runtime management
+console. The history pane uses the same dialog and exposes search, filtering,
+row overflow actions, and bounded destructive confirmations.
+
 `대화 기본값` allows selection of:
 
 - General or one of the five Agents;
@@ -376,17 +434,87 @@ The global AI chat panel and Agent OS use the same semantic tokens and interacti
 
 The panel and workspace are not ChatGPT clones. The screenshot informs the compact composer hierarchy only. KidItem's branding, Agent folders, capability cards, and Dashboard semantics remain authoritative.
 
+Production styling continues to obey `DESIGN.md`: light theme only, semantic
+purple/slate tokens, system font, and Lucide icons. Gradient marks and symbolic
+glyphs used in brainstorming HTML are visual shorthand, not production assets;
+the implementation does not add decorative gradients, emoji icons, or a second
+font stack.
+
+### 10.1 Agent OS composition
+
+The approved Agent OS composition is:
+
+```text
+260px conversation tree
+  -> KidItem mark + Dashboard return
+  -> primary New AI conversation action
+  -> General and five Agent folders
+  -> nested conversation rows with overflow actions
+  -> conversation settings
+
+remaining viewport
+  -> quiet title/context header
+  -> centered 720-768px conversation column
+  -> user bubble / assistant response / business result cards
+  -> shared compact composer
+```
+
+User messages use a soft-purple right-aligned bubble. Assistant responses use
+the neutral page without a large enclosing bubble. Agent identity appears once
+at the start of an assistant response group. This keeps long answers readable
+while preserving source identity.
+
+Evidence, Approval, Operation, and resource results remain first-class product
+UI, but they are rendered as compact cards inside the assistant flow:
+
+- evidence cards show bounded business evidence and links, not raw provider payloads;
+- Approval cards show the exact user-relevant target, effect, and confirm/cancel actions;
+- Operation cards show business progress/result language without lifecycle internals; and
+- technical correlation IDs remain absent from the normal presentation.
+
+Errors appear next to the action or message they affect. A global readiness
+banner is used only when no conversation action can proceed. Normal empty and
+idle states never advertise Gateway connectivity or provider storage details.
+
+### 10.2 Dashboard dock composition
+
+The Dashboard `Agent OS` organization chart, title, cards, metrics, and business
+actions remain visually and behaviorally unchanged. The only additions are the
+bottom-sidebar `AI 챗` launcher and the shared right auxiliary dock.
+
+The dock uses the same title hierarchy, message treatment, business cards, and
+composer as Agent OS at a compact width. Its header contains context/title, New,
+Settings, `전체 기록`, and Close. `전체 기록` changes presentation to
+`/agent-os` for the same Conversation; Close hides presentation only. Neither
+action restarts, clones, or deletes the provider Conversation.
+
+### 10.3 New conversation and settings
+
+Before first Send, Provider, model, and reasoning effort remain explicit in the
+composer. After creation, Provider is visibly fixed while model and reasoning
+effort remain editable between turns. The UI explains Provider immutability in
+user language only when it is relevant; it does not expose the descriptor or
+provider-session mechanism.
+
+The centered Settings dialog uses two stable sections, `대화 기본값` and
+`채팅 기록`. Destructive history actions remain subordinate to everyday
+defaults and search rather than dominating the conversation tree.
+
 ## 11. Responsive and Accessibility Behavior
 
 - The global right auxiliary surface has exactly `notifications | ai_chat | null` visible states; `null` means closed.
 - Selecting one surface atomically replaces the other; selecting the active surface closes the panel.
-- At 768 pixels and above, the panel is a fixed 420-pixel non-modal surface that does not reflow the current work screen.
+- At the desktop `xl` breakpoint and above, the 352-pixel panel is a non-modal
+  dock and the current work surface uses the remaining width.
+- From 768 pixels through the `xl` breakpoint, the same 352-pixel content is a
+  right overlay sheet.
 - Below 768 pixels, the same panel becomes a full-width modal drawer.
-- Desktop presentation does not trap focus or block the uncovered work surface; the mobile modal drawer does trap focus until dismissed.
+- Desktop dock and tablet overlay presentations do not trap focus or block the
+  usable work surface; the mobile modal drawer traps focus until dismissed.
 - The Quick Action FAB never repositions and remains hidden while the auxiliary panel is open.
 - Panel state and the selected conversation survive ordinary client-side route navigation.
 - Switching to notifications or closing the panel does not interrupt an active chat turn.
-- At 1024 pixels and above, the Agent OS 288-pixel folder tree remains visible.
+- At 1024 pixels and above, the Agent OS 260-pixel folder tree remains visible.
 - Below 1024 pixels, the tree becomes a modal drawer and the conversation keeps the full content width.
 - Below 640 pixels, composer controls wrap without placing the selector over the input.
 - Conversation and tree scroll regions remain independent.
@@ -424,11 +552,19 @@ Expected Web ownership:
 - a focused `RightAuxiliaryPanel` owns the shared shell, focus behavior, dismissal, and desktop/mobile presentation.
 - `NotificationPanelContent` and `ConversationPanel` are mutually exclusive bodies of that shell; neither owns the global right-surface state.
 - `ConversationPanel` and the Agent OS workspace are presentation views over the same runtime host; neither independently mounts `useAgent` for the selected Conversation.
-- `AgentConversationSurface` becomes the Agent OS history-workspace composition and is split before additional behavior makes it larger.
+- `AgentConversationSurface` remains a focused Agent OS history-workspace
+  composition and does not absorb runtime, settings, history mutation, or card
+  behavior.
 - `ConversationFolderTree` replaces the old flat `AgentConversationSidebar`; the
   old component and export are deleted rather than retained as a wrapper.
 - a focused new-draft hook owns unsaved first-message state and creation handoff.
 - `AgentConversationComposer` owns compact input and the combined selector and is shared by panel and workspace modes.
+- shared presentation primitives own message grouping and Evidence, Approval,
+  Operation, and resource card styling; they do not own runtime state or domain
+  behavior.
+- Agent OS and Dashboard panel compositions may select full and compact visual
+  variants, but they consume the same conversation data and CopilotKit
+  interaction.
 - a settings dialog owns preference and history-management views.
 - React Query remains the owner of conversation summaries, history, readiness, and preferences.
 - the app-shell UI store holds one `activeRightSurface`; conversation UI state holds only open folder, selected conversation, pending draft, and dialog coordinates.
@@ -436,7 +572,12 @@ Expected Web ownership:
 Expected backend ownership:
 
 - Agent OS authenticated HTTP remains the Web incoming boundary.
-- the existing Gateway conversation port remains the conversation owner adapter.
+- the existing Gateway conversation port remains the conversation owner adapter;
+  its bounded descriptor persists the server-derived organization and hides it
+  from public summaries and provider metadata.
+- Conversation access is shared within that organization and hidden from every
+  other organization; initiating-user ownership remains only on the live Turn
+  in Nest.
 - the native Host Runner owns the strict local preference store and provider conversation deletion.
 - no business domain or Prisma adapter participates.
 
@@ -444,9 +585,10 @@ The existing notification `PanelSheet` shell and the future AI chat shell must
 contract into one `RightAuxiliaryPanel`; their domain-specific contents remain
 separate. `PanelSheet` is renamed and reduced to `NotificationPanelContent`,
 with no Dialog shell, compatibility export, or hidden wrapper left behind. The
-existing 500-plus-line `AgentConversationSurface` must be decomposed into shared
-conversation flow, panel composition, and Agent OS history composition rather
-than expanded further.
+existing split between shared conversation flow, Dashboard panel composition,
+and Agent OS history composition remains. Visual work must not move interaction
+lifecycle back into a large Web component or expand `ConversationRuntimeHost`
+with presentation-specific state.
 
 ### 13.1 Clean cutover and legacy removal
 
@@ -475,7 +617,8 @@ No dual-write state, compatibility alias, deprecated prop, hidden component, or
 one-time migration is added. Notification SSE/data recovery remains mounted
 because it is active product behavior; only its retired presentation lifecycle
 is removed. ConversationRuntimeHost likewise remains mounted independently of
-whether its presentation body is visible.
+whether its presentation body is visible, but it remains a presentation adapter
+rather than a second interaction lifecycle owner.
 
 ## 14. Verification
 
@@ -485,13 +628,17 @@ whether its presentation body is visible.
 - collapsed-sidebar and authenticated full-screen launcher behavior
 - the exact `notifications | ai_chat | null` state machine, including same-trigger close and cross-trigger replacement
 - panel state and active conversation survive ordinary route navigation
-- one active turn, subscription, live projection, and interrupt control survive AI Chat panel -> Agent OS -> Dashboard navigation without remount or duplication
+- one CopilotKit interaction, subscription, live projection, and stop control
+  survive AI Chat panel -> Agent OS -> Dashboard navigation without remount or
+  duplication
 - Agent OS suppresses the auxiliary AI chat body without clearing its selected Conversation, and returning restores the prior panel state
 - while Agent OS suppresses `ai_chat`, an already-selected `notifications`
   surface remains available because only the duplicate chat presentation is
   excluded
-- desktop auxiliary panel overlays only its fixed rectangle without reflowing the Dashboard
-- the same auxiliary panel uses a full-width modal drawer below 768 pixels
+- desktop `xl` auxiliary dock uses exactly 352 pixels and reduces Dashboard
+  content width without covering it
+- tablet presentation uses the same 352-pixel body as an overlay sheet and the
+  mobile presentation uses a full-width modal drawer below 768 pixels
 - Quick Action FAB is hidden without repositioning while either auxiliary surface is open
 - notification selection and panel close do not interrupt an active chat turn
 - Dashboard `Agent OS` label, organization chart, cards, and existing actions remain unchanged
@@ -499,6 +646,12 @@ whether its presentation body is visible.
 - `전체 기록` opens Agent OS at the current conversation or context
 - AI chat panel and Agent OS reuse one conversation flow without duplicate transcript state
 - Dashboard return and KidItem visual tokens
+- 260-pixel desktop conversation tree with row actions in an overflow menu
+- soft-purple user messages, neutral assistant groups, centered message column,
+  and compact inline business result cards
+- centered Settings dialog with `대화 기본값 | 채팅 기록`
+- no visible Gateway, provider-local, descriptor, binding, transport, active-turn,
+  or execution-ID label in normal idle and success states
 - General plus exactly five Agent folders in stable order
 - folder expansion, selection, nested sessions, and `updatedAt` ordering
 - primary General draft and folder-specific Agent drafts
@@ -550,8 +703,12 @@ Run authenticated browser QA for:
 10. rename, search, individual delete, and confirmed bulk delete against disposable Codex and Claude QA conversations;
 11. Agent OS suppressing only the duplicate AI chat body while preserving its runtime and any selected notification body;
 12. focus transfer when replacing notification/chat content and focus return after close or Escape;
-13. desktop fixed auxiliary panel, mobile full-width auxiliary drawer, Agent OS desktop, and Agent OS tree-drawer layouts; and
-14. console/network checks confirming one conversation transport, no retired Agent OS endpoints, and no internal-error toasts.
+13. desktop 352-pixel push dock, tablet overlay sheet, mobile full-width drawer,
+    Agent OS desktop, and Agent OS tree-drawer layouts;
+14. visual regression checks for the approved Agent OS full workspace, Dashboard
+    dock, empty draft, Settings defaults, history list, evidence result, and
+    Approval card states; and
+15. console/network checks confirming one conversation transport, no retired Agent OS endpoints, and no internal-error toasts.
 
 ## 15. Schema and Deployment Impact
 
