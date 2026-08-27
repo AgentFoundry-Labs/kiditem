@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PrismaCapabilityInvocationRepository } from '../adapter/out/repository/prisma-capability-invocation.repository';
 import { CapabilityApprovalService } from '../application/service/capability-approval.service';
+import { CapabilityMutationDispatcher } from '../application/service/capability-mutation-dispatcher.service';
 import {
   CapabilityInvocationService,
   OwnerResultAmbiguousError,
@@ -122,14 +123,17 @@ describe('CapabilityInvocation PostgreSQL races', () => {
     })).toBe(1);
   });
 
-  it('converges concurrent identical approval decisions without execution', async () => {
+  it('converges concurrent identical approval decisions on one owner call', async () => {
     const owner = new OperationBackedOwner(primaryPrisma);
     const definition = mutationDefinition('medium');
-    const service = invocationService(primaryPrisma, definition, owner);
+    const { service, left, right } = approvalRuntime(
+      primaryPrisma,
+      contenderPrisma,
+      definition,
+      owner,
+    );
     const receipt = await service.invoke(mutationRequest());
     const invocationId = inputRequiredInvocationId(receipt);
-    const left = approvalService(primaryPrisma);
-    const right = approvalService(contenderPrisma);
 
     const [first, replay] = await Promise.all([
       left.decide(approvalRequest(invocationId, 'approved')),
@@ -138,25 +142,27 @@ describe('CapabilityInvocation PostgreSQL races', () => {
 
     expect(first).toMatchObject({
       id: invocationId,
-      status: 'pending',
       approvalStatus: 'approved',
     });
     expect(replay).toMatchObject({
       id: invocationId,
-      status: 'pending',
       approvalStatus: 'approved',
     });
-    expect(owner.ownerKeys).toEqual([]);
+    expect([first.status, replay.status]).toContain('succeeded');
+    expect(owner.ownerKeys).toEqual([ownerInvocationKey(invocationId)]);
   });
 
   it('permits only one winner for concurrent opposing approval decisions', async () => {
     const owner = new OperationBackedOwner(primaryPrisma);
     const definition = mutationDefinition('medium');
-    const service = invocationService(primaryPrisma, definition, owner);
+    const { service, left, right } = approvalRuntime(
+      primaryPrisma,
+      contenderPrisma,
+      definition,
+      owner,
+    );
     const receipt = await service.invoke(mutationRequest());
     const invocationId = inputRequiredInvocationId(receipt);
-    const left = approvalService(primaryPrisma);
-    const right = approvalService(contenderPrisma);
 
     const outcomes = await Promise.allSettled([
       left.decide(approvalRequest(invocationId, 'approved')),
@@ -172,7 +178,12 @@ describe('CapabilityInvocation PostgreSQL races', () => {
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
     expect(rejected[0]?.reason).toMatchObject({ code: 'APPROVAL_REJECTED' });
-    expect(owner.ownerKeys).toEqual([]);
+    const winningDecision = fulfilled[0]?.value as { approvalStatus?: string } | undefined;
+    expect(owner.ownerKeys).toEqual(
+      winningDecision?.approvalStatus === 'approved'
+        ? [ownerInvocationKey(invocationId)]
+        : [],
+    );
   });
 
   it('expires an approval before a replay can execute its owner', async () => {
@@ -232,6 +243,31 @@ describe('CapabilityInvocation PostgreSQL races', () => {
       error: null,
     });
     expect(owner.ownerKeys).toHaveLength(1);
+  });
+
+  it('does not turn an identical approved browser decision into a retry after an ambiguous owner outcome', async () => {
+    const owner = new AmbiguousOwner();
+    const definition = mutationDefinition('medium');
+    const { service, left, right } = approvalRuntime(
+      primaryPrisma,
+      contenderPrisma,
+      definition,
+      owner,
+    );
+    const receipt = await service.invoke(mutationRequest());
+    const invocationId = inputRequiredInvocationId(receipt);
+
+    await expect(left.decide(approvalRequest(invocationId, 'approved'))).rejects.toMatchObject({
+      code: 'OWNER_RESULT_AMBIGUOUS',
+      invocationId,
+    });
+    await expect(right.decide(approvalRequest(invocationId, 'approved'))).resolves.toMatchObject({
+      id: invocationId,
+      status: 'pending',
+      approvalStatus: 'approved',
+    });
+
+    expect(owner.ownerKeys).toEqual([ownerInvocationKey(invocationId)]);
   });
 
   it('retries an ambiguous owner commit through a fresh service with one exact owner key and one OperationRun', async () => {
@@ -420,19 +456,51 @@ function invocationService(
   repository = new PrismaCapabilityInvocationRepository(prisma as unknown as PrismaService),
   now?: () => Date,
 ): CapabilityInvocationService {
+  return new CapabilityInvocationService(
+    repository,
+    capabilityRegistry(definition, owner),
+    now,
+  );
+}
+
+function capabilityRegistry(
+  definition: CapabilityDefinition,
+  owner: { invoke(input: OwnerInvocation): Promise<CapabilityResultEnvelope> },
+): AgentCapabilityRegistry {
   const registry = new AgentCapabilityRegistry();
   registry.registerDefinition(definition);
   registry.registerImplementation({
     capabilityKey: definition.key,
     invoke: owner.invoke.bind(owner),
   });
-  return new CapabilityInvocationService(repository, registry, now);
+  return registry;
 }
 
-function approvalService(prisma: PrismaClient): CapabilityApprovalService {
-  return new CapabilityApprovalService(
-    new PrismaCapabilityInvocationRepository(prisma as unknown as PrismaService),
+function approvalRuntime(
+  primary: PrismaClient,
+  contender: PrismaClient,
+  definition: CapabilityDefinition,
+  owner: { invoke(input: OwnerInvocation): Promise<CapabilityResultEnvelope> },
+) {
+  const primaryRepository = new PrismaCapabilityInvocationRepository(
+    primary as unknown as PrismaService,
   );
+  const contenderRepository = new PrismaCapabilityInvocationRepository(
+    contender as unknown as PrismaService,
+  );
+  const registry = capabilityRegistry(definition, owner);
+  const dispatcher = new CapabilityMutationDispatcher(primaryRepository, registry);
+  return {
+    service: new CapabilityInvocationService(
+      primaryRepository,
+      registry,
+      undefined,
+      undefined,
+      dispatcher,
+    ),
+    left: new CapabilityApprovalService(primaryRepository, dispatcher),
+    right: new CapabilityApprovalService(contenderRepository, dispatcher),
+  };
 }
 
 function sourcingWorkflowInvocationService(

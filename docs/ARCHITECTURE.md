@@ -56,9 +56,16 @@ CapabilityDefinitions, including all ten Sourcing capabilities.
 A cross-domain read may be invoked directly; a mutation is owned by the
 explicitly selected domain Agent profile and retains the caller request key at
 the final owner boundary. `approvalRisk` determines whether exact input must be
-confirmed. Approval stores no separate role/grant model and only permits the
-provider to retry the same request. The MCP adapter never writes owner rows or
-creates Operations except through the selected owner capability.
+confirmed. Approval stores no separate role/grant model. Once an exact approval
+is durably recorded, the API-owned `CapabilityMutationDispatcher`
+deterministically executes the already-admitted receipt from its persisted
+canonical input/hash and stable owner key. It never resumes provider reasoning.
+On API bootstrap it performs one bounded sweep of at most 100
+`pending`/`approved` receipts. An ambiguous owner outcome remains `pending` and
+is reachable only through explicit same-request replay or the next
+API-bootstrap sweep. There is no Invocation worker queue, lease, timer, or
+retry loop. The MCP adapter never writes owner rows or creates Operations
+except through the selected owner capability.
 
 Production supports exactly one API instance. API replicas, rolling overlap,
 and overlapping lifecycle ownership are unsupported. One native Gateway owns
@@ -96,12 +103,15 @@ dashboard button ─┐
                   ├─> shared manual action -> extension + owner API/sink
 domain button ────┘
 
-schedule / capability request -> operations
-                            -> owner operation adapter
-                            -> owner input port
-                               | automation workflow port
-                               | owner capability port
-                               | ai direct-job port
+schedule / Operation-backed capability -> operations
+                                       -> owner operation adapter
+                                       -> owner input port
+                                          | automation workflow port
+                                          | owner capability port
+                                          | ai direct-job port
+
+approved non-Operation mutation -> CapabilityMutationDispatcher
+                                -> owner input port
 
 automation -X-> provider conversation
 operations -X-> agent capability registry
@@ -1084,7 +1094,10 @@ The runtime keeps only the boundaries that own live correctness:
   create/list/rename/delete/turn start/input/interrupt without exposing it to
   browser DTOs or provider metadata;
 - one request-driven CapabilityInvocation repository owns request-key
-  uniqueness, input-drift conflict, exact approval, and result replay.
+  uniqueness, input-drift conflict, exact approval, and result replay;
+- the API-owned `CapabilityMutationDispatcher` revalidates the persisted
+  receipt and stable owner key before owner execution, and performs only one
+  bounded bootstrap sweep of at most 100 `pending`/`approved` receipts.
 
 The installation bearer authenticates protected Gateway polling and event
 delivery. The distinct process-scoped MCP token authenticates only the private
@@ -1114,10 +1127,12 @@ flat declarations; wrapping them in stateful service classes would add no
 invariant ownership.
 
 Each public capability is defined by its owner domain with strict business Zod
-input/output contracts. Agent OS aggregates definitions, applies exact
-request/HITL admission, and calls the owner-domain incoming port. There is no
-ephemeral grant or database Agent version. An owner implementation may use AI,
-DB, an external provider, or an Operation; Agent OS does not write owner-domain
+input/output contracts. Agent OS aggregates definitions. Reads call the
+owner-domain incoming port directly. Mutations only admit the exact durable
+receipt; after durable approval, `CapabilityMutationDispatcher` calls the
+owner-domain incoming port from that persisted receipt. There is no ephemeral
+grant or database Agent version. An owner implementation may use AI, DB, an
+external provider, or an Operation; Agent OS does not write owner-domain
 canonical rows. Deterministic workflows remain native workflows and do not
 create provider conversations merely for bookkeeping.
 

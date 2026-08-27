@@ -92,6 +92,7 @@ describe('CapabilityInvocationService', () => {
     const pending = invocation({ input, status: 'pending' });
     const succeeded = invocation({ input, status: 'succeeded', result });
     const repository = {
+      findById: vi.fn().mockResolvedValue(pending),
       admit: vi.fn()
         .mockResolvedValueOnce({ kind: 'created', invocation: pending })
         .mockResolvedValueOnce({ kind: 'replay', invocation: succeeded }),
@@ -114,7 +115,7 @@ describe('CapabilityInvocationService', () => {
     expect(owner.invoke).toHaveBeenCalledTimes(1);
     expect(owner.invoke).toHaveBeenCalledWith(expect.objectContaining({
       context: expect.objectContaining({
-        executionId: 'execution-1',
+        executionId: INVOCATION_ID,
         ownerIdempotencyKey: `capability-invocation:${INVOCATION_ID}`,
       }),
       input: { alpha: 'candidate', nested: { a: 1, b: 2 } },
@@ -160,6 +161,53 @@ describe('CapabilityInvocationService', () => {
     expect(repository.recordSucceeded).not.toHaveBeenCalled();
   });
 
+  it('routes an approved pending replay through the shared dispatcher instead of a live execution', async () => {
+    const input = { alpha: 'candidate', nested: { a: 1, b: 2 } };
+    const inputHash = canonicalOwnerInputHash(input);
+    const definition = { ...mutationDefinition, approvalRisk: 'medium' as const };
+    const approved = {
+      ...invocation({ input, status: 'pending' }),
+      approvalStatus: 'approved' as const,
+      approvalInputHash: inputHash,
+      approvalRequestedAt: new Date('2026-08-25T00:00:00.000Z'),
+      approvalExpiresAt: new Date('2026-08-25T00:30:00.000Z'),
+      approvalDecidedByUserId: USER_ID,
+      approvalDecidedAt: new Date('2026-08-25T00:01:00.000Z'),
+    };
+    const succeeded = {
+      ...approved,
+      status: 'succeeded' as const,
+      result: receiptFrom(completedResult()),
+      finishedAt: new Date('2026-08-25T00:01:01.000Z'),
+    };
+    const repository = {
+      admit: vi.fn().mockResolvedValue({ kind: 'replay', invocation: approved }),
+      recordSucceeded: vi.fn().mockResolvedValue(succeeded),
+      recordKnownFailure: vi.fn(),
+    };
+    const owner = {
+      capabilityKey: definition.key,
+      invoke: vi.fn().mockResolvedValue(completedResult()),
+    };
+    const dispatcher = { dispatch: vi.fn().mockResolvedValue(succeeded) };
+    const service = new CapabilityInvocationService(
+      repository as never,
+      registry(definition, owner) as never,
+      undefined,
+      undefined,
+      dispatcher as never,
+    );
+
+    await expect(service.invoke(mutationRequest(input))).resolves.toMatchObject({
+      kind: 'completed',
+      invocationId: INVOCATION_ID,
+      status: 'succeeded',
+      result: receiptFrom(completedResult()),
+    });
+    expect(dispatcher.dispatch).toHaveBeenCalledWith(approved);
+    expect(owner.invoke).not.toHaveBeenCalled();
+  });
+
   it('persists and replays only receipt fields for a mutation owner result', async () => {
     const input = { alpha: 'candidate', nested: { a: 1, b: 2 } };
     const definition = {
@@ -180,6 +228,7 @@ describe('CapabilityInvocationService', () => {
     const pending = invocation({ input, status: 'pending' });
     const succeeded = invocation({ input, status: 'succeeded', result: receipt });
     const repository = {
+      findById: vi.fn().mockResolvedValue(pending),
       admit: vi.fn().mockResolvedValue({ kind: 'created', invocation: pending }),
       recordSucceeded: vi.fn().mockResolvedValue(succeeded),
       recordKnownFailure: vi.fn(),
@@ -251,6 +300,7 @@ describe('CapabilityInvocationService', () => {
     const pending = invocation({ input, status: 'pending' });
     const failed = invocation({ input, status: 'failed' });
     const repository = {
+      findById: vi.fn().mockResolvedValue(pending),
       admit: vi.fn().mockResolvedValue({ kind: 'created', invocation: pending }),
       recordKnownFailure: vi.fn().mockResolvedValue(failed),
       recordSucceeded: vi.fn(),
@@ -294,6 +344,7 @@ describe('CapabilityInvocationService', () => {
       },
     };
     const repository = {
+      findById: vi.fn().mockResolvedValue(pending),
       admit: vi.fn().mockResolvedValue({ kind: 'created', invocation: pending }),
       recordKnownFailure: vi.fn().mockResolvedValue(failed),
       recordSucceeded: vi.fn(),
@@ -336,6 +387,7 @@ describe('CapabilityInvocationService', () => {
       },
     };
     const repository = {
+      findById: vi.fn().mockResolvedValue(pending),
       admit: vi.fn().mockResolvedValue({ kind: 'created', invocation: pending }),
       recordKnownFailure: vi.fn().mockResolvedValue(failed),
       recordSucceeded: vi.fn(),
@@ -396,6 +448,7 @@ describe('CapabilityInvocationService', () => {
       finishedAt: new Date(now),
     };
     const repository = {
+      findById: vi.fn().mockResolvedValue(pending),
       findByRequestKey: vi.fn().mockResolvedValue(pending),
       admit: vi.fn().mockResolvedValue({ kind: 'replay', invocation: pending }),
       recordSucceeded: vi.fn().mockResolvedValue(succeeded),
@@ -547,6 +600,7 @@ describe('CapabilityInvocationService', () => {
       },
     };
     const repository = {
+      findById: vi.fn().mockResolvedValue(invocation({ input, status: 'pending' })),
       admit: vi.fn().mockResolvedValue({
         kind: 'created',
         invocation: invocation({ input, status: 'pending' }),

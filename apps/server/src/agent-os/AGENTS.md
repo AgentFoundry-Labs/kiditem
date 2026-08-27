@@ -59,12 +59,16 @@ Agent
   Conversation deletion or Gateway loss clears the related live state. Neither
   token nor active-turn state is persisted or logged as raw control state.
 - A mutation requiring approval stores its exact canonical input/hash and
-  expiry on `CapabilityInvocation` before work can proceed. Approval only
-  authorizes a later explicit retry of that exact request; it never resumes a
-  provider turn or directly executes the owner mutation.
+  expiry on `CapabilityInvocation` before work can proceed. Once the exact
+  approval is durably recorded, the API's deterministic dispatcher executes
+  that already-admitted receipt from persisted fields and the stable owner key.
+  It never resumes a provider turn or starts/retries model reasoning; one
+  bounded API-bootstrap sweep may re-attempt only `pending`/`approved`
+  receipts, without a timer, worker loop, lease, or queue.
 - Same request key and canonical input replay one receipt/result; input drift
-  conflicts. Ambiguous owner outcomes remain pending for an explicit retry
-  under the same owner idempotency key.
+  conflicts. Ambiguous owner outcomes remain pending and may be reached only by
+  the same-request replay or the next bounded API-bootstrap sweep under the
+  same owner idempotency key.
 
 ## Interaction Boundary
 

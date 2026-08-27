@@ -62,6 +62,31 @@ describe('PrismaCapabilityInvocationRepository', () => {
     });
   });
 
+  it('lists only a bounded approved-pending bootstrap recovery set', async () => {
+    const approved = invocationRow({
+      approvalStatus: 'approved',
+      approvalInputHash: INPUT_HASH,
+      approvalRequestedAt: NOW,
+      approvalExpiresAt: new Date('2026-08-25T00:30:00.000Z'),
+      approvalDecidedByUserId: USER_ID,
+      approvalDecidedAt: NOW,
+    });
+    const findMany = vi.fn().mockResolvedValue([approved]);
+    const repository = subject({
+      create: vi.fn(),
+      findFirst: vi.fn(),
+      findMany,
+      updateMany: vi.fn(),
+    });
+
+    await expect(repository.listApprovedPending({ limit: 7 })).resolves.toEqual([approved]);
+    expect(findMany).toHaveBeenCalledWith({
+      where: { status: 'pending', approvalStatus: 'approved' },
+      orderBy: { createdAt: 'asc' },
+      take: 7,
+    });
+  });
+
   it('round-trips durable JSON before passing it to Prisma and rejects non-serializable values', async () => {
     const create = vi.fn().mockResolvedValue(invocationRow());
     const repository = subject({ create, findFirst: vi.fn(), updateMany: vi.fn() });
@@ -164,12 +189,18 @@ describe('PrismaCapabilityInvocationRepository', () => {
     const repository = subject({ create: vi.fn(), findFirst, updateMany });
 
     await expect(repository.decideApproval(approval())).resolves.toMatchObject({
-      status: 'pending',
-      approvalStatus: 'approved',
+      invocation: {
+        status: 'pending',
+        approvalStatus: 'approved',
+      },
+      transitioned: true,
     });
     await expect(repository.decideApproval(approval())).resolves.toMatchObject({
-      status: 'pending',
-      approvalStatus: 'approved',
+      invocation: {
+        status: 'pending',
+        approvalStatus: 'approved',
+      },
+      transitioned: false,
     });
     expect(updateMany).toHaveBeenCalledTimes(1);
 
@@ -181,6 +212,60 @@ describe('PrismaCapabilityInvocationRepository', () => {
     await expect(
       fencedRepository.decideApproval({ ...approval(), inputHash: 'b'.repeat(64) }),
     ).rejects.toMatchObject({ code: 'REQUEST_KEY_CONFLICT' });
+  });
+
+  it('fences approval at the expiry boundary before its conditional write', async () => {
+    const expiresAt = new Date('2026-08-25T00:00:00.001Z');
+    const pending = invocationRow({
+      approvalStatus: 'pending',
+      approvalInputHash: INPUT_HASH,
+      approvalRequestedAt: NOW,
+      approvalExpiresAt: expiresAt,
+    });
+    const expired = invocationRow({
+      status: 'failed',
+      approvalStatus: 'expired',
+      approvalInputHash: INPUT_HASH,
+      approvalRequestedAt: NOW,
+      approvalExpiresAt: expiresAt,
+      error: {
+        code: 'APPROVAL_EXPIRED',
+        message: 'Capability approval expired before execution.',
+      },
+      finishedAt: expiresAt,
+    });
+    const findFirst = vi
+      .fn()
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(expired)
+      .mockResolvedValueOnce(expired);
+    const updateMany = vi
+      .fn()
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 1 });
+    const repository = subject({ create: vi.fn(), findFirst, updateMany });
+    const decision = { ...approval(), decidedAt: expiresAt };
+
+    await expect(repository.decideApproval(decision)).rejects.toMatchObject({
+      code: 'APPROVAL_EXPIRED',
+    });
+    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        approvalExpiresAt: { gt: decision.decidedAt },
+      }),
+    }));
+    expect(updateMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      where: expect.objectContaining({
+        approvalExpiresAt: { lte: decision.decidedAt },
+      }),
+      data: expect.objectContaining({
+        status: 'failed',
+        approvalStatus: 'expired',
+      }),
+    }));
   });
 
   it('returns the concurrent finalization winner instead of overwriting it', async () => {

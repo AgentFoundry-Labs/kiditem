@@ -85,10 +85,15 @@ const READINESS_INFO = {
   },
 };
 
-function renderSurface(queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+function renderSurface(
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+  fallbackApprovalInvocationId?: string | null,
+) {
   return render(
     <QueryClientProvider client={queryClient}>
-      <ConversationRuntimeHost identity={IDENTITY}><AgentConversationSurface /></ConversationRuntimeHost>
+      <ConversationRuntimeHost identity={IDENTITY}>
+        <AgentConversationSurface fallbackApprovalInvocationId={fallbackApprovalInvocationId} />
+      </ConversationRuntimeHost>
     </QueryClientProvider>,
   );
 }
@@ -171,17 +176,30 @@ describe('AgentConversationSurface', () => {
     expect(useStore.getState().sidebarOpen).toBe(true);
   });
 
-  it('keeps approval content in the shared message lane rather than a page-level strip', async () => {
-    render(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <ConversationRuntimeHost identity={IDENTITY}>
-          <AgentConversationSurface approvalContent={<div data-testid="approval-card">Approval card</div>} />
-        </ConversationRuntimeHost>
-      </QueryClientProvider>,
-    );
+  it('renders a fallback approval card in the shared evidence lane before any decision POST', async () => {
+    const invocationId = '00000000-0000-4000-8000-000000000001';
+    vi.mocked(apiClient.get).mockImplementation((path: string) => {
+      if (path === `/api/agent-os/invocations/${invocationId}`) {
+        return Promise.resolve({
+          capabilityKey: 'supply.submit_purchase_order',
+          status: 'pending',
+          approvalStatus: 'pending',
+          approvalExpiresAt: null,
+          result: null,
+        } as never);
+      }
+      if (path === '/api/agent-os/conversations') return Promise.resolve([CONVERSATION] as never);
+      if (path.endsWith('/history')) return Promise.resolve([] as never);
+      return Promise.resolve({ schemaVersion: 1, contexts: {} } as never);
+    });
+    renderSurface(undefined, invocationId);
 
     const messages = await screen.findByRole('region', { name: '대화 메시지' });
-    expect(within(messages).getByTestId('approval-card')).toHaveTextContent('Approval card');
+    const approvalHeading = await screen.findByRole('heading', { name: '업무 실행 승인' });
+    expect(within(messages).getByRole('heading', { name: '업무 실행 승인' })).toBe(approvalHeading);
+    expect(screen.getByRole('region', { name: '업무 증거' })).toBeVisible();
+    expect(vi.mocked(apiClient.post).mock.calls.map(([path]) => String(path)))
+      .not.toContain(`/api/agent-os/invocations/${invocationId}/decision`);
   });
 
   it('keeps the shared empty guidance above one typable local draft and fills that same draft from a suggestion', async () => {
@@ -236,18 +254,60 @@ describe('AgentConversationSurface', () => {
   });
 
   it('keeps a deep-linked approval in the centered message lane without an ephemeral conversation selection', async () => {
+    const invocationId = '00000000-0000-4000-8000-000000000002';
     useConversationSurfaceState.getState().reset();
-    render(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <ConversationRuntimeHost identity={IDENTITY}>
-          <AgentConversationSurface approvalContent={<div data-testid="deep-linked-approval">Approval card</div>} />
-        </ConversationRuntimeHost>
-      </QueryClientProvider>,
-    );
+    vi.mocked(apiClient.get).mockImplementation((path: string) => {
+      if (path === `/api/agent-os/invocations/${invocationId}`) {
+        return Promise.resolve({
+          capabilityKey: 'supply.submit_purchase_order',
+          status: 'pending',
+          approvalStatus: 'pending',
+          approvalExpiresAt: null,
+          result: null,
+        } as never);
+      }
+      if (path === '/api/agent-os/conversations') return Promise.resolve([CONVERSATION] as never);
+      if (path.endsWith('/history')) return Promise.resolve([] as never);
+      return Promise.resolve({ schemaVersion: 1, contexts: {} } as never);
+    });
+    renderSurface(undefined, invocationId);
 
     expect(await screen.findByTestId('conversation-empty-state')).toBeVisible();
     const messages = await screen.findByRole('region', { name: '대화 메시지' });
-    expect(within(messages).getByTestId('deep-linked-approval')).toHaveTextContent('Approval card');
+    expect(within(messages).getByRole('heading', { name: '업무 실행 승인' })).toBeVisible();
+    expect(vi.mocked(apiClient.post).mock.calls.map(([path]) => String(path)))
+      .not.toContain(`/api/agent-os/invocations/${invocationId}/decision`);
+  });
+
+  it('dedupes a streamed approval locator with its URL fallback before any decision is clicked', async () => {
+    const invocationId = '00000000-0000-4000-8000-000000000003';
+    vi.mocked(apiClient.get).mockImplementation((path: string) => {
+      if (path === `/api/agent-os/invocations/${invocationId}`) {
+        return Promise.resolve({
+          capabilityKey: 'supply.submit_purchase_order',
+          status: 'pending',
+          approvalStatus: 'pending',
+          approvalExpiresAt: null,
+          result: null,
+        } as never);
+      }
+      if (path === '/api/agent-os/conversations') return Promise.resolve([CONVERSATION] as never);
+      if (path.endsWith('/history')) return Promise.resolve([] as never);
+      return Promise.resolve({ schemaVersion: 1, contexts: {} } as never);
+    });
+    renderSurface(undefined, invocationId);
+
+    await waitFor(() => expect(runtimeMocks.subscriptions).toHaveLength(1));
+    const subscriber = runtimeMocks.subscriptions[0] as {
+      onCustomEvent?: (input: { event: { name: string; value: unknown } }) => void;
+    };
+    await act(async () => subscriber.onCustomEvent?.({
+      event: { name: 'kiditem.capability_approval_required', value: { invocationId } },
+    }));
+
+    expect(await screen.findAllByRole('heading', { name: '업무 실행 승인' })).toHaveLength(1);
+    expect(vi.mocked(apiClient.post).mock.calls.map(([path]) => String(path)))
+      .not.toContain(`/api/agent-os/invocations/${invocationId}/decision`);
   });
 
   it('traps keyboard focus in the mobile folder drawer', async () => {

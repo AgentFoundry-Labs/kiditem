@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Implementation, deterministic gates, and final review complete; business and browser QA pending
+**Status:** Tasks 1–6 complete; approval-dispatch correction, final integrated review, business eval, and browser QA in progress
 **Revised:** 2026-08-28
 
 **Goal:** Make one provider-native KidItem conversation available from every authenticated work screen, restore CopilotKit OSS as the interaction owner with its real SQLite event-history runner, and deliver the approved KidItem Agent OS/Dashboard chat design without adding PostgreSQL conversation state or a paid CopilotKit service.
@@ -19,14 +19,15 @@ Implement this plan on top of the current KID-25 branch and the approved design:
 
 - docs/superpowers/specs/2026-08-26-agent-os-chat-workspace-ux-design.md
 - docs/superpowers/specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md
-- docs/superpowers/plans/2026-08-23-kid-25-agent-os-clean-contraction.md
 - DESIGN.md
 
 The 2026-08-26 design controls this UX extension. The clean-contraction design
-remains the source for capability and approval contracts. The current
-process-token, provider-Conversation, and exact-terminal runtime in
-`docs/ARCHITECTURE.md` and the scoped Agent OS/Gateway `AGENTS.md` files
-supersedes the older per-turn execution-binding and Task/Attempt runtime text.
+remains the source for capability and approval contracts. The old 2026-08-23
+implementation plan is archived history and is not an authority. The current
+process-token, provider-Conversation, exact-terminal runtime, and API-owned
+`CapabilityMutationDispatcher` contract in `docs/ARCHITECTURE.md` and the
+scoped Agent OS/Gateway `AGENTS.md` files supersede older per-turn
+execution-binding, Task/Attempt, and Invocation-worker text.
 
 Execute the seven integrated Tasks below. Task 2 keeps its three tightly
 coupled Gateway-owner phases together, and Task 6 keeps Agent OS history and
@@ -1042,8 +1043,10 @@ blocking the next explicit turn. Prefer removing durable `run_state` authority
 in the narrow fork and using only an in-process runner guard plus Nest active
 turn; if direct upstream use remains viable, its startup handling must provide
 the same externally tested result. API boot never restores or continues
-provider reasoning. Do not add a retry loop, recovery state machine, durable
-active-turn table, or automatic Continue.
+provider reasoning. It does perform the single bounded
+`CapabilityMutationDispatcher` bootstrap sweep of at most 100
+pending/approved receipts. Do not add a provider retry loop, reasoning recovery
+state machine, durable active-turn table, or automatic Continue.
 
 The runner package owns a narrow exact-thread deletion seam: delete the exact
 completed `agent_runs` chain and any runner-private coordination row for one
@@ -2216,8 +2219,11 @@ Before the live model trial for case 3, run a deterministic
 loss, restarts the API boundary, and proves that replaying the exact
 `requestKey` and canonical input returns the committed result without another
 candidate or `OperationRun`. The same key with changed canonical input must
-return the owner idempotency conflict. The live Codex trial then evaluates only
-the model's recovery judgment on top of that proven owner contract.
+return the owner idempotency conflict. An ambiguous owner outcome remains
+pending, and only explicit same-request replay or the next bounded
+API-bootstrap sweep may reach it. The live Codex trial then evaluates a normal
+explicit new turn on top of that proven owner contract; it does not ask the
+provider to recover an admitted mutation.
 
 Judge the final business outcome and forbidden behavior rather than exact prose
 or one fixed tool sequence. Organization intrusion, approval bypass, fabricated

@@ -14,6 +14,7 @@ import type {
   StartProviderTurn,
 } from '../provider-conversation.port';
 import { codexDeveloperInstructions } from '../../profile/agent-profile.catalog';
+import { codexCapabilityApprovalRequiredEvent } from '../capability-approval-required';
 
 type RpcResponse = Readonly<{
   id?: string;
@@ -357,8 +358,13 @@ export class CodexAppServerSession {
       const threadId = string(value.threadId);
       const turnId = string(value.turnId);
       const active = threadId && turnId ? this.activeByProviderTurn.get(providerTurnKey(threadId, turnId)) : undefined;
-      const event = active ? mcpToolStatusEvent(object(value.item)) : null;
+      const item = object(value.item);
+      const event = active ? mcpToolStatusEvent(item) : null;
       if (active && event) active.sink(event);
+      const approval = active && method === 'item/completed' && item
+        ? codexCapabilityApprovalRequiredEvent(item)
+        : null;
+      if (active && approval) active.sink(approval);
       return;
     }
     if (method !== 'turn/completed') return;

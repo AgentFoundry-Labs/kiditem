@@ -85,6 +85,36 @@ describe('ConversationSqliteEventHistory', () => {
     await expect(firstValueFrom(history.connect(OWNER_A, { threadId: 'retain-me' }).pipe(toArray())))
       .resolves.toContainEqual(expect.objectContaining({ runId: 'run-retain' }));
   });
+
+  it('replays the bounded approval CUSTOM event, fences it by organization, and removes it with its conversation', async () => {
+    const fixture = await createFixture();
+    const invocationId = '00000000-0000-4000-8000-000000000010';
+    try {
+      const first = track(new ConversationSqliteEventHistory({ databasePath: fixture.databasePath }));
+      await firstValueFrom(first.run(
+        OWNER_A,
+        runRequest('approval-conversation', 'approval-run', new ApprovalRequiredAgent(invocationId)),
+      ).pipe(toArray()));
+      first.close();
+      histories.splice(histories.indexOf(first), 1);
+
+      const rebuilt = track(new ConversationSqliteEventHistory({ databasePath: fixture.databasePath }));
+      await expect(firstValueFrom(rebuilt.connect(OWNER_A, { threadId: 'approval-conversation' }).pipe(toArray())))
+        .resolves.toContainEqual({
+          type: EventType.CUSTOM,
+          name: 'kiditem.capability_approval_required',
+          value: { invocationId },
+        });
+      await expect(firstValueFrom(rebuilt.connect(OWNER_B, { threadId: 'approval-conversation' }).pipe(toArray())))
+        .resolves.toEqual([]);
+
+      rebuilt.delete(OWNER_A, { conversationId: 'approval-conversation' });
+      await expect(firstValueFrom(rebuilt.connect(OWNER_A, { threadId: 'approval-conversation' }).pipe(toArray())))
+        .resolves.toEqual([]);
+    } finally {
+      await fixture.dispose();
+    }
+  });
 });
 
 class CompletedAgent extends AbstractAgent {
@@ -104,6 +134,32 @@ class CompletedAgent extends AbstractAgent {
 
   override clone(): AbstractAgent {
     return new CompletedAgent();
+  }
+}
+
+class ApprovalRequiredAgent extends AbstractAgent {
+  constructor(private readonly invocationId: string) {
+    super();
+  }
+
+  protected override run(input: RunAgentInput): Observable<BaseEvent> {
+    return of(
+      { type: EventType.RUN_STARTED, threadId: input.threadId, runId: input.runId },
+      {
+        type: EventType.CUSTOM,
+        name: 'kiditem.capability_approval_required',
+        value: { invocationId: this.invocationId },
+      },
+      { type: EventType.RUN_FINISHED, threadId: input.threadId, runId: input.runId, outcome: { type: 'success' } },
+    );
+  }
+
+  protected override connect(): Observable<BaseEvent> {
+    return EMPTY;
+  }
+
+  override clone(): AbstractAgent {
+    return new ApprovalRequiredAgent(this.invocationId);
   }
 }
 

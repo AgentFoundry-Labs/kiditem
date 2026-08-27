@@ -8,12 +8,33 @@ const INVOCATION_ID = '00000000-0000-4000-8000-000000000003';
 const INPUT_HASH = 'a'.repeat(64);
 
 describe('CapabilityApprovalService', () => {
-  it('stores an exact approved decision without executing or scheduling the owner', async () => {
+  it('dispatches the exact persisted invocation once after recording approval', async () => {
+    const approved = receipt({ approvalStatus: 'approved' });
+    const dispatched = {
+      ...approved,
+      status: 'succeeded' as const,
+      result: {
+        summary: 'Listing submitted.',
+        resourceRefs: [],
+        operationRefs: [],
+      },
+      finishedAt: new Date('2026-08-25T00:01:01.000Z'),
+    };
     const repository = {
       findById: vi.fn().mockResolvedValue(receipt({ approvalStatus: 'pending' })),
-      decideApproval: vi.fn().mockResolvedValue(receipt({ approvalStatus: 'approved' })),
+      decideApproval: vi.fn().mockResolvedValue({ invocation: approved, transitioned: true }),
     };
-    const service = new CapabilityApprovalService(repository as never, () => new Date('2026-08-25T00:00:00.000Z'));
+    // This callable double keeps the pre-dispatch constructor executable for
+    // the red phase while exposing the target injected dispatcher contract.
+    const dispatcher = Object.assign(
+      () => new Date('2026-08-25T00:00:00.000Z'),
+      { dispatch: vi.fn().mockResolvedValue(dispatched) },
+    );
+    const service = new CapabilityApprovalService(
+      repository as never,
+      dispatcher as never,
+      () => new Date('2026-08-25T00:00:00.000Z'),
+    );
 
     await expect(service.decide({
       organizationId: ORGANIZATION_ID,
@@ -22,7 +43,7 @@ describe('CapabilityApprovalService', () => {
       decision: 'approved',
       reason: 'User confirmed the exact mutation.',
     })).resolves.toMatchObject({
-      status: 'pending',
+      status: 'succeeded',
       approvalStatus: 'approved',
       inputHash: INPUT_HASH,
     });
@@ -33,6 +54,8 @@ describe('CapabilityApprovalService', () => {
       decision: 'approved',
       inputHash: INPUT_HASH,
     }));
+    expect(dispatcher.dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatcher.dispatch).toHaveBeenCalledWith(approved);
   });
 
   it('does not let a browser supply a hash and reports immutable decision conflicts', async () => {
@@ -40,7 +63,9 @@ describe('CapabilityApprovalService', () => {
       findById: vi.fn().mockResolvedValue(receipt({ approvalStatus: 'pending' })),
       decideApproval: vi.fn().mockRejectedValue(new AgentOsError('APPROVAL_REJECTED')),
     };
-    const service = new CapabilityApprovalService(repository as never);
+    const service = new CapabilityApprovalService(repository as never, {
+      dispatch: vi.fn(),
+    });
 
     await expect(service.decide({
       organizationId: ORGANIZATION_ID,
@@ -51,6 +76,36 @@ describe('CapabilityApprovalService', () => {
     expect(repository.decideApproval).toHaveBeenCalledWith(expect.not.objectContaining({
       approvalInputHash: expect.anything(),
     }));
+  });
+
+  it('does not turn an already-approved duplicate decision into an owner retry after the transition winner is ambiguous', async () => {
+    const approved = receipt({ approvalStatus: 'approved' });
+    const repository = {
+      findById: vi.fn().mockResolvedValue(approved),
+      decideApproval: vi.fn()
+        .mockResolvedValueOnce({ invocation: approved, transitioned: true })
+        .mockResolvedValueOnce({ invocation: approved, transitioned: false }),
+    };
+    const dispatcher = {
+      dispatch: vi.fn().mockRejectedValueOnce(
+        new AgentOsError('OWNER_RESULT_AMBIGUOUS', 'Owner response was lost after dispatch.'),
+      ),
+    };
+    const service = new CapabilityApprovalService(repository as never, dispatcher as never);
+    const decision = {
+      organizationId: ORGANIZATION_ID,
+      userId: USER_ID,
+      invocationId: INVOCATION_ID,
+      decision: 'approved' as const,
+    };
+
+    await expect(service.decide(decision)).rejects.toMatchObject({
+      code: 'OWNER_RESULT_AMBIGUOUS',
+    } satisfies Partial<AgentOsError>);
+    await expect(service.decide(decision)).resolves.toEqual(approved);
+
+    expect(dispatcher.dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatcher.dispatch).toHaveBeenCalledWith(approved);
   });
 });
 

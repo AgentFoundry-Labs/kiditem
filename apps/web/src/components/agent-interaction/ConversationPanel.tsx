@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { ConversationEmptyState } from './ConversationEmptyState';
 import { ConversationFlow } from './ConversationFlow';
 import { ConversationContextMark } from './ConversationContextMark';
+import { CapabilityInvocationCard } from './CapabilityInvocationCard';
 import { useConversationRuntime } from './ConversationRuntimeHost';
 import { conversationContextFor, conversationContexts } from './conversation-context.catalog';
 import { openConversation, useConversationSurfaceState } from './conversation-surface-state';
@@ -24,6 +25,11 @@ export function ConversationPanel({ onClose }: { onClose(): void }) {
     runtime.activeConversation?.agentKey ?? runtime.draft?.agentKey ?? selectedContext,
   );
   const title = runtime.activeConversation?.title ?? null;
+  const approvalContent = runtime.approvalInvocationIds.length > 0
+    ? runtime.approvalInvocationIds.map((invocationId) => (
+      <CapabilityInvocationCard key={invocationId} invocationId={invocationId} identity={runtime.identity} />
+    ))
+    : undefined;
 
   useEffect(() => {
     if (activeConversationId !== null || pendingDraft) return;
@@ -121,6 +127,7 @@ export function ConversationPanel({ onClose }: { onClose(): void }) {
         </div>
       </header>
       <ConversationFlow
+        supplementalContent={approvalContent}
         emptyState={!runtime.activeConversation ? (
           <ConversationEmptyState
             compact

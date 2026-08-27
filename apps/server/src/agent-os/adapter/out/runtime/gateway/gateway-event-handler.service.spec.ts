@@ -96,6 +96,30 @@ describe('GatewayEventHandlerService', () => {
     expect(broker.terminal).toHaveBeenCalledWith('conversation-1', 'turn-1', 'completed');
   });
 
+  it('forwards a capability approval event through the existing turn broker without changing turn lifecycle', () => {
+    const queue = { isLiveSession: vi.fn(() => true), hasLiveSession: vi.fn(() => true), acknowledge: vi.fn(), reject: vi.fn(), terminal: vi.fn() };
+    const broker = brokerPort();
+    const handler = new GatewayEventHandlerService({
+      queue: queue as never,
+      readiness: { update: vi.fn() } as never,
+      broker: broker as never,
+    });
+    const event = {
+      kind: 'capability.approval_required',
+      invocationId: '00000000-0000-4000-8000-000000000001',
+    };
+
+    handler.handle({
+      gatewayInstanceId: 'gateway-1',
+      eventSeq: 1,
+      events: [{ kind: 'turn.event', conversationId: 'conversation-1', turnId: 'turn-1', event }],
+    } as never);
+
+    expect(broker.publishTurnEvent).toHaveBeenCalledWith('conversation-1', 'turn-1', event);
+    expect(queue.terminal).not.toHaveBeenCalled();
+    expect(broker.terminal).not.toHaveBeenCalled();
+  });
+
   it('uses the first post-restart event sequence from the currently polled Gateway as a fresh in-memory baseline', () => {
     const queue = { isLiveSession: vi.fn(() => true), hasLiveSession: vi.fn(() => true), acknowledge: vi.fn(), reject: vi.fn(), terminal: vi.fn() };
     const broker = brokerPort();

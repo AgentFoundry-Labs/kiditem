@@ -12,8 +12,10 @@ import type {
   CapabilityInvocationRecord,
   CapabilityInvocationRepositoryPort,
   DecideInvocationApproval,
+  DecideInvocationApprovalResult,
   InvocationFence,
   InvocationRequestKeyFence,
+  ListApprovedPendingCapabilityInvocations,
   RecordInvocationFailure,
   RecordInvocationSucceeded,
 } from '../../../application/port/out/capability-invocation.repository.port';
@@ -103,9 +105,20 @@ export class PrismaCapabilityInvocationRepository
     return current ? parseRow(current) : null;
   }
 
+  async listApprovedPending(
+    input: ListApprovedPendingCapabilityInvocations,
+  ): Promise<CapabilityInvocationRecord[]> {
+    const rows = await this.prisma.capabilityInvocation.findMany({
+      where: { status: 'pending', approvalStatus: 'approved' },
+      orderBy: { createdAt: 'asc' },
+      take: input.limit,
+    });
+    return rows.map(parseRow);
+  }
+
   async decideApproval(
     input: DecideInvocationApproval,
-  ): Promise<CapabilityInvocationRecord> {
+  ): Promise<DecideInvocationApprovalResult> {
     let current = await this.findById({
       organizationId: input.organizationId,
       invocationId: input.invocationId,
@@ -118,13 +131,13 @@ export class PrismaCapabilityInvocationRepository
     if (current.approvalInputHash !== input.inputHash || current.inputHash !== input.inputHash) {
       throw new AgentOsError('REQUEST_KEY_CONFLICT', 'Approval input does not match the admitted invocation.');
     }
-    if (current.approvalStatus === input.decision) return current;
+    if (current.approvalStatus === input.decision) {
+      return { invocation: current, transitioned: false };
+    }
     if (current.approvalStatus === 'approved' || current.approvalStatus === 'rejected') {
       throw new AgentOsError('APPROVAL_REJECTED', 'Approval decision is immutable.');
     }
-    if (current.status !== 'pending') {
-      return current;
-    }
+    if (current.status !== 'pending') return { invocation: current, transitioned: false };
 
     const rejected = input.decision === 'rejected';
     const update = await this.prisma.capabilityInvocation.updateMany({
@@ -135,6 +148,7 @@ export class PrismaCapabilityInvocationRepository
         approvalStatus: 'pending',
         approvalInputHash: input.inputHash,
         inputHash: input.inputHash,
+        approvalExpiresAt: { gt: input.decidedAt },
       },
       data: {
         approvalStatus: input.decision,
@@ -159,7 +173,7 @@ export class PrismaCapabilityInvocationRepository
         invocationId: input.invocationId,
       });
       if (!updated) throw notFound();
-      return updated;
+      return { invocation: updated, transitioned: true };
     }
 
     current = await this.findById({
@@ -167,7 +181,22 @@ export class PrismaCapabilityInvocationRepository
       invocationId: input.invocationId,
     });
     if (!current) throw notFound();
-    if (current.approvalStatus === input.decision) return current;
+    if (
+      current.status === 'pending'
+      && current.approvalStatus === 'pending'
+      && current.approvalExpiresAt
+      && current.approvalExpiresAt.getTime() <= input.decidedAt.getTime()
+    ) {
+      await this.expireIfNecessary(current, input.decidedAt);
+      current = await this.findById({
+        organizationId: input.organizationId,
+        invocationId: input.invocationId,
+      });
+      if (!current) throw notFound();
+    }
+    if (current.approvalStatus === input.decision) {
+      return { invocation: current, transitioned: false };
+    }
     if (current.approvalStatus === 'expired') throw approvalExpired();
     throw new AgentOsError('APPROVAL_REJECTED', 'Approval decision is immutable.');
   }

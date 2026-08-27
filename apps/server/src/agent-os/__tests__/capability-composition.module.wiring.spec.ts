@@ -18,6 +18,9 @@ import { SupplyCapabilityCompositionAdapter } from '../../supply/adapter/in/agen
 import { SupplyAgentRuntimeModule } from '../../supply/supply-agent-runtime.module';
 import { SUPPLY_CAPABILITY_COMPOSITION_PORT } from '../../supply/application/port/in/capability/supply-capability-composition.port';
 import { AgentOsInvocationModule } from '../agent-os-invocation.module';
+import { CapabilityMutationDispatcher } from '../application/service/capability-mutation-dispatcher.service';
+import { CapabilityApprovalService } from '../application/service/capability-approval.service';
+import { CapabilityInvocationService } from '../application/service/capability-invocation.service';
 
 const PROVIDERS_KEY = 'providers';
 
@@ -108,5 +111,21 @@ describe('owner-local capability composition module wiring', () => {
         SupplyAgentRuntimeModule,
       ]),
     );
+  });
+
+  it('shares one API-owned deterministic dispatcher between approval and replay paths', () => {
+    const entries = providers(AgentOsInvocationModule) as Array<{
+      provide?: unknown;
+      inject?: unknown[];
+    }>;
+    const dispatcher = entries.find((entry) => entry.provide === CapabilityMutationDispatcher);
+    const invocation = entries.find((entry) => entry.provide === CapabilityInvocationService);
+    const approval = entries.find((entry) => entry.provide === CapabilityApprovalService);
+
+    expect(dispatcher).toEqual(expect.objectContaining({
+      provide: CapabilityMutationDispatcher,
+    }));
+    expect(invocation?.inject).toContain(CapabilityMutationDispatcher);
+    expect(approval?.inject).toContain(CapabilityMutationDispatcher);
   });
 });

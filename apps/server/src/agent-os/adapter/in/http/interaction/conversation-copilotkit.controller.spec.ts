@@ -249,6 +249,23 @@ describe('GatewayAgUiEventMapper', () => {
     expect(mapper.map({ kind: 'status', status: 'disconnected' })).toEqual([]);
   });
 
+  it('maps a capability approval requirement to the exact bounded AG-UI custom event', () => {
+    const mapper = new GatewayAgUiEventMapper({
+      threadId: 'conversation-1',
+      runId: 'turn-1',
+      messageId: 'assistant-turn-1',
+    });
+
+    expect(mapper.map({
+      kind: 'capability.approval_required',
+      invocationId: '00000000-0000-4000-8000-000000000001',
+    })).toEqual([{
+      type: 'CUSTOM',
+      name: 'kiditem.capability_approval_required',
+      value: { invocationId: '00000000-0000-4000-8000-000000000001' },
+    }]);
+  });
+
   it('emits supported RUN_FINISHED outcomes for completed and interrupted provider terminals', () => {
     const mapper = new GatewayAgUiEventMapper({
       threadId: 'conversation-1',

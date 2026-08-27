@@ -244,6 +244,46 @@ test("rejects retired Agent OS lifecycle, publication, and recovery surfaces", (
   }
 });
 
+test("allows the exact API-owned CapabilityMutationDispatcher", () => {
+  const findings = collectAgentOsContractionFindings([
+    {
+      path: "apps/server/src/agent-os/application/service/capability-mutation-dispatcher.service.ts",
+      source: "export class CapabilityMutationDispatcher {}",
+    },
+    {
+      path: "apps/server/src/agent-os/application/service/capability-invocation.service.ts",
+      source: "import { CapabilityMutationDispatcher, type CapabilityMutationDispatcherPort } from './capability-mutation-dispatcher.service';",
+    },
+  ]);
+
+  assert.equal(
+    findings.some((finding) => finding.includes("retired mutation dispatcher")),
+    false,
+  );
+});
+
+test("rejects lookalike mutation dispatchers outside the exact API-owned seam", () => {
+  const findings = collectAgentOsContractionFindings([
+    {
+      path: "apps/server/src/agent-os/application/service/retry-capability-mutation-dispatcher.service.ts",
+      source: "export class RetryCapabilityMutationDispatcher {}",
+    },
+  ]);
+
+  expectFinding(findings, "retired mutation dispatcher");
+});
+
+test("rejects an unapproved consumer of the API-owned dispatcher", () => {
+  const findings = collectAgentOsContractionFindings([
+    {
+      path: "apps/server/src/agent-os/application/service/unapproved-dispatcher-consumer.service.ts",
+      source: "import { CapabilityMutationDispatcher } from './capability-mutation-dispatcher.service';",
+    },
+  ]);
+
+  expectFinding(findings, "retired mutation dispatcher");
+});
+
 test("uses general persistence categories for secrets and Host Gateway state", () => {
   const findings = collectAgentOsContractionFindings([
     {

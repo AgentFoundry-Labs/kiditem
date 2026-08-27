@@ -416,6 +416,34 @@ function sourceHas(pattern, filePath, source) {
   return pattern.test(filePath + "\n" + source);
 }
 
+/**
+ * The clean cutover excludes worker-style mutation dispatch. The bounded
+ * API-owned CapabilityInvocation dispatcher is an explicit exception: it has
+ * no queue claim, lease, retry loop, or provider-turn authority.
+ */
+function retiredMutationDispatcher(filePath, source) {
+  const approvedDispatcherPath =
+    "apps/server/src/agent-os/application/service/capability-mutation-dispatcher.service.ts";
+  const approvedConsumerPaths = new Set([
+    approvedDispatcherPath,
+    "apps/server/src/agent-os/application/service/capability-invocation.service.ts",
+    "apps/server/src/agent-os/application/service/capability-approval.service.ts",
+    "apps/server/src/agent-os/agent-os-invocation.module.ts",
+  ]);
+  const withoutExactApprovedReferences = approvedConsumerPaths.has(filePath)
+    ? source
+      .replaceAll(/\bCapabilityMutationDispatcher(?:Port)?\b/g, "")
+      .replaceAll(
+        /(['"])(?:[^'"]*\/)?capability-mutation-dispatcher\.service\1/g,
+        "",
+      )
+    : source;
+  const checkedPath = filePath === approvedDispatcherPath ? "" : filePath;
+  return /(?:mutation[-_ ]?dispatcher|MutationDispatcher|dispatchMutation)/i.test(
+    checkedPath + "\n" + withoutExactApprovedReferences,
+  );
+}
+
 function hasProviderCliPackage(source) {
   try {
     const manifest = JSON.parse(source);
@@ -598,11 +626,7 @@ function findingsFor(file) {
   }
   if (
     agentOsSource(filePath) &&
-    sourceHas(
-      /(?:mutation[-_ ]?dispatcher|MutationDispatcher|dispatchMutation)/i,
-      filePath,
-      source,
-    )
+    retiredMutationDispatcher(filePath, source)
   ) {
     findings.push("retired mutation dispatcher");
   }

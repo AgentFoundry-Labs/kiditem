@@ -44,6 +44,26 @@ export function requiresUserApproval(
   return approvalRisk === 'medium' || approvalRisk === 'high';
 }
 
+/** Admission facts remain authoritative even when the current definition changes. */
+export function requiresAdmittedApproval(input: {
+  approvalStatus: string;
+  approvalInputHash: string | null;
+  approvalRequestedAt: Date | null;
+  approvalExpiresAt: Date | null;
+}): boolean {
+  return input.approvalStatus !== 'not_required'
+    || input.approvalInputHash !== null
+    || input.approvalRequestedAt !== null
+    || input.approvalExpiresAt !== null;
+}
+
+export function hasCapabilityApprovalPolicyDrift(
+  invocation: Parameters<typeof requiresAdmittedApproval>[0],
+  approvalRisk: CapabilityApprovalRisk,
+): boolean {
+  return requiresAdmittedApproval(invocation) !== requiresUserApproval(approvalRisk);
+}
+
 /** The only owner key for one admitted mutation. It is intentionally opaque. */
 export function ownerInvocationKey(invocationId: string): string {
   return `capability-invocation:${invocationId}`;

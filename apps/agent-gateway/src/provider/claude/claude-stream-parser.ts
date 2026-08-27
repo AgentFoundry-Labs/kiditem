@@ -1,5 +1,6 @@
 import { ProviderEventSchema, type ProviderEvent } from '@kiditem/shared/agent-runtime';
 import { redactForGatewayEvent } from '../../security/redaction';
+import { claudeCapabilityApprovalRequiredEvent } from '../capability-approval-required';
 
 const MAX_TRACKED_TOOLS = 64;
 
@@ -57,6 +58,10 @@ export class ClaudeStreamParser {
         if (!id || !name) continue;
         this.toolNames.delete(id);
         events.push(ProviderEventSchema.parse({ kind: 'tool.status', name, status: part.is_error === true ? 'failed' : 'completed' }));
+        if (part.is_error !== true) {
+          const approval = claudeCapabilityApprovalRequiredEvent(name, part.content);
+          if (approval) events.push(approval);
+        }
       }
     }
     return events;

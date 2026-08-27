@@ -255,7 +255,7 @@ PostgreSQL 17에 compiled API, Operations worker, Web을 부팅하고 native mac
 Gateway를 별도 host process로 연결한다. 브라우저 QA는 same-origin
 `/api/copilotkit`, SQLite completed-event replay with provider-native session
 continuity, Agent-fixed Sourcing entry, direct read, provider-native delegation,
-approval 후 explicit retry, Operation card,
+approval-triggered deterministic dispatch and same-key replay, Operation card,
 interrupt/restart/no-auto-turn, four-active-turn cap, conversation deletion의
 business-record 비연쇄 삭제, nginx internal-route 404를 확인한 뒤 모든 process와
 QA container를 종료한다.

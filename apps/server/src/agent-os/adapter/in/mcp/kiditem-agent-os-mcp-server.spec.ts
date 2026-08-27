@@ -296,6 +296,7 @@ describe('KidItem stateless capability MCP server', () => {
       approvalExpiresAt: null,
     };
     const repository = {
+      findById: vi.fn().mockResolvedValue(pending),
       admit: vi.fn().mockResolvedValue({ kind: 'created', invocation: pending }),
       recordSucceeded: vi.fn(),
       recordKnownFailure: vi.fn(async ({ error }: { error: unknown }) => ({

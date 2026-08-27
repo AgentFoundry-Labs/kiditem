@@ -75,9 +75,12 @@ export function CapabilityInvocationCard({
     );
   }
   if (!receipt.data) return null;
-  const approvalStatus = decision.data?.approvalStatus ?? receipt.data.approvalStatus;
+  const currentReceipt: InvocationReceipt = decision.data
+    ? { ...receipt.data, ...decision.data }
+    : receipt.data;
+  const approvalStatus = currentReceipt.approvalStatus;
   const pending = approvalStatus === 'pending';
-  const presentation = approvalPresentation(receipt.data.capabilityKey);
+  const presentation = approvalPresentation(currentReceipt.capabilityKey);
 
   return (
     <ConversationCardFrame
@@ -109,10 +112,10 @@ export function CapabilityInvocationCard({
       <dl className="mt-2 grid gap-1 text-sm">
         <ReceiptDetail label="대상" value={presentation.target} />
         <ReceiptDetail label="영향" value={presentation.effect} />
-        {receipt.data.approvalExpiresAt ? <ReceiptDetail label="승인 기한" value={formatExpiry(receipt.data.approvalExpiresAt)} /> : null}
+        {currentReceipt.approvalExpiresAt ? <ReceiptDetail label="승인 기한" value={formatExpiry(currentReceipt.approvalExpiresAt)} /> : null}
       </dl>
-      {receipt.data.result ? <InvocationResultEvidence result={receipt.data.result} /> : null}
-      <p role={decision.data ? 'status' : undefined} className="mt-2 text-sm text-muted-foreground">{approvalStatusSummary(approvalStatus)}</p>
+      {currentReceipt.result ? <InvocationResultEvidence result={currentReceipt.result} /> : null}
+      <p role={decision.data ? 'status' : undefined} className="mt-2 text-sm text-muted-foreground">{approvalStatusSummary(currentReceipt)}</p>
       {decision.isError ? <p role="alert" className="mt-3 text-destructive">승인 결정을 저장하지 못했습니다.</p> : null}
     </ConversationCardFrame>
   );
@@ -150,10 +153,14 @@ function ReceiptDetail({ label, value }: { label: string; value: string }) {
   );
 }
 
-function approvalStatusSummary(status: string): string {
-  switch (status) {
+function approvalStatusSummary(receipt: InvocationReceipt): string {
+  switch (receipt.approvalStatus) {
     case 'pending': return '승인하면 이 업무가 진행됩니다.';
-    case 'approved': return '승인되었습니다. 이 요청은 같은 내용으로 다시 실행될 수 있습니다.';
+    case 'approved': return receipt.status === 'succeeded'
+      ? '승인한 업무가 완료되었습니다.'
+      : receipt.status === 'failed'
+        ? '승인한 업무를 완료하지 못했습니다.'
+        : '승인되어 업무를 처리하고 있습니다.';
     case 'rejected': return '요청을 취소했습니다. 이 결정으로 업무는 시작되지 않습니다.';
     case 'expired': return '승인 가능 시간이 만료되었습니다.';
     case 'not_required': return '현재 승인할 업무가 없습니다.';

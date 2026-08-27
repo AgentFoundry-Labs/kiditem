@@ -24,10 +24,11 @@ import {
 import { AgentCapabilityRegistry } from './application/service/agent-capability-registry.service';
 import { CapabilityApprovalService } from './application/service/capability-approval.service';
 import { CapabilityInvocationService } from './application/service/capability-invocation.service';
+import { CapabilityMutationDispatcher } from './application/service/capability-mutation-dispatcher.service';
 import { FinalCapabilityCatalogRegistrar } from './application/service/final-capability-catalog-registrar.service';
 import { AgentOsCapabilityModule } from './agent-os-capability.module';
 
-/** Request-driven capability composition. No queue, dispatcher, or Agent session. */
+/** Request and bounded API-bootstrap deterministic Invocation composition. No queue or Agent session. */
 @Module({
   imports: [
     PrismaModule,
@@ -52,29 +53,42 @@ import { AgentOsCapabilityModule } from './agent-os-capability.module';
       useExisting: PrismaCapabilityInvocationRepository,
     },
     {
+      provide: CapabilityMutationDispatcher,
+      inject: [CAPABILITY_INVOCATION_REPOSITORY_PORT, AgentCapabilityRegistry],
+      useFactory: (
+        repository: CapabilityInvocationRepositoryPort,
+        capabilities: AgentCapabilityRegistry,
+      ) => new CapabilityMutationDispatcher(repository, capabilities),
+    },
+    {
       provide: CapabilityInvocationService,
       inject: [
         CAPABILITY_INVOCATION_REPOSITORY_PORT,
         AgentCapabilityRegistry,
         SOURCING_CAPABILITY_ADMISSION_PORT,
+        CapabilityMutationDispatcher,
       ],
       useFactory: (
         repository: CapabilityInvocationRepositoryPort,
         capabilities: AgentCapabilityRegistry,
         sourcingAdmission: SourcingCapabilityAdmissionPort,
+        dispatcher: CapabilityMutationDispatcher,
       ) => new CapabilityInvocationService(
         repository,
         capabilities,
         undefined,
         sourcingAdmission,
+        dispatcher,
       ),
     },
     { provide: CAPABILITY_INVOCATION_PORT, useExisting: CapabilityInvocationService },
     {
       provide: CapabilityApprovalService,
-      inject: [CAPABILITY_INVOCATION_REPOSITORY_PORT],
-      useFactory: (repository: CapabilityInvocationRepositoryPort) =>
-        new CapabilityApprovalService(repository),
+      inject: [CAPABILITY_INVOCATION_REPOSITORY_PORT, CapabilityMutationDispatcher],
+      useFactory: (
+        repository: CapabilityInvocationRepositoryPort,
+        dispatcher: CapabilityMutationDispatcher,
+      ) => new CapabilityApprovalService(repository, dispatcher),
     },
     { provide: CAPABILITY_APPROVAL_PORT, useExisting: CapabilityApprovalService },
   ],

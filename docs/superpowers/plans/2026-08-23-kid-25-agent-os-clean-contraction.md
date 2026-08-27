@@ -1,62 +1,26 @@
 # KID-25 Single-Node Agent OS Clean Contraction Implementation Plan
 
-> **Status (2026-08-25): Superseded pending rewrite.** Do not execute the
-> checkboxes below. The approved provider-native conversation design removes
-> AgentVersion, AgentSession, AgentTask, and AgentAttempt and replaces the
-> disposable Attempt runtime with an always-available Host Agent Gateway. This
-> plan remains only as implementation history until it is replaced after review
-> of the current design authority.
+> **Archived implementation history — do not execute.** This plan records the
+> retired Attempt/Task and Invocation-worker design. Its checkboxes, file lists,
+> model table, runtime versions, and “Fixed Final Contract” language below are
+> non-authoritative. The active implementation authority is
+> `docs/superpowers/plans/2026-08-26-agent-os-global-chat-panel-and-history.md`
+> together with `docs/ARCHITECTURE.md` and the scoped Agent OS/Gateway
+> `AGENTS.md` files.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
-**Goal:** Replace the unreleased Agent OS/Interaction OS graph with a six-model, single-home-server Agent OS that provides correct CLI admission, exact capability/HITL semantics, a clean destructive schema cutover, and basic same-SHA restart recovery.
-
-**Architecture:** One Nest API process owns same-origin CopilotKit, process-local Attempt admission, direct loopback MCP v2 HTTP, and all durable Agent authority. One native macOS/Windows Host Runner owns only disposable Codex/Claude CLI processes through outbound command long-poll and idempotent event POST. The existing worker owns durable mutation Invocation dispatch, Approval expiry, and deterministic Operations. PostgreSQL stores work and exact mutation authorization only; reasoning restart is always a user-triggered immutable successor Attempt.
-
-**Tech Stack:** NestJS, TypeScript, Prisma/PostgreSQL, Zod, CopilotKit OSS/AG-UI `1.67.1`, MCP SDK v2 `2.0.0`, MCP `2026-07-28`, Codex CLI `0.149.1`, Claude Code `2.1.245`, native macOS/Windows Host Runner, Next.js/React, Vitest, Playwright, Docker Compose, GitHub Actions.
+The current fixed contraction has provider-local Conversations, no AgentVersion,
+AgentSession, AgentTask, or AgentAttempt persistence, and one PostgreSQL
+`CapabilityInvocation` receipt containing its exact approval fields. The
+API-owned `CapabilityMutationDispatcher` executes approved persisted receipts
+with a stable owner key and performs only one bootstrap sweep of at most 100
+pending/approved receipts. Ambiguous outcomes remain pending for explicit
+same-request replay or a later bootstrap sweep. The worker owns long-running
+`OperationRun` execution only; there is no Invocation queue, lease, timer, or
+provider reasoning recovery.
 
 ---
 
-## Execution Contract
-
-The authority is `docs/superpowers/specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md`. The runtime/deployment implementation authority is `docs/superpowers/plans/2026-08-24-kid-25-mcp-v2-runtime-train.md`; it replaces every container CLI, stdio, UDS, or API-local process instruction that remains in an older plan revision. These six tasks are substantial integrated Terra work units; do not split them into file-sized subagent tasks. Every implementation subagent uses Terra with `max` reasoning. Task numbers are review checkpoints, not compatibility boundaries: move replacement/deletion work across them when necessary for a coherent clean cutover, and never preserve a legacy entrypoint or fallback merely for an intermediate task. The parent verifies every integrated unit against its TDD/focused gates. Sol `max` review is selective for important security, authority, transport, process-isolation, or deployment boundaries rather than mandatory per task. Final completion is QA-driven: run the complete local matrix, real Codex canary, deterministic Claude contracts, negative authority probes, and required Windows CI. Use another targeted review only when QA exposes a boundary ambiguity.
-
-Do not add any of the following while implementing:
-
-- Session lifecycle/deletion cutoff/generation or deletion Operation;
-- Task `continuationMode`, Attempt `continuationKey`, background coordinator,
-  Operation-to-Agent trigger, or automatic successor reasoning;
-- PostgreSQL advisory executor lock, multiple API executors, capacity queue, or
-  distributed signal;
-- automatic mutation release drain, compatibility workflow/image, isolated
-  restore rehearsal, RPO/RTO evidence, or automatic dependency upgrade;
-- transcript/replay/artifact/cost/provider-session/credential/grant/outbox
-  persistence; or
-- compatibility routes, dual-write, backfill, conversion, or legacy reader.
-
-All shell commands below include the repository-required `rtk` prefix. Database
-commands must use the explicit task-specific disposable URL shown; an empty URL
-is a hard stop.
-
-## Fixed Final Contract
-
-| Authority | Final value |
-|---|---|
-| Models | `AgentVersion`, `AgentSession`, `AgentTask`, `AgentAttempt`, `AgentCapabilityInvocation`, `AgentCapabilityApproval` |
-| Session state | no lifecycle column |
-| Task status | `open \| completed \| failed \| cancelled` |
-| Attempt status | `starting \| running \| succeeded \| failed \| process_interrupted \| cancelled` |
-| Invocation status | `authorized \| approval_pending \| ready \| executing \| succeeded \| failed` |
-| Approval status | `pending \| approved \| rejected \| expired` |
-| Authorization | `agent_default_scope \| cross_domain_read_grant \| explicit_execution_grant` |
-| Admission | one API process, process-local max 4, immediate reject, no queue/DB lock |
-| Follow-up | current-user message/Continue creates a successor Attempt; never automatic |
-| Replay | same logical key/input returns existing work; never creates a successor |
-| HITL completion | advances only admitted deterministic mutation/Operation; never wakes or relaunches CLI reasoning |
-| Web work view | source Task/Attempt/Approval/Invocation/Operation/child facts only; no Task presentation enum |
-| CLI permission | trusted full-access/non-interactive mode under the dedicated non-administrator OS account |
-| Deletion | terminal-only transactional hard delete; otherwise `session_busy` |
-| Restart | same-SHA Attempt/read interruption, manual Continue, durable Approval/mutation recovery |
+## Historical Tasks (non-authoritative)
 
 ## Task 1: Establish Final Registries, Replacement Tables, Shared Contracts, and Legacy Scanner
 

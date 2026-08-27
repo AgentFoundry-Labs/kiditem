@@ -120,6 +120,28 @@ describe('Gateway control contract', () => {
     }
   });
 
+  it('carries a capability approval requirement only as its strict invocation locator', async () => {
+    const { GatewayEventSchema } = await import('./control');
+    const event = {
+      kind: 'turn.event',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      event: {
+        kind: 'capability.approval_required',
+        invocationId: '00000000-0000-4000-8000-000000000001',
+      },
+    };
+
+    expect(GatewayEventSchema.parse(event)).toEqual(event);
+    expect(GatewayEventSchema.safeParse({
+      ...event,
+      event: {
+        ...event.event,
+        rawUrl: 'https://kiditem.test/agent-os?invocationId=00000000-0000-4000-8000-000000000001',
+      },
+    }).success).toBe(false);
+  });
+
   it('keeps transport authority out of Gateway commands and accepts it only in the authenticated poll', async () => {
     const { GatewayCommandSchema } = await import('./control');
     const turn = {

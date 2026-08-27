@@ -6,7 +6,7 @@ export const CHANNELS_FINAL_CAPABILITY_PORT = Symbol(
 export interface ChannelsOwnerExecutionContext {
   organizationId: string;
   initiatingUserId: string;
-  /** Active-turn execution coordinate; never a business or persistence id. */
+  /** Server-derived correlation: a live-turn ID or admitted Invocation ID, never business authority. */
   executionId: string;
   /** Invocation-derived opaque owner key, passed unchanged to Channels. */
   ownerIdempotencyKey: string;

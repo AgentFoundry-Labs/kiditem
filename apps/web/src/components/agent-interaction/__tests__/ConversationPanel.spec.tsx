@@ -12,7 +12,19 @@ vi.mock('../ConversationRuntimeHost', () => ({
 }));
 
 vi.mock('../ConversationFlow', () => ({
-  ConversationFlow: ({ emptyState }: { emptyState?: ReactNode }) => <div data-testid="conversation-flow">{emptyState}</div>,
+  ConversationFlow: ({
+    emptyState,
+    supplementalContent,
+  }: {
+    emptyState?: ReactNode;
+    supplementalContent?: ReactNode;
+  }) => <div data-testid="conversation-flow">{emptyState}{supplementalContent}</div>,
+}));
+
+vi.mock('../CapabilityInvocationCard', () => ({
+  CapabilityInvocationCard: ({ invocationId }: { invocationId: string }) => (
+    <div data-testid={`approval-card-${invocationId}`}>Approval card {invocationId}</div>
+  ),
 }));
 
 vi.mock('../conversation-surface-state', () => ({
@@ -31,6 +43,8 @@ function activeRuntime(overrides: Record<string, unknown> = {}) {
     },
     draft: null,
     conversationId: 'conversation-1',
+    identity: { userId: 'user-1', organizationId: 'organization-1' },
+    approvalInvocationIds: [],
     ...overrides,
   };
 }
@@ -103,5 +117,16 @@ describe('ConversationPanel', () => {
     expect(screen.getByTestId('conversation-empty-state')).toBeVisible();
     expect(screen.queryByRole('button', { name: '새 AI 대화 시작' })).not.toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /이번 주|상품 후보|운영 이슈/ })).toHaveLength(3);
+  });
+
+  it('passes streamed approval cards through the shared evidence lane without adding a decision action', () => {
+    const invocationId = '00000000-0000-4000-8000-000000000001';
+    runtimeMock.mockReturnValue(activeRuntime({ approvalInvocationIds: [invocationId] }));
+
+    render(<ConversationPanel onClose={vi.fn()} />);
+
+    expect(screen.getByTestId(`approval-card-${invocationId}`)).toHaveTextContent(`Approval card ${invocationId}`);
+    expect(screen.queryByRole('button', { name: '승인' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '취소' })).not.toBeInTheDocument();
   });
 });

@@ -13,6 +13,9 @@ export type {
 } from './runtime-train';
 export {
   AgentKeySchema,
+  CapabilityApprovalRequiredEventValueSchema,
+  CapabilityApprovalRequiredProviderEventSchema,
+  CAPABILITY_APPROVAL_REQUIRED_CUSTOM_EVENT_NAME,
   ConversationIdSchema,
   ConversationPreferenceContextSchema,
   ConversationPreferenceSchema,
@@ -29,6 +32,7 @@ export {
 } from './conversation';
 export type {
   AgentKey,
+  CapabilityApprovalRequiredEventValue,
   ConversationId,
   ConversationPreferenceContext,
   ConversationPreference,

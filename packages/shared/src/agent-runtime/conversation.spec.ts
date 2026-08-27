@@ -181,6 +181,32 @@ describe('Gateway conversation contract', () => {
       .toBe(false);
   });
 
+  it('permits only a strict UUID locator for a capability approval requirement', async () => {
+    const { ProviderEventSchema } = await import('./conversation');
+    const event = {
+      kind: 'capability.approval_required',
+      invocationId: '00000000-0000-4000-8000-000000000001',
+    };
+
+    expect(ProviderEventSchema.parse(event)).toEqual(event);
+    expect(ProviderEventSchema.safeParse({
+      kind: 'capability.approval_required',
+      invocationId: 'not-a-uuid',
+    }).success).toBe(false);
+    for (const forbidden of [
+      { url: 'https://kiditem.test/agent-os?invocationId=00000000-0000-4000-8000-000000000001' },
+      { tool: 'capability_invoke' },
+      { result: { inputRequests: {} } },
+      { input: { purchaseOrderId: 'private' } },
+      { hash: 'private-hash' },
+      { token: 'private-token' },
+      { providerPayload: { secret: 'private' } },
+      { secret: 'private' },
+    ]) {
+      expect(ProviderEventSchema.safeParse({ ...event, ...forbidden }).success).toBe(false);
+    }
+  });
+
   it('requires an explicit model-to-reasoning-effort catalog for a ready provider', async () => {
     const { ProviderReadinessSchema } = await import('./conversation');
 

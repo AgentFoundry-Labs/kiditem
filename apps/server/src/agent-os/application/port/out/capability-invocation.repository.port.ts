@@ -55,6 +55,11 @@ export interface InvocationRequestKeyFence {
   requestKey: string;
 }
 
+/** A bounded API-bootstrap recovery query, not a queue claim or lease. */
+export interface ListApprovedPendingCapabilityInvocations {
+  limit: number;
+}
+
 export interface AdmitCapabilityInvocation {
   organizationId: string;
   initiatingUserId: string;
@@ -83,6 +88,12 @@ export interface DecideInvocationApproval extends InvocationFence {
   decidedAt: Date;
 }
 
+/** `transitioned` is true only for the request that won the pending-state CAS. */
+export interface DecideInvocationApprovalResult {
+  invocation: CapabilityInvocationRecord;
+  transitioned: boolean;
+}
+
 export interface RecordInvocationSucceeded extends InvocationFence {
   result: z.infer<typeof CapabilityResultReceiptSchema>;
   finishedAt: Date;
@@ -103,9 +114,12 @@ export interface CapabilityInvocationRepositoryPort {
   findByRequestKey(
     input: InvocationRequestKeyFence,
   ): Promise<CapabilityInvocationRecord | null>;
+  listApprovedPending(
+    input: ListApprovedPendingCapabilityInvocations,
+  ): Promise<CapabilityInvocationRecord[]>;
   decideApproval(
     input: DecideInvocationApproval,
-  ): Promise<CapabilityInvocationRecord>;
+  ): Promise<DecideInvocationApprovalResult>;
   recordSucceeded(
     input: RecordInvocationSucceeded,
   ): Promise<CapabilityInvocationRecord>;

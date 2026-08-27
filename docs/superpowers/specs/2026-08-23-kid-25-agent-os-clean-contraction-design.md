@@ -94,10 +94,13 @@ Browser
                            -> optional external provider/browser
                            -> optional OperationRun
 
+API CapabilityMutationDispatcher
+  -> approved CapabilityInvocation receipt
+  -> owner-domain incoming port
+  -> one bootstrap sweep, at most 100 pending/approved receipts
+
 Worker
-  -> ready CapabilityInvocation mutations
-  -> pending CapabilityApproval expiry
-  -> deterministic OperationRun execution
+  -> deterministic OperationRun execution only
 ~~~
 
 CopilotKit remains an incoming adapter inside Nest. The Host Agent Gateway is a
@@ -141,7 +144,7 @@ The following alternatives are rejected:
 | Capability contract and routing metadata | owner-domain CapabilityDefinition |
 | Read result | live provider turn; no required durable Agent OS row |
 | Exact mutation input/hash/admission | CapabilityInvocation |
-| Human confirmation | CapabilityApproval |
+| Human confirmation | exact approval fields on CapabilityInvocation |
 | Long-running deterministic execution | OperationRun |
 | Business lifecycle and result | owner-domain canonical entity |
 | Manual action board | existing ActionTask, when that product feature applies |
@@ -166,13 +169,13 @@ Conversation B
 ~~~
 
 Deleting or archiving a conversation never deletes a business entity,
-CapabilityInvocation, CapabilityApproval, or OperationRun.
+CapabilityInvocation, or OperationRun.
 
 ### 2.3 No generic AgentTask
 
 Open-ended investigation that ends in an answer remains only a provider
 conversation. Durable work is represented directly by the domain entity,
-CapabilityInvocation, CapabilityApproval, or OperationRun that owns it.
+CapabilityInvocation, or OperationRun that owns it.
 
 If a future requirement needs a user-managed generic follow-up that has no
 owner-domain entity, it must be designed as an explicit WorkItem product
@@ -329,7 +332,10 @@ Each owner domain co-locates:
 
 Agent OS aggregates and validates definitions and implementations. It does not
 define owner business ports, write owner-domain rows, or maintain a central
-implementation switch.
+implementation switch. Reads execute through the owner port. A mutation only
+admits a `CapabilityInvocation`; after durable approval, the API-owned
+`CapabilityMutationDispatcher` executes that persisted receipt through the
+owner port using its stable owner key.
 
 CapabilityDefinition contains:
 
@@ -418,7 +424,8 @@ receipt, not a new persistence model, HMAC, or provider-session field.
 Routing remains intentionally simple:
 
 1. Read capability: the current conversation or Agent invokes it directly.
-2. Mutation capability in the current Agent's assigned domain: invoke directly.
+2. Mutation capability in the current Agent's assigned domain: admit the exact
+   durable receipt for deterministic owner dispatch.
 3. Mutation outside current scope, including every mutation from general chat:
    explicitly select a target Agent and run a provider-native subagent with
    that Agent's profile.
@@ -458,11 +465,11 @@ temporary override, or capability grant is inferred.
 
 ### 6.1 Final PostgreSQL graph
 
-Agent OS persistence contains exactly two models:
+Agent OS persistence contains exactly one model:
 
 ~~~text
 CapabilityInvocation
-  -> optional CapabilityApproval
+  -> exact approval fields on the same receipt
 
 CapabilityInvocation.result
   -> resource_ref values
@@ -477,44 +484,44 @@ credential, transcript, or provider history.
 
 ### 6.2 CapabilityInvocation
 
-CapabilityInvocation is the exact mutation-admission receipt and worker work
-item. It stores:
+CapabilityInvocation is the exact mutation-admission receipt. It stores:
 
 - organization and initiating user;
-- capability key and owner domain;
-- required executing Agent key for responsibility provenance;
+- capability key;
+- required acting Agent key for responsibility provenance;
 - exact canonical input and SHA-256 input hash;
-- effects, approval risk, and idempotency requirement;
-- required owner idempotency key;
-- application version, authorizing Git SHA, and capability contract
-  fingerprint;
-- status, bounded worker lease/retry fields, concise result references,
-  structured error, and timestamps.
+- required request key, which becomes the stable owner idempotency key;
+- pending/succeeded/failed status;
+- not_required/pending/approved/rejected/expired approval status, exact
+  approval input hash, expiry, decision metadata, and timestamps; and
+- concise result references or structured error.
 
 It stores no conversation ID, provider-native session ID, AgentVersion,
 AgentTask, AgentAttempt, runtime, model, reasoning effort, transcript, prompt,
 subagent identity, or provider credential.
 
-Its statuses are:
+Its execution statuses are:
 
 ~~~text
-approval_pending | ready | executing | succeeded | failed
+pending | succeeded | failed
 ~~~
 
-No-approval mutation starts ready. Approval-required mutation starts
-approval_pending. The worker is the only owner of ready/executing dispatch.
+Every mutation starts pending. A no-approval receipt may dispatch immediately;
+an approval-required receipt remains pending until its exact durable approval.
+The API-owned `CapabilityMutationDispatcher` is the only owner of
+CapabilityInvocation execution. It revalidates the persisted schema/input/hash,
+Agent/domain assignment, and approval before calling the owner port.
 
 Mutation admission provides one exact owner idempotency key. Same key and same
 canonical input return the same Invocation/result. Same key with changed input
 is an idempotency conflict. Missing key is rejected before the owner call. The
 same exact key reaches the final database or Operation owner.
 
-### 6.3 CapabilityApproval
+### 6.3 Approval fields and deterministic release
 
-CapabilityApproval binds one exact CapabilityInvocation and input hash. It
-stores:
+The approval fields on CapabilityInvocation bind one exact receipt and input
+hash. They store:
 
-- organization and invocation;
 - exact input hash;
 - pending, approved, rejected, or expired status;
 - bounded expiry;
@@ -524,11 +531,12 @@ The decision is immutable and non-reusable. Medium/high mutations require
 approval; none/low do not. This is a single-user confirmation boundary, not
 role separation.
 
-If the provider turn is still alive within a bounded wait, it may receive the
-approved result and continue. If it has ended, the worker still completes the
-already-admitted mutation or Operation. No model turn starts automatically.
-The next explicit user message can inspect the Invocation, Approval, Operation,
-and business resource through MCP.
+Approval enables API-owned deterministic dispatch of the persisted receipt. It
+never retries or resumes provider reasoning. An ambiguous owner outcome remains
+`pending`; only explicit same-request replay or the next bounded API-bootstrap
+sweep may reach it again. No model turn starts automatically. The next explicit
+user message can inspect the Invocation, Operation, and business resource
+through MCP.
 
 ### 6.4 OperationRun and domain state
 
@@ -542,7 +550,7 @@ lease recovery, progress, and result. CapabilityInvocation does not duplicate
 either lifecycle.
 
 The Agent OS screen's business-work views aggregate owner-domain projections,
-pending Approvals, and queued/running Operations. There is no generic Task
+approval-pending Invocations, and queued/running Operations. There is no generic Task
 status or needs_continue state.
 
 ## 7. Host Agent Gateway and provider adapters
@@ -652,13 +660,15 @@ active-turn record.
 It exposes:
 
 - internal transport tools for catalog, invoke, delegation, Invocation status,
-  Approval status, Operation status, and readiness as required; and
+  approval status, Operation status, and readiness as required; and
 - all seventeen Agent-facing CapabilityDefinitions.
 
 Read calls validate strict schemas and execute through the owner port. Mutation
 calls validate actingAgentKey against the current Agent/domain assignment,
-canonicalize input, durably admit
-CapabilityInvocation/CapabilityApproval, and return a concise reference.
+canonicalize input, durably admit one CapabilityInvocation with exact approval
+fields, and return a concise reference. After durable approval, the API-owned
+dispatcher—not provider reasoning—calls the owner port from the persisted
+receipt.
 
 MCP v2 Task records do not replace OperationRun. No MCP transport session,
 provider session, or conversation transcript is written to PostgreSQL. Legacy
@@ -701,8 +711,8 @@ On API or Gateway restart:
 5. provider-native local conversation history remains owned by the provider,
    and the next explicit user message may continue that same conversation;
 6. a read call that did not complete has no durable replay obligation;
-7. a mutation admitted before failure remains CapabilityInvocation worker work;
-8. pending Approval remains actionable;
+7. a mutation admitted before failure remains a pending CapabilityInvocation;
+8. pending approval remains actionable on that same receipt;
 9. OperationRun continues under its existing durable lease/idempotency rules;
    and
 10. a mutation not durably admitted is treated as never started.
@@ -721,12 +731,15 @@ Transport retry can deduplicate the same in-memory turn/tool coordinate. After
 durable mutation admission, CapabilityInvocation and owner idempotency are the
 only replay authorities.
 
-### 8.3 Worker restart
+### 8.3 API-bootstrap mutation recovery
 
-Worker restart retries expired executing mutation leases with the same exact
-canonical input and owner idempotency key. It must not duplicate a committed
-domain write or OperationRun. Approval expiry and a concurrent user decision
-have one transactional winner.
+API bootstrap performs one sweep of at most 100 `pending`/`approved`
+CapabilityInvocations using their exact canonical input and stable owner key.
+An ambiguous owner outcome remains pending and is reachable only through
+explicit same-request replay or a later bootstrap sweep. There is no
+Invocation worker lease, timer, queue, or retry loop. Approval expiry and a
+concurrent user decision have one transactional winner. OperationRun retains
+its separate worker-owned lease and idempotency recovery.
 
 ## 9. CopilotKit and Web UX
 
@@ -780,11 +793,10 @@ AgentAttempt
 ~~~
 
 Drop the current Agent-prefixed Invocation/Approval graph and create the clean
-two-model graph:
+one-model graph:
 
 ~~~text
 CapabilityInvocation
-CapabilityApproval
 ~~~
 
 The clean models must not retain nullable sessionId, taskId, attemptId,
@@ -799,9 +811,7 @@ dual-write, or retain compatibility views.
 Use string-backed statuses plus Zod/domain validation. Require:
 
 - organization-fenced relations;
-- one Approval per Invocation;
 - unique required owner idempotency coordinate for mutations;
-- ready/executing lease indexes;
 - exact input-hash binding for Approval; and
 - no native PostgreSQL enum.
 
@@ -830,7 +840,7 @@ Retain and simplify:
 
 - owner-local CapabilityDefinition composition;
 - strict capability schemas and owner idempotency;
-- CapabilityInvocation/Approval worker dispatch;
+- API-owned CapabilityInvocation dispatch and one bounded bootstrap sweep;
 - OperationRun execution and recovery;
 - MCP v2 modern-only adapter;
 - installation bearer, process-scoped MCP transport, and active-turn authority
@@ -875,9 +885,10 @@ verification remains a declared release milestone, not a hidden claim.
 After this documented design is reviewed, replace the existing implementation
 plan with substantial integrated units:
 
-1. fail-first contract and schema tests for the two-model persistence graph,
+1. fail-first contract and schema tests for the one-model persistence graph,
    five Agents, seventeen capabilities, no Operator, and no Task/Attempt;
-2. simplify CapabilityInvocation/Approval admission and worker recovery;
+2. simplify CapabilityInvocation admission, inline approval fields, and
+   API-owned bootstrap recovery;
 3. replace Attempt/Task MCP authority and child delegation with the
    process-scoped MCP transport, Nest active-turn lookup, actingAgentKey, and
    provider-native Agent delegation;
@@ -936,7 +947,8 @@ executable QA cannot resolve an important ambiguity.
 - Same key/input replays; same key/drift conflicts; missing key fails before
   owner call.
 - Medium/high mutation cannot execute before exact immutable Approval.
-- Worker restart does not duplicate a committed domain write or OperationRun.
+- API bootstrap or explicit same-request replay does not duplicate a committed
+  domain write or OperationRun.
 - Operation-backed capability returns operation_ref immediately and never
   starts a model turn on completion.
 - Scrape evidence is same-turn bounded and fabricated/unbound ingest fails.
@@ -965,8 +977,8 @@ executable QA cannot resolve an important ambiguity.
 
 ### 13.5 Schema, Web, and cutover
 
-- Final Agent OS persistence has exactly CapabilityInvocation and
-  CapabilityApproval.
+- Final Agent OS persistence has exactly CapabilityInvocation, including its
+  exact approval fields.
 - AgentVersion, AgentSession, AgentTask, AgentAttempt, and their production
   callers have zero findings.
 - No conversation/transcript/provider session/model/effort enters PostgreSQL.
@@ -993,9 +1005,8 @@ executable QA cannot resolve an important ambiguity.
   actingAgentKey transport coordinate, never a capability grant or child Task.
 - AgentTask has no unique owner responsibility and is removed.
 - Owner-domain entities own business lifecycle.
-- CapabilityInvocation owns only exact durable mutation admission and worker
-  execution.
-- CapabilityApproval owns exact single-user confirmation.
+- CapabilityInvocation owns exact durable mutation admission, single-user
+  confirmation fields, and API-owned deterministic dispatch.
 - OperationRun owns long-running deterministic execution and restart recovery.
 - Reads are live and need no durable Invocation.
 - Capability catalog contains seventeen entries, including all ten Sourcing
@@ -1008,6 +1019,6 @@ executable QA cannot resolve an important ambiguity.
 - One Gateway process owns one stable MCP transport token; Nest derives business
   authority lazily from its exact active-turn record, never from a descriptor.
 - Office is Windows; macOS is the current implementation and local QA platform.
-- Legacy Agent OS data is discarded in a clean two-model cutover.
+- Legacy Agent OS data is discarded in a clean one-model cutover.
 - No background reasoning, generic Task lifecycle, compatibility layer, or
   multi-user enterprise policy is added.

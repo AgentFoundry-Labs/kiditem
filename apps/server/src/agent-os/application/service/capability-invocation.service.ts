@@ -2,7 +2,6 @@ import {
   CapabilityResultReceiptSchema,
   CapabilityResultEnvelopeSchema,
   type CapabilityResultReceipt,
-  type CapabilityResultEnvelope,
 } from '@kiditem/shared/agent-interaction';
 import {
   MUTATION_EFFECTS,
@@ -15,12 +14,18 @@ import type { SourcingCapabilityAdmissionPort } from '../../../sourcing/applicat
 import { AGENT_DEFINITIONS } from '../../domain/agent-definition.registry';
 import { AgentOsError } from '../../domain/agent-os.errors';
 import {
-  ownerInvocationKey,
+  hasCapabilityApprovalPolicyDrift,
+  requiresAdmittedApproval,
   requiresUserApproval,
   CAPABILITY_APPROVAL_WINDOW_MS,
-  isOwnerKnownFailureCode,
 } from '../../domain/capability/capability-invocation.policy';
 import type { AgentCapabilityRegistry } from './agent-capability-registry.service';
+import {
+  CapabilityMutationDispatcher,
+  type CapabilityMutationDispatcherPort,
+  OwnerKnownFailureError,
+  OwnerResultAmbiguousError,
+} from './capability-mutation-dispatcher.service';
 import type {
   CapabilityInvocationPort,
   CapabilityInvocationResult,
@@ -32,29 +37,7 @@ import type {
   CapabilityInvocationRepositoryPort,
 } from '../port/out/capability-invocation.repository.port';
 
-/** An owner may use this only when it can prove no write committed. */
-export class OwnerKnownFailureError extends Error {
-  readonly knownNoCommit = true;
-
-  constructor(message: string) {
-    super(message);
-    this.name = 'OwnerKnownFailureError';
-  }
-}
-
-/**
- * The invocation was admitted, but an owner call may have committed before a
- * timeout or invalid response. The caller must retry with the original key.
- */
-export class OwnerResultAmbiguousError extends AgentOsError {
-  constructor(readonly invocationId: string) {
-    super(
-      'OWNER_RESULT_AMBIGUOUS',
-      'Owner result is ambiguous; retry with the original requestKey.',
-    );
-    this.name = 'OwnerResultAmbiguousError';
-  }
-}
+export { OwnerKnownFailureError, OwnerResultAmbiguousError } from './capability-mutation-dispatcher.service';
 
 /** Allowlisted result fields for the authenticated Web receipt. */
 export type CapabilityInvocationResultReceipt = CapabilityResultReceipt;
@@ -73,10 +56,13 @@ export type CapabilityInvocationReceipt = Pick<CapabilityInvocationRecord,
 };
 
 /**
- * Request-driven capability admission. Invocations are replay receipts, never
- * a queue: every execution is caused by this explicit method call.
+ * Request-driven capability admission and replay. A shared deterministic
+ * dispatcher owns approved execution and one bounded API-bootstrap recovery;
+ * Invocations never become a worker queue or provider-turn retry.
  */
 export class CapabilityInvocationService implements CapabilityInvocationPort {
+  private readonly dispatcher: CapabilityMutationDispatcherPort;
+
   constructor(
     private readonly repository: CapabilityInvocationRepositoryPort,
     private readonly capabilities: Pick<
@@ -85,7 +71,14 @@ export class CapabilityInvocationService implements CapabilityInvocationPort {
     >,
     private readonly now: () => Date = () => new Date(),
     private readonly sourcingAdmission?: Pick<SourcingCapabilityAdmissionPort, 'admit'>,
-  ) {}
+    dispatcher?: CapabilityMutationDispatcherPort,
+  ) {
+    this.dispatcher = dispatcher ?? new CapabilityMutationDispatcher(
+      repository,
+      capabilities,
+      now,
+    );
+  }
 
   async get(input: GetCapabilityInvocationInput): Promise<CapabilityInvocationRecord> {
     const invocation = await this.repository.findById({
@@ -234,7 +227,10 @@ export class CapabilityInvocationService implements CapabilityInvocationPort {
     }
 
     const admittedApprovalRequired = requiresAdmittedApproval(invocation);
-    if (admission.kind === 'replay' && admittedApprovalRequired !== currentApprovalRequired) {
+    if (admission.kind === 'replay' && hasCapabilityApprovalPolicyDrift(
+      invocation,
+      definition.approvalRisk,
+    )) {
       throw new AgentOsError(
         'CAPABILITY_POLICY_DRIFT',
         'Capability approval policy changed after this request was admitted.',
@@ -265,13 +261,7 @@ export class CapabilityInvocationService implements CapabilityInvocationPort {
       }
     }
 
-    return this.executeMutation({
-      input,
-      definition,
-      canonicalInput,
-      inputHash,
-      invocation,
-    });
+    return terminalOrCompleted(await this.dispatcher.dispatch(invocation));
   }
 
   private async executeRead(input: {
@@ -302,78 +292,6 @@ export class CapabilityInvocationService implements CapabilityInvocationPort {
     }
   }
 
-  private async executeMutation(input: {
-    input: InvokeCapabilityInput;
-    definition: NonNullable<ReturnType<AgentCapabilityRegistry['resolveDefinition']>>;
-    canonicalInput: Record<string, unknown>;
-    inputHash: string;
-    invocation: CapabilityInvocationRecord;
-  }): Promise<CapabilityInvocationResult> {
-    const implementation = this.capabilities.resolveImplementation(input.definition.key);
-    if (!implementation || implementation.capabilityKey !== input.definition.key) {
-      throw new AgentOsError('CAPABILITY_NOT_FOUND', 'Capability implementation was not found.');
-    }
-
-    try {
-      const result = CapabilityResultEnvelopeSchema.parse(
-        await implementation.invoke({
-          context: {
-            organizationId: input.input.organizationId,
-            initiatingUserId: input.input.initiatingUserId,
-            executionId: input.input.executionId,
-            ownerIdempotencyKey: ownerInvocationKey(input.invocation.id),
-            ownerInputHash: input.inputHash,
-          },
-          input: input.canonicalInput,
-        }),
-      );
-      input.definition.outputSchema.parse(result.output);
-      const receipt = ownerResultReceipt(result);
-      const persisted = await this.repository.recordSucceeded({
-        organizationId: input.input.organizationId,
-        invocationId: input.invocation.id,
-        result: receipt,
-        finishedAt: this.now(),
-      });
-      return terminalOrCompleted(persisted);
-    } catch (error) {
-      if (isKnownNoCommitOwnerFailure(error)) {
-        const persisted = await this.repository.recordKnownFailure({
-          organizationId: input.input.organizationId,
-          invocationId: input.invocation.id,
-          error: {
-            code: knownFailureCode(error),
-            message: boundedMessage(error.message, 'Owner reported a known failure before commit.'),
-          },
-          finishedAt: this.now(),
-        });
-        return terminalOrCompleted(persisted);
-      }
-      if (error instanceof AgentOsError) throw error;
-      // A timeout, provider disconnect, output parse failure, or any unknown
-      // exception may follow an owner commit. Keep the Invocation pending.
-      throw new OwnerResultAmbiguousError(input.invocation.id);
-    }
-  }
-}
-
-function isKnownNoCommitOwnerFailure(
-  error: unknown,
-): error is Error & { readonly knownNoCommit: true } {
-  return (
-    error instanceof OwnerKnownFailureError ||
-    (error instanceof Error &&
-      (error as { readonly knownNoCommit?: unknown }).knownNoCommit === true)
-  );
-}
-
-function knownFailureCode(
-  error: Error & { readonly knownNoCommit: true },
-) {
-  const code = (error as { readonly code?: unknown }).code;
-  return isOwnerKnownFailureCode(code)
-    ? code
-    : 'OWNER_KNOWN_FAILURE';
 }
 
 function isMutation(effects: readonly string[]): boolean {
@@ -420,22 +338,6 @@ function receiptResult(
   return result;
 }
 
-function ownerResultReceipt(result: CapabilityResultEnvelope): CapabilityResultReceipt {
-  return CapabilityResultReceiptSchema.parse({
-    summary: result.summary,
-    resourceRefs: result.resourceRefs,
-    operationRefs: result.operationRefs,
-  });
-}
-
-/** Approval fields are admission facts, never recomputed from current code. */
-function requiresAdmittedApproval(invocation: CapabilityInvocationRecord): boolean {
-  return invocation.approvalStatus !== 'not_required'
-    || invocation.approvalInputHash !== null
-    || invocation.approvalRequestedAt !== null
-    || invocation.approvalExpiresAt !== null;
-}
-
 function terminalOrCompleted(
   invocation: CapabilityInvocationRecord,
 ): CapabilityInvocationResult {
@@ -455,9 +357,4 @@ function terminalInvocationError(invocation: CapabilityInvocationRecord): AgentO
     invocation.error?.code ?? 'OWNER_KNOWN_FAILURE',
     invocation.error?.message ?? 'Capability invocation failed.',
   );
-}
-
-function boundedMessage(value: string, fallback: string): string {
-  const normalized = value.trim();
-  return (normalized || fallback).slice(0, 1_000);
 }

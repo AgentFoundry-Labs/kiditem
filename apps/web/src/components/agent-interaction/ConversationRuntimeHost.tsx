@@ -16,6 +16,7 @@ import {
 import { conversationIdentityKey, queryKeys, type ConversationIdentity } from '@/lib/query-keys';
 import { ConversationFirstSendCoordinator, type ConversationFirstSend } from './conversation-first-send.coordinator';
 import { ConversationSettingsDialog } from './ConversationSettingsDialog';
+import { capabilityApprovalInvocationIdFromAgUiEvent } from './capability-approval-event';
 import { conversationTitleFromMessage } from './conversation-title';
 import { selectTurnPreference, type TurnPreferenceSelection } from './conversation-preference-selection';
 import {
@@ -53,6 +54,8 @@ export interface ConversationRuntimeContextValue {
   preferences: ConversationPreferences | null | undefined; preferencesLoading: boolean; preferencesError: boolean;
   activeConversation: ConversationSummary | null; draft: NewConversationDraft | null;
   conversationId: string | null; runtime: ConversationRuntime | null; isDraft: boolean;
+  identity: ConversationIdentity;
+  approvalInvocationIds: readonly string[];
   turnPreference: TurnPreferenceSelection;
   messages: LiveMessage[];
   isRunning: boolean; turnEnded: string | null;
@@ -255,6 +258,7 @@ export function ConversationRuntimeHost({
   const settingsIsRunning = settingsRun.conversationId === activeConversation?.id && settingsRun.isRunning;
 
   const inactiveValue = inactiveRuntimeValue({
+    identity,
     conversations,
     conversationsLoading: conversationsQuery.isLoading,
     conversationsError: conversationsQuery.isError,
@@ -375,9 +379,17 @@ function ActiveConversationRuntime({
   });
   const [presentationRevision, setPresentationRevision] = useState(0);
   const [turnEnded, setTurnEnded] = useState<string | null>(null);
+  const [approvalInvocationIds, setApprovalInvocationIds] = useState<readonly string[]>([]);
   const connectionRef = useRef<{ agent: typeof agent; promise: Promise<void> } | null>(null);
   const refreshPresentation = useCallback(() => {
     setPresentationRevision((current) => current + 1);
+  }, []);
+  const receiveCapabilityApproval = useCallback((event: unknown) => {
+    const invocationId = capabilityApprovalInvocationIdFromAgUiEvent(event);
+    if (!invocationId) return;
+    setApprovalInvocationIds((current) => (
+      current.includes(invocationId) ? current : [...current, invocationId]
+    ));
   }, []);
   const messages = useMemo(
     () => toPresentationMessages(agent.messages),
@@ -413,6 +425,7 @@ function ActiveConversationRuntime({
 
   useEffect(() => {
     setTurnEnded(null);
+    setApprovalInvocationIds([]);
     refreshPresentation();
   }, [conversationId, refreshPresentation]);
   useEffect(() => {
@@ -437,9 +450,12 @@ function ActiveConversationRuntime({
         setTurnEnded(TURN_CONNECTION_NOTICE);
         refreshPresentation();
       },
+      onCustomEvent: ({ event }) => {
+        receiveCapabilityApproval(event);
+      },
     });
     return subscription.unsubscribe;
-  }, [agent, isReady, refreshPresentation, refreshSummaries]);
+  }, [agent, isReady, receiveCapabilityApproval, refreshPresentation, refreshSummaries]);
   useEffect(() => {
     if (binding.kind !== 'existing' || !isReady) return;
     void ensureConnected().catch(() => {
@@ -524,9 +540,9 @@ function ActiveConversationRuntime({
   }, [binding, conversationId, coordinator, isReady, startExisting, updateDraft]);
   const interrupt = useCallback(async () => {
     if (!agent.isRunning) return;
-    agent.abortRun();
+    copilotkit.stopAgent({ agent });
     refreshPresentation();
-  }, [agent, refreshPresentation]);
+  }, [agent, copilotkit, refreshPresentation]);
 
   const value: ConversationRuntimeContextValue = {
     conversations,
@@ -541,6 +557,8 @@ function ActiveConversationRuntime({
     conversationId,
     runtime,
     isDraft: binding.kind === 'draft',
+    identity,
+    approvalInvocationIds,
     turnPreference,
     messages,
     isRunning,
@@ -612,6 +630,7 @@ function ConversationSettingsMount({
 }
 
 function inactiveRuntimeValue({
+  identity,
   conversations,
   conversationsLoading,
   conversationsError,
@@ -626,6 +645,7 @@ function inactiveRuntimeValue({
   renameConversation,
   deleteConversation,
 }: Pick<ConversationRuntimeContextValue,
+  | 'identity'
   | 'conversations'
   | 'conversationsLoading'
   | 'conversationsError'
@@ -655,6 +675,8 @@ function inactiveRuntimeValue({
     conversationId: null,
     runtime: null,
     isDraft: false,
+    identity,
+    approvalInvocationIds: [],
     turnPreference,
     messages: [],
     isRunning: false,

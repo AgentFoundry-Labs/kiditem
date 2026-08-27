@@ -20,6 +20,7 @@ const runtimeMocks = vi.hoisted(() => {
   const runAgent = vi.fn();
   const addMessage = vi.fn();
   const abortRun = vi.fn();
+  const stopAgent = vi.fn();
   const connectAgent = vi.fn();
   const useAgent = vi.fn();
   const subscribe = vi.fn((subscriber: Record<string, unknown>) => {
@@ -42,6 +43,7 @@ const runtimeMocks = vi.hoisted(() => {
     runAgent,
     addMessage,
     abortRun,
+    stopAgent,
     connectAgent,
     subscribe,
     useAgent,
@@ -53,7 +55,10 @@ const runtimeMocks = vi.hoisted(() => {
 
 vi.mock('@copilotkit/react-core/v2', () => ({
   useCopilotKit: () => ({
-    copilotkit: { connectAgent: runtimeMocks.connectAgent },
+    copilotkit: {
+      connectAgent: runtimeMocks.connectAgent,
+      stopAgent: runtimeMocks.stopAgent,
+    },
   }),
   useAgent: (input: unknown) => {
     runtimeMocks.useAgent(input);
@@ -98,6 +103,13 @@ function TerminalNoticeProbe() {
   return <output data-testid="terminal-notice">{turnEnded ?? ''}</output>;
 }
 
+function ApprovalProbe() {
+  const runtime = useConversationRuntime();
+  latestRuntime = runtime;
+  const approvalInvocationIds = Reflect.get(runtime, 'approvalInvocationIds') as readonly string[] | undefined;
+  return <output data-testid="approval-probe">{approvalInvocationIds?.join(',') ?? ''}</output>;
+}
+
 function SettingsTrigger() {
   const openSettings = useConversationSurfaceState((state) => state.openSettings);
   return <button type="button" onClick={(event) => openSettings(event.currentTarget)}>설정 열기</button>;
@@ -124,6 +136,7 @@ describe('ConversationRuntimeHost', () => {
     runtimeMocks.runAgent.mockResolvedValue(undefined);
     runtimeMocks.addMessage.mockReset();
     runtimeMocks.abortRun.mockReset();
+    runtimeMocks.stopAgent.mockReset();
     runtimeMocks.connectAgent.mockReset();
     runtimeMocks.connectAgent.mockResolvedValue(undefined);
     runtimeMocks.useAgent.mockReset();
@@ -437,7 +450,8 @@ describe('ConversationRuntimeHost', () => {
     expect(screen.getByTestId('runtime-probe')).not.toHaveTextContent('mcp__kiditem__capability_invoke');
     expect(screen.getByTestId('runtime-probe')).not.toHaveTextContent('transport-token: do-not-render');
     await act(async () => latestRuntime!.interrupt());
-    expect(runtimeMocks.abortRun).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.stopAgent).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.stopAgent).toHaveBeenCalledWith({ agent: runtimeMocks.agent });
     expect(apiClient.post).not.toHaveBeenCalledWith(expect.stringMatching(/\/turns\/[^/]+\/stop$/));
     runtimeMocks.agent.isRunning = false;
     act(() => subscriber.onRunFinalized?.());
@@ -514,7 +528,52 @@ describe('ConversationRuntimeHost', () => {
     expect(screen.getByTestId('runtime-probe')).not.toHaveTextContent('private result details');
   });
 
-  it('interrupts an active CopilotKit run without a browser-owned turn identifier', async () => {
+  it('consumes only the strict approval custom event into one deduped locator set scoped to the active conversation', async () => {
+    const invocationId = '00000000-0000-4000-8000-000000000001';
+    useConversationSurfaceState.getState().selectConversation(FIRST);
+    renderHost(<ApprovalProbe />);
+
+    await waitFor(() => expect(runtimeMocks.subscriptions).toHaveLength(1));
+    const subscriber = runtimeMocks.subscriptions[0].subscriber as {
+      onCustomEvent?: (input: { event: { name: string; value: unknown } }) => void;
+    };
+    await act(async () => subscriber.onCustomEvent?.({
+      event: {
+        name: 'kiditem.provider_tool_status',
+        value: { name: 'mcp__kiditem__capability_invoke', status: 'completed', detail: 'provider secret' },
+      },
+    }));
+    await act(async () => subscriber.onCustomEvent?.({
+      event: {
+        name: 'kiditem.capability_approval_required',
+        value: { invocationId, rawUrl: `https://kiditem.test/agent-os?invocationId=${invocationId}` },
+      },
+    }));
+    await act(async () => subscriber.onCustomEvent?.({
+      event: {
+        name: 'kiditem.capability_approval_required',
+        value: { invocationId },
+      },
+    }));
+    await act(async () => subscriber.onCustomEvent?.({
+      event: {
+        name: 'kiditem.capability_approval_required',
+        value: { invocationId },
+      },
+    }));
+
+    expect(Reflect.get(latestRuntime!, 'approvalInvocationIds')).toEqual([invocationId]);
+    expect(screen.getByTestId('approval-probe')).toHaveTextContent(invocationId);
+    expect(latestRuntime?.turnEnded).toBeNull();
+    expect(latestRuntime?.isRunning).toBe(false);
+    expect(screen.getByTestId('approval-probe')).not.toHaveTextContent('provider secret');
+
+    act(() => useConversationSurfaceState.getState().selectConversation(SECOND));
+    await waitFor(() => expect(latestRuntime?.conversationId).toBe(SECOND.id));
+    expect(Reflect.get(latestRuntime!, 'approvalInvocationIds')).toEqual([]);
+  });
+
+  it('interrupts an active CopilotKit run through CopilotKit without a browser-owned turn identifier', async () => {
     useConversationSurfaceState.getState().selectConversation(FIRST);
     const run = deferred<void>();
     runtimeMocks.runAgent.mockImplementation(() => {
@@ -530,7 +589,8 @@ describe('ConversationRuntimeHost', () => {
     await waitFor(() => expect(runtimeMocks.runAgent).toHaveBeenCalledTimes(1));
     expect(latestRuntime).not.toHaveProperty('activeTurnId');
     await act(async () => latestRuntime!.interrupt());
-    expect(runtimeMocks.abortRun).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.stopAgent).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.stopAgent).toHaveBeenCalledWith({ agent: runtimeMocks.agent });
     expect(apiClient.post).not.toHaveBeenCalledWith(expect.stringMatching(/\/turns\/[^/]+\/stop$/));
 
     await act(async () => {
@@ -550,7 +610,8 @@ describe('ConversationRuntimeHost', () => {
     await act(async () => latestRuntime!.interrupt());
 
     expect(apiClient.post).not.toHaveBeenCalledWith(expect.stringMatching(/\/turns\/[^/]+\/stop$/));
-    expect(runtimeMocks.abortRun).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.stopAgent).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.stopAgent).toHaveBeenCalledWith({ agent: runtimeMocks.agent });
   });
 
   it('disposes the previous subscription before binding a different selected conversation', async () => {

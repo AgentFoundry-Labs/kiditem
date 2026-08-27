@@ -3,9 +3,11 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import Link from 'next/link';
 import { Menu, Sparkles, X } from 'lucide-react';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { CollapsibleSidebarShell } from '@/components/layout/CollapsibleSidebarShell';
 import { useStore } from '@/store/useStore';
+import { CapabilityInvocationCard } from './CapabilityInvocationCard';
+import { dedupeCapabilityApprovalInvocationIds } from './capability-approval-event';
 import { ConversationFlow } from './ConversationFlow';
 import { ConversationEmptyState } from './ConversationEmptyState';
 import { ConversationFolderTree } from './ConversationFolderTree';
@@ -18,14 +20,18 @@ import { useNewConversationDraft } from './useNewConversationDraft';
 
 /** Full-height Agent OS history presentation over the route-stable runtime. */
 export function AgentConversationSurface({
-  approvalContent,
+  fallbackApprovalInvocationId,
 }: {
-  approvalContent?: ReactNode;
+  fallbackApprovalInvocationId?: string | null;
 }) {
-  return <AgentConversationSurfaceLayout approvalContent={approvalContent} />;
+  return <AgentConversationSurfaceLayout fallbackApprovalInvocationId={fallbackApprovalInvocationId} />;
 }
 
-function AgentConversationSurfaceLayout({ approvalContent }: { approvalContent?: ReactNode }) {
+function AgentConversationSurfaceLayout({
+  fallbackApprovalInvocationId,
+}: {
+  fallbackApprovalInvocationId?: string | null;
+}) {
   const runtime = useConversationRuntime();
   const sidebarOpen = useStore((state) => state.sidebarOpen);
   const toggleSidebar = useStore((state) => state.toggleSidebar);
@@ -40,6 +46,15 @@ function AgentConversationSurfaceLayout({ approvalContent }: { approvalContent?:
   const context = conversationContextFor(
     runtime.activeConversation?.agentKey ?? runtime.draft?.agentKey ?? selectedContext,
   );
+  const approvalInvocationIds = dedupeCapabilityApprovalInvocationIds(
+    runtime.approvalInvocationIds,
+    fallbackApprovalInvocationId,
+  );
+  const approvalContent = approvalInvocationIds.length > 0
+    ? approvalInvocationIds.map((invocationId) => (
+      <CapabilityInvocationCard key={invocationId} invocationId={invocationId} identity={runtime.identity} />
+    ))
+    : undefined;
 
   useEffect(() => {
     if (activeConversationId !== null || pendingDraft) return;

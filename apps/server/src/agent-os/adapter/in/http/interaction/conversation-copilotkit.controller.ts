@@ -15,6 +15,7 @@ import {
 } from '@copilotkit/runtime/v2';
 import { createCopilotExpressHandler } from '@copilotkit/runtime/v2/express';
 import {
+  CAPABILITY_APPROVAL_REQUIRED_CUSTOM_EVENT_NAME,
   ConversationIdSchema,
   ModelSchema,
   ReasoningEffortSchema,
@@ -251,6 +252,13 @@ export class GatewayAgUiEventMapper {
           status: event.status,
           ...(event.detail ? { detail: event.detail } : {}),
         },
+      }];
+    }
+    if (event.kind === 'capability.approval_required') {
+      return [{
+        type: EventType.CUSTOM,
+        name: CAPABILITY_APPROVAL_REQUIRED_CUSTOM_EVENT_NAME,
+        value: { invocationId: event.invocationId },
       }];
     }
     if (event.status === 'started') return [];

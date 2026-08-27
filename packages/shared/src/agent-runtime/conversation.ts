@@ -88,6 +88,19 @@ export const CreateConversationCommandSchema = z.object({
 }).strict();
 export type CreateConversationCommand = z.infer<typeof CreateConversationCommandSchema>;
 
+/** Public capability-approval locator; the receipt endpoint remains the authority. */
+export const CapabilityApprovalRequiredEventValueSchema = z.object({
+  invocationId: z.string().uuid(),
+}).strict();
+export type CapabilityApprovalRequiredEventValue = z.infer<typeof CapabilityApprovalRequiredEventValueSchema>;
+
+export const CAPABILITY_APPROVAL_REQUIRED_CUSTOM_EVENT_NAME = 'kiditem.capability_approval_required' as const;
+
+export const CapabilityApprovalRequiredProviderEventSchema = z.object({
+  kind: z.literal('capability.approval_required'),
+  ...CapabilityApprovalRequiredEventValueSchema.shape,
+}).strict();
+
 export const ProviderEventSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('assistant.delta'),
@@ -104,6 +117,7 @@ export const ProviderEventSchema = z.discriminatedUnion('kind', [
     status: z.enum(['started', 'completed', 'failed', 'interrupted', 'disconnected']),
     detail: z.string().max(1_000).optional(),
   }).strict(),
+  CapabilityApprovalRequiredProviderEventSchema,
 ]);
 export type ProviderEvent = z.infer<typeof ProviderEventSchema>;
 

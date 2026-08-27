@@ -35,7 +35,13 @@ describe('CapabilityInvocationCard', () => {
       approvalRisk: 'high',
       result: null,
     } as never);
-    vi.mocked(apiClient.post).mockResolvedValue({ approvalStatus: 'approved' } as never);
+    vi.mocked(apiClient.post).mockResolvedValue({
+      capabilityKey: 'supply.submit_purchase_order',
+      status: 'pending',
+      approvalStatus: 'approved',
+      approvalExpiresAt: '2026-08-27T00:00:00.000Z',
+      result: null,
+    } as never);
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><CapabilityInvocationCard identity={IDENTITY} invocationId={invocationId} /></QueryClientProvider>);
 
@@ -49,15 +55,16 @@ describe('CapabilityInvocationCard', () => {
     expect(screen.queryByText('supply-agent')).not.toBeInTheDocument();
     expect(screen.queryByText('purchase-order-123')).not.toBeInTheDocument();
     expect(screen.queryByText('external-order-432')).not.toBeInTheDocument();
+    expect(apiClient.post).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: '승인' }));
     await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(
       `/api/agent-os/invocations/${invocationId}/decision`, { decision: 'approved' },
     ));
-    expect(await screen.findByText('승인되었습니다. 이 요청은 같은 내용으로 다시 실행될 수 있습니다.')).toBeVisible();
+    expect(await screen.findByText('승인되어 업무를 처리하고 있습니다.')).toBeVisible();
   });
 
-  it('keeps a rejected receipt distinct from an approved retry acknowledgement', async () => {
+  it('keeps a rejected receipt distinct from an approved work acknowledgement', async () => {
     const invocationId = '00000000-0000-4000-8000-000000000002';
     vi.mocked(apiClient.get).mockResolvedValue({
       id: invocationId,
@@ -75,7 +82,37 @@ describe('CapabilityInvocationCard', () => {
 
     await user.click(await screen.findByRole('button', { name: '취소' }));
     expect(await screen.findByText('요청을 취소했습니다. 이 결정으로 업무는 시작되지 않습니다.')).toBeVisible();
-    expect(screen.queryByText('승인되었습니다. 이 요청은 같은 내용으로 다시 실행될 수 있습니다.')).not.toBeInTheDocument();
+    expect(screen.queryByText('승인되어 업무를 처리하고 있습니다.')).not.toBeInTheDocument();
+  });
+
+  it('uses the decision response as the immediate completed work receipt', async () => {
+    const invocationId = '00000000-0000-4000-8000-000000000007';
+    vi.mocked(apiClient.get).mockResolvedValue({
+      capabilityKey: 'supply.submit_purchase_order',
+      status: 'pending',
+      approvalStatus: 'pending',
+      approvalExpiresAt: null,
+      result: null,
+    } as never);
+    vi.mocked(apiClient.post).mockResolvedValue({
+      capabilityKey: 'supply.submit_purchase_order',
+      status: 'succeeded',
+      approvalStatus: 'approved',
+      approvalExpiresAt: null,
+      result: {
+        summary: '발주서를 제출했습니다.',
+        resourceRefs: [],
+        operationRefs: [],
+      },
+    } as never);
+    const user = userEvent.setup();
+
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><CapabilityInvocationCard identity={IDENTITY} invocationId={invocationId} /></QueryClientProvider>);
+
+    await user.click(await screen.findByRole('button', { name: '승인' }));
+
+    expect(await screen.findByText('발주서를 제출했습니다.')).toBeVisible();
+    expect(screen.getByText('승인한 업무가 완료되었습니다.')).toBeVisible();
   });
 
   it.each([
