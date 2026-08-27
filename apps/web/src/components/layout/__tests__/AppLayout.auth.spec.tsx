@@ -500,6 +500,23 @@ describe('AppLayout auth gate', () => {
     expect(pushMock).not.toHaveBeenCalled();
   });
 
+  it('uses the shared 256px expanded and 64px collapsed sidebar offsets for Dashboard content', () => {
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    });
+
+    const view = renderLayout();
+    expect(screen.getByTestId('dashboard-content-offset')).toHaveClass('md:ml-[256px]');
+
+    appStoreState.sidebarOpen = false;
+    view.rerender(<AppLayout><main data-testid="protected-child">Protected child</main></AppLayout>);
+
+    expect(screen.getByTestId('dashboard-content-offset')).toHaveClass('md:ml-[64px]');
+  });
+
   it('mounts exactly one derived right surface and hides the fixed Quick Action FAB while a surface is active', () => {
     appStoreState.activeRightSurface = 'notifications';
     useAuthMock.mockReturnValue({
@@ -513,6 +530,8 @@ describe('AppLayout auth gate', () => {
 
     expect(screen.getByTestId('right-auxiliary-panel')).toHaveTextContent('notifications');
     expect(screen.getByTestId('quick-action')).toHaveAttribute('data-auxiliary-open', 'true');
+    expect(screen.getByTestId('authenticated-work-surface')).toHaveClass('2xl:mr-[352px]');
+    expect(screen.getByTestId('authenticated-work-surface')).not.toHaveClass('xl:mr-[352px]');
     expect(rightAuxiliaryPropsMock).toHaveBeenCalledWith(expect.objectContaining({
       activeRightSurface: 'notifications',
     }));

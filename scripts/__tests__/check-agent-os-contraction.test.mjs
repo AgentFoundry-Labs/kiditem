@@ -76,7 +76,7 @@ const CAPABILITY_FILES = [
 
 function capabilitySource(keys) {
   return `export const DEFINITIONS = [${keys
-    .map((key) => `{ key: '${key}' }`)
+    .map((key) => `{ key: '${key}', resultSummary: '업무를 완료했습니다.' }`)
     .join(",")}];`;
 }
 
@@ -287,6 +287,19 @@ test("enforces final Agent, domain, capability, and MCP cardinalities", () => {
   expectFinding(findings, "exactly fourteen domains");
   expectFinding(findings, "exactly five MCP tools");
   expectFinding(findings, "MCP protocol must be 2026-07-28");
+});
+
+test("requires each owner capability to provide bounded Korean completion copy", () => {
+  const files = finalContractFiles();
+  const analytics = files.find((file) => file.path.endsWith("analytics.capabilities.ts"));
+  const channels = files.find((file) => file.path.endsWith("channels.capabilities.ts"));
+
+  analytics.source = analytics.source.replace(", resultSummary: '업무를 완료했습니다.'", "");
+  channels.source = channels.source.replace("업무를 완료했습니다.", "technical-completion");
+
+  const findings = collectAgentOsContractionFindings(files);
+  expectFinding(findings, "analytics.read_overview: missing resultSummary");
+  expectFinding(findings, "channels.register_confirmed_listing: resultSummary must be bounded Korean copy");
 });
 
 test("keeps provider CLIs out of the API and worker image surfaces", () => {

@@ -364,7 +364,7 @@ function Assert-RuntimePrerequisites {
     throw "Protected office env file is missing: $script:OfficeEnvPath"
   }
 
-  $requiredVolumes = @('kiditem_pgdata', 'kiditem_minio-data')
+  $requiredVolumes = @('kiditem_pgdata', 'kiditem_minio-data', 'kiditem_copilotkit-event-history')
   foreach ($volume in $requiredVolumes) {
     Invoke-Checked docker volume inspect $volume *> $null
   }

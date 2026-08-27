@@ -1,18 +1,34 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { AgentConversationComposer } from './AgentConversationComposer';
 import { AgentConversationMessage } from './AgentConversationMessage';
+import { ConversationEvidenceRail } from './ConversationEvidenceRail';
 import { conversationContextFor } from './conversation-context.catalog';
-import { useConversationRuntime, type ToolProjection } from './ConversationRuntimeHost';
+import { useConversationRuntime } from './ConversationRuntimeHost';
 
-/** Shared message lane, live projections, cards, and compact composer. */
-export function ConversationFlow() {
+/** Shared message lane, idle guidance, cards, and compact composer. */
+export function ConversationFlow({
+  supplementalContent,
+  emptyState,
+}: {
+  supplementalContent?: ReactNode;
+  emptyState?: ReactNode;
+}) {
   const runtime = useConversationRuntime();
   const context = conversationContextFor(
     runtime.activeConversation?.agentKey ?? runtime.draft?.agentKey ?? null,
   );
+  const idleContent = runtime.messages.length === 0 ? emptyState : null;
 
-  if (!runtime.conversationId) return null;
+  if (!runtime.conversationId) {
+    return idleContent || supplementalContent ? (
+      <section aria-label="대화 메시지" className="mx-auto w-full max-w-3xl px-4 pb-6 sm:px-6">
+        {idleContent}
+        {supplementalContent ? <ConversationEvidenceRail>{supplementalContent}</ConversationEvidenceRail> : null}
+      </section>
+    ) : null;
+  }
   const draftHasExplicitPair = Boolean(runtime.draft?.model || runtime.draft?.reasoningEffort);
   const initialModel = draftHasExplicitPair
     ? runtime.draft?.model ?? null
@@ -20,12 +36,23 @@ export function ConversationFlow() {
   const initialReasoningEffort = draftHasExplicitPair
     ? runtime.draft?.reasoningEffort ?? null
     : runtime.turnPreference.reasoningEffort;
+  const evidenceContent = supplementalContent
+    ? <ConversationEvidenceRail>{supplementalContent}</ConversationEvidenceRail>
+    : null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <section aria-label="대화 메시지" className="mx-auto w-full max-w-3xl flex-1 space-y-4 overflow-y-auto px-4 py-6 sm:px-6">
-        {runtime.messages.map((message) => <AgentConversationMessage key={message.id} message={message} />)}
-        <ToolStatusCards projections={runtime.toolProjections} />
+        {idleContent}
+        {runtime.messages.map((message, index) => (
+          <AgentConversationMessage
+            key={message.id}
+            message={message}
+            contextLabel={context.label}
+            showIdentity={message.role === 'assistant' && runtime.messages[index - 1]?.role !== 'assistant'}
+          />
+        ))}
+        {evidenceContent}
         {runtime.turnEnded ? <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{runtime.turnEnded}</p> : null}
       </section>
       <AgentConversationComposer
@@ -39,27 +66,12 @@ export function ConversationFlow() {
         initialReasoningEffort={initialReasoningEffort}
         needsReview={runtime.turnPreference.needsReview}
         isDraft={runtime.isDraft}
-        activeTurnId={runtime.activeTurnId}
+        isRunning={runtime.isRunning}
         onStart={runtime.start}
-        onInput={runtime.sendInput}
         onInterrupt={runtime.interrupt}
         onUpdateDraft={runtime.isDraft ? runtime.updateDraft : undefined}
         onRetry={runtime.retryReadiness}
       />
     </div>
-  );
-}
-
-function ToolStatusCards({ projections }: { projections: ToolProjection[] }) {
-  if (!projections.length) return null;
-  return (
-    <section aria-label="실시간 도구 정보" className="space-y-2">
-      {projections.map((projection) => (
-        <article key={projection.id} className="rounded-lg border bg-card p-3 text-sm">
-          <p className="font-medium">{projection.title}</p>
-          {projection.detail ? <p className="mt-1 text-muted-foreground">{projection.detail}</p> : null}
-        </article>
-      ))}
-    </section>
   );
 }

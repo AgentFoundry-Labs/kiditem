@@ -65,7 +65,7 @@ export class AgentCapabilityRegistry {
         }
         const output = await implementation.invoke({ context, input: parsedInput });
         return envelope(
-          definition.key,
+          definition.resultSummary,
           output,
           implementation.resourceRef?.(output) ?? null,
           implementation.operationRef?.(output) ?? null,
@@ -126,13 +126,13 @@ function isMutation(definition: CapabilityDefinition): boolean {
 }
 
 function envelope(
-  key: string,
+  summary: string,
   output: Record<string, unknown>,
   resource: { kind: string; id: string } | null,
   operation: string | null,
 ): CapabilityResultEnvelope {
   return {
-    summary: `${key} completed.`,
+    summary,
     resourceRefs: resource ? [{ ...resource, version: null }] : [],
     operationRefs: operation ? [{ kind: "operation_run", id: operation }] : [],
     output,

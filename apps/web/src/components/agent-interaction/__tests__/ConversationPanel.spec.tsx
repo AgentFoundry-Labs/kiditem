@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConversationPanel } from '../ConversationPanel';
 
@@ -11,7 +12,7 @@ vi.mock('../ConversationRuntimeHost', () => ({
 }));
 
 vi.mock('../ConversationFlow', () => ({
-  ConversationFlow: () => <div data-testid="conversation-flow" />,
+  ConversationFlow: ({ emptyState }: { emptyState?: ReactNode }) => <div data-testid="conversation-flow">{emptyState}</div>,
 }));
 
 vi.mock('../conversation-surface-state', () => ({
@@ -45,8 +46,9 @@ describe('ConversationPanel', () => {
     const closeMock = vi.fn();
     render(<ConversationPanel onClose={closeMock} />);
 
-    expect(screen.getByRole('heading', { name: '소싱 Agent' })).toBeInTheDocument();
-    expect(screen.getByText('소싱 판단')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '소싱 판단' })).toBeInTheDocument();
+    expect(screen.getByText('소싱 Agent')).toBeInTheDocument();
+    expect(screen.getByTestId('conversation-context-mark-sourcing')).toBeVisible();
     expect(screen.getByTestId('conversation-flow')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '대화 설정' }));
@@ -69,6 +71,7 @@ describe('ConversationPanel', () => {
     expect(screen.getByRole('menuitem', { name: '공급 Agent' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: '채널 운영 Agent' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: '광고 Agent' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: '일반 AI 챗' })).toHaveFocus();
 
     fireEvent.click(screen.getByRole('menuitem', { name: '광고 Agent' }));
 
@@ -86,5 +89,19 @@ describe('ConversationPanel', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
     expect(closeMock).not.toHaveBeenCalled();
+  });
+
+  it('uses the shared empty state without a duplicate start action', () => {
+    runtimeMock.mockReturnValue(activeRuntime({
+      activeConversation: null,
+      draft: null,
+      conversationId: null,
+    }));
+
+    render(<ConversationPanel onClose={vi.fn()} />);
+
+    expect(screen.getByTestId('conversation-empty-state')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '새 AI 대화 시작' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /이번 주|상품 후보|운영 이슈/ })).toHaveLength(3);
   });
 });

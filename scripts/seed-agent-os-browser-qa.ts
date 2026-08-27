@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type Prisma } from '@prisma/client';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { hashAuthPassword } from '../apps/server/src/auth/domain/auth-credentials';
@@ -28,6 +28,57 @@ const BROWSER_QA_ORGANIZATION = {
   isActive: true,
 } as const;
 
+const BROWSER_QA_FOREIGN_ORGANIZATION = {
+  name: 'Browser QA foreign decoy',
+  slug: 'browser-qa-agent-os-foreign-decoy',
+  isActive: false,
+} as const;
+
+const BROWSER_QA_SELLPIA_INVENTORY_SKU = {
+  code: 'browser-qa-synthetic-sku',
+  name: 'Browser QA synthetic inventory SKU',
+  isActive: true,
+} as const;
+
+const BROWSER_QA_SELLPIA_INVENTORY_STATE = {
+  sourceOrigin: 'https://kiditem.sellpia.com',
+  sourceAccountKey: 'kiditem',
+  refreshRequestedAt: null,
+  refreshReason: null,
+  requestedSyncScope: 'inventory',
+  syncNotBefore: null,
+  activeSyncToken: null,
+  activeSyncOwnerUserId: null,
+  activeSyncStartedAt: null,
+  activeSyncLeaseExpiresAt: null,
+  activeSyncScope: null,
+  requestedGeneration: 1n,
+  activeGeneration: null,
+  verifiedGeneration: 1n,
+  failedGeneration: null,
+  lastAttemptStatus: 'completed',
+  lastAttemptSyncScope: 'inventory',
+  lastErrorCode: null,
+  lastErrorMessage: null,
+} as const;
+
+const BROWSER_QA_PURCHASE_ORDER = {
+  supplierName: 'Browser QA synthetic supplier',
+  totalAmountCny: 1,
+  status: 'draft',
+  externalOrderPlatform: null,
+  externalOrderId: null,
+  externalOrderUrl: null,
+  idempotencyKey: 'browser-qa-synthetic-purchase-order',
+  requestHash: null,
+} as const;
+
+const BROWSER_QA_PURCHASE_ORDER_ITEM = {
+  productName: 'Browser QA synthetic inventory item',
+  quantity: 1,
+  unitPriceCny: 1,
+} as const;
+
 const BROWSER_QA_SUPPLIER = parseAllowedSupplierUrl(
   'https://detail.1688.com/offer/900000000000.html',
 );
@@ -53,6 +104,18 @@ const BROWSER_QA_SOURCING_CANDIDATE = {
   isDeleted: false,
 } as const;
 
+const BROWSER_QA_FOREIGN_SOURCING_CANDIDATE = {
+  ...BROWSER_QA_SOURCING_CANDIDATE,
+  name: 'Browser QA foreign decoy candidate',
+  description: 'Synthetic inaccessible record for isolated Agent OS browser QA.',
+} as const;
+
+const BROWSER_QA_FOREIGN_PURCHASE_ORDER = {
+  ...BROWSER_QA_PURCHASE_ORDER,
+  supplierName: 'Browser QA foreign decoy supplier',
+  idempotencyKey: 'browser-qa-foreign-decoy-purchase-order',
+} as const;
+
 export type BrowserQaSeedTarget = {
   databaseName: string;
   host: string;
@@ -74,6 +137,29 @@ export type BrowserQaSeedPlan = {
     status: string;
   };
   sourcingCandidate: typeof BROWSER_QA_SOURCING_CANDIDATE;
+  sellpiaInventorySku: typeof BROWSER_QA_SELLPIA_INVENTORY_SKU;
+  sellpiaInventoryState: typeof BROWSER_QA_SELLPIA_INVENTORY_STATE & {
+    lastVerifiedAt: Date;
+    lastAttemptAt: Date;
+  };
+  purchaseOrder: typeof BROWSER_QA_PURCHASE_ORDER;
+  purchaseOrderItem: typeof BROWSER_QA_PURCHASE_ORDER_ITEM;
+  foreignOrganization: typeof BROWSER_QA_FOREIGN_ORGANIZATION;
+  foreignSourcingCandidate: typeof BROWSER_QA_FOREIGN_SOURCING_CANDIDATE;
+  foreignPurchaseOrder: typeof BROWSER_QA_FOREIGN_PURCHASE_ORDER;
+};
+
+export type BrowserQaSeedResult = {
+  organizationId: string;
+  userId: string;
+  membershipId: string;
+  sourcingCandidateId: string;
+  sellpiaInventorySkuId: string;
+  purchaseOrderId: string;
+  purchaseOrderItemId: string;
+  foreignOrganizationId: string;
+  foreignSourcingCandidateId: string;
+  foreignPurchaseOrderId: string;
 };
 
 export type BrowserQaPasswordInput = {
@@ -92,11 +178,17 @@ export type BrowserQaPasswordOutput = {
 export function parseBrowserQaSeedArgs(
   argv: string[],
   environment: NodeJS.ProcessEnv = process.env,
-): { email: string } {
+): { email: string; reset: boolean } {
   let email = environment[BROWSER_QA_EMAIL_ENV];
+  let reset = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
+    if (argument === '--reset') {
+      if (reset) throw new Error('--reset may be supplied only once.');
+      reset = true;
+      continue;
+    }
     if (argument === '--email') {
       const value = argv[index + 1];
       if (!value || value.startsWith('--')) throw new Error('--email requires a value.');
@@ -114,7 +206,7 @@ export function parseBrowserQaSeedArgs(
     throw new Error(`Unsupported browser-QA seed argument: ${argument}`);
   }
 
-  return { email: normalizeEmail(email ?? '') };
+  return { email: normalizeEmail(email ?? ''), reset };
 }
 
 export function assertIsolatedBrowserQaSeedTarget({
@@ -210,9 +302,11 @@ export async function readBrowserQaPassword(
 export function createBrowserQaSeedPlan({
   email,
   passwordHash,
+  now = new Date(),
 }: {
   email: string;
   passwordHash: string;
+  now?: Date;
 }): BrowserQaSeedPlan {
   return {
     organization: BROWSER_QA_ORGANIZATION,
@@ -229,6 +323,17 @@ export function createBrowserQaSeedPlan({
       status: 'active',
     },
     sourcingCandidate: BROWSER_QA_SOURCING_CANDIDATE,
+    sellpiaInventorySku: BROWSER_QA_SELLPIA_INVENTORY_SKU,
+    sellpiaInventoryState: {
+      ...BROWSER_QA_SELLPIA_INVENTORY_STATE,
+      lastVerifiedAt: now,
+      lastAttemptAt: now,
+    },
+    purchaseOrder: BROWSER_QA_PURCHASE_ORDER,
+    purchaseOrderItem: BROWSER_QA_PURCHASE_ORDER_ITEM,
+    foreignOrganization: BROWSER_QA_FOREIGN_ORGANIZATION,
+    foreignSourcingCandidate: BROWSER_QA_FOREIGN_SOURCING_CANDIDATE,
+    foreignPurchaseOrder: BROWSER_QA_FOREIGN_PURCHASE_ORDER,
   };
 }
 
@@ -242,12 +347,7 @@ export async function runBrowserQaSeed({
   email: string;
   password: string;
   hashPassword?: (value: string) => Promise<string>;
-}): Promise<{
-  organizationId: string;
-  userId: string;
-  membershipId: string;
-  sourcingCandidateId: string;
-}> {
+}): Promise<BrowserQaSeedResult> {
   const passwordHash = await hashPassword(password);
   const plan = createBrowserQaSeedPlan({ email, passwordHash });
 
@@ -306,14 +406,182 @@ export async function runBrowserQaSeed({
       },
       select: { id: true },
     });
+    const sellpiaInventorySku = await transaction.sellpiaInventorySku.upsert({
+      where: {
+        organizationId_code: {
+          organizationId: organization.id,
+          code: plan.sellpiaInventorySku.code,
+        },
+      },
+      update: plan.sellpiaInventorySku,
+      create: {
+        organizationId: organization.id,
+        ...plan.sellpiaInventorySku,
+      },
+      select: { id: true },
+    });
+    await transaction.sellpiaInventoryState.upsert({
+      where: { organizationId: organization.id },
+      update: plan.sellpiaInventoryState,
+      create: {
+        organizationId: organization.id,
+        ...plan.sellpiaInventoryState,
+      },
+      select: { organizationId: true },
+    });
+    const purchaseOrder = await findOrCreateBrowserQaPurchaseOrder({
+      transaction,
+      organizationId: organization.id,
+      purchaseOrder: plan.purchaseOrder,
+    });
+    const existingPurchaseOrderItem = await transaction.purchaseOrderItem.findFirst({
+      where: {
+        organizationId: organization.id,
+        orderId: purchaseOrder.id,
+        sellpiaInventorySkuId: sellpiaInventorySku.id,
+      },
+      select: { id: true },
+    });
+    const purchaseOrderItem = existingPurchaseOrderItem
+      ?? await transaction.purchaseOrderItem.create({
+        data: {
+          organizationId: organization.id,
+          orderId: purchaseOrder.id,
+          sellpiaInventorySkuId: sellpiaInventorySku.id,
+          ...plan.purchaseOrderItem,
+        },
+        select: { id: true },
+      });
+    const foreignOrganization = await transaction.organization.upsert({
+      where: { slug: plan.foreignOrganization.slug },
+      update: {
+        name: plan.foreignOrganization.name,
+        isActive: plan.foreignOrganization.isActive,
+      },
+      create: plan.foreignOrganization,
+      select: { id: true },
+    });
+    const existingForeignCandidate = await transaction.sourcingCandidate.findFirst({
+      where: {
+        organizationId: foreignOrganization.id,
+        sourceUrl: plan.foreignSourcingCandidate.sourceUrl,
+        sourcePlatform: plan.foreignSourcingCandidate.sourcePlatform,
+        sourceIdentityHash: plan.foreignSourcingCandidate.sourceIdentityHash,
+        isDeleted: false,
+      },
+      select: { id: true },
+    });
+    const foreignSourcingCandidate = existingForeignCandidate
+      ?? await transaction.sourcingCandidate.create({
+        data: {
+          organizationId: foreignOrganization.id,
+          ...plan.foreignSourcingCandidate,
+        },
+        select: { id: true },
+      });
+    const foreignPurchaseOrder = await findOrCreateBrowserQaPurchaseOrder({
+      transaction,
+      organizationId: foreignOrganization.id,
+      purchaseOrder: plan.foreignPurchaseOrder,
+    });
 
     return {
       organizationId: organization.id,
       userId: user.id,
       membershipId: membership.id,
       sourcingCandidateId: sourcingCandidate.id,
+      sellpiaInventorySkuId: sellpiaInventorySku.id,
+      purchaseOrderId: purchaseOrder.id,
+      purchaseOrderItemId: purchaseOrderItem.id,
+      foreignOrganizationId: foreignOrganization.id,
+      foreignSourcingCandidateId: foreignSourcingCandidate.id,
+      foreignPurchaseOrderId: foreignPurchaseOrder.id,
     };
   });
+}
+
+async function findOrCreateBrowserQaPurchaseOrder({
+  transaction,
+  organizationId,
+  purchaseOrder,
+}: {
+  transaction: Prisma.TransactionClient;
+  organizationId: string;
+  purchaseOrder: BrowserQaSeedPlan['purchaseOrder'] | BrowserQaSeedPlan['foreignPurchaseOrder'];
+}): Promise<{ id: string }> {
+  const existing = await transaction.purchaseOrder.findFirst({
+    where: {
+      organizationId,
+      idempotencyKey: purchaseOrder.idempotencyKey,
+    },
+    select: { id: true },
+  });
+  if (existing) {
+    return transaction.purchaseOrder.update({
+      where: {
+        id_organizationId: {
+          id: existing.id,
+          organizationId,
+        },
+      },
+      data: purchaseOrder,
+      select: { id: true },
+    });
+  }
+
+  return transaction.purchaseOrder.create({
+    data: {
+      organizationId,
+      ...purchaseOrder,
+    },
+    select: { id: true },
+  });
+}
+
+export async function resetBrowserQaDatabase({
+  prisma,
+  target,
+}: {
+  prisma: Pick<PrismaClient, '$executeRaw'>;
+  target: BrowserQaSeedTarget & { databaseUrl: string };
+}): Promise<void> {
+  assertIsolatedBrowserQaSeedTarget({
+    databaseUrl: target.databaseUrl,
+    seedTarget: JSON.stringify({
+      databaseName: target.databaseName,
+      host: target.host,
+      mappedPort: target.mappedPort,
+    }),
+  });
+
+  await prisma.$executeRaw`
+    DO $reset$
+    DECLARE
+      table_names text;
+    BEGIN
+      SELECT string_agg(
+        format('%I.%I', namespace.nspname, relation.relname),
+        ', ' ORDER BY namespace.nspname, relation.relname
+      )
+      INTO table_names
+      FROM pg_catalog.pg_class AS relation
+      INNER JOIN pg_catalog.pg_namespace AS namespace
+        ON namespace.oid = relation.relnamespace
+      WHERE namespace.nspname = 'public'
+        AND relation.relkind IN ('r', 'p')
+        AND relation.relname <> '_prisma_migrations'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM pg_catalog.pg_inherits AS inheritance
+          WHERE inheritance.inhrelid = relation.oid
+        );
+
+      IF table_names IS NOT NULL THEN
+        EXECUTE 'TRUNCATE TABLE ' || table_names || ' RESTART IDENTITY CASCADE';
+      END IF;
+    END
+    $reset$;
+  `;
 }
 
 export async function main({
@@ -321,26 +589,40 @@ export async function main({
   environment = process.env,
   input = process.stdin,
   output = process.stderr,
+  resultOutput = process.stdout,
+  createPrisma = createBrowserQaPrisma,
+  resetDatabase = resetBrowserQaDatabase,
+  runSeed = runBrowserQaSeed,
 }: {
   argv?: string[];
   environment?: NodeJS.ProcessEnv;
   input?: BrowserQaPasswordInput;
   output?: BrowserQaPasswordOutput;
-} = {}): Promise<void> {
+  resultOutput?: BrowserQaPasswordOutput;
+  createPrisma?: (databaseUrl: string) => PrismaClient;
+  resetDatabase?: typeof resetBrowserQaDatabase;
+  runSeed?: typeof runBrowserQaSeed;
+} = {}): Promise<BrowserQaSeedResult> {
   const target = assertIsolatedBrowserQaSeedTarget({
     databaseUrl: environment.DATABASE_URL,
     seedTarget: environment[BROWSER_QA_SEED_TARGET_ENV],
   });
-  const { email } = parseBrowserQaSeedArgs(argv, environment);
+  const { email, reset } = parseBrowserQaSeedArgs(argv, environment);
   const password = await readBrowserQaPassword(input, output);
-  const adapter = new PrismaPg({ connectionString: target.databaseUrl });
-  const prisma = new PrismaClient({ adapter });
+  const prisma = createPrisma(target.databaseUrl);
   try {
-    await runBrowserQaSeed({ prisma, email, password });
-    process.stdout.write('Isolated browser-QA fixture seeded.\n');
+    if (reset) await resetDatabase({ prisma, target });
+    const result = await runSeed({ prisma, email, password });
+    resultOutput.write(`Isolated browser-QA fixture seeded: ${JSON.stringify(result)}\n`);
+    return result;
   } finally {
     await prisma.$disconnect();
   }
+}
+
+function createBrowserQaPrisma(databaseUrl: string): PrismaClient {
+  const adapter = new PrismaPg({ connectionString: databaseUrl });
+  return new PrismaClient({ adapter });
 }
 
 function parseSeedTarget(value: string | undefined): BrowserQaSeedTarget {

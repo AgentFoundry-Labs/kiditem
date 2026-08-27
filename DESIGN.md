@@ -13,13 +13,19 @@ E-commerce operations dashboard. Data-dense APP UI. Light theme only.
 | `--card` | `#ffffff` | Card/surface background |
 | `--border` | `#e2e8f0` (slate-200) | Default borders |
 | `--muted` | `#64748b` (slate-500) | Secondary text |
+| `--primary` | `#7c3aed` (violet-600) | Primary action, selected state, focus |
+| `--primary-hover` | `#6d28d9` (violet-700) | Primary hover state |
+| `--primary-soft` | `#f5f3ff` (violet-50) | Quiet selected background |
+| `--conversation-user-bg` | `#4c1d95` | Opaque user-message surface |
+| `--conversation-user-foreground` | `#ffffff` | User-message text |
+| `--evidence-surface` | `#ecfdf5` (emerald-50) | Read evidence and successful business-result surface |
 
 ### Tailwind Palette
 
 | Role | Class | Hex | When |
 |------|-------|-----|------|
-| Primary accent | `purple-600` | `#9333ea` | Buttons, active states, sort indicators, badges, tabs |
-| Primary hover | `purple-700` | `#7e22ce` | Button hover states |
+| Primary accent | `bg-primary` / `text-primary` | `#7c3aed` | Buttons, active states, sort indicators, badges, tabs |
+| Primary hover | `--primary-hover` | `#6d28d9` | Button hover states |
 | Success | `green-600` | `#16a34a` | Positive values, confirmed status |
 | Warning | `amber-500` / `orange-600` | `#f59e0b` / `#ea580c` | Low margins, caution |
 | Danger | `red-600` | `#dc2626` | Negative values, errors, delete actions |
@@ -33,9 +39,11 @@ E-commerce operations dashboard. Data-dense APP UI. Light theme only.
 
 ### Color Rules
 
-- No blue as primary. Blue (`blue-600`) is legacy accent; purple is the current standard.
+- No blue as primary. Blue (`blue-600`) is legacy accent; semantic KidItem violet is the current standard.
 - Profit colors: `green-600` positive, `red-600` negative, `orange-500` for low margins (0-3%).
-- Grade colors: A = `purple-600`, B = `slate-600`, C = `orange-600`.
+- Grade colors: A = semantic `primary`, B = `slate-600`, C = `orange-600`.
+- Components use semantic tokens rather than literal purple palette classes.
+- Reserve primary violet for true primary, current, selected, send, and focus states; do not wash whole work surfaces in purple.
 
 ## Typography
 
@@ -70,7 +78,7 @@ E-commerce operations dashboard. Data-dense APP UI. Light theme only.
 ### Buttons
 
 ```
-.btn-primary   → purple-600 bg, white text, rounded-lg, hover:purple-700
+.btn-primary   → primary bg, primary-contrast text, rounded-lg, hover:primary-hover
 .btn-secondary → white bg, slate-600 text, slate-200 border, hover:slate-50
 .btn-danger    → red-600 bg, white text, rounded-lg, hover:red-700
 .btn-sm        → px-3 py-1.5 text-xs (modifier)
@@ -90,14 +98,14 @@ Global base styles in `@layer base` (globals.css):
 ### Sortable Headers
 
 Pattern: `<th>` contains a `<button>` with `aria-sort` attribute.
-Icons: `ArrowUpDown` (inactive, slate-400), `ArrowUp`/`ArrowDown` (active, purple-600).
+Icons: `ArrowUpDown` (inactive, slate-400), `ArrowUp`/`ArrowDown` (active, semantic primary).
 Size: 14px.
 
 ### Tabs (pill style)
 
 ```
 .tab          → px-4 py-2 rounded-lg text-sm font-medium
-.tab-active   → bg-purple-600 text-white
+.tab-active   → bg-primary text-primary-foreground
 .tab-inactive → bg-white border border-slate-200 text-slate-600 hover:bg-slate-50
 ```
 
@@ -113,6 +121,15 @@ Size: 14px.
 Icon (48px, `text-slate-300`) + message (`text-slate-500`) + optional action button.
 Container: `card p-12 text-center` or `empty-state` (`.empty-state → text-center py-12 text-slate-400 text-sm`).
 
+### Conversation Work Surfaces
+
+- Dashboard and Agent OS use one 256px expanded / 64px collapsed sidebar-shell contract, but keep surface-specific navigation bodies.
+- User messages are right-aligned on the fully opaque `--conversation-user-bg` surface with white text. Assistant responses remain on the plain canvas rather than a matching bubble.
+- The composer uses one 24-28px rounded outer container. At narrow panel width, the textarea owns the first row and model/`추론 수준` plus Send/Interrupt own the second row.
+- Evidence, Approval, Operation, and resource outcomes form a compact, user-language `업무 증거` rail. Do not show raw tool names, capability keys, provider payloads, hashes, or internal IDs.
+- Empty drafts use the same centered context, bounded operational suggestions, and composer in Dashboard AI chat and Agent OS.
+- Do not use transparency or glass effects for user messages, assistant canvas, or business-result cards.
+
 ### Period Selector
 
 `usePeriodSelector` hook + `PeriodSelector` component. Returns month-level options.
@@ -122,7 +139,7 @@ Options: `{ months: N, defaultTo: 'prev' | 'current' }`.
 
 `Pagination` component from `components/ui/Pagination.tsx`.
 Props: `page`, `limit`, `total`, `onPageChange`.
-Active page: `bg-purple-600 text-white`. 7-page window.
+Active page: `bg-primary text-primary-foreground`. 7-page window.
 
 ### Progress Bars
 
@@ -164,3 +181,5 @@ Custom thin scrollbar: 6px width, `slate-300` thumb, transparent track, `slate-4
 - No emoji as design elements.
 - No centered card grids. Tables and lists are left-aligned.
 - No font stacks other than system default.
+- Desktop icon controls have a minimum 40px target; touch/mobile controls have a minimum 44px target.
+- Collapsible shells use visible focus, accessible labels/tooltips, and 100-150ms reduced-motion-aware transitions.

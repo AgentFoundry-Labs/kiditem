@@ -6,6 +6,7 @@ export {
   CapabilityInvocationErrorSchema,
   CapabilityInvocationStatusSchema,
   CapabilityIdempotencySchema,
+  CapabilityResultReceiptSchema,
   CapabilityResultEnvelopeSchema,
   OperationRefSchema,
   ResourceRefSchema,
@@ -16,6 +17,7 @@ export type {
   CapabilityInvocationError,
   CapabilityInvocationStatus,
   CapabilityResultEnvelope,
+  CapabilityResultReceipt,
   OperationRef,
   ResourceRef,
 } from './work';

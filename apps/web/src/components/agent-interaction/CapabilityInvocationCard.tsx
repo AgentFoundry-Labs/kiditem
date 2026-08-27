@@ -1,19 +1,27 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, X } from 'lucide-react';
+import type { CapabilityResultEnvelope } from '@kiditem/shared/agent-interaction';
+import { Check, ShieldCheck, X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys, type ConversationIdentity } from '@/lib/query-keys';
 import { formatDateTime } from '@/lib/utils';
+import { ConversationCardFrame } from './ConversationCardFrame';
+import { OperationReferenceCard } from './OperationReferenceCard';
+import { ResourceReferenceCard } from './ResourceReferenceCard';
+
+type InvocationResult = Pick<CapabilityResultEnvelope,
+  | 'summary'
+  | 'resourceRefs'
+  | 'operationRefs'
+>;
 
 interface InvocationReceipt {
-  id: string;
   capabilityKey: string;
-  actingAgentKey: string;
-  canonicalInput: unknown;
-  approvalRisk: string;
+  status: string;
   approvalStatus: string;
   approvalExpiresAt: string | null;
+  result: InvocationResult | null;
 }
 
 /** Exact Invocation receipt and approval boundary; this component never starts work. */
@@ -28,6 +36,11 @@ export function CapabilityInvocationCard({
   const receipt = useQuery({
     queryKey: queryKeys.conversations.invocation(identity, invocationId),
     queryFn: () => apiClient.get<InvocationReceipt>(`/api/agent-os/invocations/${encodeURIComponent(invocationId)}`),
+    refetchInterval: (query) => (
+      query.state.status !== 'error' && shouldPollReceipt(query.state.data)
+        ? 2_000
+        : false
+    ),
   });
   const decision = useMutation({
     mutationFn: (value: 'approved' | 'rejected') => apiClient.post<InvocationReceipt>(
@@ -39,33 +52,48 @@ export function CapabilityInvocationCard({
     }),
   });
 
-  if (receipt.isLoading) return <p role="status" className="text-sm text-muted-foreground">Loading approval details…</p>;
+  if (receipt.isLoading) return <p role="status" className="text-sm text-muted-foreground">승인 정보를 불러오는 중입니다.</p>;
+  if (receipt.isError) {
+    return (
+      <ConversationCardFrame
+        ariaLabel="업무 실행 정보"
+        icon={<ShieldCheck size={15} />}
+        title="업무 실행 정보"
+        tone="warning"
+        actions={(
+          <button
+            type="button"
+            onClick={() => { void receipt.refetch(); }}
+            className="inline-flex min-h-10 items-center rounded-md border px-3 py-2 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 max-lg:min-h-11"
+          >
+            다시 시도
+          </button>
+        )}
+      >
+        <p role="alert" className="text-sm text-foreground">업무 실행 정보를 불러올 수 없습니다.</p>
+      </ConversationCardFrame>
+    );
+  }
   if (!receipt.data) return null;
   const approvalStatus = decision.data?.approvalStatus ?? receipt.data.approvalStatus;
   const pending = approvalStatus === 'pending';
+  const presentation = approvalPresentation(receipt.data.capabilityKey);
 
   return (
-    <section aria-label={`Invocation ${receipt.data.capabilityKey}`} className="rounded-lg border border-amber-300/70 bg-amber-50/50 p-3 text-sm">
-      <h2 className="font-semibold">Capability approval</h2>
-      <dl className="mt-2 grid gap-1 text-sm">
-        <ReceiptDetail label="Capability" value={receipt.data.capabilityKey} />
-        <ReceiptDetail label="Acting Agent" value={receipt.data.actingAgentKey} />
-        <ReceiptDetail label="Risk" value={receipt.data.approvalRisk} />
-        <ReceiptDetail label="Expiry" value={formatExpiry(receipt.data.approvalExpiresAt)} />
-      </dl>
-      <pre className="mt-2 max-h-32 overflow-auto rounded bg-background/80 p-2 text-xs whitespace-pre-wrap">
-        {safeInputSummary(receipt.data.canonicalInput)}
-      </pre>
-      <p className="mt-2 text-sm text-muted-foreground">{approvalStatusSummary(approvalStatus)}</p>
-      {pending ? (
-        <div className="mt-3 flex flex-wrap gap-2">
+    <ConversationCardFrame
+      ariaLabel="업무 실행 승인"
+      icon={<ShieldCheck size={15} />}
+      title="업무 실행 승인"
+      tone="approval"
+      actions={pending ? (
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
             disabled={decision.isPending}
             onClick={() => decision.mutate('approved')}
             className="inline-flex min-h-10 items-center gap-1 rounded-md bg-primary px-3 py-2 font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 max-lg:min-h-11"
           >
-            <Check aria-hidden="true" size={16} /> Approve
+            <Check aria-hidden="true" size={16} /> 승인
           </button>
           <button
             type="button"
@@ -73,13 +101,42 @@ export function CapabilityInvocationCard({
             onClick={() => decision.mutate('rejected')}
             className="inline-flex min-h-10 items-center gap-1 rounded-md border px-3 py-2 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 max-lg:min-h-11"
           >
-            <X aria-hidden="true" size={16} /> Reject
+            <X aria-hidden="true" size={16} /> 취소
           </button>
         </div>
-      ) : null}
-      {decision.data?.approvalStatus === 'approved' ? <p role="status" className="mt-3 text-emerald-700">The provider may retry the same request.</p> : null}
-      {decision.data?.approvalStatus === 'rejected' ? <p role="status" className="mt-3 text-muted-foreground">The request was rejected.</p> : null}
-      {decision.isError ? <p role="alert" className="mt-3 text-destructive">The approval decision could not be saved.</p> : null}
+      ) : undefined}
+    >
+      <dl className="mt-2 grid gap-1 text-sm">
+        <ReceiptDetail label="대상" value={presentation.target} />
+        <ReceiptDetail label="영향" value={presentation.effect} />
+        {receipt.data.approvalExpiresAt ? <ReceiptDetail label="승인 기한" value={formatExpiry(receipt.data.approvalExpiresAt)} /> : null}
+      </dl>
+      {receipt.data.result ? <InvocationResultEvidence result={receipt.data.result} /> : null}
+      <p role={decision.data ? 'status' : undefined} className="mt-2 text-sm text-muted-foreground">{approvalStatusSummary(approvalStatus)}</p>
+      {decision.isError ? <p role="alert" className="mt-3 text-destructive">승인 결정을 저장하지 못했습니다.</p> : null}
+    </ConversationCardFrame>
+  );
+}
+
+function shouldPollReceipt(receipt: InvocationReceipt | undefined): boolean {
+  return Boolean(
+    receipt
+    && receipt.status === 'pending'
+    && (receipt.approvalStatus === 'approved' || receipt.approvalStatus === 'not_required')
+    && receipt.result === null,
+  );
+}
+
+function InvocationResultEvidence({ result }: { result: InvocationResult }) {
+  return (
+    <section aria-label="업무 결과" className="mt-3 space-y-2">
+      <p className="text-sm leading-6 text-foreground">{result.summary}</p>
+      {result.resourceRefs.map((reference) => (
+        <ResourceReferenceCard key={`resource:${reference.kind}:${reference.id}`} reference={reference} />
+      ))}
+      {result.operationRefs.map((reference) => (
+        <OperationReferenceCard key={`operation:${reference.kind}:${reference.id}`} reference={reference} />
+      ))}
     </section>
   );
 }
@@ -95,25 +152,31 @@ function ReceiptDetail({ label, value }: { label: string; value: string }) {
 
 function approvalStatusSummary(status: string): string {
   switch (status) {
-    case 'pending': return 'Awaiting your exact-input approval.';
-    case 'approved': return 'Approved. The provider can retry this exact request.';
-    case 'rejected': return 'Rejected. No work was started by this decision.';
-    case 'expired': return 'Approval expired before a decision was recorded.';
-    case 'not_required': return 'No approval is currently required.';
-    default: return 'Approval status is ambiguous. Review the Invocation receipt.';
+    case 'pending': return '승인하면 이 업무가 진행됩니다.';
+    case 'approved': return '승인되었습니다. 이 요청은 같은 내용으로 다시 실행될 수 있습니다.';
+    case 'rejected': return '요청을 취소했습니다. 이 결정으로 업무는 시작되지 않습니다.';
+    case 'expired': return '승인 가능 시간이 만료되었습니다.';
+    case 'not_required': return '현재 승인할 업무가 없습니다.';
+    default: return '승인 상태를 확인할 수 없습니다.';
   }
 }
 
 function formatExpiry(expiry: string | null): string {
-  if (!expiry) return 'No expiry recorded';
-  return Number.isNaN(new Date(expiry).getTime()) ? 'Expiry unavailable' : formatDateTime(expiry);
+  if (!expiry) return '기한 정보 없음';
+  return Number.isNaN(new Date(expiry).getTime()) ? '기한 정보를 확인할 수 없음' : formatDateTime(expiry);
 }
 
-function safeInputSummary(value: unknown): string {
-  try {
-    const serialized = JSON.stringify(value, null, 2);
-    return serialized.length > 2_000 ? `${serialized.slice(0, 2_000)}…` : serialized;
-  } catch {
-    return '[Unavailable input summary]';
-  }
+function approvalPresentation(capabilityKey: string): { target: string; effect: string } {
+  return APPROVAL_PRESENTATION_BY_CAPABILITY[capabilityKey] ?? {
+    target: '요청한 업무',
+    effect: '업무 변경을 실행합니다.',
+  };
 }
+
+const APPROVAL_PRESENTATION_BY_CAPABILITY: Record<string, { target: string; effect: string }> = {
+  'channels.register_confirmed_listing': { target: '판매 채널 등록', effect: '확인된 판매 채널 등록 정보를 저장합니다.' },
+  'channels.submit_coupang_listing': { target: '쿠팡 판매 등록', effect: '상품 정보를 쿠팡에 등록합니다.' },
+  'channels.submit_wing_thumbnail': { target: '상품 썸네일', effect: '상품 썸네일을 판매 채널에 등록합니다.' },
+  'supply.create_purchase_order_draft': { target: '발주 초안', effect: '발주 초안을 생성합니다.' },
+  'supply.submit_purchase_order': { target: '발주서', effect: '발주를 제출합니다.' },
+};

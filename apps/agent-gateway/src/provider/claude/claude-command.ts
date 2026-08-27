@@ -1,5 +1,5 @@
-import { gatewayProviderInvocation, providerEnvironment, type GatewayProviderCommand } from './provider-command';
-import { claudeAgentDefinitions, type GatewayInstructionProfile } from '../profile/agent-profile.catalog';
+import { gatewayProviderInvocation, providerEnvironment, type GatewayProviderCommand } from '../provider-command';
+import { claudeAgentDefinitions, type GatewayInstructionProfile } from '../../profile/agent-profile.catalog';
 
 export interface ClaudeTurnCommandInput {
   runtimeRoot: string;

@@ -9,7 +9,7 @@ export function startProcessTreeWatchdog(processGroupId: number): ProcessTreeWat
     'const pgid=Number(process.argv[1]);',
     'let done=false;',
     'function kill(signal){try{process.kill(-pgid,signal)}catch(error){if(error&&error.code!=="ESRCH")process.exitCode=1}}',
-    'function finish(){if(done)return;done=true;kill("SIGTERM");setTimeout(()=>{kill("SIGKILL");process.exit(0)},1000).unref()}',
+    'function finish(){if(done)return;done=true;kill("SIGTERM");setTimeout(()=>{kill("SIGKILL");process.exit(0)},1000)}',
     'process.stdin.resume();process.stdin.once("end",finish);process.stdin.once("error",finish);',
   ].join('');
   const child = spawn(process.execPath, ['-e', source, String(processGroupId)], {

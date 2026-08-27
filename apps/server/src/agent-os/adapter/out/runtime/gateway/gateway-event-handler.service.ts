@@ -5,6 +5,7 @@ import {
 import {
   GatewayCommandQueue,
   GatewayProcessRegistrationMissingError,
+  GatewaySessionMismatchError,
 } from './gateway-command.queue';
 import { GatewayCommandResponseBroker } from './gateway-command-response.broker';
 import { GatewayReadinessService } from './gateway-readiness.service';
@@ -19,11 +20,11 @@ export class GatewayEventHandlerService {
   private eventSeq = 0;
 
   constructor(private readonly options: Readonly<{
-    queue: Pick<GatewayCommandQueue, 'isLiveSession' | 'acknowledge' | 'reject' | 'terminal'>;
+    queue: Pick<GatewayCommandQueue, 'isLiveSession' | 'hasLiveSession' | 'acknowledge' | 'reject' | 'terminal'>;
     readiness: Pick<GatewayReadinessService, 'update'>;
     broker: Pick<GatewayCommandResponseBroker,
       'acknowledge' | 'reject'
-      | 'resolveConversationListed' | 'resolveConversationCreated' | 'resolveConversationHistory'
+      | 'resolveConversationListed' | 'resolveConversationCreated'
       | 'resolveConversationRenamed' | 'resolveConversationDeleted'
       | 'resolvePreferenceLoaded' | 'resolvePreferenceUpdated'
       | 'publishTurnEvent' | 'terminal'>;
@@ -31,7 +32,10 @@ export class GatewayEventHandlerService {
 
   handle(input: GatewayEventBatch): { eventSeq: number; accepted: true } {
     const batch = GatewayEventBatchSchema.parse(input);
-    if (!this.options.queue.isLiveSession(batch.gatewayInstanceId)) throw new GatewayProcessRegistrationMissingError();
+    if (!this.options.queue.isLiveSession(batch.gatewayInstanceId)) {
+      if (this.options.queue.hasLiveSession()) throw new GatewaySessionMismatchError();
+      throw new GatewayProcessRegistrationMissingError();
+    }
     if (this.gatewayInstanceId !== batch.gatewayInstanceId) {
       this.gatewayInstanceId = batch.gatewayInstanceId;
       // An API restart deliberately loses this in-memory cursor while the
@@ -61,9 +65,6 @@ export class GatewayEventHandlerService {
         return;
       case 'conversation.created':
         this.options.broker.resolveConversationCreated(event);
-        return;
-      case 'conversation.history':
-        this.options.broker.resolveConversationHistory(event);
         return;
       case 'conversation.renamed':
         this.options.broker.resolveConversationRenamed(event);

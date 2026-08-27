@@ -2,8 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { gatewayInstructionProfile } from '../profile/agent-profile.catalog';
-import { createPlatformProcessSupervisor } from '../platform/platform-process-supervisor';
+import { gatewayInstructionProfile } from '../../profile/agent-profile.catalog';
+import { createPlatformProcessSupervisor } from '../../platform/platform-process-supervisor';
 import { gatewayPlatformFromNodePlatform } from '@kiditem/shared/agent-runtime';
 import { startCodexAppServer } from './codex-app-server-process';
 
@@ -12,12 +12,13 @@ const RUN_REAL_CODEX_CANARY = process.env.KIDITEM_RUN_REAL_CODEX_CANARY === '1';
 /**
  * Opt-in only: uses the host's existing Codex login without reading or logging
  * credentials. It creates one provider thread, requests a harmless bounded
- * response, reads provider history, archives the thread, and exits.
+ * response, verifies provider-local readability without projecting a
+ * transcript, archives the thread, and exits.
  */
 describe('Codex app-server real provider readiness', () => {
-  it.skipIf(!RUN_REAL_CODEX_CANARY)('reads a newly created empty provider conversation before its first turn', async () => {
+  it.skipIf(!RUN_REAL_CODEX_CANARY)('verifies a newly created empty provider conversation before its first turn', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'kiditem-gateway-codex-empty-canary-'));
-    const runtimeRoot = resolve(import.meta.dirname, '../../../..');
+    const runtimeRoot = resolve(import.meta.dirname, '../../../../..');
     const process = await startCodexAppServer({
       runtimeRoot,
       workspace,
@@ -25,6 +26,7 @@ describe('Codex app-server real provider readiness', () => {
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
       mcpTransportToken: 'T'.repeat(43),
       supervisor: createPlatformProcessSupervisor({ platform: gatewayPlatformFromNodePlatform(), runtimeRoot }),
+      onFatal: () => undefined,
     });
     let providerConversationRef: string | null = null;
     try {
@@ -33,7 +35,7 @@ describe('Codex app-server real provider readiness', () => {
         instructionProfile: gatewayInstructionProfile(null),
       });
       providerConversationRef = conversation.providerConversationRef;
-      await expect(process.session.history(providerConversationRef)).resolves.toEqual([]);
+      await expect(process.session.assertThreadReadable(providerConversationRef)).resolves.toBeUndefined();
       await process.session.archive(providerConversationRef);
       providerConversationRef = null;
     } finally {
@@ -45,9 +47,9 @@ describe('Codex app-server real provider readiness', () => {
     }
   }, 30_000);
 
-  it.skipIf(!RUN_REAL_CODEX_CANARY)('creates, resumes, reads, and archives one temporary provider-native conversation', async () => {
+  it.skipIf(!RUN_REAL_CODEX_CANARY)('creates, resumes, verifies, and archives one temporary provider-native conversation', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'kiditem-gateway-codex-canary-'));
-    const runtimeRoot = resolve(import.meta.dirname, '../../../..');
+    const runtimeRoot = resolve(import.meta.dirname, '../../../../..');
     const process = await startCodexAppServer({
       runtimeRoot,
       workspace,
@@ -55,6 +57,7 @@ describe('Codex app-server real provider readiness', () => {
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
       mcpTransportToken: 'T'.repeat(43),
       supervisor: createPlatformProcessSupervisor({ platform: gatewayPlatformFromNodePlatform(), runtimeRoot }),
+      onFatal: () => undefined,
     });
     let providerConversationRef: string | null = null;
     try {
@@ -81,8 +84,7 @@ describe('Codex app-server real provider readiness', () => {
         if (event.kind === 'status' && event.status !== 'started') terminal.resolve(event.status);
       });
       await expect(Promise.race([terminal.promise, timeout(45_000)])).resolves.toBe('completed');
-      const history = await process.session.history(providerConversationRef);
-      expect(history.length).toBeGreaterThan(0);
+      await expect(process.session.assertThreadReadable(providerConversationRef)).resolves.toBeUndefined();
       await process.session.archive(providerConversationRef);
       providerConversationRef = null;
     } finally {

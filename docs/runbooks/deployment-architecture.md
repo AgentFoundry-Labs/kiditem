@@ -12,10 +12,10 @@ protected release/office SHA
   -> immutable API/web images + office-deployment.json
     -> Office operator guard
       -> local Docker Compose
-        -> PostgreSQL + MinIO external volumes
+        -> PostgreSQL + MinIO external volumes + API-only CopilotKit SQLite event-history volume
         -> one API + one worker + one web + nginx
       -> native Windows Agent Gateway under Task Scheduler
-        -> dedicated service-account login + provider-owned conversations/history
+        -> dedicated service-account login + provider-native session continuity
 ```
 
 The Office checkout is always `release/office`, tracking
@@ -33,20 +33,23 @@ secret contract.
 ```text
 main.ts            -> ApiApplicationModule         -> HTTP + domains + CopilotKit + admission + private MCP
 worker.ts          -> AgentWorkerApplicationModule -> durable OperationRun execution only
-apps/agent-gateway -> native Agent Gateway          -> Codex/Claude conversations and active turns
+apps/agent-gateway -> native Agent Gateway          -> Codex/Claude sessions and process trees
 ```
 
 Office runs exactly one API container, one worker, and one web container.
 Replicas and rolling API overlap are unsupported. The API owns authenticated
 conversation commands, one durable `CapabilityInvocation` model, exact-input
-approval, owner dispatch, and the stateless private MCP HTTP adapter. The native
-Agent Gateway alone owns Codex/Claude executables, provider conversation IDs and
-history, bounded descriptor JSON, and live process cleanup. The worker owns only
-durable `OperationRun` execution and receives neither a provider login profile,
-Gateway token, nor provider binaries. Four process-local active turns is the
-only Agent capacity control. API or Gateway restart clears live turns and starts
-nothing automatically; the next user message starts a new turn against provider
-history.
+approval, owner dispatch, the stateless private MCP HTTP adapter, API-local
+completed-event SQLite history, and Nest's in-memory active-turn run/stop
+authority. The native Agent Gateway alone owns Codex/Claude executables,
+provider conversation references and session continuity, bounded descriptor
+JSON, and live process cleanup. The worker owns only durable `OperationRun`
+execution and receives neither a provider login profile, Gateway token, nor
+provider binaries. The Gateway's four process-local parent-turn slots are the
+native capacity control; Nest's exact active-turn record is the execution
+authority. API or Gateway restart clears live turns and starts nothing
+automatically; the next user message starts a new turn through provider-native
+session continuity.
 
 Only the API application graph reaches OperationsModule; ApiApplicationModule
 owns OperationRun creation, scheduling, resource-class dispatch, browser
@@ -73,12 +76,20 @@ after a single API is ACCEPTING.
 
 The API image contains no Codex or Claude binary and never mounts a provider
 login home. One native Agent Gateway under the dedicated host account owns the
-release-train CLIs, operator-established login state, provider history, a fixed
-workspace, bounded conversation descriptors, and process-tree cleanup. KidItem
-never stores or injects provider API/OAuth credentials or provider transcripts.
+release-train CLIs, operator-established login state, provider-native session
+continuity, a fixed workspace, bounded conversation descriptors, and
+process-tree cleanup. KidItem never stores or injects provider API/OAuth
+credentials or provider transcripts. The API-only
+`kiditem_copilotkit-event-history` volume mounts at
+`/var/lib/kiditem/agent-os` and supplies
+`KIDITEM_COPILOTKIT_SQLITE_PATH=/var/lib/kiditem/agent-os/copilotkit-events.sqlite`;
+the worker never mounts or opens it, and it is not active-turn authority.
 PostgreSQL owns only durable capability mutation authority and business/
-`OperationRun` records. Gateway command/event state, active turns, execution
-bindings, and CLI processes remain ephemeral and never auto-resume after restart.
+`OperationRun` records. Gateway command/event state, Nest active-turn records,
+and CLI processes remain ephemeral and never auto-resume after restart. The
+bounded Gateway descriptor keeps only provider-local Conversation routing
+metadata and the server-derived organization access fence; it is not a
+transcript or MCP authority store.
 
 Codex and Claude run non-interactively with trusted full access within the
 dedicated non-administrator account's OS permissions. This is deliberately not
@@ -91,9 +102,13 @@ Office publishes the Nest port only as `127.0.0.1:4000:4000`. Public API routes
 remain under `/api/*`; Agent Gateway and CLI traffic use the sibling
 `/internal/agent-runtime/*` namespace on the same loopback port. The nginx edge
 returns 404 for `^~ /internal/` and never proxies it publicly. Gateway long-poll
-and event calls require the installation bearer. A short-lived in-memory
-execution binding authenticates and correlates a provider turn's MCP requests;
-it grants no Agent, capability, or delegation authority and is never persisted.
+and event calls require the installation bearer. The Gateway's process-scoped
+MCP transport token authenticates provider traffic; Nest obtains business
+authority only by resolving the conversation locator against its current
+active-turn record. The token grants no Agent, capability, or delegation
+authority and is never persisted. Conversation-facing commands carry the
+authenticated organization to the Gateway descriptor boundary, while provider
+terminal, process, and Gateway-registration lifecycle messages do not.
 
 ## Release Boundary
 

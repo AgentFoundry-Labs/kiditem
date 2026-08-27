@@ -5,6 +5,7 @@ describe('ConversationDescriptorSchema', () => {
     const { ConversationDescriptorSchema } = await import('./conversation-descriptor');
     const value = {
       id: 'conversation-1',
+      organizationId: 'organization-1',
       runtime: 'claude_cli',
       providerConversationRef: '14f0a487-6ce5-4944-b1e4-5b0f7d0ceb99',
       agentKey: null,
@@ -15,6 +16,7 @@ describe('ConversationDescriptorSchema', () => {
     };
 
     expect(ConversationDescriptorSchema.parse(value)).toEqual(value);
+    expect(ConversationDescriptorSchema.safeParse({ ...value, organizationId: undefined }).success).toBe(false);
     expect(ConversationDescriptorSchema.safeParse({ ...value, createTitle: undefined }).success).toBe(false);
     expect(ConversationDescriptorSchema.safeParse({ ...value, messages: [] }).success).toBe(false);
     expect(ConversationDescriptorSchema.safeParse({ ...value, mcpTransportToken: 'secret' }).success).toBe(false);

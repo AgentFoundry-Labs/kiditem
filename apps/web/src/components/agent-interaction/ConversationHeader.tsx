@@ -3,6 +3,7 @@
 import { ArrowLeft, Menu } from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { ConversationContextMark } from './ConversationContextMark';
 
 export function ConversationHeader({
   contextLabel,
@@ -16,18 +17,19 @@ export function ConversationHeader({
   folderControl?: ReactNode;
 }) {
   return (
-    <header className="sticky top-0 z-10 shrink-0 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:px-6">
+    <header className="sticky top-0 z-10 shrink-0 border-b bg-card px-4 py-3 sm:px-6">
       <div className="mx-auto flex max-w-3xl items-center gap-3">
         <Link
           href="/dashboard"
           aria-label="대시보드로 돌아가기"
-          className="inline-flex min-h-10 shrink-0 items-center gap-1 rounded-md px-2 py-2 text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 max-lg:min-h-11"
+          className="inline-flex min-h-10 shrink-0 items-center gap-1 rounded-md px-2 py-2 text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 max-lg:min-h-11 lg:hidden"
         >
           <ArrowLeft aria-hidden="true" size={18} />
           <span className="hidden sm:inline">대시보드로 돌아가기</span>
         </Link>
+        <ConversationContextMark contextLabel={contextLabel} size="md" />
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-[20px] font-semibold leading-[26px]">{title ?? contextLabel}</h1>
+          <h1 className="truncate text-[20px] font-semibold leading-[26px]">{title ?? '새 AI 대화'}</h1>
           <p className="truncate text-xs text-muted-foreground">{contextLabel}</p>
         </div>
         {folderControl ?? (

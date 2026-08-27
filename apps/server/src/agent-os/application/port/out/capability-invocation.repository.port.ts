@@ -4,7 +4,7 @@ import {
   CapabilityInvocationApprovalStatusSchema,
   CapabilityInvocationErrorSchema,
   CapabilityInvocationStatusSchema,
-  CapabilityResultEnvelopeSchema,
+  CapabilityResultReceiptSchema,
 } from '@kiditem/shared/agent-interaction';
 
 export const CAPABILITY_INVOCATION_REPOSITORY_PORT = Symbol(
@@ -33,7 +33,7 @@ export const CapabilityInvocationRecordSchema = z
     approvalDecidedByUserId: UuidSchema.nullable(),
     approvalDecisionReason: z.string().trim().min(1).max(1_000).nullable(),
     approvalDecidedAt: z.date().nullable(),
-    result: CapabilityResultEnvelopeSchema.nullable(),
+    result: CapabilityResultReceiptSchema.nullable(),
     error: CapabilityInvocationErrorSchema.nullable(),
     createdAt: z.date(),
     updatedAt: z.date(),
@@ -84,7 +84,7 @@ export interface DecideInvocationApproval extends InvocationFence {
 }
 
 export interface RecordInvocationSucceeded extends InvocationFence {
-  result: z.infer<typeof CapabilityResultEnvelopeSchema>;
+  result: z.infer<typeof CapabilityResultReceiptSchema>;
   finishedAt: Date;
 }
 

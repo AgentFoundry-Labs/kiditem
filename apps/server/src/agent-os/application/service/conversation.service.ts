@@ -21,8 +21,14 @@ import {
   type GatewayConversationPort,
   type GatewayLiveTurn,
 } from '../port/out/gateway-conversation.port';
+import {
+  CONVERSATION_EVENT_HISTORY_PORT,
+  type ConversationEventHistoryPort,
+} from '../port/out/history/conversation-event-history.port';
 
-interface StoredTurn extends ConversationTurnCoordinates {}
+interface StoredTurn extends ConversationTurnCoordinates {
+  interruptRequested: boolean;
+}
 
 type CreateConversationInput = ConversationOwner & CreateConversationCommand;
 
@@ -34,8 +40,9 @@ type StartConversationInput = ConversationCoordinates & {
 };
 
 /**
- * An organization-scoped facade over the installed Gateway. Provider history
- * remains provider-native; only initiating-user live-turn metadata is transient.
+ * An organization-scoped facade over the installed Gateway. Nest's transient
+ * organization+conversation turn map is the execution authority; completed
+ * AG-UI event history is a distinct adapter-local SQLite concern.
  */
 @Injectable()
 export class ConversationService implements ConversationPort {
@@ -44,6 +51,8 @@ export class ConversationService implements ConversationPort {
   constructor(
     @Inject(GATEWAY_CONVERSATION_PORT)
     private readonly gateway: GatewayConversationPort,
+    @Inject(CONVERSATION_EVENT_HISTORY_PORT)
+    private readonly eventHistory: ConversationEventHistoryPort,
     @Inject(CONVERSATION_TURN_ID_FACTORY)
     private readonly nextTurnId: ConversationTurnIdFactory,
   ) {}
@@ -91,9 +100,8 @@ export class ConversationService implements ConversationPort {
     });
   }
 
-  async history(input: ConversationCoordinates) {
-    assertConversation(input);
-    return this.gateway.history(input);
+  async assertAccessible(input: ConversationCoordinates): Promise<void> {
+    await this.requireConversation(input);
   }
 
   async isRunning(input: ConversationCoordinates): Promise<boolean> {
@@ -103,9 +111,16 @@ export class ConversationService implements ConversationPort {
 
   async stop(input: ConversationCoordinates): Promise<boolean> {
     assertConversation(input);
+    await this.requireConversation(input);
     const turn = this.turns.get(activeTurnKey(input));
-    if (!turn || !sameOwner(turn, input)) return false;
-    await this.gateway.interrupt(turn);
+    if (!turn || turn.interruptRequested) return false;
+    turn.interruptRequested = true;
+    try {
+      await this.gateway.interrupt(turnCoordinates(turn));
+    } catch (error) {
+      if (this.turns.get(activeTurnKey(turn)) === turn) turn.interruptRequested = false;
+      throw error;
+    }
     return true;
   }
 
@@ -118,16 +133,24 @@ export class ConversationService implements ConversationPort {
 
   async delete(input: ConversationCoordinates): Promise<void> {
     assertConversation(input);
-    await this.gateway.delete(input);
-    for (const [key, turn] of this.turns) {
-      if (turn.conversationId === input.conversationId && sameOwner(turn, input)) this.turns.delete(key);
+    if (this.turns.has(activeTurnKey(input))) throw new AgentOsRuntimeError('conversation_turn_live');
+    let alreadyAbsent: AgentOsRuntimeError | null = null;
+    try {
+      await this.gateway.delete(input);
+    } catch (error) {
+      if (!(error instanceof AgentOsRuntimeError) || error.code !== 'conversation_not_found') throw error;
+      alreadyAbsent = error;
     }
+    this.eventHistory.delete(input, { conversationId: input.conversationId });
+    this.turns.delete(activeTurnKey(input));
+    if (alreadyAbsent) throw alreadyAbsent;
   }
 
   async start(input: StartConversationInput): Promise<ConversationLiveTurn> {
     const conversation = await this.requireConversation(input);
     assertTurnSettings(input);
     this.requireReadiness(conversation.runtime, input.model, input.reasoningEffort);
+    if (this.turns.has(activeTurnKey(input))) throw new AgentOsRuntimeError('conversation_turn_live');
     const turnId = input.turnId ?? this.nextTurnId();
     const gatewayTurn = this.gateway.start({
       ...copyOwner(input),
@@ -137,7 +160,12 @@ export class ConversationService implements ConversationPort {
       model: input.model,
       reasoningEffort: input.reasoningEffort,
     });
-    const coordinates = { ...copyOwner(input), conversationId: input.conversationId, turnId };
+    const coordinates: StoredTurn = {
+      ...copyOwner(input),
+      conversationId: input.conversationId,
+      turnId,
+      interruptRequested: false,
+    };
     this.turns.set(activeTurnKey(coordinates), coordinates);
     let unsubscribeLifecycle: (() => void) | null = null;
     let terminalBeforeSubscriptionReturned = false;
@@ -159,23 +187,6 @@ export class ConversationService implements ConversationPort {
       lifecycleSubscription();
     }
     return this.bindLiveTurn(gatewayTurn, coordinates);
-  }
-
-  async input(input: ConversationTurnCoordinates & { message: string }): Promise<void> {
-    await this.requireTurn(input);
-    await this.gateway.input(input);
-  }
-
-  async interrupt(input: ConversationTurnCoordinates): Promise<void> {
-    await this.requireTurn(input);
-    await this.gateway.interrupt(input);
-  }
-
-  disconnect(input: ConversationTurnCoordinates): void {
-    const stored = this.turns.get(activeTurnKey(input));
-    if (!stored || !sameTurn(stored, input)) return;
-    this.clearTurn(input);
-    this.gateway.disconnect(input);
   }
 
   readiness() {
@@ -207,13 +218,6 @@ export class ConversationService implements ConversationPort {
     }
     assertAgent(conversation.agentKey);
     return conversation;
-  }
-
-  private async requireTurn(input: ConversationTurnCoordinates): Promise<StoredTurn> {
-    assertTurn(input);
-    const turn = this.turns.get(activeTurnKey(input));
-    if (!turn || !sameTurn(turn, input)) throw new AgentOsRuntimeError('conversation_not_found');
-    return turn;
   }
 
   private clearTurn(coordinates: ConversationTurnCoordinates): void {
@@ -283,6 +287,15 @@ function copyOwner(input: ConversationOwner): ConversationOwner {
   return { organizationId: input.organizationId, userId: input.userId };
 }
 
+function turnCoordinates(input: ConversationTurnCoordinates): ConversationTurnCoordinates {
+  return {
+    organizationId: input.organizationId,
+    userId: input.userId,
+    conversationId: input.conversationId,
+    turnId: input.turnId,
+  };
+}
+
 function sameOwner(left: ConversationOwner, right: ConversationOwner): boolean {
   return left.organizationId === right.organizationId && left.userId === right.userId;
 }
@@ -292,5 +305,5 @@ function sameTurn(left: ConversationTurnCoordinates | undefined, right: Conversa
 }
 
 function activeTurnKey(input: ConversationCoordinates): string {
-  return `${input.organizationId}\u0000${input.userId}\u0000${input.conversationId}`;
+  return `${input.organizationId}\u0000${input.conversationId}`;
 }

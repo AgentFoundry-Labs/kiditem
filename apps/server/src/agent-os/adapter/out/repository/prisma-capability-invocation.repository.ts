@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import {
   CapabilityInvocationErrorSchema,
-  CapabilityResultEnvelopeSchema,
+  CapabilityResultReceiptSchema,
 } from '@kiditem/shared/agent-interaction';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -175,7 +175,7 @@ export class PrismaCapabilityInvocationRepository
   async recordSucceeded(
     input: RecordInvocationSucceeded,
   ): Promise<CapabilityInvocationRecord> {
-    const result = CapabilityResultEnvelopeSchema.parse(input.result);
+    const result = CapabilityResultReceiptSchema.parse(input.result);
     const current = await this.requiredCurrent(input);
     if (current.status !== 'pending') return current;
     const update = await this.prisma.capabilityInvocation.updateMany({

@@ -13,14 +13,39 @@ describe('common capability definition contract', () => {
         ownerDomain: 'analytics',
         ownerInputPort: 'analytics.readExample',
         description: 'Read example data.',
+        resultSummary: '예시 데이터를 확인했습니다.',
         inputSchema: z.object({ query: z.string() }).strict(),
         outputSchema: z.object({ count: z.number() }).strict(),
         effects: ['read'],
         approvalRisk: 'none',
         idempotency: 'none',
       },
-    ] as const satisfies readonly CapabilityDefinition[];
+    ] as const as readonly CapabilityDefinition[];
 
     expect(() => assertCapabilityDefinitions(definitions)).toThrow('owner-prefixed');
+  });
+
+  it('requires a short Korean completion summary owned by each capability manifest', () => {
+    const definition = {
+      key: 'analytics.readExample',
+      ownerDomain: 'analytics',
+      ownerInputPort: 'analytics.readExample',
+      description: 'Read example data.',
+      inputSchema: z.object({ query: z.string() }).strict(),
+      outputSchema: z.object({ count: z.number() }).strict(),
+      effects: ['read'],
+      approvalRisk: 'none',
+      idempotency: 'none',
+    } as unknown as CapabilityDefinition;
+
+    expect(() => assertCapabilityDefinitions([definition])).toThrow('result summary');
+    expect(() => assertCapabilityDefinitions([{
+      ...definition,
+      resultSummary: 'technical-completion',
+    }])).toThrow('Korean');
+    expect(() => assertCapabilityDefinitions([{
+      ...definition,
+      resultSummary: '예시 데이터를 확인했습니다.',
+    }])).not.toThrow();
   });
 });

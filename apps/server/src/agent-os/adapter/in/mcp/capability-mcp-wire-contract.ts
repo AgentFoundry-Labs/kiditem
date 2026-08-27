@@ -66,7 +66,7 @@ export const OperationStatusInputSchema = z4
 
 export const ReadinessProbeInputSchema = z4.object({}).strict();
 
-export const CapabilityResultEnvelopeWireSchema = z4
+export const CapabilityResultReceiptWireSchema = z4
   .object({
     summary: z4.string().min(1).max(1_000),
     resourceRefs: z4.array(z4.object({
@@ -78,9 +78,12 @@ export const CapabilityResultEnvelopeWireSchema = z4
       kind: z4.string().min(1).max(64),
       id: z4.string().min(1).max(128),
     }).strict()).max(50),
-    output: BoundedCanonicalJson.optional(),
   })
   .strict();
+
+export const CapabilityResultEnvelopeWireSchema = CapabilityResultReceiptWireSchema.extend({
+  output: BoundedCanonicalJson.optional(),
+}).strict();
 
 export const InvocationReceiptWireSchema = z4
   .object({
@@ -123,11 +126,16 @@ export const CapabilityCatalogSearchOutputSchema = z4
   .object({ capabilities: z4.array(CatalogEntrySchema).max(17) })
   .strict();
 
-export const CapabilityInvokeOutputSchema = z4.discriminatedUnion('kind', [
+export const CapabilityInvokeOutputSchema = z4.union([
   z4.object({
     kind: z4.literal('completed'),
-    invocation: InvocationReceiptWireSchema.nullable(),
+    invocation: z4.null(),
     result: CapabilityResultEnvelopeWireSchema,
+  }).strict(),
+  z4.object({
+    kind: z4.literal('completed'),
+    invocation: InvocationReceiptWireSchema,
+    result: CapabilityResultReceiptWireSchema,
   }).strict(),
   z4.object({
     kind: z4.literal('pending'),
@@ -142,7 +150,7 @@ export const CapabilityInvokeOutputSchema = z4.discriminatedUnion('kind', [
 const InvocationStatusSuccessOutputSchema = z4
   .object({
     invocation: InvocationReceiptWireSchema.extend({
-      result: CapabilityResultEnvelopeWireSchema.nullable(),
+      result: CapabilityResultReceiptWireSchema.nullable(),
       error: CapabilityMcpErrorWireSchema.nullable(),
       approvalExpiresAt: z4.string().datetime({ offset: true }).nullable(),
     }),

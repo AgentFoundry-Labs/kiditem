@@ -44,14 +44,22 @@ export const CapabilityIdempotencySchema = z.enum([
   "recommended",
   "required",
 ]);
-export const CapabilityResultEnvelopeSchema = z
+/**
+ * Durable mutation receipt: only stable, organization-fenced references and
+ * user-safe summary text may leave an owner boundary.
+ */
+export const CapabilityResultReceiptSchema = z
   .object({
     summary: z.string().min(1).max(1_000),
     resourceRefs: z.array(ResourceRefSchema).max(50),
     operationRefs: z.array(OperationRefSchema).max(50),
-    output: BoundedCanonicalJsonSchema.optional(),
   })
   .strict();
+
+/** Owner-local execution result. Read capabilities may return bounded output. */
+export const CapabilityResultEnvelopeSchema = CapabilityResultReceiptSchema.extend({
+  output: BoundedCanonicalJsonSchema.optional(),
+}).strict();
 export const CapabilityInvocationErrorSchema = z
   .object({
     code: z.string().min(1).max(128),
@@ -63,6 +71,9 @@ export type ResourceRef = z.infer<typeof ResourceRefSchema>;
 export type OperationRef = z.infer<typeof OperationRefSchema>;
 export type CapabilityResultEnvelope = z.infer<
   typeof CapabilityResultEnvelopeSchema
+>;
+export type CapabilityResultReceipt = z.infer<
+  typeof CapabilityResultReceiptSchema
 >;
 export type CapabilityInvocationError = z.infer<
   typeof CapabilityInvocationErrorSchema

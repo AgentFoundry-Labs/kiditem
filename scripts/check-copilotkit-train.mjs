@@ -23,6 +23,7 @@ const WORKSPACE_MANIFESTS = Object.freeze([
   'package.json',
   'apps/web/package.json',
   'apps/server/package.json',
+  'packages/copilotkit-sqlite-runner/package.json',
 ]);
 
 const PRODUCTION_SOURCE_ROOTS = Object.freeze([

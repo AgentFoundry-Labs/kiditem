@@ -21,6 +21,7 @@ COPY package.json package-lock.json prisma.config.ts ./
 COPY prisma ./prisma
 COPY apps/server/package.json ./apps/server/package.json
 COPY apps/web/package.json ./apps/web/package.json
+COPY packages/copilotkit-sqlite-runner/package.json ./packages/copilotkit-sqlite-runner/package.json
 COPY packages/shared/package.json ./packages/shared/package.json
 COPY packages/templates/package.json ./packages/templates/package.json
 
@@ -34,10 +35,12 @@ RUN npm ci \
 
 FROM deps AS builder
 
+COPY packages/copilotkit-sqlite-runner ./packages/copilotkit-sqlite-runner
 COPY packages/shared ./packages/shared
 COPY packages/templates ./packages/templates
 COPY apps/server ./apps/server
 
+RUN npm run build --workspace=packages/copilotkit-sqlite-runner
 RUN npm run build --workspace=packages/shared
 RUN npm run build --workspace=packages/templates
 RUN npm run build --workspace=apps/server
@@ -60,6 +63,7 @@ COPY package.json package-lock.json prisma.config.ts ./
 COPY prisma ./prisma
 COPY apps/server/package.json ./apps/server/package.json
 COPY apps/web/package.json ./apps/web/package.json
+COPY packages/copilotkit-sqlite-runner/package.json ./packages/copilotkit-sqlite-runner/package.json
 COPY packages/shared/package.json ./packages/shared/package.json
 COPY packages/templates/package.json ./packages/templates/package.json
 
@@ -67,6 +71,7 @@ RUN npm ci \
       --omit=dev \
       --ignore-scripts \
       --workspace=apps/server \
+      --workspace=packages/copilotkit-sqlite-runner \
       --workspace=packages/shared \
       --workspace=packages/templates \
       --include-workspace-root=false \
@@ -99,12 +104,18 @@ RUN node -e "require('@nestjs/common'); require('rxjs/operators'); require('@ag-
 
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
+COPY --from=deps /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3
+COPY --from=builder /app/packages/copilotkit-sqlite-runner/dist ./packages/copilotkit-sqlite-runner/dist
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/templates/dist ./packages/templates/dist
 COPY --from=builder /app/apps/server/dist ./apps/server/dist
 COPY agent-config ./agent-config
 
 RUN node -e "const fs=require('fs'); const css=fs.readFileSync(require.resolve('@kiditem/templates/styles.css'),'utf8'); if(!/tailwindcss\\s+v\\d/i.test(css)) process.exit(1)"
+
+# Runtime npm installation intentionally skips package scripts. Copy the Node 22
+# native binding built in deps, then prove the selected local runner can load it.
+RUN node -e "const Database=require('better-sqlite3'); const db=new Database(':memory:'); db.prepare('SELECT 1').get(); db.close(); require('@kiditem/copilotkit-sqlite-runner')"
 
 RUN tmpdir="$(mktemp -d)" \
     && printf '{"pos":[],"centers":{}}' > "$tmpdir/input.json" \
@@ -123,6 +134,7 @@ WORKDIR /app/apps/server
 
 EXPOSE 4000
 
-# Node is PID 1 for the API container. Its exit/restart terminates current
-# Codex/Claude child groups; durable Task/Attempt rows recover separately.
+# Node is PID 1 for the API container. Provider conversations and child groups
+# remain owned by the native Host Gateway; API restart restores only the
+# process registration and waits for the next explicit user message.
 CMD ["node", "dist/main.js"]

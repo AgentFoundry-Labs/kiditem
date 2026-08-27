@@ -44,6 +44,7 @@ export class MacosSupervisedProcess implements SupervisedProcess {
   private terminating: Promise<void> | null = null;
   private treeQuiescence: Promise<void> | null = null;
   private reportedExit: ProcessExit | null = null;
+  private fatalReported = false;
 
   constructor(
     private readonly child: ChildProcessWithoutNullStreams,
@@ -70,7 +71,10 @@ export class MacosSupervisedProcess implements SupervisedProcess {
 
   terminate(): Promise<void> {
     if (this.terminating) return this.terminating;
-    this.terminating = this.ensureTreeGone();
+    this.terminating = this.ensureTreeGone().catch((error) => {
+      this.reportFatal(error);
+      throw error;
+    });
     return this.terminating;
   }
 
@@ -109,8 +113,15 @@ export class MacosSupervisedProcess implements SupervisedProcess {
       this.listeners.clear();
     } catch (error) {
       // Keep the process registered and fail the Gateway closed; no workspace may be released.
-      this.onFatal(error instanceof Error ? error : new Error('provider_process_tree_termination_failed'));
+      this.reportFatal(error);
     }
+  }
+
+  private reportFatal(error: unknown): void {
+    if (this.fatalReported || this.reportedExit) return;
+    this.fatalReported = true;
+    this.listeners.clear();
+    this.onFatal(error instanceof Error ? error : new Error('provider_process_tree_termination_failed'));
   }
 }
 

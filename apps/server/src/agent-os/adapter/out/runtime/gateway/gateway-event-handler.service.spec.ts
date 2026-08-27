@@ -19,7 +19,7 @@ const POLL = {
 
 describe('GatewayEventHandlerService', () => {
   it('acknowledges retry-safe event sequences once, records exact readiness, and revokes a provider-exit turn', () => {
-    const queue = { isLiveSession: vi.fn(() => true), acknowledge: vi.fn(), reject: vi.fn(), terminal: vi.fn() };
+    const queue = { isLiveSession: vi.fn(() => true), hasLiveSession: vi.fn(() => true), acknowledge: vi.fn(), reject: vi.fn(), terminal: vi.fn() };
     const readiness = { update: vi.fn() };
     const broker = brokerPort();
     const handler = new GatewayEventHandlerService({ queue: queue as never, readiness: readiness as never, broker: broker as never });
@@ -49,7 +49,7 @@ describe('GatewayEventHandlerService', () => {
   });
 
   it('forwards every correlated conversation result and command rejection to the bounded broker', () => {
-    const queue = { isLiveSession: vi.fn(() => true), acknowledge: vi.fn(), reject: vi.fn(), terminal: vi.fn() };
+    const queue = { isLiveSession: vi.fn(() => true), hasLiveSession: vi.fn(() => true), acknowledge: vi.fn(), reject: vi.fn(), terminal: vi.fn() };
     const readiness = { update: vi.fn() };
     const broker = brokerPort();
     const handler = new GatewayEventHandlerService({ queue: queue as never, readiness: readiness as never, broker: broker as never });
@@ -60,7 +60,6 @@ describe('GatewayEventHandlerService', () => {
         { kind: 'command.rejected', commandId: 'rejected-1', code: 'provider_error' },
         { kind: 'conversation.listed', commandId: 'list-1', conversations: [] },
         { kind: 'conversation.created', commandId: 'create-1', conversation: conversation('created') },
-        { kind: 'conversation.history', commandId: 'history-1', conversationId: 'conversation-1', messages: [] },
         { kind: 'conversation.renamed', commandId: 'rename-1', conversation: conversation('renamed') },
         { kind: 'conversation.deleted', commandId: 'delete-1', conversationId: 'conversation-1' },
         {
@@ -86,7 +85,6 @@ describe('GatewayEventHandlerService', () => {
     expect(broker.reject).toHaveBeenCalledWith('rejected-1', 'provider_error');
     expect(broker.resolveConversationListed).toHaveBeenCalledOnce();
     expect(broker.resolveConversationCreated).toHaveBeenCalledOnce();
-    expect(broker.resolveConversationHistory).toHaveBeenCalledOnce();
     expect(broker.resolveConversationRenamed).toHaveBeenCalledOnce();
     expect(broker.resolveConversationDeleted).toHaveBeenCalledOnce();
     expect(broker.resolvePreferenceLoaded).toHaveBeenCalledWith(expect.objectContaining({
@@ -99,7 +97,7 @@ describe('GatewayEventHandlerService', () => {
   });
 
   it('uses the first post-restart event sequence from the currently polled Gateway as a fresh in-memory baseline', () => {
-    const queue = { isLiveSession: vi.fn(() => true), acknowledge: vi.fn(), reject: vi.fn(), terminal: vi.fn() };
+    const queue = { isLiveSession: vi.fn(() => true), hasLiveSession: vi.fn(() => true), acknowledge: vi.fn(), reject: vi.fn(), terminal: vi.fn() };
     const broker = brokerPort();
     const handler = new GatewayEventHandlerService({
       queue: queue as never,
@@ -114,6 +112,33 @@ describe('GatewayEventHandlerService', () => {
     })).toEqual({ eventSeq: 7, accepted: true });
     expect(queue.acknowledge).toHaveBeenCalledWith('command-after-restart');
     expect(broker.acknowledge).toHaveBeenCalledWith('command-after-restart');
+  });
+
+  it('treats an event from a different live Gateway as a terminal session mismatch, not restart recovery', () => {
+    const queue = new GatewayCommandQueue({
+      runtime: mcpRuntime() as never,
+      installationId: 'installation-1',
+      longPollMs: 0,
+    });
+    const handler = new GatewayEventHandlerService({
+      queue,
+      readiness: { update: vi.fn() } as never,
+      broker: brokerPort() as never,
+    });
+
+    expect(() => handler.handle({
+      gatewayInstanceId: 'gateway-2',
+      eventSeq: 1,
+      events: [{ kind: 'command.ack', commandId: 'before-registration' }],
+    })).toThrow('gateway_process_registration_missing');
+
+    queue.claim(POLL);
+
+    expect(() => handler.handle({
+      gatewayInstanceId: 'gateway-2',
+      eventSeq: 1,
+      events: [{ kind: 'command.ack', commandId: 'different-live-gateway' }],
+    })).toThrow('gateway_session_mismatch');
   });
 
   it('resolves a queued create through the event handler only when its returned conversation ID matches the owner-fenced command', async () => {
@@ -132,6 +157,7 @@ describe('GatewayEventHandlerService', () => {
     const command = {
       kind: 'conversation.create' as const,
       commandId: 'create-matching',
+      organizationId: OWNER.organizationId,
       conversationId: 'conversation-created',
       runtime: 'codex_cli' as const,
       agentKey: null,
@@ -181,7 +207,6 @@ function brokerPort() {
     reject: vi.fn(),
     resolveConversationListed: vi.fn(),
     resolveConversationCreated: vi.fn(),
-    resolveConversationHistory: vi.fn(),
     resolveConversationRenamed: vi.fn(),
     resolveConversationDeleted: vi.fn(),
     resolvePreferenceLoaded: vi.fn(),

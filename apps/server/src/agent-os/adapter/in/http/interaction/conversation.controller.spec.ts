@@ -27,15 +27,32 @@ afterEach(async () => {
 });
 
 describe('ConversationController', () => {
+  it('retires all REST turn-control routes so CopilotKit is the only interaction seam', async () => {
+    const conversations = {
+      list: vi.fn(),
+      create: vi.fn(),
+      rename: vi.fn(),
+      delete: vi.fn(),
+    };
+    expect(ConversationController.prototype).not.toHaveProperty('start');
+    expect(ConversationController.prototype).not.toHaveProperty('input');
+    expect(ConversationController.prototype).not.toHaveProperty('interrupt');
+    expect(ConversationController.prototype).not.toHaveProperty('stop');
+
+    const server = await interactionApp(conversations);
+    const turn = { message: 'Review this.', model: 'gpt-5.6', reasoningEffort: 'low' };
+    await request(server.getHttpServer()).post('/api/agent-os/conversations/conversation-1/turns').send(turn).expect(404);
+    await request(server.getHttpServer()).post('/api/agent-os/conversations/conversation-1/turns/turn-1/input').send({ message: 'More context.' }).expect(404);
+    await request(server.getHttpServer()).post('/api/agent-os/conversations/conversation-1/turns/turn-1/interrupt').expect(404);
+    await request(server.getHttpServer()).post('/api/agent-os/conversations/conversation-1/turns/turn-1/stop').expect(404);
+  });
+
   it('derives organization and user scope and accepts no provider or execution coordinates', async () => {
     const conversations = {
       list: vi.fn().mockResolvedValue([]),
       create: vi.fn().mockResolvedValue({ id: 'conversation-1' }),
       rename: vi.fn(),
       delete: vi.fn(),
-      start: vi.fn(),
-      input: vi.fn(),
-      interrupt: vi.fn(),
     };
     const controller = new ConversationController(conversations as never);
 
@@ -68,91 +85,24 @@ describe('ConversationController', () => {
     )).rejects.toThrow('Invalid conversation create request.');
   });
 
-  it('requires model and reasoning effort on each turn and does not accept runtime patching', async () => {
-    const conversations = {
-      list: vi.fn(), create: vi.fn(), rename: vi.fn(), delete: vi.fn(),
-      start: vi.fn().mockResolvedValue({ turnId: 'turn-1' }), input: vi.fn(), interrupt: vi.fn(),
-    };
-    const controller = new ConversationController(conversations as never);
-
-    await expect(controller.start(
-      'conversation-1',
-      { message: 'Review this.', model: 'gpt-5.6', reasoningEffort: 'low' },
-      ORGANIZATION_ID,
-      { id: USER_ID } as never,
-    )).resolves.toEqual({ turnId: 'turn-1' });
-    expect(conversations.start).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      userId: USER_ID,
-      conversationId: 'conversation-1',
-      message: 'Review this.',
-      model: 'gpt-5.6',
-      reasoningEffort: 'low',
-    });
-
-    await expect(controller.start(
-      'conversation-1',
-      { message: 'Review this.', model: 'gpt-5.6' },
-      ORGANIZATION_ID,
-      { id: USER_ID } as never,
-    )).rejects.toThrow('Invalid conversation turn request.');
-    await expect(controller.rename(
-      'conversation-1',
-      { title: 'Renamed', runtime: 'claude_cli' },
-      ORGANIZATION_ID,
-      { id: USER_ID } as never,
-    )).rejects.toThrow('Invalid conversation rename request.');
-    await expect(controller.input(
-      'conversation-1',
-      'turn-1',
-      { message: 'More context.', providerConversationRef: 'private' },
-      ORGANIZATION_ID,
-      { id: USER_ID } as never,
-    )).rejects.toThrow('Invalid conversation input request.');
-  });
-
   it('forwards every bounded endpoint with the authenticated owner fence', async () => {
     const conversations = {
       list: vi.fn().mockResolvedValue([]),
       create: vi.fn(),
       rename: vi.fn().mockResolvedValue({ id: 'conversation-1' }),
       delete: vi.fn().mockResolvedValue(undefined),
-      start: vi.fn(),
-      input: vi.fn().mockResolvedValue(undefined),
-      interrupt: vi.fn().mockResolvedValue(undefined),
     };
     const controller = new ConversationController(conversations as never);
     const user = { id: USER_ID } as never;
 
     await controller.list(ORGANIZATION_ID, user);
     await controller.rename('conversation-1', { title: 'Renamed' }, ORGANIZATION_ID, user);
-    await controller.input('conversation-1', 'turn-1', { message: 'More context.' }, ORGANIZATION_ID, user);
-    await controller.interrupt('conversation-1', 'turn-1', ORGANIZATION_ID, user);
     await controller.delete('conversation-1', ORGANIZATION_ID, user);
 
     const owner = { organizationId: ORGANIZATION_ID, userId: USER_ID };
     expect(conversations.list).toHaveBeenCalledWith(owner);
     expect(conversations.rename).toHaveBeenCalledWith({ ...owner, conversationId: 'conversation-1', title: 'Renamed' });
-    expect(conversations.input).toHaveBeenCalledWith({ ...owner, conversationId: 'conversation-1', turnId: 'turn-1', message: 'More context.' });
-    expect(conversations.interrupt).toHaveBeenCalledWith({ ...owner, conversationId: 'conversation-1', turnId: 'turn-1' });
     expect(conversations.delete).toHaveBeenCalledWith({ ...owner, conversationId: 'conversation-1' });
-  });
-
-  it('maps turn validation to 400 and Gateway absence to 503 instead of leaking 500', async () => {
-    const conversations = {
-      list: vi.fn(), create: vi.fn(), rename: vi.fn(), delete: vi.fn(),
-      start: vi.fn()
-        .mockRejectedValueOnce(new AgentOsRuntimeError('conversation_model_unsupported'))
-        .mockRejectedValueOnce(new AgentOsRuntimeError('conversation_gateway_unavailable')),
-      input: vi.fn(), interrupt: vi.fn(),
-    };
-    const controller = new ConversationController(conversations as never);
-    const body = { message: 'Review this.', model: 'gpt-5.6', reasoningEffort: 'low' };
-
-    await expect(controller.start('conversation-1', body, ORGANIZATION_ID, { id: USER_ID } as never))
-      .rejects.toMatchObject({ status: 400 });
-    await expect(controller.start('conversation-1', body, ORGANIZATION_ID, { id: USER_ID } as never))
-      .rejects.toMatchObject({ status: 503 });
   });
 
   it('maps list control failures to a safe HTTP 503 response', async () => {
@@ -170,29 +120,18 @@ describe('ConversationController', () => {
   it('keeps invalid conversation and turn route IDs at HTTP 400 on every parameterized route', async () => {
     const conversations = {
       list: vi.fn(), create: vi.fn(), rename: vi.fn(), delete: vi.fn(),
-      start: vi.fn(), input: vi.fn(), interrupt: vi.fn(),
     };
     const server = await interactionApp(conversations);
     const invalid = '%20';
-    const turn = { message: 'Review this.', model: 'gpt-5.6', reasoningEffort: 'low' };
-    const input = { message: 'More context.' };
     const routes = [
       () => request(server.getHttpServer()).patch(`/api/agent-os/conversations/${invalid}`).send({ title: 'Renamed' }),
       () => request(server.getHttpServer()).delete(`/api/agent-os/conversations/${invalid}`),
-      () => request(server.getHttpServer()).post(`/api/agent-os/conversations/${invalid}/turns`).send(turn),
-      () => request(server.getHttpServer()).post(`/api/agent-os/conversations/${invalid}/turns/turn-1/input`).send(input),
-      () => request(server.getHttpServer()).post('/api/agent-os/conversations/conversation-1/turns/%20/input').send(input),
-      () => request(server.getHttpServer()).post(`/api/agent-os/conversations/${invalid}/turns/turn-1/interrupt`),
-      () => request(server.getHttpServer()).post('/api/agent-os/conversations/conversation-1/turns/%20/interrupt'),
     ];
 
     for (const route of routes) await route().expect(400);
 
     expect(conversations.rename).not.toHaveBeenCalled();
     expect(conversations.delete).not.toHaveBeenCalled();
-    expect(conversations.start).not.toHaveBeenCalled();
-    expect(conversations.input).not.toHaveBeenCalled();
-    expect(conversations.interrupt).not.toHaveBeenCalled();
   });
 
   it('exposes exact authenticated create and preference routes with strict browser payloads', async () => {
@@ -225,11 +164,7 @@ describe('ConversationController', () => {
           updatedAt: '2026-08-26T00:00:00.000Z',
         };
       }),
-      rename: vi.fn(),
       delete: vi.fn().mockResolvedValue(undefined),
-      start: vi.fn(),
-      input: vi.fn(),
-      interrupt: vi.fn(),
       preferences: vi.fn().mockResolvedValue(PREFERENCES),
       setPreference: vi.fn(async (input: { model: string; reasoningEffort: string }) => {
         if (input.model !== 'gpt-5.6' || input.reasoningEffort !== 'low') {
@@ -331,9 +266,6 @@ describe('ConversationController', () => {
         .mockRejectedValueOnce(new Error('provider thread private-reference-123 failed')),
       rename: vi.fn(),
       delete: vi.fn().mockRejectedValue(new AgentOsRuntimeError('conversation_turn_live')),
-      start: vi.fn(),
-      input: vi.fn(),
-      interrupt: vi.fn(),
       preferences: vi.fn(),
       setPreference: vi.fn(),
     };
@@ -353,7 +285,7 @@ describe('ConversationController', () => {
   it('does not expose provider history through the public conversation controller', async () => {
     const conversations = {
       list: vi.fn(), create: vi.fn(), rename: vi.fn(), delete: vi.fn(),
-      start: vi.fn(), input: vi.fn(), interrupt: vi.fn(),
+      stop: vi.fn(),
     };
     const server = await interactionApp(conversations);
 

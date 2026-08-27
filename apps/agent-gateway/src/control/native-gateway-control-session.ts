@@ -17,6 +17,7 @@ export class NativeGatewayControlSession {
   private runTask: Promise<never> | null = null;
   private shutdownTask: Promise<void> | null = null;
   private stopped = false;
+  private controlFailure: Error | null = null;
   private resolveStop!: () => void;
   private readonly stopSignal = new Promise<void>((resolve) => { this.resolveStop = resolve; });
 
@@ -28,7 +29,9 @@ export class NativeGatewayControlSession {
     onApiRuntimeRegistered?: () => void | Promise<void>;
     onPollLoss: () => void | Promise<void>;
     sleep?: (milliseconds: number) => Promise<void>;
-  }>) {}
+  }>) {
+    this.options.outbox.onFailure((error) => this.failClosed(error));
+  }
 
   run(): Promise<never> {
     if (!this.runTask) this.runTask = this.loop();
@@ -41,8 +44,11 @@ export class NativeGatewayControlSession {
     this.resolveStop();
     this.shutdownTask = (async () => {
       this.options.client.abortInFlight();
-      await this.options.onPollLoss();
-      this.options.dispatcher.clear();
+      try {
+        await this.options.onPollLoss();
+      } finally {
+        this.options.dispatcher.clear();
+      }
     })();
     return this.shutdownTask;
   }
@@ -52,6 +58,7 @@ export class NativeGatewayControlSession {
     let registrationRecoveryAttempted = false;
     try {
       for (;;) {
+        if (this.controlFailure) throw this.controlFailure;
         if (this.stopped) throw new GatewayControlStoppedError();
         if (controlSessionClaimed && this.options.outbox.hasPending()) {
           try {
@@ -67,8 +74,10 @@ export class NativeGatewayControlSession {
               controlSessionClaimed = false;
               continue;
             }
-            if (isTerminalControlError(error)) throw error;
-            await this.raceStop(this.sleep(100));
+            // An outbox body is retried only after the exact API-restart
+            // registration signal above. Any other post uncertainty ends this
+            // process-local control session rather than replaying an event.
+            throw error;
           }
           continue;
         }
@@ -103,12 +112,24 @@ export class NativeGatewayControlSession {
   }
 
   private async raceStop<T>(work: Promise<T>): Promise<T> {
+    if (this.controlFailure) throw this.controlFailure;
+    if (this.stopped) throw new GatewayControlStoppedError();
     const result = await Promise.race([
       work.then((value) => ({ kind: 'work' as const, value })),
       this.stopSignal.then(() => ({ kind: 'stop' as const })),
     ]);
-    if (result.kind === 'stop') throw new GatewayControlStoppedError();
+    if (result.kind === 'stop') {
+      if (this.controlFailure) throw this.controlFailure;
+      throw new GatewayControlStoppedError();
+    }
     return result.value;
+  }
+
+  /** An outbox terminal/lifecycle loss is indistinguishable from control loss. */
+  private failClosed(error: Error): void {
+    if (this.stopped || this.controlFailure) return;
+    this.controlFailure = error;
+    this.resolveStop();
   }
 }
 

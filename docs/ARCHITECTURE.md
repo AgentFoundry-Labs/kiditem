@@ -23,7 +23,7 @@ apps/server
 
 Native host apps/agent-gateway (macOS development, Windows Office)
   -> HTTP command long-poll + bounded event POST -> Nest private route
-  -> provider conversation/history + Codex/Claude process supervision
+  -> deep native provider runtime -> Codex/Claude login, readiness, conversations, process trees
   -> Codex/Claude MCP v2 Streamable HTTP -> Nest loopback
 
 Company Chrome extension
@@ -264,17 +264,20 @@ their implementation structures are listed in the Backend Implementation Map.
 |---|---|---|
 | `apps/agent-gateway/src/__tests__` | Test Support | Cross-component native Gateway contracts. |
 | `apps/agent-gateway/src/config` | Platform Support | Strict absolute-path Gateway config and installation-token reader. |
-| `apps/agent-gateway/src/control` | Platform | Outbound long-poll, bounded event outbox, command dispatch, and control-loss shutdown. |
+| `apps/agent-gateway/src/control` | Platform | Outbound long-poll, bounded event outbox, command dispatch, internal four-slot active-turn registry, and control-loss shutdown. |
 | `apps/agent-gateway/src/conversation` | Platform | Bounded conversation descriptors and provider conversation routing. |
 | `apps/agent-gateway/src/platform` | Platform Support | macOS and Windows process supervision. |
 | `apps/agent-gateway/src/profile` | Platform | Five Agent instruction profiles plus general chat. |
-| `apps/agent-gateway/src/provider` | Platform | Codex app-server and Claude CLI conversation/history adapters. |
+| `apps/agent-gateway/src/provider` | Platform | One deep native-provider-runtime Interface owns exact train/login/startup/readiness/close assembly; the shared `ProviderConversationPort` seam and provider-command rules remain here while provider-specific Implementations stay local to `codex/` and `claude/`. |
+| `apps/agent-gateway/src/provider/codex` | Platform | Codex app-server Implementation and adjacent specs. |
+| `apps/agent-gateway/src/provider/claude` | Platform | Claude CLI Implementation and adjacent specs. |
 | `apps/agent-gateway/src/security` | Platform Support | Provider environment and local-path redaction/validation. |
-| `apps/agent-gateway/src/turn` | Platform | Four-slot process-local active-turn registry. |
 | `apps/server/src/__tests__` | Test Support | Cross-root static architecture and process-composition policy checks. |
 | `apps/server/src/activity-events` | Owner Capability | Activity event read endpoint. |
 | `apps/server/src/advertising` | Owner Domain | Coupang ad operations, scrape ingest, authoritative exact-day profitability spend refresh/read evidence, daily facts, and strategy/action generation. |
-| `apps/server/src/agent-os` | Platform | Agent/profile registry, transient Gateway control, conversation facade, stateless MCP, and durable capability admission. |
+| `apps/server/src/agent-os` | Platform | Agent/profile registry, transient Gateway control, conversation facade, stateless MCP, durable capability admission, and completed-event history composition. |
+| `apps/server/src/agent-os/application/port/out/history` | Platform | Completed-event history Interface at the outgoing history seam. |
+| `apps/server/src/agent-os/adapter/out/history/sqlite` | Platform | Outbound SQLite Adapter for the completed-event history Interface, with its Implementation and OSS characterization specs. |
 | `apps/server/src/ai` | Owner Domain | Image/text/detail-page/thumbnail AI providers, durable direct-job execution, content-workspace ownership/branching, and Agent OS output boundaries. |
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
@@ -308,7 +311,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/activity-events` | Flat | module/controller/service/`dto/`. |
 | `apps/server/src/advertising` | Hexagonal | port/adapter lanes complete; new ingest, daily-fact, and ad-action behavior uses `adapter/out/repository/` + `application/port/out/*` ports; architecture spec freezes invariants. |
 | `apps/server/src/advertising/services` | Flat | compatibility facade lane only; no new business logic. |
-| `apps/server/src/agent-os` | Hexagonal | Capability admission, transient Gateway control/conversation, MCP, repository, and owner composition boundaries behind ports/adapters. The two cross-cutting contracts `application/port/out/capability-invocation.repository.port.ts` and `application/port/out/gateway-conversation.port.ts` are exact direct-port exceptions fixed by the approved KID-25 plan; every new outgoing port still requires an explicit lane directory. |
+| `apps/server/src/agent-os` | Hexagonal | Capability admission, transient Gateway control/conversation, MCP, repository, completed-event-history Interface at `application/port/out/history/`, outbound SQLite Adapter at `adapter/out/history/sqlite/`, and owner composition behind ports/adapters. The two cross-cutting contracts `application/port/out/capability-invocation.repository.port.ts` and `application/port/out/gateway-conversation.port.ts` are exact direct-port exceptions fixed by the approved KID-25 plan; every new outgoing port still requires an explicit lane directory. |
 | `apps/server/src/ai` | Hexagonal | provider, runtime handler, bridge, sink, media, fetch, and storage boundaries behind ports/adapters. |
 | `apps/server/src/analytics/dashboard` | Hexagonal | port/adapter lanes complete; 8 outgoing ports + repository adapters cover Prisma reads, application services are Prisma-free, architecture + module wiring specs freeze invariants. |
 | `apps/server/src/analytics/statistics` | Flat | Overview, product, category, grade, Pareto, and repurchase read service. |
@@ -420,9 +423,8 @@ translates a policy-approved invocation into an owning-domain input port. It
 does not own the business use case or durable lifecycle. An Operation handler
 is another incoming adapter and calls the same owner input port when work needs
 lease/checkpoint/retry/cancel semantics. Operations handlers never call the
-Agent capability registry. The AgentOS-owned session-task Operation is narrow:
-it calls only AgentOS's task-execution input port, which may later invoke
-policy-approved Agent capability adapters as part of the official execution.
+Agent capability registry. Agent OS has no generic session-task Operation,
+Task/Attempt recovery loop, or durable provider transcript.
 
 Outgoing ports use these lane folders when the lane exists:
 
@@ -625,12 +627,22 @@ only the duplicate chat body while preserving the live runtime.
 
 `RightAuxiliaryPanel` is the only right-side surface. Its mutually exclusive
 `notifications | ai_chat | null` state renders `NotificationPanelContent` or
-`ConversationPanel`; there is no `PanelSheet` shell or panel-open store.
+`ConversationPanel`; there is no `PanelSheet` shell or panel-open store. At
+1536 pixels and above (`2xl`) it is a 352-pixel push dock that reduces the
+work-surface width; from 768 through 1535 pixels it is the same 352-pixel
+overlay, and below 768 pixels it is a full-width modal drawer. Agent OS uses
+the same route-stable runtime plus shared conversation-flow, composer,
+empty-state, and business-evidence presentation primitives in its history
+workspace; it does not mount a second chat runtime. Dashboard and Agent OS use
+the same 256-pixel expanded / 64-pixel collapsed sidebar shell and desktop
+preference while retaining different navigation bodies.
 
 The native Gateway serializes conversation descriptors and preferences in its
-local state, owns provider history, and deletes the exact provider conversation
-before removing its descriptor. Nest exposes the authenticated facade only;
-PostgreSQL has no conversation or preference model.
+local state, owns provider-native session continuity, and deletes the exact
+provider conversation before removing its descriptor. The API-local CopilotKit
+OSS SQLite runner owns canonical completed AG-UI event history. Nest exposes
+the authenticated facade only; PostgreSQL has no conversation, preference,
+transcript, or provider-session model.
 
 ## Durable Direct AI Media Execution
 
@@ -1028,40 +1040,71 @@ Agent OS is the single-node backend execution boundary under
 Its only persistence model is `CapabilityInvocation`, which stores exact
 request-driven mutation admission, approval fields, and the idempotent
 result/error. Agent definitions and capability manifests are code-owned.
-Provider conversations/history are host-local, and long work remains an
-Operations-owned `OperationRun`.
+Provider-native conversation/session continuity is host-local, completed UI
+event history is API-local SQLite, and long work remains an Operations-owned
+`OperationRun`.
+
+Completed canonical AG-UI event history has one outbound SQLite Adapter at
+`apps/server/src/agent-os/adapter/out/history/sqlite/`, behind the unchanged
+Interface at `application/port/out/history/`. Its `ConversationSqliteEventHistory`
+Implementation is not part of the incoming CopilotKit transport seam. It uses
+the attributed package-level fork of `@copilotkit/sqlite-runner@1.69.0`; the
+delta is limited to process-local active-run serialization, exact-run stop
+semantics, and exact completed-thread deletion. Upstream AG-UI compaction,
+replay, and connection behavior remain intact. No CopilotKit cloud service or
+PostgreSQL conversation/preferences model is used.
 
 The browser reaches the Nest CopilotKit incoming adapter at same-origin
 `/api/copilotkit`. The API authorizes the current user and sends only structured
 conversation commands to the native Agent Gateway. The Gateway is the only
-process that starts Codex/Claude and owns provider conversation descriptors and
-history. Each live turn reaches the Nest MCP adapter through private Streamable
-HTTP. The worker executes durable Operations but never receives a CLI login
-profile or imports the HTTP adapter. A restart ends the live turn without
-replay; a later normal user message starts new reasoning against provider-local
-history.
+process that starts Codex/Claude and owns provider-native sessions plus bounded
+conversation descriptors. Each live turn reaches the Nest MCP adapter through
+private Streamable HTTP. The worker executes durable Operations but never
+receives a CLI login profile or imports the HTTP adapter. A restart ends the
+live turn without replay; a later normal user message starts new reasoning
+against the provider-native session continuity.
 
 The runtime keeps only the boundaries that own live correctness:
 
+- the CopilotKit OSS runner and its authenticated SQLite Adapter own canonical
+  completed AG-UI event recording/replay plus run, stream, and connect
+  transport. They do not project provider-local history or persist a live lock;
+  `isRunning` and `stop` delegate to Nest's exact in-memory active-turn record;
 - one API-side Gateway control session owns command delivery, event fencing,
   readiness, one process-scoped MCP transport registration, and exact
   per-Conversation active-turn activation/deactivation;
 - one native Gateway control session owns polling, command dispatch, bounded
-  event retry, control-loss shutdown, and provider process trees;
-- one authenticated conversation facade owner-fences create/list/history/
-  rename/delete and live turn input/interrupt without persisting transcripts;
+  event retry, its internal four-slot provider-turn registry, and control-loss
+  transition;
+- one deep native provider runtime Module owns exact package-train validation,
+  boolean-only login probes, Codex/Claude startup, readiness projection, and
+  idempotent complete provider-tree shutdown behind the existing provider map;
+- one authenticated conversation facade derives the organization from Nest
+  authentication; Gateway descriptors persist that organization and fence
+  create/list/rename/delete/turn start/input/interrupt without exposing it to
+  browser DTOs or provider metadata;
 - one request-driven CapabilityInvocation repository owns request-key
   uniqueness, input-drift conflict, exact approval, and result replay.
 
 The installation bearer authenticates protected Gateway polling and event
 delivery. The distinct process-scoped MCP token authenticates only the private
 MCP transport. Nest derives organization, user, turn, and fresh execution ID
-from its in-memory active-turn map; `conversationId` is only a lookup key. At
+from its in-memory active-turn map; `conversationId` is only a lookup key.
+Descriptor organization is a Conversation access fence shared by users in the
+same organization, not MCP business authority. Provider terminal, process, and
+Gateway-registration lifecycle messages carry no organization. At
 most one turn is active per Conversation. An exact terminal event removes only
 its matching record, so a stale terminal cannot clear a newer turn. Idle MCP
 discovery may remain connected, but business tool calls fail closed when no
 turn is active. There is no turn bearer rotation, binding TTL, durable runtime
 session, unsubscribe barrier, cold resume, or automatic model recovery.
+
+Web keeps one route-stable CopilotKit presentation adapter for the selected
+Conversation. It does not independently own active-turn admission, interrupt
+acknowledgement, stale settlement, or provider-history reconciliation. Its
+completed-event replay and connection mechanics come from CopilotKit; Nest's
+active-turn map remains the only run/stop authority and the Gateway remains the
+provider process/session owner.
 
 Owner domains pair their own `CapabilityDefinition`, incoming port, and
 implementation in owner-local composition adapters. Agent OS only aggregates

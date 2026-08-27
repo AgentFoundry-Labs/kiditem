@@ -11,16 +11,17 @@ import {
   ActiveTurnAlreadyLiveError,
   ActiveTurnCapacityError,
   ActiveTurnRegistry,
-} from '../turn/active-turn.registry';
+} from './internal/active-turn.registry';
 import { GatewayEventOutbox } from './gateway-event-outbox';
 
 type ConversationGatewayPort = Readonly<{
-  list: (runtime?: 'codex_cli' | 'claude_cli') => Promise<unknown[]>;
-  create: (input: { conversationId: string; runtime: 'codex_cli' | 'claude_cli'; agentKey: string | null; title: string }) => Promise<unknown>;
-  history: (conversationId: string) => Promise<unknown[]>;
-  rename: (conversationId: string, title: string) => Promise<unknown>;
-  delete: (conversationId: string) => Promise<void>;
+  list: (organizationId: string, runtime?: 'codex_cli' | 'claude_cli') => Promise<unknown[]>;
+  create: (input: { organizationId: string; conversationId: string; runtime: 'codex_cli' | 'claude_cli'; agentKey: string | null; title: string }) => Promise<unknown>;
+  assertAccessible: (input: { organizationId: string; conversationId: string }) => Promise<void>;
+  rename: (input: { organizationId: string; conversationId: string; title: string }) => Promise<unknown>;
+  delete: (input: { organizationId: string; conversationId: string }) => Promise<void>;
   startTurn: (input: {
+    organizationId: string;
     conversationId: string;
     turnId: string;
     message: string;
@@ -28,8 +29,8 @@ type ConversationGatewayPort = Readonly<{
     reasoningEffort: string;
     onEvent: (event: ProviderEvent) => void;
   }) => Promise<void>;
-  sendInput: (input: { conversationId: string; turnId: string; message: string }) => Promise<void>;
-  interrupt: (input: { conversationId: string; turnId: string }) => Promise<void>;
+  /** Lifecycle restart cleanup deliberately has no request organization. */
+  interrupt: (input: { organizationId?: string; conversationId: string; turnId: string }) => Promise<void>;
 }>;
 
 type ConversationPreferencePort = Readonly<{
@@ -38,19 +39,40 @@ type ConversationPreferencePort = Readonly<{
 }>;
 
 const MAX_COMMAND_TOMBSTONES = 1_024;
+const API_RUNTIME_TERMINAL_DEADLINE_MS = 10_000;
+
+interface ApiRuntimeTerminalWait {
+  readonly pending: Set<string>;
+  readonly resolve: () => void;
+  readonly timer: ReturnType<typeof setTimeout>;
+}
+
+export class GatewayApiRuntimeTerminalTimeoutError extends Error {
+  constructor() {
+    super('gateway_api_runtime_terminal_timeout');
+    this.name = 'GatewayApiRuntimeTerminalTimeoutError';
+  }
+}
 
 /** Applies each process-local Gateway command at most once. No durable queue exists. */
 export class GatewayCommandDispatcher {
   private readonly applied = new Map<string, string>();
   private readonly active: ActiveTurnRegistry;
+  private readonly apiRuntimeTerminalDeadlineMs: number;
+  private apiRuntimeTerminalWait: ApiRuntimeTerminalWait | null = null;
 
   constructor(private readonly options: Readonly<{
     gateway: ConversationGatewayPort;
     outbox: GatewayEventOutbox;
     preferences: ConversationPreferencePort;
     activeTurns?: ActiveTurnRegistry;
+    terminalDeadlineMs?: number;
   }>) {
     this.active = options.activeTurns ?? new ActiveTurnRegistry();
+    this.apiRuntimeTerminalDeadlineMs = options.terminalDeadlineMs ?? API_RUNTIME_TERMINAL_DEADLINE_MS;
+    if (!Number.isSafeInteger(this.apiRuntimeTerminalDeadlineMs) || this.apiRuntimeTerminalDeadlineMs < 1) {
+      throw new Error('gateway_api_runtime_terminal_deadline_invalid');
+    }
   }
 
   async dispatch(input: GatewayCommand): Promise<void> {
@@ -68,37 +90,49 @@ export class GatewayCommandDispatcher {
       this.options.outbox.enqueue({ kind: 'command.ack', commandId: command.commandId });
     } catch (error) {
       this.remember(command.commandId, digest);
-      this.reject(command.commandId, rejectionCode(error));
+      const code = rejectionCode(error);
+      this.reject(command.commandId, code);
     }
   }
 
   /** Poll session loss/close releases all active local slots. Provider sinks may
    * subsequently repeat terminal events; registry release remains idempotent. */
   clear(): void {
+    this.cancelApiRuntimeTerminalWait();
     this.active.clear();
     this.applied.clear();
   }
 
   /**
    * An API restart loses its active-turn authority. Stop every currently live
-   * provider turn before releasing Gateway-local fences; successful reset does
-   * not delete or recreate the provider conversation.
+   * provider turn, retaining Gateway-local fences until each provider emits
+   * its exact terminal. This never deletes or recreates a provider conversation.
    */
   async resetAfterApiRuntimeRegistration(): Promise<void> {
     const liveTurns = this.active.snapshot();
-    await Promise.all(liveTurns.map((turn) => this.options.gateway.interrupt(turn)));
-    this.clear();
+    if (!liveTurns.length) return;
+    const terminals = this.waitForApiRuntimeTerminals(liveTurns);
+    try {
+      await Promise.all([
+        Promise.all(liveTurns.map((turn) => this.options.gateway.interrupt(turn))),
+        terminals,
+      ]);
+    } catch (error) {
+      this.cancelApiRuntimeTerminalWait();
+      throw error;
+    }
   }
 
   private async apply(command: GatewayCommand): Promise<void> {
     switch (command.kind) {
       case 'conversation.list': {
-        const conversations = await this.options.gateway.list(command.runtime);
+        const conversations = await this.options.gateway.list(command.organizationId, command.runtime);
         this.options.outbox.enqueue({ kind: 'conversation.listed', commandId: command.commandId, conversations });
         return;
       }
       case 'conversation.create': {
         const conversation = await this.options.gateway.create({
+          organizationId: command.organizationId,
           conversationId: command.conversationId,
           runtime: command.runtime,
           agentKey: command.agentKey,
@@ -107,19 +141,15 @@ export class GatewayCommandDispatcher {
         this.options.outbox.enqueue({ kind: 'conversation.created', commandId: command.commandId, conversation });
         return;
       }
-      case 'conversation.history': {
-        const messages = await this.options.gateway.history(command.conversationId);
-        this.options.outbox.enqueue({ kind: 'conversation.history', commandId: command.commandId, conversationId: command.conversationId, messages });
-        return;
-      }
       case 'conversation.rename': {
-        const conversation = await this.options.gateway.rename(command.conversationId, command.title);
+        const conversation = await this.options.gateway.rename({ organizationId: command.organizationId, conversationId: command.conversationId, title: command.title });
         this.options.outbox.enqueue({ kind: 'conversation.renamed', commandId: command.commandId, conversation });
         return;
       }
       case 'conversation.delete': {
+        await this.options.gateway.assertAccessible({ organizationId: command.organizationId, conversationId: command.conversationId });
         if (this.active.hasConversation(command.conversationId)) throw new ActiveTurnAlreadyLiveError();
-        await this.options.gateway.delete(command.conversationId);
+        await this.options.gateway.delete({ organizationId: command.organizationId, conversationId: command.conversationId });
         this.options.outbox.enqueue({ kind: 'conversation.deleted', commandId: command.commandId, conversationId: command.conversationId });
         return;
       }
@@ -139,23 +169,25 @@ export class GatewayCommandDispatcher {
         return;
       }
       case 'turn.start': return this.startTurn(command);
-      case 'turn.input': {
-        this.active.require(command);
-        await this.options.gateway.sendInput(command);
-        return;
-      }
       case 'turn.interrupt': {
+        await this.options.gateway.assertAccessible({ organizationId: command.organizationId, conversationId: command.conversationId });
         this.active.require(command);
-        await this.options.gateway.interrupt(command);
+        await this.options.gateway.interrupt({
+          organizationId: command.organizationId,
+          conversationId: command.conversationId,
+          turnId: command.turnId,
+        });
         return;
       }
     }
   }
 
   private async startTurn(command: Extract<GatewayCommand, { kind: 'turn.start' }>): Promise<void> {
+    await this.options.gateway.assertAccessible({ organizationId: command.organizationId, conversationId: command.conversationId });
     this.active.admit(command);
     try {
       await this.options.gateway.startTurn({
+        organizationId: command.organizationId,
         conversationId: command.conversationId,
         turnId: command.turnId,
         message: command.message,
@@ -183,8 +215,45 @@ export class GatewayCommandDispatcher {
   }
 
   private terminal(conversationId: string, turnId: string, status: 'completed' | 'failed' | 'interrupted' | 'disconnected'): void {
-    if (!this.active.release({ conversationId, turnId })) return;
+    // Nest may release its active-turn authority only after this exact
+    // terminal is safely retained. Backpressure is a control-session failure,
+    // not permission to drop the terminal and release this local fence.
     this.options.outbox.enqueue({ kind: 'turn.terminal', conversationId, turnId, status });
+    if (!this.active.release({ conversationId, turnId })) return;
+    this.completeApiRuntimeTerminal(conversationId, turnId);
+  }
+
+  private waitForApiRuntimeTerminals(liveTurns: readonly { conversationId: string; turnId: string }[]): Promise<void> {
+    if (this.apiRuntimeTerminalWait) return Promise.reject(new Error('gateway_api_runtime_reset_pending'));
+    const pending = new Set(liveTurns.map(turnKey));
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const wait = this.apiRuntimeTerminalWait;
+        if (!wait || wait.pending !== pending) return;
+        this.apiRuntimeTerminalWait = null;
+        reject(new GatewayApiRuntimeTerminalTimeoutError());
+      }, this.apiRuntimeTerminalDeadlineMs);
+      this.apiRuntimeTerminalWait = { pending, resolve, timer };
+    });
+  }
+
+  private completeApiRuntimeTerminal(conversationId: string, turnId: string): void {
+    const wait = this.apiRuntimeTerminalWait;
+    if (!wait) return;
+    wait.pending.delete(turnKey({ conversationId, turnId }));
+    if (wait.pending.size) return;
+    this.apiRuntimeTerminalWait = null;
+    clearTimeout(wait.timer);
+    wait.resolve();
+  }
+
+  /** Control-session shutdown has already proved the provider process is gone. */
+  private cancelApiRuntimeTerminalWait(): void {
+    const wait = this.apiRuntimeTerminalWait;
+    if (!wait) return;
+    this.apiRuntimeTerminalWait = null;
+    clearTimeout(wait.timer);
+    wait.resolve();
   }
 
   private remember(commandId: string, serialized: string): void {
@@ -192,7 +261,7 @@ export class GatewayCommandDispatcher {
     while (this.applied.size > MAX_COMMAND_TOMBSTONES) this.applied.delete(this.applied.keys().next().value as string);
   }
 
-  private reject(commandId: string, code: 'capacity' | 'invalid_state' | 'unsupported' | 'provider_error'): void {
+  private reject(commandId: string, code: 'capacity' | 'invalid_state' | 'not_found' | 'unsupported' | 'provider_error'): void {
     this.options.outbox.enqueue({ kind: 'command.rejected', commandId, code });
   }
 }
@@ -201,10 +270,15 @@ function commandDigest(command: GatewayCommand): string {
   return createHash('sha256').update(JSON.stringify(command)).digest('hex');
 }
 
-function rejectionCode(error: unknown): 'capacity' | 'invalid_state' | 'unsupported' | 'provider_error' {
+function rejectionCode(error: unknown): 'capacity' | 'invalid_state' | 'not_found' | 'unsupported' | 'provider_error' {
   if (error instanceof ActiveTurnCapacityError) return 'capacity';
   if (error instanceof ActiveTurnAlreadyLiveError) return 'invalid_state';
   if (error instanceof Error && error.message === 'gateway_conversation_create_conflict') return 'invalid_state';
+  if (error instanceof Error && error.message === 'gateway_conversation_not_found') return 'not_found';
   if (error instanceof Error && (error.message.includes('_unsupported') || error.message.includes('_invalid'))) return 'unsupported';
   return 'provider_error';
+}
+
+function turnKey(input: { conversationId: string; turnId: string }): string {
+  return `${input.conversationId}\u0000${input.turnId}`;
 }

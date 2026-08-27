@@ -22,7 +22,6 @@ import {
   ModelSchema,
   ProviderRuntimeSchema,
   ReasoningEffortSchema,
-  TurnIdSchema,
 } from '@kiditem/shared/agent-runtime';
 import { z } from 'zod';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
@@ -31,7 +30,6 @@ import type { AuthUser } from '../../../../../auth/auth.types';
 import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
 import {
   CONVERSATION_PORT,
-  ConversationTurnMessageSchema,
   type ConversationPort,
 } from '../../../../application/port/in/capability/conversation.port';
 
@@ -50,15 +48,6 @@ const SetConversationPreferenceSchema = z.object({
 const RenameConversationSchema = z.object({
   title: ConversationTitleSchema,
 }).strict();
-const StartTurnSchema = z.object({
-  message: ConversationTurnMessageSchema,
-  model: ModelSchema,
-  reasoningEffort: ReasoningEffortSchema,
-}).strict();
-const InputTurnSchema = z.object({
-  message: ConversationTurnMessageSchema,
-}).strict();
-
 /** Same-origin browser facade. It never accepts provider or execution coordinates. */
 @Controller('agent-os')
 export class ConversationController {
@@ -157,71 +146,6 @@ export class ConversationController {
     }
   }
 
-  @Post('conversations/:conversationId/turns')
-  async start(
-    @Param('conversationId') conversationId: string,
-    @Body() body: unknown,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    const command = parse(StartTurnSchema, body, 'Invalid conversation turn request.');
-    const parsedConversationId = parseId(ConversationIdSchema, conversationId, 'conversationId');
-    try {
-      const turn = await this.conversations.start({
-        ...owner(organizationId, user),
-        conversationId: parsedConversationId,
-        ...command,
-      });
-      return { turnId: turn.turnId };
-    } catch (error) {
-      rethrowConversationError(error);
-    }
-  }
-
-  @Post('conversations/:conversationId/turns/:turnId/input')
-  async input(
-    @Param('conversationId') conversationId: string,
-    @Param('turnId') turnId: string,
-    @Body() body: unknown,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    const command = parse(InputTurnSchema, body, 'Invalid conversation input request.');
-    const parsedConversationId = parseId(ConversationIdSchema, conversationId, 'conversationId');
-    const parsedTurnId = parseId(TurnIdSchema, turnId, 'turnId');
-    try {
-      await this.conversations.input({
-        ...owner(organizationId, user),
-        conversationId: parsedConversationId,
-        turnId: parsedTurnId,
-        message: command.message,
-      });
-      return undefined;
-    } catch (error) {
-      rethrowConversationError(error);
-    }
-  }
-
-  @Post('conversations/:conversationId/turns/:turnId/interrupt')
-  async interrupt(
-    @Param('conversationId') conversationId: string,
-    @Param('turnId') turnId: string,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    const parsedConversationId = parseId(ConversationIdSchema, conversationId, 'conversationId');
-    const parsedTurnId = parseId(TurnIdSchema, turnId, 'turnId');
-    try {
-      await this.conversations.interrupt({
-        ...owner(organizationId, user),
-        conversationId: parsedConversationId,
-        turnId: parsedTurnId,
-      });
-      return undefined;
-    } catch (error) {
-      rethrowConversationError(error);
-    }
-  }
 }
 
 function owner(organizationId: string, user: AuthUser) {

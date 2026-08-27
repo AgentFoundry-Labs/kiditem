@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 describe('Gateway conversation contract', () => {
-  it('exposes only opaque public conversation data and bounded provider history', async () => {
-    const { ConversationSummarySchema, ProviderMessageSchema } = await import('./conversation');
+  it('exposes only opaque public conversation data, never a provider transcript contract', async () => {
+    const contract = await import('./conversation');
+    const { ConversationSummarySchema } = contract;
 
     expect(ConversationSummarySchema.parse({
       id: 'conversation-1',
@@ -15,12 +16,7 @@ describe('Gateway conversation contract', () => {
       lastReasoningEffort: 'medium',
     })).not.toHaveProperty('providerConversationRef');
 
-    expect(ProviderMessageSchema.parse({
-      id: 'message-1',
-      role: 'assistant',
-      content: 'I found two matching products.',
-      createdAt: '2026-08-23T00:01:00.000Z',
-    })).toMatchObject({ role: 'assistant' });
+    expect(contract).not.toHaveProperty('ProviderMessageSchema');
   });
 
   it('requires the browser-reserved ID and every public create field', async () => {

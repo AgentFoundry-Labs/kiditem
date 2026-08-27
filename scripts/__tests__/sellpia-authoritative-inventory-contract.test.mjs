@@ -87,6 +87,7 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/supply/__tests__/rocket-purchase-confirmation.pg.integration.spec.ts",
   "scripts/data-migrations/v0.1.30/004_canonical_master_inventory_identity.ts",
   "scripts/__tests__/sellpia-authoritative-inventory-contract.test.mjs",
+  "scripts/seed-agent-os-browser-qa.ts",
 ]);
 
 function currentStockWriteViolations(source) {

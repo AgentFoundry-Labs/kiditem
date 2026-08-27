@@ -81,7 +81,7 @@ function SettingsOverPanelHarness({
         }}
         conversations={[]}
         activeConversationId={null}
-        activeTurnId={null}
+        isRunning={false}
         preferences={{ schemaVersion: 1, contexts: {} }}
         preferencesLoading={false}
         preferencesError={false}
@@ -102,7 +102,7 @@ afterEach(() => {
 });
 
 describe('RightAuxiliaryPanel', () => {
-  it('uses one fixed 420px non-modal desktop surface without an overlay or page reflow', async () => {
+  it('uses one fixed 352px non-modal desktop surface without an overlay or page reflow', async () => {
     mockViewport(false);
     const closeMock = vi.fn();
     const ref = launcherRef();
@@ -116,7 +116,7 @@ describe('RightAuxiliaryPanel', () => {
     );
 
     const panel = screen.getByTestId('right-auxiliary-panel');
-    expect(panel).toHaveClass('fixed', 'right-0', 'w-[420px]');
+    expect(panel).toHaveClass('fixed', 'right-0', 'w-[352px]');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.queryByTestId('right-auxiliary-overlay')).not.toBeInTheDocument();
     expect(document.querySelector('[data-right-auxiliary-page-reflow]')).toBeNull();
@@ -235,14 +235,22 @@ describe('RightAuxiliaryPanel', () => {
     await waitFor(() => expect(quickActionTrigger).toHaveFocus());
   });
 
-  it('does not use ResizeObserver or a remaining-page-width calculation', () => {
+  it('does not use measured or persisted dock state', () => {
     const source = readFileSync(
       resolve(process.cwd(), 'src/components/layout/RightAuxiliaryPanel.tsx'),
+      'utf8',
+    );
+    const appLayoutSource = readFileSync(
+      resolve(process.cwd(), 'src/components/layout/AppLayout.tsx'),
       'utf8',
     );
 
     expect(source).not.toContain('ResizeObserver');
     expect(source).not.toContain('remainingWidth');
-    expect(source).not.toContain('dock');
+    expect(source).not.toMatch(/dock(?:Mode|State)?/i);
+    expect(appLayoutSource).not.toContain('ResizeObserver');
+    expect(appLayoutSource).not.toContain('remainingWidth');
+    expect(appLayoutSource).not.toMatch(/dock(?:Mode|State)?/i);
+    expect(appLayoutSource).not.toMatch(/localStorage|sessionStorage/);
   });
 });

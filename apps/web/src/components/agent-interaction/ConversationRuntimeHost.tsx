@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useAgent } from '@copilotkit/react-core/v2';
+import { useAgent, useCopilotKit } from '@copilotkit/react-core/v2';
 import {
   createContext,
   useCallback,
@@ -26,7 +26,6 @@ import {
   loadConversationReadiness,
   renameConversation,
   setConversationPreference,
-  type ConversationMessage,
   type ConversationPreferences,
   type ConversationRuntime,
   type ConversationSummary,
@@ -35,8 +34,11 @@ import {
 } from './conversation-api';
 import { useConversationSurfaceState, type NewConversationDraft } from './conversation-surface-state';
 
-export type LiveMessage = Pick<ConversationMessage, 'id' | 'role' | 'content'>;
-export type ToolProjection = { id: string; title: string; detail?: string };
+export type LiveMessage = {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+};
 
 type TurnInput = { message: string; model: string; reasoningEffort: string };
 type DraftPatch = Partial<Omit<NewConversationDraft, 'conversationId'>>;
@@ -48,10 +50,9 @@ export interface ConversationRuntimeContextValue {
   activeConversation: ConversationSummary | null; draft: NewConversationDraft | null;
   conversationId: string | null; runtime: ConversationRuntime | null; isDraft: boolean;
   turnPreference: TurnPreferenceSelection;
-  messages: LiveMessage[]; toolProjections: ToolProjection[];
-  activeTurnId: string | null; turnEnded: string | null;
+  messages: LiveMessage[];
+  isRunning: boolean; turnEnded: string | null;
   start(input: TurnInput): Promise<void>;
-  sendInput(message: string): Promise<void>;
   interrupt(): Promise<void>;
   retryReadiness(): void;
   updateDraft(patch: DraftPatch): void;
@@ -109,6 +110,7 @@ export function ConversationRuntimeHost({
   const pendingDraft = useConversationSurfaceState((state) => state.pendingDraft);
   const updateDraft = useConversationSurfaceState((state) => state.updateDraft);
   const settingsOpen = useConversationSurfaceState((state) => state.settingsOpen);
+  const closeSettings = useConversationSurfaceState((state) => state.closeSettings);
   const conversationsQuery = useQuery({
     queryKey: queryKeys.conversations.list(identity),
     queryFn: listConversations,
@@ -235,6 +237,18 @@ export function ConversationRuntimeHost({
     }
     previousDraftIdRef.current = currentDraftId;
   }, [pendingDraft?.conversationId]);
+  const [settingsRun, setSettingsRun] = useState<{ conversationId: string | null; isRunning: boolean }>({
+    conversationId: null,
+    isRunning: false,
+  });
+  const reportSettingsRun = useCallback((conversationId: string, isRunning: boolean) => {
+    setSettingsRun((current) => (
+      current.conversationId === conversationId && current.isRunning === isRunning
+        ? current
+        : { conversationId, isRunning }
+    ));
+  }, []);
+  const settingsIsRunning = settingsRun.conversationId === activeConversation?.id && settingsRun.isRunning;
 
   const inactiveValue = inactiveRuntimeValue({
     conversations,
@@ -251,39 +265,53 @@ export function ConversationRuntimeHost({
     renameConversation: (conversationId, title) => renameConversationMutation.mutateAsync({ conversationId, title }),
     deleteConversation: deleteConversationMutation.mutateAsync,
   });
-  if (!binding) {
-    return (
-      <ConversationRuntimeContext.Provider value={inactiveValue}>
-        {children}
-        <ConversationSettingsMount />
-      </ConversationRuntimeContext.Provider>
-    );
-  }
-
   return (
-    <ActiveConversationRuntime
-      key={JSON.stringify([identity.userId, identity.organizationId, conversationIdForBinding(binding)])}
-      identity={identity}
-      binding={binding}
-      retainedDraft={activeDraft}
-      conversations={conversations}
-      conversationsLoading={conversationsQuery.isLoading}
-      conversationsError={conversationsQuery.isError}
-      readiness={readiness}
-      preferences={preferences}
-      preferencesLoading={preferencesQuery.isLoading}
-      preferencesError={preferencesQuery.isError}
-      turnPreference={turnPreference}
-      retryReadiness={() => { void readinessQuery.refetch(); }}
-      coordinator={coordinatorRef.current!}
-      runtimeHandleRef={runtimeHandleRef}
-      updateDraft={updateDraft}
-      setPreference={setPreferenceMutation.mutateAsync}
-      renameConversation={(conversationId, title) => renameConversationMutation.mutateAsync({ conversationId, title })}
-      deleteConversation={deleteConversationMutation.mutateAsync}
-    >
-      {children}
-    </ActiveConversationRuntime>
+    <>
+      {binding ? (
+        <ActiveConversationRuntime
+          key={JSON.stringify([identity.userId, identity.organizationId, conversationIdForBinding(binding)])}
+          identity={identity}
+          binding={binding}
+          retainedDraft={activeDraft}
+          conversations={conversations}
+          conversationsLoading={conversationsQuery.isLoading}
+          conversationsError={conversationsQuery.isError}
+          readiness={readiness}
+          preferences={preferences}
+          preferencesLoading={preferencesQuery.isLoading}
+          preferencesError={preferencesQuery.isError}
+          turnPreference={turnPreference}
+          retryReadiness={() => { void readinessQuery.refetch(); }}
+          coordinator={coordinatorRef.current!}
+          runtimeHandleRef={runtimeHandleRef}
+          updateDraft={updateDraft}
+          setPreference={setPreferenceMutation.mutateAsync}
+          renameConversation={(conversationId, title) => renameConversationMutation.mutateAsync({ conversationId, title })}
+          deleteConversation={deleteConversationMutation.mutateAsync}
+          onRunningChange={reportSettingsRun}
+        >
+          {children}
+        </ActiveConversationRuntime>
+      ) : (
+        <ConversationRuntimeContext.Provider value={inactiveValue}>
+          {children}
+        </ConversationRuntimeContext.Provider>
+      )}
+      <ConversationSettingsMount
+        open={settingsOpen}
+        onClose={closeSettings}
+        conversations={conversations}
+        activeConversationId={activeConversation?.id ?? null}
+        isRunning={settingsIsRunning}
+        preferences={preferences}
+        preferencesLoading={preferencesQuery.isLoading}
+        preferencesError={preferencesQuery.isError}
+        readiness={readiness}
+        onSavePreference={setPreferenceMutation.mutateAsync}
+        onRenameConversation={(conversationId, title) => renameConversationMutation.mutateAsync({ conversationId, title })}
+        onDeleteConversation={deleteConversationMutation.mutateAsync}
+      />
+    </>
   );
 }
 
@@ -306,6 +334,7 @@ function ActiveConversationRuntime({
   setPreference,
   renameConversation,
   deleteConversation,
+  onRunningChange,
   children,
 }: {
   identity: ConversationIdentity;
@@ -326,6 +355,7 @@ function ActiveConversationRuntime({
   setPreference(input: SetConversationPreferenceCommand): Promise<ConversationPreferences>;
   renameConversation(conversationId: string, title: string): Promise<ConversationSummary>;
   deleteConversation(conversationId: string): Promise<void>;
+  onRunningChange(conversationId: string, isRunning: boolean): void;
   children: ReactNode;
 }) {
   const queryClient = useQueryClient();
@@ -333,14 +363,15 @@ function ActiveConversationRuntime({
   const activeConversation = binding.kind === 'existing' ? binding.conversation : null;
   const draft = binding.kind === 'draft' ? binding.draft : retainedDraft;
   const runtime = activeConversation?.runtime ?? draft?.provider ?? null;
+  const { copilotkit } = useCopilotKit();
   const { agent, isReady } = useAgent({
     agentId: `kiditem-conversation:${conversationId}`,
     runtimeAgentId: 'conversation',
     threadId: conversationId,
   });
   const [presentationRevision, setPresentationRevision] = useState(0);
-  const [toolProjections, setToolProjections] = useState<ToolProjection[]>([]);
   const [turnEnded, setTurnEnded] = useState<string | null>(null);
+  const connectionRef = useRef<{ agent: typeof agent; promise: Promise<void> } | null>(null);
   const refreshPresentation = useCallback(() => {
     setPresentationRevision((current) => current + 1);
   }, []);
@@ -348,16 +379,35 @@ function ActiveConversationRuntime({
     () => toPresentationMessages(agent.messages),
     [agent, presentationRevision],
   );
-  const activeTurnId = agent.isRunning ? conversationId : null;
+  const isRunning = agent.isRunning;
+  useEffect(() => {
+    onRunningChange(conversationId, isRunning);
+    return () => onRunningChange(conversationId, false);
+  }, [conversationId, isRunning, onRunningChange]);
   const refreshSummaries = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: queryKeys.conversations.list(identity),
       refetchType: 'active',
     });
   }, [identity, queryClient]);
+  const ensureConnected = useCallback((): Promise<void> => {
+    if (!isReady) return Promise.reject(new Error('conversation_runtime_not_ready'));
+    if (connectionRef.current?.agent === agent) return connectionRef.current.promise;
+    const connection: { agent: typeof agent; promise: Promise<void> } = {
+      agent,
+      promise: Promise.resolve(),
+    };
+    connection.promise = Promise.resolve(copilotkit.connectAgent({ agent }))
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        if (connectionRef.current === connection) connectionRef.current = null;
+        throw error;
+      });
+    connectionRef.current = connection;
+    return connection.promise;
+  }, [agent, copilotkit, isReady]);
 
   useEffect(() => {
-    setToolProjections([]);
     setTurnEnded(null);
     refreshPresentation();
   }, [conversationId, refreshPresentation]);
@@ -365,13 +415,6 @@ function ActiveConversationRuntime({
     if (!isReady) return;
     const subscription = agent.subscribe({
       onMessagesChanged: refreshPresentation,
-      onCustomEvent: ({ event }) => {
-        const projection = toolProjectionFromEvent(event.name, event.value);
-        if (!projection) return;
-        setToolProjections((current) => current.some((item) => item.id === projection.id)
-          ? current
-          : [...current, projection]);
-      },
       onRunInitialized: () => {
         setTurnEnded(null);
         refreshPresentation();
@@ -392,6 +435,12 @@ function ActiveConversationRuntime({
     });
     return subscription.unsubscribe;
   }, [agent, isReady, refreshPresentation, refreshSummaries]);
+  useEffect(() => {
+    if (binding.kind !== 'existing' || !isReady) return;
+    void ensureConnected().catch(() => {
+      setTurnEnded('Conversation history could not be connected. Try again.');
+    });
+  }, [binding.kind, ensureConnected, isReady]);
 
   const issueRun = useCallback(async (input: TurnInput) => {
     if (!input.model.trim()) throw new Error('conversation_model_required');
@@ -415,18 +464,20 @@ function ActiveConversationRuntime({
   }, [agent, isReady, refreshPresentation]);
   const startExisting = useCallback(async (input: TurnInput) => {
     if (binding.kind !== 'existing') throw new Error('conversation_draft_not_promoted');
+    await ensureConnected();
     await issueRun(input);
-  }, [binding.kind, issueRun]);
+  }, [binding.kind, ensureConnected, issueRun]);
   const handoffFirstSend = useCallback(async (input: ConversationFirstSend) => {
     if (input.conversationId !== conversationId) {
       throw new Error('conversation_runtime_binding_unavailable');
     }
+    await ensureConnected();
     await issueRun({
       message: input.message,
       model: input.model,
       reasoningEffort: input.reasoningEffort,
     });
-  }, [conversationId, issueRun]);
+  }, [conversationId, ensureConnected, issueRun]);
   const handoffRef = useRef(handoffFirstSend);
   handoffRef.current = handoffFirstSend;
   useEffect(() => {
@@ -466,9 +517,6 @@ function ActiveConversationRuntime({
     });
     useConversationSurfaceState.getState().completePromotedDraft(conversationId);
   }, [binding, conversationId, coordinator, isReady, startExisting, updateDraft]);
-  const sendInput = useCallback(async (_message: string) => {
-    throw new Error('conversation_turn_not_active');
-  }, []);
   const interrupt = useCallback(async () => {
     if (!agent.isRunning) return;
     agent.abortRun();
@@ -490,11 +538,9 @@ function ActiveConversationRuntime({
     isDraft: binding.kind === 'draft',
     turnPreference,
     messages,
-    toolProjections,
-    activeTurnId,
+    isRunning,
     turnEnded,
     start,
-    sendInput,
     interrupt,
     retryReadiness,
     updateDraft,
@@ -505,7 +551,6 @@ function ActiveConversationRuntime({
   return (
     <ConversationRuntimeContext.Provider value={value}>
       {children}
-      <ConversationSettingsMount />
     </ConversationRuntimeContext.Provider>
   );
 }
@@ -516,24 +561,47 @@ export function useConversationRuntime(): ConversationRuntimeContextValue {
   return value;
 }
 
-function ConversationSettingsMount() {
-  const runtime = useConversationRuntime();
-  const open = useConversationSurfaceState((state) => state.settingsOpen);
-  const closeSettings = useConversationSurfaceState((state) => state.closeSettings);
+function ConversationSettingsMount({
+  open,
+  onClose,
+  conversations,
+  activeConversationId,
+  isRunning,
+  preferences,
+  preferencesLoading,
+  preferencesError,
+  readiness,
+  onSavePreference,
+  onRenameConversation,
+  onDeleteConversation,
+}: {
+  open: boolean;
+  onClose(): void;
+  conversations: ConversationSummary[];
+  activeConversationId: string | null;
+  isRunning: boolean;
+  preferences: ConversationPreferences | null | undefined;
+  preferencesLoading: boolean;
+  preferencesError: boolean;
+  readiness: GatewayReadiness[] | null | undefined;
+  onSavePreference(input: SetConversationPreferenceCommand): Promise<ConversationPreferences>;
+  onRenameConversation(conversationId: string, title: string): Promise<ConversationSummary>;
+  onDeleteConversation(conversationId: string): Promise<void>;
+}) {
   return (
     <ConversationSettingsDialog
       open={open}
-      onClose={closeSettings}
-      conversations={runtime.conversations}
-      activeConversationId={runtime.activeConversation?.id ?? null}
-      activeTurnId={runtime.activeTurnId}
-      preferences={runtime.preferences}
-      preferencesLoading={runtime.preferencesLoading}
-      preferencesError={runtime.preferencesError}
-      readiness={runtime.readiness}
-      onSavePreference={runtime.setPreference}
-      onRenameConversation={runtime.renameConversation}
-      onDeleteConversation={runtime.deleteConversation}
+      onClose={onClose}
+      conversations={conversations}
+      activeConversationId={activeConversationId}
+      isRunning={isRunning}
+      preferences={preferences}
+      preferencesLoading={preferencesLoading}
+      preferencesError={preferencesError}
+      readiness={readiness}
+      onSavePreference={onSavePreference}
+      onRenameConversation={onRenameConversation}
+      onDeleteConversation={onDeleteConversation}
     />
   );
 }
@@ -584,11 +652,9 @@ function inactiveRuntimeValue({
     isDraft: false,
     turnPreference,
     messages: [],
-    toolProjections: [],
-    activeTurnId: null,
+    isRunning: false,
     turnEnded: null,
     start: noActiveConversation,
-    sendInput: noActiveConversation,
     interrupt: noActiveConversation,
     retryReadiness,
     updateDraft,
@@ -624,19 +690,8 @@ function toPresentationMessages(messages: readonly unknown[]): LiveMessage[] {
   });
 }
 
-function toolProjectionFromEvent(name: string, value: unknown): ToolProjection | null {
-  const payload = asRecord(value);
-  if (name !== 'kiditem.provider_tool_status' || !payload
-    || typeof payload.name !== 'string' || typeof payload.status !== 'string') return null;
-  return {
-    id: `tool-${payload.name}-${payload.status}`,
-    title: payload.name,
-    detail: `${payload.status}${typeof payload.detail === 'string' ? ` · ${payload.detail}` : ''}`,
-  };
-}
-
 function isConversationRole(value: unknown): value is LiveMessage['role'] {
-  return value === 'user' || value === 'assistant' || value === 'tool' || value === 'status';
+  return value === 'user' || value === 'assistant';
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

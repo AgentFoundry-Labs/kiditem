@@ -2,7 +2,6 @@ import type {
   ConversationPreferences,
   ConversationSummary,
   GatewayCommand,
-  ProviderMessage,
   SetConversationPreferenceCommand,
 } from '@kiditem/shared/agent-runtime';
 import type {
@@ -40,7 +39,11 @@ export class GatewayConversationAdapter implements GatewayConversationPort {
   ) {}
 
   list(input: GatewayConversationOwner): Promise<ConversationSummary[]> {
-    return this.dispatch(input, { kind: 'conversation.list', commandId: this.broker.nextCommandId() });
+    return this.dispatch(input, {
+      kind: 'conversation.list',
+      commandId: this.broker.nextCommandId(),
+      organizationId: input.organizationId,
+    });
   }
 
   create(input: GatewayConversationOwner & {
@@ -52,6 +55,7 @@ export class GatewayConversationAdapter implements GatewayConversationPort {
     return this.dispatch(input, {
       kind: 'conversation.create',
       commandId: this.broker.nextCommandId(),
+      organizationId: input.organizationId,
       conversationId: input.conversationId,
       runtime: input.runtime,
       agentKey: input.agentKey,
@@ -77,18 +81,11 @@ export class GatewayConversationAdapter implements GatewayConversationPort {
     });
   }
 
-  history(input: GatewayConversationCoordinates): Promise<ProviderMessage[]> {
-    return this.dispatch(input, {
-      kind: 'conversation.history',
-      commandId: this.broker.nextCommandId(),
-      conversationId: input.conversationId,
-    });
-  }
-
   rename(input: GatewayConversationCoordinates & { title: string }): Promise<ConversationSummary> {
     return this.dispatch(input, {
       kind: 'conversation.rename',
       commandId: this.broker.nextCommandId(),
+      organizationId: input.organizationId,
       conversationId: input.conversationId,
       title: input.title,
     });
@@ -98,6 +95,7 @@ export class GatewayConversationAdapter implements GatewayConversationPort {
     return this.dispatch(input, {
       kind: 'conversation.delete',
       commandId: this.broker.nextCommandId(),
+      organizationId: input.organizationId,
       conversationId: input.conversationId,
     });
   }
@@ -158,27 +156,14 @@ export class GatewayConversationAdapter implements GatewayConversationPort {
     };
   }
 
-  input(input: GatewayTurnCoordinates & { message: string }): Promise<void> {
-    return this.dispatch(input, {
-      kind: 'turn.input',
-      commandId: this.broker.nextCommandId(),
-      conversationId: input.conversationId,
-      turnId: input.turnId,
-      message: input.message,
-    });
-  }
-
   interrupt(input: GatewayTurnCoordinates): Promise<void> {
     return this.dispatch(input, {
       kind: 'turn.interrupt',
       commandId: this.broker.nextCommandId(),
+      organizationId: input.organizationId,
       conversationId: input.conversationId,
       turnId: input.turnId,
     });
-  }
-
-  disconnect(input: GatewayTurnCoordinates): void {
-    this.broker.terminal(input.conversationId, input.turnId, 'disconnected');
   }
 
   readiness() {
@@ -214,6 +199,9 @@ function gatewayError(error: unknown, commandKind: GatewayCommand['kind']): Agen
   const message = error instanceof Error ? error.message : '';
   if (message === 'gateway_broker_turn_start_input_conflict') {
     return new AgentOsRuntimeError('conversation_turn_live');
+  }
+  if (message === 'gateway_command_rejected_not_found') {
+    return new AgentOsRuntimeError('conversation_not_found');
   }
   if (message === 'gateway_command_rejected_invalid_state') {
     if (commandKind === 'conversation.create') return new AgentOsRuntimeError('conversation_create_conflict');

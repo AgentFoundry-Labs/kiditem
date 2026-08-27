@@ -32,9 +32,12 @@ the dedicated Agent Gateway account only to explicit task registration as an in-
   `kiditem-api` and `kiditem-web`.
 - `C:\ProgramData\Kiditem\.env.office` and the API env file referenced by
   `OFFICE_API_ENV_FILE` exist locally and remain outside Git.
-- External Docker volumes `kiditem_pgdata` and `kiditem_minio-data` exist and
-  have a recent backup on the NAS. The NAS is a backup target, not a live
-  Docker data root.
+- External Docker volumes `kiditem_pgdata`, `kiditem_minio-data`, and
+  `kiditem_copilotkit-event-history` exist and have a recent backup on the NAS.
+  The last volume is mounted only by the API at `/var/lib/kiditem/agent-os` for
+  completed CopilotKit AG-UI event history; it is not mounted by the worker and
+  is not live-turn authority. The NAS is a backup target, not a live Docker
+  data root.
 - The GitHub `office` Environment exists and restricts deployments to protected
   branches. Add required reviewers there when the office approval roster is
   defined.
@@ -354,8 +357,10 @@ requires full Windows/runtime/model/direct-MCP readiness before a user can start
 a provider turn.
 
 The Gateway installation bearer authenticates only outbound control requests.
-Per-turn MCP execution bindings are short-lived process-memory correlation
-values, grant no Agent/capability/delegation authority, and are never persisted.
+One non-persistent process-scoped MCP transport token authenticates provider
+MCP traffic across ordinary turns; it grants no Agent, capability, or
+delegation authority. Nest resolves business authority from the current
+active-turn record.
 Rotation uses the guarded deployment entrypoint and restarts the matching
 API/Gateway set before readiness is accepted:
 

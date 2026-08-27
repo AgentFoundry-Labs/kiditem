@@ -4,7 +4,6 @@ import type {
   ConversationSummary,
   GatewayProviderReadiness,
   ProviderEvent,
-  ProviderMessage,
   SetConversationPreferenceCommand,
 } from '@kiditem/shared/agent-runtime';
 
@@ -33,7 +32,6 @@ export interface GatewayConversationPort {
   create(input: GatewayConversationOwner & CreateConversationCommand): Promise<ConversationSummary>;
   preferences(owner: GatewayConversationOwner): Promise<ConversationPreferences>;
   setPreference(input: GatewayConversationOwner & SetConversationPreferenceCommand): Promise<ConversationPreferences>;
-  history(input: GatewayConversationCoordinates): Promise<ProviderMessage[]>;
   rename(input: GatewayConversationCoordinates & { title: string }): Promise<ConversationSummary>;
   delete(input: GatewayConversationCoordinates): Promise<void>;
   start(input: GatewayTurnCoordinates & {
@@ -41,10 +39,7 @@ export interface GatewayConversationPort {
     model: string;
     reasoningEffort: string;
   }): GatewayLiveTurn;
-  input(input: GatewayTurnCoordinates & { message: string }): Promise<void>;
   interrupt(input: GatewayTurnCoordinates): Promise<void>;
-  /** Closes a browser subscriber; it must never manufacture a replacement turn. */
-  disconnect(input: GatewayTurnCoordinates): void;
   readiness(): readonly GatewayProviderReadiness[] | null;
 }
 

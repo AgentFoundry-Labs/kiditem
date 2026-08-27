@@ -32,6 +32,7 @@ export class GatewayRuntimeTrainError extends Error {
 interface PendingPoll {
   readonly gatewayInstanceId: string;
   readonly resolve: (batch: GatewayCommandBatch) => void;
+  readonly reject: (error: Error) => void;
   readonly timer: ReturnType<typeof setTimeout>;
   readonly signal?: AbortSignal;
   readonly abort?: () => void;
@@ -71,7 +72,7 @@ export class GatewayCommandQueue {
     }
     const previousGatewayInstanceId = this.gatewayInstanceId;
     if (previousGatewayInstanceId !== null) {
-      this.clearTransientState();
+      this.clearTransientState(new GatewaySessionMismatchError());
       this.options.runtime.disconnect(previousGatewayInstanceId);
     }
     this.options.runtime.registerProcess({
@@ -92,21 +93,16 @@ export class GatewayCommandQueue {
     const longPollMs = this.options.longPollMs ?? GATEWAY_CONTROL_POLL_WAIT_MS;
     if (longPollMs <= 0 || signal?.aborted) return { commands: [] };
     if (this.pendingPoll) throw new GatewaySessionMismatchError();
-    return new Promise<GatewayCommandBatch>((resolve) => {
+    return new Promise<GatewayCommandBatch>((resolve, reject) => {
       const finish = (): void => {
-        const pending = this.pendingPoll;
-        if (!pending) return;
-        if (pending.signal && pending.abort) pending.signal.removeEventListener('abort', pending.abort);
-        clearTimeout(pending.timer);
-        this.pendingPoll = null;
-        resolve(this.currentBatch());
+        this.resolvePendingPoll();
       };
       const timer = setTimeout(finish, longPollMs);
       const abort = (): void => {
         this.disconnect(poll.gatewayInstanceId);
         finish();
       };
-      this.pendingPoll = { gatewayInstanceId: poll.gatewayInstanceId, resolve, timer, signal, abort };
+      this.pendingPoll = { gatewayInstanceId: poll.gatewayInstanceId, resolve, reject, timer, signal, abort };
       signal?.addEventListener('abort', abort, { once: true });
     });
   }
@@ -145,6 +141,7 @@ export class GatewayCommandQueue {
     const command = GatewayCommandSchema.parse({
       kind: 'turn.start',
       commandId: input.commandId,
+      organizationId: input.organizationId,
       conversationId: input.conversationId,
       turnId: input.turnId,
       message: input.message,
@@ -191,6 +188,10 @@ export class GatewayCommandQueue {
     return this.gatewayInstanceId === gatewayInstanceId;
   }
 
+  hasLiveSession(): boolean {
+    return this.gatewayInstanceId !== null;
+  }
+
   private currentBatch(): GatewayCommandBatch {
     return GatewayCommandBatchSchema.parse({ commands: this.commands.slice(0, MAX_QUEUED_COMMANDS) });
   }
@@ -198,17 +199,30 @@ export class GatewayCommandQueue {
   private resolvePendingPoll(): void {
     const pending = this.pendingPoll;
     if (!pending) return;
-    if (pending.signal && pending.abort) pending.signal.removeEventListener('abort', pending.abort);
-    clearTimeout(pending.timer);
-    this.pendingPoll = null;
+    this.detachPendingPoll(pending);
     pending.resolve(this.currentBatch());
   }
 
-  private clearTransientState(): void {
+  private rejectPendingPoll(error: Error): void {
+    const pending = this.pendingPoll;
+    if (!pending) return;
+    this.detachPendingPoll(pending);
+    pending.reject(error);
+  }
+
+  private detachPendingPoll(pending: PendingPoll): void {
+    if (this.pendingPoll !== pending) return;
+    if (pending.signal && pending.abort) pending.signal.removeEventListener('abort', pending.abort);
+    clearTimeout(pending.timer);
+    this.pendingPoll = null;
+  }
+
+  private clearTransientState(displacedPendingError?: Error): void {
     this.commands.splice(0);
     this.turnsByCommand.clear();
     this.options.onTransientClear?.();
-    this.resolvePendingPoll();
+    if (displacedPendingError) this.rejectPendingPoll(displacedPendingError);
+    else this.resolvePendingPoll();
   }
 
   private removeCommand(commandId: string): void {

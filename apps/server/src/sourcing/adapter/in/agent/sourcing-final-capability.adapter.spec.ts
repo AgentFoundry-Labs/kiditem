@@ -29,6 +29,36 @@ function setup(admissions = { recordScrapeSnapshot: vi.fn() }) {
   return { adapter: new SourcingFinalCapabilityAdapter(reads as never, mutations as never, discovery as never, shadow as never, operations as never, admissions as never), reads, mutations, discovery, shadow, operations };
 }
 
+function workflowAdapter(operations: {
+  findByIdempotency: (input: {
+    organizationId: string;
+    operationKey: string;
+    idempotencyKey: string;
+    expectedInput?: Record<string, unknown>;
+  }) => Promise<{ id: string; status: string } | null>;
+  start: (input: {
+    organizationId: string;
+    operationKey: string;
+    triggerSource: string;
+    input: Record<string, unknown>;
+    requestedByUserId: string;
+    idempotencyKey: string;
+  }) => Promise<{ id: string; status: string }>;
+}) {
+  return new SourcingFinalCapabilityAdapter(
+    { retrieveWorkspaceEvidence: vi.fn(), inspectRecommendationRun: vi.fn() } as never,
+    { refreshValidation: vi.fn(), createReviewBatch: vi.fn() } as never,
+    {
+      duplicateCheck: vi.fn().mockResolvedValue({ duplicate: false, candidateId: null }),
+      scrapeProductUrl: vi.fn(),
+      ingestCandidate: vi.fn(),
+    } as never,
+    { collectShadowSignals: vi.fn() } as never,
+    operations as never,
+    { recordScrapeSnapshot: vi.fn() } as never,
+  );
+}
+
 describe('SourcingFinalCapabilityAdapter', () => {
   it('rejects a missing owner idempotency key before contacting a mutation owner', async () => {
     const { adapter, mutations, discovery, operations } = setup();
@@ -75,6 +105,66 @@ describe('SourcingFinalCapabilityAdapter', () => {
     })).rejects.toThrow('owner_idempotency_input_conflict');
     expect(validation.mutations.refreshValidation).not.toHaveBeenCalled();
     expect(workflow.discovery.duplicateCheck).not.toHaveBeenCalled();
+  });
+
+  it('replays a committed workflow after a lost owner response through a fresh adapter and fences owner-key input drift', async () => {
+    const run = {
+      id: '00000000-0000-4000-8000-000000000008',
+      status: 'queued',
+      input: { sourceUrl: 'https://detail.1688.com/offer/1.html' },
+    };
+    let committed = false;
+    let loseFirstResponse = true;
+    const operations = {
+      findByIdempotency: vi.fn(async (request: {
+        organizationId: string;
+        operationKey: string;
+        idempotencyKey: string;
+        expectedInput?: Record<string, unknown>;
+      }) => {
+        if (!committed) return null;
+        if (request.expectedInput === undefined || JSON.stringify(request.expectedInput) !== JSON.stringify(run.input)) {
+          throw new Error('idempotency_key_input_conflict');
+        }
+        return { id: run.id, status: run.status };
+      }),
+      start: vi.fn(async (request: {
+        organizationId: string;
+        operationKey: string;
+        triggerSource: string;
+        input: Record<string, unknown>;
+        requestedByUserId: string;
+        idempotencyKey: string;
+      }) => {
+        expect(request.input).toEqual(run.input);
+        committed = true;
+        if (loseFirstResponse) {
+          loseFirstResponse = false;
+          throw new Error('owner_response_lost_after_operation_commit');
+        }
+        return { id: run.id, status: run.status };
+      }),
+    };
+    const input = run.input;
+    const context = mutationContext('sourcing.scrapeUrlWorkflow', input);
+
+    await expect(workflowAdapter(operations).scrapeUrlWorkflow({ context, input }))
+      .rejects.toThrow('owner_response_lost_after_operation_commit');
+
+    await expect(workflowAdapter(operations).scrapeUrlWorkflow({ context, input }))
+      .resolves.toEqual({ kind: 'enqueued', operationRunId: run.id, status: run.status });
+
+    const changedInput = { sourceUrl: 'https://detail.1688.com/offer/2.html' };
+    await expect(workflowAdapter(operations).scrapeUrlWorkflow({
+      context: {
+        ...context,
+        ownerInputHash: canonicalOwnerInputHash(changedInput),
+      },
+      input: changedInput,
+    })).rejects.toThrow('idempotency_key_input_conflict');
+
+    expect(operations.start).toHaveBeenCalledTimes(1);
+    expect(operations.findByIdempotency).toHaveBeenCalledTimes(3);
   });
 
   it('does not accept an arbitrary owner key for an exact ingest input', async () => {
@@ -229,6 +319,7 @@ describe('SourcingFinalCapabilityAdapter', () => {
       organizationId: context.organizationId,
       operationKey: 'sourcing.scrape_url',
       idempotencyKey: context.ownerIdempotencyKey,
+      expectedInput: input,
     });
     expect(discovery.duplicateCheck).not.toHaveBeenCalled();
     expect(operations.start).not.toHaveBeenCalled();

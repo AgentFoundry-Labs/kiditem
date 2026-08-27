@@ -5,6 +5,7 @@ import { FINAL_CAPABILITY_DEFINITIONS } from '../../../domain/catalog/final-capa
 import {
   capabilityDefinitionToCatalogEntry,
   CapabilityInvokeInputSchema,
+  CapabilityInvokeOutputSchema,
   CAPABILITY_MCP_TOOL_NAMES,
   MCP_JSON_SCHEMA_DIALECT,
 } from './capability-mcp-wire-contract';
@@ -115,5 +116,27 @@ describe('Capability MCP v2 wire contract', () => {
     await expect(service.invoke(base)).rejects.toMatchObject({ code: 'REQUEST_KEY_REQUIRED' });
     await expect(service.invoke({ ...base, requestKey: 'draft-1' }))
       .rejects.toMatchObject({ code: 'ACTING_AGENT_REQUIRED' });
+  });
+
+  it('allows owner output only for a non-durable read, never a durable mutation receipt', () => {
+    const result = {
+      summary: 'Thumbnail registration completed.',
+      resourceRefs: [],
+      operationRefs: [],
+      output: { screenshotPath: '/tmp/host-only/wing-capture.png' },
+    };
+    const mutation = {
+      kind: 'completed' as const,
+      invocation: {
+        id: '00000000-0000-4000-8000-000000000003',
+        status: 'succeeded' as const,
+        approvalStatus: 'not_required' as const,
+        retryWithSameRequestKey: false,
+      },
+      result,
+    };
+
+    expect(CapabilityInvokeOutputSchema.safeParse(mutation).success).toBe(false);
+    expect(CapabilityInvokeOutputSchema.safeParse({ ...mutation, invocation: null }).success).toBe(true);
   });
 });

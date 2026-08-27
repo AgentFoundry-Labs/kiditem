@@ -1,7 +1,6 @@
 import type {
   Model,
   ProviderEvent,
-  ProviderMessage,
   ProviderReadiness,
   ProviderRuntime,
   ReasoningEffort,
@@ -38,12 +37,6 @@ export interface StartProviderTurn {
   instructionProfile: GatewayInstructionProfile;
 }
 
-export interface SendProviderInput {
-  providerConversationRef: string;
-  turnId: string;
-  message: string;
-}
-
 export interface InterruptProviderTurn {
   providerConversationRef: string;
   turnId: string;
@@ -55,11 +48,9 @@ export interface ProviderConversationPort {
   readonly runtime: ProviderRuntime;
   list(): Promise<ProviderConversationSummary[]>;
   create(input: CreateProviderConversation): Promise<ProviderConversation>;
-  history(providerConversationRef: string): Promise<ProviderMessage[]>;
   rename(providerConversationRef: string, title: string): Promise<void>;
   delete(providerConversationRef: string): Promise<void>;
   startTurn(input: StartProviderTurn, sink: ProviderEventSink): Promise<void>;
-  sendInput(input: SendProviderInput): Promise<void>;
   interrupt(input: InterruptProviderTurn): Promise<void>;
   readiness(): Promise<ProviderReadiness>;
 }

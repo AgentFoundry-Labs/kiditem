@@ -9,6 +9,7 @@ const definition = (
   key: "products.inspect",
   ownerDomain: "products",
   description: "Inspect product.",
+  resultSummary: "상품 정보를 확인했습니다.",
   inputSchema: z.object({}),
   outputSchema: z.object({}),
   effects: ["read"],
@@ -16,7 +17,7 @@ const definition = (
   idempotency: "none",
   ownerInputPort: "products.inspect",
   ...overrides,
-});
+} as CapabilityDefinition);
 const implementation = (capabilityKey = "products.inspect") => ({
   capabilityKey,
   invoke: async () => ({
@@ -111,6 +112,25 @@ describe("AgentCapabilityRegistry final contracts", () => {
     registry.registerImplementation(implementation());
     registry.registerImplementation(implementation("products.write"));
     expect(() => registry.assertFinalCatalog()).not.toThrow();
+  });
+
+  it("uses the owner manifest completion summary instead of an internal capability key", async () => {
+    const registry = new AgentCapabilityRegistry();
+    const ownerDefinition = definition();
+    registry.registerComposition({
+      definition: ownerDefinition,
+      implementation: {
+        capabilityKey: ownerDefinition.key,
+        ownerInputPort: ownerDefinition.ownerInputPort,
+        invoke: async () => ({ inspected: true }),
+      },
+    });
+
+    const implementation = registry.resolveImplementation(ownerDefinition.key);
+    const result = await implementation?.invoke({ context: {} as never, input: {} });
+
+    expect(result?.summary).toBe("상품 정보를 확인했습니다.");
+    expect(result?.summary).not.toContain(ownerDefinition.key);
   });
 
   it("rejects invalid owner prefixes, high-risk reads, and non-idempotent mutations", () => {

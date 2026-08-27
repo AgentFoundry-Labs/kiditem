@@ -17,11 +17,11 @@ describe('Native Gateway control protocol ownership', () => {
   });
 
   it('wires one provider-owned Claude session store for history, resume checks, and deletion', () => {
-    const main = readFileSync(resolve(import.meta.dirname, '..', 'main.ts'), 'utf8');
+    const runtime = readFileSync(resolve(import.meta.dirname, '..', 'provider', 'native-provider-runtime.ts'), 'utf8');
 
-    expect(main).toContain('ClaudeProviderSessionStore');
-    expect(main).toContain('sessions: claudeSessions');
-    expect(main).not.toContain('ClaudeProviderSessionHistoryReader');
+    expect(runtime).toContain('ClaudeProviderSessionStore');
+    expect(runtime).toContain('sessions: claudeSessions');
+    expect(runtime).not.toContain('ClaudeProviderSessionHistoryReader');
   });
 
   it('wires one installation-local preference store with the descriptor state root and no listener', () => {

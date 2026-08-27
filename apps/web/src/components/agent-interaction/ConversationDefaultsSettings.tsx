@@ -41,7 +41,7 @@ export function ConversationDefaultsSettings({
   const models = gateway?.readiness.models ?? [];
   const efforts = gateway?.readiness.modelReasoningEfforts
     .find((entry) => entry.model === model)?.reasoningEfforts ?? [];
-  const storedNeedsReview = Boolean(stored && !isSupportedConversationPair({
+  const storedNeedsReview = Boolean(stored && readiness && !isSupportedConversationPair({
     runtime,
     model: stored.model,
     reasoningEffort: stored.reasoningEffort,
@@ -91,9 +91,9 @@ export function ConversationDefaultsSettings({
 
   return (
     <section aria-label="대화 기본값" className="space-y-4">
-      <p className="text-sm leading-6 text-muted-foreground">새 대화에 사용할 모델과 사고 수준을 선택하세요.</p>
+      <p className="text-sm leading-6 text-muted-foreground">새 대화에 사용할 모델과 추론 수준을 선택하세요.</p>
       {preferencesLoading ? <p role="status" className="text-sm text-muted-foreground">기본값을 불러오는 중입니다.</p> : null}
-      {preferencesError ? <p role="alert" className="text-sm text-destructive">기본값을 불러올 수 없습니다. 모델과 사고 수준을 직접 선택해 주세요.</p> : null}
+      {preferencesError ? <p role="alert" className="text-sm text-destructive">기본값을 불러올 수 없습니다. 모델과 추론 수준을 직접 선택해 주세요.</p> : null}
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1 text-sm font-medium">
           대화 컨텍스트
@@ -116,14 +116,14 @@ export function ConversationDefaultsSettings({
         </select>
       </label>
       <label className="grid gap-1 text-sm font-medium">
-        사고 수준
-        <select aria-label="기본 사고 수준" value={reasoningEffort} disabled={!gateway || !model} onChange={(event) => setReasoningEffort(event.target.value)} className="min-h-10 rounded-md border bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 max-lg:min-h-11">
+        추론 수준
+        <select aria-label="기본 추론 수준" value={reasoningEffort} disabled={!gateway || !model} onChange={(event) => setReasoningEffort(event.target.value)} className="min-h-10 rounded-md border bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 max-lg:min-h-11">
           <option value="">선택</option>
           {effortOptions.map((candidate) => <option key={candidate} value={candidate}>{candidate}{storedNeedsReview && candidate === stored?.reasoningEffort ? ' (검토 필요)' : ''}</option>)}
         </select>
       </label>
       {!gateway && readiness !== undefined ? <p role="status" className="text-sm text-amber-700">선택한 대화 엔진을 현재 사용할 수 없습니다.</p> : null}
-      {storedNeedsReview ? <p role="alert" className="text-sm text-amber-700">저장된 모델과 사고 수준을 다시 선택해 주세요.</p> : null}
+      {storedNeedsReview ? <p role="alert" className="text-sm text-amber-700">저장된 모델과 추론 수준을 다시 선택해 주세요.</p> : null}
       {saveError ? <p role="alert" className="text-sm text-destructive">기본값을 저장할 수 없습니다.</p> : null}
       <button type="button" disabled={!canSave || saving} onClick={() => void save()} className="inline-flex min-h-10 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 max-lg:min-h-11">
         {saving ? '저장 중…' : '기본값 저장'}

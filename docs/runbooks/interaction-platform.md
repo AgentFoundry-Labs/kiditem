@@ -1,19 +1,23 @@
 # Agent Interaction Platform Runbook
 
 KidItem uses CopilotKit OSS `1.69.0` as a same-origin Nest incoming adapter.
-Codex or Claude owns each conversation and its history. KidItem owns business
-records, durable `OperationRun`s, and exactly one Agent OS persistence model:
-`CapabilityInvocation`. There is no CopilotKit thread service, generic durable
-work/process/version graph, capability-grant store, or KidItem transcript store.
+Its API-local SQLite runner owns canonical completed AG-UI interaction events.
+Codex or Claude provider-native sessions own model continuity, not browser
+interaction history. KidItem owns business records, durable `OperationRun`s,
+and exactly one Agent OS persistence model: `CapabilityInvocation`. There is no
+CopilotKit thread service, generic durable work/process/version graph,
+capability-grant store, KidItem transcript store, or PostgreSQL conversation/
+preference/session model.
 
 ## Runtime shape
 
 ```text
 browser /api/copilotkit
   -> authenticated Nest/CopilotKit adapter
+  -> API-local CopilotKit SQLite completed-event runner
   -> outbound command queue
   -> native Agent Gateway
-  -> Codex/Claude conversation + native subagents
+  -> Codex/Claude provider-native session + native subagents
   -> private Nest MCP 2026-07-28
   -> CapabilityDefinition -> owner-domain incoming port
   -> optional CapabilityInvocation approval / OperationRun
@@ -21,16 +25,21 @@ browser /api/copilotkit
 
 The Gateway is an always-on host process under the provider-login account. It
 stores only bounded conversation descriptors needed to list and reopen provider
-conversations; the provider remains the history source of truth. The browser
-may start a general conversation or an Agent-fixed domain conversation. Runtime
-is explicit at conversation creation, while model and reasoning effort are
-explicit user choices for each turn. Subagents are native Codex/Claude children,
-not KidItem conversations or durable child tasks.
+conversations and owns provider-native session continuity. The SQLite runner,
+not the provider, is the canonical completed interaction-history source of
+truth for the browser. The browser may start a general conversation or an
+Agent-fixed domain conversation. Runtime is explicit at conversation creation,
+while model and reasoning effort are explicit user choices for each turn.
+Subagents are native Codex/Claude children, not KidItem conversations or
+durable child tasks.
 
 Opening the workspace, creating an empty draft, reloading, or inspecting history
-starts no model turn. At most four turns are live in Gateway process memory. A
-browser/API/Gateway restart never resumes or automatically starts reasoning; the
-user's next message starts a fresh turn against provider-owned history.
+starts no model turn. The Gateway's internal registry admits at most four native
+parent turns, while Nest's exact in-memory active-turn record is the only
+authority for whether a provider turn is running or may be stopped. A
+browser/API/Gateway restart never resumes or automatically starts reasoning;
+the user's next message starts a fresh turn through provider-native session
+continuity.
 
 ## Capability and approval boundary
 
@@ -52,11 +61,19 @@ result or Operation, while input drift conflicts. Long work returns an
 `operationRef` immediately and the Operations worker owns completion without a
 model restart.
 
-An execution binding lives only in API/Gateway process memory for MCP request
-authentication and turn correlation, with a maximum four-hour TTL. It is not a
-conversation session, Agent/capability/delegation grant, provider credential, or
-durable authority. The installation bearer authenticates Gateway long-poll and
-event traffic only. Neither value is exposed to the browser or persisted.
+The Gateway process owns one process-scoped MCP transport token. Provider
+conversations reuse it across ordinary turns, while the static conversation ID
+is only a routing locator. Nest resolves organization, user, turn, and fresh
+execution authority from its current in-memory active-turn record at each MCP
+callback. The installation bearer separately authenticates Gateway long-poll
+and event traffic. Neither token is exposed to the browser or persisted.
+
+Nest derives the current organization from authentication for each
+Conversation-facing request. The Gateway stores that organization in its
+bounded local descriptor and returns not-found for cross-organization access.
+Users in the same organization share the Conversation; the current live Turn
+remains fenced to its initiating user in Nest. This descriptor field is not
+sent to providers and does not authorize MCP business tools.
 
 ## Readiness and verification
 
@@ -76,8 +93,12 @@ npm run build --workspace=apps/web
 ```
 
 The clean-cutover helper accepts only its own generated Testcontainer database.
-The interaction smoke issues the real readiness/conversation/history/MCP request
-sequence with injectable test doubles and stops at an approval-pending mutation.
+The interaction smoke exercises the authenticated conversation facade with an
+exact disposable create replay/drift check, preferences, an empty disposable
+SQLite `agent/connect` namespace, and provider-first cleanup. It never accepts
+or impersonates the Gateway's MCP transport identity. Direct MCP admission is
+covered by the Gateway loopback integration gate and the real provider-turn
+browser QA.
 
 For executable browser QA, run the helper from an interactive terminal and pass
 the non-secret login email explicitly (or set `KIDITEM_BROWSER_QA_EMAIL`):
@@ -100,9 +121,11 @@ until those environments are available.
 
 ## Process ownership
 
-The API owns authenticated HTTP, transient Gateway control state, MCP admission,
+The API owns authenticated HTTP, the completed-event SQLite runner, Nest's
+in-memory active-turn authority, transient Gateway control state, MCP admission,
 and `CapabilityInvocation`. The native Gateway owns provider processes,
-provider-local conversations/history, bounded descriptors, and live-turn cleanup.
-The worker owns only durable Operations and cannot import Agent transport, start
-a CLI, approve a mutation, or wake reasoning. Preserve this split when adding a
-capability, provider, controller, or deployment surface.
+provider-native sessions, bounded descriptors/preferences, its internal
+four-slot parent-turn registry, and provider cleanup. The worker owns only
+durable Operations and cannot import Agent transport, start a CLI, approve a
+mutation, or wake reasoning. Preserve this split when adding a capability,
+provider, controller, or deployment surface.

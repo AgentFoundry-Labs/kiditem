@@ -5,12 +5,46 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ConversationDescriptorStore } from './conversation-descriptor.store';
 
 const roots: string[] = [];
+const ORGANIZATION_ID = 'organization-1';
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe('ConversationGateway', () => {
+  it('persists and fences a descriptor by exact organization without exposing organization in public summaries', async () => {
+    const { ConversationGateway } = await import('./conversation-gateway');
+    const provider = new FakeProvider('codex_cli');
+    const gateway = new ConversationGateway({
+      descriptors: new ConversationDescriptorStore({ stateRoot: await fixtureRoot(), platform: 'macos' }),
+      providers: { codex_cli: provider, claude_cli: new FakeProvider('claude_cli') },
+      now: () => new Date('2026-08-23T00:00:00.000Z'),
+    });
+    const owner = 'organization-owner';
+    const foreign = 'organization-foreign';
+    const command = {
+      organizationId: owner,
+      conversationId: 'organization-fenced-conversation',
+      runtime: 'codex_cli' as const,
+      agentKey: null,
+      title: 'Organization planning',
+    };
+
+    const created = await gateway.create(command as never);
+    expect(created).not.toHaveProperty('organizationId');
+    await expect(gateway.list(owner)).resolves.toEqual([created]);
+    await expect(gateway.list(foreign)).resolves.toEqual([]);
+    await expect(gateway.rename({ organizationId: foreign, conversationId: created.id, title: 'Foreign rename' } as never))
+      .rejects.toThrow('gateway_conversation_not_found');
+    await expect(gateway.delete({ organizationId: foreign, conversationId: created.id } as never))
+      .rejects.toThrow('gateway_conversation_not_found');
+    await expect(gateway.create({ ...command, organizationId: foreign } as never))
+      .rejects.toThrow('gateway_conversation_not_found');
+    expect(provider.renameCalls).toEqual([]);
+    expect(provider.deleted).toEqual([]);
+    expect(provider.created).toHaveLength(1);
+  });
+
   it('maps an opaque descriptor to one fixed provider conversation and requires an explicitly supported model and effort', async () => {
     const { ConversationGateway } = await import('./conversation-gateway');
     const provider = new FakeProvider('codex_cli');
@@ -20,7 +54,7 @@ describe('ConversationGateway', () => {
       now: () => new Date('2026-08-23T00:00:00.000Z'),
     });
 
-    const created = await gateway.create({ conversationId: 'browser-conversation-1', runtime: 'codex_cli', agentKey: 'sourcing', title: 'Supplier research' });
+    const created = await gateway.create({ organizationId: ORGANIZATION_ID, conversationId: 'browser-conversation-1', runtime: 'codex_cli', agentKey: 'sourcing', title: 'Supplier research' });
     expect(created).toEqual({
       id: 'browser-conversation-1',
       runtime: 'codex_cli',
@@ -43,6 +77,7 @@ describe('ConversationGateway', () => {
     })]);
 
     await gateway.startTurn({
+      organizationId: ORGANIZATION_ID,
       conversationId: created.id,
       turnId: 'turn-1',
       message: 'Find current supplier inventory.',
@@ -67,6 +102,7 @@ describe('ConversationGateway', () => {
     }]);
 
     await expect(gateway.startTurn({
+      organizationId: ORGANIZATION_ID,
       conversationId: created.id,
       turnId: 'turn-2',
       message: 'Try an unsupported model.',
@@ -75,6 +111,7 @@ describe('ConversationGateway', () => {
       onEvent: () => undefined,
     })).rejects.toThrow('gateway_model_unsupported');
     await expect(gateway.startTurn({
+      organizationId: ORGANIZATION_ID,
       conversationId: created.id,
       turnId: 'turn-3',
       message: 'Try an unsupported effort.',
@@ -94,6 +131,7 @@ describe('ConversationGateway', () => {
     provider.createGate = createGate.promise;
     provider.createStarted = () => createStarted.resolve();
     const command = {
+      organizationId: ORGANIZATION_ID,
       conversationId: 'browser-idempotent-conversation',
       runtime: 'codex_cli' as const,
       agentKey: null,
@@ -149,6 +187,7 @@ describe('ConversationGateway', () => {
     const root = await fixtureRoot();
     const provider = new FakeProvider('codex_cli');
     const original = {
+      organizationId: ORGANIZATION_ID,
       conversationId: 'browser-renamed-idempotent-conversation',
       runtime: 'codex_cli' as const,
       agentKey: null,
@@ -161,7 +200,7 @@ describe('ConversationGateway', () => {
     });
 
     await gateway.create(original);
-    const renamed = await gateway.rename(original.conversationId, 'Renamed supplier research');
+    const renamed = await gateway.rename({ organizationId: ORGANIZATION_ID, conversationId: original.conversationId, title: 'Renamed supplier research' });
 
     await expect(gateway.create(original)).resolves.toEqual(renamed);
     await expect(gateway.create({ ...original, title: 'Conflicting create title' }))
@@ -176,7 +215,7 @@ describe('ConversationGateway', () => {
     expect(provider.created).toHaveLength(1);
   });
 
-  it('discards the exact pre-createTitle catalog before list/history and starts strict idempotent creates cleanly', async () => {
+  it('discards the exact pre-createTitle catalog before list and starts strict idempotent creates cleanly', async () => {
     const { ConversationGateway } = await import('./conversation-gateway');
     const root = await fixtureRoot();
     const legacyId = 'pre-create-title-conversation';
@@ -196,6 +235,7 @@ describe('ConversationGateway', () => {
     }]));
     const provider = new FakeProvider('codex_cli');
     const original = {
+      organizationId: ORGANIZATION_ID,
       conversationId: 'current-schema-conversation',
       runtime: 'codex_cli' as const,
       agentKey: 'sourcing' as const,
@@ -207,12 +247,11 @@ describe('ConversationGateway', () => {
       now: () => new Date('2026-08-23T00:01:00.000Z'),
     });
 
-    await expect(gateway.history(legacyId)).rejects.toThrow('gateway_conversation_not_found');
-    await expect(gateway.list()).resolves.toEqual([]);
+    await expect(gateway.list(ORGANIZATION_ID)).resolves.toEqual([]);
     expect(JSON.parse(await readFile(descriptorFile, 'utf8'))).toEqual([]);
 
     const created = await gateway.create(original);
-    const renamed = await gateway.rename(created.id, 'Renamed current research');
+    const renamed = await gateway.rename({ organizationId: ORGANIZATION_ID, conversationId: created.id, title: 'Renamed current research' });
     await expect(gateway.create(original)).resolves.toEqual(renamed);
     expect(JSON.parse(await readFile(descriptorFile, 'utf8'))).toEqual([expect.objectContaining({
       createTitle: original.title,
@@ -235,7 +274,7 @@ describe('ConversationGateway', () => {
 
     let failure: unknown;
     try {
-      await gateway.create({ conversationId: 'browser-write-failure', runtime: 'codex_cli', agentKey: null, title: 'General chat' });
+      await gateway.create({ organizationId: ORGANIZATION_ID, conversationId: 'browser-write-failure', runtime: 'codex_cli', agentKey: null, title: 'General chat' });
     } catch (error) {
       failure = error;
     }
@@ -243,31 +282,6 @@ describe('ConversationGateway', () => {
     expect(failure).toMatchObject({ message: 'gateway_descriptor_create_failed' });
     expect(JSON.stringify(failure)).not.toContain('provider-thread-1');
     expect(provider.deleted).toEqual(['provider-thread-1']);
-  });
-
-  it('reads history from the provider after a Gateway restart without copying a provider ref into public output', async () => {
-    const { ConversationGateway } = await import('./conversation-gateway');
-    const root = await fixtureRoot();
-    const provider = new FakeProvider('codex_cli');
-    const descriptors = new ConversationDescriptorStore({ stateRoot: root, platform: 'macos' });
-    const first = new ConversationGateway({
-      descriptors,
-      providers: { codex_cli: provider, claude_cli: new FakeProvider('claude_cli') },
-      now: () => new Date('2026-08-23T00:00:00.000Z'),
-    });
-    await first.create({ conversationId: 'browser-conversation-2', runtime: 'codex_cli', agentKey: null, title: 'General chat' });
-    provider.messages = [{ id: 'message-1', role: 'assistant', content: 'Provider-native history.', createdAt: '2026-08-23T00:01:00.000Z' }];
-
-    const restarted = new ConversationGateway({
-      descriptors: new ConversationDescriptorStore({ stateRoot: root, platform: 'macos' }),
-      providers: { codex_cli: provider, claude_cli: new FakeProvider('claude_cli') },
-      now: () => new Date('2026-08-23T00:02:00.000Z'),
-    });
-    const history = await restarted.history('browser-conversation-2');
-
-    expect(history).toEqual(provider.messages);
-    expect(provider.historyRefs).toEqual(['provider-thread-1']);
-    expect(JSON.stringify(history)).not.toContain('provider-thread-1');
   });
 
   it('re-derives an immutable descriptor Agent profile after Gateway restart rather than accepting a control-plane prompt', async () => {
@@ -279,7 +293,7 @@ describe('ConversationGateway', () => {
       providers: { codex_cli: provider, claude_cli: new FakeProvider('claude_cli') },
       now: () => new Date('2026-08-23T00:00:00.000Z'),
     });
-    await first.create({ conversationId: 'browser-sourcing-conversation', runtime: 'codex_cli', agentKey: 'sourcing', title: 'Sourcing' });
+    await first.create({ organizationId: ORGANIZATION_ID, conversationId: 'browser-sourcing-conversation', runtime: 'codex_cli', agentKey: 'sourcing', title: 'Sourcing' });
 
     const restarted = new ConversationGateway({
       descriptors: new ConversationDescriptorStore({ stateRoot: root, platform: 'macos' }),
@@ -287,6 +301,7 @@ describe('ConversationGateway', () => {
       now: () => new Date('2026-08-23T00:01:00.000Z'),
     });
     await restarted.startTurn({
+      organizationId: ORGANIZATION_ID,
       conversationId: 'browser-sourcing-conversation', turnId: 'turn-after-restart', message: 'Use the selected Agent.',
       model: 'gpt-5.6', reasoningEffort: 'medium', onEvent: () => undefined,
     });
@@ -311,22 +326,22 @@ describe('ConversationGateway', () => {
       providers: { codex_cli: new FakeProvider('codex_cli'), claude_cli: provider },
       now: () => new Date('2026-08-23T00:00:00.000Z'),
     });
-    await gateway.create({ conversationId: 'browser-conversation-3', runtime: 'claude_cli', agentKey: null, title: 'General chat' });
+    await gateway.create({ organizationId: ORGANIZATION_ID, conversationId: 'browser-conversation-3', runtime: 'claude_cli', agentKey: null, title: 'General chat' });
     provider.deleteFailure = true;
 
-    await expect(gateway.delete('browser-conversation-3')).rejects.toThrow('gateway_provider_delete_failed');
-    expect((await gateway.list()).map((conversation) => conversation.id)).toEqual(['browser-conversation-3']);
+    await expect(gateway.delete({ organizationId: ORGANIZATION_ID, conversationId: 'browser-conversation-3' })).rejects.toThrow('gateway_provider_delete_failed');
+    expect((await gateway.list(ORGANIZATION_ID)).map((conversation) => conversation.id)).toEqual(['browser-conversation-3']);
 
     provider.deleteFailure = false;
-    await gateway.delete('browser-conversation-3');
+    await gateway.delete({ organizationId: ORGANIZATION_ID, conversationId: 'browser-conversation-3' });
     expect(provider.deleted).toEqual(['provider-thread-1']);
-    expect(await gateway.list()).toEqual([]);
+    expect(await gateway.list(ORGANIZATION_ID)).toEqual([]);
 
-    await expect(gateway.delete('browser-conversation-3')).resolves.toBeUndefined();
+    await expect(gateway.delete({ organizationId: ORGANIZATION_ID, conversationId: 'browser-conversation-3' })).rejects.toThrow('gateway_conversation_not_found');
     expect(provider.deleted).toEqual(['provider-thread-1']);
   });
 
-  it('revalidates bounded provider history and a rename title before either crosses the Gateway boundary', async () => {
+  it('validates a rename title before it crosses the Gateway boundary', async () => {
     const { ConversationGateway } = await import('./conversation-gateway');
     const root = await fixtureRoot();
     const provider = new FakeProvider('codex_cli');
@@ -335,11 +350,8 @@ describe('ConversationGateway', () => {
       providers: { codex_cli: provider, claude_cli: new FakeProvider('claude_cli') },
       now: () => new Date('2026-08-23T00:00:00.000Z'),
     });
-    await gateway.create({ conversationId: 'browser-conversation-4', runtime: 'codex_cli', agentKey: null, title: 'General chat' });
-    provider.messages = [{ id: 'provider-message-1', role: 'assistant', content: 'x'.repeat(16_001), createdAt: '2026-08-23T00:00:00.000Z' }];
-
-    await expect(gateway.history('browser-conversation-4')).rejects.toThrow('gateway_provider_history_failed');
-    await expect(gateway.rename('browser-conversation-4', ' ')).rejects.toThrow();
+    await gateway.create({ organizationId: ORGANIZATION_ID, conversationId: 'browser-conversation-4', runtime: 'codex_cli', agentKey: null, title: 'General chat' });
+    await expect(gateway.rename({ organizationId: ORGANIZATION_ID, conversationId: 'browser-conversation-4', title: ' ' })).rejects.toThrow();
     expect(provider.renameCalls).toEqual([]);
   });
 
@@ -360,22 +372,23 @@ describe('ConversationGateway', () => {
       providers: { codex_cli: provider, claude_cli: new FakeProvider('claude_cli') },
       now: () => new Date('2026-08-23T00:01:00.000Z'),
     });
-    await gateway.create({ conversationId: 'browser-racing-delete', runtime: 'codex_cli', agentKey: null, title: 'General chat' });
+    await gateway.create({ organizationId: ORGANIZATION_ID, conversationId: 'browser-racing-delete', runtime: 'codex_cli', agentKey: null, title: 'General chat' });
 
-    const rename = gateway.rename('browser-racing-delete', 'Renamed before delete');
+    const rename = gateway.rename({ organizationId: ORGANIZATION_ID, conversationId: 'browser-racing-delete', title: 'Renamed before delete' });
     await renameStarted.promise;
     const turn = gateway.startTurn({
+      organizationId: ORGANIZATION_ID,
       conversationId: 'browser-racing-delete', turnId: 'turn-racing-delete', message: 'Record metadata.',
       model: 'gpt-5.6', reasoningEffort: 'high', onEvent: () => undefined,
     });
     await turnStarted.promise;
-    await gateway.delete('browser-racing-delete');
+    await gateway.delete({ organizationId: ORGANIZATION_ID, conversationId: 'browser-racing-delete' });
     renameGate.resolve();
     turnGate.resolve();
 
     await expect(rename).rejects.toThrow('gateway_descriptor_not_found');
     await expect(turn).resolves.toBeUndefined();
-    expect(await gateway.list()).toEqual([]);
+    expect(await gateway.list(ORGANIZATION_ID)).toEqual([]);
   });
 });
 
@@ -388,10 +401,8 @@ async function fixtureRoot(): Promise<string> {
 class FakeProvider {
   readonly started: unknown[] = [];
   readonly created: unknown[] = [];
-  readonly historyRefs: string[] = [];
   readonly deleted: string[] = [];
   readonly renameCalls: Array<{ providerConversationRef: string; title: string }> = [];
-  messages: unknown[] = [];
   deleteFailure = false;
   createGate: Promise<void> | undefined;
   renameGate: Promise<void> | undefined;
@@ -415,7 +426,6 @@ class FakeProvider {
       updatedAt: '2026-08-23T00:00:00.000Z',
     };
   }
-  async history(providerConversationRef: string) { this.historyRefs.push(providerConversationRef); return this.messages; }
   async rename(providerConversationRef: string, title: string) {
     this.renameCalls.push({ providerConversationRef, title });
     this.renameStarted?.();
@@ -430,7 +440,6 @@ class FakeProvider {
     this.turnStarted?.();
     await this.turnGate;
   }
-  async sendInput() { return undefined; }
   async interrupt() { return undefined; }
   async readiness() {
     return {

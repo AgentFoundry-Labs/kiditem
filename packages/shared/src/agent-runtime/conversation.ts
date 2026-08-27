@@ -66,18 +66,6 @@ export const SetConversationPreferenceCommandSchema = z.object({
 }).strict();
 export type SetConversationPreferenceCommand = z.infer<typeof SetConversationPreferenceCommandSchema>;
 
-export const ProviderMessageRoleSchema = z.enum(['user', 'assistant', 'tool', 'status']);
-export type ProviderMessageRole = z.infer<typeof ProviderMessageRoleSchema>;
-
-/** Bounded, provider-read history exposed only to the conversation UI. */
-export const ProviderMessageSchema = z.object({
-  id: z.string().trim().min(1).max(200),
-  role: ProviderMessageRoleSchema,
-  content: z.string().max(16_000),
-  createdAt: z.string().datetime(),
-}).strict();
-export type ProviderMessage = z.infer<typeof ProviderMessageSchema>;
-
 /** A public descriptor deliberately omits the provider-local thread/session reference. */
 export const ConversationSummarySchema = z.object({
   id: ConversationIdSchema,

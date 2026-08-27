@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { menuSections } from '../sidebar-menu';
 
@@ -64,5 +66,17 @@ describe('Sidebar product pipeline navigation', () => {
         ['/settings', '설정'],
       ]],
     ]);
+  });
+
+  it('keeps Dashboard navigation composition in Sidebar while delegating only its frame to the shared shell', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/components/layout/Sidebar.tsx'),
+      'utf8',
+    );
+
+    expect(source).toContain('CollapsibleSidebarShell');
+    expect(source).toContain('<CollapsibleSidebarShell');
+    expect(source).toContain('menuSections.slice(0, -1).map');
+    expect(source).toContain('menuSections[menuSections.length - 1].items.map');
   });
 });

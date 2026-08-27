@@ -1,6 +1,6 @@
 import { join } from 'node:path';
-import type { ProcessExit, ProcessSupervisor, SupervisedProcess } from '../platform/process-supervisor';
-import { providerEnvironment, gatewayProviderInvocation } from './provider-command';
+import type { ProcessExit, ProcessSupervisor, SupervisedProcess } from '../../platform/process-supervisor';
+import { providerEnvironment, gatewayProviderInvocation } from '../provider-command';
 import { CodexAppServerFramingError, CodexAppServerSession } from './codex-app-server-session';
 
 /** Starts the pinned Codex app-server and binds its lifetime to one Gateway session. */
@@ -11,10 +11,13 @@ export async function startCodexAppServer(input: Readonly<{
   mcpUrl: string;
   mcpTransportToken: string;
   supervisor: ProcessSupervisor;
+  onFatal: (error: Error) => void;
 }>): Promise<Readonly<{ session: CodexAppServerSession; close: () => Promise<void> }>> {
   const invocation = gatewayProviderInvocation(input.runtimeRoot, 'codex');
   let running: SupervisedProcess | null = null;
   let closing: Promise<void> | null = null;
+  let faulted = false;
+  let fatal = false;
   const session = new CodexAppServerSession({
     write: (line) => {
       if (!running) return Promise.reject(new Error('codex_app_server_not_started'));
@@ -34,6 +37,19 @@ export async function startCodexAppServer(input: Readonly<{
     }
     return closing;
   };
+  const failClosed = (error: unknown): void => {
+    if (faulted) return;
+    faulted = true;
+    reportCodexAppServerSessionFault(error);
+    failGateway(error instanceof Error ? error : new Error('codex_app_server_session_framing_fault'));
+    if (running) void close().catch(() => undefined);
+  };
+  const failGateway = (error: Error): void => {
+    if (fatal) return;
+    fatal = true;
+    input.onFatal(error);
+    session.close();
+  };
   try {
     running = await input.supervisor.launch({
       executable: invocation.executable,
@@ -47,17 +63,16 @@ export async function startCodexAppServer(input: Readonly<{
     }, {
       onStdout: (chunk) => {
         try { session.receive(chunk); }
-        catch (error) {
-          reportCodexAppServerSessionFault(error);
-          session.close();
-        }
+        catch (error) { failClosed(error); }
       },
       // A supervisor emits exit only after it proves descendant-tree death.
       onExit: (exit) => {
         if (!closing) reportCodexAppServerNativeExit(exit);
         session.close();
       },
+      onFatal: failGateway,
     });
+    if (faulted) void close().catch(() => undefined);
   } catch {
     throw new Error('codex_app_server_spawn_failed');
   }

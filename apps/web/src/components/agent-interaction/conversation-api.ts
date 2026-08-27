@@ -10,7 +10,6 @@ import {
   type ConversationPreferences as SharedConversationPreferences,
   type ConversationSummary as SharedConversationSummary,
   type GatewayProviderReadiness,
-  type ProviderMessage,
   type ProviderRuntime,
   type SetConversationPreferenceCommand as SharedSetConversationPreferenceCommand,
   SetConversationPreferenceCommandSchema,
@@ -21,7 +20,6 @@ export const agentConversationKeys = AgentKeySchema.options;
 export type AgentConversationKey = AgentKey;
 export type ConversationRuntime = ProviderRuntime;
 export type ConversationSummary = SharedConversationSummary;
-export type ConversationMessage = ProviderMessage;
 export type GatewayReadiness = GatewayProviderReadiness;
 export type ConversationPreferences = SharedConversationPreferences;
 export type SetConversationPreferenceCommand = SharedSetConversationPreferenceCommand;
@@ -62,33 +60,6 @@ export async function renameConversation(conversationId: string, title: string):
 
 export function deleteConversation(conversationId: string): Promise<void> {
   return apiClient.delete<void>(`/api/agent-os/conversations/${encodeURIComponent(conversationId)}`);
-}
-
-export function startConversationTurn(
-  conversationId: string,
-  input: { message: string; model: string; reasoningEffort: string },
-): Promise<{ turnId: string }> {
-  return apiClient.post<{ turnId: string }>(
-    `/api/agent-os/conversations/${encodeURIComponent(conversationId)}/turns`,
-    input,
-  );
-}
-
-export function sendConversationInput(
-  conversationId: string,
-  turnId: string,
-  message: string,
-): Promise<void> {
-  return apiClient.post<void>(
-    `/api/agent-os/conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(turnId)}/input`,
-    { message },
-  );
-}
-
-export function interruptConversation(conversationId: string, turnId: string): Promise<void> {
-  return apiClient.post<void>(
-    `/api/agent-os/conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(turnId)}/interrupt`,
-  );
 }
 
 /** The approved single-route public runtime-info envelope exposes readiness. */

@@ -34,6 +34,7 @@ describe('conversation surface state', () => {
       'closeSettings',
       'completePromotedDraft',
       'discardDraft',
+      'ensureDraft',
       'openConversation',
       'openSettings',
       'pendingDraft',

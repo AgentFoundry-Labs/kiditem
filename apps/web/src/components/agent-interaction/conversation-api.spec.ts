@@ -5,13 +5,10 @@ import {
   createConversation,
   deleteConversation,
   getConversationPreferences,
-  interruptConversation,
   listConversations,
   loadConversationReadiness,
   renameConversation,
-  sendConversationInput,
   setConversationPreference,
-  startConversationTurn,
 } from './conversation-api';
 
 vi.mock('@/lib/api-client', () => ({
@@ -21,7 +18,7 @@ vi.mock('@/lib/api-client', () => ({
 describe('conversation API', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('uses only authenticated same-origin summary and preference endpoints; provider history belongs to CopilotKit connect', async () => {
+  it('uses authenticated summary, creation, and preference endpoints while CopilotKit owns every turn interaction', async () => {
     const conversation = {
       id: 'conversation-1', runtime: 'codex_cli', agentKey: null, title: 'General',
       createdAt: '2026-08-26T00:00:00.000Z', updatedAt: '2026-08-26T00:00:00.000Z',
@@ -47,11 +44,6 @@ describe('conversation API', () => {
       context: 'general', runtime: 'codex_cli', model: 'gpt-5.6', reasoningEffort: 'xhigh',
     });
     await renameConversation('conversation-1', 'Renamed');
-    await startConversationTurn('conversation-1', {
-      message: 'Review the evidence.', model: 'gpt-5.6', reasoningEffort: 'xhigh',
-    });
-    await sendConversationInput('conversation-1', 'turn-1', 'More context.');
-    await interruptConversation('conversation-1', 'turn-1');
     await deleteConversation('conversation-1');
 
     expect(apiClient.get).toHaveBeenNthCalledWith(1, '/api/agent-os/conversations');
@@ -63,14 +55,11 @@ describe('conversation API', () => {
       context: 'general', runtime: 'codex_cli', model: 'gpt-5.6', reasoningEffort: 'xhigh',
     });
     expect(conversationApi).not.toHaveProperty('getConversationHistory');
+    expect(conversationApi).not.toHaveProperty('startConversationTurn');
+    expect(conversationApi).not.toHaveProperty('sendConversationInput');
+    expect(conversationApi).not.toHaveProperty('interruptConversation');
+    expect(conversationApi).not.toHaveProperty('stopConversationTurn');
     expect(apiClient.patch).toHaveBeenCalledWith('/api/agent-os/conversations/conversation-1', { title: 'Renamed' });
-    expect(apiClient.post).toHaveBeenNthCalledWith(2, '/api/agent-os/conversations/conversation-1/turns', {
-      message: 'Review the evidence.', model: 'gpt-5.6', reasoningEffort: 'xhigh',
-    });
-    expect(apiClient.post).toHaveBeenNthCalledWith(3, '/api/agent-os/conversations/conversation-1/turns/turn-1/input', {
-      message: 'More context.',
-    });
-    expect(apiClient.post).toHaveBeenNthCalledWith(4, '/api/agent-os/conversations/conversation-1/turns/turn-1/interrupt');
     expect(apiClient.delete).toHaveBeenCalledWith('/api/agent-os/conversations/conversation-1');
     expect(JSON.stringify(vi.mocked(apiClient.post).mock.calls)).not.toMatch(/provider|binding|owner|credential/i);
   });
@@ -87,7 +76,7 @@ describe('conversation API', () => {
     expect(apiClient.put).not.toHaveBeenCalled();
   });
 
-  it('rejects an empty history rename before it reaches the provider-facing endpoint', async () => {
+  it('rejects an empty title rename before it reaches the browser API boundary', async () => {
     await expect(renameConversation('conversation-1', '   ')).rejects.toThrow();
 
     expect(apiClient.patch).not.toHaveBeenCalled();

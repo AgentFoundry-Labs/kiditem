@@ -140,6 +140,7 @@ export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPo
       organizationId: context.organizationId,
       operationKey: SOURCING_SCRAPE_URL_OPERATION.key,
       idempotencyKey,
+      expectedInput: { sourceUrl: input.sourceUrl },
     });
     if (replay) {
       return { kind: 'enqueued' as const, operationRunId: replay.id, status: replay.status };

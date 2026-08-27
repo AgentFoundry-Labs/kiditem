@@ -1,7 +1,8 @@
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { OrganizationIdSchema } from '@kiditem/shared/identifiers';
 
 const roots: string[] = [];
 
@@ -145,6 +146,19 @@ describe('ConversationDescriptorStore', () => {
     expect(await store.list()).toEqual([before]);
   });
 
+  it('discards a pre-organization catalog wholesale instead of assigning it to a later caller', async () => {
+    const { ConversationDescriptorStore } = await import('./conversation-descriptor.store');
+    const root = await fixtureRoot();
+    const file = join(root, 'conversations.json');
+    const { organizationId: _organizationId, ...formerDescriptor } = fixtureDescriptor();
+    await writeFile(file, JSON.stringify([formerDescriptor]));
+
+    const store = new ConversationDescriptorStore({ stateRoot: root, platform: 'macos' });
+
+    await expect(store.list()).resolves.toEqual([]);
+    expect(JSON.parse(await readFile(file, 'utf8'))).toEqual([]);
+  });
+
   it('keeps the prior JSON readable when writing the temporary replacement fails', async () => {
     const { ConversationDescriptorStore } = await import('./conversation-descriptor.store');
     const root = await fixtureRoot();
@@ -185,6 +199,7 @@ async function fixtureRoot(): Promise<string> {
 function fixtureDescriptor() {
   return {
     id: 'conversation-1',
+    organizationId: OrganizationIdSchema.parse('organization-1'),
     runtime: 'codex_cli' as const,
     providerConversationRef: 'provider-thread-1',
     agentKey: 'sourcing' as const,

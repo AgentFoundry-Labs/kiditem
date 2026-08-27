@@ -25,4 +25,11 @@ describe('global page layout css', () => {
       /html\[data-kiditem-render-status\]\s*{[^}]*overflow-y:\s*hidden;[^}]*scrollbar-gutter:\s*auto;/s,
     );
   });
+
+  it('defines opaque, readable user-message tokens for the conversation surface', () => {
+    const css = readFileSync(resolve(__dirname, '../app/globals.css'), 'utf8');
+
+    expect(css).toMatch(/--conversation-user-bg:\s*#4c1d95;/);
+    expect(css).toMatch(/--conversation-user-foreground:\s*#ffffff;/);
+  });
 });

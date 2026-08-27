@@ -25,6 +25,7 @@ export const CHANNELS_CAPABILITIES = [
     ownerInputPort: "channels.registerConfirmedListing",
     description:
       "Resolve an externally confirmed frozen marketplace submission into a local ChannelListing.",
+    resultSummary: "확정된 판매 상품 등록을 반영했습니다.",
     inputSchema: RegistrationReferenceInput.extend({
       externalListingId: Identifier,
       confirmationEvidence: z
@@ -51,6 +52,7 @@ export const CHANNELS_CAPABILITIES = [
     ownerInputPort: "channels.submitCoupangListing",
     description:
       "Submit a frozen Coupang payload through Channels and resolve its local ChannelListing.",
+    resultSummary: "쿠팡 판매 상품 등록을 요청했습니다.",
     inputSchema: RegistrationReferenceInput,
     outputSchema: ListingOutput,
     effects: ["external_write", "db_write"],
@@ -63,6 +65,7 @@ export const CHANNELS_CAPABILITIES = [
     ownerInputPort: "channels.submitWingThumbnail",
     description:
       "Submit an approved generated thumbnail to Coupang Wing through the Channels owner.",
+    resultSummary: "대표 이미지를 쿠팡 윙에 반영했습니다.",
     inputSchema: z.object({ generationId: Identifier }).strict(),
     outputSchema: z
       .object({ success: z.boolean(), screenshotPath: z.string().nullable() })

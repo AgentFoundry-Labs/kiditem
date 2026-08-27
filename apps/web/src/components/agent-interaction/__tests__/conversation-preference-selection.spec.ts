@@ -34,7 +34,7 @@ describe('selectTurnPreference', () => {
     })).toEqual({ model: 'gpt-5.6-mini', reasoningEffort: 'high', needsReview: false });
   });
 
-  it('leaves unsupported or unavailable draft defaults explicitly unselected instead of choosing a first option', () => {
+  it('keeps a fresh draft neutral and surfaces only an actually stored unsupported pair for review', () => {
     expect(selectTurnPreference({
       conversation: null,
       draftContext: null,
@@ -44,7 +44,7 @@ describe('selectTurnPreference', () => {
         schemaVersion: 1,
         contexts: { general: { codex_cli: { model: 'retired-model', reasoningEffort: 'max' } } },
       },
-    })).toEqual({ model: null, reasoningEffort: null, needsReview: true });
+    })).toEqual({ model: 'retired-model', reasoningEffort: 'max', needsReview: true });
 
     expect(selectTurnPreference({
       conversation: null,
@@ -52,6 +52,14 @@ describe('selectTurnPreference', () => {
       runtime: 'codex_cli',
       readiness,
       preferences: undefined,
+    })).toEqual({ model: null, reasoningEffort: null, needsReview: false });
+
+    expect(selectTurnPreference({
+      conversation: null,
+      draftContext: null,
+      runtime: 'codex_cli',
+      readiness: undefined,
+      preferences: { schemaVersion: 1, contexts: {} },
     })).toEqual({ model: null, reasoningEffort: null, needsReview: false });
   });
 

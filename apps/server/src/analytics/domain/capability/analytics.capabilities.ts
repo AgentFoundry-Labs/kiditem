@@ -5,6 +5,7 @@ export const ANALYTICS_CAPABILITIES = [
   {
     key: 'analytics.readOverview', ownerDomain: 'analytics', ownerInputPort: 'analytics.readOverview',
     description: 'Read the current organization sales, inventory attention, and freshness overview.',
+    resultSummary: '운영 현황을 확인했습니다.',
     inputSchema: z.object({ period: z.enum(['today', 'month']).optional() }).strict(),
     outputSchema: z.object({
       sales: z.object({ revenue: z.number(), orders: z.number().int().nonnegative() }).strict(),

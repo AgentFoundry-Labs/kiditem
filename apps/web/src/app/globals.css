@@ -21,6 +21,9 @@
   --primary-hover: #6d28d9;
   --primary-soft: #f5f3ff;
   --primary-contrast: #ffffff;
+  --conversation-user-bg: #4c1d95;
+  --conversation-user-foreground: #ffffff;
+  --evidence-surface: #ecfdf5;
   --text-primary: #0f172a;
   --text-secondary: #334155;
   --text-tertiary: #64748b;
@@ -275,6 +278,28 @@ body {
 }
 .status-live {
   animation: statusLive 2s ease-in-out infinite;
+}
+
+/* The compact panel can be narrower than the viewport, so compose against
+   the available surface rather than a viewport breakpoint. */
+.conversation-composer-surface {
+  container-type: inline-size;
+}
+
+@container (max-width: 460px) {
+  .conversation-composer-layout {
+    flex-wrap: wrap;
+  }
+
+  .conversation-composer-input {
+    flex-basis: 100%;
+    width: 100%;
+  }
+
+  .conversation-composer-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
 }
 
 .animate-in {

@@ -86,6 +86,9 @@ services:
     environment:
       <<: *server-environment
       KIDITEM_AGENT_GATEWAY_TOKEN_FILE: /run/secrets/agent_gateway_token
+      # Completed AG-UI history only. The API owns this local runner; the worker
+      # neither mounts it nor treats it as active-turn authority.
+      KIDITEM_COPILOTKIT_SQLITE_PATH: /var/lib/kiditem/agent-os/copilotkit-events.sqlite
       MCP_SDK_GENERATION: v2
       MCP_PROTOCOL_NEGOTIATION: auto
       AGENT_CLI_MAX_CONCURRENCY: ${AGENT_CLI_MAX_CONCURRENCY:-4}
@@ -108,6 +111,8 @@ services:
       - "127.0.0.1:4000:4000"
     secrets:
       - agent_gateway_token
+    volumes:
+      - copilotkit-event-history:/var/lib/kiditem/agent-os
     stop_grace_period: 10s
     restart: unless-stopped
     healthcheck:
@@ -179,6 +184,9 @@ volumes:
   minio-data:
     external: true
     name: kiditem_minio-data
+  copilotkit-event-history:
+    external: true
+    name: kiditem_copilotkit-event-history
 
 secrets:
   agent_gateway_token:

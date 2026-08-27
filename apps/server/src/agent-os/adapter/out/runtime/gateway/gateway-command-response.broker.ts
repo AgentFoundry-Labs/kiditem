@@ -72,6 +72,9 @@ export class GatewayCommandResponseBroker {
   begin<T>(input: Readonly<{ command: GatewayCommand; organizationId: string; initiatingUserId: string }>): GatewayBrokerRequest<T> {
     const command = GatewayCommandSchema.parse(input.command);
     if (command.kind === 'turn.start') throw new Error('gateway_broker_turn_start_requires_fence');
+    if ('organizationId' in command && command.organizationId !== input.organizationId) {
+      throw new Error('gateway_broker_fence_invalid');
+    }
     return this.register<T>({
       commandId: command.commandId,
       kind: command.kind,
@@ -109,7 +112,7 @@ export class GatewayCommandResponseBroker {
   acknowledge(commandId: string): void {
     const pending = this.pending.get(commandId);
     if (!pending) return;
-    if (pending.kind === 'turn.input' || pending.kind === 'turn.interrupt') this.resolve(commandId, pending.kind, undefined);
+    if (pending.kind === 'turn.interrupt') this.resolve(commandId, pending.kind, undefined);
   }
 
   reject(commandId: string, code: string): void {
@@ -122,10 +125,6 @@ export class GatewayCommandResponseBroker {
 
   resolveConversationCreated(event: Extract<GatewayEvent, { kind: 'conversation.created' }>): void {
     this.resolve(event.commandId, 'conversation.create', event.conversation, event.conversation.id);
-  }
-
-  resolveConversationHistory(event: Extract<GatewayEvent, { kind: 'conversation.history' }>): void {
-    this.resolve(event.commandId, 'conversation.history', event.messages, event.conversationId);
   }
 
   resolveConversationRenamed(event: Extract<GatewayEvent, { kind: 'conversation.renamed' }>): void {
@@ -266,6 +265,7 @@ function digestTurnStartInput(input: Readonly<GatewayBrokerTurnFence & GatewayBr
   const parsed = GatewayCommandSchema.safeParse({
     kind: 'turn.start',
     commandId: input.commandId,
+    organizationId: input.organizationId,
     conversationId: input.conversationId,
     turnId: input.turnId,
     message: input.message,

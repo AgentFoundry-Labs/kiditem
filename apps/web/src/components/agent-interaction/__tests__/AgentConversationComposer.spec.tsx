@@ -38,16 +38,61 @@ function composerProps(overrides: Partial<React.ComponentProps<typeof AgentConve
     initialModel: 'gpt-5.6',
     initialReasoningEffort: 'low',
     isDraft: false,
-    activeTurnId: null,
+    isRunning: false,
     onStart: vi.fn(async () => undefined),
-    onInput: vi.fn(async () => undefined),
     onInterrupt: vi.fn(async () => undefined),
     ...overrides,
   };
 }
 
 describe('AgentConversationComposer', () => {
-  it('freezes selector controls while a launch is pending before a turn id arrives', async () => {
+  it('uses one elevated compact composer with a container-aware two-row narrow layout', () => {
+    const { container } = render(<AgentConversationComposer {...composerProps()} />);
+
+    expect(container.querySelector('form')).not.toHaveClass('border-t');
+    expect(container.querySelector('form')).toHaveClass('bg-card');
+    expect(container.querySelector('form > div')).toHaveClass('conversation-composer-surface', 'max-w-3xl', 'rounded-[28px]', 'border-input', 'bg-card', 'shadow-sm');
+    expect(screen.getByLabelText('일반 메시지')).toHaveClass('conversation-composer-input', 'min-h-[52px]');
+    expect(container.querySelector('.conversation-composer-layout')).toBeInTheDocument();
+    expect(container.querySelector('.conversation-composer-actions')).toHaveClass('min-w-0', 'flex-1');
+    const selector = screen.getByRole('button', { name: '대화 엔진 설정' });
+    expect(selector.parentElement).toHaveClass('min-w-0', 'flex-1');
+    expect(selector).toHaveClass('w-full', 'min-w-0', 'rounded-full', 'border-input', 'bg-card');
+    expect(selector.querySelector('span')).toHaveClass('min-w-0', 'flex-1', 'truncate');
+    expect(screen.getByRole('button', { name: '보내기' })).toHaveClass('shrink-0');
+  });
+
+  it('clears a stale review warning after the user selects a supported model and effort pair', async () => {
+    const user = userEvent.setup();
+    render(<AgentConversationComposer {...composerProps({
+      needsReview: true,
+      initialModel: 'retired-model',
+      initialReasoningEffort: 'medium',
+    })} />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('선택한 모델과 추론 수준을 다시 선택해 주세요.');
+    await user.click(screen.getByRole('button', { name: '대화 엔진 설정' }));
+    await user.click(screen.getByRole('button', { name: '모델' }));
+    await user.click(screen.getByRole('option', { name: 'gpt-5.6' }));
+    await user.click(screen.getByRole('button', { name: '추론 수준' }));
+    await user.click(screen.getByRole('option', { name: 'low' }));
+
+    expect(screen.queryByText('선택한 모델과 추론 수준을 다시 선택해 주세요.')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '보내기' })).toBeEnabled();
+  });
+
+  it('keeps an untouched missing model and reasoning selection neutral', () => {
+    render(<AgentConversationComposer {...composerProps({
+      needsReview: true,
+      initialModel: null,
+      initialReasoningEffort: null,
+    })} />);
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '보내기' })).toBeDisabled();
+  });
+
+  it('freezes selector controls while a launch is pending before CopilotKit reports a running turn', async () => {
     const launch = deferred();
     const onStart = vi.fn(() => launch.promise);
     const user = userEvent.setup();
@@ -61,14 +106,14 @@ describe('AgentConversationComposer', () => {
     }));
     await user.click(screen.getByRole('button', { name: '대화 엔진 설정' }));
 
-    expect(screen.getByLabelText('대화 엔진')).toBeDisabled();
-    expect(screen.getByLabelText('모델')).toBeDisabled();
-    expect(screen.getByLabelText('사고 수준')).toBeDisabled();
+    expect(screen.getByRole('button', { name: '대화 엔진' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '모델' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '추론 수준' })).toBeDisabled();
 
     await act(async () => launch.resolve());
   });
 
-  it('enables interruption when a turn id arrives before its launch promise settles', async () => {
+  it('enables interruption when CopilotKit reports a running turn before its launch promise settles', async () => {
     const launch = deferred();
     const onStart = vi.fn(() => launch.promise);
     const onInterrupt = vi.fn(async () => undefined);
@@ -77,7 +122,7 @@ describe('AgentConversationComposer', () => {
 
     await user.click(screen.getByRole('button', { name: '보내기' }));
     await waitFor(() => expect(onStart).toHaveBeenCalledTimes(1));
-    view.rerender(<AgentConversationComposer {...composerProps({ activeTurnId: 'turn-1', onInterrupt, onStart })} />);
+    view.rerender(<AgentConversationComposer {...composerProps({ isRunning: true, onInterrupt, onStart })} />);
 
     const interrupt = screen.getByRole('button', { name: '대화 중단' });
     expect(interrupt).toBeEnabled();
@@ -99,7 +144,7 @@ describe('AgentConversationComposer', () => {
 
     view.rerender(<AgentConversationComposer {...composerProps({
       isDraft: false,
-      activeTurnId: 'turn-1',
+      isRunning: true,
       onStart,
     })} />);
 
@@ -126,23 +171,21 @@ describe('AgentConversationComposer', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('선택한 대화 엔진을 현재 사용할 수 없습니다.');
   });
 
-  it('retains a typed follow-up until the live turn becomes terminal instead of steering it', async () => {
+  it('retains a typed follow-up until the live turn becomes terminal', async () => {
     const launch = deferred();
-    const onInput = vi.fn(async () => undefined);
     const onStart = vi.fn(() => launch.promise);
     const user = userEvent.setup();
-    const view = render(<AgentConversationComposer {...composerProps({ onInput, onStart })} />);
+    const view = render(<AgentConversationComposer {...composerProps({ onStart })} />);
 
     await user.click(screen.getByRole('button', { name: '보내기' }));
     await waitFor(() => expect(onStart).toHaveBeenCalledTimes(1));
-    view.rerender(<AgentConversationComposer {...composerProps({ activeTurnId: 'turn-1', onInput, onStart })} />);
+    view.rerender(<AgentConversationComposer {...composerProps({ isRunning: true, onStart })} />);
 
     const message = screen.getByLabelText('일반 메시지');
     expect(message).toHaveValue('');
     await user.type(message, 'Follow up with the supplier.');
     await user.keyboard('{Enter}');
 
-    expect(onInput).not.toHaveBeenCalled();
     expect(onStart).toHaveBeenCalledTimes(1);
     expect(message).toHaveValue('Follow up with the supplier.');
 

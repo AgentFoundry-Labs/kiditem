@@ -3,16 +3,15 @@ import {
   ConversationTitleSchema,
   CreateConversationCommandSchema,
   ProviderEventSchema,
-  ProviderMessageSchema,
   type CreateConversationCommand,
   type ConversationSummary,
   type Model,
   type ProviderEvent,
-  type ProviderMessage,
   type ProviderReadiness,
   type ProviderRuntime,
   type ReasoningEffort,
 } from '@kiditem/shared/agent-runtime';
+import { OrganizationIdSchema, type OrganizationId } from '@kiditem/shared/identifiers';
 import { ConversationDescriptorStore } from './conversation-descriptor.store';
 import type { ConversationDescriptor } from './conversation-descriptor';
 import type { ProviderConversationPort } from '../provider/provider-conversation.port';
@@ -21,11 +20,20 @@ import { gatewayInstructionProfile } from '../profile/agent-profile.catalog';
 type ProviderMap = Readonly<Record<ProviderRuntime, ProviderConversationPort>>;
 
 type PendingCreate = Readonly<{
+  organizationId: string;
   canonical: string;
   promise: Promise<ConversationSummary>;
 }>;
 
+export interface GatewayConversationCoordinates {
+  organizationId: string;
+  conversationId: string;
+}
+
+export interface GatewayConversationCreate extends GatewayConversationCoordinates, CreateConversationCommand {}
+
 export interface GatewayTurnStart {
+  organizationId: string;
   conversationId: string;
   turnId: string;
   message: string;
@@ -47,26 +55,34 @@ export class ConversationGateway {
     now?: () => Date;
   }>) {}
 
-  async list(runtime?: ProviderRuntime): Promise<ConversationSummary[]> {
+  async list(organizationId: string, runtime?: ProviderRuntime): Promise<ConversationSummary[]> {
+    const owner = parseOrganizationId(organizationId);
     const descriptors = await this.options.descriptors.list();
     return descriptors
-      .filter((descriptor) => runtime === undefined || descriptor.runtime === runtime)
+      .filter((descriptor) => descriptor.organizationId === owner && (runtime === undefined || descriptor.runtime === runtime))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .map(toPublicConversation);
   }
 
-  async create(input: CreateConversationCommand): Promise<ConversationSummary> {
-    const command = CreateConversationCommandSchema.parse(input);
+  async create(input: GatewayConversationCreate): Promise<ConversationSummary> {
+    const organizationId = parseOrganizationId(input.organizationId);
+    const command = CreateConversationCommandSchema.parse({
+      conversationId: input.conversationId,
+      runtime: input.runtime,
+      agentKey: input.agentKey,
+      title: input.title,
+    });
     const existing = await this.options.descriptors.find(command.conversationId);
-    if (existing) return this.replayOrConflict(existing, command);
+    if (existing) return this.replayOrConflict(existing, organizationId, command);
     const canonical = JSON.stringify({ runtime: command.runtime, agentKey: command.agentKey, title: command.title });
     const pending = this.pendingCreates.get(command.conversationId);
     if (pending) {
+      if (pending.organizationId !== organizationId) throw new Error('gateway_conversation_not_found');
       if (pending.canonical !== canonical) throw new Error('gateway_conversation_create_conflict');
       return pending.promise;
     }
-    const promise = this.createMissing(command);
-    this.pendingCreates.set(command.conversationId, { canonical, promise });
+    const promise = this.createMissing(organizationId, command);
+    this.pendingCreates.set(command.conversationId, { organizationId, canonical, promise });
     try {
       return await promise;
     } finally {
@@ -76,7 +92,7 @@ export class ConversationGateway {
     }
   }
 
-  private async createMissing(command: CreateConversationCommand): Promise<ConversationSummary> {
+  private async createMissing(organizationId: OrganizationId, command: CreateConversationCommand): Promise<ConversationSummary> {
     const provider = this.provider(command.runtime);
     let created: Awaited<ReturnType<ProviderConversationPort['create']>>;
     try {
@@ -91,6 +107,7 @@ export class ConversationGateway {
     const timestamp = this.now().toISOString();
     const descriptor: ConversationDescriptor = {
       id: command.conversationId,
+      organizationId,
       runtime: command.runtime,
       providerConversationRef: created.providerConversationRef,
       agentKey: command.agentKey,
@@ -110,19 +127,14 @@ export class ConversationGateway {
     return toPublicConversation(descriptor);
   }
 
-  async history(conversationId: string): Promise<ProviderMessage[]> {
-    const descriptor = await this.resolve(conversationId);
-    try {
-      const messages = await this.provider(descriptor.runtime).history(descriptor.providerConversationRef);
-      return ProviderMessageSchema.array().max(1_000).parse(messages);
-    } catch {
-      throw new Error('gateway_provider_history_failed');
-    }
+  /** Checks the descriptor organization before any separate local turn fence. */
+  async assertAccessible(input: GatewayConversationCoordinates): Promise<void> {
+    await this.resolve(input);
   }
 
-  async rename(conversationId: string, title: string): Promise<ConversationSummary> {
-    const descriptor = await this.resolve(conversationId);
-    const parsedTitle = ConversationTitleSchema.safeParse(title);
+  async rename(input: GatewayConversationCoordinates & { title: string }): Promise<ConversationSummary> {
+    const descriptor = await this.resolve(input);
+    const parsedTitle = ConversationTitleSchema.safeParse(input.title);
     if (!parsedTitle.success) throw new Error('gateway_conversation_title_invalid');
     try {
       await this.provider(descriptor.runtime).rename(descriptor.providerConversationRef, parsedTitle.data);
@@ -137,11 +149,8 @@ export class ConversationGateway {
     return toPublicConversation(next);
   }
 
-  async delete(conversationId: string): Promise<void> {
-    const id = ConversationIdSchema.safeParse(conversationId);
-    if (!id.success) throw new Error('gateway_conversation_not_found');
-    const descriptor = await this.options.descriptors.find(id.data);
-    if (!descriptor) return;
+  async delete(input: GatewayConversationCoordinates): Promise<void> {
+    const descriptor = await this.resolve(input);
     try {
       await this.provider(descriptor.runtime).delete(descriptor.providerConversationRef);
     } catch {
@@ -153,7 +162,7 @@ export class ConversationGateway {
   }
 
   async startTurn(input: GatewayTurnStart): Promise<void> {
-    const descriptor = await this.resolve(input.conversationId);
+    const descriptor = await this.resolve(input);
     await this.assertSupportedTurn(descriptor.runtime, input.model, input.reasoningEffort);
     try {
       await this.provider(descriptor.runtime).startTurn({
@@ -183,21 +192,12 @@ export class ConversationGateway {
     }
   }
 
-  async sendInput(input: Readonly<{ conversationId: string; turnId: string; message: string }>): Promise<void> {
-    const descriptor = await this.resolve(input.conversationId);
-    try {
-      await this.provider(descriptor.runtime).sendInput({
-        providerConversationRef: descriptor.providerConversationRef,
-        turnId: input.turnId,
-        message: input.message,
-      });
-    } catch {
-      throw new Error('gateway_provider_input_failed');
-    }
-  }
-
-  async interrupt(input: Readonly<{ conversationId: string; turnId: string }>): Promise<void> {
-    const descriptor = await this.resolve(input.conversationId);
+  async interrupt(input: Readonly<{ organizationId?: string; conversationId: string; turnId: string }>): Promise<void> {
+    // API-restart terminal cleanup has no request organization by design. It
+    // is local lifecycle work, not a browser-addressed control command.
+    const descriptor = input.organizationId === undefined
+      ? await this.resolveLifecycle(input.conversationId)
+      : await this.resolve(input);
     try {
       await this.provider(descriptor.runtime).interrupt({
         providerConversationRef: descriptor.providerConversationRef,
@@ -212,7 +212,17 @@ export class ConversationGateway {
     return this.provider(runtime).readiness();
   }
 
-  private async resolve(conversationId: string): Promise<ConversationDescriptor> {
+  private async resolve(input: GatewayConversationCoordinates): Promise<ConversationDescriptor> {
+    const id = ConversationIdSchema.safeParse(input.conversationId);
+    if (!id.success) throw new Error('gateway_conversation_not_found');
+    const descriptor = await this.options.descriptors.find(id.data);
+    if (!descriptor || descriptor.organizationId !== parseOrganizationId(input.organizationId)) {
+      throw new Error('gateway_conversation_not_found');
+    }
+    return descriptor;
+  }
+
+  private async resolveLifecycle(conversationId: string): Promise<ConversationDescriptor> {
     const id = ConversationIdSchema.safeParse(conversationId);
     if (!id.success) throw new Error('gateway_conversation_not_found');
     const descriptor = await this.options.descriptors.find(id.data);
@@ -243,7 +253,8 @@ export class ConversationGateway {
     if (!modelCatalog.reasoningEfforts.includes(reasoningEffort)) throw new Error('gateway_reasoning_effort_unsupported');
   }
 
-  private replayOrConflict(descriptor: ConversationDescriptor, command: CreateConversationCommand): ConversationSummary {
+  private replayOrConflict(descriptor: ConversationDescriptor, organizationId: string, command: CreateConversationCommand): ConversationSummary {
+    if (descriptor.organizationId !== organizationId) throw new Error('gateway_conversation_not_found');
     if (
       descriptor.runtime !== command.runtime
       || descriptor.agentKey !== command.agentKey
@@ -258,8 +269,15 @@ export class ConversationGateway {
 function toPublicConversation(descriptor: ConversationDescriptor): ConversationSummary {
   const {
     providerConversationRef: _providerConversationRef,
+    organizationId: _organizationId,
     createTitle: _createTitle,
     ...conversation
   } = descriptor;
   return conversation;
+}
+
+function parseOrganizationId(value: unknown): OrganizationId {
+  const parsed = OrganizationIdSchema.safeParse(value);
+  if (!parsed.success) throw new Error('gateway_conversation_not_found');
+  return parsed.data;
 }

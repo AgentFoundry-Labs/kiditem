@@ -1,6 +1,7 @@
 import type {
   CapabilityInvocationApprovalStatus,
   CapabilityInvocationStatus,
+  CapabilityResultReceipt,
   CapabilityResultEnvelope,
 } from '@kiditem/shared/agent-interaction';
 
@@ -22,8 +23,14 @@ export interface InvokeCapabilityInput {
 export type CapabilityInvocationResult =
   | {
       kind: 'completed';
-      invocationId?: string;
-      status?: CapabilityInvocationStatus;
+      invocationId: string;
+      status: CapabilityInvocationStatus;
+      result: CapabilityResultReceipt;
+    }
+  | {
+      kind: 'completed';
+      invocationId?: undefined;
+      status?: undefined;
       result: CapabilityResultEnvelope;
     }
   | {
@@ -46,7 +53,7 @@ export interface GetCapabilityInvocationInput {
 export interface CapabilityInvocationQueryPort {
   /** Internal capability/MCP status read; never serialize this record to Web. */
   get(input: GetCapabilityInvocationInput): Promise<unknown>;
-  /** Allowlisted authenticated Web receipt, with current code-owned approval risk. */
+  /** Allowlisted authenticated receipt; immutable admission state is never exposed. */
   getReceipt(input: GetCapabilityInvocationInput): Promise<unknown>;
 }
 

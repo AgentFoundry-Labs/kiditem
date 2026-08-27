@@ -50,6 +50,20 @@ async function getImageRemotePatterns(): Promise<ImageRemotePattern[]> {
   return JSON.parse(output) as ImageRemotePattern[];
 }
 
+async function getAllowedDevOrigins(): Promise<string[]> {
+  const script = [
+    `const mod = await import(${JSON.stringify(nextConfigUrl)});`,
+    "const config = typeof mod.default === 'function' ? mod.default('phase-development-server') : mod.default;",
+    'console.log(JSON.stringify(config.allowedDevOrigins ?? []));',
+  ].join('\n');
+  const output = execFileSync(
+    process.execPath,
+    ['--input-type=module', '--eval', script],
+    { encoding: 'utf8', env: { ...process.env, NODE_ENV: 'development' } },
+  );
+  return JSON.parse(output) as string[];
+}
+
 describe('next.config rewrites — chat runtime same-origin transport', () => {
   beforeEach(() => {
     delete process.env.NEXT_PUBLIC_API_URL;
@@ -108,5 +122,14 @@ describe('next.config images - 1688 CDN proxying', () => {
       { protocol: 'https', hostname: '**.tbcdn.cn' },
       { protocol: 'https', hostname: '**.taobaocdn.com' },
     ]);
+  });
+});
+
+describe('next.config development origins', () => {
+  it('allows the loopback host used by isolated browser QA without a wildcard', async () => {
+    const origins = await getAllowedDevOrigins();
+
+    expect(origins).toContain('127.0.0.1');
+    expect(origins).not.toContain('*');
   });
 });

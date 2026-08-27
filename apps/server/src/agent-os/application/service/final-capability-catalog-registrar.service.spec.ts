@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
+import type { CapabilityDefinition } from '../../../common/capability-definition';
 import {
   defineCapabilityComposition,
   type CapabilityCompositionProvider,
@@ -100,6 +101,9 @@ describe('FinalCapabilityCatalogRegistrar', () => {
 
   it('uses one strict owner-prefixed Zod definition per implementation without server authority inputs', () => {
     for (const definition of FINAL_CAPABILITY_DEFINITIONS) {
+      const resultSummary = (definition as CapabilityDefinition & {
+        resultSummary?: string;
+      }).resultSummary;
       expect(definition.key).toMatch(
         new RegExp(`^${definition.ownerDomain}\\.`),
       );
@@ -108,6 +112,10 @@ describe('FinalCapabilityCatalogRegistrar', () => {
       );
       expect(definition.inputSchema).toBeInstanceOf(z.ZodType);
       expect(definition.outputSchema).toBeInstanceOf(z.ZodType);
+      expect(typeof resultSummary).toBe('string');
+      expect(resultSummary ?? '').toMatch(/[가-힣]/);
+      expect(resultSummary?.trim().length ?? 0).toBeGreaterThan(0);
+      expect(resultSummary?.length ?? Infinity).toBeLessThanOrEqual(1_000);
       expectStrictZodObjectOrUnion(definition.inputSchema);
       expectStrictZodObjectOrUnion(definition.outputSchema);
       expect(

@@ -8,6 +8,7 @@ export const PRODUCTS_CAPABILITIES = [
   {
     key: 'products.create_listing_generation_package', ownerDomain: 'products', ownerInputPort: 'products.createListingGenerationPackage',
     description: 'Enqueue deterministic listing generation for an existing sourcing candidate.',
+    resultSummary: '상품 등록용 생성 작업을 시작했습니다.',
     inputSchema: z.object({
       candidateId: Uuid,
       productName: z.string().trim().max(500).nullable().optional(), imageUrls: z.array(z.string().url()).max(40).optional(),

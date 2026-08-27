@@ -278,6 +278,7 @@ model default is an Office environment contract.
 | `KIDITEM_APPLICATION_VERSION` | Every API/worker deployment | Deployment identity | Written from the immutable Office manifest. |
 | `KIDITEM_GIT_SHA` | Every API/worker deployment | Deployment identity | Full immutable deployment SHA, written from the manifest. |
 | `KIDITEM_AGENT_GATEWAY_TOKEN_FILE` | Every API deployment | Gateway installation-token reader | Container path to the mounted Docker secret file; the raw 43-character bearer is never an environment value. The worker does not receive it. |
+| `KIDITEM_COPILOTKIT_SQLITE_PATH` | Every production API deployment using CopilotKit interaction history | API-local CopilotKit SQLite event runner | Explicit persistent SQLite file for completed canonical AG-UI event history only. Office fixes it to `/var/lib/kiditem/agent-os/copilotkit-events.sqlite` on the API-only `kiditem_copilotkit-event-history` volume; the worker never mounts or opens it. Tests use `:memory:` and development defaults below `.kiditem/agent-os/`. It is never a live-turn/stop authority or a provider transcript store. |
 | `KIDITEM_AGENT_GATEWAY_INSTALLATION_ID` | Multiple distinguishable installations are operated | Gateway control session | Optional bounded operational label; defaults to `gateway-installation` and is not an authority credential. |
 | `MCP_SDK_GENERATION` | Every API deployment | MCP readiness canary | Fixed non-secret value `v2`; another or missing value fails Gateway readiness. |
 | `MCP_PROTOCOL_NEGOTIATION` | Every API deployment | MCP readiness canary | Fixed non-secret value `auto`; there is no legacy fallback. |
@@ -302,9 +303,10 @@ of browser or model env values. Its strict fields are `controlOrigin`
 `workspace`, and optional host-account `loginRoot`. Platform is derived as
 `macos | windows`; active-turn capacity is the code-owned value `4`. A user
 chooses runtime, model, and reasoning effort for each conversation/turn. The
-maximum four-hour execution binding is in-memory request authentication and turn
-correlation only; it is not a persistent session or Agent/capability/delegation
-grant.
+Gateway creates one process-scoped MCP transport token at startup and reuses it
+across ordinary turns. The token is not a persistent conversation session or
+Agent/capability/delegation grant; business authority comes only from Nest's
+current active-turn record.
 
 The browser sees only same-origin `/api/copilotkit`; the Next rewrite points
 directly at the ordinary Nest API origin and is not a CopilotKit public key or

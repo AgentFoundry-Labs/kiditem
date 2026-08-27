@@ -3,7 +3,6 @@ import {
   MCP_CONVERSATION_ID_HEADER,
   ModelSchema,
   ProviderEventSchema,
-  ProviderMessageSchema,
   ReasoningEffortSchema,
 } from '@kiditem/shared/agent-runtime';
 import type {
@@ -12,10 +11,9 @@ import type {
   ProviderConversation,
   ProviderConversationSummary,
   ProviderEventSink,
-  SendProviderInput,
   StartProviderTurn,
-} from './provider-conversation.port';
-import { codexDeveloperInstructions } from '../profile/agent-profile.catalog';
+} from '../provider-conversation.port';
+import { codexDeveloperInstructions } from '../../profile/agent-profile.catalog';
 
 type RpcResponse = Readonly<{
   id?: string;
@@ -32,13 +30,19 @@ type ActiveTurn = Readonly<{
   sink: ProviderEventSink;
 }>;
 
+type PendingRequest = Readonly<{
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+  onResult?: (value: unknown) => void;
+}>;
+
 // The current Codex MCP stdio transport contract bounds serialized JSON-RPC
 // lines at 8 MiB. A valid app-server item/completed notification wraps that
 // result in its own JSON-RPC/item envelope, so retain a small allowance.
 const MAX_UPSTREAM_MCP_JSON_RPC_LINE_BYTES = 8 * 1024 * 1024;
 const MAX_APP_SERVER_FRAME_ENVELOPE_BYTES = 64 * 1024;
 const MAX_RPC_FRAME_BYTES = MAX_UPSTREAM_MCP_JSON_RPC_LINE_BYTES + MAX_APP_SERVER_FRAME_ENVELOPE_BYTES;
-const MAX_HISTORY_MESSAGES = 1_000;
+const MAX_CONVERSATION_PAGE_SIZE = 1_000;
 
 export type CodexAppServerFramingFaultCode = 'codex_app_server_output_invalid' | 'codex_app_server_output_too_large';
 
@@ -64,7 +68,7 @@ export interface CodexModelCapability {
  * active-turn state only; top-level thread history stays in Codex.
  */
 export class CodexAppServerSession {
-  private readonly pending = new Map<string, { resolve(value: unknown): void; reject(error: Error): void }>();
+  private readonly pending = new Map<string, PendingRequest>();
   private readonly activeByGatewayTurn = new Map<string, ActiveTurn>();
   private readonly activeByProviderTurn = new Map<string, ActiveTurn>();
   private readonly mcpConfiguredThreads = new Set<string>();
@@ -112,7 +116,7 @@ export class CodexAppServerSession {
     await this.ensureInitialized();
     if (cursor !== undefined && (cursor.length < 1 || cursor.length > 2_000)) throw new Error('codex_app_server_list_invalid');
     const result = await this.request('thread/list', {
-      limit: MAX_HISTORY_MESSAGES,
+      limit: MAX_CONVERSATION_PAGE_SIZE,
       cwd: this.options.workspace,
       archived: false,
       ...(cursor === undefined ? {} : { cursor }),
@@ -157,14 +161,15 @@ export class CodexAppServerSession {
     });
   }
 
-  async history(providerConversationRef: string) {
+  /**
+   * Provider-local continuity/readability probe. It deliberately returns no
+   * provider transcript; canonical UI history belongs to the SQLite AG-UI
+   * runner.
+   */
+  async assertThreadReadable(providerConversationRef: string): Promise<void> {
     await this.ensureInitialized();
-    const result = await this.request('thread/read', { threadId: providerConversationRef, includeTurns: true });
-    const thread = requireThread(result);
-    const turns = Array.isArray(thread.turns) ? thread.turns.map(object).filter((turn): turn is Record<string, unknown> => turn !== null) : [];
-    const messages = turns.flatMap((turn) => messagesForTurn(turn));
-    if (messages.length > MAX_HISTORY_MESSAGES) return messages.slice(-MAX_HISTORY_MESSAGES);
-    return messages;
+    const result = await this.request('thread/read', { threadId: providerConversationRef, includeTurns: false });
+    requireThread(result);
   }
 
   async rename(providerConversationRef: string, title: string): Promise<void> {
@@ -197,7 +202,7 @@ export class CodexAppServerSession {
       assertFullAccess(resumed);
       this.mcpConfiguredThreads.add(input.providerConversationRef);
     }
-    const started = await this.request('turn/start', {
+    await this.request('turn/start', {
       threadId: input.providerConversationRef,
       input: [textInput(input.message)],
       cwd: this.options.workspace,
@@ -205,25 +210,17 @@ export class CodexAppServerSession {
       sandboxPolicy: { type: 'dangerFullAccess' },
       model: input.model,
       effort: input.reasoningEffort,
-    });
-    const providerTurnId = requiredString(object(started)?.turn && object(object(started)?.turn)?.id, 'turn_id');
-    const active: ActiveTurn = Object.freeze({
-      providerConversationRef: input.providerConversationRef,
-      gatewayTurnId: input.turnId,
-      providerTurnId,
-      sink,
-    });
-    this.activeByGatewayTurn.set(gatewayTurnKey(input.providerConversationRef, input.turnId), active);
-    this.activeByProviderTurn.set(providerTurnKey(input.providerConversationRef, providerTurnId), active);
-    sink(ProviderEventSchema.parse({ kind: 'status', status: 'started' }));
-  }
-
-  async steer(input: SendProviderInput): Promise<void> {
-    const active = this.active(input.providerConversationRef, input.turnId);
-    await this.request('turn/steer', {
-      threadId: active.providerConversationRef,
-      expectedTurnId: active.providerTurnId,
-      input: [textInput(input.message)],
+    }, (started) => {
+      const providerTurnId = requiredString(object(started)?.turn && object(object(started)?.turn)?.id, 'turn_id');
+      const active: ActiveTurn = Object.freeze({
+        providerConversationRef: input.providerConversationRef,
+        gatewayTurnId: input.turnId,
+        providerTurnId,
+        sink,
+      });
+      this.activeByGatewayTurn.set(gatewayTurnKey(input.providerConversationRef, input.turnId), active);
+      this.activeByProviderTurn.set(providerTurnKey(input.providerConversationRef, providerTurnId), active);
+      sink(ProviderEventSchema.parse({ kind: 'status', status: 'started' }));
     });
   }
 
@@ -244,6 +241,10 @@ export class CodexAppServerSession {
     for (const active of this.activeByGatewayTurn.values()) this.finish(active, 'disconnected');
     for (const pending of this.pending.values()) pending.reject(new Error('codex_app_server_closed'));
     this.pending.clear();
+  }
+
+  isClosed(): boolean {
+    return this.closed;
   }
 
   receive(chunk: string): void {
@@ -286,10 +287,14 @@ export class CodexAppServerSession {
     return this.initialized;
   }
 
-  private request(method: string, params: Record<string, unknown>): Promise<unknown> {
+  private request(
+    method: string,
+    params: Record<string, unknown>,
+    onResult?: (value: unknown) => void,
+  ): Promise<unknown> {
     if (this.closed) return Promise.reject(new Error('codex_app_server_closed'));
     const id = randomUUID();
-    const request = new Promise<unknown>((resolve, reject) => this.pending.set(id, { resolve, reject }));
+    const request = new Promise<unknown>((resolve, reject) => this.pending.set(id, { resolve, reject, onResult }));
     let write: void | Promise<void>;
     try {
       write = this.options.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
@@ -324,7 +329,16 @@ export class CodexAppServerSession {
     if (!pending) return;
     this.pending.delete(response.id!);
     if (response.error !== undefined) pending.reject(new Error('codex_app_server_remote_error'));
-    else pending.resolve(response.result);
+    else {
+      try {
+        // This runs while receive() still owns the parsed frame batch, before a
+        // following turn/completed notification can be dispatched.
+        pending.onResult?.(response.result);
+        pending.resolve(response.result);
+      } catch (error) {
+        pending.reject(error instanceof Error ? error : new Error('codex_app_server_response_invalid'));
+      }
+    }
   }
 
   private handleNotification(method: string, params: unknown): void {
@@ -417,31 +431,6 @@ function assertFullAccess(value: unknown): void {
   if (sandbox?.type !== 'dangerFullAccess' || response?.approvalPolicy !== 'never') {
     throw new Error('codex_app_server_permission_profile_mismatch');
   }
-}
-
-function messagesForTurn(turn: Record<string, unknown>) {
-  const createdAt = isoSeconds(turn.startedAt);
-  const items = Array.isArray(turn.items) ? turn.items.map(object).filter((item): item is Record<string, unknown> => item !== null) : [];
-  return items.flatMap((item) => {
-    const id = string(item.id);
-    if (!id) return [];
-    if (item.type === 'userMessage') {
-      const content = Array.isArray(item.content)
-        ? item.content.map(object).flatMap((part) => part?.type === 'text' && typeof part.text === 'string' ? [part.text] : []).join('\n')
-        : '';
-      return content ? [ProviderMessageSchema.parse({ id, role: 'user', content: bound(content, 16_000), createdAt })] : [];
-    }
-    if (item.type === 'agentMessage' && typeof item.text === 'string') {
-      return [ProviderMessageSchema.parse({ id, role: 'assistant', content: bound(item.text, 16_000), createdAt })];
-    }
-    if (item.type === 'mcpToolCall') {
-      const server = bound(string(item.server) ?? 'provider', 100);
-      const tool = bound(string(item.tool) ?? 'tool', 100);
-      const status = bound(string(item.status) ?? 'unknown', 100);
-      return [ProviderMessageSchema.parse({ id, role: 'tool', content: `${server}.${tool}: ${status}`, createdAt })];
-    }
-    return [];
-  });
 }
 
 function textInput(text: string): Readonly<{ type: 'text'; text: string; text_elements: readonly [] }> {

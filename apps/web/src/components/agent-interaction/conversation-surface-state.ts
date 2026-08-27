@@ -37,6 +37,7 @@ interface ConversationSurfaceState {
   selectContext(context: AgentConversationKey | null): void;
   selectConversation(conversation: ConversationSelection): void;
   openConversation(input: NewConversationRequest): NewConversationDraft;
+  ensureDraft(input: NewConversationRequest): NewConversationDraft | null;
   updateDraft(patch: Partial<Omit<NewConversationDraft, 'conversationId'>>): void;
   discardDraft(): void;
   completePromotedDraft(conversationId: string): void;
@@ -75,23 +76,33 @@ export const useConversationSurfaceState = create<ConversationSurfaceState>((set
       : null,
   })),
   openConversation: (input) => {
-    const conversationId = reserveConversationId();
-    const draft: NewConversationDraft = {
-      conversationId,
-      agentKey: input.fixedAgentKey,
-      provider: null,
-      model: null,
-      reasoningEffort: null,
-      message: input.draft ?? '',
-    };
+    const draft = createDraft(input);
     set({
       selectedContext: input.fixedAgentKey,
-      activeConversationId: conversationId,
+      activeConversationId: draft.conversationId,
       pendingDraft: draft,
     });
     if (useStore.getState().activeRightSurface !== 'ai_chat') {
       useStore.getState().selectRightSurface('ai_chat');
     }
+    return draft;
+  },
+  ensureDraft: (input) => {
+    let draft: NewConversationDraft | null = null;
+    set((state) => {
+      if (state.activeConversationId !== null) {
+        draft = state.pendingDraft?.conversationId === state.activeConversationId
+          ? state.pendingDraft
+          : null;
+        return state;
+      }
+      draft = createDraft(input);
+      return {
+        selectedContext: input.fixedAgentKey,
+        activeConversationId: draft.conversationId,
+        pendingDraft: draft,
+      };
+    });
     return draft;
   },
   updateDraft: (patch) => set((state) => {
@@ -139,6 +150,17 @@ function reserveConversationId(): string {
   const conversationId = randomUUID.call(globalThis.crypto);
   if (!conversationId) throw new Error('conversation_id_unavailable');
   return conversationId;
+}
+
+function createDraft(input: NewConversationRequest): NewConversationDraft {
+  return {
+    conversationId: reserveConversationId(),
+    agentKey: input.fixedAgentKey,
+    provider: null,
+    model: null,
+    reasoningEffort: null,
+    message: input.draft ?? '',
+  };
 }
 
 function activeElement(): HTMLElement | null {

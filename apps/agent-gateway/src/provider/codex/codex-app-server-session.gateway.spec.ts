@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { gatewayInstructionProfile } from '../profile/agent-profile.catalog';
+import { gatewayInstructionProfile } from '../../profile/agent-profile.catalog';
 
 const GENERAL_PROFILE = gatewayInstructionProfile(null);
 const SOURCING_PROFILE = gatewayInstructionProfile('sourcing');
@@ -177,7 +177,7 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
     expect(JSON.stringify(output)).not.toContain(MCP_TRANSPORT_TOKEN);
   });
 
-  it('lists top-level provider threads, reads provider history without cache, archives before local deletion, and never starts a turn on reopen', async () => {
+  it('lists top-level provider threads, verifies provider readability without a transcript projection, archives before local deletion, and never starts a turn on reopen', async () => {
     const { CodexAppServerSession } = await import('./codex-app-server-session');
     const firstLines: string[] = [];
     const first = new CodexAppServerSession({ write: (line: string) => { firstLines.push(line); }, workspace: '/gateway/workspace', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', mcpTransportToken: MCP_TRANSPORT_TOKEN });
@@ -199,7 +199,7 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
 
     const reopenLines: string[] = [];
     const reopened = new CodexAppServerSession({ write: (line: string) => { reopenLines.push(line); }, workspace: '/gateway/workspace', mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp', mcpTransportToken: MCP_TRANSPORT_TOKEN });
-    const history = reopened.history('provider-thread-1');
+    const readable = reopened.assertThreadReadable('provider-thread-1');
     answer(reopened, reopenLines, 'initialize', {}); await advance();
     answer(reopened, reopenLines, 'thread/read', {
       thread: {
@@ -215,11 +215,8 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
         }],
       },
     });
-    expect(await history).toEqual([
-      { id: 'user-1', role: 'user', content: 'Provider-owned message', createdAt: '2023-08-23T00:00:00.000Z' },
-      { id: 'assistant-1', role: 'assistant', content: 'Provider-owned answer', createdAt: '2023-08-23T00:00:00.000Z' },
-      { id: 'tool-1', role: 'tool', content: 'kiditem.capability.invoke: completed', createdAt: '2023-08-23T00:00:00.000Z' },
-    ]);
+    await expect(readable).resolves.toBeUndefined();
+    expect(request(reopenLines, 'thread/read').params).toEqual({ threadId: 'provider-thread-1', includeTurns: false });
     expect(reopenLines.map((line) => JSON.parse(line).method)).not.toContain('turn/start');
 
     const archived = reopened.archive('provider-thread-1');
@@ -308,7 +305,7 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
     expect(() => session.receive('\n')).not.toThrow();
   });
 
-  it('uses exact provider turn coordinates for steer and interrupt, and waits for the provider terminal event before closing the turn', async () => {
+  it('uses exact provider turn coordinates for interrupt, and waits for the provider terminal event before closing the turn', async () => {
     const { CodexAppServerSession } = await import('./codex-app-server-session');
     const lines: string[] = [];
     const events: unknown[] = [];
@@ -322,13 +319,8 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
     answer(session, lines, 'thread/resume', threadResponse('provider-thread-1')); await advance();
     answer(session, lines, 'turn/start', { turn: { id: 'provider-turn-1' } }); await start;
 
-    const steer = session.steer({ providerConversationRef: 'provider-thread-1', turnId: 'gateway-turn-1', message: 'Use current facts.' });
-    answer(session, lines, 'turn/steer', {}); await steer;
     const interrupt = session.interrupt({ providerConversationRef: 'provider-thread-1', turnId: 'gateway-turn-1' });
     answer(session, lines, 'turn/interrupt', {}); await interrupt;
-    expect(request(lines, 'turn/steer').params).toEqual({
-      threadId: 'provider-thread-1', expectedTurnId: 'provider-turn-1', input: [{ type: 'text', text: 'Use current facts.', text_elements: [] }],
-    });
     expect(request(lines, 'turn/interrupt').params).toEqual({ threadId: 'provider-thread-1', turnId: 'provider-turn-1' });
 
     expect(events).toEqual([{ kind: 'status', status: 'started' }]);
@@ -341,6 +333,43 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
       { kind: 'assistant.delta', delta: 'A bounded answer.' },
       { kind: 'status', status: 'interrupted' },
     ]);
+  });
+
+  it('registers a turn before handling a terminal notification coalesced immediately after its start response', async () => {
+    const { CodexAppServerSession } = await import('./codex-app-server-session');
+    const lines: string[] = [];
+    const events: unknown[] = [];
+    const session = new CodexAppServerSession({
+      write: (line: string) => { lines.push(line); },
+      workspace: '/gateway/workspace',
+      mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: MCP_TRANSPORT_TOKEN,
+    });
+    const started = session.startTurn({
+      providerConversationRef: 'provider-thread-1',
+      conversationId: 'conversation-1',
+      turnId: 'gateway-turn-1',
+      message: 'Work',
+      model: 'gpt-5.6',
+      reasoningEffort: 'medium',
+      instructionProfile: GENERAL_PROFILE,
+    }, (event: unknown) => events.push(event));
+    await advance();
+    answer(session, lines, 'initialize', {}); await advance();
+    answer(session, lines, 'thread/resume', threadResponse('provider-thread-1')); await advance();
+
+    const turnStart = request(lines, 'turn/start');
+    session.receive(`${JSON.stringify({ jsonrpc: '2.0', id: turnStart.id, result: { turn: { id: 'provider-turn-1' } } })}\n${notification('turn/completed', {
+      threadId: 'provider-thread-1',
+      turn: { id: 'provider-turn-1', status: 'completed', items: [] },
+    })}`);
+    await started;
+
+    expect(events).toEqual([
+      { kind: 'status', status: 'started' },
+      { kind: 'status', status: 'completed' },
+    ]);
+    expect(session).not.toHaveProperty('steer');
   });
 
   it('normalizes only MCP tool lifecycle names and statuses from app-server item notifications', async () => {

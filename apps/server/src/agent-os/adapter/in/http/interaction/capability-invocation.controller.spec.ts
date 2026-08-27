@@ -7,14 +7,23 @@ const INVOCATION_ID = '00000000-0000-4000-8000-000000000003';
 
 describe('CapabilityInvocationController', () => {
   it('derives organization scope for an invocation read', async () => {
-    const invocations = { getReceipt: vi.fn().mockResolvedValue({ id: INVOCATION_ID }) };
+    const receipt = {
+      capabilityKey: 'supply.submit_purchase_order',
+      status: 'succeeded',
+      approvalStatus: 'not_required',
+      approvalExpiresAt: null,
+      result: {
+        summary: '발주서를 만들었습니다.',
+        resourceRefs: [{ kind: 'purchase_order', id: 'purchase-order-1', version: null }],
+        operationRefs: [],
+      },
+    };
+    const invocations = { getReceipt: vi.fn().mockResolvedValue(receipt) };
     const controller = new CapabilityInvocationController(invocations as never, {
       decide: vi.fn(),
     } as never);
 
-    await expect(controller.get(INVOCATION_ID, ORGANIZATION_ID)).resolves.toEqual({
-      id: INVOCATION_ID,
-    });
+    await expect(controller.get(INVOCATION_ID, ORGANIZATION_ID)).resolves.toEqual(receipt);
     expect(invocations.getReceipt).toHaveBeenCalledWith({
       invocationId: INVOCATION_ID,
       organizationId: ORGANIZATION_ID,
@@ -23,14 +32,11 @@ describe('CapabilityInvocationController', () => {
 
   it('accepts only a bounded user approval decision and never accepts an input hash', async () => {
     const receipt = {
-      id: INVOCATION_ID,
       capabilityKey: 'sourcing.publish_listing',
-      actingAgentKey: 'sourcing',
-      canonicalInput: { listingId: 'listing-1' },
       status: 'pending',
       approvalStatus: 'approved',
       approvalExpiresAt: new Date('2026-08-26T00:00:00.000Z'),
-      approvalRisk: 'high',
+      result: null,
     };
     const invocations = { getReceipt: vi.fn().mockResolvedValue(receipt) };
     const approvals = {

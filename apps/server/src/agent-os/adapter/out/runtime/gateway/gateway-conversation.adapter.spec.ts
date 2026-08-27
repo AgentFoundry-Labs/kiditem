@@ -122,7 +122,9 @@ describe('GatewayConversationAdapter', () => {
       reasoningEffort: 'low',
     });
 
-    expect(queue.enqueue).toHaveBeenCalledWith({ kind: 'conversation.list', commandId: 'command-1' });
+    expect(queue.enqueue).toHaveBeenCalledWith({
+      kind: 'conversation.list', commandId: 'command-1', organizationId: OWNER.organizationId,
+    });
     expect(queue.enqueueTurnStart).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: OWNER.organizationId,
       initiatingUserId: OWNER.userId,
@@ -183,7 +185,7 @@ describe('GatewayConversationAdapter', () => {
     expect(queue.terminal).toHaveBeenCalledWith('conversation-1', 'turn-1');
   });
 
-  it('keeps the active turn until a provider terminal event, even after interrupt acknowledgement or browser-stream disconnect', async () => {
+  it('keeps the active turn until a provider terminal event after an interrupt acknowledgement', async () => {
     const queue = { enqueue: vi.fn(), enqueueTurnStart: vi.fn(), terminal: vi.fn() };
     const broker = {
       nextCommandId: vi.fn().mockReturnValue('command-1'),
@@ -196,10 +198,9 @@ describe('GatewayConversationAdapter', () => {
     const adapter = new GatewayConversationAdapter(queue as never, broker as never, { snapshot: vi.fn() } as never);
 
     await adapter.interrupt({ ...OWNER, conversationId: 'conversation-1', turnId: 'turn-1' });
-    adapter.disconnect({ ...OWNER, conversationId: 'conversation-1', turnId: 'turn-1' });
 
     expect(queue.terminal).not.toHaveBeenCalled();
-    expect(broker.terminal).toHaveBeenCalledWith('conversation-1', 'turn-1', 'disconnected');
+    expect(broker.terminal).not.toHaveBeenCalled();
     expect(queue.enqueueTurnStart).not.toHaveBeenCalled();
   });
 

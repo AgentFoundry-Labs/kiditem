@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { gatewayInstructionProfile } from '../profile/agent-profile.catalog';
+import { gatewayInstructionProfile } from '../../profile/agent-profile.catalog';
 
 describe('CodexConversationProvider', () => {
   it('adapts provider-persistent app-server thread methods without exposing thread IDs beyond the provider port', async () => {
@@ -14,10 +14,9 @@ describe('CodexConversationProvider', () => {
     await provider.rename('thread-1', 'Renamed');
     await provider.delete('thread-1');
     await provider.startTurn({ providerConversationRef: 'thread-1', conversationId: 'conversation-1', turnId: 'turn-1', message: 'Work', model: 'gpt-5.6', reasoningEffort: 'medium', instructionProfile: gatewayInstructionProfile(null) }, () => undefined);
-    await provider.sendInput({ providerConversationRef: 'thread-1', turnId: 'turn-1', message: 'More' });
     await provider.interrupt({ providerConversationRef: 'thread-1', turnId: 'turn-1' });
 
-    expect(session.calls).toEqual(['create', 'rename', 'archive', 'start', 'steer', 'interrupt']);
+    expect(session.calls).toEqual(['create', 'rename', 'archive', 'start', 'interrupt']);
     await expect(provider.readiness()).resolves.toMatchObject({ runtime: 'codex_cli', version: '0.149.1' });
   });
 
@@ -81,6 +80,7 @@ type Conversation = { providerConversationRef: string; title: string; createdAt:
 type ConversationPage = { conversations: Conversation[]; nextCursor: string | null };
 
 class FakeCodexSession {
+  closed = false;
   calls: string[] = [];
   archived: string[] = [];
   pageCursors: Array<string | undefined> = [];
@@ -95,7 +95,6 @@ class FakeCodexSession {
     return page ?? { conversations: this.threads, nextCursor: null };
   }
   async createConversation() { this.calls.push('create'); return { providerConversationRef: 'thread-1', title: 'Thread', createdAt: '2026-08-23T00:00:00.000Z', updatedAt: '2026-08-23T00:00:00.000Z' }; }
-  async history() { this.calls.push('history'); return []; }
   async rename() { this.calls.push('rename'); }
   async archive(providerConversationRef: string) {
     this.calls.push('archive');
@@ -103,8 +102,8 @@ class FakeCodexSession {
     if (this.archiveFailure) throw new Error('raw app-server archive failure');
   }
   async startTurn() { this.calls.push('start'); }
-  async steer() { this.calls.push('steer'); }
   async interrupt() { this.calls.push('interrupt'); }
+  isClosed() { return this.closed; }
 }
 
 function conversation(providerConversationRef: string): Conversation {

@@ -97,7 +97,7 @@ const PanelFrame = forwardRef<HTMLElement, {
       aria-label="오른쪽 보조 패널"
       className={mobile
         ? 'fixed inset-0 z-[100] flex w-full max-w-none flex-col bg-background shadow-xl outline-none'
-        : 'fixed inset-y-0 right-0 z-[90] flex w-[420px] max-w-full flex-col border-l bg-background shadow-xl'}
+        : 'fixed inset-y-0 right-0 z-[90] flex w-[352px] max-w-full flex-col border-l bg-background shadow-sm'}
     >
       {children}
     </section>

@@ -1,7 +1,9 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ProcessCallbacks, ProcessExit } from '../platform/process-supervisor';
-import { gatewayInstructionProfile } from '../profile/agent-profile.catalog';
+import type { ProcessCallbacks, ProcessExit } from '../../platform/process-supervisor';
+import { gatewayInstructionProfile } from '../../profile/agent-profile.catalog';
+import { GatewayEventOutbox } from '../../control/gateway-event-outbox';
+import { NativeGatewayControlSession } from '../../control/native-gateway-control-session';
 
 const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }));
 vi.mock('node:child_process', () => ({ spawn: spawnMock }));
@@ -20,6 +22,7 @@ describe('startCodexAppServer', () => {
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
       mcpTransportToken: 'T'.repeat(43),
       supervisor,
+      onFatal: () => undefined,
     } as never);
 
     expect(supervisor.launches).toEqual([expect.objectContaining({
@@ -43,6 +46,7 @@ describe('startCodexAppServer', () => {
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
       mcpTransportToken: 'T'.repeat(43),
       supervisor,
+      onFatal: () => undefined,
     } as never);
     const catalogFrame = notification('item/started', { payload: 'a'.repeat(20_595) });
     const resultFrame = notification('item/completed', { payload: 'b'.repeat(44_144) });
@@ -67,7 +71,7 @@ describe('startCodexAppServer', () => {
     await expect(catalog).resolves.toEqual([{ model: 'gpt-5.6', reasoningEfforts: ['medium'] }]);
   });
 
-  it('keeps the session usable after a valid Codex MCP item-completed frame exceeds 64 KiB', async () => {
+  it('keeps the session usable after a valid Codex MCP item-completed frame carries an 8 MiB result', async () => {
     const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const { startCodexAppServer } = await import('./codex-app-server-process');
     const supervisor = new RecordingSupervisor();
@@ -78,6 +82,7 @@ describe('startCodexAppServer', () => {
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
       mcpTransportToken: 'T'.repeat(43),
       supervisor,
+      onFatal: () => undefined,
     } as never);
     const events: unknown[] = [];
     const started = process.session.startTurn({
@@ -97,7 +102,7 @@ describe('startCodexAppServer', () => {
     answer(supervisor, 'turn/start', { turn: { id: 'provider-turn-1' } });
     await started;
 
-    const mcpResult = 'r'.repeat(64 * 1024);
+    const mcpResult = 'r'.repeat(8 * 1024 * 1024);
     const completed = notification('item/completed', {
       threadId: 'provider-thread-1',
       turnId: 'provider-turn-1',
@@ -118,8 +123,8 @@ describe('startCodexAppServer', () => {
         durationMs: 1,
       },
     });
-    expect(Buffer.byteLength(completed, 'utf8')).toBeGreaterThan(64 * 1024);
-    expect(Buffer.byteLength(completed, 'utf8')).toBeLessThan(128 * 1024);
+    expect(Buffer.byteLength(completed, 'utf8')).toBeGreaterThan(8 * 1024 * 1024);
+    expect(Buffer.byteLength(completed, 'utf8')).toBeLessThan((8 * 1024 * 1024) + (64 * 1024));
 
     supervisor.emitStdout(completed);
     await advance();
@@ -139,7 +144,101 @@ describe('startCodexAppServer', () => {
     await expect(catalog).resolves.toEqual([{ model: 'gpt-5.6', reasoningEfforts: ['medium'] }]);
   });
 
-  it('reports a bounded session framing fault without terminating the provider tree', async () => {
+  it('terminates the supervised provider tree and fails the provider closed after a malformed frame', async () => {
+    const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const [{ startCodexAppServer }, { CodexConversationProvider }] = await Promise.all([
+      import('./codex-app-server-process'),
+      import('./codex-conversation.provider'),
+    ]);
+    const supervisor = new RecordingSupervisor();
+    const process = await startCodexAppServer({
+      runtimeRoot: '/gateway/runtime',
+      workspace: '/gateway/workspace',
+      loginRoot: '/gateway/login',
+      mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: 'T'.repeat(43),
+      supervisor,
+      onFatal: () => undefined,
+    } as never);
+    const provider = new CodexConversationProvider({
+      session: process.session,
+      readiness: { runtime: 'codex_cli', version: '0.149.1', models: ['gpt-5.6'], reasoningEfforts: ['medium'], modelReasoningEfforts: [{ model: 'gpt-5.6', reasoningEfforts: ['medium'] }], loginVerified: true, mcpProtocolRevision: '2026-07-28' },
+    });
+
+    supervisor.emitStdout('{bad}\n');
+    await advance();
+
+    expect(diagnostic).toHaveBeenCalledWith('agent_gateway_codex_app_server_session_framing_fault code=codex_app_server_output_invalid bytes=5');
+    expect(supervisor.process.terminateCalls).toBe(1);
+    await expect(process.session.modelCatalog()).rejects.toThrow('codex_app_server_closed');
+    await expect(provider.readiness()).rejects.toThrow('codex_app_server_closed');
+  });
+
+  it('propagates a malformed Codex frame once through the Gateway control shutdown and provider-tree close', async () => {
+    const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { startCodexAppServer } = await import('./codex-app-server-process');
+    const supervisor = new RecordingSupervisor();
+    const abortInFlight = vi.fn();
+    const dispatcher = {
+      dispatch: vi.fn(),
+      clear: vi.fn(),
+      resetAfterApiRuntimeRegistration: vi.fn(),
+    };
+    let control!: NativeGatewayControlSession;
+    const onFatal = vi.fn(() => { void control.shutdown(); });
+    const process = await startCodexAppServer({
+      runtimeRoot: '/gateway/runtime',
+      workspace: '/gateway/workspace',
+      loginRoot: '/gateway/login',
+      mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: 'T'.repeat(43),
+      supervisor,
+      onFatal,
+    });
+    const onPollLoss = vi.fn(async () => {
+      await process.close();
+      await supervisor.shutdown();
+    });
+    control = new NativeGatewayControlSession({
+      client: {
+        poll: async () => new Promise<never>(() => undefined),
+        postEventBody: async () => ({ eventSeq: 1, accepted: true as const }),
+        abortInFlight,
+      },
+      dispatcher,
+      outbox: new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' }),
+      poll: {
+        kind: 'poll',
+        gatewayInstanceId: 'gateway-1',
+        platform: 'macos',
+        mcpTransportToken: 'A'.repeat(43),
+        runtimeTrain: {
+          controlRevision: 'kiditem-gateway-control-v1',
+          mcpProtocolRevision: '2026-07-28',
+          nodeMajor: 22,
+          codexVersion: '0.149.1',
+          claudeVersion: '2.1.245',
+        },
+      },
+      onPollLoss,
+    });
+    const running = control.run();
+    await advance();
+
+    supervisor.emitStdout('{bad}\n');
+    await advance();
+
+    expect(diagnostic).toHaveBeenCalledWith('agent_gateway_codex_app_server_session_framing_fault code=codex_app_server_output_invalid bytes=5');
+    expect(onFatal).toHaveBeenCalledOnce();
+    await expect(running).rejects.toThrow('gateway_control_stopped');
+    expect(abortInFlight).toHaveBeenCalledOnce();
+    expect(onPollLoss).toHaveBeenCalledOnce();
+    expect(supervisor.process.terminateCalls).toBe(1);
+    expect(supervisor.shutdownCalls).toBe(1);
+    expect(dispatcher.clear).toHaveBeenCalledOnce();
+  });
+
+  it('terminates the supervised provider tree after a true oversized frame without logging its payload', async () => {
     const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const { startCodexAppServer } = await import('./codex-app-server-process');
     const supervisor = new RecordingSupervisor();
@@ -150,13 +249,16 @@ describe('startCodexAppServer', () => {
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
       mcpTransportToken: 'T'.repeat(43),
       supervisor,
+      onFatal: () => undefined,
     } as never);
+    const payload = 'x'.repeat((8 * 1024 * 1024) + (64 * 1024) + 1);
 
-    supervisor.emitStdout('{bad}\n');
+    supervisor.emitStdout(payload);
     await advance();
 
-    expect(diagnostic).toHaveBeenCalledWith('agent_gateway_codex_app_server_session_framing_fault code=codex_app_server_output_invalid bytes=5');
-    expect(supervisor.process.terminateCalls).toBe(0);
+    expect(diagnostic).toHaveBeenCalledWith(`agent_gateway_codex_app_server_session_framing_fault code=codex_app_server_output_too_large bytes=${(8 * 1024 * 1024) + (64 * 1024) + 1}`);
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(payload);
+    expect(supervisor.process.terminateCalls).toBe(1);
     await expect(process.session.modelCatalog()).rejects.toThrow('codex_app_server_closed');
   });
 
@@ -171,6 +273,7 @@ describe('startCodexAppServer', () => {
       mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
       mcpTransportToken: 'T'.repeat(43),
       supervisor,
+      onFatal: () => undefined,
     } as never);
 
     supervisor.emitExit({ code: 73, signal: null });
@@ -179,12 +282,36 @@ describe('startCodexAppServer', () => {
     expect(supervisor.process.terminateCalls).toBe(0);
     await expect(process.session.modelCatalog()).rejects.toThrow('codex_app_server_closed');
   });
+
+  it('propagates a supervisor tree-quiescence fatal to the Gateway lifecycle once and closes the session', async () => {
+    const { startCodexAppServer } = await import('./codex-app-server-process');
+    const supervisor = new RecordingSupervisor();
+    const onFatal = vi.fn();
+    const process = await startCodexAppServer({
+      runtimeRoot: '/gateway/runtime',
+      workspace: '/gateway/workspace',
+      loginRoot: '/gateway/login',
+      mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: 'T'.repeat(43),
+      supervisor,
+      onFatal,
+    } as never);
+    const failure = new Error('provider_process_tree_termination_timeout');
+
+    supervisor.emitFatal(failure);
+    supervisor.emitFatal(failure);
+
+    expect(onFatal).toHaveBeenCalledOnce();
+    expect(onFatal).toHaveBeenCalledWith(failure);
+    expect(process.session.isClosed()).toBe(true);
+  });
 });
 
 class RecordingSupervisor {
   readonly launches: unknown[] = [];
   readonly process = new RecordingProcess();
   private callbacks: ProcessCallbacks = {};
+  shutdownCalls = 0;
 
   async launch(command: unknown, callbacks: ProcessCallbacks = {}) {
     this.launches.push(command);
@@ -192,10 +319,11 @@ class RecordingSupervisor {
     return this.process;
   }
 
-  async shutdown() { return undefined; }
+  async shutdown() { this.shutdownCalls += 1; }
 
   emitStdout(chunk: string): void { this.callbacks.onStdout?.(chunk); }
   emitExit(exit: ProcessExit): void { this.callbacks.onExit?.(exit); }
+  emitFatal(error: Error): void { this.callbacks.onFatal?.(error); }
 }
 
 class RecordingProcess {

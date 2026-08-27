@@ -5,7 +5,11 @@ import {
   McpServer,
   type McpHttpHandler,
 } from '@modelcontextprotocol/server';
-import type { CapabilityResultEnvelope } from '@kiditem/shared/agent-interaction';
+import {
+  CapabilityResultReceiptSchema,
+  type CapabilityResultEnvelope,
+  type CapabilityResultReceipt,
+} from '@kiditem/shared/agent-interaction';
 import type { OperationRun } from '@kiditem/shared/operations';
 import { MUTATION_EFFECTS } from '../../../../common/capability-definition';
 import {
@@ -200,7 +204,9 @@ async function invokeCapability(
     return structuredResult({
       kind: 'completed' as const,
       invocation,
-      result: outcome.result,
+      result: outcome.invocationId
+        ? ownerResultReceipt(outcome.result)
+        : outcome.result,
     });
   } catch (error) {
     if (isOwnerResultAmbiguous(error) && active) {
@@ -268,7 +274,7 @@ function invocationStatus(invocation: {
   id: string;
   status: 'pending' | 'succeeded' | 'failed';
   approvalStatus: 'not_required' | 'pending' | 'approved' | 'rejected' | 'expired';
-  result: CapabilityResultEnvelope | null;
+  result: CapabilityResultReceipt | null;
   error: { code: string; message: string } | null;
   approvalExpiresAt: Date | null;
 }) {
@@ -278,6 +284,15 @@ function invocationStatus(invocation: {
     error: invocation.error,
     approvalExpiresAt: invocation.approvalExpiresAt?.toISOString() ?? null,
   };
+}
+
+/** Mutation execution details stay owner-side; MCP receives its stable receipt. */
+function ownerResultReceipt(result: CapabilityResultEnvelope): CapabilityResultReceipt {
+  return CapabilityResultReceiptSchema.parse({
+    summary: result.summary,
+    resourceRefs: result.resourceRefs,
+    operationRefs: result.operationRefs,
+  });
 }
 
 function operationStatus(operation: OperationRun) {

@@ -184,7 +184,7 @@ describe('PrismaCapabilityInvocationRepository', () => {
   });
 
   it('returns the concurrent finalization winner instead of overwriting it', async () => {
-    const completed = completedEnvelope();
+    const completed = completedReceipt();
     const pending = invocationRow();
     const winner = invocationRow({
       status: 'succeeded',
@@ -291,7 +291,7 @@ function invocationRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function completedEnvelope() {
+function completedReceipt() {
   return {
     summary: 'Listing package created.',
     resourceRefs: [
@@ -302,6 +302,5 @@ function completedEnvelope() {
       },
     ],
     operationRefs: [],
-    output: { candidateId: '00000000-0000-4000-8000-000000000004' },
   };
 }

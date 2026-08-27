@@ -15,6 +15,7 @@ const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 
 function createNextConfig() {
   return {
+  allowedDevOrigins: ['127.0.0.1'],
   output: 'standalone',
   transpilePackages: ['@kiditem/templates'],
   images: {

@@ -6,6 +6,9 @@ import { McpRuntimeReadinessService } from './adapter/in/mcp/readiness-canary-mc
 import { GatewayMcpRuntimeRegistry } from './adapter/out/runtime/gateway/gateway-mcp-runtime.registry';
 import { GatewayControlSessionModule } from './adapter/out/runtime/gateway/gateway-control-session.module';
 import { ConversationController } from './adapter/in/http/interaction/conversation.controller';
+import { ConversationCopilotkitController } from './adapter/in/http/interaction/conversation-copilotkit.controller';
+import { COPILOTKIT_CONVERSATION_HISTORY_TRANSPORT } from './adapter/in/http/interaction/copilotkit-conversation-history.transport';
+import { ConversationSqliteEventHistory } from './adapter/out/history/sqlite/copilotkit-sqlite-event-history';
 import { AgentOsHttpModule } from './agent-os-http.module';
 import { AgentOsInteractionHttpModule } from './agent-os-interaction-http.module';
 import { AgentOsInvocationModule } from './agent-os-invocation.module';
@@ -43,7 +46,17 @@ describe('AgentOsRuntimeHttpModule', () => {
     });
 
     expect(imports).toEqual(expect.arrayContaining([AgentOsHttpModule, GatewayControlSessionModule]));
-    expect(controllers).toContain(ConversationController);
+    expect(controllers).toEqual(expect.arrayContaining([
+      ConversationController,
+      ConversationCopilotkitController,
+    ]));
+    expect(providers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ provide: ConversationSqliteEventHistory }),
+      expect.objectContaining({
+        provide: COPILOTKIT_CONVERSATION_HISTORY_TRANSPORT,
+        useExisting: ConversationSqliteEventHistory,
+      }),
+    ]));
     expect(rendered).not.toMatch(/Prisma|ConversationRepository|ConversationPreferenceStore|conversation-preferences\.json/i);
   });
 });

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 describe('Gateway control contract', () => {
-  it('round-trips only the ten bounded Gateway command shapes, including browser-addressed conversations and preference requests', async () => {
+  it('round-trips only start and exact interrupt turn commands, without provider-history or steer commands', async () => {
     const { GatewayCommandSchema } = await import('./control');
     const base = { commandId: 'command-1' };
+    const organizationId = 'organization-1';
     const preferences = {
       schemaVersion: 1,
       contexts: {
@@ -16,6 +17,7 @@ describe('Gateway control contract', () => {
     const conversationCreate = {
       ...base,
       kind: 'conversation.create',
+      organizationId,
       conversationId: 'browser-reserved-conversation-1',
       runtime: 'codex_cli',
       agentKey: null,
@@ -31,45 +33,54 @@ describe('Gateway control contract', () => {
       reasoningEffort: 'medium',
     };
     const commands = [
-      { ...base, kind: 'conversation.list' },
+      { ...base, kind: 'conversation.list', organizationId },
       conversationCreate,
-      { ...base, kind: 'conversation.history', conversationId: 'conversation-1' },
-      { ...base, kind: 'conversation.rename', conversationId: 'conversation-1', title: 'Renamed' },
-      { ...base, kind: 'conversation.delete', conversationId: 'conversation-1' },
+      { ...base, kind: 'conversation.rename', organizationId, conversationId: 'conversation-1', title: 'Renamed' },
+      { ...base, kind: 'conversation.delete', organizationId, conversationId: 'conversation-1' },
       preferencesGet,
       preferencesSet,
       {
         ...base,
         kind: 'turn.start',
+        organizationId,
         conversationId: 'conversation-1',
         turnId: 'turn-1',
         message: 'Summarize the open sourcing work.',
         model: 'gpt-5.6',
         reasoningEffort: 'medium',
       },
-      { ...base, kind: 'turn.input', conversationId: 'conversation-1', turnId: 'turn-1', message: 'Use the latest supplier facts.' },
-      { ...base, kind: 'turn.interrupt', conversationId: 'conversation-1', turnId: 'turn-1' },
+      { ...base, kind: 'turn.interrupt', organizationId, conversationId: 'conversation-1', turnId: 'turn-1' },
     ];
 
     expect(commands.map((command) => GatewayCommandSchema.parse(command).kind)).toEqual([
       'conversation.list',
       'conversation.create',
-      'conversation.history',
       'conversation.rename',
       'conversation.delete',
       'conversation.preferences.get',
       'conversation.preferences.set',
       'turn.start',
-      'turn.input',
       'turn.interrupt',
     ]);
     expect(GatewayCommandSchema.parse(conversationCreate)).toEqual(conversationCreate);
     expect(GatewayCommandSchema.parse(preferencesGet)).toEqual(preferencesGet);
     expect(GatewayCommandSchema.parse(preferencesSet)).toEqual(preferencesSet);
+    expect(GatewayCommandSchema.safeParse({ ...base, kind: 'conversation.history', organizationId, conversationId: 'conversation-1' }).success)
+      .toBe(false);
+    expect(GatewayCommandSchema.safeParse({
+      ...base,
+      kind: 'turn.input',
+      organizationId,
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      message: 'Do not steer a live provider turn.',
+    }).success).toBe(false);
     expect(GatewayCommandSchema.safeParse({ ...base, kind: 'conversation.preferences.loaded', preferences }).success).toBe(false);
     expect(GatewayCommandSchema.safeParse({ ...base, kind: 'conversation.preferences.updated', preferences }).success).toBe(false);
     expect(GatewayCommandSchema.safeParse({ ...preferencesSet, organizationId: 'organization-1' }).success).toBe(false);
     expect(GatewayCommandSchema.safeParse({ ...preferencesSet, userId: 'user-1' }).success).toBe(false);
+    expect(GatewayCommandSchema.safeParse({ ...conversationCreate, organizationId: undefined }).success).toBe(false);
+    expect(GatewayCommandSchema.safeParse({ ...conversationCreate, userId: 'user-1' }).success).toBe(false);
   });
 
   it('round-trips strict preference result events and keeps them outside the command union', async () => {
@@ -114,6 +125,7 @@ describe('Gateway control contract', () => {
     const turn = {
       kind: 'turn.start',
       commandId: 'command-1',
+      organizationId: 'organization-1',
       conversationId: 'conversation-1',
       turnId: 'turn-1',
       message: 'Hello',

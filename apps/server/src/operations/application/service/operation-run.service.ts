@@ -118,8 +118,16 @@ export class OperationRunService
     organizationId: string;
     operationKey: string;
     idempotencyKey: string;
+    expectedInput?: Record<string, unknown>;
   }): Promise<OperationRun | null> {
     const existing = await this.repository.findByIdempotencyKey(input);
+    if (existing && input.expectedInput !== undefined) {
+      const expectedInput = this.registry.parseInput(
+        input.operationKey,
+        input.expectedInput,
+      );
+      this.assertMatchingIdempotencyInput(existing.input, expectedInput);
+    }
     return existing && !this.isEphemeral(existing) ? this.toWire(existing) : null;
   }
 

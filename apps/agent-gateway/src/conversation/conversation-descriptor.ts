@@ -5,6 +5,7 @@ import {
   ProviderRuntimeSchema,
   ReasoningEffortSchema,
 } from '@kiditem/shared/agent-runtime';
+import { OrganizationIdSchema } from '@kiditem/shared/identifiers';
 
 /**
  * The sole durable Gateway-local conversation state. Provider history, MCP
@@ -13,6 +14,8 @@ import {
  */
 export const ConversationDescriptorSchema = z.object({
   id: z.string().trim().min(1).max(200),
+  /** Server-derived organization authority; never returned to browser DTOs. */
+  organizationId: OrganizationIdSchema,
   runtime: ProviderRuntimeSchema,
   providerConversationRef: z.string().trim().min(1).max(500),
   agentKey: AgentKeySchema.nullable(),
@@ -24,4 +27,4 @@ export const ConversationDescriptorSchema = z.object({
   lastModel: ModelSchema.optional(),
   lastReasoningEffort: ReasoningEffortSchema.optional(),
 }).strict();
-export type ConversationDescriptor = z.infer<typeof ConversationDescriptorSchema>;
+export type ConversationDescriptor = z.output<typeof ConversationDescriptorSchema>;

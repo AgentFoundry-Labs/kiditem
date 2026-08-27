@@ -26,6 +26,7 @@ const INVOCATION_ID = '00000000-0000-4000-8000-000000000003';
 const OPERATION_ID = '00000000-0000-4000-8000-000000000004';
 const READ_CAPABILITY = 'analytics.readOverview';
 const MUTATION_CAPABILITY = 'supply.create_purchase_order_draft';
+const MUTATION_RESULT_CAPABILITY = 'channels.submit_wing_thumbnail';
 const AMBIGUOUS_CAPABILITY = 'supply.submit_purchase_order';
 const CONFLICT_CAPABILITY = 'supply.request_key_conflict';
 const PROVIDER_FAILURE_CAPABILITY = 'sourcing.provider_failure';
@@ -214,6 +215,34 @@ describe('KidItem stateless capability MCP server', () => {
         message: 'M'.repeat(1_000),
       });
       expect(dependencies.operations.get).toHaveBeenCalledWith(ORGANIZATION_ID, OPERATION_ID);
+    } finally {
+      await handler.close();
+    }
+  });
+
+  it('never exposes owner-local mutation output through the MCP receipt', async () => {
+    const { handler } = makeHandler();
+    try {
+      const mutation = await call(handler, 'tools/call', {
+        name: 'capability_invoke',
+        arguments: {
+          capabilityKey: MUTATION_RESULT_CAPABILITY,
+          requestKey: 'wing-thumbnail-1',
+          actingAgentKey: 'merchandising',
+          input: { generationId: '00000000-0000-4000-8000-000000000005' },
+        },
+      });
+
+      expect(mutation.result.structuredContent).toMatchObject({
+        kind: 'completed',
+        invocation: { id: INVOCATION_ID, status: 'pending' },
+        result: {
+          summary: 'Thumbnail registration completed.',
+          resourceRefs: [],
+          operationRefs: [],
+        },
+      });
+      expect(mutation.result.structuredContent.result).not.toHaveProperty('output');
     } finally {
       await handler.close();
     }
@@ -432,6 +461,19 @@ function makeHandler(): {
             status: 'pending' as const,
             approvalStatus: 'pending' as const,
             approvalExpiresAt: new Date('2026-08-26T00:00:00.000Z'),
+          };
+        }
+        if (capabilityKey === MUTATION_RESULT_CAPABILITY) {
+          return {
+            kind: 'completed' as const,
+            invocationId: INVOCATION_ID,
+            status: 'succeeded' as const,
+            result: {
+              summary: 'Thumbnail registration completed.',
+              resourceRefs: [],
+              operationRefs: [],
+              output: { screenshotPath: '/tmp/host-only/wing-capture.png' },
+            },
           };
         }
         return {

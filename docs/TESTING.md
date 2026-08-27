@@ -71,25 +71,35 @@ KID-25의 provider-native runtime은 다음 경계를 따로 증명한다.
   `CapabilityInvocation` 모델, 정확한 Agent/domain/capability/MCP 수, active
   credential·secret 비영속, ephemeral Gateway control-state 비영속을 고정한다.
 - `apps/server/src/agent-os` focused tests는 authenticated conversation facade,
-  exact-input approval, request-key idempotency, stateless MCP `2026-07-28`,
-  owner-domain port dispatch를 검증한다. Real PostgreSQL race suite는 같은 입력
+  exact create-ID replay/title-drift conflict, CopilotKit real HTTP
+  `agent/run → agent/connect` completed-event replay, request-key idempotency,
+  stateless MCP `2026-07-28`, owner-domain port dispatch를 검증한다. SQLite
+  adapter/runner tests는 organization namespace, restart, subscriber departure,
+  exact stop, exact deletion을 검증한다. Real PostgreSQL race suite는 같은 입력
   replay, 다른 입력 conflict, concurrent approval, ambiguous owner 결과를
   실제 unique/conditional-write 경계에서 증명한다.
-- `apps/agent-gateway` tests는 outbound long-poll/event 계약, provider-local
-  conversation/history, serialized descriptor/preference state, provider-first
-  exact deletion, active-turn cleanup, explicit model/effort, macOS process
-  supervision과 deterministic Windows 계약을 다룬다. Provider login과 history는
-  host account가 소유하며 Nest, DB, worker, 브라우저로 복사하지 않는다.
+- `apps/agent-gateway` tests는 outbound long-poll/event 계약, provider-native
+  conversation/session continuity, serialized descriptor/preference state,
+  provider-first exact deletion, internal parent-turn cleanup, explicit
+  model/effort, macOS process supervision과 deterministic Windows 계약을
+  다룬다. Provider login과 session continuity는 host account가 소유하며 Nest,
+  DB, worker, 브라우저로 복사하지 않는다. Canonical completed AG-UI history는
+  Gateway가 아니라 API-local SQLite runner 계약으로 별도 검증한다.
 - `apps/web` focused tests는 authenticated route-stable
   `ConversationProvider`/`RuntimeHost`, Agent OS history versus global chat
   presentation, and the one `notifications | ai_chat | null`
-  `RightAuxiliaryPanel` state machine을 검증한다. Desktop은 고정 420 px
-  non-modal panel, viewport 768 px 미만은 full-width modal drawer이며 focus와
-  close behavior도 같은 contract에 포함한다.
+  `RightAuxiliaryPanel` state machine을 검증한다. 1536 px 이상 (`2xl`) desktop은
+  정확히 352 px push dock으로 work surface 폭을 줄이고, 768-1535 px tablet은
+  정확히 352 px overlay, 768 px 미만 mobile은 full-width modal drawer를 쓴다.
+  Shared 256/64 sidebar shell, desktop preference continuity, panel/Agent OS
+  shared conversation primitives, focus와 close behavior도 같은 contract에
+  포함한다.
 - Cutover regression tests require retired presentation paths to be absent,
   including `PanelSheet`, panel-open stores, and duplicate conversation UI.
-  `DashboardChartPanel.agent-os-cutover.regression-1.spec.ts`
-  keeps Dashboard Agent OS labels, charts, cards, and actions unchanged.
+  Approved Agent OS tree, narrow-composer/draft-parity, structured response,
+  business-evidence, card, and settings visual contracts remain covered, while
+  `DashboardChartPanel.agent-os-cutover.regression-1.spec.ts` keeps Dashboard
+  Agent OS labels, charts, cards, and actions unchanged.
 - `npm run qa:agent-os:clean-cutover`는 자체 Testcontainer만 대상으로 legacy
   rows를 버리고 one-model schema를 적용한다. 개발/Office DB, `--force-reset`,
   검증되지 않은 URL은 거절한다. `--serve-browser-qa`는 내장 deterministic
@@ -222,18 +232,30 @@ npm run test:integration -- src/inventory/__tests__/inventory-flow.pg.integratio
 Final Agent OS에는 generic Task, Attempt, KidItem-owned transcript 또는 browser-owned
 session graph가 없다. `npm run smoke:interaction-os`는 authenticated facade에서
 bounded disposable conversation create의 exact-ID replay와 title-drift `409`,
-preference read/set/read, provider history, exact disposable deletion을 확인한 뒤
-정확히 다섯 MCP tool, 한 read invocation, 실행하지 않는 approval-pending mutation
-sequence를 확인한다. Preference traffic은 native serialized state로 끝나며
-PostgreSQL persistence를 뜻하지 않는다. Real PostgreSQL integration specs는 durable
-`CapabilityInvocation`, exact-input approval, owner idempotency, Operation,
+preference read/set/read, fresh disposable Conversation의 exact public
+`agent/connect` SSE contract, empty local namespace, exact disposable deletion을
+확인한다. 이 smoke는 completed history를 seed하거나 provider turn을 시작하지
+않으며, empty-array pseudo-history `[]`를 받아들이지 않는다. Caller-supplied Gateway/MCP token을
+받거나 internal MCP endpoint를 호출하지 않는다.
+
+Completed AG-UI history는 `conversation-copilotkit.controller.spec.ts`의 real HTTP
+`agent/run → agent/connect`와 `ConversationSqliteEventHistory`/sqlite-runner
+deterministic specs가 검증한다. 이 deterministic gate들은 authenticated organization namespace,
+completed-event replay, subscriber departure, restart stale-lock, exact stop, exact
+deletion을 검증한다. Runner의 `isRunning`/`stop`은 Nest in-memory active-turn
+authority를 통해 exact provider interrupt를 검증한다. MCP tool 목록, active-turn authority, read invocation,
+approval-pending mutation은 Gateway loopback integration, MCP server tests, 실제
+provider-turn browser QA가 검증한다. Preference traffic은 native serialized state로
+끝나며 PostgreSQL persistence를 뜻하지 않는다. Real PostgreSQL integration specs는
+durable `CapabilityInvocation`, exact-input approval, owner idempotency, Operation,
 organization fence를 독립 Testcontainer에서 검증한다.
 
 Release acceptance는 `npm run qa:agent-os:clean-cutover`의 명시적으로 격리된
 PostgreSQL 17에 compiled API, Operations worker, Web을 부팅하고 native macOS
 Gateway를 별도 host process로 연결한다. 브라우저 QA는 same-origin
-`/api/copilotkit`, provider history reload, Agent-fixed Sourcing entry, direct
-read, provider-native delegation, approval 후 explicit retry, Operation card,
+`/api/copilotkit`, SQLite completed-event replay with provider-native session
+continuity, Agent-fixed Sourcing entry, direct read, provider-native delegation,
+approval 후 explicit retry, Operation card,
 interrupt/restart/no-auto-turn, four-active-turn cap, conversation deletion의
 business-record 비연쇄 삭제, nginx internal-route 404를 확인한 뒤 모든 process와
 QA container를 종료한다.
@@ -241,10 +263,20 @@ QA container를 종료한다.
 Authenticated browser QA is a release gate for one runtime across Dashboard,
 work routes, and Agent OS; first-send retry without duplicate streams; global
 chat/history presentation replacement; one right auxiliary surface; and the
-desktop/mobile panel contracts. It also verifies exact disposable provider
-deletion, focus restoration, clean retired-surface removal, and the Dashboard
-regression contract without printing credentials, provider payloads, or
-transcripts.
+exact 352 px 1536-plus push/768-1535 overlay/mobile-drawer panel contracts. It
+also verifies the shared 256/64 sidebar shell, exact disposable provider
+deletion, focus restoration, clean retired-surface removal, approved Agent OS
+visuals, and the Dashboard regression contract without printing credentials,
+provider payloads, or transcripts.
+
+CopilotKit runner contract tests are the interaction-lifecycle gate: run owns
+the active stream, connect projects authenticated organization-namespaced local
+SQLite completed history plus live events, and Nest's exact in-memory
+active-turn record answers `isRunning` and sends the exact Gateway provider
+interrupt for `stop`. Web tests verify only route-stable presentation and
+first-send coalescing; they must not recreate a second active-turn,
+interrupt-acknowledgement, stale-settlement, or history-reconciliation state
+machine.
 
 ### Tier 3 추가 시 체크리스트
 

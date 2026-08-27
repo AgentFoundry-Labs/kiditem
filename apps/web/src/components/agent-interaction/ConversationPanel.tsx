@@ -1,9 +1,11 @@
 'use client';
 
 import { History, Plus, Settings2, X } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { ConversationEmptyState } from './ConversationEmptyState';
 import { ConversationFlow } from './ConversationFlow';
+import { ConversationContextMark } from './ConversationContextMark';
 import { useConversationRuntime } from './ConversationRuntimeHost';
 import { conversationContextFor, conversationContexts } from './conversation-context.catalog';
 import { openConversation, useConversationSurfaceState } from './conversation-surface-state';
@@ -11,13 +13,25 @@ import { openConversation, useConversationSurfaceState } from './conversation-su
 export function ConversationPanel({ onClose }: { onClose(): void }) {
   const runtime = useConversationRuntime();
   const selectedContext = useConversationSurfaceState((state) => state.selectedContext);
+  const activeConversationId = useConversationSurfaceState((state) => state.activeConversationId);
+  const pendingDraft = useConversationSurfaceState((state) => state.pendingDraft);
+  const ensureDraft = useConversationSurfaceState((state) => state.ensureDraft);
   const openSettings = useConversationSurfaceState((state) => state.openSettings);
   const [newConversationMenuOpen, setNewConversationMenuOpen] = useState(false);
   const newConversationTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const firstNewConversationItemRef = useRef<HTMLButtonElement | null>(null);
   const context = conversationContextFor(
     runtime.activeConversation?.agentKey ?? runtime.draft?.agentKey ?? selectedContext,
   );
   const title = runtime.activeConversation?.title ?? null;
+
+  useEffect(() => {
+    if (activeConversationId !== null || pendingDraft) return;
+    ensureDraft({ fixedAgentKey: selectedContext });
+  }, [activeConversationId, ensureDraft, pendingDraft, selectedContext]);
+  useEffect(() => {
+    if (newConversationMenuOpen) firstNewConversationItemRef.current?.focus();
+  }, [newConversationMenuOpen]);
 
   const startNewConversation = (agentKey: typeof context.key) => {
     openConversation({ fixedAgentKey: agentKey });
@@ -25,17 +39,20 @@ export function ConversationPanel({ onClose }: { onClose(): void }) {
   };
 
   return (
-    <section aria-label="AI 챗" className="flex h-full min-h-0 flex-col bg-background text-foreground">
-      <header className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3">
-        <div className="min-w-0">
-          <h2
-            data-right-auxiliary-heading
-            tabIndex={-1}
-            className="truncate text-base font-semibold outline-none"
-          >
-            {context.label}
-          </h2>
-          {title ? <p className="mt-0.5 truncate text-xs text-muted-foreground">{title}</p> : null}
+    <section aria-label="AI 챗" className="flex h-full min-h-0 flex-col bg-card text-foreground">
+      <header className="flex shrink-0 items-start justify-between gap-3 border-b bg-card px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <ConversationContextMark contextLabel={context.label} size="md" />
+          <div className="min-w-0">
+            <h2
+              data-right-auxiliary-heading
+              tabIndex={-1}
+              className="truncate text-base font-semibold outline-none"
+            >
+              {title ?? '새 AI 대화'}
+            </h2>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">{context.label}</p>
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <div className="relative">
@@ -66,6 +83,7 @@ export function ConversationPanel({ onClose }: { onClose(): void }) {
                 {conversationContexts.map((candidate) => (
                   <button
                     key={candidate.key ?? 'general'}
+                    ref={candidate.key === null ? firstNewConversationItemRef : undefined}
                     type="button"
                     role="menuitem"
                     onClick={() => startNewConversation(candidate.key)}
@@ -102,13 +120,17 @@ export function ConversationPanel({ onClose }: { onClose(): void }) {
           </button>
         </div>
       </header>
-      {runtime.conversationId ? (
-        <ConversationFlow />
-      ) : (
-        <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
-          {context.placeholder}
-        </div>
-      )}
+      <ConversationFlow
+        emptyState={!runtime.activeConversation ? (
+          <ConversationEmptyState
+            compact
+            contextLabel={context.label}
+            description={context.description}
+            suggestions={context.suggestions}
+            onSuggestion={(message) => runtime.updateDraft({ message })}
+          />
+        ) : undefined}
+      />
     </section>
   );
 }

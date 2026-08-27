@@ -4,7 +4,6 @@ import type {
   ConversationSummary,
   GatewayProviderReadiness,
   ProviderEvent,
-  ProviderMessage,
   SetConversationPreferenceCommand,
 } from '@kiditem/shared/agent-runtime';
 import { z } from 'zod';
@@ -35,8 +34,10 @@ export interface ConversationPort {
   create(input: ConversationOwner & CreateConversationCommand): Promise<ConversationSummary>;
   preferences(owner: ConversationOwner): Promise<ConversationPreferences>;
   setPreference(input: ConversationOwner & SetConversationPreferenceCommand): Promise<ConversationPreferences>;
-  history(input: ConversationCoordinates): Promise<ProviderMessage[]>;
+  /** Verifies the authenticated organization can access a descriptor before adapter-local replay/start. */
+  assertAccessible(input: ConversationCoordinates): Promise<void>;
   isRunning(input: ConversationCoordinates): Promise<boolean>;
+  /** Resolves the stored exact live turn; callers never provide turn or execution authority. */
   stop(input: ConversationCoordinates): Promise<boolean>;
   rename(input: ConversationCoordinates & { title: string }): Promise<ConversationSummary>;
   delete(input: ConversationCoordinates): Promise<void>;
@@ -46,9 +47,6 @@ export interface ConversationPort {
     model: string;
     reasoningEffort: string;
   }): Promise<ConversationLiveTurn>;
-  input(input: ConversationTurnCoordinates & { message: string }): Promise<void>;
-  interrupt(input: ConversationTurnCoordinates): Promise<void>;
-  disconnect(input: ConversationTurnCoordinates): void;
   readiness(): readonly GatewayProviderReadiness[] | null;
 }
 

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 describe('buildClaudeTurnCommand', () => {
   it('uses provider-persistent first-session and resume contracts with a Gateway-owned selected profile and exact native-agent registry', async () => {
     const { buildClaudeTurnCommand } = await import('./claude-command');
-    const { gatewayInstructionProfile } = await import('../profile/agent-profile.catalog');
+    const { gatewayInstructionProfile } = await import('../../profile/agent-profile.catalog');
     vi.stubEnv('USER', 'gateway-user');
     try {
       const first = buildClaudeTurnCommand({

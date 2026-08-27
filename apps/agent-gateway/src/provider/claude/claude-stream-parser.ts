@@ -1,5 +1,5 @@
 import { ProviderEventSchema, type ProviderEvent } from '@kiditem/shared/agent-runtime';
-import { redactForGatewayEvent } from '../security/redaction';
+import { redactForGatewayEvent } from '../../security/redaction';
 
 const MAX_TRACKED_TOOLS = 64;
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { OrganizationIdSchema } from '../identifiers';
 import {
   AgentKeySchema,
   ConversationIdSchema,
@@ -8,7 +9,6 @@ import {
   ConversationTitleSchema,
   ModelSchema,
   ProviderEventSchema,
-  ProviderMessageSchema,
   ProviderReadinessSchema,
   ProviderRuntimeSchema,
   ReasoningEffortSchema,
@@ -55,18 +55,17 @@ export const GatewayReadinessSchema = z.array(GatewayProviderReadinessSchema).le
 });
 
 export const GatewayCommandSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('conversation.list'), commandId: CommandIdSchema, runtime: ProviderRuntimeSchema.optional() }).strict(),
-  z.object({ kind: z.literal('conversation.create'), commandId: CommandIdSchema, conversationId: ConversationIdSchema, runtime: ProviderRuntimeSchema, agentKey: AgentKeySchema.nullable(), title: ConversationTitleSchema }).strict(),
-  z.object({ kind: z.literal('conversation.history'), commandId: CommandIdSchema, conversationId: ConversationIdSchema }).strict(),
-  z.object({ kind: z.literal('conversation.rename'), commandId: CommandIdSchema, conversationId: ConversationIdSchema, title: ConversationTitleSchema }).strict(),
-  z.object({ kind: z.literal('conversation.delete'), commandId: CommandIdSchema, conversationId: ConversationIdSchema }).strict(),
+  z.object({ kind: z.literal('conversation.list'), commandId: CommandIdSchema, organizationId: OrganizationIdSchema, runtime: ProviderRuntimeSchema.optional() }).strict(),
+  z.object({ kind: z.literal('conversation.create'), commandId: CommandIdSchema, organizationId: OrganizationIdSchema, conversationId: ConversationIdSchema, runtime: ProviderRuntimeSchema, agentKey: AgentKeySchema.nullable(), title: ConversationTitleSchema }).strict(),
+  z.object({ kind: z.literal('conversation.rename'), commandId: CommandIdSchema, organizationId: OrganizationIdSchema, conversationId: ConversationIdSchema, title: ConversationTitleSchema }).strict(),
+  z.object({ kind: z.literal('conversation.delete'), commandId: CommandIdSchema, organizationId: OrganizationIdSchema, conversationId: ConversationIdSchema }).strict(),
   z.object({ kind: z.literal('conversation.preferences.get'), commandId: CommandIdSchema }).strict(),
   z.object({ kind: z.literal('conversation.preferences.set'), commandId: CommandIdSchema, context: ConversationPreferenceContextSchema, runtime: ProviderRuntimeSchema, model: ModelSchema, reasoningEffort: ReasoningEffortSchema }).strict(),
-  z.object({ kind: z.literal('turn.start'), commandId: CommandIdSchema, conversationId: ConversationIdSchema, turnId: TurnIdSchema, message: MessageSchema, model: ModelSchema, reasoningEffort: ReasoningEffortSchema }).strict(),
-  z.object({ kind: z.literal('turn.input'), commandId: CommandIdSchema, conversationId: ConversationIdSchema, turnId: TurnIdSchema, message: MessageSchema }).strict(),
-  z.object({ kind: z.literal('turn.interrupt'), commandId: CommandIdSchema, conversationId: ConversationIdSchema, turnId: TurnIdSchema }).strict(),
+  z.object({ kind: z.literal('turn.start'), commandId: CommandIdSchema, organizationId: OrganizationIdSchema, conversationId: ConversationIdSchema, turnId: TurnIdSchema, message: MessageSchema, model: ModelSchema, reasoningEffort: ReasoningEffortSchema }).strict(),
+  z.object({ kind: z.literal('turn.interrupt'), commandId: CommandIdSchema, organizationId: OrganizationIdSchema, conversationId: ConversationIdSchema, turnId: TurnIdSchema }).strict(),
 ]);
-export type GatewayCommand = z.infer<typeof GatewayCommandSchema>;
+/** Validated server-to-Gateway wire input; browser DTOs never use this type. */
+export type GatewayCommand = z.input<typeof GatewayCommandSchema>;
 
 export const GatewayCommandBatchSchema = z.object({
   commands: z.array(GatewayCommandSchema).max(64),
@@ -87,10 +86,9 @@ export type GatewayPoll = z.infer<typeof GatewayPollSchema>;
 
 export const GatewayEventSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('command.ack'), commandId: CommandIdSchema }).strict(),
-  z.object({ kind: z.literal('command.rejected'), commandId: CommandIdSchema, code: z.enum(['capacity', 'invalid_state', 'unsupported', 'provider_error']) }).strict(),
+  z.object({ kind: z.literal('command.rejected'), commandId: CommandIdSchema, code: z.enum(['capacity', 'invalid_state', 'not_found', 'unsupported', 'provider_error']) }).strict(),
   z.object({ kind: z.literal('conversation.listed'), commandId: CommandIdSchema, conversations: z.array(ConversationSummarySchema).max(1_000) }).strict(),
   z.object({ kind: z.literal('conversation.created'), commandId: CommandIdSchema, conversation: ConversationSummarySchema }).strict(),
-  z.object({ kind: z.literal('conversation.history'), commandId: CommandIdSchema, conversationId: ConversationIdSchema, messages: z.array(ProviderMessageSchema).max(1_000) }).strict(),
   z.object({ kind: z.literal('conversation.renamed'), commandId: CommandIdSchema, conversation: ConversationSummarySchema }).strict(),
   z.object({ kind: z.literal('conversation.deleted'), commandId: CommandIdSchema, conversationId: ConversationIdSchema }).strict(),
   z.object({ kind: z.literal('conversation.preferences.loaded'), commandId: CommandIdSchema, preferences: ConversationPreferencesSchema }).strict(),

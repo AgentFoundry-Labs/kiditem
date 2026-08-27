@@ -290,26 +290,47 @@ function domainCatalogFindings(file) {
       ];
 }
 
-function capabilityKeys(file) {
+function capabilityDefinitions(file) {
   const parsed = parseSource(file.path, file.source);
-  const keys = [];
+  const definitions = [];
   const visit = (node) => {
-    if (
-      ts.isPropertyAssignment(node) &&
-      propertyName(node.name) === "key"
-    ) {
-      const value = unwrap(node.initializer);
+    if (ts.isObjectLiteralExpression(node)) {
+      const keyProperty = node.properties.find(
+        (property) => ts.isPropertyAssignment(property) && propertyName(property.name) === "key",
+      );
+      const value = keyProperty && ts.isPropertyAssignment(keyProperty)
+        ? unwrap(keyProperty.initializer)
+        : null;
       if (
+        value &&
         (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) &&
         /^[a-z_]+\.[a-z0-9_]+$/i.test(value.text)
       ) {
-        keys.push(value.text);
+        const summaryProperty = node.properties.find(
+          (property) => ts.isPropertyAssignment(property) && propertyName(property.name) === "resultSummary",
+        );
+        const summaryValue = summaryProperty && ts.isPropertyAssignment(summaryProperty)
+          ? unwrap(summaryProperty.initializer)
+          : null;
+        definitions.push({
+          key: value.text,
+          resultSummary: summaryValue && (
+            ts.isStringLiteral(summaryValue) || ts.isNoSubstitutionTemplateLiteral(summaryValue)
+          )
+            ? summaryValue.text
+            : null,
+          hasResultSummary: Boolean(summaryProperty),
+        });
       }
     }
     ts.forEachChild(node, visit);
   };
   visit(parsed);
-  return keys;
+  return definitions;
+}
+
+function capabilityKeys(file) {
+  return capabilityDefinitions(file).map((definition) => definition.key);
 }
 
 function capabilityCatalogFindings(files) {
@@ -331,6 +352,22 @@ function capabilityCatalogFindings(files) {
         sourcingCount +
         ")",
     );
+  }
+  for (const file of capabilityFiles) {
+    for (const definition of capabilityDefinitions(file)) {
+      if (!definition.hasResultSummary) {
+        findings.push(`${file.path}: ${definition.key}: missing resultSummary`);
+        continue;
+      }
+      if (
+        !definition.resultSummary
+        || !definition.resultSummary.trim()
+        || definition.resultSummary.trim().length > 1_000
+        || !/[가-힣]/.test(definition.resultSummary)
+      ) {
+        findings.push(`${file.path}: ${definition.key}: resultSummary must be bounded Korean copy`);
+      }
+    }
   }
   return findings;
 }

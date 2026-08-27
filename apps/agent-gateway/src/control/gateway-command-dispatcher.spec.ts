@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+const ORGANIZATION_ID = 'organization-1';
 
 describe('GatewayCommandDispatcher', () => {
   it('dispatches Gateway commands once, enforces one live turn per conversation, and releases exactly once on terminal events', async () => {
@@ -9,11 +11,11 @@ describe('GatewayCommandDispatcher', () => {
     const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, preferences: new FakeConversationPreferences() });
 
     await dispatcher.dispatch({
-      kind: 'turn.start', commandId: 'command-1', conversationId: 'conversation-1', turnId: 'turn-1',
+      kind: 'turn.start', commandId: 'command-1', organizationId: ORGANIZATION_ID, conversationId: 'conversation-1', turnId: 'turn-1',
       message: 'Start work.', model: 'gpt-5.6', reasoningEffort: 'medium',
     });
     await dispatcher.dispatch({
-      kind: 'turn.start', commandId: 'command-2', conversationId: 'conversation-1', turnId: 'turn-2',
+      kind: 'turn.start', commandId: 'command-2', organizationId: ORGANIZATION_ID, conversationId: 'conversation-1', turnId: 'turn-2',
       message: 'Must not run concurrently.', model: 'gpt-5.6', reasoningEffort: 'medium',
     });
     gateway.emit({ kind: 'status', status: 'completed' });
@@ -33,7 +35,7 @@ describe('GatewayCommandDispatcher', () => {
     ]);
 
     await dispatcher.dispatch({
-      kind: 'turn.start', commandId: 'command-3', conversationId: 'conversation-1', turnId: 'turn-3',
+      kind: 'turn.start', commandId: 'command-3', organizationId: ORGANIZATION_ID, conversationId: 'conversation-1', turnId: 'turn-3',
       message: 'May start after release.', model: 'gpt-5.6', reasoningEffort: 'medium',
     });
     expect(gateway.started).toHaveLength(2);
@@ -45,7 +47,7 @@ describe('GatewayCommandDispatcher', () => {
     const gateway = new FakeConversationGateway();
     const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
     const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, preferences: new FakeConversationPreferences() });
-    const command = { kind: 'conversation.list' as const, commandId: 'command-1' };
+    const command = { kind: 'conversation.list' as const, commandId: 'command-1', organizationId: ORGANIZATION_ID };
 
     await dispatcher.dispatch(command);
     await dispatcher.dispatch(command);
@@ -64,16 +66,14 @@ describe('GatewayCommandDispatcher', () => {
     const { GatewayEventOutbox } = await import('./gateway-event-outbox');
     const mcpTransportToken = 'B'.repeat(43);
     const gateway = new FakeConversationGateway();
-    gateway.messages = [{ id: 'message-1', role: 'assistant', content: `Provider echoed ${mcpTransportToken}`, createdAt: '2026-08-23T00:00:00.000Z' }];
     const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1', redactionTokens: [mcpTransportToken] });
     const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, preferences: new FakeConversationPreferences() });
 
     await dispatcher.dispatch({
-      kind: 'turn.start', commandId: 'command-1', conversationId: 'conversation-1', turnId: 'turn-1',
+      kind: 'turn.start', commandId: 'command-1', organizationId: ORGANIZATION_ID, conversationId: 'conversation-1', turnId: 'turn-1',
       message: 'Start work.', model: 'gpt-5.6', reasoningEffort: 'medium',
     });
     gateway.emit({ kind: 'status', status: 'started', detail: `Transport: ${mcpTransportToken}` });
-    await dispatcher.dispatch({ kind: 'conversation.history', commandId: 'command-2', conversationId: 'conversation-1' });
 
     const applied = (dispatcher as unknown as { applied: Map<string, string> }).applied;
     expect(JSON.stringify([...applied.values()])).not.toContain(mcpTransportToken);
@@ -88,10 +88,10 @@ describe('GatewayCommandDispatcher', () => {
     const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, preferences: new FakeConversationPreferences() });
 
     await dispatcher.dispatch({
-      kind: 'turn.start', commandId: 'command-start', conversationId: 'conversation-1', turnId: 'turn-1',
+      kind: 'turn.start', commandId: 'command-start', organizationId: ORGANIZATION_ID, conversationId: 'conversation-1', turnId: 'turn-1',
       message: 'Start.', model: 'gpt-5.6', reasoningEffort: 'medium',
     });
-    await dispatcher.dispatch({ kind: 'turn.interrupt', commandId: 'command-interrupt', conversationId: 'conversation-1', turnId: 'turn-1' });
+    await dispatcher.dispatch({ kind: 'turn.interrupt', commandId: 'command-interrupt', organizationId: ORGANIZATION_ID, conversationId: 'conversation-1', turnId: 'turn-1' });
 
     let beforeTerminal: Array<Record<string, unknown>> = [];
     await outbox.flush(async (body) => {
@@ -105,40 +105,90 @@ describe('GatewayCommandDispatcher', () => {
     ]);
   });
 
-  it('stops locally live turns after fresh API registration, preserves the provider conversation, and ignores their stale terminals', async () => {
+  it('keeps the local turn fence when the exact terminal cannot be retained', async () => {
+    const { GatewayCommandDispatcher } = await import('./gateway-command-dispatcher');
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const { ActiveTurnRegistry } = await import('./internal/active-turn.registry');
+    const gateway = new FakeConversationGateway();
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
+    const activeTurns = new ActiveTurnRegistry();
+    const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, activeTurns, preferences: new FakeConversationPreferences() });
+
+    await dispatcher.dispatch({
+      kind: 'turn.start', commandId: 'command-start', organizationId: ORGANIZATION_ID, conversationId: 'conversation-1', turnId: 'turn-1',
+      message: 'Start.', model: 'gpt-5.6', reasoningEffort: 'medium',
+    });
+    for (let index = 0; index < 126; index += 1) {
+      outbox.enqueue({ kind: 'command.ack', commandId: `filler-${index}` });
+    }
+
+    expect(() => gateway.emit({ kind: 'status', status: 'completed' })).toThrow('gateway_event_backpressure');
+    expect(activeTurns.size).toBe(1);
+  });
+
+  it('keeps locally live turn fences after fresh API registration until their exact provider terminals arrive', async () => {
     const { GatewayCommandDispatcher } = await import('./gateway-command-dispatcher');
     const { GatewayEventOutbox } = await import('./gateway-event-outbox');
     const gateway = new FakeConversationGateway();
-    gateway.messages = [{ id: 'provider-message-1', role: 'assistant', content: 'Provider-owned history remains.', createdAt: '2026-08-23T00:00:00.000Z' }];
     const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
     const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, preferences: new FakeConversationPreferences() });
 
     await dispatcher.dispatch({
-      kind: 'turn.start', commandId: 'command-start-old', conversationId: 'conversation-1', turnId: 'turn-old',
+      kind: 'turn.start', commandId: 'command-start-old', organizationId: ORGANIZATION_ID, conversationId: 'conversation-1', turnId: 'turn-old',
       message: 'Old work.', model: 'gpt-5.6', reasoningEffort: 'medium',
     });
 
-    await dispatcher.resetAfterApiRuntimeRegistration();
+    const reset = dispatcher.resetAfterApiRuntimeRegistration();
+    await Promise.resolve();
+    await Promise.resolve();
 
     expect(gateway.interrupted).toEqual([{ conversationId: 'conversation-1', turnId: 'turn-old' }]);
     expect(gateway.deletedConversationIds).toEqual([]);
-    await expect(gateway.history('conversation-1')).resolves.toEqual(gateway.messages);
 
     await dispatcher.dispatch({
-      kind: 'turn.start', commandId: 'command-start-new', conversationId: 'conversation-1', turnId: 'turn-new',
-      message: 'New explicit work.', model: 'gpt-5.6', reasoningEffort: 'medium',
+      kind: 'turn.start', commandId: 'command-start-blocked', organizationId: ORGANIZATION_ID, conversationId: 'conversation-1', turnId: 'turn-blocked',
+      message: 'Must remain fenced until the exact terminal.', model: 'gpt-5.6', reasoningEffort: 'medium',
     });
     gateway.emitFor('turn-old', { kind: 'status', status: 'interrupted' });
+    await reset;
     await dispatcher.dispatch({
-      kind: 'turn.start', commandId: 'command-start-blocked', conversationId: 'conversation-1', turnId: 'turn-blocked',
-      message: 'Must remain blocked by the newer turn.', model: 'gpt-5.6', reasoningEffort: 'medium',
+      kind: 'turn.start', commandId: 'command-start-new', organizationId: ORGANIZATION_ID, conversationId: 'conversation-1', turnId: 'turn-new',
+      message: 'A new explicit turn may begin after terminal.', model: 'gpt-5.6', reasoningEffort: 'medium',
     });
 
     expect(gateway.started).toHaveLength(2);
     expect(events(outbox)).toEqual(expect.arrayContaining([
       { kind: 'command.rejected', commandId: 'command-start-blocked', code: 'invalid_state' },
+      { kind: 'turn.terminal', conversationId: 'conversation-1', turnId: 'turn-old', status: 'interrupted' },
     ]));
-    expect(events(outbox).filter((event) => event.kind === 'turn.terminal' && event.turnId === 'turn-old')).toEqual([]);
+  });
+
+  it('fails the API-runtime reset when an interrupted turn misses its bounded terminal deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const { GatewayCommandDispatcher } = await import('./gateway-command-dispatcher');
+      const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+      const gateway = new FakeConversationGateway();
+      const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
+      const dispatcher = new GatewayCommandDispatcher({
+        gateway,
+        outbox,
+        preferences: new FakeConversationPreferences(),
+        terminalDeadlineMs: 25,
+      });
+
+      await dispatcher.dispatch({
+        kind: 'turn.start', commandId: 'command-start-old', organizationId: ORGANIZATION_ID, conversationId: 'conversation-1', turnId: 'turn-old',
+        message: 'Old work.', model: 'gpt-5.6', reasoningEffort: 'medium',
+      });
+      const reset = dispatcher.resetAfterApiRuntimeRegistration();
+      const timeout = expect(reset).rejects.toThrow('gateway_api_runtime_terminal_timeout');
+
+      await vi.advanceTimersByTimeAsync(25);
+      await timeout;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('maps immutable create identity drift to invalid_state without emitting provider-local data', async () => {
@@ -150,12 +200,12 @@ describe('GatewayCommandDispatcher', () => {
     const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, preferences: new FakeConversationPreferences() });
 
     await dispatcher.dispatch({
-      kind: 'conversation.create', commandId: 'command-create-conflict', conversationId: 'browser-conversation-conflict',
+      kind: 'conversation.create', commandId: 'command-create-conflict', organizationId: ORGANIZATION_ID, conversationId: 'browser-conversation-conflict',
       runtime: 'codex_cli', agentKey: null, title: 'General chat',
     });
 
     expect(gateway.createInputs).toEqual([{
-      conversationId: 'browser-conversation-conflict', runtime: 'codex_cli', agentKey: null, title: 'General chat',
+      organizationId: ORGANIZATION_ID, conversationId: 'browser-conversation-conflict', runtime: 'codex_cli', agentKey: null, title: 'General chat',
     }]);
     expect(events(outbox)).toEqual([{ kind: 'command.rejected', commandId: 'command-create-conflict', code: 'invalid_state' }]);
     expect(outbox.peekBody()).not.toContain('provider-thread');
@@ -164,14 +214,14 @@ describe('GatewayCommandDispatcher', () => {
   it('rejects deletion of an exact conversation with a live local turn before it reaches the provider gateway', async () => {
     const { GatewayCommandDispatcher } = await import('./gateway-command-dispatcher');
     const { GatewayEventOutbox } = await import('./gateway-event-outbox');
-    const { ActiveTurnRegistry } = await import('../turn/active-turn.registry');
+    const { ActiveTurnRegistry } = await import('./internal/active-turn.registry');
     const gateway = new FakeConversationGateway();
     const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
     const activeTurns = new ActiveTurnRegistry();
     activeTurns.admit({ conversationId: 'conversation-live', turnId: 'turn-live' });
     const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, activeTurns, preferences: new FakeConversationPreferences() });
 
-    await dispatcher.dispatch({ kind: 'conversation.delete', commandId: 'command-delete-live', conversationId: 'conversation-live' });
+    await dispatcher.dispatch({ kind: 'conversation.delete', commandId: 'command-delete-live', organizationId: ORGANIZATION_ID, conversationId: 'conversation-live' });
 
     expect(gateway.deletedConversationIds).toEqual([]);
     expect(events(outbox)).toEqual([{ kind: 'command.rejected', commandId: 'command-delete-live', code: 'invalid_state' }]);
@@ -203,6 +253,34 @@ describe('GatewayCommandDispatcher', () => {
       { kind: 'command.ack', commandId: 'command-preferences-set' },
     ]);
   });
+
+  it('returns not_found before active-turn checks for every foreign organization command', async () => {
+    const { GatewayCommandDispatcher } = await import('./gateway-command-dispatcher');
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const gateway = new FakeConversationGateway();
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
+    const dispatcher = new GatewayCommandDispatcher({ gateway, outbox, preferences: new FakeConversationPreferences() });
+    await dispatcher.dispatch({
+      kind: 'turn.start', commandId: 'owner-start', organizationId: ORGANIZATION_ID, conversationId: 'conversation-1', turnId: 'turn-1',
+      message: 'Owner turn.', model: 'gpt-5.6', reasoningEffort: 'medium',
+    });
+
+    await dispatcher.dispatch({ kind: 'conversation.delete', commandId: 'foreign-delete', organizationId: 'organization-foreign', conversationId: 'conversation-1' });
+    await dispatcher.dispatch({ kind: 'turn.interrupt', commandId: 'foreign-interrupt', organizationId: 'organization-foreign', conversationId: 'conversation-1', turnId: 'turn-1' });
+    await dispatcher.dispatch({
+      kind: 'turn.start', commandId: 'foreign-start', organizationId: 'organization-foreign', conversationId: 'conversation-1', turnId: 'turn-2',
+      message: 'Foreign turn.', model: 'gpt-5.6', reasoningEffort: 'medium',
+    });
+
+    expect(gateway.deletedConversationIds).toEqual([]);
+    expect(gateway.interrupted).toEqual([]);
+    expect(gateway.started).toHaveLength(1);
+    expect(events(outbox)).toEqual(expect.arrayContaining([
+      { kind: 'command.rejected', commandId: 'foreign-delete', code: 'not_found' },
+      { kind: 'command.rejected', commandId: 'foreign-interrupt', code: 'not_found' },
+      { kind: 'command.rejected', commandId: 'foreign-start', code: 'not_found' },
+    ]));
+  });
 });
 
 function events(outbox: { peekBody(): string | null }): Array<Record<string, unknown>> {
@@ -214,7 +292,6 @@ function events(outbox: { peekBody(): string | null }): Array<Record<string, unk
 class FakeConversationGateway {
   started: unknown[] = [];
   listCalls = 0;
-  messages: unknown[] = [];
   createInputs: unknown[] = [];
   createFailure: Error | undefined;
   deletedConversationIds: string[] = [];
@@ -222,15 +299,16 @@ class FakeConversationGateway {
   private readonly sinks = new Map<string, (event: GatewayProviderEvent) => void>();
 
   async list() { this.listCalls += 1; return []; }
+  async assertAccessible(input: { organizationId: string }) {
+    if (input.organizationId !== ORGANIZATION_ID) throw new Error('gateway_conversation_not_found');
+  }
   async create(input: unknown) {
     this.createInputs.push(input);
     if (this.createFailure) throw this.createFailure;
     return { id: 'conversation-1', runtime: 'codex_cli', agentKey: null, title: 'New', createdAt: '2026-08-23T00:00:00.000Z', updatedAt: '2026-08-23T00:00:00.000Z' };
   }
-  async history() { return this.messages; }
   async rename() { return { id: 'conversation-1', runtime: 'codex_cli', agentKey: null, title: 'New', createdAt: '2026-08-23T00:00:00.000Z', updatedAt: '2026-08-23T00:00:00.000Z' }; }
-  async delete(conversationId: string) { this.deletedConversationIds.push(conversationId); }
-  async sendInput() { return undefined; }
+  async delete(input: { conversationId: string }) { this.deletedConversationIds.push(input.conversationId); }
   async interrupt(input: { conversationId: string; turnId: string }) {
     this.interrupted.push({ conversationId: input.conversationId, turnId: input.turnId });
   }

@@ -44,11 +44,10 @@ export function selectTurnPreference({
     return { ...preference, needsReview: false };
   }
 
-  return {
-    model: null,
-    reasoningEffort: null,
-    needsReview: Boolean(lastPair || preference),
-  };
+  const unsupportedStoredPair = lastPair ?? preference;
+  return unsupportedStoredPair
+    ? { ...unsupportedStoredPair, needsReview: true }
+    : { model: null, reasoningEffort: null, needsReview: false };
 }
 
 /** Validates the pair as one unit; callers must never combine two source pairs. */

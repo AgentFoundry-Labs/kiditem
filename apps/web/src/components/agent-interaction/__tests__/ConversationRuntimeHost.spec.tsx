@@ -1,5 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import {
@@ -18,6 +20,7 @@ const runtimeMocks = vi.hoisted(() => {
   const runAgent = vi.fn();
   const addMessage = vi.fn();
   const abortRun = vi.fn();
+  const connectAgent = vi.fn();
   const useAgent = vi.fn();
   const subscribe = vi.fn((subscriber: Record<string, unknown>) => {
     const subscription = { unsubscribe: vi.fn(), subscriber };
@@ -30,6 +33,7 @@ const runtimeMocks = vi.hoisted(() => {
     addMessage,
     runAgent,
     abortRun,
+    connectAgent,
     subscribe,
   };
   let isReady = true;
@@ -38,6 +42,7 @@ const runtimeMocks = vi.hoisted(() => {
     runAgent,
     addMessage,
     abortRun,
+    connectAgent,
     subscribe,
     useAgent,
     agent,
@@ -47,6 +52,9 @@ const runtimeMocks = vi.hoisted(() => {
 });
 
 vi.mock('@copilotkit/react-core/v2', () => ({
+  useCopilotKit: () => ({
+    copilotkit: { connectAgent: runtimeMocks.connectAgent },
+  }),
   useAgent: (input: unknown) => {
     runtimeMocks.useAgent(input);
     runtimeMocks.subscribe.mockName('agent.subscribe');
@@ -79,11 +87,15 @@ function RuntimeProbe() {
   latestRuntime = useConversationRuntime();
   return (
     <output data-testid="runtime-probe">
-      {latestRuntime.conversationId}|{latestRuntime.activeTurnId ?? 'idle'}|
-      {latestRuntime.messages.map((message) => message.content).join(',')}|
-      {latestRuntime.toolProjections.map((projection) => projection.title).join(',')}
+      {latestRuntime.conversationId}|{latestRuntime.isRunning ? 'running' : 'idle'}|
+      {latestRuntime.messages.map((message) => message.content).join(',')}
     </output>
   );
+}
+
+function SettingsTrigger() {
+  const openSettings = useConversationSurfaceState((state) => state.openSettings);
+  return <button type="button" onClick={(event) => openSettings(event.currentTarget)}>설정 열기</button>;
 }
 
 function renderHost(
@@ -107,6 +119,8 @@ describe('ConversationRuntimeHost', () => {
     runtimeMocks.runAgent.mockResolvedValue(undefined);
     runtimeMocks.addMessage.mockReset();
     runtimeMocks.abortRun.mockReset();
+    runtimeMocks.connectAgent.mockReset();
+    runtimeMocks.connectAgent.mockResolvedValue(undefined);
     runtimeMocks.useAgent.mockReset();
     runtimeMocks.abortRun.mockImplementation(() => { runtimeMocks.agent.isRunning = false; });
     runtimeMocks.subscribe.mockClear();
@@ -150,6 +164,85 @@ describe('ConversationRuntimeHost', () => {
     expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringMatching(/\/history$/));
     expect(runtimeMocks.addMessage).not.toHaveBeenCalled();
     expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
+    expect(runtimeMocks.connectAgent).not.toHaveBeenCalled();
+  });
+
+  it('connects one ready existing binding once and projects its CopilotKit snapshot without connecting a draft', async () => {
+    useConversationSurfaceState.getState().selectConversation(FIRST);
+    runtimeMocks.connectAgent.mockImplementation(async () => {
+      runtimeMocks.agent.messages = [{
+        id: 'snapshot-assistant-1', role: 'assistant', content: 'Stored CopilotKit reply',
+      }];
+      for (const subscription of runtimeMocks.subscriptions) {
+        (subscription.subscriber as { onMessagesChanged?: () => void }).onMessagesChanged?.();
+      }
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(
+      <StrictMode>
+        <QueryClientProvider client={queryClient}>
+          <ConversationRuntimeHost identity={IDENTITY}><RuntimeProbe /></ConversationRuntimeHost>
+        </QueryClientProvider>
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(runtimeMocks.connectAgent).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId('runtime-probe')).toHaveTextContent(
+      'conversation-1|idle|Stored CopilotKit reply',
+    ));
+
+    view.rerender(
+      <StrictMode>
+        <QueryClientProvider client={queryClient}>
+          <ConversationRuntimeHost identity={IDENTITY}>{null}</ConversationRuntimeHost>
+        </QueryClientProvider>
+      </StrictMode>,
+    );
+    view.rerender(
+      <StrictMode>
+        <QueryClientProvider client={queryClient}>
+          <ConversationRuntimeHost identity={IDENTITY}><RuntimeProbe /></ConversationRuntimeHost>
+        </QueryClientProvider>
+      </StrictMode>,
+    );
+    expect(runtimeMocks.connectAgent).toHaveBeenCalledTimes(1);
+
+    act(() => useConversationSurfaceState.getState().selectConversation(SECOND));
+    await waitFor(() => expect(runtimeMocks.connectAgent).toHaveBeenCalledTimes(2));
+    expect(runtimeMocks.useAgent).toHaveBeenLastCalledWith({
+      agentId: 'kiditem-conversation:conversation-2',
+      runtimeAgentId: 'conversation',
+      threadId: 'conversation-2',
+    });
+  });
+
+  it('waits for the first exact binding connection before handing a promoted draft to runAgent', async () => {
+    const connected = deferred<void>();
+    runtimeMocks.connectAgent.mockReturnValue(connected.promise);
+    renderHost(<RuntimeProbe />);
+    let draft!: ReturnType<typeof useConversationSurfaceState.getState.openConversation>;
+    act(() => {
+      draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
+      useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
+    });
+    const promoted = { ...FIRST, id: draft.conversationId, title: 'Wait for snapshot' };
+    vi.mocked(apiClient.post).mockImplementation((path: string) => (
+      path === '/api/agent-os/conversations'
+        ? Promise.resolve(promoted as never)
+        : Promise.resolve({ agents: {} } as never)
+    ));
+
+    const firstSend = latestRuntime!.start({
+      message: 'Wait for snapshot', model: 'gpt-5.6', reasoningEffort: 'low',
+    });
+    await waitFor(() => expect(runtimeMocks.connectAgent).toHaveBeenCalledTimes(1));
+    expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
+
+    await act(async () => {
+      connected.resolve();
+      await firstSend;
+    });
+    expect(runtimeMocks.runAgent).toHaveBeenCalledTimes(1);
   });
 
   it('promotes matching concurrent first sends through one exact create and one CopilotKit handoff', async () => {
@@ -284,7 +377,7 @@ describe('ConversationRuntimeHost', () => {
     });
   });
 
-  it('keeps one CopilotKit interaction across presentation remounts and derives running and stop from that interaction', async () => {
+  it('projects CopilotKit running state through presentation remounts without rendering provider tool metadata', async () => {
     useConversationSurfaceState.getState().selectConversation(FIRST);
     const running = deferred<void>();
     runtimeMocks.runAgent.mockImplementation(() => {
@@ -301,14 +394,23 @@ describe('ConversationRuntimeHost', () => {
     await waitFor(() => expect(runtimeMocks.runAgent).toHaveBeenCalledTimes(1));
     const subscriber = runtimeMocks.subscriptions[0].subscriber as {
       onRunInitialized?: () => void;
+      onRunFinalized?: () => void;
       onMessagesChanged?: () => void;
       onCustomEvent?: (input: { event: { name: string; value: unknown } }) => void;
     };
+    runtimeMocks.agent.isRunning = true;
     act(() => subscriber.onRunInitialized?.());
     runtimeMocks.agent.messages = [{ id: 'assistant-1', role: 'assistant', content: 'Provider reply' }];
     await act(async () => subscriber.onMessagesChanged?.());
     await act(async () => subscriber.onCustomEvent?.({
-      event: { name: 'kiditem.provider_tool_status', value: { name: 'source_search', status: 'running' } },
+      event: {
+        name: 'kiditem.provider_tool_status',
+        value: {
+          name: 'mcp__kiditem__capability_invoke',
+          status: 'started',
+          detail: 'transport-token: do-not-render',
+        },
+      },
     }));
 
     view.rerender(
@@ -324,14 +426,104 @@ describe('ConversationRuntimeHost', () => {
 
     expect(runtimeMocks.subscriptions).toHaveLength(1);
     expect(runtimeMocks.subscriptions[0].unsubscribe).not.toHaveBeenCalled();
-    expect(screen.getByTestId('runtime-probe')).toHaveTextContent('conversation-1|conversation-1|Provider reply|source_search');
+    expect(screen.getByTestId('runtime-probe')).toHaveTextContent('conversation-1|running|Provider reply');
+    expect(latestRuntime).not.toHaveProperty('activeTurnId');
+    expect(latestRuntime).not.toHaveProperty('toolProjections');
+    expect(screen.getByTestId('runtime-probe')).not.toHaveTextContent('mcp__kiditem__capability_invoke');
+    expect(screen.getByTestId('runtime-probe')).not.toHaveTextContent('transport-token: do-not-render');
     await act(async () => latestRuntime!.interrupt());
     expect(runtimeMocks.abortRun).toHaveBeenCalledTimes(1);
-    expect(apiClient.post).not.toHaveBeenCalledWith(expect.stringMatching(/\/interrupt$/), expect.anything());
+    expect(apiClient.post).not.toHaveBeenCalledWith(expect.stringMatching(/\/turns\/[^/]+\/stop$/));
+    runtimeMocks.agent.isRunning = false;
+    act(() => subscriber.onRunFinalized?.());
+    expect(latestRuntime?.isRunning).toBe(false);
     await act(async () => {
       running.resolve();
       await start;
     });
+  });
+
+  it('keeps raw tool and status role content out of the conversation transcript', async () => {
+    useConversationSurfaceState.getState().selectConversation(FIRST);
+    renderHost(<RuntimeProbe />);
+
+    await waitFor(() => expect(runtimeMocks.subscriptions).toHaveLength(1));
+    const subscriber = runtimeMocks.subscriptions[0].subscriber as {
+      onMessagesChanged?: () => void;
+    };
+    runtimeMocks.agent.messages = [
+      { id: 'user-1', role: 'user', content: '상품 후보를 비교해 주세요.' },
+      { id: 'tool-1', role: 'tool', content: 'mcp__kiditem__capability_invoke private payload' },
+      { id: 'status-1', role: 'status', content: 'transport-token: do-not-render' },
+      { id: 'assistant-1', role: 'assistant', content: '비교 결과를 정리했습니다.' },
+    ];
+    await act(async () => subscriber.onMessagesChanged?.());
+
+    expect(latestRuntime?.messages).toEqual([
+      { id: 'user-1', role: 'user', content: '상품 후보를 비교해 주세요.' },
+      { id: 'assistant-1', role: 'assistant', content: '비교 결과를 정리했습니다.' },
+    ]);
+    expect(screen.getByTestId('runtime-probe')).not.toHaveTextContent('mcp__kiditem__capability_invoke');
+    expect(screen.getByTestId('runtime-probe')).not.toHaveTextContent('transport-token: do-not-render');
+  });
+
+  it('suppresses a generic provider tool completion with no safe business label', async () => {
+    useConversationSurfaceState.getState().selectConversation(FIRST);
+    renderHost(<RuntimeProbe />);
+
+    await waitFor(() => expect(runtimeMocks.subscriptions).toHaveLength(1));
+    const subscriber = runtimeMocks.subscriptions[0].subscriber as {
+      onCustomEvent?: (input: { event: { name: string; value: unknown } }) => void;
+    };
+    await act(async () => subscriber.onCustomEvent?.({
+      event: {
+        name: 'kiditem.provider_tool_status',
+        value: { name: 'provider.tool.completed', status: 'completed', detail: 'private result details' },
+      },
+    }));
+
+    expect(latestRuntime).not.toHaveProperty('toolProjections');
+    expect(screen.getByTestId('runtime-probe')).not.toHaveTextContent('업무 처리');
+    expect(screen.getByTestId('runtime-probe')).not.toHaveTextContent('private result details');
+  });
+
+  it('interrupts an active CopilotKit run without a browser-owned turn identifier', async () => {
+    useConversationSurfaceState.getState().selectConversation(FIRST);
+    const run = deferred<void>();
+    runtimeMocks.runAgent.mockImplementation(() => {
+      runtimeMocks.agent.isRunning = true;
+      return run.promise;
+    });
+    renderHost(<RuntimeProbe />);
+    await waitFor(() => expect(latestRuntime?.conversationId).toBe(FIRST.id));
+
+    const start = latestRuntime!.start({
+      message: 'Stop this turn', model: 'gpt-5.6', reasoningEffort: 'low',
+    });
+    await waitFor(() => expect(runtimeMocks.runAgent).toHaveBeenCalledTimes(1));
+    expect(latestRuntime).not.toHaveProperty('activeTurnId');
+    await act(async () => latestRuntime!.interrupt());
+    expect(runtimeMocks.abortRun).toHaveBeenCalledTimes(1);
+    expect(apiClient.post).not.toHaveBeenCalledWith(expect.stringMatching(/\/turns\/[^/]+\/stop$/));
+
+    await act(async () => {
+      runtimeMocks.agent.isRunning = false;
+      run.resolve();
+      await start;
+    });
+  });
+
+  it('uses CopilotKit running state rather than a local turn identifier to decide whether interruption is available', async () => {
+    useConversationSurfaceState.getState().selectConversation(FIRST);
+    runtimeMocks.agent.isRunning = true;
+    renderHost(<RuntimeProbe />);
+
+    await waitFor(() => expect(latestRuntime?.conversationId).toBe('conversation-1'));
+    expect(latestRuntime).not.toHaveProperty('activeTurnId');
+    await act(async () => latestRuntime!.interrupt());
+
+    expect(apiClient.post).not.toHaveBeenCalledWith(expect.stringMatching(/\/turns\/[^/]+\/stop$/));
+    expect(runtimeMocks.abortRun).toHaveBeenCalledTimes(1);
   });
 
   it('disposes the previous subscription before binding a different selected conversation', async () => {
@@ -359,5 +551,22 @@ describe('ConversationRuntimeHost', () => {
       .not.toContain('/api/agent-os/conversations/conversation-1/history');
     expect(latestRuntime).not.toHaveProperty('historyMessages');
     expect(latestRuntime).not.toHaveProperty('liveMessages');
+  });
+
+  it('keeps the open history settings view and its delete result while removing the selected terminal conversation', async () => {
+    useConversationSurfaceState.getState().selectConversation(FIRST);
+    vi.mocked(apiClient.delete).mockResolvedValue(undefined as never);
+    const user = userEvent.setup();
+    renderHost(<SettingsTrigger />);
+
+    await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/agent-os/conversations'));
+    await waitFor(() => expect(runtimeMocks.subscriptions).toHaveLength(1));
+    await user.click(screen.getByRole('button', { name: '설정 열기' }));
+    await user.click(await screen.findByRole('tab', { name: '채팅 기록' }));
+    await user.click(screen.getByRole('button', { name: '전체 대화 삭제' }));
+    await user.click(screen.getByRole('button', { name: '삭제 확인' }));
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('2개 대화를 삭제했습니다.'));
+    expect(screen.getByRole('tab', { name: '채팅 기록' })).toHaveAttribute('aria-selected', 'true');
   });
 });

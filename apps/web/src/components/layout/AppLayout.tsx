@@ -152,6 +152,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const visibleRightSurface = isAgentWorkspace && activeRightSurface === 'ai_chat'
     ? null
     : activeRightSurface;
+  const auxiliaryVisible = visibleRightSurface !== null;
 
   const selectRightSurfaceFromLauncher = (
     surface: Exclude<typeof activeRightSurface, null>,
@@ -192,9 +193,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         notificationsOpen={activeRightSurface === 'notifications'}
       />
       <div
+        data-testid="dashboard-content-offset"
         className={cn(
-          'transition-all duration-300',
-          collapsedForEditor ? 'md:ml-[68px]' : 'md:ml-60'
+          'transition-[margin] duration-150 motion-reduce:transition-none',
+          collapsedForEditor ? 'md:ml-[64px]' : 'md:ml-[256px]'
         )}
       >
         <RebuildReadinessBanner />
@@ -222,7 +224,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <ConversationRuntimeShell key={authenticatedIdentityKey} identity={authenticatedIdentity!}>
       <NotificationDataMount />
       <RightSurfaceLauncherProvider openConversationFromLauncher={openConversationFromLauncher}>
-        {isAgentWorkspace ? children : content}
+        <div
+          data-testid="authenticated-work-surface"
+          className={cn(
+            'min-w-0 transition-[margin] duration-150 motion-reduce:transition-none',
+            auxiliaryVisible && '2xl:mr-[352px]',
+          )}
+        >
+          {isAgentWorkspace ? children : content}
+        </div>
       </RightSurfaceLauncherProvider>
       <PanelErrorBoundary>
         <RightAuxiliaryPanel

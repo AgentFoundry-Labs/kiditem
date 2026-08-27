@@ -1,10 +1,11 @@
 import {
+  CapabilityResultReceiptSchema,
   CapabilityResultEnvelopeSchema,
+  type CapabilityResultReceipt,
   type CapabilityResultEnvelope,
 } from '@kiditem/shared/agent-interaction';
 import {
   MUTATION_EFFECTS,
-  type CapabilityApprovalRisk,
 } from '../../../common/capability-definition';
 import {
   canonicalizeOwnerInput,
@@ -55,20 +56,20 @@ export class OwnerResultAmbiguousError extends AgentOsError {
   }
 }
 
+/** Allowlisted result fields for the authenticated Web receipt. */
+export type CapabilityInvocationResultReceipt = CapabilityResultReceipt;
+
 /**
- * Authenticated receipt projection. Approval risk belongs to the current
- * code-owned capability definition, never to the durable Invocation row.
+ * Authenticated receipt projection. It deliberately excludes canonical input,
+ * hashes, owner output, and opaque invocation identifiers.
  */
 export type CapabilityInvocationReceipt = Pick<CapabilityInvocationRecord,
-  | 'id'
   | 'capabilityKey'
-  | 'actingAgentKey'
-  | 'canonicalInput'
   | 'status'
   | 'approvalStatus'
   | 'approvalExpiresAt'
 > & {
-  approvalRisk: CapabilityApprovalRisk;
+  result: CapabilityInvocationResultReceipt | null;
 };
 
 /**
@@ -99,19 +100,15 @@ export class CapabilityInvocationService implements CapabilityInvocationPort {
 
   async getReceipt(input: GetCapabilityInvocationInput): Promise<CapabilityInvocationReceipt> {
     const invocation = await this.get(input);
-    const definition = this.capabilities.resolveDefinition(invocation.capabilityKey);
-    if (!definition) {
+    if (!this.capabilities.resolveDefinition(invocation.capabilityKey)) {
       throw new AgentOsError('CAPABILITY_NOT_FOUND', 'Capability invocation was not found.');
     }
     return {
-      id: invocation.id,
       capabilityKey: invocation.capabilityKey,
-      actingAgentKey: invocation.actingAgentKey,
-      canonicalInput: invocation.canonicalInput,
       status: invocation.status,
       approvalStatus: invocation.approvalStatus,
       approvalExpiresAt: invocation.approvalExpiresAt,
-      approvalRisk: definition.approvalRisk,
+      result: receiptResult(invocation.result),
     };
   }
 
@@ -207,7 +204,7 @@ export class CapabilityInvocationService implements CapabilityInvocationPort {
     }
 
     const at = this.now();
-    const approvalRequired = requiresUserApproval(definition.approvalRisk);
+    const currentApprovalRequired = requiresUserApproval(definition.approvalRisk);
     const admission = await this.repository.admit({
       organizationId: input.organizationId,
       initiatingUserId: input.initiatingUserId,
@@ -217,9 +214,9 @@ export class CapabilityInvocationService implements CapabilityInvocationPort {
       canonicalInput,
       inputHash,
       approval: {
-        required: approvalRequired,
+        required: currentApprovalRequired,
         requestedAt: at,
-        expiresAt: approvalRequired
+        expiresAt: currentApprovalRequired
           ? new Date(at.getTime() + CAPABILITY_APPROVAL_WINDOW_MS)
           : null,
       },
@@ -236,7 +233,15 @@ export class CapabilityInvocationService implements CapabilityInvocationPort {
       throw terminalInvocationError(invocation);
     }
 
-    if (approvalRequired) {
+    const admittedApprovalRequired = requiresAdmittedApproval(invocation);
+    if (admission.kind === 'replay' && admittedApprovalRequired !== currentApprovalRequired) {
+      throw new AgentOsError(
+        'CAPABILITY_POLICY_DRIFT',
+        'Capability approval policy changed after this request was admitted.',
+      );
+    }
+
+    if (admittedApprovalRequired) {
       if (invocation.approvalStatus === 'pending') {
         if (!invocation.approvalExpiresAt) {
           throw new AgentOsError('APPROVAL_REQUIRED', 'Capability approval is required.');
@@ -322,11 +327,12 @@ export class CapabilityInvocationService implements CapabilityInvocationPort {
           input: input.canonicalInput,
         }),
       );
-      const output = input.definition.outputSchema.parse(result.output);
+      input.definition.outputSchema.parse(result.output);
+      const receipt = ownerResultReceipt(result);
       const persisted = await this.repository.recordSucceeded({
         organizationId: input.input.organizationId,
         invocationId: input.invocation.id,
-        result: { ...result, output },
+        result: receipt,
         finishedAt: this.now(),
       });
       return terminalOrCompleted(persisted);
@@ -396,7 +402,7 @@ function isSameMutationRequest(
 function completedFromRecord(
   invocation: CapabilityInvocationRecord,
 ): CapabilityInvocationResult {
-  const parsed = CapabilityResultEnvelopeSchema.safeParse(invocation.result);
+  const parsed = CapabilityResultReceiptSchema.safeParse(invocation.result);
   if (!parsed.success) {
     throw new OwnerResultAmbiguousError(invocation.id);
   }
@@ -406,6 +412,28 @@ function completedFromRecord(
     status: invocation.status,
     result: parsed.data,
   };
+}
+
+function receiptResult(
+  result: CapabilityResultReceipt | null,
+): CapabilityInvocationResultReceipt | null {
+  return result;
+}
+
+function ownerResultReceipt(result: CapabilityResultEnvelope): CapabilityResultReceipt {
+  return CapabilityResultReceiptSchema.parse({
+    summary: result.summary,
+    resourceRefs: result.resourceRefs,
+    operationRefs: result.operationRefs,
+  });
+}
+
+/** Approval fields are admission facts, never recomputed from current code. */
+function requiresAdmittedApproval(invocation: CapabilityInvocationRecord): boolean {
+  return invocation.approvalStatus !== 'not_required'
+    || invocation.approvalInputHash !== null
+    || invocation.approvalRequestedAt !== null
+    || invocation.approvalExpiresAt !== null;
 }
 
 function terminalOrCompleted(

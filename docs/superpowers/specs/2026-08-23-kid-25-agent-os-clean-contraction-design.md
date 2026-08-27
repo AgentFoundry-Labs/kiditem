@@ -15,9 +15,18 @@
 
 ## 0. Decision authority
 
-This document is the single design authority for KID-25. It replaces every
-earlier revision at this path, including the six-model Session/Task/Attempt
-design and the disposable non-persistent CLI Attempt runtime.
+This older design remains authoritative only for compatible KID-25 capability
+and owner-domain contracts. It replaces every earlier revision at this path,
+including the six-model Session/Task/Attempt design and the disposable
+non-persistent CLI Attempt runtime.
+
+The final provider-runtime, MCP transport, Conversation ownership/restart, and
+Chat Workspace UX authority lives in the newer
+[2026-08-26 workspace design](2026-08-26-agent-os-chat-workspace-ux-design.md),
+the user-maintained
+[2026-08-26 implementation plan](../plans/2026-08-26-agent-os-global-chat-panel-and-history.md),
+and [Architecture](../../ARCHITECTURE.md). When this document differs on those
+topics, the newer documents win.
 
 The following older KID-25 assumptions are explicitly superseded:
 
@@ -182,6 +191,8 @@ PostgreSQL and is not a business authority.
 A descriptor contains only:
 
 - an opaque KidItem conversation ID;
+- server-derived `organizationId`, solely as the Gateway's Conversation 404
+  access fence for users in that organization;
 - provider runtime: codex_cli or claude_cli;
 - provider-native local session/thread reference;
 - optional Agent key;
@@ -192,6 +203,9 @@ A descriptor contains only:
 It contains no transcript copy, canonical business input, credential, approval,
 Operation state, capability grant, chain of thought, subagent history, token
 ledger, cost ledger, or business lifecycle.
+
+The descriptor organization is not MCP, user, turn, or execution authority.
+It is never a browser-selected field or provider metadata.
 
 Where a provider can enumerate and title its sessions directly, the Gateway
 adapts that native index. A small local descriptor store may fill only the
@@ -418,7 +432,8 @@ Agent's code-owned instruction profile. The MCP transport envelope carries
 actingAgentKey separately from the capability's strict business input. For a
 mutation, Nest validates:
 
-- the current authenticated user and organization from the execution binding;
+- the current authenticated user and organization lazily resolved from Nest's
+  active-turn record for the `conversationId` locator;
 - that actingAgentKey resolves to a current AgentDefinition;
 - that the capability ownerDomain is included in that Agent's assignedDomains;
 - the strict capability input and canonical input hash; and
@@ -611,20 +626,28 @@ The installation Runner/Gateway bearer remains one random 256-bit token,
 protected by Windows ACL or macOS mode 0600 and supplied to Nest as a Docker
 secret. It is rotatable and never logged.
 
-Each active provider turn receives an ephemeral execution binding. The binding
-is random, bounded to authenticated user, organization, conversation, optional
-Agent, and turn, and is invalidated on terminal turn, interrupt, Gateway loss,
-API restart, or expiry. It authenticates access to the internal MCP endpoint;
-it is not a read, mutation, delegation, or capability grant. It is
-process-memory only and never logged or persisted. Provider-specific adapters
-may refresh or recreate their local process/config to apply a new binding
-without changing provider conversation history.
+When the Gateway process starts, it creates and registers one opaque
+process-scoped MCP transport token. Codex and Claude provider Conversations
+keep their configured MCP connection and token across ordinary turns; the token
+remains valid only until that Gateway process ends and is never logged,
+persisted, renewed, or rotated per turn.
+
+`conversationId` is a routing locator, never business authority. At turn start
+Nest records `activeTurns[conversationId]` with the initiating organization,
+user, turn ID, and a fresh execution ID. A business MCP tool call lazily reads
+that live record to derive authority and fails closed when no matching active
+turn exists. The Gateway descriptor's `organizationId` remains only the
+Conversation access fence, not MCP authority. Only an exact matching provider
+terminal clears that record; a stale terminal or interrupt acknowledgement
+cannot clear a newer turn. There is no binding TTL, renewal, or persistence.
 
 ### 7.4 MCP v2 boundary
 
 Codex/Claude call the Nest-owned MCP v2 Streamable HTTP adapter using protocol
-revision 2026-07-28. The adapter is transport/session-stateless and validates
-the current ephemeral execution binding on every request.
+revision 2026-07-28. The adapter authenticates the process-scoped transport
+token. It retains no transcript or durable transport session; business tool
+calls lazily resolve the static `conversationId` locator against Nest's current
+active-turn record.
 
 It exposes:
 
@@ -665,11 +688,18 @@ They do not create durable Attempts or Continue state.
 
 On API or Gateway restart:
 
-1. active live streams and ephemeral execution bindings are invalidated;
-2. any active provider turn is interrupted or treated as disconnected;
-3. no new model turn is created;
-4. provider-native local conversation history remains owned by the provider;
-5. the next explicit user message may continue that same conversation;
+1. API-side active-turn and Gateway-registration memory is lost; live provider
+   turns end under the existing control lifecycle, without prompt replay or
+   automatic continuation;
+2. an API restart is repaired by the Gateway's next protected poll, which
+   re-registers that Gateway process and its existing process-scoped MCP token;
+3. only an exact `registration-missing` response permits one fresh protected
+   poll followed by one retry of the same bounded event; all other event or
+   transport uncertainty fails closed;
+4. a Gateway process end also ends its MCP token; a replacement process creates
+   and registers its own token;
+5. provider-native local conversation history remains owned by the provider,
+   and the next explicit user message may continue that same conversation;
 6. a read call that did not complete has no durable replay obligation;
 7. a mutation admitted before failure remains CapabilityInvocation worker work;
 8. pending Approval remains actionable;
@@ -776,7 +806,7 @@ Use string-backed statuses plus Zod/domain validation. Require:
 - no native PostgreSQL enum.
 
 Business input schemas cannot accept organization, user, conversation, Agent,
-runtime, model, provider session, execution binding, or other server authority
+runtime, model, provider session, active-turn state, or other server authority
 fields.
 
 ### 10.3 Removed production code
@@ -788,7 +818,7 @@ Remove, without compatibility facades:
 - root/follow-up/Continue/reopen/cancel/delegation Task admission;
 - Attempt capacity, launch, reconciliation, token, and process-state code;
 - Task facts/projection/tree and terminal Session deletion APIs;
-- AgentTask-based MCP bindings and child status/wait/result/message tools;
+- AgentTask-based MCP authority and child status/wait/result/message tools;
 - Operator Agent prompt/publication/readiness and agent_os.platform_probe;
 - disposable empty-home/non-persistent provider enforcement;
 - automatic successor and restart recovery tests;
@@ -803,7 +833,8 @@ Retain and simplify:
 - CapabilityInvocation/Approval worker dispatch;
 - OperationRun execution and recovery;
 - MCP v2 modern-only adapter;
-- installation secret and ephemeral runtime binding security;
+- installation bearer, process-scoped MCP transport, and active-turn authority
+  security;
 - native provider command/process adapters;
 - same-origin CopilotKit incoming adapter; and
 - secret/control-state persistence scanners expressed as current general
@@ -847,9 +878,9 @@ plan with substantial integrated units:
 1. fail-first contract and schema tests for the two-model persistence graph,
    five Agents, seventeen capabilities, no Operator, and no Task/Attempt;
 2. simplify CapabilityInvocation/Approval admission and worker recovery;
-3. replace Attempt/Task MCP binding and child delegation with authenticated
-   conversation/turn binding, actingAgentKey, and provider-native Agent
-   delegation;
+3. replace Attempt/Task MCP authority and child delegation with the
+   process-scoped MCP transport, Nest active-turn lookup, actingAgentKey, and
+   provider-native Agent delegation;
 4. refactor the native Runner into the always-on Host Agent Gateway with
    provider-local conversation adapters;
 5. replace the Web Task view with the provider conversation sidebar/stream and
@@ -914,8 +945,17 @@ executable QA cannot resolve an important ambiguity.
 
 - Gateway API accepts no raw shell, executable, argument array, environment map,
   host path, provider credential, or business authority input.
-- Installation bearer and ephemeral execution binding are authenticated,
-  redacted, non-persistent, and revocable.
+- Installation bearer and one Gateway-process MCP token are authenticated,
+  redacted, non-persistent, and end with that process; provider MCP
+  configuration remains stable across ordinary turns.
+- A business MCP tool call derives organization, initiating user, exact turn,
+  and fresh execution ID only from the matching Nest active-turn record.
+  `conversationId` and descriptor organization alone grant no MCP authority.
+- Only an exact provider terminal clears a matching active turn; stale terminal
+  events and interrupt acknowledgements cannot clear a newer turn. There is no
+  active-turn TTL, renewal, or persistence.
+- An API restart re-registers on the next protected poll; only exact
+  `registration-missing` permits one poll plus same-event retry.
 - Provider login/history stay only under the dedicated host account.
 - API/worker containers neither install nor spawn provider CLIs.
 - MCP v2 2026-07-28 is modern-only and legacy fallback fails readiness.
@@ -965,6 +1005,8 @@ executable QA cannot resolve an important ambiguity.
 - CLI runs trusted full-access/non-interactive under the dedicated
   non-administrator account.
 - MCP is v2 Streamable HTTP revision 2026-07-28 with no legacy fallback.
+- One Gateway process owns one stable MCP transport token; Nest derives business
+  authority lazily from its exact active-turn record, never from a descriptor.
 - Office is Windows; macOS is the current implementation and local QA platform.
 - Legacy Agent OS data is discarded in a clean two-model cutover.
 - No background reasoning, generic Task lifecycle, compatibility layer, or

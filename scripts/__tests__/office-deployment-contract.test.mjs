@@ -33,7 +33,8 @@ test('office Compose is image-only and preserves external state volumes', () => 
   assert.match(compose, /image: \$\{KIDITEM_WEB_IMAGE:\?/);
   assert.match(compose, /name: kiditem_pgdata/);
   assert.match(compose, /name: kiditem_minio-data/);
-  assert.equal(compose.match(/external: true/g)?.length, 2);
+  assert.match(compose, /name: kiditem_copilotkit-event-history/);
+  assert.equal(compose.match(/external: true/g)?.length, 3);
   assert.doesNotMatch(compose, /SUPABASE_URL|NEXT_PUBLIC_SUPABASE/);
   assert.doesNotMatch(envExample, /SUPABASE_URL|NEXT_PUBLIC_SUPABASE/);
   assert.doesNotMatch(compose, /interaction-gateway/);
@@ -41,6 +42,16 @@ test('office Compose is image-only and preserves external state volumes', () => 
   assert.doesNotMatch(compose, /AGENT_RUNTIME_(?:CONCURRENCY|CAPACITY_WAIT_MS|CLAUDE_MAX_BUDGET_USD|WORKER_ENABLED)/);
   assert.match(compose, /KIDITEM_APPLICATION_VERSION: \$\{KIDITEM_APPLICATION_VERSION:\?/);
   assert.match(compose, /KIDITEM_GIT_SHA: \$\{KIDITEM_GIT_SHA:\?/);
+});
+
+test('office API alone mounts persistent completed CopilotKit event history', () => {
+  const compose = read('deploy/office/compose.office.yml');
+  const api = compose.slice(compose.indexOf('  api:'), compose.indexOf('  worker:'));
+  const worker = compose.slice(compose.indexOf('  worker:'), compose.indexOf('  web:'));
+
+  assert.match(api, /KIDITEM_COPILOTKIT_SQLITE_PATH: \/var\/lib\/kiditem\/agent-os\/copilotkit-events\.sqlite/);
+  assert.match(api, /- copilotkit-event-history:\/var\/lib\/kiditem\/agent-os/);
+  assert.doesNotMatch(worker, /KIDITEM_COPILOTKIT_SQLITE_PATH|copilotkit-event-history/);
 });
 
 test('office Compose injects the managed Chrome CDP endpoint into the API runtime', () => {
@@ -95,6 +106,7 @@ test('office operator guards identity, disk, revision, health, and rollback', ()
   assert.doesNotMatch(script, /docker image inspect --format/);
   assert.match(script, /buildx prune --max-used-space 5gb --force/);
   assert.match(script, /Docker\\wsl\\disk\\docker_data\.vhdx/);
+  assert.match(script, /'kiditem_copilotkit-event-history'/);
   assert.equal(
     script.match(/up --detach --no-build api worker web nginx/g)?.length,
     2,
@@ -154,6 +166,18 @@ test('office API image validates the current API and worker application roots', 
   assert.match(dockerfile, /require\('\.\/apps\/server\/dist\/api-application\.module\.js'\)/);
   assert.match(dockerfile, /require\('\.\/apps\/server\/dist\/agent-worker-application\.module\.js'\)/);
   assert.doesNotMatch(dockerfile, /require\('\.\/apps\/server\/dist\/app\.module\.js'\)/);
+});
+
+test('office API image builds the attributed SQLite runner and opens its native SQLite binding under Node 22', () => {
+  const dockerfile = read('apps/server/Dockerfile');
+
+  assert.match(dockerfile, /COPY packages\/copilotkit-sqlite-runner\/package\.json \.\/packages\/copilotkit-sqlite-runner\/package\.json/);
+  assert.match(dockerfile, /COPY packages\/copilotkit-sqlite-runner \.\/packages\/copilotkit-sqlite-runner/);
+  assert.match(dockerfile, /npm run build --workspace=packages\/copilotkit-sqlite-runner/);
+  assert.match(dockerfile, /COPY --from=builder \/app\/packages\/copilotkit-sqlite-runner\/dist \.\/packages\/copilotkit-sqlite-runner\/dist/);
+  assert.match(dockerfile, /COPY --from=deps \/app\/node_modules\/better-sqlite3 \.\/node_modules\/better-sqlite3/);
+  assert.match(dockerfile, /new Database\(':memory:'\)/);
+  assert.match(dockerfile, /require\('@kiditem\/copilotkit-sqlite-runner'\)/);
 });
 
 test('office API image has no process-inspection dependency after Host Gateway cutover', () => {

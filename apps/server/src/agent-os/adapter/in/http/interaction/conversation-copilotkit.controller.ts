@@ -1,4 +1,4 @@
-import { Controller, Inject, Post, Req, Res } from '@nestjs/common';
+import { Controller, Inject, NotFoundException, Post, Req, Res } from '@nestjs/common';
 import {
   AbstractAgent,
   EventType,
@@ -15,12 +15,13 @@ import {
 } from '@copilotkit/runtime/v2';
 import { createCopilotExpressHandler } from '@copilotkit/runtime/v2/express';
 import {
+  ConversationIdSchema,
   ModelSchema,
   ReasoningEffortSchema,
   type ProviderEvent,
 } from '@kiditem/shared/agent-runtime';
 import type { NextFunction, Request, Response, Router } from 'express';
-import { from, map, Observable } from 'rxjs';
+import { defer, from, mergeMap, Observable } from 'rxjs';
 import { z } from 'zod';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../../auth/decorators/current-user.decorator';
@@ -31,6 +32,11 @@ import {
   type ConversationOwner,
   type ConversationPort,
 } from '../../../../application/port/in/capability/conversation.port';
+import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
+import {
+  COPILOTKIT_CONVERSATION_HISTORY_TRANSPORT,
+  type CopilotkitConversationHistoryTransport,
+} from './copilotkit-conversation-history.transport';
 
 const TurnSettingsSchema = z.object({
   model: ModelSchema,
@@ -47,6 +53,8 @@ export class ConversationCopilotkitController {
   constructor(
     @Inject(CONVERSATION_PORT)
     private readonly conversations: ConversationPort,
+    @Inject(COPILOTKIT_CONVERSATION_HISTORY_TRANSPORT)
+    private readonly eventHistory: CopilotkitConversationHistoryTransport,
   ) {}
 
   @Post()
@@ -56,12 +64,65 @@ export class ConversationCopilotkitController {
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ): Promise<void> {
-    const handler = createConversationCopilotkitExpressHandler(this.conversations, {
+    await assertCopilotkitConversationAccessible(this.conversations, {
+      organizationId,
+      userId: user.id,
+    }, request.body);
+    const handler = createConversationCopilotkitExpressHandler(this.conversations, this.eventHistory, {
       organizationId,
       userId: user.id,
     });
     await invokeExpressHandler(handler, request, response);
   }
+}
+
+const COPILOTKIT_CONVERSATION_METHODS = new Set([
+  'agent/run',
+  'agent/connect',
+  'agent/stop',
+  // Kept defensive for clients that probe runner state directly. The installed
+  // 1.69 single-route handler exposes run/connect/stop today.
+  'agent/isRunning',
+]);
+
+/**
+ * The controller owns the HTTP organization fence before a CopilotKit SSE
+ * handler can open. The runner repeats this check defensively for direct
+ * invocation, but no foreign request reaches SQLite replay or a provider turn.
+ */
+async function assertCopilotkitConversationAccessible(
+  conversations: ConversationPort,
+  owner: ConversationOwner,
+  envelope: unknown,
+): Promise<void> {
+  const conversationId = conversationIdFromCopilotkitEnvelope(envelope);
+  if (!conversationId) return;
+  try {
+    await conversations.assertAccessible({ ...owner, conversationId });
+  } catch (error) {
+    if (error instanceof AgentOsRuntimeError && error.code === 'conversation_not_found') {
+      throw new NotFoundException();
+    }
+    throw error;
+  }
+}
+
+function conversationIdFromCopilotkitEnvelope(envelope: unknown): string | null {
+  if (!isRecord(envelope) || typeof envelope.method !== 'string' || !COPILOTKIT_CONVERSATION_METHODS.has(envelope.method)) {
+    return null;
+  }
+  const params = isRecord(envelope.params) ? envelope.params : null;
+  if (params?.agentId !== 'conversation') return null;
+  const body = isRecord(envelope.body) ? envelope.body : null;
+  const candidate = envelope.method === 'agent/stop'
+    ? params.threadId
+    : body?.threadId ?? params.threadId;
+  const parsed = ConversationIdSchema.safeParse(candidate);
+  return parsed.success ? parsed.data : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -71,13 +132,14 @@ export class ConversationCopilotkitController {
  */
 export function createConversationCopilotkitExpressHandler(
   conversations: ConversationPort,
+  eventHistory: CopilotkitConversationHistoryTransport,
   owner: { organizationId: string; userId: string },
 ): Router {
   const runtime = new CopilotRuntime({
     agents: {
       conversation: new GatewayConversationAgUiAgent(conversations, owner),
     },
-    runner: new GatewayConversationAgentRunner(conversations, owner),
+    runner: new GatewayConversationAgentRunner(conversations, eventHistory, owner),
   });
   return createCopilotExpressHandler({
     runtime,
@@ -89,32 +151,24 @@ export function createConversationCopilotkitExpressHandler(
 }
 
 /**
- * CopilotKit is only a live protocol adapter here. Provider history remains
- * the transcript authority, and every runner operation derives its exact
- * conversation coordinates from the authenticated request owner.
+ * CopilotKit's SQLite runner owns canonical completed AG-UI event history.
+ * Nest remains the owner-fenced authority for live execution and interruption.
  */
 export class GatewayConversationAgentRunner extends AgentRunner {
   constructor(
     private readonly conversations: ConversationPort,
+    private readonly eventHistory: CopilotkitConversationHistoryTransport,
     private readonly owner: ConversationOwner,
   ) {
     super();
   }
 
   run(request: AgentRunnerRunRequest): Observable<BaseEvent> {
-    return request.agent.run(request.input);
+    return this.accessible(request.threadId, () => this.eventHistory.run(this.owner, request));
   }
 
   connect(request: AgentRunnerConnectRequest): Observable<BaseEvent> {
-    return from(this.conversations.history({
-      ...this.owner,
-      conversationId: request.threadId,
-    })).pipe(map((history) => ({
-      type: EventType.MESSAGES_SNAPSHOT,
-      messages: history
-        .filter((message) => message.role === 'user' || message.role === 'assistant')
-        .map(({ id, role, content }) => ({ id, role, content })),
-    })));
+    return this.accessible(request.threadId, () => this.eventHistory.connect(this.owner, request));
   }
 
   isRunning(request: AgentRunnerIsRunningRequest): Promise<boolean> {
@@ -129,6 +183,13 @@ export class GatewayConversationAgentRunner extends AgentRunner {
       ...this.owner,
       conversationId: request.threadId,
     });
+  }
+
+  private accessible(threadId: string, next: () => Observable<BaseEvent>): Observable<BaseEvent> {
+    return defer(() => from(this.conversations.assertAccessible({
+      ...this.owner,
+      conversationId: threadId,
+    }))).pipe(mergeMap(next));
   }
 }
 
@@ -204,6 +265,15 @@ export class GatewayAgUiEventMapper {
       });
       return output;
     }
+    if (event.status === 'interrupted') {
+      output.push({
+        type: EventType.RUN_FINISHED,
+        threadId: this.coordinates.threadId,
+        runId: this.coordinates.runId,
+        outcome: { type: 'interrupt', interrupts: [] },
+      });
+      return output;
+    }
     output.push({
       type: EventType.RUN_ERROR,
       message: 'The provider turn ended. Send a new message when you are ready.',
@@ -222,7 +292,7 @@ export class GatewayAgUiEventMapper {
   }
 }
 
-class GatewayConversationAgUiAgent extends AbstractAgent {
+export class GatewayConversationAgUiAgent extends AbstractAgent {
   constructor(
     private readonly conversations: ConversationPort,
     private readonly owner: { organizationId: string; userId: string },
@@ -236,19 +306,19 @@ class GatewayConversationAgUiAgent extends AbstractAgent {
 
   run(input: RunAgentInput): Observable<BaseEvent> {
     return new Observable<BaseEvent>((subscriber) => {
-      let closed = false;
       let terminal = false;
       let unsubscribe: (() => void) | undefined;
-      let startedTurnId: string | undefined;
       const mapper = new GatewayAgUiEventMapper({
         threadId: input.threadId,
         runId: input.runId,
         messageId: `assistant-${input.runId}`,
       });
-
       const finish = (): void => {
         if (terminal) return;
         terminal = true;
+        const cleanup = unsubscribe;
+        unsubscribe = undefined;
+        cleanup?.();
         subscriber.complete();
       };
       const emitFailure = (): void => {
@@ -258,16 +328,11 @@ class GatewayConversationAgUiAgent extends AbstractAgent {
 
       subscriber.next({ type: EventType.RUN_STARTED, threadId: input.threadId, runId: input.runId });
       void this.startGatewayTurn(input).then((turn) => {
-        startedTurnId = turn.turnId;
-        if (closed) {
-          this.conversations.disconnect({ ...this.owner, conversationId: input.threadId, turnId: turn.turnId });
-          return;
-        }
         unsubscribe = turn.subscribe((providerEvent) => {
           for (const event of mapper.map(providerEvent)) subscriber.next(event);
           if (mapper.isTerminal) finish();
         });
-        if (closed || mapper.isTerminal) {
+        if (mapper.isTerminal) {
           const cleanup = unsubscribe;
           unsubscribe = undefined;
           cleanup();
@@ -280,15 +345,8 @@ class GatewayConversationAgUiAgent extends AbstractAgent {
       });
 
       return () => {
-        closed = true;
-        unsubscribe?.();
-        if (!terminal && startedTurnId) {
-          this.conversations.disconnect({
-            ...this.owner,
-            conversationId: input.threadId,
-            turnId: startedTurnId,
-          });
-        }
+        // Browser/SSE departure detaches only this observer. The provider turn
+        // and Nest's exact active-turn authority continue until a real terminal.
       };
     });
   }

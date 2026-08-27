@@ -877,6 +877,28 @@ describe('OperationRunService', () => {
     expect(repository.createRun).not.toHaveBeenCalled();
   });
 
+  it('rejects expected-input drift while resolving a durable idempotency replay', async () => {
+    const registry = new OperationHandlerRegistryService();
+    registry.register(definition, handler);
+    const repository = makeRepository();
+    repository.findByIdempotencyKey = vi.fn().mockResolvedValue(makeRecord({
+      input: { source: 'naver' },
+    }));
+    const service = new OperationRunService(
+      registry,
+      repository,
+      compositeCoordinator,
+      acceptingGate(),
+    );
+
+    await expect(service.findByIdempotency({
+      organizationId: ORG_ID,
+      operationKey: definition.key,
+      idempotencyKey: 'dashboard:trends',
+      expectedInput: { source: '1688' },
+    })).rejects.toThrow('idempotency_key_input_conflict');
+  });
+
   it('rejects a different canonical input returned after a concurrent idempotent create', async () => {
     const registry = new OperationHandlerRegistryService();
     registry.register(definition, handler);

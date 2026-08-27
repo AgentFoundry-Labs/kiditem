@@ -120,9 +120,9 @@ export class ConversationDescriptorStore {
     } catch {
       throw new Error('gateway_descriptor_invalid');
     }
-    if (isDisposablePreCreateTitleCatalog(value)) {
+    if (isDisposableLegacyCatalog(value)) {
       // Clean cutover: discard the complete former catalog. We deliberately
-      // do not infer immutable create inputs from mutable display titles.
+      // never adopt a descriptor lacking its server-derived organization.
       await this.writeAtomically([]);
       return [];
     }
@@ -164,14 +164,19 @@ function parseCollection(value: unknown): ConversationDescriptor[] {
   return descriptors;
 }
 
-/** Recognizes the exact former catalog only so it can be discarded wholesale. */
-function isDisposablePreCreateTitleCatalog(value: unknown): boolean {
+/** Recognizes exact former schemas only so they can be discarded wholesale. */
+function isDisposableLegacyCatalog(value: unknown): boolean {
   if (!Array.isArray(value) || value.length === 0 || value.length > MAX_DESCRIPTORS) return false;
   return value.every((entry) => {
-    if (!isRecord(entry) || Object.hasOwn(entry, 'createTitle')) return false;
+    if (!isRecord(entry) || Object.hasOwn(entry, 'organizationId')) return false;
     // This is a discriminator, not a compatibility conversion: no legacy
-    // row is ever returned, written, or used for idempotency.
-    return ConversationDescriptorSchema.safeParse({ ...entry, createTitle: 'pre-create-title-cutover' }).success;
+    // row is ever returned, written, or used for idempotency. The sentinel
+    // values exist only inside this predicate before the entire file is erased.
+    return ConversationDescriptorSchema.safeParse({
+      ...entry,
+      organizationId: 'organization-cutover',
+      ...(Object.hasOwn(entry, 'createTitle') ? {} : { createTitle: 'pre-create-title-cutover' }),
+    }).success;
   });
 }
 

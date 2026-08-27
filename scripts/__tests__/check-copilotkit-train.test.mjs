@@ -234,6 +234,23 @@ test('checkWorkspace scans all configured manifests and identifies the failing g
   }
 });
 
+test('checks the internal SQLite runner manifest against the locked CopilotKit train', (t) => {
+  const manifests = validWorkspaceManifests();
+  manifests['packages/copilotkit-sqlite-runner/package.json'] = {
+    dependencies: {
+      '@copilotkit/runtime': '^1.69.0',
+      '@ag-ui/client': '0.0.57',
+    },
+  };
+  const rootDir = createWorkspace(t, manifests);
+
+  assertWorkspaceError(
+    rootDir,
+    'packages/copilotkit-sqlite-runner/package.json dependencies',
+    /must equal exact locked version/,
+  );
+});
+
 test('duplicate declarations cannot mask an invalid package range', (t) => {
   const rootDir = createWorkspace(t, {
     'package.json': {

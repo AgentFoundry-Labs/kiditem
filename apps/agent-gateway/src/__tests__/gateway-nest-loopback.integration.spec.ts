@@ -54,13 +54,13 @@ describe('Gateway ↔ Nest loopback', () => {
     const poll = { kind: 'poll' as const, gatewayInstanceId: GATEWAY_INSTANCE_ID, platform: 'macos' as const, runtimeTrain: GATEWAY_RUNTIME_TRAIN, mcpTransportToken: MCP_TRANSPORT_TOKEN };
 
     await expect(client.poll(poll)).resolves.toEqual({ commands: [], apiRuntimeRegistered: true });
-    const command = { kind: 'conversation.list' as const, commandId: broker.nextCommandId() };
+    const command = { kind: 'conversation.list' as const, commandId: broker.nextCommandId(), organizationId: OWNER.organizationId };
     const result = broker.begin<unknown[]>({ ...OWNER, command });
     queue.enqueue(command);
 
     const outbox = new GatewayEventOutbox({ gatewayInstanceId: GATEWAY_INSTANCE_ID, redactionTokens: [TOKEN, MCP_TRANSPORT_TOKEN] });
     const dispatcher = new GatewayCommandDispatcher({
-      gateway: { list: async () => [], create: async () => undefined, history: async () => [], rename: async () => undefined, delete: async () => undefined, startTurn: async () => undefined, sendInput: async () => undefined, interrupt: async () => undefined },
+      gateway: { list: async () => [], assertAccessible: async () => undefined, create: async () => undefined, history: async () => [], rename: async () => undefined, delete: async () => undefined, startTurn: async () => undefined, interrupt: async () => undefined },
       outbox,
       preferences: { read: async () => ({ schemaVersion: 1 as const, contexts: {} }), set: async () => ({ schemaVersion: 1 as const, contexts: {} }) },
     });
@@ -124,12 +124,12 @@ describe('Gateway ↔ Nest loopback', () => {
     const dispatcher = new GatewayCommandDispatcher({
       gateway: {
         list: async () => [],
+        assertAccessible: async () => undefined,
         create,
         history: async () => [],
         rename: async () => undefined,
         delete: async () => undefined,
         startTurn: async () => undefined,
-        sendInput: async () => undefined,
         interrupt: async () => undefined,
       },
       outbox,
@@ -140,6 +140,7 @@ describe('Gateway ↔ Nest loopback', () => {
     const command = {
       kind: 'conversation.create' as const,
       commandId: broker.nextCommandId(),
+      organizationId: OWNER.organizationId,
       conversationId,
       runtime: 'codex_cli' as const,
       agentKey: null,
@@ -164,6 +165,7 @@ describe('Gateway ↔ Nest loopback', () => {
 
     expect(create).toHaveBeenCalledOnce();
     expect(create).toHaveBeenCalledWith({
+      organizationId: OWNER.organizationId,
       conversationId,
       runtime: 'codex_cli',
       agentKey: null,
@@ -193,7 +195,7 @@ describe('Gateway ↔ Nest loopback', () => {
     const preferences = new ConversationPreferenceStore({ stateRoot: root, platform: 'macos' });
     const outbox = new GatewayEventOutbox({ gatewayInstanceId: poll.gatewayInstanceId, redactionTokens: [TOKEN, MCP_TRANSPORT_TOKEN] });
     const dispatcher = new GatewayCommandDispatcher({
-      gateway: { list: async () => [], create: async () => undefined, history: async () => [], rename: async () => undefined, delete: async () => undefined, startTurn: async () => undefined, sendInput: async () => undefined, interrupt: async () => undefined },
+      gateway: { list: async () => [], assertAccessible: async () => undefined, create: async () => undefined, history: async () => [], rename: async () => undefined, delete: async () => undefined, startTurn: async () => undefined, interrupt: async () => undefined },
       outbox,
       preferences,
     });
@@ -277,6 +279,7 @@ describe('Gateway ↔ Nest loopback', () => {
       now: () => new Date('2026-08-26T00:00:00.000Z'),
     });
     await gateway.create({
+      organizationId: OWNER.organizationId,
       conversationId: 'browser-metadata-failure', runtime: 'codex_cli', agentKey: null, title: 'Metadata failure regression',
     });
     const outbox = new GatewayEventOutbox({ gatewayInstanceId: poll.gatewayInstanceId, redactionTokens: [TOKEN, MCP_TRANSPORT_TOKEN] });
@@ -505,14 +508,12 @@ class MetadataFailingTurnProvider {
       updatedAt: '2026-08-26T00:00:00.000Z',
     };
   }
-  async history() { return []; }
   async rename() { return undefined; }
   async delete() { return undefined; }
   async startTurn(_input: unknown, sink: (event: { kind: 'status'; status: 'started' | 'completed' }) => void) {
     this.sink = sink;
     sink({ kind: 'status', status: 'started' });
   }
-  async sendInput() { return undefined; }
   async interrupt() { return undefined; }
   async readiness() {
     return {

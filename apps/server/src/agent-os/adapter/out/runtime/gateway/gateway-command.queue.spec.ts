@@ -103,9 +103,9 @@ describe('GatewayCommandQueue', () => {
       longPollMs: 0,
     });
 
-    expect(() => queue.enqueue({ kind: 'conversation.list', commandId: 'offline-command' })).toThrow('gateway_session_unavailable');
+    expect(() => queue.enqueue({ kind: 'conversation.list', commandId: 'offline-command', organizationId: 'organization-1' })).toThrow('gateway_session_unavailable');
     await queue.poll(POLL);
-    queue.enqueue({ kind: 'conversation.list', commandId: 'command-1' });
+    queue.enqueue({ kind: 'conversation.list', commandId: 'command-1', organizationId: 'organization-1' });
     expect((await queue.poll(POLL)).commands).toHaveLength(1);
 
     const replacement = { ...POLL, gatewayInstanceId: 'gateway-2' };
@@ -115,6 +115,22 @@ describe('GatewayCommandQueue', () => {
     queue.disconnect('gateway-2');
     expect(runtime.disconnect).toHaveBeenCalledWith('gateway-2');
     expect(queue.isLiveSession('gateway-2')).toBe(false);
+  });
+
+  it('invalidates a displaced Gateway long-poll instead of resolving it as an empty command batch', async () => {
+    const queue = new GatewayCommandQueue({
+      runtime: mcpRuntime() as never,
+      installationId: 'installation-1',
+      longPollMs: 1_000,
+    });
+    queue.claim(POLL);
+    const pending = queue.poll(POLL);
+    await Promise.resolve();
+
+    queue.claim({ ...POLL, gatewayInstanceId: 'gateway-2', mcpTransportToken: 'B'.repeat(43) });
+
+    await expect(pending).rejects.toThrow('gateway_session_mismatch');
+    expect(queue.isLiveSession('gateway-2')).toBe(true);
   });
 });
 

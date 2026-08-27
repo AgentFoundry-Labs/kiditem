@@ -23,6 +23,7 @@ const mutationDefinition = {
   ownerDomain: 'sourcing',
   ownerInputPort: 'sourcing.createCandidate',
   description: 'Test-only mutation.',
+  resultSummary: '후보를 생성했습니다.',
   inputSchema: z.object({ alpha: z.string(), nested: z.object({ a: z.number(), b: z.number() }).strict() }).strict(),
   outputSchema: z.object({ candidateId: z.string().uuid() }).strict(),
   effects: ['db_write'] as const,
@@ -40,25 +41,54 @@ const readDefinition = {
 };
 
 describe('CapabilityInvocationService', () => {
-  it('projects the current capability approval risk with an authenticated receipt', async () => {
-    const repository = { findById: vi.fn().mockResolvedValue(invocation({ input: { alpha: 'candidate', nested: { a: 1, b: 2 } }, status: 'pending' })) };
+  it('projects only a nullable bounded result envelope through the organization-fenced receipt', async () => {
+    const result = receiptFrom(completedResult());
+    const repository = {
+      findById: vi.fn()
+        .mockResolvedValueOnce(invocation({ input: { alpha: 'candidate', nested: { a: 1, b: 2 } }, status: 'succeeded', result }))
+        .mockResolvedValueOnce(invocation({ input: { alpha: 'candidate', nested: { a: 1, b: 2 } }, status: 'pending' })),
+    };
     const owner = { capabilityKey: mutationDefinition.key, invoke: vi.fn() };
     const service = new CapabilityInvocationService(repository as never, registry(mutationDefinition, owner) as never);
 
     const receipt = await service.getReceipt({ organizationId: ORGANIZATION_ID, invocationId: INVOCATION_ID });
-    expect(receipt).toMatchObject({
-      id: INVOCATION_ID,
-      approvalRisk: 'low',
+    expect(receipt).toEqual({
+      capabilityKey: mutationDefinition.key,
+      status: 'succeeded',
+      approvalStatus: 'not_required',
+      approvalExpiresAt: null,
+      result: {
+        summary: result.summary,
+        resourceRefs: result.resourceRefs,
+        operationRefs: result.operationRefs,
+      },
     });
+    expect(repository.findById).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      invocationId: INVOCATION_ID,
+    });
+    expect(receipt).not.toHaveProperty('id');
+    expect(receipt).not.toHaveProperty('canonicalInput');
     expect(receipt).not.toHaveProperty('requestKey');
     expect(receipt).not.toHaveProperty('inputHash');
     expect(receipt).not.toHaveProperty('approvalInputHash');
     expect(receipt).not.toHaveProperty('approvalDecidedByUserId');
+    expect(receipt.result).not.toHaveProperty('output');
+
+    await expect(service.getReceipt({ organizationId: ORGANIZATION_ID, invocationId: INVOCATION_ID }))
+      .resolves.toEqual({
+        capabilityKey: mutationDefinition.key,
+        status: 'pending',
+        approvalStatus: 'not_required',
+        approvalExpiresAt: null,
+        result: null,
+      });
   });
 
   it('canonically admits a mutation once, passes the exact opaque owner key, and replays the persisted result', async () => {
     const input = { nested: { b: 2, a: 1 }, alpha: 'candidate' };
-    const result = completedResult();
+    const ownerResult = completedResult();
+    const result = receiptFrom(ownerResult);
     const pending = invocation({ input, status: 'pending' });
     const succeeded = invocation({ input, status: 'succeeded', result });
     const repository = {
@@ -68,7 +98,7 @@ describe('CapabilityInvocationService', () => {
       recordSucceeded: vi.fn().mockResolvedValue(succeeded),
       recordKnownFailure: vi.fn(),
     };
-    const owner = { capabilityKey: mutationDefinition.key, invoke: vi.fn().mockResolvedValue(result) };
+    const owner = { capabilityKey: mutationDefinition.key, invoke: vi.fn().mockResolvedValue(ownerResult) };
     const service = new CapabilityInvocationService(
       repository as never,
       registry(mutationDefinition, owner) as never,
@@ -96,6 +126,80 @@ describe('CapabilityInvocationService', () => {
     expect(repository.recordSucceeded).toHaveBeenCalledWith(expect.objectContaining({
       invocationId: INVOCATION_ID,
       result,
+    }));
+  });
+
+  it('rejects a replay before owner execution when the admitted approval policy was downgraded', async () => {
+    const input = { alpha: 'candidate', nested: { a: 1, b: 2 } };
+    const inputHash = canonicalOwnerInputHash(input);
+    const pending = {
+      ...invocation({ input, status: 'pending' }),
+      approvalStatus: 'pending' as const,
+      approvalInputHash: inputHash,
+      approvalRequestedAt: new Date('2026-08-25T00:00:00.000Z'),
+      approvalExpiresAt: new Date('2026-08-25T00:30:00.000Z'),
+    };
+    const repository = {
+      admit: vi.fn().mockResolvedValue({ kind: 'replay', invocation: pending }),
+      recordSucceeded: vi.fn(),
+      recordKnownFailure: vi.fn(),
+    };
+    const owner = {
+      capabilityKey: mutationDefinition.key,
+      invoke: vi.fn().mockResolvedValue(completedResult()),
+    };
+    const service = new CapabilityInvocationService(
+      repository as never,
+      registry(mutationDefinition, owner) as never,
+    );
+
+    await expect(service.invoke(mutationRequest(input))).rejects.toMatchObject({
+      code: 'CAPABILITY_POLICY_DRIFT',
+    } satisfies Partial<AgentOsError>);
+    expect(owner.invoke).not.toHaveBeenCalled();
+    expect(repository.recordSucceeded).not.toHaveBeenCalled();
+  });
+
+  it('persists and replays only receipt fields for a mutation owner result', async () => {
+    const input = { alpha: 'candidate', nested: { a: 1, b: 2 } };
+    const definition = {
+      ...mutationDefinition,
+      outputSchema: z.object({
+        candidateId: z.string().uuid(),
+        screenshotPath: z.string(),
+      }).strict(),
+    };
+    const fullOwnerResult = {
+      ...completedResult(),
+      output: {
+        candidateId: '00000000-0000-4000-8000-000000000004',
+        screenshotPath: '/tmp/host-only/wing-capture.png',
+      },
+    };
+    const receipt = receiptFrom(fullOwnerResult);
+    const pending = invocation({ input, status: 'pending' });
+    const succeeded = invocation({ input, status: 'succeeded', result: receipt });
+    const repository = {
+      admit: vi.fn().mockResolvedValue({ kind: 'created', invocation: pending }),
+      recordSucceeded: vi.fn().mockResolvedValue(succeeded),
+      recordKnownFailure: vi.fn(),
+    };
+    const owner = {
+      capabilityKey: definition.key,
+      invoke: vi.fn().mockResolvedValue(fullOwnerResult),
+    };
+    const service = new CapabilityInvocationService(
+      repository as never,
+      registry(definition, owner) as never,
+    );
+
+    await expect(service.invoke(mutationRequest(input))).resolves.toMatchObject({
+      kind: 'completed',
+      result: receipt,
+    });
+    expect(repository.recordSucceeded).toHaveBeenCalledWith(expect.objectContaining({
+      invocationId: INVOCATION_ID,
+      result: receipt,
     }));
   });
 
@@ -283,7 +387,8 @@ describe('CapabilityInvocationService', () => {
       canonicalInput: canonicalizeOwnerInput(input),
       inputHash: canonicalOwnerInputHash(input),
     };
-    const result = completedResult();
+    const ownerResult = completedResult();
+    const result = receiptFrom(ownerResult);
     const succeeded = {
       ...pending,
       status: 'succeeded' as const,
@@ -298,7 +403,7 @@ describe('CapabilityInvocationService', () => {
     };
     const owner = {
       capabilityKey: definition.key,
-      invoke: vi.fn().mockResolvedValue(result),
+      invoke: vi.fn().mockResolvedValue(ownerResult),
     };
     const service = new CapabilityInvocationService(
       repository as never,
@@ -399,7 +504,7 @@ describe('CapabilityInvocationService', () => {
     const replay = {
       ...pending,
       status: 'succeeded' as const,
-      result: completedResult(),
+      result: receiptFrom(completedResult()),
       finishedAt: new Date('2026-08-25T00:00:00.000Z'),
     };
     const repository = {
@@ -508,6 +613,14 @@ function completedResult() {
     resourceRefs: [{ kind: 'sourcing_candidate', id: '00000000-0000-4000-8000-000000000004', version: null }],
     operationRefs: [],
     output: { candidateId: '00000000-0000-4000-8000-000000000004' },
+  };
+}
+
+function receiptFrom(result: ReturnType<typeof completedResult>) {
+  return {
+    summary: result.summary,
+    resourceRefs: result.resourceRefs,
+    operationRefs: result.operationRefs,
   };
 }
 

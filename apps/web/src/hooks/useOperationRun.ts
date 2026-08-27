@@ -40,6 +40,7 @@ export function useOperationRun(runId: string | null) {
     queryFn: () => operationsApi.getRun(runId!),
     enabled: runId !== null,
     refetchInterval: (query) => {
+      if (query.state.status === 'error') return false;
       const run = query.state.data;
       return run && isTerminalOperationStatus(run.status)
         ? false
