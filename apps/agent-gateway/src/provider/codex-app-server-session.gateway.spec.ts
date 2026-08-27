@@ -53,6 +53,9 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
       ephemeral: false,
       developerInstructions: expect.stringContaining('KidItem Sourcing Agent'),
       config: {
+        features: {
+          mcp_2026_07_28: true,
+        },
         mcp_servers: {
           kiditem: {
             url: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
@@ -97,6 +100,7 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
 
     const resumes = requests(lines, 'thread/resume');
     expect(resumes).toHaveLength(0);
+    expect(requests(lines, 'turn/start').every(({ params }) => !('config' in params))).toBe(true);
     expect(requests(lines, 'turn/start').map(({ params }) => ({
       threadId: params.threadId,
       model: params.model,
@@ -108,6 +112,69 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
       { threadId: 'provider-thread-1', model: 'gpt-5.6', effort: 'high', approvalPolicy: 'never', sandboxPolicy: { type: 'dangerFullAccess' } },
     ]);
     expect(JSON.stringify(requests(lines, 'thread/start'))).not.toContain('"ephemeral":true');
+  });
+
+  it('reapplies the MCP 2026 feature when a Gateway restart resumes a configured thread', async () => {
+    const { CodexAppServerSession } = await import('./codex-app-server-session');
+    const firstLines: string[] = [];
+    const beforeRestart = new CodexAppServerSession({
+      write: (line: string) => { firstLines.push(line); },
+      workspace: '/gateway/workspace',
+      mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: MCP_TRANSPORT_TOKEN,
+    });
+    const created = beforeRestart.createConversation({
+      conversationId: 'conversation-restarted',
+      title: 'Restarted conversation',
+      instructionProfile: GENERAL_PROFILE,
+    });
+    answer(beforeRestart, firstLines, 'initialize', {}); await advance();
+    answer(beforeRestart, firstLines, 'thread/start', threadResponse('provider-thread-restarted')); await advance();
+    answer(beforeRestart, firstLines, 'thread/name/set', {}); await created;
+    beforeRestart.close();
+
+    const resumedLines: string[] = [];
+    const output: unknown[] = [];
+    const afterRestart = new CodexAppServerSession({
+      write: (line: string) => { resumedLines.push(line); },
+      workspace: '/gateway/workspace',
+      mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+      mcpTransportToken: MCP_TRANSPORT_TOKEN,
+    });
+    const started = afterRestart.startTurn({
+      providerConversationRef: 'provider-thread-restarted',
+      conversationId: 'conversation-restarted',
+      turnId: 'gateway-turn-restarted',
+      message: 'Resume supplier research.',
+      model: 'gpt-5.6',
+      reasoningEffort: 'medium',
+      instructionProfile: GENERAL_PROFILE,
+    }, (event) => output.push(event));
+    await advance();
+    answer(afterRestart, resumedLines, 'initialize', {}); await advance();
+
+    expect(request(resumedLines, 'thread/resume').params).toEqual(expect.objectContaining({
+      threadId: 'provider-thread-restarted',
+      config: {
+        features: {
+          mcp_2026_07_28: true,
+        },
+        mcp_servers: {
+          kiditem: {
+            url: 'http://127.0.0.1:4000/internal/agent-runtime/mcp',
+            http_headers: {
+              Authorization: `Bearer ${MCP_TRANSPORT_TOKEN}`,
+              'x-kiditem-conversation-id': 'conversation-restarted',
+            },
+          },
+        },
+      },
+    }));
+    answer(afterRestart, resumedLines, 'thread/resume', threadResponse('provider-thread-restarted')); await advance();
+    answer(afterRestart, resumedLines, 'turn/start', { turn: { id: 'provider-turn-restarted' } });
+    await started;
+
+    expect(JSON.stringify(output)).not.toContain(MCP_TRANSPORT_TOKEN);
   });
 
   it('lists top-level provider threads, reads provider history without cache, archives before local deletion, and never starts a turn on reopen', async () => {

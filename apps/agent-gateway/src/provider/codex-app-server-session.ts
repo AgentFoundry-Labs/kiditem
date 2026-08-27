@@ -377,6 +377,9 @@ export class CodexAppServerSession {
 
   private mcpConfig(conversationId: string): Record<string, unknown> {
     return {
+      features: {
+        mcp_2026_07_28: true,
+      },
       mcp_servers: {
         kiditem: {
           url: this.options.mcpUrl,
