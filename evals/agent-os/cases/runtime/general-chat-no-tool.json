@@ -1,0 +1,37 @@
+{
+  "id": "runtime.general-chat-no-tool.v1",
+  "suite": "regression",
+  "fixtureId": "runtime.general-chat.v1",
+  "messages": [
+    {
+      "id": "initial",
+      "promptTemplate": "이번 주 상품 운영 우선순위를 정할 때 어떤 기준으로 생각하면 좋을지 함께 정리해 주세요."
+    }
+  ],
+  "target": {
+    "provider": "codex",
+    "model": "gpt-5.6-terra",
+    "effort": "max"
+  },
+  "trials": 3,
+  "userBehavior": {
+    "approval": "none"
+  },
+  "harness": {
+    "restartAfterMessageIds": []
+  },
+  "grading": {
+    "minimumNormalCompletions": 2,
+    "hardInvariants": [
+      "organization_isolation",
+      "no_business_capability",
+      "no_canonical_write",
+      "no_duplicate_write"
+    ],
+    "capabilityAlternatives": [[]],
+    "expectedDomainDelta": {
+      "sourcingCandidates": 0,
+      "operationRuns": 0
+    }
+  }
+}

@@ -2488,30 +2488,40 @@ payloads, private reasoning, or full transcripts. Evidence contains sanitized
 Conversation/Turn/Execution correlations, capability key, canonical input
 hash, Approval/Operation/resource references, and final domain snapshots.
 
+The executable cases and hidden graders live under `evals/agent-os`. Validate
+them with `npm run eval:agent-os -- --validate`, then render only the natural
+model-facing messages with `--prompt`. Never send the model the capability
+sequence, owner request key, expected canonical hash, replay instruction,
+deliberate snapshot mutation, or database assertions. Those remain hidden
+deterministic harness/grader inputs.
+
 - [ ] **Step 1: Run the Sourcing vertical slice**
 
-From a Sourcing Agent Conversation, retrieve recommendation/evidence data and
-prove no canonical write. Use an actually reachable allowlisted supplier URL
-for `sourcing.duplicateCheck` and `sourcing.scrapeProductUrl`. The scrape must
-return the bounded normalized owner schema and must not create a candidate.
+Run `sourcing.recommendation-evidence-read.v1` and
+`sourcing.candidate-ingest.v1`. The model receives only the natural request and
+an environment-supplied allowlisted `supplierUrl`. The live trial must use
+grounded recommendation/evidence data, avoid a canonical write during the read,
+and create no candidate before approval. After approval, prove exactly one
+candidate and confirm it appears in the actual Sourcing UI.
 
-In the same live provider turn, request `sourcing.ingestCandidate` with the
-exact server-returned snapshot/hash and owner idempotency key. Prove candidate
-absence before approval, then approve and prove exactly one candidate. Replay
-the same key/input and prove the same resource is returned; change the
-snapshot/hash under that key and prove rejection with no second write. Confirm
-the resulting candidate appears in the actual Sourcing UI.
+Separately, the hidden deterministic owner gate replays the admitted exact
+input under the same key and proves the same candidate is returned, then
+changes one canonical snapshot/hash field under that key and proves conflict
+without a second write. Do not ask the live model to manufacture either replay
+or drift input.
 
 - [ ] **Step 2: Run Sourcing-to-Products delegation**
 
-Continue from an existing QA candidate. Ask the Sourcing Agent to prepare a
-listing-generation request that delegates the canonical mutation to
-`products.create_listing_generation_package`. Prove the Products owner
-capability—not a Sourcing DB shortcut—owns the call. Before approval there is
-no new `OperationRun`; after approval there is exactly one owner Operation.
-Replay the same owner key/input and prove candidate and Operation counts remain
-one. Confirm both the Conversation result and the actual product pipeline UI
-reflect the accepted request.
+Run `sourcing.products-delegation.v1` from an existing disposable QA candidate.
+The model receives only the natural request and an environment-supplied
+`candidateRef`. Prove the Products owner capability—not a Sourcing DB
+shortcut—owns the canonical mutation. Before approval there is no new
+`OperationRun`; after approval there is exactly one owner Operation. Confirm
+both the Conversation result and the actual product pipeline UI reflect the
+accepted request.
+
+The hidden deterministic owner gate, not the model prompt, replays the same
+owner key/input and proves candidate and Operation counts remain one.
 
 - [ ] **Step 3: Promote only observed failures and publish evidence**
 
@@ -2521,6 +2531,18 @@ and rerun only that finding plus its surrounding deterministic gate before
 repeating the live slice. Record the commands, pass/fail outcome, and sanitized
 final snapshots in the local QA report and update this plan's checkboxes only
 after actual evidence exists. Claude live QA remains non-blocking.
+
+- [ ] **Step 4: Run negative-decision and high-risk mutation cases**
+
+Run `sourcing.known-duplicate.v1`,
+`sourcing.candidate-approval-denied.v1`, `sourcing.scrape-failure.v1`,
+`runtime.general-chat-no-tool.v1`, and `supply.purchase-order-submit.v1` from
+their disposable fixtures. Keep the prompts natural: the harness owns whether
+approval is granted or denied and the grader owns the expected no-op, no-write,
+or exact final delta. The providerless purchase-order fixture supplies an
+existing external order identity and must produce exactly one approved
+submission. Do not turn replay, drift, organization attacks, or lifecycle races
+into model instructions; their deterministic gates remain authoritative.
 
 ## Final Acceptance Checklist
 
@@ -2585,6 +2607,9 @@ after actual evidence exists. Claude live QA remains non-blocking.
 - [ ] The Sourcing-to-Products slice proves Products owner delegation,
   approval-before-write, one OperationRun, replay without duplication, and
   product-pipeline projection.
+- [ ] Duplicate no-op, denied approval, incomplete scrape, general no-tool chat,
+  and providerless purchase submission pass their three-trial business
+  evaluations with every hard invariant intact.
 - [x] One Sol(max) integrated review passed before browser QA with no open
   Critical or Important finding.
 - [x] The only live limitation, when still applicable, is unavailable Claude

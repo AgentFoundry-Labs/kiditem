@@ -61,6 +61,8 @@
     "data:migrate": "tsx scripts/run-data-migrations.ts",
     "extension:release": "node scripts/manage-extension-release.mjs",
     "inventory:bootstrap:dev": "tsx scripts/bootstrap-authoritative-inventory-dev.ts",
+    "eval:agent-os": "node evals/agent-os/harness/run-eval.mjs",
+    "test:agent-evals": "node --test evals/agent-os/tests/*.test.mjs",
     "qa:agent-os:clean-cutover": "node scripts/qa-agent-os-clean-cutover.mjs",
     "seed:agent-os:browser-qa": "tsx scripts/seed-agent-os-browser-qa.ts",
     "smoke:interaction-os": "node scripts/smoke-interaction-os.mjs",

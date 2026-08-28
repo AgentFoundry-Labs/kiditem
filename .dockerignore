@@ -28,6 +28,7 @@ agents/__pycache__/
 
 # Unnecessary for server build
 extensions/
+evals/
 *.md
 !agent-config/prompts/agents/operator.md
 !agent-config/prompts/agents/sourcing.md

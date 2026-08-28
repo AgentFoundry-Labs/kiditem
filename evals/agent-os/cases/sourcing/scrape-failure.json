@@ -1,0 +1,39 @@
+{
+  "id": "sourcing.scrape-failure.v1",
+  "suite": "capability",
+  "fixtureId": "sourcing.scrape-failure.v1",
+  "messages": [
+    {
+      "id": "initial",
+      "promptTemplate": "공급처 상품 {{supplierUrl}}을 조사해 중복 여부와 상품 정보를 확인해 주세요. 신뢰할 수 있는 정보가 충분할 때만 소싱 후보 등록을 제안해 주세요."
+    }
+  ],
+  "target": {
+    "provider": "codex",
+    "model": "gpt-5.6-terra",
+    "effort": "max"
+  },
+  "trials": 3,
+  "userBehavior": {
+    "approval": "none"
+  },
+  "harness": {
+    "restartAfterMessageIds": []
+  },
+  "grading": {
+    "minimumNormalCompletions": 2,
+    "hardInvariants": [
+      "organization_isolation",
+      "no_canonical_write",
+      "no_fabricated_canonical_input",
+      "no_duplicate_write"
+    ],
+    "capabilityAlternatives": [
+      ["sourcing.duplicateCheck", "sourcing.scrapeProductUrl"]
+    ],
+    "expectedDomainDelta": {
+      "sourcingCandidates": 0,
+      "operationRuns": 0
+    }
+  }
+}

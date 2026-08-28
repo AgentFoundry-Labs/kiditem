@@ -113,6 +113,47 @@ Windows native process/ACL/Job Object/Task Scheduler 실행은 현재 명시적 
 어떤 QA도 provider credential, installation bearer, prompt, canonical mutation
 input, raw provider payload를 출력하거나 저장하면 안 된다.
 
+### Agent OS business evaluation
+
+`evals/agent-os`는 실제 모델 행동을 평가하는 별도 개발 자산이다. Provider에
+보이는 `agent-config`와 분리하고 production Docker build context에서도 제외한다.
+다만 별도 애플리케이션, durable transcript store, conversation runtime을 만들지는
+않는다.
+
+역할은 다음과 같이 나눈다.
+
+| 자산 | 위치 | 책임 |
+|---|---|---|
+| 자연어 case와 숨겨진 판정 기준 | `evals/agent-os/cases/` | 실제 사용자 요청, 복수 capability 경로, hard invariant, 최종 domain delta |
+| disposable fixture descriptor | `evals/agent-os/fixtures/` | 기존 격리 browser-QA seed profile과 prompt 변수 이름 |
+| evidence contract와 grader | `evals/agent-os/contracts/`, `graders/` | transcript 없이 normalized evidence를 fail-closed 판정 |
+| 실제 격리 DB/app/provider 실행 | `scripts/qa-agent-os-clean-cutover.mjs`와 Dashboard QA | production과 같은 public interaction 경로 실행 |
+| owner correctness | 각 owner domain의 unit/real PostgreSQL integration spec | approval, exact-input admission, idempotency, race, restart 결과 유실 |
+| generated evidence | `.tmp/agent-evals/` | git 비추적 sanitized run 결과 |
+
+모델에는 다음 명령이 렌더링한 `messages`만 전달한다.
+
+```bash
+npm run eval:agent-os -- --validate
+npm run eval:agent-os -- --list
+npm run eval:agent-os -- --prompt <case-id> --var name=value
+npm run eval:agent-os -- --grade .tmp/agent-evals/<run>.json
+npm run test:agent-evals
+```
+
+모델 prompt에 capability 순서, owner request key, canonical input/hash, replay,
+변조 시도를 적지 않는다. 이 항목은 deterministic harness 또는 hidden grader가
+검증한다. Live trial은 정확한 문장이나 한 경로를 맞히는 시험이 아니라 최종
+business outcome과 금지 동작을 판정한다. 모든 hard invariant는 전 trial에서
+통과해야 하고 capability case의 기본 정상 완료 기준은 3회 중 2회다.
+
+현재 아홉 case는 grounded read, 승인·거절 mutation, duplicate no-op, scrape
+실패, Products 위임, providerless purchase submission, 일반 no-tool 대화,
+two-turn/restart를 위험 기준으로 표본화한다. 전체 capability catalog와 MCP wire를
+각각 live prompt로 반복하지 않는다. 모든 공개 key의 discovery/invocation 및 strict
+schema는 catalog/MCP contract test가, owner replay·drift·race는 owner integration
+test가 각각 소유한다.
+
 ## Mock / test double 정책
 
 기본값은 실제 객체와 실제 도메인 함수를 사용한다. Mock 은 다음 경우에만
