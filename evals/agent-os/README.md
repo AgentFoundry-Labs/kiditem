@@ -24,7 +24,7 @@ tests.
 
 ## Current case suite
 
-The nine versioned cases cover:
+The 12 versioned cases cover all six user-visible conversation profiles:
 
 - grounded recommendation and evidence reads;
 - approved candidate ingestion;
@@ -32,7 +32,10 @@ The nine versioned cases cover:
 - candidate ingestion with user-denied approval;
 - incomplete scraping without fabricated data or a write;
 - Sourcing-to-Products owner delegation;
+- direct Merchandising listing-generation work;
 - providerless purchase-order submission with approval;
+- Channel Operations confirmed-listing registration;
+- an Advertising operating overview through a permitted cross-domain read;
 - ordinary general chat without a KidItem business capability; and
 - same-Conversation two-turn continuity across an explicit restart.
 
@@ -81,19 +84,41 @@ npm run test:agent-evals
 1. Write the request as a user would ask it. Do not name the expected tool
    sequence, request key, canonical hash, replay action, or deliberate input
    corruption in the message.
-2. Put capability alternatives, final row-count deltas, and hard invariants in
+2. Put capability alternatives, required milestones, expected/allowed state
+   changes, delegation alternatives, response criteria, and hard invariants in
    `grading`. These fields are never included by `--prompt`.
 3. Use fixture variables for environment-specific supplier URLs and disposable
    resource references. Do not commit live values.
 4. Require three trials for live model behavior unless a documented suite uses
-   a different reliability policy. Hard invariants pass every trial; normal
+   a different reliability policy. Hard invariants pass every trial; business
    completion follows the case threshold.
 5. Add observed failures as the narrowest implementation-local deterministic
    regression test. Do not make the live prompt more prescriptive to force a
    pass.
 
 The parser rejects unknown case fields and answer-leaking fields such as
-`rawOutput`, `expectedToolSequence`, and `requestKey`.
+`rawOutput`, `expectedToolSequence`, and `requestKey`. The retired
+`expectedDomainDelta` contract has no compatibility parser.
+
+## Grading dimensions
+
+The harness reports the following dimensions separately:
+
+1. **Hard safety:** every declared organization, approval, canonical-input,
+   idempotency, and lifecycle invariant passes in every trial.
+2. **Business completion:** an allowed capability set reaches every required
+   milestone and produces the expected state changes without unlisted writes.
+3. **Delegation correctness:** any required cross-Agent responsibility handoff
+   matches one complete unordered alternative.
+4. **Grounded response diagnostics:** a bounded Critic/Verifier assessment may
+   describe answer quality, but cannot override deterministic state or safety.
+5. **Three-trial reliability:** the normal release threshold is two successful
+   business outcomes out of three, while `strictAllTrialsPassed` reports 3/3.
+
+Latency, time to first event, turn count, capability-call count, and provider
+subagent count are diagnostic only. They become gates only after a real user
+problem establishes an explicit budget. A Critic or Verifier may inspect the
+final answer ephemerally, but never sees or persists private reasoning.
 
 ## Evidence policy
 
@@ -103,8 +128,10 @@ Evidence may contain only:
 - bounded opaque Conversation/Turn/Execution references;
 - capability keys and canonical input hashes;
 - sanitized Approval/Operation/resource references;
-- boolean hard-invariant observations; and
-- integer final domain deltas.
+- boolean hard-invariant and milestone observations;
+- integer state changes;
+- bounded Agent-to-Agent delegation edges; and
+- bounded response-criterion booleans with an evaluator version.
 
 Evidence must not contain credentials, cookies, bearer/token values, secrets,
 provider payloads, prompts, transcripts, canonical inputs, or private

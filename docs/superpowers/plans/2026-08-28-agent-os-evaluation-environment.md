@@ -10,6 +10,18 @@
 
 ---
 
+## Follow-up
+
+This completed baseline plan created the original nine-case harness. The clean
+state-first contract, 12-case six-profile matrix, and current deterministic
+gate are implemented by
+[2026-08-28-agent-os-state-first-evaluation.md](2026-08-28-agent-os-state-first-evaluation.md).
+The follow-up removes `expectedDomainDelta` without a compatibility parser and
+keeps this document as the historical baseline rather than rewriting its
+completed TDD steps.
+
+---
+
 ### Task 1: Lock the repository and case boundary
 
 **Files:**

@@ -124,7 +124,7 @@ input, raw provider payload를 출력하거나 저장하면 안 된다.
 
 | 자산 | 위치 | 책임 |
 |---|---|---|
-| 자연어 case와 숨겨진 판정 기준 | `evals/agent-os/cases/` | 실제 사용자 요청, 복수 capability 경로, hard invariant, 최종 domain delta |
+| 자연어 case와 숨겨진 판정 기준 | `evals/agent-os/cases/` | 실제 사용자 요청, 복수 capability 경로, milestone, hard invariant, expected/allowed state change, 위임 대안 |
 | disposable fixture descriptor | `evals/agent-os/fixtures/` | 기존 격리 browser-QA seed profile과 prompt 변수 이름 |
 | evidence contract와 grader | `evals/agent-os/contracts/`, `graders/` | transcript 없이 normalized evidence를 fail-closed 판정 |
 | 실제 격리 DB/app/provider 실행 | `scripts/qa-agent-os-clean-cutover.mjs`와 Dashboard QA | production과 같은 public interaction 경로 실행 |
@@ -144,15 +144,24 @@ npm run test:agent-evals
 모델 prompt에 capability 순서, owner request key, canonical input/hash, replay,
 변조 시도를 적지 않는다. 이 항목은 deterministic harness 또는 hidden grader가
 검증한다. Live trial은 정확한 문장이나 한 경로를 맞히는 시험이 아니라 최종
-business outcome과 금지 동작을 판정한다. 모든 hard invariant는 전 trial에서
-통과해야 하고 capability case의 기본 정상 완료 기준은 3회 중 2회다.
+business outcome과 금지 동작을 판정한다. 판정은 hard safety, business
+completion, delegation correctness, grounded-response diagnostics, 3-trial
+reliability로 분리한다. 모든 hard invariant는 전 trial에서 통과해야 하고
+capability case의 기본 업무 완료 기준은 3회 중 2회다. 응답 Critic/Verifier는
+private reasoning을 보거나 저장하지 않으며 deterministic 실패를 pass로 바꾸지
+못한다. latency, tool/turn/subagent count는 실제 사용자 문제로 budget이 정해지기
+전까지 진단값일 뿐 completion gate가 아니다.
 
-현재 아홉 case는 grounded read, 승인·거절 mutation, duplicate no-op, scrape
-실패, Products 위임, providerless purchase submission, 일반 no-tool 대화,
-two-turn/restart를 위험 기준으로 표본화한다. 전체 capability catalog와 MCP wire를
-각각 live prompt로 반복하지 않는다. 모든 공개 key의 discovery/invocation 및 strict
-schema는 catalog/MCP contract test가, owner replay·drift·race는 owner integration
-test가 각각 소유한다.
+현재 12개 case는 General chat, Sourcing, Merchandising, Supply, Channel
+Operations, Advertising의 여섯 사용자-visible profile을 모두 포함한다. grounded
+read, 승인·거절 mutation, duplicate no-op, scrape 실패, Products 위임, direct
+Merchandising generation, providerless purchase submission, confirmed listing,
+Advertising overview, 일반 no-tool 대화, two-turn/restart를 위험 기준으로
+표본화한다. `expectedDomainDelta` 호환 parser는 두지 않고 milestone과
+expected/allowed state policy로 clean cutover한다. 전체 capability catalog와 MCP
+wire를 각각 live prompt로 반복하지 않는다. 모든 공개 key의
+discovery/invocation 및 strict schema는 catalog/MCP contract test가, owner
+replay·drift·race는 owner integration test가 각각 소유한다.
 
 ## Mock / test double 정책
 

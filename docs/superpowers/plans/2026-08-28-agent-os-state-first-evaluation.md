@@ -19,7 +19,7 @@
 - Modify: `evals/agent-os/graders/business-outcome.mjs`
 - Modify: `evals/agent-os/harness/run-eval.mjs`
 
-- [ ] **Step 1: Write failing contract tests**
+- [x] **Step 1: Write failing contract tests**
 
 Add tests that create a valid case with the following contract and prove that
 unknown Agent keys, missing milestones, expected state keys outside the
@@ -56,7 +56,7 @@ answer-leaking fields are rejected:
 General chat uses `"agentKey": null`; no-delegation cases use
 `"delegationAlternatives": [[]]`.
 
-- [ ] **Step 2: Run the contract tests and verify RED**
+- [x] **Step 2: Run the contract tests and verify RED**
 
 Run:
 
@@ -67,7 +67,7 @@ rtk node --test --test-name-pattern="state-first|Agent profile|delegation" evals
 Expected: FAIL because the current strict parser rejects the new fields and
 still requires `expectedDomainDelta`.
 
-- [ ] **Step 3: Implement the strict case contract**
+- [x] **Step 3: Implement the strict case contract**
 
 In `eval-case.mjs`:
 
@@ -87,7 +87,7 @@ In `eval-case.mjs`:
 Return frozen nested arrays/objects so loaded policy cannot be mutated by a
 grader.
 
-- [ ] **Step 4: Write failing normalized-evidence tests**
+- [x] **Step 4: Write failing normalized-evidence tests**
 
 Change the valid evidence helper to use:
 
@@ -113,7 +113,7 @@ Add RED tests for transcript/secret values inside delegation or response
 assessment, unknown trial fields, malformed Agent keys, and non-boolean
 milestone/criterion values.
 
-- [ ] **Step 5: Run the evidence tests and verify RED**
+- [x] **Step 5: Run the evidence tests and verify RED**
 
 Run:
 
@@ -123,7 +123,7 @@ rtk node --test --test-name-pattern="evidence|milestone|response" evals/agent-os
 
 Expected: FAIL because current evidence accepts `domainDelta` only.
 
-- [ ] **Step 6: Implement normalized state-first evidence**
+- [x] **Step 6: Implement normalized state-first evidence**
 
 Replace trial `domainDelta` with these required fields:
 
@@ -144,7 +144,7 @@ Use the same bounded Agent/capability/key grammar as the case contract.
 `evaluatorVersion` is a bounded single-line identifier, not a provider
 payload. Preserve all current opaque-reference and secret/transcript rejection.
 
-- [ ] **Step 7: Write failing grader tests**
+- [x] **Step 7: Write failing grader tests**
 
 Add separate tests proving:
 
@@ -160,7 +160,7 @@ Add separate tests proving:
 - `strictAllTrialsPassed` is true only when all three normal trials pass the
   deterministic outcome.
 
-- [ ] **Step 8: Run the grader tests and verify RED**
+- [x] **Step 8: Run the grader tests and verify RED**
 
 Run:
 
@@ -170,7 +170,7 @@ rtk node --test --test-name-pattern="milestone|state change|delegation|response|
 
 Expected: FAIL with missing state-first grading reasons.
 
-- [ ] **Step 9: Implement minimal deterministic grading**
+- [x] **Step 9: Implement minimal deterministic grading**
 
 Keep hard invariants fail-closed for every trial. For each normally completed
 trial, grade unordered capability alternatives, every required milestone,
@@ -193,13 +193,13 @@ state policy, and exact unordered delegation alternatives. Return:
 the normal-completion threshold. `responseFailures` remains diagnostic.
 Expose `agentKey` in `--list` metadata but never in `--prompt`.
 
-- [ ] **Step 10: Run all evaluation tests and verify GREEN**
+- [x] **Step 10: Run all evaluation tests and verify GREEN**
 
 Run: `rtk npm run test:agent-evals`
 
 Expected: PASS.
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add evals/agent-os/contracts evals/agent-os/graders evals/agent-os/harness evals/agent-os/tests
@@ -220,7 +220,7 @@ git commit -m "feat(agent-os): grade state-first business evaluations"
 - Modify: `evals/agent-os/cases/supply/purchase-order-submit.json`
 - Modify: `evals/agent-os/tests/eval-environment.test.mjs`
 
-- [ ] **Step 1: Write a failing exact-migration test**
+- [x] **Step 1: Write a failing exact-migration test**
 
 Assert all nine cases have an explicit Agent key, no
 `expectedDomainDelta`, at least one milestone, one state policy, one
@@ -243,7 +243,7 @@ new Map([
 Require only `sourcing.products-delegation.v1` to declare the edge
 `sourcing → merchandising → products.create_listing_generation_package`.
 
-- [ ] **Step 2: Run the migration test and verify RED**
+- [x] **Step 2: Run the migration test and verify RED**
 
 Run:
 
@@ -253,7 +253,7 @@ rtk node --test --test-name-pattern="migrates all existing" evals/agent-os/tests
 
 Expected: FAIL because the JSON cases still use the old contract.
 
-- [ ] **Step 3: Migrate all nine case files**
+- [x] **Step 3: Migrate all nine case files**
 
 Preserve every natural prompt, provider/model/effort, approval behavior, and
 hard invariant. Add the profile assignments above. Convert nonzero expected
@@ -280,7 +280,7 @@ Use `[[]]` for every delegation policy except the Products case. Add
 `reports_final_mutation_outcome` to successful mutation cases; keep empty
 response criteria for negative-path cases.
 
-- [ ] **Step 4: Run validation and tests**
+- [x] **Step 4: Run validation and tests**
 
 ```bash
 rtk npm run eval:agent-os -- --validate
@@ -289,7 +289,7 @@ rtk npm run test:agent-evals
 
 Expected: 9 cases validate and all tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add evals/agent-os/cases evals/agent-os/tests
@@ -307,7 +307,7 @@ git commit -m "test(agent-os): migrate evals to state-first outcomes"
 - Modify: `scripts/__tests__/seed-agent-os-browser-qa.spec.ts`
 - Modify: `scripts/seed-agent-os-browser-qa.ts`
 
-- [ ] **Step 1: Write failing profile-matrix tests**
+- [x] **Step 1: Write failing profile-matrix tests**
 
 Load all cases and assert the distinct `target.agentKey` values are exactly:
 
@@ -318,7 +318,7 @@ Load all cases and assert the distinct `target.agentKey` values are exactly:
 Assert each business profile has at least one capability case and that no case
 exists solely to force a fixed capability count.
 
-- [ ] **Step 2: Run the profile test and verify RED**
+- [x] **Step 2: Run the profile test and verify RED**
 
 Run:
 
@@ -329,7 +329,7 @@ rtk node --test --test-name-pattern="six conversation profiles" evals/agent-os/t
 Expected: FAIL because Merchandising, Channel Operations, and Advertising have
 no direct-profile cases.
 
-- [ ] **Step 3: Add the Merchandising and Advertising cases**
+- [x] **Step 3: Add the Merchandising and Advertising cases**
 
 Add:
 
@@ -345,7 +345,7 @@ Add:
 
 Both use Codex, `gpt-5.6-terra`, max effort, and three trials.
 
-- [ ] **Step 4: Write the failing Channel fixture test**
+- [x] **Step 4: Write the failing Channel fixture test**
 
 Extend the seed test with a profile
 `channels.confirmed-listing.v1`. Require its pure seed plan to include:
@@ -371,17 +371,17 @@ Require output variables `registrationExecutionRef`, `preparationRef`,
 `externalListingRef`, and `wingVendorRef`. Values are synthetic and are
 never real marketplace identifiers.
 
-- [ ] **Step 5: Run the Channel fixture test and verify RED**
+- [x] **Step 5: Run the Channel fixture test and verify RED**
 
 Run:
 
 ```bash
-rtk npm test -- --run scripts/__tests__/seed-agent-os-browser-qa.spec.ts
+rtk npx vitest run --config scripts/vitest.config.ts scripts/__tests__/seed-agent-os-browser-qa.spec.ts
 ```
 
 Expected: FAIL because the profile is unknown.
 
-- [ ] **Step 6: Implement the disposable Channel fixture**
+- [x] **Step 6: Implement the disposable Channel fixture**
 
 Add the new profile to `BROWSER_QA_FIXTURE_PROFILES` and the fixture JSON.
 Build one synthetic Candidate, candidate-owned ContentWorkspace, active Coupang
@@ -393,7 +393,7 @@ Use random UUID/default database IDs and synthetic bounded values. Do not add a
 schema, migration, external provider request, real identifier, credential, or
 legacy compatibility path.
 
-- [ ] **Step 7: Add the Channel Operations case**
+- [x] **Step 7: Add the Channel Operations case**
 
 Create `channel-operations.confirmed-listing.v1` with a natural prompt that
 asks the selected Channel Operations Agent to reflect an already externally
@@ -402,17 +402,17 @@ confirmed listing after user approval. Require
 `approval_requested`, `owner_mutation_committed`, one allowed
 `channelListings` change, and no cross-Agent delegation.
 
-- [ ] **Step 8: Run fixture, profile, and eval tests**
+- [x] **Step 8: Run fixture, profile, and eval tests**
 
 ```bash
-rtk npm test -- --run scripts/__tests__/seed-agent-os-browser-qa.spec.ts
+rtk npx vitest run --config scripts/vitest.config.ts scripts/__tests__/seed-agent-os-browser-qa.spec.ts
 rtk npm run test:agent-evals
 rtk npm run eval:agent-os -- --validate
 ```
 
 Expected: all tests pass and 12 cases validate.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add evals/agent-os scripts/seed-agent-os-browser-qa.ts scripts/__tests__/seed-agent-os-browser-qa.spec.ts
@@ -427,7 +427,7 @@ git commit -m "test(agent-os): cover every conversation profile"
 - Modify: `docs/superpowers/plans/2026-08-28-agent-os-evaluation-environment.md`
 - Modify: `docs/superpowers/plans/2026-08-28-agent-os-state-first-evaluation.md`
 
-- [ ] **Step 1: Update the evaluation runbook**
+- [x] **Step 1: Update the evaluation runbook**
 
 Document the five grading dimensions separately: hard safety, business
 completion, delegation correctness, grounded response diagnostics, and
@@ -435,19 +435,19 @@ three-trial reliability. State explicitly that latency and tool counts are
 diagnostic, not completion gates, and that the Critic/Verifier never sees or
 persists private reasoning.
 
-- [ ] **Step 2: Record the clean cutover**
+- [x] **Step 2: Record the clean cutover**
 
 Mark `expectedDomainDelta` removed with no compatibility parser. Link the
 original completed plan to this follow-up plan and record the exact 12-case
 profile matrix.
 
-- [ ] **Step 3: Run focused and repository gates**
+- [x] **Step 3: Run focused and repository gates**
 
 ```bash
 rtk npm run eval:agent-os -- --validate
 rtk npm run eval:agent-os -- --list
 rtk npm run test:agent-evals
-rtk npm test -- --run scripts/__tests__/seed-agent-os-browser-qa.spec.ts
+rtk npx vitest run --config scripts/vitest.config.ts scripts/__tests__/seed-agent-os-browser-qa.spec.ts
 rtk npm run check:scripts-inventory
 rtk npm run check:agent-os-contraction -- --enforce
 rtk npm run check:agents-hygiene
@@ -457,9 +457,23 @@ rtk git diff --check
 Expected: every command passes, `--list` exposes only bounded public metadata,
 and no generated evidence is tracked.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add evals/agent-os/README.md docs/TESTING.md docs/superpowers/plans
 git commit -m "docs(agent-os): document state-first evaluation workflow"
 ```
+
+### 2026-08-28 Implementation Evidence
+
+- `npm run eval:agent-os -- --validate`: 12 cases validated across General,
+  Sourcing, Merchandising, Supply, Channel Operations, and Advertising.
+- `npm run eval:agent-os -- --list`: exposed only bounded case/profile/model
+  metadata; prompts and hidden grading policy remained absent.
+- `npm run test:agent-evals`: 30/30 passed.
+- focused browser-QA seed spec: 14/14 passed, including the canonical frozen
+  Channel payload/hash and actual persisted ChannelAccount ID fence.
+- `npm run test:scripts`: Vitest 148/148 passed; Node script contracts 214
+  passed with one platform-specific skip.
+- script inventory, Agent OS contraction enforcement, instruction hygiene, and
+  `git diff --check` passed.
