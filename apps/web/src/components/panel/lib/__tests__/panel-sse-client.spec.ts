@@ -69,6 +69,22 @@ describe('PanelSseClient', () => {
     expect((client as any).controller.signal.aborted).toBe(true);
   });
 
+  it('never opens a superseded stream after disconnect or immediate reconnect', async () => {
+    const client = new PanelSseClient({ onMessage: vi.fn() });
+
+    client.connect();
+    client.disconnect();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    expect(fetchEventSource).not.toHaveBeenCalled();
+
+    client.connect();
+    client.connect();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    expect(fetchEventSource).toHaveBeenCalledTimes(1);
+  });
+
   it('suppresses expected abort rejection after disconnect', async () => {
     const onError = vi.fn();
     const abortError = Object.assign(new Error('signal is aborted without reason'), {

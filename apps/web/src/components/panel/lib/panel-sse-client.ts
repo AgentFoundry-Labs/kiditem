@@ -50,9 +50,13 @@ export class PanelSseClient {
     this.controller = controller;
     this.retryCount = 0;
 
-    void Promise.resolve(this.buildHeaders()).then((headers) =>
-      this.openStream(controller, headers),
-    );
+    void Promise.resolve(this.buildHeaders()).then((headers) => {
+      // React Strict Mode and rapid route replacement can disconnect this
+      // client before the async header step settles. Never let that stale
+      // continuation open a second long-lived browser connection.
+      if (controller.signal.aborted) return;
+      this.openStream(controller, headers);
+    });
   }
 
   private async buildHeaders(): Promise<Record<string, string>> {
