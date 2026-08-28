@@ -23,6 +23,6 @@ export const PRODUCTS_CAPABILITIES = [
       task: z.enum(['all', 'detail', 'thumbnail']).optional(),
     }).strict(),
     outputSchema: z.object({ candidateId: Uuid, operationRunId: Uuid, status: OperationStatus }).strict(),
-    effects: ['db_write', 'job_enqueue'], approvalRisk: 'low', idempotency: 'required',
+    effects: ['db_write', 'job_enqueue'], approvalRisk: 'medium', idempotency: 'required',
   },
 ] as const satisfies readonly CapabilityDefinition[];

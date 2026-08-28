@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { FINAL_CAPABILITY_DEFINITIONS } from "./catalog/final-capability.catalog";
 import { AGENT_DEFINITIONS } from "./agent-definition.registry";
 
 describe("AGENT_DEFINITIONS", () => {
@@ -45,5 +46,42 @@ describe("AGENT_DEFINITIONS", () => {
         instructionProfileRef: "agent-config/prompts/agents/advertising.md",
       },
     ]);
+  });
+
+  it("projects the exact code-owned assigned-domain capability catalog", () => {
+    const capabilityKeysByAgent = Object.fromEntries(
+      AGENT_DEFINITIONS.map((agent) => [
+        agent.key,
+        FINAL_CAPABILITY_DEFINITIONS
+          .filter((definition) => agent.assignedDomains.includes(definition.ownerDomain))
+          .map((definition) => definition.key),
+      ]),
+    );
+
+    expect(capabilityKeysByAgent).toEqual({
+      sourcing: [
+        "sourcing.collect_shadow_signals",
+        "sourcing.createReviewBatch",
+        "sourcing.duplicateCheck",
+        "sourcing.ingestCandidate",
+        "sourcing.inspectRecommendationRun",
+        "sourcing.refreshCollection",
+        "sourcing.refreshValidation",
+        "sourcing.retrieveWorkspaceEvidence",
+        "sourcing.scrapeProductUrl",
+        "sourcing.scrapeUrlWorkflow",
+      ],
+      merchandising: ["products.create_listing_generation_package"],
+      supply: [
+        "supply.create_purchase_order_draft",
+        "supply.submit_purchase_order",
+      ],
+      channel_operations: [
+        "channels.register_confirmed_listing",
+        "channels.submit_coupang_listing",
+        "channels.submit_wing_thumbnail",
+      ],
+      advertising: [],
+    });
   });
 });

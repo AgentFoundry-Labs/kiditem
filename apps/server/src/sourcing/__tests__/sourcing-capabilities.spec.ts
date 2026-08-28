@@ -53,7 +53,7 @@ describe('sourcing final capability definitions', () => {
     }))).toEqual([
       { key: 'sourcing.duplicateCheck', effects: ['read'], approvalRisk: 'none', idempotency: 'recommended' },
       { key: 'sourcing.scrapeProductUrl', effects: ['browser', 'external_io'], approvalRisk: 'none', idempotency: 'recommended' },
-      { key: 'sourcing.ingestCandidate', effects: ['db_write'], approvalRisk: 'low', idempotency: 'required' },
+      { key: 'sourcing.ingestCandidate', effects: ['db_write'], approvalRisk: 'medium', idempotency: 'required' },
       { key: 'sourcing.scrapeUrlWorkflow', effects: ['read', 'browser', 'external_io', 'db_write', 'job_enqueue'], approvalRisk: 'low', idempotency: 'required' },
       { key: 'sourcing.retrieveWorkspaceEvidence', effects: ['read'], approvalRisk: 'none', idempotency: 'recommended' },
       { key: 'sourcing.inspectRecommendationRun', effects: ['read'], approvalRisk: 'none', idempotency: 'recommended' },

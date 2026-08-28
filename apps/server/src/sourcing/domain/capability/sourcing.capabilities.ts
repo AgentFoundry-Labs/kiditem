@@ -58,7 +58,7 @@ export const SOURCING_CAPABILITIES = [
     resultSummary: '상품 후보를 등록했습니다.',
     inputSchema: z.object({ snapshot: SourceSnapshot }).strict(),
     outputSchema: z.object({ candidateId: Uuid }).strict(),
-    effects: ['db_write'], approvalRisk: 'low', idempotency: 'required',
+    effects: ['db_write'], approvalRisk: 'medium', idempotency: 'required',
   },
   {
     key: 'sourcing.scrapeUrlWorkflow', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.scrapeUrlWorkflow',

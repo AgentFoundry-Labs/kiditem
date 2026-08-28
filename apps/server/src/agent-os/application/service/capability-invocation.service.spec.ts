@@ -412,7 +412,7 @@ describe('CapabilityInvocationService', () => {
     }));
   });
 
-  it('replays a durable exact sourcing ingest after a crash loses its expired scrape receipt', async () => {
+  it('replays an approved durable sourcing ingest after a crash loses its expired scrape receipt', async () => {
     let now = 1_000;
     const input = { snapshot: sourcingSnapshot() };
     const guard = new SourcingScrapeSnapshotAdmissionGuard({
@@ -438,6 +438,12 @@ describe('CapabilityInvocationService', () => {
       requestKey: 'retry-after-owner-commit',
       canonicalInput: canonicalizeOwnerInput(input),
       inputHash: canonicalOwnerInputHash(input),
+      approvalStatus: 'approved' as const,
+      approvalInputHash: canonicalOwnerInputHash(input),
+      approvalRequestedAt: new Date(now - 100),
+      approvalExpiresAt: new Date(now + 1_000),
+      approvalDecidedByUserId: USER_ID,
+      approvalDecidedAt: new Date(now - 1),
     };
     const ownerResult = completedResult();
     const result = receiptFrom(ownerResult);
