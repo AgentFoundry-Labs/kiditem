@@ -1,11 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConversationSettingsDialog } from '@/components/agent-interaction/ConversationSettingsDialog';
 import { useConversationSurfaceState } from '@/components/agent-interaction/conversation-surface-state';
 import { RightAuxiliaryPanel } from '../RightAuxiliaryPanel';
+import {
+  DESKTOP_AI_CHAT_WIDTH_STORAGE_KEY,
+  useDesktopAiChatWidth,
+} from '../useDesktopAiChatWidth';
 
 vi.mock('@/components/panel/NotificationPanelContent', () => ({
   NotificationPanelContent: () => (
@@ -57,6 +61,25 @@ function desktopAiChatWidth(width = 480) {
   };
 }
 
+function DesktopWidthLifecycleHarness() {
+  const [activeRightSurface, setActiveRightSurface] = useState<'ai_chat' | null>('ai_chat');
+  const controller = useDesktopAiChatWidth();
+  const panelLauncherRef = useRef<HTMLElement | null>(null);
+
+  return (
+    <>
+      <output data-testid="desktop-ai-chat-width">{controller.width}</output>
+      <button type="button" onClick={() => setActiveRightSurface('ai_chat')}>AI 챗 다시 열기</button>
+      <RightAuxiliaryPanel
+        activeRightSurface={activeRightSurface}
+        onClose={() => setActiveRightSurface(null)}
+        launcherRef={panelLauncherRef}
+        desktopAiChatWidth={controller}
+      />
+    </>
+  );
+}
+
 function SettingsOverPanelHarness({
   launcherRef: panelLauncherRef,
   onPanelClose,
@@ -106,6 +129,8 @@ function SettingsOverPanelHarness({
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
+  window.localStorage.clear();
   useConversationSurfaceState.getState().reset();
   document.querySelectorAll('[data-test-launcher]').forEach((node) => node.remove());
 });
@@ -200,6 +225,90 @@ describe('RightAuxiliaryPanel', () => {
 
     expect(width.cancelPreview).toHaveBeenCalledTimes(1);
     expect(releasePointerCapture).toHaveBeenCalledWith(8);
+  });
+
+  it('rolls an uncommitted drag back to the saved width when Escape closes and reopens AI chat', async () => {
+    mockViewport(false);
+    window.localStorage.setItem(DESKTOP_AI_CHAT_WIDTH_STORAGE_KEY, '496');
+    const setItem = vi.spyOn(Storage.prototype, 'setItem');
+
+    render(<DesktopWidthLifecycleHarness />);
+
+    await waitFor(() => expect(screen.getByTestId('desktop-ai-chat-width')).toHaveTextContent('496'));
+    const separator = screen.getByRole('separator', { name: 'AI 챗 패널 너비 조절' });
+    Object.defineProperties(separator, {
+      setPointerCapture: { configurable: true, value: vi.fn() },
+      hasPointerCapture: { configurable: true, value: () => true },
+      releasePointerCapture: { configurable: true, value: vi.fn() },
+    });
+
+    fireEvent.pointerDown(separator, { button: 0, clientX: 600, pointerId: 12 });
+    fireEvent.pointerMove(separator, { clientX: 616, pointerId: 12 });
+
+    expect(screen.getByTestId('desktop-ai-chat-width')).toHaveTextContent('480');
+    expect(setItem).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(DESKTOP_AI_CHAT_WIDTH_STORAGE_KEY)).toBe('496');
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    await waitFor(() => expect(screen.queryByRole('separator', { name: 'AI 챗 패널 너비 조절' })).not.toBeInTheDocument());
+    expect(screen.getByTestId('desktop-ai-chat-width')).toHaveTextContent('496');
+    expect(setItem).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'AI 챗 다시 열기' }));
+
+    expect(screen.getByRole('separator', { name: 'AI 챗 패널 너비 조절' })).toHaveAttribute('aria-valuenow', '496');
+  });
+
+  it('rolls an uncommitted drag back when pointer capture is lost', async () => {
+    mockViewport(false);
+    window.localStorage.setItem(DESKTOP_AI_CHAT_WIDTH_STORAGE_KEY, '496');
+
+    render(<DesktopWidthLifecycleHarness />);
+
+    await waitFor(() => expect(screen.getByTestId('desktop-ai-chat-width')).toHaveTextContent('496'));
+    const separator = screen.getByRole('separator', { name: 'AI 챗 패널 너비 조절' });
+    Object.defineProperties(separator, {
+      setPointerCapture: { configurable: true, value: vi.fn() },
+      hasPointerCapture: { configurable: true, value: () => false },
+      releasePointerCapture: { configurable: true, value: vi.fn() },
+    });
+
+    fireEvent.pointerDown(separator, { button: 0, clientX: 600, pointerId: 13 });
+    fireEvent.pointerMove(separator, { clientX: 616, pointerId: 13 });
+    expect(screen.getByTestId('desktop-ai-chat-width')).toHaveTextContent('480');
+
+    fireEvent.lostPointerCapture(separator, { pointerId: 13 });
+
+    expect(screen.getByTestId('desktop-ai-chat-width')).toHaveTextContent('496');
+    expect(window.localStorage.getItem(DESKTOP_AI_CHAT_WIDTH_STORAGE_KEY)).toBe('496');
+  });
+
+  it('keeps a committed drag when its pointer capture is subsequently lost', async () => {
+    mockViewport(false);
+    window.localStorage.setItem(DESKTOP_AI_CHAT_WIDTH_STORAGE_KEY, '496');
+
+    render(<DesktopWidthLifecycleHarness />);
+
+    await waitFor(() => expect(screen.getByTestId('desktop-ai-chat-width')).toHaveTextContent('496'));
+    const separator = screen.getByRole('separator', { name: 'AI 챗 패널 너비 조절' });
+    Object.defineProperties(separator, {
+      setPointerCapture: { configurable: true, value: vi.fn() },
+      hasPointerCapture: { configurable: true, value: () => true },
+      releasePointerCapture: { configurable: true, value: vi.fn() },
+    });
+
+    fireEvent.pointerDown(separator, { button: 0, clientX: 600, pointerId: 14 });
+    fireEvent.pointerMove(separator, { clientX: 616, pointerId: 14 });
+    fireEvent.pointerUp(separator, { clientX: 616, pointerId: 14 });
+
+    expect(screen.getByTestId('desktop-ai-chat-width')).toHaveTextContent('480');
+    expect(window.localStorage.getItem(DESKTOP_AI_CHAT_WIDTH_STORAGE_KEY)).toBe('480');
+
+    fireEvent.lostPointerCapture(separator, { pointerId: 14 });
+
+    expect(screen.getByTestId('desktop-ai-chat-width')).toHaveTextContent('480');
+    expect(window.localStorage.getItem(DESKTOP_AI_CHAT_WIDTH_STORAGE_KEY)).toBe('480');
   });
 
   it('widens with ArrowLeft and narrows with ArrowRight in 16px steps', () => {

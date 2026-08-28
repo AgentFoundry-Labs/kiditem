@@ -147,15 +147,25 @@ function DesktopAiChatResizeHandle({
 }: {
   controller: DesktopAiChatWidthController;
 }) {
+  const { cancelPreview, commitWidth, previewWidth, width } = controller;
   const dragRef = useRef<{ startWidth: number; startX: number } | null>(null);
+  const activePointerIdRef = useRef<number | null>(null);
   const widthForClientX = (clientX: number): number | null => {
     const drag = dragRef.current;
     if (!drag) return null;
     return clampDesktopAiChatWidth(drag.startWidth + drag.startX - clientX);
   };
+  const isActivePointer = (pointerId: number) => activePointerIdRef.current === pointerId;
   const releasePointerCapture = (element: HTMLDivElement, pointerId: number) => {
     if (element.hasPointerCapture(pointerId)) element.releasePointerCapture(pointerId);
   };
+
+  useEffect(() => () => {
+    if (activePointerIdRef.current === null) return;
+    activePointerIdRef.current = null;
+    dragRef.current = null;
+    cancelPreview();
+  }, [cancelPreview]);
 
   return (
     <div
@@ -164,38 +174,49 @@ function DesktopAiChatResizeHandle({
       aria-orientation="vertical"
       aria-valuemin={MIN_DESKTOP_AI_CHAT_WIDTH}
       aria-valuemax={MAX_DESKTOP_AI_CHAT_WIDTH}
-      aria-valuenow={controller.width}
+      aria-valuenow={width}
       tabIndex={0}
       className="group absolute inset-y-0 -left-[6px] z-20 flex w-[12px] cursor-col-resize touch-none items-stretch outline-none"
       onPointerDown={(event) => {
-        if (event.button !== 0) return;
-        dragRef.current = { startWidth: controller.width, startX: event.clientX };
+        if (event.button !== 0 || activePointerIdRef.current !== null) return;
+        dragRef.current = { startWidth: width, startX: event.clientX };
+        activePointerIdRef.current = event.pointerId;
         event.currentTarget.setPointerCapture(event.pointerId);
         event.preventDefault();
       }}
       onPointerMove={(event) => {
+        if (!isActivePointer(event.pointerId)) return;
         const nextWidth = widthForClientX(event.clientX);
-        if (nextWidth !== null) controller.previewWidth(nextWidth);
+        if (nextWidth !== null) previewWidth(nextWidth);
       }}
       onPointerUp={(event) => {
+        if (!isActivePointer(event.pointerId)) return;
         const nextWidth = widthForClientX(event.clientX);
+        activePointerIdRef.current = null;
         dragRef.current = null;
         releasePointerCapture(event.currentTarget, event.pointerId);
-        if (nextWidth !== null) controller.commitWidth(nextWidth);
+        if (nextWidth !== null) commitWidth(nextWidth);
       }}
       onPointerCancel={(event) => {
-        if (!dragRef.current) return;
+        if (!isActivePointer(event.pointerId)) return;
+        activePointerIdRef.current = null;
         dragRef.current = null;
         releasePointerCapture(event.currentTarget, event.pointerId);
-        controller.cancelPreview();
+        cancelPreview();
+      }}
+      onLostPointerCapture={(event) => {
+        if (!isActivePointer(event.pointerId)) return;
+        activePointerIdRef.current = null;
+        dragRef.current = null;
+        cancelPreview();
       }}
       onKeyDown={(event) => {
         const delta = event.key === 'ArrowLeft' ? 16 : event.key === 'ArrowRight' ? -16 : null;
         if (delta === null) return;
-        const nextWidth = clampDesktopAiChatWidth(controller.width + delta);
+        const nextWidth = clampDesktopAiChatWidth(width + delta);
         if (nextWidth === null) return;
         event.preventDefault();
-        controller.commitWidth(nextWidth);
+        commitWidth(nextWidth);
       }}
     >
       <span
