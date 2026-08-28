@@ -2,6 +2,7 @@ const RUN_KEYS = new Set(['caseId', 'model', 'effort', 'trials']);
 const TRIAL_KEYS = new Set([
   'trial',
   'normalCompletion',
+  'agentKey',
   'correlation',
   'capabilityKeys',
   'canonicalInputHashes',
@@ -9,9 +10,28 @@ const TRIAL_KEYS = new Set([
   'operationRefs',
   'resourceRefs',
   'invariants',
-  'domainDelta',
+  'milestones',
+  'stateChanges',
+  'delegations',
+  'responseAssessment',
 ]);
 const CORRELATION_KEYS = new Set(['conversationRef', 'turnRefs', 'executionRefs']);
+const DELEGATION_EDGE_KEYS = new Set([
+  'sourceAgentKey',
+  'targetAgentKey',
+  'capabilityKey',
+]);
+const RESPONSE_ASSESSMENT_KEYS = new Set(['evaluatorVersion', 'criteria']);
+const AGENT_KEYS = new Set([
+  'sourcing',
+  'merchandising',
+  'supply',
+  'channel_operations',
+  'advertising',
+]);
+const CAPABILITY_KEY_PATTERN =
+  /^[a-z][a-z0-9_]*\.[A-Za-z][A-Za-z0-9_]*$/;
+const POLICY_KEY_PATTERN = /^[a-z][A-Za-z0-9_]*$/;
 const OPAQUE_REFERENCE_GRAMMARS = Object.freeze({
   conversation: /^conversation-[a-z0-9]+(?:-[a-z0-9]+)*$/,
   turn: /^turn-[a-z0-9]+(?:-[a-z0-9]+)*$/,
@@ -117,6 +137,72 @@ function assertOpaqueReferenceArray(value, label, type) {
   );
 }
 
+function assertAgentKey(value, label) {
+  if (value === null) return;
+  if (typeof value !== 'string' || !AGENT_KEYS.has(value)) {
+    throw new Error(`${label} is unsupported`);
+  }
+}
+
+function parseBooleanRecord(value, label) {
+  assertRecord(value, label);
+  for (const [key, observed] of Object.entries(value)) {
+    if (!POLICY_KEY_PATTERN.test(key) || typeof observed !== 'boolean') {
+      throw new Error(`${label} is invalid`);
+    }
+  }
+  return Object.freeze({ ...value });
+}
+
+function parseStateChanges(value, label) {
+  assertRecord(value, label);
+  for (const [key, delta] of Object.entries(value)) {
+    if (!POLICY_KEY_PATTERN.test(key) || !Number.isInteger(delta)) {
+      throw new Error(`${label} is invalid`);
+    }
+  }
+  return Object.freeze({ ...value });
+}
+
+function parseDelegations(value, label) {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  return Object.freeze(value.map((edge, index) => {
+    const edgeLabel = `${label}[${index}]`;
+    assertRecord(edge, edgeLabel);
+    assertAllowedKeys(edge, DELEGATION_EDGE_KEYS, edgeLabel);
+    assertAgentKey(edge.sourceAgentKey, `${edgeLabel}.sourceAgentKey`);
+    assertAgentKey(edge.targetAgentKey, `${edgeLabel}.targetAgentKey`);
+    if (
+      edge.sourceAgentKey === null ||
+      edge.targetAgentKey === null ||
+      edge.sourceAgentKey === edge.targetAgentKey
+    ) {
+      throw new Error(`${edgeLabel} delegation must cross Agent profiles`);
+    }
+    if (
+      typeof edge.capabilityKey !== 'string' ||
+      !CAPABILITY_KEY_PATTERN.test(edge.capabilityKey)
+    ) {
+      throw new Error(`${edgeLabel}.capabilityKey is invalid`);
+    }
+    assertNonEmptyString(edge.capabilityKey, `${edgeLabel}.capabilityKey`);
+    return Object.freeze({ ...edge });
+  }));
+}
+
+function parseResponseAssessment(value, label) {
+  assertRecord(value, label);
+  assertAllowedKeys(value, RESPONSE_ASSESSMENT_KEYS, label);
+  assertNonEmptyString(value.evaluatorVersion, `${label}.evaluatorVersion`);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value.evaluatorVersion)) {
+    throw new Error(`${label}.evaluatorVersion is invalid`);
+  }
+  return Object.freeze({
+    evaluatorVersion: value.evaluatorVersion,
+    criteria: parseBooleanRecord(value.criteria, `${label}.criteria`),
+  });
+}
+
 function isForbiddenEvidenceField(key) {
   const normalized = key.toLowerCase();
   if (normalized === 'no_automatic_reasoning') return false;
@@ -177,11 +263,12 @@ function parseTrial(value, index) {
   if (typeof value.normalCompletion !== 'boolean') {
     throw new Error(`${label}.normalCompletion must be boolean`);
   }
+  assertAgentKey(value.agentKey, `${label}.agentKey`);
   parseCorrelation(value.correlation, `${label}.correlation`);
   assertStringArray(value.capabilityKeys, `${label}.capabilityKeys`);
   if (
     value.capabilityKeys.some(
-      (key) => !/^[a-z][a-z0-9_]*\.[A-Za-z][A-Za-z0-9_]*$/.test(key),
+      (key) => !CAPABILITY_KEY_PATTERN.test(key),
     )
   ) {
     throw new Error(`${label}.capabilityKeys contains an invalid key`);
@@ -195,19 +282,32 @@ function parseTrial(value, index) {
   assertOpaqueReferenceArray(value.approvalRefs, `${label}.approvalRefs`, 'approval');
   assertOpaqueReferenceArray(value.operationRefs, `${label}.operationRefs`, 'operation');
   assertOpaqueReferenceArray(value.resourceRefs, `${label}.resourceRefs`, 'resource');
-  assertRecord(value.invariants, `${label}.invariants`);
-  for (const [key, passed] of Object.entries(value.invariants)) {
-    if (!/^[a-z][a-z0-9_]*$/.test(key) || typeof passed !== 'boolean') {
-      throw new Error(`${label}.invariants is invalid`);
-    }
-  }
-  assertRecord(value.domainDelta, `${label}.domainDelta`);
-  for (const [key, delta] of Object.entries(value.domainDelta)) {
-    if (!/^[a-z][A-Za-z0-9]*$/.test(key) || !Number.isInteger(delta)) {
-      throw new Error(`${label}.domainDelta is invalid`);
-    }
-  }
-  return Object.freeze(value);
+  const invariants = parseBooleanRecord(value.invariants, `${label}.invariants`);
+  const milestones = parseBooleanRecord(value.milestones, `${label}.milestones`);
+  const stateChanges = parseStateChanges(value.stateChanges, `${label}.stateChanges`);
+  const delegations = parseDelegations(value.delegations, `${label}.delegations`);
+  const responseAssessment = parseResponseAssessment(
+    value.responseAssessment,
+    `${label}.responseAssessment`,
+  );
+  return Object.freeze({
+    ...value,
+    correlation: Object.freeze({
+      conversationRef: value.correlation.conversationRef,
+      turnRefs: Object.freeze([...value.correlation.turnRefs]),
+      executionRefs: Object.freeze([...value.correlation.executionRefs]),
+    }),
+    capabilityKeys: Object.freeze([...value.capabilityKeys]),
+    canonicalInputHashes: Object.freeze([...value.canonicalInputHashes]),
+    approvalRefs: Object.freeze([...value.approvalRefs]),
+    operationRefs: Object.freeze([...value.operationRefs]),
+    resourceRefs: Object.freeze([...value.resourceRefs]),
+    invariants,
+    milestones,
+    stateChanges,
+    delegations,
+    responseAssessment,
+  });
 }
 
 export function parseEvalRunEvidence(raw) {

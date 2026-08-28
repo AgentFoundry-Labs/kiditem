@@ -9,6 +9,7 @@
     }
   ],
   "target": {
+    "agentKey": "sourcing",
     "provider": "codex",
     "model": "gpt-5.6-terra",
     "effort": "max"
@@ -36,9 +37,15 @@
         "sourcing.ingestCandidate"
       ]
     ],
-    "expectedDomainDelta": {
-      "sourcingCandidates": 0,
-      "operationRuns": 0
-    }
+    "requiredMilestones": [
+      "approval_requested",
+      "mutation_not_committed"
+    ],
+    "statePolicy": {
+      "expectedChanges": {},
+      "allowedChanges": []
+    },
+    "delegationAlternatives": [[]],
+    "responseCriteria": []
   }
 }

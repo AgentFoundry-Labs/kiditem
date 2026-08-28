@@ -67,6 +67,7 @@ function main(args) {
           id: evalCase.id,
           suite: evalCase.suite,
           fixtureId: evalCase.fixtureId,
+          agentKey: evalCase.target.agentKey,
           provider: evalCase.target.provider,
           model: evalCase.target.model,
           effort: evalCase.target.effort,

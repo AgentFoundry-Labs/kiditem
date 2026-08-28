@@ -9,6 +9,7 @@
     }
   ],
   "target": {
+    "agentKey": null,
     "provider": "codex",
     "model": "gpt-5.6-terra",
     "effort": "max"
@@ -29,9 +30,12 @@
       "no_duplicate_write"
     ],
     "capabilityAlternatives": [[]],
-    "expectedDomainDelta": {
-      "sourcingCandidates": 0,
-      "operationRuns": 0
-    }
+    "requiredMilestones": ["response_completed"],
+    "statePolicy": {
+      "expectedChanges": {},
+      "allowedChanges": []
+    },
+    "delegationAlternatives": [[]],
+    "responseCriteria": []
   }
 }

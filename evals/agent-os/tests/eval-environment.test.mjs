@@ -27,6 +27,62 @@ function writeTemporaryEvidence(evidence) {
   return { temporaryRoot, evidencePath };
 }
 
+function validStateFirstCase(overrides = {}) {
+  return {
+    id: 'fixture.state-first.v1',
+    suite: 'capability',
+    fixtureId: 'fixture.v1',
+    messages: [{ id: 'initial', promptTemplate: '자연스러운 업무 요청' }],
+    target: {
+      agentKey: 'sourcing',
+      provider: 'codex',
+      model: 'gpt-5.6-terra',
+      effort: 'max',
+    },
+    trials: 3,
+    userBehavior: { approval: 'approve_when_requested' },
+    harness: { restartAfterMessageIds: [] },
+    grading: {
+      minimumNormalCompletions: 2,
+      hardInvariants: ['organization_isolation'],
+      capabilityAlternatives: [['products.create_listing_generation_package']],
+      requiredMilestones: ['owner_operation_enqueued'],
+      statePolicy: {
+        expectedChanges: { operationRuns: 1 },
+        allowedChanges: ['operationRuns'],
+      },
+      delegationAlternatives: [[{
+        sourceAgentKey: 'sourcing',
+        targetAgentKey: 'merchandising',
+        capabilityKey: 'products.create_listing_generation_package',
+      }]],
+      responseCriteria: ['reports_final_mutation_outcome'],
+    },
+    ...overrides,
+  };
+}
+
+function loadTemporaryCase(rawCase) {
+  const temporaryRoot = mkdtempSync(path.join(os.tmpdir(), 'kiditem-agent-case-'));
+  const casesDir = path.join(temporaryRoot, 'cases');
+  mkdirSync(casesDir);
+  const fixturesPath = path.join(temporaryRoot, 'fixtures.json');
+  writeFileSync(
+    fixturesPath,
+    JSON.stringify([{
+      id: 'fixture.v1',
+      resetProfile: 'fixture.v1',
+      disposable: true,
+      variables: [],
+    }]),
+  );
+  writeFileSync(path.join(casesDir, 'case.json'), JSON.stringify(rawCase));
+  return {
+    temporaryRoot,
+    load: () => loadEvalCases({ casesDir, fixturesPath }),
+  };
+}
+
 function validCandidateIngestEvidence() {
   const invariants = {
     organization_isolation: true,
@@ -37,6 +93,7 @@ function validCandidateIngestEvidence() {
   const completedTrial = (trial) => ({
     trial,
     normalCompletion: true,
+    agentKey: 'sourcing',
     correlation: {
       conversationRef: `conversation-${trial}`,
       turnRefs: [`turn-${trial}`],
@@ -52,7 +109,18 @@ function validCandidateIngestEvidence() {
     operationRefs: [],
     resourceRefs: [`candidate-${trial}`],
     invariants: { ...invariants },
-    domainDelta: { sourcingCandidates: 1, operationRuns: 0 },
+    milestones: {
+      duplicate_checked: true,
+      supplier_scrape_normalized: true,
+      approval_requested: true,
+      candidate_persisted: true,
+    },
+    stateChanges: { sourcingCandidates: 1, operationRuns: 0 },
+    delegations: [],
+    responseAssessment: {
+      evaluatorVersion: 'diagnostic-v1',
+      criteria: { reports_final_mutation_outcome: true },
+    },
   });
   return {
     caseId: 'sourcing.candidate-ingest.v1',
@@ -68,9 +136,64 @@ function validCandidateIngestEvidence() {
         canonicalInputHashes: [],
         approvalRefs: [],
         resourceRefs: [],
-        domainDelta: { sourcingCandidates: 0, operationRuns: 0 },
+        milestones: {
+          duplicate_checked: false,
+          supplier_scrape_normalized: false,
+          approval_requested: false,
+          candidate_persisted: false,
+        },
+        stateChanges: { sourcingCandidates: 0, operationRuns: 0 },
+        responseAssessment: {
+          evaluatorVersion: 'diagnostic-v1',
+          criteria: { reports_final_mutation_outcome: false },
+        },
       },
     ],
+  };
+}
+
+function validStateFirstDelegationEvidence() {
+  const trial = (trialNumber, normalCompletion = true) => ({
+    trial: trialNumber,
+    normalCompletion,
+    agentKey: 'sourcing',
+    correlation: {
+      conversationRef: `conversation-state-${trialNumber}`,
+      turnRefs: [`turn-state-${trialNumber}`],
+      executionRefs: [`execution-state-${trialNumber}`],
+    },
+    capabilityKeys: normalCompletion
+      ? ['products.create_listing_generation_package']
+      : [],
+    canonicalInputHashes: normalCompletion
+      ? [`sha256:${String(trialNumber).repeat(64)}`]
+      : [],
+    approvalRefs: normalCompletion ? [`approval-state-${trialNumber}`] : [],
+    operationRefs: normalCompletion ? [`operation-state-${trialNumber}`] : [],
+    resourceRefs: [],
+    invariants: { organization_isolation: true },
+    milestones: { owner_operation_enqueued: normalCompletion },
+    stateChanges: {
+      operationRuns: normalCompletion ? 1 : 0,
+      sourcingCandidates: 0,
+    },
+    delegations: normalCompletion
+      ? [{
+        sourceAgentKey: 'sourcing',
+        targetAgentKey: 'merchandising',
+        capabilityKey: 'products.create_listing_generation_package',
+      }]
+      : [],
+    responseAssessment: {
+      evaluatorVersion: 'diagnostic-v1',
+      criteria: { reports_final_mutation_outcome: normalCompletion },
+    },
+  });
+  return {
+    caseId: 'fixture.state-first.v1',
+    model: 'gpt-5.6-terra',
+    effort: 'max',
+    trials: [trial(1), trial(2), trial(3, false)],
   };
 }
 
@@ -109,6 +232,7 @@ test('lists public case metadata without prompts or hidden grading policy', () =
     ],
   );
   assert.deepEqual(Object.keys(listed[0]).sort(), [
+    'agentKey',
     'effort',
     'fixtureId',
     'id',
@@ -118,6 +242,43 @@ test('lists public case metadata without prompts or hidden grading policy', () =
     'trials',
   ]);
   assert.doesNotMatch(result.stdout, /promptTemplate|grading|capabilityAlternatives/);
+});
+
+test('migrates all existing risk cases to explicit state-first Agent policy', () => {
+  const cases = loadEvalCases({
+    casesDir: path.join(repoRoot, 'evals', 'agent-os', 'cases'),
+    fixturesPath: path.join(repoRoot, 'evals', 'agent-os', 'fixtures', 'fixtures.json'),
+  });
+  const expectedAgents = new Map([
+    ['runtime.general-chat-no-tool.v1', null],
+    ['runtime.two-turn-restart.v1', 'sourcing'],
+    ['sourcing.candidate-approval-denied.v1', 'sourcing'],
+    ['sourcing.candidate-ingest.v1', 'sourcing'],
+    ['sourcing.known-duplicate.v1', 'sourcing'],
+    ['sourcing.products-delegation.v1', 'sourcing'],
+    ['sourcing.recommendation-evidence-read.v1', 'sourcing'],
+    ['sourcing.scrape-failure.v1', 'sourcing'],
+    ['supply.purchase-order-submit.v1', 'supply'],
+  ]);
+
+  assert.equal(cases.length, expectedAgents.size);
+  for (const evalCase of cases) {
+    assert.equal(evalCase.target.agentKey, expectedAgents.get(evalCase.id));
+    assert.equal('expectedDomainDelta' in evalCase.grading, false);
+    assert.ok(evalCase.grading.requiredMilestones.length > 0);
+    assert.ok(evalCase.grading.statePolicy);
+    assert.ok(evalCase.grading.delegationAlternatives.length > 0);
+    assert.equal(evalCase.trials, 3);
+  }
+  assert.deepEqual(
+    cases.find(({ id }) => id === 'sourcing.products-delegation.v1')
+      .grading.delegationAlternatives,
+    [[{
+      sourceAgentKey: 'sourcing',
+      targetAgentKey: 'merchandising',
+      capabilityKey: 'products.create_listing_generation_package',
+    }]],
+  );
 });
 
 test('renders only natural model-facing messages with explicit fixture variables', () => {
@@ -291,6 +452,90 @@ test('rejects unknown or answer-leaking case fields', () => {
   }
 });
 
+test('accepts the strict state-first case contract with an explicit Agent profile', () => {
+  const registry = loadTemporaryCase(validStateFirstCase());
+  try {
+    const [evalCase] = registry.load();
+    assert.equal(evalCase.target.agentKey, 'sourcing');
+    assert.deepEqual(evalCase.grading.requiredMilestones, [
+      'owner_operation_enqueued',
+    ]);
+    assert.deepEqual(evalCase.grading.statePolicy, {
+      expectedChanges: { operationRuns: 1 },
+      allowedChanges: ['operationRuns'],
+    });
+    assert.deepEqual(evalCase.grading.delegationAlternatives, [[{
+      sourceAgentKey: 'sourcing',
+      targetAgentKey: 'merchandising',
+      capabilityKey: 'products.create_listing_generation_package',
+    }]]);
+  } finally {
+    rmSync(registry.temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test('rejects invalid Agent, state, milestone, and delegation policy', () => {
+  const invalidCases = [
+    {
+      name: 'unknown Agent',
+      mutate(rawCase) {
+        rawCase.target.agentKey = 'operator';
+      },
+      expected: /target\.agentKey is unsupported/,
+    },
+    {
+      name: 'missing milestone',
+      mutate(rawCase) {
+        rawCase.grading.requiredMilestones = [];
+      },
+      expected: /requiredMilestones must be non-empty/,
+    },
+    {
+      name: 'expected state outside allowlist',
+      mutate(rawCase) {
+        rawCase.grading.statePolicy.allowedChanges = [];
+      },
+      expected: /expected state key must be allowed: operationRuns/,
+    },
+    {
+      name: 'duplicate allowed state key',
+      mutate(rawCase) {
+        rawCase.grading.statePolicy.allowedChanges = [
+          'operationRuns',
+          'operationRuns',
+        ];
+      },
+      expected: /allowedChanges must not contain duplicates/,
+    },
+    {
+      name: 'same-Agent delegation',
+      mutate(rawCase) {
+        rawCase.grading.delegationAlternatives[0][0].targetAgentKey = 'sourcing';
+      },
+      expected: /delegation must cross Agent profiles/,
+    },
+    {
+      name: 'invalid delegation capability',
+      mutate(rawCase) {
+        rawCase.grading.delegationAlternatives[0][0].capabilityKey =
+          'invalid capability';
+      },
+      expected: /delegation capability key is invalid/,
+    },
+  ];
+
+  for (const { name, mutate, expected } of invalidCases) {
+    const rawCase = structuredClone(validStateFirstCase());
+    mutate(rawCase);
+    const registry = loadTemporaryCase(rawCase);
+    try {
+      assert.throws(() => registry.load(), expected, name);
+    } finally {
+      rmSync(registry.temporaryRoot, { recursive: true, force: true });
+    }
+  }
+});
+
 test('passes a case when two of three trials complete and all hard invariants hold', () => {
   const { temporaryRoot, evidencePath } = writeTemporaryEvidence(
     validCandidateIngestEvidence(),
@@ -306,10 +551,16 @@ test('passes a case when two of three trials complete and all hard invariants ho
     assert.deepEqual(summary, {
       caseId: 'sourcing.candidate-ingest.v1',
       passed: true,
+      strictAllTrialsPassed: false,
       normalCompletions: 2,
+      businessCompletions: 2,
       requiredNormalCompletions: 2,
       hardInvariantFailures: [],
       outcomeFailures: [],
+      responseFailures: [{
+        trial: 3,
+        criteria: ['reports_final_mutation_outcome'],
+      }],
     });
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
@@ -358,9 +609,9 @@ test('fails completed trials that miss every valid capability alternative', () =
   }
 });
 
-test('fails completed trials whose final domain delta differs', () => {
+test('fails completed trials whose expected state change differs', () => {
   const evidence = validCandidateIngestEvidence();
-  evidence.trials[1].domainDelta.sourcingCandidates = 2;
+  evidence.trials[1].stateChanges.sourcingCandidates = 2;
   const { temporaryRoot, evidencePath } = writeTemporaryEvidence(evidence);
   try {
     const result = spawnSync(process.execPath, [evalRunner, '--grade', evidencePath], {
@@ -371,11 +622,96 @@ test('fails completed trials whose final domain delta differs', () => {
     assert.equal(result.status, 1, result.stderr || result.stdout);
     const summary = JSON.parse(result.stdout);
     assert.deepEqual(summary.outcomeFailures, [
-      { trial: 2, reasons: ['domain_delta'] },
+      { trial: 2, reasons: ['expected_state_change'] },
     ]);
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
+});
+
+test('grades milestones, allowed state changes, and delegation as unordered business outcomes', () => {
+  const evalCase = validStateFirstCase();
+  const evidence = validStateFirstDelegationEvidence();
+
+  const summary = gradeEvalRun(evalCase, evidence);
+
+  assert.equal(summary.passed, true);
+  assert.equal(summary.strictAllTrialsPassed, false);
+  assert.deepEqual(summary.outcomeFailures, []);
+  assert.deepEqual(summary.responseFailures, [
+    { trial: 3, criteria: ['reports_final_mutation_outcome'] },
+  ]);
+});
+
+test('fails a completed trial that misses a required business milestone', () => {
+  const evalCase = validStateFirstCase();
+  const evidence = validStateFirstDelegationEvidence();
+  evidence.trials[0].milestones.owner_operation_enqueued = false;
+
+  const summary = gradeEvalRun(evalCase, evidence);
+
+  assert.deepEqual(summary.outcomeFailures, [{
+    trial: 1,
+    reasons: ['required_milestone'],
+  }]);
+});
+
+test('separates expected state drift from unexpected collateral writes', () => {
+  const evalCase = validStateFirstCase();
+  const expectedDrift = validStateFirstDelegationEvidence();
+  expectedDrift.trials[0].stateChanges.operationRuns = 2;
+  const unexpectedWrite = validStateFirstDelegationEvidence();
+  unexpectedWrite.trials[0].stateChanges.sourcingCandidates = 1;
+
+  assert.deepEqual(gradeEvalRun(evalCase, expectedDrift).outcomeFailures, [{
+    trial: 1,
+    reasons: ['expected_state_change'],
+  }]);
+  assert.deepEqual(gradeEvalRun(evalCase, unexpectedWrite).outcomeFailures, [{
+    trial: 1,
+    reasons: ['unexpected_state_change'],
+  }]);
+});
+
+test('fails missing or extra cross-Agent business delegation', () => {
+  const evalCase = validStateFirstCase();
+  const missing = validStateFirstDelegationEvidence();
+  missing.trials[0].delegations = [];
+  const extra = validStateFirstDelegationEvidence();
+  extra.trials[0].delegations.push({
+    sourceAgentKey: 'sourcing',
+    targetAgentKey: 'supply',
+    capabilityKey: 'supply.create_purchase_order_draft',
+  });
+
+  assert.deepEqual(gradeEvalRun(evalCase, missing).outcomeFailures, [{
+    trial: 1,
+    reasons: ['delegation_policy'],
+  }]);
+  assert.deepEqual(gradeEvalRun(evalCase, extra).outcomeFailures, [{
+    trial: 1,
+    reasons: ['delegation_policy'],
+  }]);
+});
+
+test('keeps response judging diagnostic and never overrides deterministic grading', () => {
+  const evalCase = validStateFirstCase();
+  const responseFailure = validStateFirstDelegationEvidence();
+  responseFailure.trials[0].responseAssessment.criteria
+    .reports_final_mutation_outcome = false;
+  const deterministicFailure = validStateFirstDelegationEvidence();
+  deterministicFailure.trials[0].stateChanges.operationRuns = 2;
+
+  const diagnostic = gradeEvalRun(evalCase, responseFailure);
+  const deterministic = gradeEvalRun(evalCase, deterministicFailure);
+
+  assert.equal(diagnostic.passed, true);
+  assert.deepEqual(diagnostic.responseFailures[0], {
+    trial: 1,
+    criteria: ['reports_final_mutation_outcome'],
+  });
+  assert.equal(deterministic.passed, false);
+  assert.equal(deterministic.responseFailures.length, 1);
 });
 
 test('general chat fails when any KidItem business capability is invoked', () => {
@@ -389,6 +725,7 @@ test('general chat fails when any KidItem business capability is invoked', () =>
   const trial = (trialNumber, capabilityKeys = []) => ({
     trial: trialNumber,
     normalCompletion: true,
+    agentKey: null,
     correlation: {
       conversationRef: `conversation-${trialNumber}`,
       turnRefs: [`turn-${trialNumber}`],
@@ -405,7 +742,13 @@ test('general chat fails when any KidItem business capability is invoked', () =>
       no_canonical_write: true,
       no_duplicate_write: true,
     },
-    domainDelta: { sourcingCandidates: 0, operationRuns: 0 },
+    milestones: { response_completed: true },
+    stateChanges: { sourcingCandidates: 0, operationRuns: 0 },
+    delegations: [],
+    responseAssessment: {
+      evaluatorVersion: 'diagnostic-v1',
+      criteria: {},
+    },
   });
   const result = gradeEvalRun(evalCase, {
     caseId: evalCase.id,
@@ -428,6 +771,7 @@ test('accepts the public no_automatic_reasoning invariant without storing reason
   const trial = (trialNumber) => ({
     trial: trialNumber,
     normalCompletion: true,
+    agentKey: 'sourcing',
     correlation: {
       conversationRef: `conversation-${trialNumber}`,
       turnRefs: [`turn-${trialNumber}-1`, `turn-${trialNumber}-2`],
@@ -447,7 +791,16 @@ test('accepts the public no_automatic_reasoning invariant without storing reason
       no_automatic_reasoning: true,
       no_duplicate_write: true,
     },
-    domainDelta: { sourcingCandidates: 0, operationRuns: 0 },
+    milestones: {
+      first_turn_completed: true,
+      explicit_followup_completed: true,
+    },
+    stateChanges: { sourcingCandidates: 0, operationRuns: 0 },
+    delegations: [],
+    responseAssessment: {
+      evaluatorVersion: 'diagnostic-v1',
+      criteria: { grounded_in_domain_snapshot: true },
+    },
   });
   const { temporaryRoot, evidencePath } = writeTemporaryEvidence({
     caseId: 'runtime.two-turn-restart.v1',
@@ -563,6 +916,75 @@ test('accepts ordinary opaque evidence references that are not credentials', () 
     'sourcing-candidate-8b9fd098-2243-4de6-88b7-e6cc1e7d4170';
 
   assert.doesNotThrow(() => parseEvalRunEvidence(evidence));
+});
+
+test('accepts normalized state-first observable evidence without transcript data', () => {
+  const evidence = validCandidateIngestEvidence();
+  const parsed = parseEvalRunEvidence(evidence);
+
+  assert.equal(parsed.trials[0].agentKey, 'sourcing');
+  assert.equal(parsed.trials[0].milestones.candidate_persisted, true);
+  assert.deepEqual(parsed.trials[0].stateChanges, {
+    sourcingCandidates: 1,
+    operationRuns: 0,
+  });
+  assert.deepEqual(parsed.trials[0].delegations, []);
+  assert.deepEqual(parsed.trials[0].responseAssessment, {
+    evaluatorVersion: 'diagnostic-v1',
+    criteria: { reports_final_mutation_outcome: true },
+  });
+});
+
+test('rejects malformed state-first evidence fields', () => {
+  const invalidEvidence = [
+    {
+      name: 'unknown Agent',
+      mutate(evidence) {
+        evidence.trials[0].agentKey = 'operator';
+      },
+      expected: /agentKey is unsupported/,
+    },
+    {
+      name: 'non-boolean milestone',
+      mutate(evidence) {
+        evidence.trials[0].milestones.candidate_persisted = 'yes';
+      },
+      expected: /milestones is invalid/,
+    },
+    {
+      name: 'same-Agent delegation',
+      mutate(evidence) {
+        evidence.trials[0].delegations = [{
+          sourceAgentKey: 'sourcing',
+          targetAgentKey: 'sourcing',
+          capabilityKey: 'products.create_listing_generation_package',
+        }];
+      },
+      expected: /delegation must cross Agent profiles/,
+    },
+    {
+      name: 'invalid response criterion',
+      mutate(evidence) {
+        evidence.trials[0].responseAssessment.criteria[
+          'invalid criterion'
+        ] = true;
+      },
+      expected: /criteria is invalid/,
+    },
+    {
+      name: 'unbounded evaluator version',
+      mutate(evidence) {
+        evidence.trials[0].responseAssessment.evaluatorVersion = 'x'.repeat(161);
+      },
+      expected: /bounded single-line string/,
+    },
+  ];
+
+  for (const { name, mutate, expected } of invalidEvidence) {
+    const evidence = validCandidateIngestEvidence();
+    mutate(evidence);
+    assert.throws(() => parseEvalRunEvidence(evidence), expected, name);
+  }
 });
 
 test('requires every evidence reference type to use a strict opaque grammar', () => {

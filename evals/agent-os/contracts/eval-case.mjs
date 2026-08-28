@@ -14,15 +14,34 @@ const CASE_KEYS = new Set([
 ]);
 const FIXTURE_KEYS = new Set(['id', 'resetProfile', 'disposable', 'variables']);
 const MESSAGE_KEYS = new Set(['id', 'promptTemplate']);
-const TARGET_KEYS = new Set(['provider', 'model', 'effort']);
+const TARGET_KEYS = new Set(['agentKey', 'provider', 'model', 'effort']);
 const USER_BEHAVIOR_KEYS = new Set(['approval']);
 const HARNESS_KEYS = new Set(['restartAfterMessageIds']);
 const GRADING_KEYS = new Set([
   'minimumNormalCompletions',
   'hardInvariants',
   'capabilityAlternatives',
-  'expectedDomainDelta',
+  'requiredMilestones',
+  'statePolicy',
+  'delegationAlternatives',
+  'responseCriteria',
 ]);
+const STATE_POLICY_KEYS = new Set(['expectedChanges', 'allowedChanges']);
+const DELEGATION_EDGE_KEYS = new Set([
+  'sourceAgentKey',
+  'targetAgentKey',
+  'capabilityKey',
+]);
+const AGENT_KEYS = new Set([
+  'sourcing',
+  'merchandising',
+  'supply',
+  'channel_operations',
+  'advertising',
+]);
+const CAPABILITY_KEY_PATTERN =
+  /^[a-z][a-z0-9_]*\.[A-Za-z][A-Za-z0-9_]*$/;
+const POLICY_KEY_PATTERN = /^[a-z][A-Za-z0-9_]*$/;
 const FORBIDDEN_AUTHORING_FIELDS = new Set([
   'rawOutput',
   'expectedOutput',
@@ -76,6 +95,26 @@ function assertAllowedKeys(value, allowed, label) {
 function assertStringArray(value, label) {
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
     throw new Error(`${label} must be an array of strings`);
+  }
+}
+
+function assertPolicyKeyArray(value, label, { nonEmpty = false } = {}) {
+  assertStringArray(value, label);
+  if (nonEmpty && value.length === 0) {
+    throw new Error(`${label} must be non-empty`);
+  }
+  if (value.some((entry) => !POLICY_KEY_PATTERN.test(entry))) {
+    throw new Error(`${label} contains an invalid key`);
+  }
+  if (new Set(value).size !== value.length) {
+    throw new Error(`${label} must not contain duplicates`);
+  }
+}
+
+function assertAgentKey(value, label, { nullable = false } = {}) {
+  if (nullable && value === null) return;
+  if (typeof value !== 'string' || !AGENT_KEYS.has(value)) {
+    throw new Error(`${label} is unsupported`);
   }
 }
 
@@ -159,6 +198,9 @@ function parseCase(raw, sourcePath, fixtures) {
   });
   assertRecord(raw.target, `${sourcePath}.target`);
   assertAllowedKeys(raw.target, TARGET_KEYS, `${sourcePath}.target`);
+  assertAgentKey(raw.target.agentKey, `${sourcePath}.target.agentKey`, {
+    nullable: true,
+  });
   assertNonEmptyString(raw.target.provider, `${sourcePath}.target.provider`);
   assertNonEmptyString(raw.target.model, `${sourcePath}.target.model`);
   assertNonEmptyString(raw.target.effort, `${sourcePath}.target.effort`);
@@ -199,7 +241,7 @@ function parseCase(raw, sourcePath, fixtures) {
   }
   raw.grading.capabilityAlternatives.forEach((alternative, index) => {
     assertStringArray(alternative, `${sourcePath}.grading.capabilityAlternatives[${index}]`);
-    if (alternative.some((key) => !/^[a-z][a-z0-9_]*\.[A-Za-z][A-Za-z0-9_]*$/.test(key))) {
+    if (alternative.some((key) => !CAPABILITY_KEY_PATTERN.test(key))) {
       throw new Error(`${sourcePath}.grading.capabilityAlternatives[${index}] has an invalid key`);
     }
   });
@@ -214,12 +256,79 @@ function parseCase(raw, sourcePath, fixtures) {
       `${sourcePath}.grading must pair no_business_capability with an empty capability alternative`,
     );
   }
-  assertRecord(raw.grading.expectedDomainDelta, `${sourcePath}.grading.expectedDomainDelta`);
-  for (const [key, delta] of Object.entries(raw.grading.expectedDomainDelta)) {
-    if (!/^[a-z][A-Za-z0-9]*$/.test(key) || !Number.isInteger(delta)) {
-      throw new Error(`${sourcePath}.grading.expectedDomainDelta is invalid`);
+  assertPolicyKeyArray(
+    raw.grading.requiredMilestones,
+    `${sourcePath}.grading.requiredMilestones`,
+    { nonEmpty: true },
+  );
+  assertRecord(raw.grading.statePolicy, `${sourcePath}.grading.statePolicy`);
+  assertAllowedKeys(
+    raw.grading.statePolicy,
+    STATE_POLICY_KEYS,
+    `${sourcePath}.grading.statePolicy`,
+  );
+  assertRecord(
+    raw.grading.statePolicy.expectedChanges,
+    `${sourcePath}.grading.statePolicy.expectedChanges`,
+  );
+  for (const [key, delta] of Object.entries(
+    raw.grading.statePolicy.expectedChanges,
+  )) {
+    if (!POLICY_KEY_PATTERN.test(key) || !Number.isInteger(delta)) {
+      throw new Error(
+        `${sourcePath}.grading.statePolicy.expectedChanges is invalid`,
+      );
     }
   }
+  assertPolicyKeyArray(
+    raw.grading.statePolicy.allowedChanges,
+    `${sourcePath}.grading.statePolicy.allowedChanges`,
+  );
+  const allowedStateKeys = new Set(raw.grading.statePolicy.allowedChanges);
+  for (const key of Object.keys(raw.grading.statePolicy.expectedChanges)) {
+    if (!allowedStateKeys.has(key)) {
+      throw new Error(`expected state key must be allowed: ${key}`);
+    }
+  }
+  if (
+    !Array.isArray(raw.grading.delegationAlternatives) ||
+    raw.grading.delegationAlternatives.length === 0
+  ) {
+    throw new Error(
+      `${sourcePath}.grading.delegationAlternatives must be non-empty`,
+    );
+  }
+  raw.grading.delegationAlternatives.forEach((alternative, alternativeIndex) => {
+    if (!Array.isArray(alternative)) {
+      throw new Error(
+        `${sourcePath}.grading.delegationAlternatives[${alternativeIndex}] must be an array`,
+      );
+    }
+    alternative.forEach((edge, edgeIndex) => {
+      const label =
+        `${sourcePath}.grading.delegationAlternatives[${alternativeIndex}][${edgeIndex}]`;
+      assertRecord(edge, label);
+      assertAllowedKeys(edge, DELEGATION_EDGE_KEYS, label);
+      assertAgentKey(edge.sourceAgentKey, `${label}.sourceAgentKey`);
+      assertAgentKey(edge.targetAgentKey, `${label}.targetAgentKey`);
+      if (edge.sourceAgentKey === edge.targetAgentKey) {
+        throw new Error(`${label} delegation must cross Agent profiles`);
+      }
+      if (edge.sourceAgentKey !== raw.target.agentKey) {
+        throw new Error(`${label}.sourceAgentKey must match target.agentKey`);
+      }
+      if (
+        typeof edge.capabilityKey !== 'string' ||
+        !CAPABILITY_KEY_PATTERN.test(edge.capabilityKey)
+      ) {
+        throw new Error(`${label} delegation capability key is invalid`);
+      }
+    });
+  });
+  assertPolicyKeyArray(
+    raw.grading.responseCriteria,
+    `${sourcePath}.grading.responseCriteria`,
+  );
 
   const fixture = fixtures.get(raw.fixtureId);
   const declaredVariables = new Set(fixture.variables);
@@ -229,7 +338,40 @@ function parseCase(raw, sourcePath, fixtures) {
     }
   }
 
-  return Object.freeze({ ...raw, sourcePath });
+  return Object.freeze({
+    ...raw,
+    messages: Object.freeze(raw.messages.map((message) => Object.freeze({ ...message }))),
+    target: Object.freeze({ ...raw.target }),
+    userBehavior: Object.freeze({ ...raw.userBehavior }),
+    harness: Object.freeze({
+      restartAfterMessageIds: Object.freeze([...raw.harness.restartAfterMessageIds]),
+    }),
+    grading: Object.freeze({
+      ...raw.grading,
+      hardInvariants: Object.freeze([...raw.grading.hardInvariants]),
+      capabilityAlternatives: Object.freeze(
+        raw.grading.capabilityAlternatives.map((alternative) =>
+          Object.freeze([...alternative]),
+        ),
+      ),
+      requiredMilestones: Object.freeze([...raw.grading.requiredMilestones]),
+      statePolicy: Object.freeze({
+        expectedChanges: Object.freeze({
+          ...raw.grading.statePolicy.expectedChanges,
+        }),
+        allowedChanges: Object.freeze([
+          ...raw.grading.statePolicy.allowedChanges,
+        ]),
+      }),
+      delegationAlternatives: Object.freeze(
+        raw.grading.delegationAlternatives.map((alternative) =>
+          Object.freeze(alternative.map((edge) => Object.freeze({ ...edge }))),
+        ),
+      ),
+      responseCriteria: Object.freeze([...raw.grading.responseCriteria]),
+    }),
+    sourcePath,
+  });
 }
 
 export function loadEvalCases({ casesDir, fixturesPath }) {
