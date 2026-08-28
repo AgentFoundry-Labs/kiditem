@@ -12,7 +12,11 @@ export interface GatewayControlTransport {
   abortInFlight(): void;
 }
 
-/** One native process owns the serial poll/dispatch/outbox lifecycle. */
+type PollWaitResult =
+  | Readonly<{ kind: 'poll'; batch: GatewayCommandBatch | null }>
+  | Readonly<{ kind: 'outbox' }>;
+
+/** One native process coordinates one command poll with ordered event delivery. */
 export class NativeGatewayControlSession {
   private runTask: Promise<never> | null = null;
   private shutdownTask: Promise<void> | null = null;
@@ -56,6 +60,7 @@ export class NativeGatewayControlSession {
   private async loop(): Promise<never> {
     let controlSessionClaimed = false;
     let registrationRecoveryAttempted = false;
+    let pollTask: Promise<GatewayCommandBatch | null> | null = null;
     try {
       for (;;) {
         if (this.controlFailure) throw this.controlFailure;
@@ -68,10 +73,30 @@ export class NativeGatewayControlSession {
             if (error instanceof GatewayControlStoppedError) throw error;
             if (isRegistrationMissing(error) && !registrationRecoveryAttempted) {
               // A restarted API has no in-memory process registry yet. One
-              // fresh authenticated poll restores it before this unchanged
+              // fresh authenticated poll must restore it before this unchanged
               // outbox batch is retried; a second 409 remains terminal.
               registrationRecoveryAttempted = true;
-              controlSessionClaimed = false;
+              const abandonedPoll = pollTask;
+              if (abandonedPoll) {
+                this.options.client.abortInFlight();
+                try {
+                  await this.raceStop(abandonedPoll);
+                } catch (pollError) {
+                  if (pollError instanceof GatewayControlStoppedError) throw pollError;
+                } finally {
+                  pollTask = null;
+                }
+              }
+              const registration = await this.raceStop(this.options.client.poll(this.options.poll));
+              if (!registration?.apiRuntimeRegistered) {
+                throw new Error('gateway_control_registration_recovery_failed');
+              }
+              await this.raceStop(this.options.dispatcher.resetAfterApiRuntimeRegistration());
+              await this.raceStop(Promise.resolve(this.options.onApiRuntimeRegistered?.()));
+              controlSessionClaimed = true;
+              for (const command of registration.commands) {
+                await this.raceStop(this.options.dispatcher.dispatch(command as GatewayCommand));
+              }
               continue;
             }
             // An outbox body is retried only after the exact API-restart
@@ -81,15 +106,22 @@ export class NativeGatewayControlSession {
           }
           continue;
         }
-        let batch: GatewayCommandBatch | null;
+        pollTask ??= this.options.client.poll(this.options.poll);
+        let result: PollWaitResult;
         try {
-          batch = await this.raceStop(this.options.client.poll(this.options.poll));
+          result = controlSessionClaimed
+            ? await this.raceStop(this.waitForPollOrOutbox(pollTask))
+            : { kind: 'poll', batch: await this.raceStop(pollTask) };
         } catch (error) {
+          pollTask = null;
           if (error instanceof GatewayControlStoppedError) throw error;
           if (isTerminalControlError(error)) throw error;
           await this.raceStop(this.sleep(100));
           continue;
         }
+        if (result.kind === 'outbox') continue;
+        const batch = result.batch;
+        pollTask = null;
         if (batch?.apiRuntimeRegistered) {
           // A failed provider interrupt leaves local execution state
           // indeterminate. It is not a retryable control transport failure.
@@ -104,6 +136,24 @@ export class NativeGatewayControlSession {
       const manualShutdown = this.stopped || error instanceof GatewayControlStoppedError;
       await this.shutdown();
       throw new Error(manualShutdown ? 'gateway_control_stopped' : 'gateway_control_lost');
+    }
+  }
+
+  /** Keep one command long-poll alive while an independent event POST becomes ready. */
+  private async waitForPollOrOutbox(
+    pollTask: Promise<GatewayCommandBatch | null>,
+  ): Promise<PollWaitResult> {
+    let unsubscribe = (): void => undefined;
+    const pending = new Promise<PollWaitResult>((resolve) => {
+      unsubscribe = this.options.outbox.onPending(() => resolve({ kind: 'outbox' }));
+    });
+    try {
+      return await Promise.race([
+        pollTask.then((batch): PollWaitResult => ({ kind: 'poll', batch })),
+        pending,
+      ]);
+    } finally {
+      unsubscribe();
     }
   }
 

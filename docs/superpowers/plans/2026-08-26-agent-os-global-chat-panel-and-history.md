@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Tasks 1–7 complete; Task 8 desktop resize and Task 9 domain acceptance in progress
+**Status:** Tasks 1–9 complete; deterministic, Sol(max), and Chrome acceptance gates green
 **Revised:** 2026-08-28
 
 **Goal:** Make one provider-native KidItem conversation available from every authenticated work screen, restore CopilotKit OSS as the interaction owner with its real SQLite event-history runner, and deliver the approved KidItem Agent OS/Dashboard chat design without adding PostgreSQL conversation state or a paid CopilotKit service.
@@ -100,8 +100,8 @@ Current completion summary:
 - [x] Task 6 accepted shared-sidebar/message/composer visual correction and Batch B review (RESOLVED)
 - [x] Task 7 Step 2 durable architecture/testing update and current deterministic/boot/package evidence
 - [x] Task 7 mandatory Sol(max) integration review, business eval, and browser QA
-- [ ] Task 8 resizable desktop AI-chat panel and focused browser QA
-- [ ] Task 9 Sourcing vertical-slice and Sourcing-to-Products acceptance QA
+- [x] Task 8 resizable desktop AI-chat panel and focused browser QA
+- [x] Task 9 Sourcing vertical-slice and Sourcing-to-Products acceptance QA
 
 The detailed unchecked steps below describe the current-target acceptance
 recipe. They do not reopen the completed Tasks 1-3; this status summary is the
@@ -2390,7 +2390,7 @@ notification presentation, Agent OS layout, or the existing below-768 branch.
 - Verify only: apps/web/src/store/useStore.ts
 - Verify only: apps/web/src/components/agent-interaction/AgentConversationSurface.tsx
 
-- [ ] **Step 1: Lock the width preference contract with failing tests**
+- [x] **Step 1: Lock the width preference contract with failing tests**
 
 Create a focused hook rather than expanding the global Zustand store. Its
 contract is:
@@ -2409,7 +2409,7 @@ one validated integer; and a temporary viewport clamp never overwrites the
 saved preferred width. Run the new hook spec and confirm RED before creating
 the Implementation.
 
-- [ ] **Step 2: Implement the browser-local width owner**
+- [x] **Step 2: Implement the browser-local width owner**
 
 `useDesktopAiChatWidth` owns preferred width, optional drag preview, and current
 viewport measurement. Read local storage only after mount. Resize events may
@@ -2426,7 +2426,7 @@ rtk npm exec --workspace=apps/web vitest -- run src/components/layout/__tests__/
 
 Expected: all preference tests pass.
 
-- [ ] **Step 3: Add failing panel and work-surface regressions**
+- [x] **Step 3: Add failing panel and work-surface regressions**
 
 Update the existing focused tests first. Prove that:
 
@@ -2445,7 +2445,7 @@ Update the existing focused tests first. Prove that:
 Run the two specs and confirm that the new assertions fail before modifying the
 panel or AppLayout.
 
-- [ ] **Step 4: Implement the narrow resize seam**
+- [x] **Step 4: Implement the narrow resize seam**
 
 Pass the focused width controller from AppLayout to RightAuxiliaryPanel. Render
 the separator only for non-mobile AI chat. Use pointer capture, calculate width
@@ -2469,7 +2469,7 @@ rtk npm run build --workspace=apps/web
 
 Expected: focused tests, surrounding Web regressions, and production build pass.
 
-- [ ] **Step 5: Verify the actual desktop interaction**
+- [x] **Step 5: Verify the actual desktop interaction**
 
 In the authenticated QA browser, verify a 1600-pixel Dashboard pushes by the
 live width, drag/reload restores the committed preference, a 1280-pixel
@@ -2495,7 +2495,7 @@ sequence, owner request key, expected canonical hash, replay instruction,
 deliberate snapshot mutation, or database assertions. Those remain hidden
 deterministic harness/grader inputs.
 
-- [ ] **Step 1: Run the Sourcing vertical slice**
+- [x] **Step 1: Run the Sourcing vertical slice**
 
 Run `sourcing.recommendation-evidence-read.v1` and
 `sourcing.candidate-ingest.v1`. The model receives only the natural request and
@@ -2510,7 +2510,7 @@ changes one canonical snapshot/hash field under that key and proves conflict
 without a second write. Do not ask the live model to manufacture either replay
 or drift input.
 
-- [ ] **Step 2: Run Sourcing-to-Products delegation**
+- [x] **Step 2: Run Sourcing-to-Products delegation**
 
 Run `sourcing.products-delegation.v1` from an existing disposable QA candidate.
 The model receives only the natural request and an environment-supplied
@@ -2523,7 +2523,7 @@ accepted request.
 The hidden deterministic owner gate, not the model prompt, replays the same
 owner key/input and proves candidate and Operation counts remain one.
 
-- [ ] **Step 3: Promote only observed failures and publish evidence**
+- [x] **Step 3: Promote only observed failures and publish evidence**
 
 Run each slice against a clean disposable fixture. If an invariant fails, add
 one failing regression at the narrow owner/UI boundary, make the minimum fix,
@@ -2532,17 +2532,64 @@ repeating the live slice. Record the commands, pass/fail outcome, and sanitized
 final snapshots in the local QA report and update this plan's checkboxes only
 after actual evidence exists. Claude live QA remains non-blocking.
 
-- [ ] **Step 4: Run negative-decision and high-risk mutation cases**
+The earlier live negative-decision/high-risk Step 4 was superseded by the
+explicit PR #479 scope limiting this added acceptance round to the two owner-
+domain slices above. Its deterministic approval, replay, drift, organization,
+providerless purchase-order, and lifecycle contracts remain regression gates;
+they are not an additional live-model completion condition for Task 9.
 
-Run `sourcing.known-duplicate.v1`,
-`sourcing.candidate-approval-denied.v1`, `sourcing.scrape-failure.v1`,
-`runtime.general-chat-no-tool.v1`, and `supply.purchase-order-submit.v1` from
-their disposable fixtures. Keep the prompts natural: the harness owns whether
-approval is granted or denied and the grader owns the expected no-op, no-write,
-or exact final delta. The providerless purchase-order fixture supplies an
-existing external order identity and must produce exactly one approved
-submission. Do not turn replay, drift, organization attacks, or lifecycle races
-into model instructions; their deterministic gates remain authoritative.
+### 2026-08-28 Task 8/9 QA Evidence
+
+Current evidence is intentionally split into deterministic contracts and live
+model behavior. Generated per-trial correlations remain untracked below
+`.tmp/agent-evals`; this plan records only bounded outcomes and commands.
+
+- Task 8 is GREEN: 53 focused resize/layout tests and 284 surrounding Web
+  interaction tests passed, followed by a 49-route production Web build. The
+  authenticated desktop interaction was exercised at the push and overlay
+  widths, including the pointer event path, notification width, and Agent OS
+  exclusion. Final Chrome re-verification changed the stored AI-chat width from
+  624 to 608 pixels with the keyboard and restored 608 after a full reload;
+  Dashboard/Agent OS navigation, shared sidebar collapse, and Agent OS's full-
+  workspace exclusion remained correct.
+- `sourcing.recommendation-evidence-read.v1` passed 3/3 with Codex
+  `gpt-5.6-terra` at `max`: both read capabilities were observed in every trial,
+  recommendation/evidence data was grounded, and candidate/Operation deltas
+  stayed zero. The normalized grader passed with no invariant or outcome
+  failures.
+- `sourcing.candidate-ingest.v1` passed its normalized Chrome evidence gate at
+  2/3 normal completions. In both successful disposable trials the model used
+  evidence, duplicate-check, bounded scrape, and exact snapshot admission;
+  candidate count stayed zero before approval and became exactly one after
+  approval, with no Operation. The third supplier-challenge trial ended safely
+  with no canonical write. Organization isolation, approval-before-write,
+  no-fabricated-input, and no-duplicate-write were therefore all 3/3. The
+  created candidate was opened in the actual Sourcing UI.
+- `sourcing.products-delegation.v1` passed 3/3 in Chrome. Every trial used
+  `products.create_listing_generation_package`; Operation count was zero before
+  approval and exactly one afterward, the seeded candidate count did not
+  change, and the result appeared in both the Conversation evidence rail and
+  product-pipeline UI.
+- A real Gateway restart preserved completed SQLite history without starting
+  reasoning: the canonical run count remained 39 while idle and became 40 only
+  after the next explicit Chrome message. The same Conversation then invoked a
+  read-only duplicate check successfully, while candidate and Products
+  Operation counts remained one.
+- The hidden deterministic owner gates remain GREEN: candidate admission,
+  same-key replay, changed-input conflict, response-loss/API-restart replay,
+  Products owner routing, providerless purchase-order submission, and exact
+  capability composition all passed their focused unit/PostgreSQL tests.
+- Current final infrastructure gates are GREEN: Gateway 156 passed/10 skipped,
+  Agent OS 184 passed/4 expected-fail, eval contracts 19 passed, normalized
+  Sourcing evidence 2/3, normalized Products evidence 3/3, real macOS process-
+  tree 4 passed, sequential shared/Gateway/server/Web builds passed, Gateway
+  package dry-run passed, 4100 Nest listen succeeded and stopped normally, and
+  contraction/hexagonal/directory/CopilotKit-train/instruction checks passed.
+  One parallel-load-only Gateway file-store timeout passed in 1.69 seconds when
+  isolated and the complete Gateway suite then passed in 4.34 seconds. The
+  final Sol(max) finding on credential-shaped QA evidence was fixed with a
+  failing regression first; its targeted re-review returned no unresolved
+  Critical or Important finding.
 
 ## Final Acceptance Checklist
 
@@ -2569,7 +2616,7 @@ into model instructions; their deterministic gates remain authoritative.
   first-send coordinator.
 - [x] Notification and AI chat content are mutually exclusive bodies of one
   `notifications | ai_chat | null` right surface.
-- [ ] AI chat defaults to 352 px, accepts and restores one validated 320-640 px
+- [x] AI chat defaults to 352 px, accepts and restores one validated 320-640 px
   desktop-local width, pushes by that width at 1536+, and overlays at that width
   from 768-1535. Notifications remain 352 px; Agent OS and the existing
   below-768 branch do not consume the preference.
@@ -2601,15 +2648,12 @@ into model instructions; their deterministic gates remain authoritative.
 - [x] Codex/Terra(max) Dashboard business eval passed all three cases at 3 trials
   each, with every forbidden behavior absent and at least 2/3 normal completion
   per case.
-- [ ] The Sourcing read/scrape/approved-ingest slice proves exact snapshot
+- [x] The Sourcing read/scrape/approved-ingest slice proves exact snapshot
   admission, same-key replay, drift rejection, one candidate, and Sourcing UI
   projection.
-- [ ] The Sourcing-to-Products slice proves Products owner delegation,
+- [x] The Sourcing-to-Products slice proves Products owner delegation,
   approval-before-write, one OperationRun, replay without duplication, and
   product-pipeline projection.
-- [ ] Duplicate no-op, denied approval, incomplete scrape, general no-tool chat,
-  and providerless purchase submission pass their three-trial business
-  evaluations with every hard invariant intact.
 - [x] One Sol(max) integrated review passed before browser QA with no open
   Critical or Important finding.
 - [x] The only live limitation, when still applicable, is unavailable Claude

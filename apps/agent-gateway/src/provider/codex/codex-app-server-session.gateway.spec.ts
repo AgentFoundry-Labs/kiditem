@@ -394,21 +394,53 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
 
     session.receive(notification('item/started', {
       threadId: 'provider-thread-1', turnId: 'provider-turn-1', startedAtMs: 1,
-      item: { type: 'mcpToolCall', id: 'tool-1', server: 'kiditem', tool: 'capability.invoke', status: 'inProgress', arguments: { secret }, result: { secret }, error: { secret } },
+      item: {
+        type: 'mcpToolCall',
+        id: 'tool-1',
+        server: 'kiditem',
+        tool: 'capability_invoke',
+        status: 'inProgress',
+        arguments: { capabilityKey: 'sourcing.retrieveWorkspaceEvidence', secret },
+        result: { secret },
+        error: { secret },
+      },
     }));
     session.receive(notification('item/completed', {
       threadId: 'provider-thread-1', turnId: 'provider-turn-1', completedAtMs: 2,
-      item: { type: 'mcpToolCall', id: 'tool-1', server: 'kiditem', tool: 'capability.invoke', status: 'completed', arguments: { secret }, result: { secret }, error: { secret } },
+      item: {
+        type: 'mcpToolCall',
+        id: 'tool-1',
+        server: 'kiditem',
+        tool: 'capability_invoke',
+        status: 'completed',
+        arguments: { capabilityKey: 'sourcing.retrieveWorkspaceEvidence', secret },
+        result: { secret },
+        error: { secret },
+      },
     }));
     session.receive(notification('item/started', {
       threadId: 'provider-thread-1', turnId: 'provider-turn-1', startedAtMs: 3,
+      item: {
+        type: 'mcpToolCall',
+        id: 'tool-unknown-capability',
+        server: 'kiditem',
+        tool: 'capability.invoke',
+        status: 'inProgress',
+        arguments: { capabilityKey: 'secret.password', secret },
+        result: { secret },
+        error: { secret },
+      },
+    }));
+    session.receive(notification('item/started', {
+      threadId: 'provider-thread-1', turnId: 'provider-turn-1', startedAtMs: 4,
       item: { type: 'commandExecution', command: secret, status: 'inProgress' },
     }));
 
     expect(events).toEqual([
       { kind: 'status', status: 'started' },
+      { kind: 'tool.status', name: 'kiditem.capability_invoke:sourcing.retrieveWorkspaceEvidence', status: 'started' },
+      { kind: 'tool.status', name: 'kiditem.capability_invoke:sourcing.retrieveWorkspaceEvidence', status: 'completed' },
       { kind: 'tool.status', name: 'kiditem.capability.invoke', status: 'started' },
-      { kind: 'tool.status', name: 'kiditem.capability.invoke', status: 'completed' },
     ]);
     expect(JSON.stringify(events)).not.toContain(secret);
   });

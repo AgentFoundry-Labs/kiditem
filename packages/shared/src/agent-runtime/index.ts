@@ -70,3 +70,5 @@ export type {
   GatewayPoll,
   GatewayProviderReadiness,
 } from './control';
+export { PUBLIC_CAPABILITY_CATALOG_KEYS } from './public-capability-catalog';
+export type { PublicCapabilityCatalogKey } from './public-capability-catalog';

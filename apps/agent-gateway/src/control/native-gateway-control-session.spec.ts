@@ -147,7 +147,8 @@ describe('NativeGatewayControlSession', () => {
       poll: vi.fn(async () => {
         calls.push('poll');
         polls += 1;
-        if (polls < 3) return { commands: [] };
+        if (polls === 1) return { commands: [] };
+        if (polls === 2) return { commands: [], apiRuntimeRegistered: true as const };
         throw new GatewayControlHttpError(401);
       }),
       postEventBody: vi.fn(async (body: string) => {
@@ -160,9 +161,14 @@ describe('NativeGatewayControlSession', () => {
       }),
       abortInFlight: vi.fn(),
     };
+    const dispatcher = {
+      resetAfterApiRuntimeRegistration: vi.fn(async () => { calls.push('reset'); }),
+      dispatch: vi.fn(),
+      clear: vi.fn(),
+    };
     const session = new NativeGatewayControlSession({
       client,
-      dispatcher: { dispatch: vi.fn(), clear: vi.fn() },
+      dispatcher,
       outbox,
       poll: {
         kind: 'poll', gatewayInstanceId: 'gateway-1', platform: 'macos', mcpTransportToken: 'A'.repeat(43),
@@ -172,8 +178,143 @@ describe('NativeGatewayControlSession', () => {
     });
 
     await expect(session.run()).rejects.toThrow('gateway_control_lost');
-    expect(calls).toEqual(['poll', 'event', 'poll', 'event', 'poll']);
+    expect(calls).toEqual(['poll', 'event', 'poll', 'reset', 'event', 'poll']);
     expect(client.postEventBody).toHaveBeenCalledTimes(2);
+  });
+
+  it('drains an old long poll before freshly registering and retrying an exact rejected event body once', async () => {
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const { GatewayControlHttpError } = await import('./gateway-control.client');
+    const { NativeGatewayControlSession } = await import('./native-gateway-control-session');
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
+    const stalePollStarted = deferred<void>();
+    const stalePollAborted = deferred<void>();
+    const stalePoll = deferred<never>();
+    const bodies: string[] = [];
+    const calls: string[] = [];
+    let polls = 0;
+    const poll = {
+      kind: 'poll' as const, gatewayInstanceId: 'gateway-1', platform: 'macos' as const,
+      mcpTransportToken: 'A'.repeat(43),
+      runtimeTrain: { controlRevision: 'kiditem-gateway-control-v1', mcpProtocolRevision: '2026-07-28', nodeMajor: 22, codexVersion: '0.149.1', claudeVersion: '2.1.245' },
+    } as const;
+    const client = {
+      poll: vi.fn(() => {
+        calls.push('poll');
+        polls += 1;
+        if (polls === 1 || polls === 3) return Promise.resolve({ commands: [], apiRuntimeRegistered: true as const });
+        if (polls === 2) {
+          stalePollStarted.resolve();
+          return stalePoll.promise;
+        }
+        throw new GatewayControlHttpError(401);
+      }),
+      postEventBody: vi.fn(async (body: string) => {
+        calls.push('event');
+        bodies.push(body);
+        if (bodies.length === 1) {
+          throw new GatewayControlHttpError(409, 'gateway_process_registration_missing');
+        }
+        return { eventSeq: JSON.parse(body).eventSeq, accepted: true as const };
+      }),
+      abortInFlight: vi.fn(() => {
+        calls.push('abort');
+        stalePollAborted.resolve();
+      }),
+    };
+    const dispatcher = {
+      resetAfterApiRuntimeRegistration: vi.fn(async () => { calls.push('reset'); }),
+      dispatch: vi.fn(),
+      clear: vi.fn(),
+    };
+    const session = new NativeGatewayControlSession({
+      client,
+      dispatcher,
+      outbox,
+      poll,
+      onPollLoss: vi.fn(),
+    });
+
+    const running = session.run();
+    const handledRunning = running.catch(() => undefined);
+    await stalePollStarted.promise;
+    outbox.enqueue({ kind: 'command.ack', commandId: 'command-1' });
+
+    try {
+      await settlesWithin(stalePollAborted.promise);
+      expect(client.poll).toHaveBeenCalledTimes(2);
+      stalePoll.reject(new Error('gateway_control_poll_aborted_for_registration_recovery'));
+
+      await expect(settlesWithin(running)).rejects.toThrow('gateway_control_lost');
+    } finally {
+      stalePoll.reject(new Error('gateway_control_test_cleanup'));
+      await session.shutdown();
+      await handledRunning;
+    }
+
+    expect(calls).toEqual(['poll', 'reset', 'poll', 'event', 'abort', 'poll', 'reset', 'event', 'poll', 'abort']);
+    expect(client.poll.mock.calls[2]).toEqual([poll]);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toBe(bodies[0]);
+    expect(dispatcher.resetAfterApiRuntimeRegistration).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails closed without retrying the event when the fresh recovery poll does not register', async () => {
+    const { GatewayEventOutbox } = await import('./gateway-event-outbox');
+    const { GatewayControlHttpError } = await import('./gateway-control.client');
+    const { NativeGatewayControlSession } = await import('./native-gateway-control-session');
+    const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
+    const stalePollStarted = deferred<void>();
+    const stalePoll = deferred<never>();
+    let polls = 0;
+    const client = {
+      poll: vi.fn(() => {
+        polls += 1;
+        if (polls === 1) return Promise.resolve({ commands: [], apiRuntimeRegistered: true as const });
+        if (polls === 2) {
+          stalePollStarted.resolve();
+          return stalePoll.promise;
+        }
+        return Promise.resolve({ commands: [] });
+      }),
+      postEventBody: vi.fn(async (body: string) => {
+        throw new GatewayControlHttpError(409, 'gateway_process_registration_missing');
+      }),
+      abortInFlight: vi.fn(() => {
+        stalePoll.reject(new Error('gateway_control_poll_aborted_for_registration_recovery'));
+      }),
+    };
+    const dispatcher = {
+      resetAfterApiRuntimeRegistration: vi.fn(async () => undefined),
+      dispatch: vi.fn(),
+      clear: vi.fn(),
+    };
+    const session = new NativeGatewayControlSession({
+      client,
+      dispatcher,
+      outbox,
+      poll: {
+        kind: 'poll', gatewayInstanceId: 'gateway-1', platform: 'macos', mcpTransportToken: 'A'.repeat(43),
+        runtimeTrain: { controlRevision: 'kiditem-gateway-control-v1', mcpProtocolRevision: '2026-07-28', nodeMajor: 22, codexVersion: '0.149.1', claudeVersion: '2.1.245' },
+      },
+      onPollLoss: vi.fn(),
+    });
+
+    const running = session.run();
+    const handledRunning = running.catch(() => undefined);
+    await stalePollStarted.promise;
+    outbox.enqueue({ kind: 'command.ack', commandId: 'command-1' });
+
+    try {
+      await expect(settlesWithin(running)).rejects.toThrow('gateway_control_lost');
+      expect(client.poll).toHaveBeenCalledTimes(3);
+      expect(client.postEventBody).toHaveBeenCalledOnce();
+      expect(dispatcher.resetAfterApiRuntimeRegistration).toHaveBeenCalledOnce();
+    } finally {
+      stalePoll.reject(new Error('gateway_control_test_cleanup'));
+      await session.shutdown();
+      await handledRunning;
+    }
   });
 
   it('fails closed on an ordinary event-post failure without retrying the same batch', async () => {
@@ -217,9 +358,13 @@ describe('NativeGatewayControlSession', () => {
     const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
     outbox.enqueue({ kind: 'command.ack', commandId: 'command-1' });
     let eventPosts = 0;
+    let polls = 0;
     const sleep = vi.fn(async () => undefined);
     const client = {
-      poll: vi.fn(async () => ({ commands: [] })),
+      poll: vi.fn(async () => {
+        polls += 1;
+        return polls === 2 ? { commands: [], apiRuntimeRegistered: true as const } : { commands: [] };
+      }),
       postEventBody: vi.fn(async () => {
         eventPosts += 1;
         if (eventPosts === 1) throw new GatewayControlHttpError(409, 'gateway_process_registration_missing');
@@ -230,7 +375,7 @@ describe('NativeGatewayControlSession', () => {
     };
     const session = new NativeGatewayControlSession({
       client,
-      dispatcher: { dispatch: vi.fn(), clear: vi.fn() },
+      dispatcher: { resetAfterApiRuntimeRegistration: vi.fn(async () => undefined), dispatch: vi.fn(), clear: vi.fn() },
       outbox,
       poll: {
         kind: 'poll', gatewayInstanceId: 'gateway-1', platform: 'macos', mcpTransportToken: 'A'.repeat(43),
@@ -389,21 +534,34 @@ describe('NativeGatewayControlSession', () => {
     expect(dispatcher.clear).toHaveBeenCalledOnce();
   });
 
-  it('retains a normal high-frequency assistant stream while an authenticated long poll is active', async () => {
+  it('posts a normal high-frequency assistant stream while an authenticated long poll remains active', async () => {
     const { GatewayEventOutbox } = await import('./gateway-event-outbox');
     const { NativeGatewayControlSession } = await import('./native-gateway-control-session');
     const outbox = new GatewayEventOutbox({ gatewayInstanceId: 'gateway-1' });
     const pollStarted = deferred<void>();
+    const eventPosted = deferred<void>();
     const onPollLoss = vi.fn();
+    let polls = 0;
     const client = {
       poll: vi.fn(() => {
+        polls += 1;
+        if (polls === 1) {
+          return Promise.resolve({ commands: [], apiRuntimeRegistered: true as const });
+        }
         pollStarted.resolve();
         return new Promise<never>(() => undefined);
       }),
-      postEventBody: vi.fn(),
+      postEventBody: vi.fn(async (body: string) => {
+        eventPosted.resolve();
+        return { eventSeq: JSON.parse(body).eventSeq, accepted: true as const };
+      }),
       abortInFlight: vi.fn(),
     };
-    const dispatcher = { dispatch: vi.fn(), clear: vi.fn() };
+    const dispatcher = {
+      resetAfterApiRuntimeRegistration: vi.fn(async () => undefined),
+      dispatch: vi.fn(),
+      clear: vi.fn(),
+    };
     const session = new NativeGatewayControlSession({
       client,
       dispatcher,
@@ -428,13 +586,16 @@ describe('NativeGatewayControlSession', () => {
       });
     }
 
-    expect(JSON.parse(outbox.peekBody()!).events).toEqual([{
+    await settlesWithin(eventPosted.promise);
+    expect(client.postEventBody).toHaveBeenCalledOnce();
+    expect(JSON.parse(client.postEventBody.mock.calls[0]![0]).events).toEqual([{
       kind: 'turn.event',
       conversationId: 'conversation-1',
       turnId: 'turn-1',
       event: { kind: 'assistant.delta', delta: fragments.join('') },
     }]);
-    expect(client.postEventBody).not.toHaveBeenCalled();
+    expect(client.poll).toHaveBeenCalledTimes(2);
+    expect(client.abortInFlight).not.toHaveBeenCalled();
 
     await session.shutdown();
     await expect(running).rejects.toThrow('gateway_control_stopped');
@@ -493,11 +654,16 @@ describe('NativeGatewayControlSession', () => {
   });
 });
 
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (reason?: unknown) => void } {
   let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
   return {
-    promise: new Promise<T>((resolvePromise) => { resolve = resolvePromise; }),
+    promise: new Promise<T>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    }),
     resolve: (value: T) => resolve(value),
+    reject: (reason?: unknown) => reject(reason),
   };
 }
 

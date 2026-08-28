@@ -43,6 +43,9 @@ function createNextConfig() {
   experimental: {
     optimizePackageImports: ['lucide-react', 'recharts'],
     turbopackFileSystemCacheForDev: false,
+    // Match the Office API proxy: CopilotKit SSE runs may have long model/tool
+    // intervals, but still retain a bounded transport lifetime.
+    proxyTimeout: 3_600_000,
   },
   // CopilotKit browser runtime calls only same-origin `/api/copilotkit`.
   // Next forwards it to the ordinary Nest API origin. No API

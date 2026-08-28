@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
+import { PUBLIC_CAPABILITY_CATALOG_KEYS } from '@kiditem/shared/agent-runtime';
 import type { CapabilityDefinition } from '../../../common/capability-definition';
 import {
   defineCapabilityComposition,
@@ -97,6 +98,12 @@ describe('FinalCapabilityCatalogRegistrar', () => {
         ]),
       ),
     ).toEqual(expectedOwnerInputPorts);
+  });
+
+  it('keeps the Gateway-observable capability allowlist in parity with the authoritative catalog', () => {
+    expect(PUBLIC_CAPABILITY_CATALOG_KEYS).toEqual(
+      FINAL_CAPABILITY_DEFINITIONS.map((definition) => definition.key),
+    );
   });
 
   it('uses one strict owner-prefixed Zod definition per implementation without server authority inputs', () => {

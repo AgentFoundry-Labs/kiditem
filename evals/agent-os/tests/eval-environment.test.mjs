@@ -14,6 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadEvalCases } from '../contracts/eval-case.mjs';
+import { parseEvalRunEvidence } from '../contracts/trial-evidence.mjs';
 import { gradeEvalRun } from '../graders/business-outcome.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -421,6 +422,198 @@ test('general chat fails when any KidItem business capability is invoked', () =>
   assert.deepEqual(result.hardInvariantFailures, [
     { trial: 1, invariant: 'no_business_capability' },
   ]);
+});
+
+test('accepts the public no_automatic_reasoning invariant without storing reasoning content', () => {
+  const trial = (trialNumber) => ({
+    trial: trialNumber,
+    normalCompletion: true,
+    correlation: {
+      conversationRef: `conversation-${trialNumber}`,
+      turnRefs: [`turn-${trialNumber}-1`, `turn-${trialNumber}-2`],
+      executionRefs: [`execution-${trialNumber}-1`, `execution-${trialNumber}-2`],
+    },
+    capabilityKeys: [
+      'sourcing.inspectRecommendationRun',
+      'sourcing.retrieveWorkspaceEvidence',
+    ],
+    canonicalInputHashes: [],
+    approvalRefs: [],
+    operationRefs: [],
+    resourceRefs: [],
+    invariants: {
+      organization_isolation: true,
+      same_conversation: true,
+      no_automatic_reasoning: true,
+      no_duplicate_write: true,
+    },
+    domainDelta: { sourcingCandidates: 0, operationRuns: 0 },
+  });
+  const { temporaryRoot, evidencePath } = writeTemporaryEvidence({
+    caseId: 'runtime.two-turn-restart.v1',
+    model: 'gpt-5.6-terra',
+    effort: 'max',
+    trials: [trial(1), trial(2), trial(3)],
+  });
+  try {
+    const result = spawnSync(process.execPath, [evalRunner, '--grade', evidencePath], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(JSON.parse(result.stdout).passed, true);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test('rejects forbidden payload patterns in allowed evidence string values', () => {
+  const cases = [
+    {
+      name: 'Bearer-style token',
+      apply(evidence) {
+        evidence.trials[0].resourceRefs[0] = 'Bearer redacted-value';
+      },
+    },
+    {
+      name: 'credential URL',
+      apply(evidence) {
+        evidence.trials[0].approvalRefs[0] =
+          'https://redacted-user:redacted-pass@evidence.invalid/run';
+      },
+    },
+    {
+      name: 'JSON provider payload',
+      apply(evidence) {
+        evidence.trials[0].operationRefs[0] = '{"provider":"redacted"}';
+      },
+    },
+    {
+      name: 'transcript-like value',
+      apply(evidence) {
+        evidence.trials[0].correlation.turnRefs[0] =
+          'User: redacted request | Assistant: redacted reply';
+      },
+    },
+  ];
+
+  for (const { name, apply } of cases) {
+    const evidence = validCandidateIngestEvidence();
+    apply(evidence);
+    assert.throws(
+      () => parseEvalRunEvidence(evidence),
+      /forbidden evidence value:/,
+      name,
+    );
+  }
+});
+
+test('rejects credential-shaped evidence values without disclosing the original value', () => {
+  const credentialShapes = [
+    {
+      name: 'OpenAI project key',
+      value: 'sk-proj-abcdefghijklmnopqrstuvwxyz0123456789',
+      apply(evidence, value) {
+        evidence.trials[0].resourceRefs[0] = `resource-${value}`;
+      },
+    },
+    {
+      name: 'JWT',
+      value: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJldmFsIn0.synthetic-signature',
+      apply(evidence, value) {
+        evidence.model = `model-${value}`;
+      },
+    },
+    {
+      name: 'GitHub token',
+      value: 'ghp_abcdefghijklmnopqrstuvwxyz0123456789',
+      apply(evidence, value) {
+        evidence.model = `provider-${value}`;
+      },
+    },
+    {
+      name: 'AWS access key',
+      value: 'AKIA1234567890ABCDEF',
+      apply(evidence, value) {
+        evidence.model = `aws-${value}`;
+      },
+    },
+  ];
+
+  for (const { name, value, apply } of credentialShapes) {
+    const evidence = validCandidateIngestEvidence();
+    apply(evidence, value);
+    assert.throws(
+      () => parseEvalRunEvidence(evidence),
+      (error) => {
+        assert.match(error.message, /^forbidden evidence value:/, name);
+        assert.equal(error.message.includes(value), false, name);
+        return true;
+      },
+    );
+  }
+});
+
+test('accepts ordinary opaque evidence references that are not credentials', () => {
+  const evidence = validCandidateIngestEvidence();
+  evidence.trials[0].correlation.conversationRef =
+    'conversation-8b9fd098-2243-4de6-88b7-e6cc1e7d4170';
+  evidence.trials[0].resourceRefs[0] =
+    'sourcing-candidate-8b9fd098-2243-4de6-88b7-e6cc1e7d4170';
+
+  assert.doesNotThrow(() => parseEvalRunEvidence(evidence));
+});
+
+test('requires every evidence reference type to use a strict opaque grammar', () => {
+  const cases = [
+    {
+      name: 'conversation reference',
+      apply(evidence) {
+        evidence.trials[0].correlation.conversationRef = 'conversation reference';
+      },
+    },
+    {
+      name: 'turn reference',
+      apply(evidence) {
+        evidence.trials[0].correlation.turnRefs[0] = 'turn reference';
+      },
+    },
+    {
+      name: 'execution reference',
+      apply(evidence) {
+        evidence.trials[0].correlation.executionRefs[0] = 'execution reference';
+      },
+    },
+    {
+      name: 'approval reference',
+      apply(evidence) {
+        evidence.trials[0].approvalRefs[0] = 'approval reference';
+      },
+    },
+    {
+      name: 'operation reference',
+      apply(evidence) {
+        evidence.trials[0].operationRefs[0] = 'operation reference';
+      },
+    },
+    {
+      name: 'resource reference',
+      apply(evidence) {
+        evidence.trials[0].resourceRefs[0] = 'resource reference';
+      },
+    },
+  ];
+
+  for (const { name, apply } of cases) {
+    const evidence = validCandidateIngestEvidence();
+    apply(evidence);
+    assert.throws(
+      () => parseEvalRunEvidence(evidence),
+      /must be an opaque .* reference/,
+      name,
+    );
+  }
 });
 
 test('rejects secret or transcript fields anywhere in evidence', () => {

@@ -64,6 +64,21 @@ async function getAllowedDevOrigins(): Promise<string[]> {
   return JSON.parse(output) as string[];
 }
 
+async function getExperimentalProxyTimeout(): Promise<number | null | 'unset'> {
+  const script = [
+    `const mod = await import(${JSON.stringify(nextConfigUrl)});`,
+    "const config = typeof mod.default === 'function' ? mod.default('phase-development-server') : mod.default;",
+    "const value = config.experimental && Object.prototype.hasOwnProperty.call(config.experimental, 'proxyTimeout') ? config.experimental.proxyTimeout : 'unset';",
+    "console.log(JSON.stringify(value));",
+  ].join('\n');
+  const output = execFileSync(
+    process.execPath,
+    ['--input-type=module', '--eval', script],
+    { encoding: 'utf8', env: { ...process.env, NODE_ENV: 'development' } },
+  );
+  return JSON.parse(output) as number | null | 'unset';
+}
+
 describe('next.config rewrites — chat runtime same-origin transport', () => {
   beforeEach(() => {
     delete process.env.NEXT_PUBLIC_API_URL;
@@ -112,6 +127,10 @@ describe('next.config rewrites — chat runtime same-origin transport', () => {
       source: '/api/:path*',
       destination: 'http://127.0.0.1:4320/api/:path*',
     });
+  });
+
+  it('keeps Next development proxy streams alive for the same hour as the Office API proxy', async () => {
+    await expect(getExperimentalProxyTimeout()).resolves.toBe(3_600_000);
   });
 });
 

@@ -24,6 +24,7 @@ export class GatewayEventOutbox {
   private readonly events: GatewayEvent[] = [];
   private readonly redactionTokens: readonly string[];
   private readonly failureListeners = new Set<(error: GatewayEventOutboxBackpressureError) => void>();
+  private readonly pendingListeners = new Set<() => void>();
   private eventSeq = 1;
   private inFlight: InFlight | null = null;
   private flushTail: Promise<void> = Promise.resolve();
@@ -36,7 +37,10 @@ export class GatewayEventOutbox {
   enqueue(event: GatewayEvent): void {
     if (this.failure) throw this.failure;
     const parsed = GatewayEventSchema.parse(redactEvent(event, this.redactionTokens));
-    if (this.coalesceAssistantDelta(parsed)) return;
+    if (this.coalesceAssistantDelta(parsed)) {
+      this.notifyPending();
+      return;
+    }
     if (this.events.length >= MAX_BUFFERED_EVENTS) {
       // Completed AG-UI history is assembled from these deltas. Losing either
       // a pending or newly received delta would make a later terminal look
@@ -44,12 +48,23 @@ export class GatewayEventOutbox {
       throw this.failBackpressure();
     }
     this.events.push(parsed);
+    this.notifyPending();
   }
 
   onFailure(listener: (error: GatewayEventOutboxBackpressureError) => void): () => void {
     this.failureListeners.add(listener);
     if (this.failure) listener(this.failure);
     return () => { this.failureListeners.delete(listener); };
+  }
+
+  /** One process-local wakeup; event ordering and acknowledgement remain owned by flush(). */
+  onPending(listener: () => void): () => void {
+    if (this.hasPending()) {
+      listener();
+      return () => undefined;
+    }
+    this.pendingListeners.add(listener);
+    return () => { this.pendingListeners.delete(listener); };
   }
 
   peekBody(): string | null { return this.snapshot()?.body ?? null; }
@@ -118,6 +133,12 @@ export class GatewayEventOutbox {
       catch { /* Failure observers must not hide the retained control failure. */ }
     }
     return error;
+  }
+
+  private notifyPending(): void {
+    const listeners = [...this.pendingListeners];
+    this.pendingListeners.clear();
+    for (const listener of listeners) listener();
   }
 }
 

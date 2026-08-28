@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   MCP_CONVERSATION_ID_HEADER,
   ModelSchema,
+  PUBLIC_CAPABILITY_CATALOG_KEYS,
   ProviderEventSchema,
   ReasoningEffortSchema,
 } from '@kiditem/shared/agent-runtime';
@@ -45,6 +46,7 @@ const MAX_UPSTREAM_MCP_JSON_RPC_LINE_BYTES = 8 * 1024 * 1024;
 const MAX_APP_SERVER_FRAME_ENVELOPE_BYTES = 64 * 1024;
 const MAX_RPC_FRAME_BYTES = MAX_UPSTREAM_MCP_JSON_RPC_LINE_BYTES + MAX_APP_SERVER_FRAME_ENVELOPE_BYTES;
 const MAX_CONVERSATION_PAGE_SIZE = 1_000;
+const PUBLIC_CAPABILITY_CATALOG_KEY_SET = new Set<string>(PUBLIC_CAPABILITY_CATALOG_KEYS);
 
 export type CodexAppServerFramingFaultCode = 'codex_app_server_output_invalid' | 'codex_app_server_output_too_large';
 
@@ -493,10 +495,22 @@ function boundedFrameByteCount(byteCount: number, maxBytes: number): number {
 /** App-server item notifications may contain raw MCP arguments/results: expose neither. */
 function mcpToolStatusEvent(item: Record<string, unknown> | null) {
   if (!item || item.type !== 'mcpToolCall') return null;
-  const name = mcpToolName(item.server, item.tool);
+  const baseName = mcpToolName(item.server, item.tool);
   const status = mcpToolStatus(item.status);
-  if (!name || !status) return null;
+  if (!baseName || !status) return null;
+  const name = observableMcpToolName(baseName, item.arguments);
   return ProviderEventSchema.parse({ kind: 'tool.status', name, status });
+}
+
+function observableMcpToolName(baseName: string, argumentsValue: unknown): string {
+  if (baseName !== 'kiditem.capability.invoke' && baseName !== 'kiditem.capability_invoke') return baseName;
+  const capabilityKey = safeCapabilityKey(object(argumentsValue)?.capabilityKey);
+  return capabilityKey ? `${baseName}:${capabilityKey}` : baseName;
+}
+
+function safeCapabilityKey(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  return PUBLIC_CAPABILITY_CATALOG_KEY_SET.has(value) ? value : null;
 }
 
 function mcpToolName(server: unknown, tool: unknown): string | null {
