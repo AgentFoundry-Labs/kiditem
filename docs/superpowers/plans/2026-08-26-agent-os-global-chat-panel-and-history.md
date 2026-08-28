@@ -2591,6 +2591,49 @@ model behavior. Generated per-trial correlations remain untracked below
   failing regression first; its targeted re-review returned no unresolved
   Critical or Important finding.
 
+### 2026-08-29 Final Chrome Business-Eval Closure
+
+The final release check reran the actual Dashboard/Agent OS path in Chrome with
+Codex `gpt-5.6-terra` at `max`, resetting the disposable Testcontainer fixture
+between trials. This closure supersedes the earlier 2/3 candidate-ingest live
+observation above; the deterministic safety result was unchanged and the final
+live sample completed 3/3.
+
+- `runtime.general-chat-no-tool.v1`,
+  `advertising.operating-overview.v1`, `sourcing.candidate-ingest.v1`, and
+  `runtime.two-turn-restart.v1` each passed 3/3. The official state-first
+  parser/grader reported `strictAllTrialsPassed: true` for all four runs, with
+  no hard-invariant, business-outcome, or response-criterion failures.
+- The read trial used `analytics.readOverview`, stayed grounded in the isolated
+  domain snapshot, and produced no canonical write. General chat invoked no
+  KidItem business capability and also produced no write.
+- Every candidate-ingest trial kept the candidate count at zero before the
+  explicit user approval, admitted the exact bounded scrape snapshot, and
+  produced exactly one candidate afterward. The same canonical input hash was
+  observed across trials, no Operation was created, and the candidate appeared
+  in the actual collected-products UI.
+- Every restart trial completed the first grounded Sourcing read, restarted the
+  API, remained idle without automatic reasoning, and used the same
+  Conversation for the user's explicit second turn. SQLite contained one
+  completed interaction before the second message and two afterward; the
+  second turn again used the expected read capability and created no business
+  write.
+- Chrome exposed one first-send presentation race: a fast completed assistant
+  response could be durable in SQLite while the draft presentation remained
+  selected. A failing `ConversationRuntimeHost` regression was added first,
+  the draft-to-existing handoff now waits for the external-store selection to
+  commit, and the live advertising first-send was reverified successfully.
+- The final Sol(max) review found one Important cancellation window across that
+  commit yield. A second failing regression proved that disposal plus same-ID
+  reselection could dispatch the stale first send. The handoff now revalidates
+  identity, active conversation, and retained draft after the yield; the
+  finding-only Sol re-review marked it resolved.
+- Final local gates after both fixes: `ConversationRuntimeHost` 21/21,
+  surrounding Agent interaction Web tests 138/138, Agent OS eval contracts
+  30/30, 49-route Web production build, CopilotKit train, directory
+  architecture, contraction enforcement, hexagonal ownership, instruction
+  hygiene, and `git diff --check` all passed.
+
 ## Final Acceptance Checklist
 
 - [x] Browser-reserved create ID is strict, replayable, and drift-conflicting at

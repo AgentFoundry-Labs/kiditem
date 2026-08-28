@@ -333,6 +333,80 @@ describe('ConversationRuntimeHost', () => {
     expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
   });
 
+  it('commits the promoted existing binding before dispatching a fast first run', async () => {
+    renderHost(<RuntimeProbe />);
+    let draft!: ReturnType<typeof useConversationSurfaceState.getState.openConversation>;
+    act(() => {
+      draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'advertising' });
+      useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
+    });
+    const promoted = { ...FIRST, id: draft.conversationId, agentKey: 'advertising' as const, title: 'Fast overview' };
+    vi.mocked(apiClient.post).mockImplementation((path: string) => (
+      path === '/api/agent-os/conversations'
+        ? Promise.resolve(promoted as never)
+        : Promise.resolve({ agents: {} } as never)
+    ));
+    runtimeMocks.coreRunAgent.mockImplementation(async () => {
+      expect(latestRuntime?.isDraft).toBe(false);
+      runtimeMocks.agent.messages = [
+        { id: 'user-fast', role: 'user', content: 'Review the current overview.' },
+        { id: 'assistant-fast', role: 'assistant', content: 'Current overview is ready.' },
+      ];
+      const subscriber = runtimeMocks.subscriptions.at(-1)?.subscriber as {
+        onMessagesChanged?: () => void;
+      } | undefined;
+      subscriber?.onMessagesChanged?.();
+    });
+
+    await act(async () => {
+      await latestRuntime!.start({
+        message: 'Review the current overview.', model: 'gpt-5.6', reasoningEffort: 'low',
+      });
+    });
+
+    expect(screen.getByTestId('runtime-probe')).toHaveTextContent('Current overview is ready.');
+  });
+
+  it('cancels a promoted first send when its draft is disposed during the binding commit', async () => {
+    renderHost(<RuntimeProbe />);
+    let draft!: ReturnType<typeof useConversationSurfaceState.getState.openConversation>;
+    act(() => {
+      draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
+      useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
+    });
+    const promoted = { ...FIRST, id: draft.conversationId, title: 'Cancelled promotion' };
+    vi.mocked(apiClient.post).mockImplementation((path: string) => (
+      path === '/api/agent-os/conversations'
+        ? Promise.resolve(promoted as never)
+        : Promise.resolve({ agents: {} } as never)
+    ));
+    vi.useFakeTimers();
+    try {
+      const outcome = latestRuntime!.start({
+        message: 'Cancel this promotion.', model: 'gpt-5.6', reasoningEffort: 'low',
+      }).then(() => 'resolved', (error: unknown) => (
+        error instanceof Error ? error.message : String(error)
+      ));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      act(() => {
+        useConversationSurfaceState.getState().selectConversation(SECOND);
+        useConversationSurfaceState.getState().selectConversation(promoted);
+      });
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      await expect(outcome).resolves.toBe('conversation_runtime_binding_unavailable');
+      expect(runtimeMocks.coreRunAgent).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('promotes matching concurrent first sends through one exact create and one CopilotKit handoff', async () => {
     renderHost(<RuntimeProbe />);
     let draft!: ReturnType<typeof useConversationSurfaceState.getState.openConversation>;

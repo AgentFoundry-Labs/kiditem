@@ -203,6 +203,12 @@ export function ConversationRuntimeHost({
   latestHostRef.current = { queryClient, runtimeHandleRef };
   const coordinatorRef = useRef<ConversationFirstSendCoordinator | null>(null);
   const coordinatorLifetimeRef = useRef<typeof identityLifetime | null>(null);
+  const promotedDraftIsCurrent = (conversationId: string) => {
+    if (!identityIsActive()) return false;
+    const state = useConversationSurfaceState.getState();
+    return state.activeConversationId === conversationId
+      && state.pendingDraft?.conversationId === conversationId;
+  };
   if (coordinatorLifetimeRef.current !== identityLifetime) {
     coordinatorRef.current = new ConversationFirstSendCoordinator({
       createConversation,
@@ -217,19 +223,20 @@ export function ConversationRuntimeHost({
         if (!identityIsActive()) return;
         useConversationSurfaceState.getState().selectConversation(summary);
       },
-      isCurrent: (conversationId) => {
-        if (!identityIsActive()) return false;
-        const state = useConversationSurfaceState.getState();
-        return state.activeConversationId === conversationId
-          && state.pendingDraft?.conversationId === conversationId;
-      },
-      handoff: (input) => {
+      isCurrent: promotedDraftIsCurrent,
+      handoff: async (input) => {
         if (!identityIsActive()) {
-          return Promise.reject(new Error('conversation_identity_no_longer_active'));
+          throw new Error('conversation_identity_no_longer_active');
+        }
+        // Let the external-store selection commit before a fast first run can
+        // finish against the draft presentation binding.
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        if (!promotedDraftIsCurrent(input.conversationId)) {
+          throw new Error('conversation_runtime_binding_unavailable');
         }
         const runtimeHandle = latestHostRef.current.runtimeHandleRef.current;
         if (!runtimeHandle || runtimeHandle.conversationId !== input.conversationId) {
-          return Promise.reject(new Error('conversation_runtime_binding_unavailable'));
+          throw new Error('conversation_runtime_binding_unavailable');
         }
         return runtimeHandle.handoff(input);
       },
