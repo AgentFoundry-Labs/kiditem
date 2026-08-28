@@ -52,5 +52,16 @@
     "resetProfile": "supply.purchase-order-submit.v1",
     "disposable": true,
     "variables": ["purchaseOrderRef", "externalOrderId"]
+  },
+  {
+    "id": "channels.confirmed-listing.v1",
+    "resetProfile": "channels.confirmed-listing.v1",
+    "disposable": true,
+    "variables": [
+      "registrationExecutionRef",
+      "preparationRef",
+      "externalListingRef",
+      "wingVendorRef"
+    ]
   }
 ]

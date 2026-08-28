@@ -8,6 +8,7 @@ import {
   parseAllowedSupplierUrl,
 } from '../../apps/server/src/sourcing/domain/supplier-source-url-policy';
 import { canonicalSourcingCandidateIdentity } from '../../apps/server/src/sourcing/domain/sourcing-candidate-identity';
+import { freezeProductPreparationPayload } from '../../apps/server/src/sourcing/domain/product-preparation-payload';
 
 const repoRoot = resolve(__dirname, '..', '..');
 const seedPath = resolve(repoRoot, 'scripts', 'seed-agent-os-browser-qa.ts');
@@ -224,6 +225,64 @@ describe('isolated Agent OS browser-QA seed', () => {
       },
     });
     expect(supply.purchaseOrder.externalOrderId).toBeTruthy();
+
+    const channel = seed.createBrowserQaSeedPlan({
+      profile: 'channels.confirmed-listing.v1',
+      email: 'browser.qa@example.test',
+      passwordHash,
+      now,
+    });
+    expect(channel).toMatchObject({
+      profile: 'channels.confirmed-listing.v1',
+      sourcingCandidate: { sourcePlatform: 'ALIBABA_1688' },
+      contentWorkspace: {
+        ownerType: 'sourcing_candidate',
+        status: 'active',
+      },
+      channelAccount: {
+        channel: 'coupang',
+        vendorId: 'browser-qa-vendor',
+        status: 'active',
+      },
+      productPreparation: {
+        status: 'submitting',
+        providerOutcome: 'uncertain',
+      },
+      productRegistrationExecution: {
+        status: 'executing',
+        providerOutcome: 'uncertain',
+        expectedProviderAccountId: 'browser-qa-vendor',
+      },
+      variables: {
+        registrationExecutionRef:
+          channel.productRegistrationExecution.id,
+        preparationRef: channel.productPreparation.id,
+        externalListingRef: expect.stringMatching(/^browser-qa-listing-/),
+        wingVendorRef: 'browser-qa-vendor',
+      },
+    });
+    const frozenChannelPayload = freezeProductPreparationPayload(
+      channel.productRegistrationExecution.submissionPayloadJson,
+    );
+    expect(frozenChannelPayload.payload).toMatchObject({
+      channelAccountId: channel.channelAccount.id,
+      displayName: channel.productPreparation.displayName,
+      registrationInput: channel.productPreparation.registrationInput,
+      selectedThumbnailUrl: null,
+      selectedThumbnailGenerationId: null,
+      selectedThumbnailGenerationCandidateId: null,
+      selectedDetailPageArtifactId: null,
+      selectedDetailPageRevisionId: null,
+      selectedDetailPageGenerationId: null,
+    });
+    expect(channel.productPreparation.submissionPayloadHash)
+      .toBe(frozenChannelPayload.hash);
+    expect(channel.productPreparation.reviewPayloadHash)
+      .toBe(frozenChannelPayload.hash);
+    expect(channel.productRegistrationExecution.requestHash)
+      .toBe(frozenChannelPayload.hash);
+    expect(channel.productRegistrationExecution.submissionPayloadHash)
+      .toBe(frozenChannelPayload.hash);
   });
 
   it('generates stable per-plan synthetic supplier identities through the Sourcing allowlist', async () => {
@@ -323,6 +382,116 @@ describe('isolated Agent OS browser-QA seed', () => {
       variables: { supplierUrl: createdCandidate.sourceUrl },
     });
     expect(createdCandidate.externalOfferId).toBe(extractSupplierOfferId(supplier));
+  });
+
+  it('persists a coherent frozen confirmed-listing fixture and returns only safe prompt references', async () => {
+    const seed = await loadSeed();
+    if (!seed) return;
+
+    const transaction = {
+      organization: { upsert: vi.fn().mockResolvedValue({ id: 'organization-id' }) },
+      user: { upsert: vi.fn().mockResolvedValue({ id: 'user-id' }) },
+      organizationMembership: { upsert: vi.fn().mockResolvedValue({ id: 'membership-id' }) },
+      sourcingCandidate: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 'candidate-id' }),
+      },
+      contentWorkspace: {
+        create: vi.fn().mockResolvedValue({ id: 'workspace-id' }),
+      },
+      channelAccount: {
+        upsert: vi.fn().mockResolvedValue({ id: 'channel-account-id' }),
+      },
+      productPreparation: {
+        create: vi.fn().mockResolvedValue({ id: 'preparation-id' }),
+      },
+      productRegistrationExecution: {
+        create: vi.fn().mockResolvedValue({ id: 'registration-execution-id' }),
+      },
+    };
+    const prisma = {
+      $transaction: async (action: (tx: typeof transaction) => Promise<unknown>) =>
+        action(transaction),
+    };
+
+    const result = await seed.runBrowserQaSeed({
+      prisma,
+      profile: 'channels.confirmed-listing.v1',
+      email: 'browser.qa@example.test',
+      password: 'interactive-only-password',
+      hashPassword: async () => 'scrypt$16384$fixture$hash',
+    });
+
+    expect(transaction.contentWorkspace.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organizationId: 'organization-id',
+        sourceCandidateId: 'candidate-id',
+        createdByUserId: 'user-id',
+      }),
+      select: { id: true },
+    });
+    expect(transaction.productPreparation.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organizationId: 'organization-id',
+        sourceCandidateId: 'candidate-id',
+        channelAccountId: 'channel-account-id',
+        sourceContentWorkspaceId: 'workspace-id',
+        approvedByUserId: 'user-id',
+        createdByUserId: 'user-id',
+        status: 'submitting',
+        providerOutcome: 'uncertain',
+      }),
+      select: { id: true },
+    });
+    expect(transaction.productRegistrationExecution.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organizationId: 'organization-id',
+        productPreparationId: 'preparation-id',
+        channelAccountId: 'channel-account-id',
+        requestedByUserId: 'user-id',
+        status: 'executing',
+        providerOutcome: 'uncertain',
+        expectedProviderAccountId: 'browser-qa-vendor',
+      }),
+      select: { id: true },
+    });
+    const persistedPreparation = transaction.productPreparation.create.mock.calls[0][0].data;
+    const persistedExecution =
+      transaction.productRegistrationExecution.create.mock.calls[0][0].data;
+    const frozenPersistedPayload = freezeProductPreparationPayload(
+      persistedExecution.submissionPayloadJson,
+    );
+    expect(frozenPersistedPayload.payload).toMatchObject({
+      channelAccountId: 'channel-account-id',
+      displayName: persistedPreparation.displayName,
+      registrationInput: persistedPreparation.registrationInput,
+    });
+    expect(persistedPreparation.submissionPayloadHash)
+      .toBe(frozenPersistedPayload.hash);
+    expect(persistedPreparation.reviewPayloadHash)
+      .toBe(frozenPersistedPayload.hash);
+    expect(persistedExecution.requestHash).toBe(frozenPersistedPayload.hash);
+    expect(persistedExecution.submissionPayloadHash)
+      .toBe(frozenPersistedPayload.hash);
+    expect(result).toMatchObject({
+      sourcingCandidateId: 'candidate-id',
+      contentWorkspaceId: 'workspace-id',
+      channelAccountId: 'channel-account-id',
+      productPreparationId: 'preparation-id',
+      productRegistrationExecutionId: 'registration-execution-id',
+      variables: {
+        registrationExecutionRef: expect.any(String),
+        preparationRef: expect.any(String),
+        externalListingRef: expect.stringMatching(/^browser-qa-listing-/),
+        wingVendorRef: 'browser-qa-vendor',
+      },
+    });
+    expect(Object.keys(result.variables).sort()).toEqual([
+      'externalListingRef',
+      'preparationRef',
+      'registrationExecutionRef',
+      'wingVendorRef',
+    ]);
   });
 
   it('seeds no business rows for the auth-only general-chat profile', async () => {

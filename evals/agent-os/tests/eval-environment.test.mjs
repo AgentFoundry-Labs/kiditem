@@ -205,7 +205,7 @@ test('validates every versioned Agent OS evaluation case', () => {
   );
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /validated 9 Agent OS eval cases/);
+  assert.match(result.stdout, /validated 12 Agent OS eval cases/);
 });
 
 test('lists public case metadata without prompts or hidden grading policy', () => {
@@ -220,6 +220,9 @@ test('lists public case metadata without prompts or hidden grading policy', () =
   assert.deepEqual(
     listed.map(({ id }) => id),
     [
+      'advertising.operating-overview.v1',
+      'channel-operations.confirmed-listing.v1',
+      'merchandising.listing-generation.v1',
       'runtime.general-chat-no-tool.v1',
       'runtime.two-turn-restart.v1',
       'sourcing.candidate-approval-denied.v1',
@@ -261,8 +264,9 @@ test('migrates all existing risk cases to explicit state-first Agent policy', ()
     ['supply.purchase-order-submit.v1', 'supply'],
   ]);
 
-  assert.equal(cases.length, expectedAgents.size);
-  for (const evalCase of cases) {
+  const migratedCases = cases.filter(({ id }) => expectedAgents.has(id));
+  assert.equal(migratedCases.length, expectedAgents.size);
+  for (const evalCase of migratedCases) {
     assert.equal(evalCase.target.agentKey, expectedAgents.get(evalCase.id));
     assert.equal('expectedDomainDelta' in evalCase.grading, false);
     assert.ok(evalCase.grading.requiredMilestones.length > 0);
@@ -279,6 +283,38 @@ test('migrates all existing risk cases to explicit state-first Agent policy', ()
       capabilityKey: 'products.create_listing_generation_package',
     }]],
   );
+});
+
+test('covers all six user-visible conversation profiles with executable intent cases', () => {
+  const cases = loadEvalCases({
+    casesDir: path.join(repoRoot, 'evals', 'agent-os', 'cases'),
+    fixturesPath: path.join(repoRoot, 'evals', 'agent-os', 'fixtures', 'fixtures.json'),
+  });
+  const profiles = [...new Set(cases.map(({ target }) => target.agentKey))]
+    .sort((left, right) => {
+      if (left === null) return -1;
+      if (right === null) return 1;
+      return left.localeCompare(right);
+    });
+
+  assert.deepEqual(profiles, [
+    null,
+    'advertising',
+    'channel_operations',
+    'merchandising',
+    'sourcing',
+    'supply',
+  ]);
+  for (const agentKey of profiles.filter((key) => key !== null)) {
+    assert.ok(
+      cases.some(
+        (evalCase) =>
+          evalCase.target.agentKey === agentKey &&
+          evalCase.suite === 'capability',
+      ),
+      `missing capability intent for ${agentKey}`,
+    );
+  }
 });
 
 test('renders only natural model-facing messages with explicit fixture variables', () => {
@@ -311,7 +347,7 @@ test('binds every disposable fixture to its exact guarded seed profile without f
     'fixtures.json',
   );
   const fixtures = JSON.parse(readFileSync(fixturesPath, 'utf8'));
-  assert.equal(fixtures.length, 9);
+  assert.equal(fixtures.length, 10);
   for (const fixture of fixtures) {
     assert.equal(fixture.resetProfile, fixture.id);
   }

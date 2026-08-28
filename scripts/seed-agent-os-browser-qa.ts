@@ -10,6 +10,10 @@ import {
   parseAllowedSupplierUrl,
 } from '../apps/server/src/sourcing/domain/supplier-source-url-policy';
 import { canonicalSourcingCandidateIdentity } from '../apps/server/src/sourcing/domain/sourcing-candidate-identity';
+import {
+  freezeProductPreparationPayload,
+  type ProductPreparationJson,
+} from '../apps/server/src/sourcing/domain/product-preparation-payload';
 
 export const GENERATED_DATABASE_MARKER = 'kiditem_agent_os_clean_cutover';
 export const BROWSER_QA_SEED_TARGET_ENV = 'KIDITEM_BROWSER_QA_SEED_TARGET';
@@ -39,6 +43,7 @@ export const BROWSER_QA_FIXTURE_PROFILES = [
   'sourcing.candidate-denial.v1',
   'sourcing.scrape-failure.v1',
   'supply.purchase-order-submit.v1',
+  'channels.confirmed-listing.v1',
 ] as const;
 
 export type BrowserQaFixtureProfileId = (typeof BROWSER_QA_FIXTURE_PROFILES)[number];
@@ -49,6 +54,7 @@ type BrowserQaProfileDefinition = {
   includesCandidate?: boolean;
   includesRecommendationWorkspace?: boolean;
   includesSupply?: boolean;
+  includesConfirmedListing?: boolean;
   createsFailureSupplierUrl?: boolean;
 };
 
@@ -98,6 +104,16 @@ const BROWSER_QA_PROFILE_DEFINITIONS: Record<
     outputVariables: ['purchaseOrderRef', 'externalOrderId'],
     includesSupply: true,
   },
+  'channels.confirmed-listing.v1': {
+    inputVariables: [],
+    outputVariables: [
+      'registrationExecutionRef',
+      'preparationRef',
+      'externalListingRef',
+      'wingVendorRef',
+    ],
+    includesConfirmedListing: true,
+  },
 };
 
 const BROWSER_QA_SELLPIA_INVENTORY_SKU = {
@@ -143,6 +159,51 @@ const BROWSER_QA_PURCHASE_ORDER_ITEM = {
   quantity: 1,
   unitPriceCny: 1,
 } as const;
+
+const BROWSER_QA_CHANNEL_VENDOR_ID = 'browser-qa-vendor';
+
+type BrowserQaConfirmedListingPlan = {
+  contentWorkspace: {
+    id: string;
+    ownerType: 'sourcing_candidate';
+    displayName: string;
+    normalizedTitle: string;
+    status: 'active';
+    isDeleted: false;
+  };
+  channelAccount: {
+    id: string;
+    channel: 'coupang';
+    name: string;
+    externalAccountId: string;
+    vendorId: typeof BROWSER_QA_CHANNEL_VENDOR_ID;
+    status: 'active';
+    isPrimary: true;
+  };
+  productPreparation: {
+    id: string;
+    displayName: string;
+    status: 'submitting';
+    registrationInput: ProductPreparationJson;
+    submissionKey: string;
+    submissionPayloadJson: ProductPreparationJson;
+    submissionPayloadHash: string;
+    providerOutcome: 'uncertain';
+    reviewPayloadHash: string;
+    isDeleted: false;
+  };
+  productRegistrationExecution: {
+    id: string;
+    executionKind: 'create';
+    expectedProviderAccountId: typeof BROWSER_QA_CHANNEL_VENDOR_ID;
+    idempotencyKey: string;
+    requestHash: string;
+    submissionPayloadJson: ProductPreparationJson;
+    submissionPayloadHash: string;
+    status: 'executing';
+    providerOutcome: 'uncertain';
+  };
+};
 
 type BrowserQaSyntheticSupplier = {
   sourceUrl: string;
@@ -277,7 +338,7 @@ export type BrowserQaSeedPlan = {
   };
   purchaseOrder?: typeof BROWSER_QA_PURCHASE_ORDER & { externalOrderId: string };
   purchaseOrderItem?: typeof BROWSER_QA_PURCHASE_ORDER_ITEM;
-} & Partial<BrowserQaRecommendationPlan>;
+} & Partial<BrowserQaRecommendationPlan & BrowserQaConfirmedListingPlan>;
 
 export type BrowserQaSeedResult = {
   profile: BrowserQaFixtureProfileId;
@@ -294,6 +355,10 @@ export type BrowserQaSeedResult = {
   sellpiaInventorySkuId?: string;
   purchaseOrderId?: string;
   purchaseOrderItemId?: string;
+  contentWorkspaceId?: string;
+  channelAccountId?: string;
+  productPreparationId?: string;
+  productRegistrationExecutionId?: string;
 };
 
 export type BrowserQaPasswordInput = {
@@ -506,6 +571,70 @@ export function createBrowserQaSeedPlan({
     },
   };
 
+  if (definition.includesConfirmedListing) {
+    const supplier = createBrowserQaSyntheticSupplier();
+    const preparationId = randomUUID();
+    const registrationExecutionId = randomUUID();
+    const submissionKey = `browser-qa-channel-${randomUUID()}`;
+    const channelAccountId = randomUUID();
+    const displayName = 'Browser QA confirmed listing';
+    const registrationInput = { optionLinks: [] };
+    const frozenSubmission = createBrowserQaConfirmedListingFrozenPayload({
+      channelAccountId,
+      displayName,
+      registrationInput,
+    });
+    return {
+      ...basePlan,
+      variables: {
+        registrationExecutionRef: registrationExecutionId,
+        preparationRef: preparationId,
+        externalListingRef: `browser-qa-listing-${randomUUID()}`,
+        wingVendorRef: BROWSER_QA_CHANNEL_VENDOR_ID,
+      },
+      sourcingCandidate: createBrowserQaSourcingCandidate(supplier),
+      contentWorkspace: {
+        id: randomUUID(),
+        ownerType: 'sourcing_candidate',
+        displayName: 'Browser QA channel workspace',
+        normalizedTitle: `browser-qa-channel-${supplier.externalOfferId}`,
+        status: 'active',
+        isDeleted: false,
+      },
+      channelAccount: {
+        id: channelAccountId,
+        channel: 'coupang',
+        name: 'Browser QA Coupang',
+        externalAccountId: 'browser-qa-coupang-account',
+        vendorId: BROWSER_QA_CHANNEL_VENDOR_ID,
+        status: 'active',
+        isPrimary: true,
+      },
+      productPreparation: {
+        id: preparationId,
+        displayName,
+        status: 'submitting',
+        registrationInput,
+        submissionKey,
+        submissionPayloadJson: frozenSubmission.payload,
+        submissionPayloadHash: frozenSubmission.hash,
+        providerOutcome: 'uncertain',
+        reviewPayloadHash: frozenSubmission.hash,
+        isDeleted: false,
+      },
+      productRegistrationExecution: {
+        id: registrationExecutionId,
+        executionKind: 'create',
+        expectedProviderAccountId: BROWSER_QA_CHANNEL_VENDOR_ID,
+        idempotencyKey: submissionKey,
+        requestHash: frozenSubmission.hash,
+        submissionPayloadJson: frozenSubmission.payload,
+        submissionPayloadHash: frozenSubmission.hash,
+        status: 'executing',
+        providerOutcome: 'uncertain',
+      },
+    };
+  }
   if (definition.includesCandidate) {
     const supplier = createBrowserQaSyntheticSupplier();
     return {
@@ -648,6 +777,26 @@ export async function runBrowserQaSeed({
       }
     }
 
+    if (
+      plan.contentWorkspace
+      && plan.channelAccount
+      && plan.productPreparation
+      && plan.productRegistrationExecution
+      && result.sourcingCandidateId
+    ) {
+      const confirmedListing = await seedBrowserQaConfirmedListing({
+        transaction,
+        organizationId: organization.id,
+        userId: user.id,
+        sourceCandidateId: result.sourcingCandidateId,
+        plan,
+      });
+      Object.assign(result, confirmedListing);
+      result.variables.preparationRef = confirmedListing.productPreparationId;
+      result.variables.registrationExecutionRef =
+        confirmedListing.productRegistrationExecutionId;
+    }
+
     if (plan.recommendationRun) {
       Object.assign(result, await seedBrowserQaRecommendationWorkspace({
         transaction,
@@ -717,6 +866,131 @@ export async function runBrowserQaSeed({
 
     result.variables = selectBrowserQaProfileOutputVariables(plan.profile, result.variables);
     return result;
+  });
+}
+
+async function seedBrowserQaConfirmedListing({
+  transaction,
+  organizationId,
+  userId,
+  sourceCandidateId,
+  plan,
+}: {
+  transaction: Prisma.TransactionClient;
+  organizationId: string;
+  userId: string;
+  sourceCandidateId: string;
+  plan: BrowserQaSeedPlan;
+}): Promise<Pick<
+  BrowserQaSeedResult,
+  | 'contentWorkspaceId'
+  | 'channelAccountId'
+  | 'productPreparationId'
+  | 'productRegistrationExecutionId'
+>> {
+  if (
+    !plan.contentWorkspace
+    || !plan.channelAccount
+    || !plan.productPreparation
+    || !plan.productRegistrationExecution
+  ) {
+    throw new Error('Browser-QA confirmed-listing fixture plan is incomplete.');
+  }
+
+  const contentWorkspace = await transaction.contentWorkspace.create({
+    data: {
+      ...plan.contentWorkspace,
+      organizationId,
+      sourceCandidateId,
+      createdByUserId: userId,
+    },
+    select: { id: true },
+  });
+  const channelAccount = await transaction.channelAccount.upsert({
+    where: {
+      organizationId_channel_externalAccountId: {
+        organizationId,
+        channel: plan.channelAccount.channel,
+        externalAccountId: plan.channelAccount.externalAccountId,
+      },
+    },
+    update: {
+      name: plan.channelAccount.name,
+      vendorId: plan.channelAccount.vendorId,
+      status: plan.channelAccount.status,
+      isPrimary: plan.channelAccount.isPrimary,
+    },
+    create: {
+      ...plan.channelAccount,
+      organizationId,
+    },
+    select: { id: true },
+  });
+  const frozenSubmission = createBrowserQaConfirmedListingFrozenPayload({
+    channelAccountId: channelAccount.id,
+    displayName: plan.productPreparation.displayName,
+    registrationInput: plan.productPreparation.registrationInput,
+  });
+  const productPreparation = await transaction.productPreparation.create({
+    data: {
+      ...plan.productPreparation,
+      organizationId,
+      sourceCandidateId,
+      channelAccountId: channelAccount.id,
+      sourceContentWorkspaceId: contentWorkspace.id,
+      registrationInput:
+        plan.productPreparation.registrationInput as Prisma.InputJsonValue,
+      submissionPayloadJson: frozenSubmission.payload as Prisma.InputJsonValue,
+      submissionPayloadHash: frozenSubmission.hash,
+      reviewPayloadHash: frozenSubmission.hash,
+      approvedAt: new Date(),
+      approvedByUserId: userId,
+      createdByUserId: userId,
+    },
+    select: { id: true },
+  });
+  const productRegistrationExecution =
+    await transaction.productRegistrationExecution.create({
+      data: {
+        ...plan.productRegistrationExecution,
+        organizationId,
+        productPreparationId: productPreparation.id,
+        channelAccountId: channelAccount.id,
+        requestHash: frozenSubmission.hash,
+        submissionPayloadJson: frozenSubmission.payload as Prisma.InputJsonValue,
+        submissionPayloadHash: frozenSubmission.hash,
+        requestedByUserId: userId,
+      },
+      select: { id: true },
+    });
+
+  return {
+    contentWorkspaceId: contentWorkspace.id,
+    channelAccountId: channelAccount.id,
+    productPreparationId: productPreparation.id,
+    productRegistrationExecutionId: productRegistrationExecution.id,
+  };
+}
+
+function createBrowserQaConfirmedListingFrozenPayload({
+  channelAccountId,
+  displayName,
+  registrationInput,
+}: {
+  channelAccountId: string;
+  displayName: string;
+  registrationInput: ProductPreparationJson;
+}) {
+  return freezeProductPreparationPayload({
+    channelAccountId,
+    displayName,
+    registrationInput,
+    selectedThumbnailUrl: null,
+    selectedThumbnailGenerationId: null,
+    selectedThumbnailGenerationCandidateId: null,
+    selectedDetailPageArtifactId: null,
+    selectedDetailPageRevisionId: null,
+    selectedDetailPageGenerationId: null,
   });
 }
 

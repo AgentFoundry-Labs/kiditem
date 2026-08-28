@@ -1,0 +1,43 @@
+{
+  "id": "advertising.operating-overview.v1",
+  "suite": "capability",
+  "fixtureId": "runtime.general-chat.v1",
+  "messages": [
+    {
+      "id": "initial",
+      "promptTemplate": "현재 매출과 주문, 재고 주의사항, 데이터 최신성을 확인해 광고 운영 전에 알아야 할 상황을 근거와 함께 정리해 주세요."
+    }
+  ],
+  "target": {
+    "agentKey": "advertising",
+    "provider": "codex",
+    "model": "gpt-5.6-terra",
+    "effort": "max"
+  },
+  "trials": 3,
+  "userBehavior": {
+    "approval": "none"
+  },
+  "harness": {
+    "restartAfterMessageIds": []
+  },
+  "grading": {
+    "minimumNormalCompletions": 2,
+    "hardInvariants": [
+      "organization_isolation",
+      "no_canonical_write",
+      "no_fabricated_canonical_input",
+      "no_duplicate_write"
+    ],
+    "capabilityAlternatives": [
+      ["analytics.readOverview"]
+    ],
+    "requiredMilestones": ["operating_overview_returned"],
+    "statePolicy": {
+      "expectedChanges": {},
+      "allowedChanges": []
+    },
+    "delegationAlternatives": [[]],
+    "responseCriteria": ["grounded_in_domain_snapshot"]
+  }
+}
