@@ -147,15 +147,32 @@ The AI chat panel header contains:
 - a Settings action; and
 - `전체 기록`, which opens `/agent-os` at the current conversation or selected context.
 
-At 1536 pixels and above (`2xl`), the auxiliary panel is a 352-pixel
-non-modal dock that participates in `AppLayout` width. Opening it reduces the
-Dashboard or current work-surface content width; it does not cover that content.
-The uncovered work surface remains interactive. From 768 through 1535 pixels,
-including a 1280-pixel Dashboard viewport, the same 352-pixel content uses a
-right overlay sheet and does not reduce the work-surface width. Below 768 pixels
-it becomes a full-width modal drawer. These are responsive presentations of one
-panel state and one content body, not separate dock, overlay, and drawer
-features.
+The AI chat surface has one browser-local desktop width preference. Its default
+is 352 pixels and its accepted range is 320 through 640 pixels. At every
+non-mobile viewport from 768 pixels upward, the user can drag the panel's left
+boundary to resize it. A 12-pixel pointer hit area surrounds a quiet one-pixel
+divider that gains the existing primary focus/hover color during interaction.
+The same vertical separator is keyboard reachable: Left Arrow widens and Right
+Arrow narrows the panel in 16-pixel steps. The current width updates live, while
+only a completed pointer or keyboard change writes the validated integer to the
+single `kiditem.ai-chat.desktop-width` local-storage key. Invalid, non-integer,
+or out-of-range storage falls back to the 352-pixel default.
+
+At 1536 pixels and above (`2xl`), the AI chat surface is a non-modal dock whose
+current width also drives the `AppLayout` right margin. Opening or resizing it
+reduces the Dashboard or current work-surface width without covering that
+content. From 768 through 1535 pixels, including a 1280-pixel Dashboard
+viewport, the same saved width is a right overlay and does not reduce the work
+surface. Viewport clamping may reduce the rendered width without overwriting the
+saved preference. The notification surface remains exactly 352 pixels and does
+not consume the AI chat width preference. Switching back to AI chat restores
+the saved AI chat width.
+
+The resize feature does not apply to `/agent-os`, which already owns the full
+conversation workspace, or to viewports below 768 pixels. The existing mobile
+full-width modal drawer remains untouched and is outside this resize feature's
+acceptance scope. Dock, overlay, and drawer remain presentations of one panel
+state and one content body rather than separate runtime features.
 
 The Quick Action FAB does not move in response to the panel. It is hidden while either auxiliary surface is open and restored when the panel closes. Notification data collection and the conversation runtime remain mounted independently from which panel content is visible. Replacing AI chat with notifications therefore hides only the chat presentation; it does not interrupt the active turn or discard the selected Conversation. The AI chat content has its own scroll region and reuses the same route-stable conversation stream, cards, composer, draft behavior, and Query state as Agent OS.
 
@@ -330,9 +347,9 @@ model, and reasoning effort read as one compact composed control; its segments
 may open focused menus without becoming three unrelated settings panels.
 
 Layout follows the composer's own available width rather than the browser
-viewport. Both the 352-pixel auxiliary panel and the full Agent OS lane use the
-same two-tier composition: the textarea owns the first row and the combined
-selector plus Send/Interrupt own the second row. The wide
+viewport. Both the resizable desktop auxiliary AI chat panel and the full Agent
+OS lane use the same two-tier composition: the textarea owns the first row and
+the combined selector plus Send/Interrupt own the second row. The wide
 lane gains breathing room rather than switching to a different horizontal
 information hierarchy. The selector must never reserve a fixed width that
 collapses the textarea or the toolbar.
@@ -612,11 +629,18 @@ defaults and search rather than dominating the conversation tree.
 
 - The global right auxiliary surface has exactly `notifications | ai_chat | null` visible states; `null` means closed.
 - Selecting one surface atomically replaces the other; selecting the active surface closes the panel.
-- At 1536 pixels and above (`2xl`), the 352-pixel panel is a non-modal
-  dock and the current work surface uses the remaining width.
-- From 768 through 1535 pixels, the same 352-pixel content is a
-  right overlay sheet.
+- At 1536 pixels and above (`2xl`), AI chat is a 320-640-pixel resizable
+  non-modal dock, defaulting to 352 pixels, and the current work surface uses
+  the remaining width.
+- From 768 through 1535 pixels, AI chat uses the same saved, viewport-clamped
+  width as a right overlay sheet and remains resizable.
+- Notifications remain a fixed 352-pixel dock or overlay and never read or
+  overwrite the AI chat width preference.
 - Below 768 pixels, the same panel becomes a full-width modal drawer.
+- Mobile and the full Agent OS workspace are outside the resize feature and
+  receive no new handle, storage, or layout behavior.
+- The desktop AI chat separator supports pointer capture, visible hover/focus,
+  `role="separator"`, current/min/max values, and 16-pixel Arrow-key resizing.
 - Desktop dock and tablet overlay presentations do not trap focus or block the
   usable work surface; the mobile modal drawer traps focus until dismissed.
 - The Quick Action FAB never repositions and remains hidden while the auxiliary panel is open.
@@ -625,9 +649,10 @@ defaults and search rather than dominating the conversation tree.
 - At 1024 pixels and above, the Agent OS shared sidebar is 256 pixels expanded
   or 64 pixels collapsed.
 - Below 1024 pixels, the tree becomes a modal drawer and the conversation keeps the full content width.
-- The shared composer uses the same two-tier layout in the 352-pixel panel and
-  full Agent OS lane; smaller mobile widths retain the same usable-input
-  invariant.
+- The shared composer uses the same two-tier layout across the 320-640-pixel
+  desktop AI chat range and the full Agent OS lane; existing smaller-width
+  behavior retains the same usable-input invariant without joining the resize
+  feature.
 - Conversation and tree scroll regions remain independent.
 - The global `AI 챗` utility remains keyboard reachable when the ordinary sidebar is expanded or collapsed.
 - Dashboard and Agent OS share the desktop collapse preference, 256/64 geometry,
@@ -696,9 +721,10 @@ Expected Web ownership:
   provider-history control plane do not keep a second history/reconciliation
   owner. Provider-local sessions remain solely for model continuity.
 - the app-shell UI store holds one `activeRightSurface` and the shared desktop
-  sidebar preference; conversation UI state holds only open folder, selected
-  conversation, pending draft, and dialog coordinates. Mobile drawer state
-  remains component-local.
+  sidebar preference; a focused app-shell hook owns only the browser-local AI
+  chat desktop width and its validation, without persisting the Zustand store.
+  Conversation UI state holds only open folder, selected conversation, pending
+  draft, and dialog coordinates. Mobile drawer state remains component-local.
 
 Expected backend ownership:
 
@@ -777,11 +803,15 @@ rather than a second interaction lifecycle owner.
 - while Agent OS suppresses `ai_chat`, an already-selected `notifications`
   surface remains available because only the duplicate chat presentation is
   excluded
-- desktop `2xl` auxiliary dock uses exactly 352 pixels and reduces Dashboard
-  content width without covering it
-- 768-1535 presentation uses the same 352-pixel body as an overlay sheet without
-  reducing Dashboard width, and the mobile presentation uses a full-width modal
-  drawer below 768 pixels
+- desktop AI chat width defaults to 352 pixels, clamps to 320-640 pixels, saves
+  only a validated completed desktop change, and restores after reload
+- desktop `2xl` AI chat dock and Dashboard margin use the same current width;
+  the 768-1535 presentation uses that width as an overlay without reducing
+  Dashboard width
+- notifications remain exactly 352 pixels and do not modify the AI chat width;
+  Agent OS and below-768 presentation receive no resize behavior
+- pointer and keyboard resizing expose an accessible vertical separator and
+  preserve the current Conversation and active CopilotKit interaction
 - Quick Action FAB is hidden without repositioning while either auxiliary surface is open
 - notification selection and panel close do not interrupt an active chat turn
 - Dashboard `Agent OS` label, organization chart, cards, and existing actions remain unchanged
@@ -856,8 +886,9 @@ Run authenticated browser QA for:
 10. rename, search, individual delete, and confirmed bulk delete against disposable Codex and Claude QA conversations;
 11. Agent OS suppressing only the duplicate AI chat body while preserving its runtime and any selected notification body;
 12. focus transfer when replacing notification/chat content and focus return after close or Escape;
-13. 1536-plus 352-pixel push dock, 768-1535 overlay sheet, mobile full-width
-    drawer, Agent OS 256/64 desktop sidebar, and Agent OS tree-drawer layouts;
+13. 1536-plus resizable AI chat push dock, 768-1535 resizable AI chat overlay,
+    fixed 352-pixel notification surface, persistence across reload, and Agent
+    OS 256/64 desktop sidebar layouts; mobile resize acceptance is excluded;
 14. visual regression checks for the approved Agent OS full workspace, Dashboard
     dock, empty draft, Settings defaults, history list, evidence result, and
     Approval card states;
