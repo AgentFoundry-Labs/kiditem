@@ -10,6 +10,16 @@ const runtimeLabels: Record<ConversationRuntime, string> = {
   claude_cli: 'Claude',
 };
 
+const reasoningEffortLabels: Record<string, string> = {
+  instant: '즉시',
+  minimal: '최소',
+  low: '낮음',
+  medium: '중간',
+  high: '높음',
+  xhigh: '매우 높음',
+  max: '최대',
+};
+
 type SelectionStep = 'menu' | 'runtime' | 'model' | 'reasoning';
 
 export function ConversationCombinedSelector({
@@ -53,7 +63,9 @@ export function ConversationCombinedSelector({
   const modelOptions = modelNeedsReview && model ? [model, ...models] : models;
   const effortOptions = effortNeedsReview && reasoningEffort ? [reasoningEffort, ...efforts] : efforts;
   const label = runtime
-    ? `${runtimeLabels[runtime]} · ${model ?? '모델 선택'} · ${reasoningEffort ?? '추론 수준 선택'}`
+    ? model
+      ? `${compactModelLabel(model)} · ${reasoningEffort ? localizedReasoningEffort(reasoningEffort) : '추론 수준 선택'}`
+      : `${runtimeLabels[runtime]} · 모델 선택`
     : '대화 엔진 선택';
   const modelDisabled = disabled || !runtime || !readyRuntime;
   const reasoningDisabled = disabled || !runtime || !model || !readyRuntime;
@@ -97,7 +109,7 @@ export function ConversationCombinedSelector({
   };
 
   return (
-    <div className="relative min-w-0 flex-1">
+    <div className="relative min-w-0 max-w-[12rem] flex-none">
       <button
         ref={triggerRef}
         type="button"
@@ -111,7 +123,7 @@ export function ConversationCombinedSelector({
             setOpen(true);
           }
         }}
-        className="inline-flex min-h-10 w-full min-w-0 items-center gap-1 rounded-full border border-input bg-card px-3 py-2 text-left text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 max-lg:min-h-11"
+        className="inline-flex min-h-10 w-auto max-w-full min-w-0 items-center gap-1 rounded-full border-0 bg-transparent px-2 py-2 text-left text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 max-lg:min-h-11"
       >
         <span className="min-w-0 flex-1 truncate">{label}</span>
         <ChevronDown aria-hidden="true" size={16} className="shrink-0" />
@@ -170,6 +182,17 @@ export function ConversationCombinedSelector({
       ) : null}
     </div>
   );
+}
+
+function compactModelLabel(model: string): string {
+  const withoutGptPrefix = model.replace(/^gpt-/i, '');
+  return withoutGptPrefix.replace(/-(sol|terra|luna)$/i, (_, family: string) => (
+    ` ${family.charAt(0).toUpperCase()}${family.slice(1).toLowerCase()}`
+  ));
+}
+
+function localizedReasoningEffort(reasoningEffort: string): string {
+  return reasoningEffortLabels[reasoningEffort] ?? reasoningEffort;
 }
 
 function SelectorMenuRow({

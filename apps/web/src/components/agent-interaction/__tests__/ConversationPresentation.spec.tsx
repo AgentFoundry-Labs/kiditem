@@ -27,7 +27,6 @@ function runtimeWithMessages(messages: Array<{ id: string; role: 'user' | 'assis
     turnEnded: null,
     start: vi.fn(),
     interrupt: vi.fn(),
-    retryReadiness: vi.fn(),
     updateDraft: vi.fn(),
   } as never;
 }
@@ -77,6 +76,8 @@ describe('conversation presentation', () => {
     );
 
     expect(screen.getByText('소싱 Agent')).toBeVisible();
+    expect(screen.getByRole('article').firstElementChild).toHaveClass('w-full', 'bg-card', 'text-foreground');
+    expect(screen.getByRole('article').firstElementChild).not.toHaveClass('bg-transparent', 'backdrop-blur-sm', 'bg-white/60');
     expect(screen.getByTestId('assistant-identity-marker')).toHaveAttribute('data-context-mark', 'sourcing');
     expect(screen.getByTestId('assistant-identity-marker')).toHaveClass('bg-primary', 'text-primary-foreground');
     expect(screen.getByRole('heading', { name: '비교 결과' })).toBeVisible();
@@ -112,6 +113,73 @@ describe('conversation presentation', () => {
     expect(screen.getByRole('list', { name: '글머리 목록' })).toBeVisible();
     const longParagraph = screen.getByText(longText);
     expect(longParagraph).toHaveClass('break-words');
+  });
+
+  it('preserves requested technical prose and code while hiding exact internal-reference-only receipt lines', () => {
+    const internalId = '123e4567-e89b-12d3-a456-426614174000';
+    const canonicalHash = 'a'.repeat(64);
+
+    render(
+      <AgentConversationMessage
+        contextLabel="일반 AI 챗"
+        message={{
+          id: 'assistant-redaction-1',
+          role: 'assistant',
+          content: `MCP와 provider transport, input hash의 차이를 설명하겠습니다. sourcing.duplicateCheck는 capability key의 예입니다.\n\n\`\`\`ts\nconst protocol = 'MCP';\nconst inputHash = calculateHash(input);\n\`\`\`\n\nInvocation ID: ${internalId}\nCanonical hash: ${canonicalHash}`,
+        }}
+      />,
+    );
+
+    const responseBody = screen.getByTestId('conversation-response-body');
+    expect(responseBody).toHaveTextContent('MCP와 provider transport, input hash의 차이를 설명하겠습니다.');
+    expect(responseBody).toHaveTextContent('sourcing.duplicateCheck는 capability key의 예입니다.');
+    expect(responseBody.querySelector('code')).toHaveTextContent("const protocol = 'MCP';");
+    expect(responseBody.querySelector('code')).toHaveTextContent('const inputHash = calculateHash(input);');
+    expect(responseBody).not.toHaveTextContent(internalId);
+    expect(responseBody).not.toHaveTextContent(canonicalHash);
+    expect(responseBody).not.toHaveTextContent('Invocation ID:');
+    expect(responseBody).not.toHaveTextContent('Canonical hash:');
+  });
+
+  it('removes assistant label lines that contain only internal references', () => {
+    const internalId = '123e4567-e89b-12d3-a456-426614174000';
+    const canonicalHash = 'a'.repeat(64);
+    const supplierUrl = 'https://detail.1688.com/offer/900000000000.html';
+
+    render(
+      <AgentConversationMessage
+        contextLabel="소싱 Agent"
+        message={{
+          id: 'assistant-label-redaction-1',
+          role: 'assistant',
+          content: `실제 공급처 데이터를 확인했습니다.\n소싱 후보: ${internalId}\n입력 해시: ${canonicalHash}\n공급처: ${supplierUrl}\n다음 검토를 진행할 수 있습니다.`,
+        }}
+      />,
+    );
+
+    const responseBody = screen.getByTestId('conversation-response-body');
+    expect(responseBody).toHaveTextContent('실제 공급처 데이터를 확인했습니다.');
+    expect(responseBody).toHaveTextContent(supplierUrl);
+    expect(responseBody).toHaveTextContent('다음 검토를 진행할 수 있습니다.');
+    expect(responseBody).not.toHaveTextContent('소싱 후보:');
+    expect(responseBody).not.toHaveTextContent('입력 해시:');
+  });
+
+  it('does not redact user-authored text', () => {
+    const internalId = '123e4567-e89b-12d3-a456-426614174000';
+    const canonicalHash = 'a'.repeat(64);
+    render(
+      <AgentConversationMessage
+        contextLabel="소싱 Agent"
+        message={{
+          id: 'user-raw-1',
+          role: 'user',
+          content: `sourcing.duplicateCheck ${internalId} ${canonicalHash}`,
+        }}
+      />,
+    );
+
+    expect(screen.getByText(`sourcing.duplicateCheck ${internalId} ${canonicalHash}`)).toBeVisible();
   });
 
   it('falls back to escaped plain assistant text without interpreting user-provided markup', () => {

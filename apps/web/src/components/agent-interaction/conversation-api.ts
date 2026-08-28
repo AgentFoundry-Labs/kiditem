@@ -62,26 +62,15 @@ export function deleteConversation(conversationId: string): Promise<void> {
   return apiClient.delete<void>(`/api/agent-os/conversations/${encodeURIComponent(conversationId)}`);
 }
 
-/** The approved single-route public runtime-info envelope exposes readiness. */
-export async function loadConversationReadiness(): Promise<GatewayReadiness[] | null> {
-  const info = await apiClient.post<unknown>('/api/copilotkit', {
-    method: 'info',
-    params: {},
-    body: {},
-  });
-  return extractGatewayReadiness(info);
-}
-
-function extractGatewayReadiness(value: unknown): GatewayReadiness[] | null {
-  if (!isRecord(value)
-    || !isRecord(value.agents)
-    || !isRecord(value.agents.conversation)
-    || !isRecord(value.agents.conversation.capabilities)
-    || !isRecord(value.agents.conversation.capabilities.custom)
-    || !Array.isArray(value.agents.conversation.capabilities.custom.gatewayReadiness)) {
+/** Strictly narrows readiness declared by CopilotKit's public capability hook. */
+export function gatewayReadinessFromCapabilities(capabilities: unknown): GatewayReadiness[] | null | undefined {
+  if (capabilities === undefined) return undefined;
+  if (!isRecord(capabilities)
+    || !isRecord(capabilities.custom)
+    || !Array.isArray(capabilities.custom.gatewayReadiness)) {
     return null;
   }
-  const parsed = GatewayReadinessSchema.safeParse(value.agents.conversation.capabilities.custom.gatewayReadiness);
+  const parsed = GatewayReadinessSchema.safeParse(capabilities.custom.gatewayReadiness);
   return parsed.success ? parsed.data : null;
 }
 

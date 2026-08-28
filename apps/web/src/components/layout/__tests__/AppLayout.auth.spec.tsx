@@ -531,7 +531,7 @@ describe('AppLayout auth gate', () => {
     expect(screen.getByTestId('right-auxiliary-panel')).toHaveTextContent('notifications');
     expect(screen.getByTestId('quick-action')).toHaveAttribute('data-auxiliary-open', 'true');
     expect(screen.getByTestId('authenticated-work-surface')).toHaveClass('2xl:mr-[352px]');
-    expect(screen.getByTestId('authenticated-work-surface')).not.toHaveClass('xl:mr-[352px]');
+    expect(screen.getByTestId('authenticated-work-surface')).not.toHaveClass('lg:mr-[352px]');
     expect(rightAuxiliaryPropsMock).toHaveBeenCalledWith(expect.objectContaining({
       activeRightSurface: 'notifications',
     }));

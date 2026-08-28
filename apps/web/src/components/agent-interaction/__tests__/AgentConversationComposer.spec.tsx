@@ -46,20 +46,36 @@ function composerProps(overrides: Partial<React.ComponentProps<typeof AgentConve
 }
 
 describe('AgentConversationComposer', () => {
-  it('uses one elevated compact composer with a container-aware two-row narrow layout', () => {
+  it('uses the shared spacious two-tier composer with compact chat controls at every width', () => {
     const { container } = render(<AgentConversationComposer {...composerProps()} />);
 
     expect(container.querySelector('form')).not.toHaveClass('border-t');
-    expect(container.querySelector('form')).toHaveClass('bg-card');
-    expect(container.querySelector('form > div')).toHaveClass('conversation-composer-surface', 'max-w-3xl', 'rounded-[28px]', 'border-input', 'bg-card', 'shadow-sm');
-    expect(screen.getByLabelText('일반 메시지')).toHaveClass('conversation-composer-input', 'min-h-[52px]');
-    expect(container.querySelector('.conversation-composer-layout')).toBeInTheDocument();
-    expect(container.querySelector('.conversation-composer-actions')).toHaveClass('min-w-0', 'flex-1');
+    expect(container.querySelector('form')).toHaveClass('bg-background');
+    expect(container.querySelector('form > div')).toHaveClass(
+      'conversation-composer-surface',
+      'max-w-3xl',
+      'rounded-[28px]',
+      'border-input',
+      'bg-card',
+      'shadow-sm',
+      'focus-within:border-ring',
+    );
+    expect(screen.getByLabelText('일반 메시지')).toHaveClass(
+      'conversation-composer-input',
+      'min-h-[48px]',
+      'w-full',
+    );
+    expect(screen.getByLabelText('일반 메시지')).not.toHaveClass('focus-visible:ring-2');
+    expect(container.querySelector('.conversation-composer-layout')).toHaveClass('flex-col');
+    expect(container.querySelector('.conversation-composer-toolbar')).toHaveClass('justify-end');
+    expect(screen.queryByLabelText('CLI 실행 권한')).not.toBeInTheDocument();
+    expect(container.querySelector('.conversation-composer-actions')).toHaveClass('ml-auto', 'flex-none');
     const selector = screen.getByRole('button', { name: '대화 엔진 설정' });
-    expect(selector.parentElement).toHaveClass('min-w-0', 'flex-1');
-    expect(selector).toHaveClass('w-full', 'min-w-0', 'rounded-full', 'border-input', 'bg-card');
+    expect(selector.parentElement).toHaveClass('min-w-0', 'flex-none');
+    expect(selector).toHaveClass('w-auto', 'min-w-0', 'rounded-full', 'border-0', 'bg-transparent');
     expect(selector.querySelector('span')).toHaveClass('min-w-0', 'flex-1', 'truncate');
-    expect(screen.getByRole('button', { name: '보내기' })).toHaveClass('shrink-0');
+    expect(screen.getByRole('button', { name: '보내기' })).toHaveClass('shrink-0', 'bg-foreground', 'text-background');
+    expect(screen.queryByRole('button', { name: /첨부|마이크|음성/ })).not.toBeInTheDocument();
   });
 
   it('clears a stale review warning after the user selects a supported model and effort pair', async () => {

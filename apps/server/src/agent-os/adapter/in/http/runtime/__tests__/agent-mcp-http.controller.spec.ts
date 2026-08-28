@@ -33,7 +33,6 @@ describe('Agent MCP HTTP controller', () => {
       runtime as never,
       servers as never,
       responses as never,
-      'https://kiditem.test',
     );
     const body = { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} };
 
@@ -58,7 +57,6 @@ describe('Agent MCP HTTP controller', () => {
       runtime as never,
       servers as never,
       { write: vi.fn() } as never,
-      'https://kiditem.test',
     );
 
     await expect(controller.mcp({}, request(null, 'conversation-1') as never, response() as never))

@@ -29,6 +29,7 @@ const runtimeMocks = vi.hoisted(() => {
 vi.mock('@copilotkit/react-core/v2', () => ({
   useCopilotKit: () => ({ copilotkit: { connectAgent: runtimeMocks.connectAgent } }),
   useAgent: () => ({ agent: runtimeMocks.agent, isReady: true }),
+  useCapabilities: () => undefined,
 }));
 
 const IDENTITY = { userId: 'user-1', organizationId: 'org-1' };

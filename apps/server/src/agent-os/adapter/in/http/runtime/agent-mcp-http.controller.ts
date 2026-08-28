@@ -1,7 +1,6 @@
 import {
   Body,
   Controller,
-  Inject,
   Post,
   Req,
   Res,
@@ -20,8 +19,6 @@ import {
 } from '../../mcp/kiditem-agent-os-mcp-server';
 import { McpHttpResponseAdapter } from './mcp-http-response.adapter';
 
-export const MCP_WEB_ORIGIN = Symbol('MCP_WEB_ORIGIN');
-
 /**
  * Direct private ingress. Browser-session/RBAC/throttle guards are skipped;
  * this controller still validates the process transport bearer before every
@@ -35,7 +32,6 @@ export class AgentMcpHttpController {
     private readonly runtime: GatewayMcpRuntimeRegistry,
     private readonly servers: KidItemAgentOsMcpServer,
     private readonly responses: McpHttpResponseAdapter,
-    @Inject(MCP_WEB_ORIGIN) private readonly webOrigin: string,
   ) {}
 
   @Post('mcp')
@@ -47,7 +43,6 @@ export class AgentMcpHttpController {
     const connection = this.requireConnection(request);
     const handler = this.servers.createHandler(
       () => this.runtime.resolveActive(connection.mcpTransportToken, connection.conversationId),
-      this.webOrigin,
     );
     const signal = abortSignal(request, response);
     try {

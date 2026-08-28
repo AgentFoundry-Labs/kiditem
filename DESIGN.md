@@ -125,7 +125,7 @@ Container: `card p-12 text-center` or `empty-state` (`.empty-state → text-cent
 
 - Dashboard and Agent OS use one 256px expanded / 64px collapsed sidebar-shell contract, but keep surface-specific navigation bodies.
 - User messages are right-aligned on the fully opaque `--conversation-user-bg` surface with white text. Assistant responses remain on the plain canvas rather than a matching bubble.
-- The composer uses one 24-28px rounded outer container. At narrow panel width, the textarea owns the first row and model/`추론 수준` plus Send/Interrupt own the second row.
+- The composer uses one 24-28px rounded outer container at every width. The textarea owns the spacious first row; the compact model/`추론 수준` control and Send/Interrupt form the second row. Fixed CLI execution policy is not user-facing chat state.
 - Evidence, Approval, Operation, and resource outcomes form a compact, user-language `업무 증거` rail. Do not show raw tool names, capability keys, provider payloads, hashes, or internal IDs.
 - Empty drafts use the same centered context, bounded operational suggestions, and composer in Dashboard AI chat and Agent OS.
 - Do not use transparency or glass effects for user messages, assistant canvas, or business-result cards.

@@ -1,10 +1,10 @@
 'use client';
 
 import * as Dialog from '@radix-ui/react-dialog';
-import Link from 'next/link';
-import { Menu, Sparkles, X } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { CollapsibleSidebarShell } from '@/components/layout/CollapsibleSidebarShell';
+import { SidebarBrandLink } from '@/components/layout/SidebarBrandLink';
 import { useStore } from '@/store/useStore';
 import { CapabilityInvocationCard } from './CapabilityInvocationCard';
 import { dedupeCapabilityApprovalInvocationIds } from './capability-approval-event';
@@ -60,6 +60,10 @@ function AgentConversationSurfaceLayout({
     if (activeConversationId !== null || pendingDraft) return;
     ensureDraft({ fixedAgentKey: selectedContext });
   }, [activeConversationId, ensureDraft, pendingDraft, selectedContext]);
+  useEffect(() => {
+    if (!runtime.conversationsError) return;
+    void runtime.refreshConversations();
+  }, [runtime.conversationsError, runtime.refreshConversations]);
 
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
   const openDrawer = useCallback(() => setDrawerOpen(true), []);
@@ -98,22 +102,17 @@ function AgentConversationSurfaceLayout({
             desktopBreakpoint="lg"
             onDesktopToggle={toggleSidebar}
             home={(
-              <Link
+              <SidebarBrandLink
                 href="/dashboard"
-                aria-label="대시보드로 돌아가기"
+                ariaLabel="대시보드로 돌아가기"
                 title="대시보드로 돌아가기"
-                className="flex min-h-10 min-w-10 items-center gap-2 rounded-md px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground" aria-hidden="true">
-                  <Sparkles size={15} />
-                </span>
-                {sidebarOpen ? <span className="text-sm font-semibold text-foreground">KidItem</span> : <span className="sr-only">대시보드로 돌아가기</span>}
-              </Link>
+                showLabel={sidebarOpen}
+              />
             )}
             body={renderTree(!sidebarOpen)}
           />
         </div>
-        <main className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-card ${sidebarOpen ? 'lg:pl-[256px]' : 'lg:pl-[64px]'}`}>
+        <main className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background ${sidebarOpen ? 'lg:pl-[256px]' : 'lg:pl-[64px]'}`}>
           <ConversationHeader
             contextLabel={context.label}
             title={runtime.activeConversation?.title ?? null}

@@ -183,6 +183,7 @@ export class GatewayConversationAgentRunner extends AgentRunner {
     return this.conversations.stop({
       ...this.owner,
       conversationId: request.threadId,
+      ...(request.runId === undefined ? {} : { expectedTurnId: request.runId }),
     });
   }
 

@@ -413,12 +413,11 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
     expect(JSON.stringify(events)).not.toContain(secret);
   });
 
-  it('emits a strict approval locator only for the exact KidItem capability_invoke URL elicitation result', async () => {
+  it('cancels provider elicitation without treating it as business authority and rejects unsupported server requests', async () => {
     const { CodexAppServerSession } = await import('./codex-app-server-session');
     const lines: string[] = [];
     const events: unknown[] = [];
     const secret = 'provider-arguments-and-results-must-not-leave-the-gateway';
-    const invocationId = '00000000-0000-4000-8000-000000000001';
     const session = new CodexAppServerSession({
       write: (line: string) => { lines.push(line); },
       workspace: '/gateway/workspace',
@@ -434,95 +433,40 @@ describe('CodexAppServerSession provider-native thread adapter', () => {
     answer(session, lines, 'thread/resume', threadResponse('provider-thread-1')); await advance();
     answer(session, lines, 'turn/start', { turn: { id: 'provider-turn-1' } }); await start;
 
-    session.receive(notification('item/completed', {
-      threadId: 'provider-thread-1', turnId: 'provider-turn-1', completedAtMs: 1,
-      item: {
-        type: 'mcpToolCall', id: 'tool-approval', server: 'kiditem', tool: 'capability_invoke', status: 'completed',
-        arguments: { secret },
-        result: {
-          resultType: 'input_required',
-          inputRequests: {
-            approval: {
-              method: 'elicitation/create',
-              params: {
-                mode: 'url',
-                message: 'Open KidItem to review the exact capability input.',
-                url: `https://kiditem.test/agent-os?invocationId=${invocationId}`,
-              },
-            },
-          },
-        },
+    session.receive(`${JSON.stringify({
+      jsonrpc: '2.0',
+      id: 51,
+      method: 'mcpServer/elicitation/request',
+      params: {
+        threadId: 'provider-subagent-thread-1',
+        turnId: 'provider-subagent-turn-1',
+        serverName: 'kiditem',
+        mode: 'url',
+        _meta: null,
+        message: secret,
+        url: `https://provider.invalid/?token=${secret}`,
+        elicitationId: secret,
       },
-    }));
-    session.receive(notification('item/completed', {
-      threadId: 'provider-thread-1', turnId: 'provider-turn-1', completedAtMs: 2,
-      item: {
-        type: 'mcpToolCall', id: 'tool-wrong', server: 'kiditem', tool: 'capability.invoke', status: 'completed',
-        result: {
-          resultType: 'input_required',
-          inputRequests: {
-            approval: {
-              method: 'elicitation/create',
-              params: {
-                mode: 'url',
-                message: 'Open KidItem to review the exact capability input.',
-                url: `https://kiditem.test/agent-os?invocationId=${invocationId}`,
-              },
-            },
-          },
-        },
-      },
-    }));
-    session.receive(notification('item/completed', {
-      threadId: 'provider-thread-1', turnId: 'provider-turn-1', completedAtMs: 3,
-      item: {
-        type: 'mcpToolCall', id: 'tool-wrong-server', server: 'another-server', tool: 'capability_invoke', status: 'completed',
-        result: {
-          resultType: 'input_required',
-          inputRequests: {
-            approval: {
-              method: 'elicitation/create',
-              params: {
-                mode: 'url',
-                message: 'Open KidItem to review the exact capability input.',
-                url: `https://kiditem.test/agent-os?invocationId=${invocationId}`,
-              },
-            },
-          },
-        },
-      },
-    }));
-    session.receive(notification('item/completed', {
-      threadId: 'provider-thread-1', turnId: 'provider-turn-1', completedAtMs: 4,
-      item: {
-        type: 'mcpToolCall', id: 'tool-wrong-shape', server: 'kiditem', tool: 'capability_invoke', status: 'completed',
-        result: {
-          resultType: 'input_required',
-          inputRequests: {
-            approval: {
-              method: 'elicitation/create',
-              params: {
-                mode: 'url',
-                message: 'Open KidItem to review the exact capability input.',
-                url: `https://kiditem.test/agent-os?invocationId=${invocationId}&token=${secret}`,
-              },
-            },
-          },
-        },
-      },
-    }));
+    })}\n`);
+    session.receive(`${JSON.stringify({
+      jsonrpc: '2.0',
+      id: 52,
+      method: 'item/tool/requestUserInput',
+      params: { secret },
+    })}\n`);
 
-    expect(events).toContainEqual({
-      kind: 'capability.approval_required',
-      invocationId,
-    });
-    expect(events.filter((event) => (event as { kind?: unknown }).kind === 'capability.approval_required')).toEqual([
-      { kind: 'capability.approval_required', invocationId },
+    expect(events).toEqual([{ kind: 'status', status: 'started' }]);
+    expect(lines.map((line) => JSON.parse(line)).filter((line) => line.id === 51 || line.id === 52)).toEqual([
+      { jsonrpc: '2.0', id: 51, result: { action: 'cancel', content: null, _meta: null } },
+      {
+        jsonrpc: '2.0',
+        id: 52,
+        error: { code: -32601, message: 'codex_app_server_client_request_unsupported' },
+      },
     ]);
-    expect(events).toContainEqual({ kind: 'tool.status', name: 'kiditem.capability_invoke', status: 'completed' });
     expect(JSON.stringify(events)).not.toContain(secret);
-    expect(JSON.stringify(events)).not.toContain('kiditem.test');
-    expect(JSON.stringify(events)).not.toContain('inputRequests');
+    expect(JSON.stringify(lines.filter((line) => JSON.parse(line).id === 51 || JSON.parse(line).id === 52)))
+      .not.toContain(secret);
   });
 
   it('rejects a request when app-server stdin fails instead of leaving a pending RPC forever', async () => {

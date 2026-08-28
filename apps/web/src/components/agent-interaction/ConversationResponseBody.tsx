@@ -7,18 +7,51 @@ type ResponseBlock =
   | { kind: 'ordered-list'; items: string[] }
   | { kind: 'paragraph'; content: string };
 
+const INTERNAL_UUID_PATTERN = /\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b/gi;
+const CANONICAL_HASH_PATTERN = /\b[0-9a-f]{40,128}\b/gi;
+const OWNER_CAPABILITY_KEY_PATTERN = /\b(?:advertising|channels|finance|inventory|operations|orders|products|sourcing|supply)\.[a-z][a-zA-Z0-9_]*\b/g;
+const INTERNAL_REFERENCE_PLACEHOLDER = '\uE010';
+const LABEL_ONLY_INTERNAL_REFERENCE_LINE_PATTERN = /^\s*(?:[-*+]\s*)?(?:["'`]?[^:\n]+["'`]?\s*:\s*)?(?:["'`]?\uE010["'`]?\s*[,;|/]?\s*)+$/;
+
 /**
  * Small safe presentation subset for assistant text. It deliberately does not
  * evaluate HTML or accept arbitrary URL protocols.
  */
 export function ConversationResponseBody({ content }: { content: string }) {
-  const blocks = parseResponseBlocks(content);
+  const blocks = parseResponseBlocks(sanitizeAssistantContent(content));
 
   return (
     <div className="space-y-3 break-words [overflow-wrap:anywhere]" data-testid="conversation-response-body">
       {blocks.map((block, index) => <ResponseBlockView key={`${block.kind}-${index}`} block={block} />)}
     </div>
   );
+}
+
+/**
+ * Provider output is untrusted presentation input. Remove only receipt lines
+ * that consist entirely of internal references; ordinary requested prose and
+ * code must retain their meaning.
+ */
+function sanitizeAssistantContent(content: string): string {
+  return removeInternalReferenceOnlyLines(content);
+}
+
+function removeInternalReferenceOnlyLines(content: string): string {
+  return content.replace(/\r\n?/g, '\n').split('\n')
+    .filter((line) => !isInternalReferenceOnlyLine(line))
+    .join('\n');
+}
+
+function isInternalReferenceOnlyLine(line: string): boolean {
+  if (/\bhttps?:\/\//i.test(line)) return false;
+
+  const normalized = line
+    .replace(OWNER_CAPABILITY_KEY_PATTERN, INTERNAL_REFERENCE_PLACEHOLDER)
+    .replace(INTERNAL_UUID_PATTERN, INTERNAL_REFERENCE_PLACEHOLDER)
+    .replace(CANONICAL_HASH_PATTERN, INTERNAL_REFERENCE_PLACEHOLDER);
+
+  return normalized.includes(INTERNAL_REFERENCE_PLACEHOLDER)
+    && LABEL_ONLY_INTERNAL_REFERENCE_LINE_PATTERN.test(normalized);
 }
 
 function ResponseBlockView({ block }: { block: ResponseBlock }) {

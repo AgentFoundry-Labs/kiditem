@@ -72,7 +72,7 @@ export interface McpReadinessCanaryInput {
   /** Must construct a fresh `createMcpHandler(..., { legacy: 'reject' })` handler per call. */
   createHandler: () => McpHttpHandler;
   /** A non-mutating test composition supplies an approval-pending capability call. */
-  inputRequiredCall: { name: string; arguments: Record<string, unknown> };
+  pendingCall: { name: string; arguments: Record<string, unknown> };
 }
 
 /**
@@ -119,9 +119,10 @@ export async function runMcpReadinessCanary(input: McpReadinessCanaryInput): Pro
     throw new McpRuntimeReadinessError();
   }
 
-  const inputRequired = await modernCall(input.createHandler, 'tools/call', input.inputRequiredCall);
-  const pending = asRecord(inputRequired.result);
-  if (pending.resultType !== 'input_required' || !isInputRequiredApproval(pending.inputRequests)) {
+  const pendingResult = await modernCall(input.createHandler, 'tools/call', input.pendingCall);
+  const pending = asRecord(pendingResult.result);
+  const structured = asRecord(pending.structuredContent);
+  if (pending.resultType !== 'complete' || structured.kind !== 'pending') {
     throw new McpRuntimeReadinessError();
   }
 }
@@ -184,13 +185,4 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function toolName(value: unknown): string {
   return asRecord(value).name as string;
-}
-
-function isInputRequiredApproval(value: unknown): boolean {
-  const requests = asRecord(value);
-  const approval = asRecord(requests.approval);
-  const params = asRecord(approval.params);
-  return approval.method === 'elicitation/create'
-    && params.mode === 'url'
-    && typeof params.url === 'string';
 }

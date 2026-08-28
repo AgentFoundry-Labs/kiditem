@@ -139,7 +139,7 @@ describe('GatewayAgUiEventMapper', () => {
     subscription.unsubscribe();
 
     await expect(conversations.isRunning({ ...owner, conversationId: 'conversation-1' })).resolves.toBe(true);
-    await expect(runner.stop({ threadId: 'conversation-1' })).resolves.toBe(true);
+    await expect(runner.stop({ threadId: 'conversation-1', runId: 'run-1' })).resolves.toBe(true);
     expect(gateway.interrupt).toHaveBeenCalledWith({ ...owner, conversationId: 'conversation-1', turnId: 'run-1' });
 
     for (const sink of sinks) sink({ kind: 'status', status: 'interrupted' });
@@ -172,13 +172,14 @@ describe('GatewayAgUiEventMapper', () => {
       input: { threadId: 'conversation-1', runId: 'run-1', state: {}, messages: [] },
     }))).resolves.toEqual({ type: 'RUN_STARTED', threadId: 'conversation-1', runId: 'run-1' });
     await expect(runner.isRunning({ threadId: 'conversation-1' })).resolves.toBe(true);
-    await expect(runner.stop({ threadId: 'conversation-1' })).resolves.toBe(true);
+    await expect(runner.stop({ threadId: 'conversation-1', runId: 'run-1' })).resolves.toBe(true);
     expect(eventHistory.connect).toHaveBeenCalledWith(owner, { threadId: 'conversation-1' });
     expect(eventHistory.run).toHaveBeenCalledWith(owner, expect.objectContaining({ threadId: 'conversation-1' }));
     expect(conversations.isRunning).toHaveBeenCalledWith({ ...owner, conversationId: 'conversation-1' });
     expect(conversations.stop).toHaveBeenCalledWith({
       ...owner,
       conversationId: 'conversation-1',
+      expectedTurnId: 'run-1',
     });
   });
 

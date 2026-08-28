@@ -14,10 +14,11 @@ import type {
   StartProviderTurn,
 } from '../provider-conversation.port';
 import { codexDeveloperInstructions } from '../../profile/agent-profile.catalog';
-import { codexCapabilityApprovalRequiredEvent } from '../capability-approval-required';
 
-type RpcResponse = Readonly<{
-  id?: string;
+type RpcId = string | number;
+
+type RpcMessage = Readonly<{
+  id?: RpcId;
   method?: string;
   params?: unknown;
   result?: unknown;
@@ -72,6 +73,7 @@ export class CodexAppServerSession {
   private readonly pending = new Map<string, PendingRequest>();
   private readonly activeByGatewayTurn = new Map<string, ActiveTurn>();
   private readonly activeByProviderTurn = new Map<string, ActiveTurn>();
+  private readonly activeByProviderConversation = new Map<string, ActiveTurn>();
   private readonly mcpConfiguredThreads = new Set<string>();
   private initialized: Promise<void> | null = null;
   private closed = false;
@@ -187,7 +189,10 @@ export class CodexAppServerSession {
 
   async startTurn(input: StartProviderTurn, sink: ProviderEventSink): Promise<void> {
     await this.ensureInitialized();
-    if (this.activeByGatewayTurn.has(gatewayTurnKey(input.providerConversationRef, input.turnId))) {
+    if (
+      this.activeByGatewayTurn.has(gatewayTurnKey(input.providerConversationRef, input.turnId))
+      || this.activeByProviderConversation.has(input.providerConversationRef)
+    ) {
       throw new Error('codex_turn_already_live');
     }
     if (!this.mcpConfiguredThreads.has(input.providerConversationRef)) {
@@ -221,6 +226,7 @@ export class CodexAppServerSession {
       });
       this.activeByGatewayTurn.set(gatewayTurnKey(input.providerConversationRef, input.turnId), active);
       this.activeByProviderTurn.set(providerTurnKey(input.providerConversationRef, providerTurnId), active);
+      this.activeByProviderConversation.set(input.providerConversationRef, active);
       sink(ProviderEventSchema.parse({ kind: 'status', status: 'started' }));
     });
   }
@@ -262,13 +268,15 @@ export class CodexAppServerSession {
         throw new CodexAppServerFramingError('codex_app_server_output_too_large', boundedFrameByteCount(lineBytes, maxBytes));
       }
       if (!line.trim()) continue;
-      let message: RpcResponse;
-      try { message = JSON.parse(line) as RpcResponse; }
+      let message: RpcMessage;
+      try { message = JSON.parse(line) as RpcMessage; }
       catch {
         this.buffer = '';
         throw new CodexAppServerFramingError('codex_app_server_output_invalid', boundedFrameByteCount(lineBytes, maxBytes));
       }
-      if (message.id) this.resolveResponse(message);
+      const id = rpcId(message.id);
+      if (id !== null && message.method) this.handleServerRequest(id, message.method, message.params);
+      else if (id !== null) this.resolveResponse(message);
       else if (message.method) this.handleNotification(message.method, message.params);
     }
     const bufferBytes = Buffer.byteLength(this.buffer, 'utf8');
@@ -325,10 +333,11 @@ export class CodexAppServerSession {
     }
   }
 
-  private resolveResponse(response: RpcResponse): void {
-    const pending = this.pending.get(response.id!);
+  private resolveResponse(response: RpcMessage): void {
+    if (typeof response.id !== 'string') return;
+    const pending = this.pending.get(response.id);
     if (!pending) return;
-    this.pending.delete(response.id!);
+    this.pending.delete(response.id);
     if (response.error !== undefined) pending.reject(new Error('codex_app_server_remote_error'));
     else {
       try {
@@ -361,10 +370,6 @@ export class CodexAppServerSession {
       const item = object(value.item);
       const event = active ? mcpToolStatusEvent(item) : null;
       if (active && event) active.sink(event);
-      const approval = active && method === 'item/completed' && item
-        ? codexCapabilityApprovalRequiredEvent(item)
-        : null;
-      if (active && approval) active.sink(approval);
       return;
     }
     if (method !== 'turn/completed') return;
@@ -378,6 +383,37 @@ export class CodexAppServerSession {
     this.finish(active, terminalStatus(status));
   }
 
+  private handleServerRequest(id: RpcId, method: string, params: unknown): void {
+    if (method !== 'mcpServer/elicitation/request') {
+      this.writeServerMessage({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32601, message: 'codex_app_server_client_request_unsupported' },
+      });
+      return;
+    }
+
+    // Provider elicitation is not a KidItem authority or approval channel.
+    // Business approval is published by Nest directly into the live AG-UI
+    // interaction after durable admission. Cancel this provider-local request
+    // without parsing or reflecting any provider payload.
+    void params;
+    this.writeServerMessage({
+      jsonrpc: '2.0',
+      id,
+      result: { action: 'cancel', content: null, _meta: null },
+    });
+  }
+
+  private writeServerMessage(message: Record<string, unknown>): void {
+    if (this.closed) return;
+    try {
+      void Promise.resolve(this.options.write(`${JSON.stringify(message)}\n`)).catch(() => this.close());
+    } catch {
+      this.close();
+    }
+  }
+
   private active(providerConversationRef: string, gatewayTurnId: string): ActiveTurn {
     const active = this.activeByGatewayTurn.get(gatewayTurnKey(providerConversationRef, gatewayTurnId));
     if (!active) throw new Error('codex_turn_not_live');
@@ -388,6 +424,7 @@ export class CodexAppServerSession {
   private finish(active: ActiveTurn, status: 'completed' | 'failed' | 'interrupted' | 'disconnected'): void {
     this.activeByProviderTurn.delete(providerTurnKey(active.providerConversationRef, active.providerTurnId));
     this.activeByGatewayTurn.delete(gatewayTurnKey(active.providerConversationRef, active.gatewayTurnId));
+    this.activeByProviderConversation.delete(active.providerConversationRef);
     try {
       active.sink(ProviderEventSchema.parse({ kind: 'status', status }));
     } catch {
@@ -496,6 +533,12 @@ function object(value: unknown): Record<string, unknown> | null {
 
 function string(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
+}
+
+function rpcId(value: unknown): RpcId | null {
+  return typeof value === 'string' || (typeof value === 'number' && Number.isSafeInteger(value))
+    ? value
+    : null;
 }
 
 function requiredString(value: unknown, code: string): string {

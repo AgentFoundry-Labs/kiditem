@@ -317,8 +317,9 @@ The global AI chat panel and Agent OS workspace render the same composer compone
 
 It consists of one rounded, border-first container with:
 
-- a growing multiline text input;
-- one compact combined selector, for example `Codex · GPT-5.6-sol · Max`;
+- a growing multiline text input on its own spacious top row;
+- a quiet bottom toolbar that right-aligns model controls and submission;
+- one compact combined selector, for example `5.6 Terra · 최대`;
 - one circular Send button; and
 - a circular Interrupt button in the same location while a turn is active.
 
@@ -329,11 +330,12 @@ model, and reasoning effort read as one compact composed control; its segments
 may open focused menus without becoming three unrelated settings panels.
 
 Layout follows the composer's own available width rather than the browser
-viewport. In the 352-pixel auxiliary panel, the growing textarea occupies a
-full row and the combined selector plus Send/Interrupt occupy a second row. In
-the full Agent OS message lane, they may share one horizontal row when the
-container is wide enough. The selector must never reserve a fixed width that
-collapses the textarea to a one-character column.
+viewport. Both the 352-pixel auxiliary panel and the full Agent OS lane use the
+same two-tier composition: the textarea owns the first row and the combined
+selector plus Send/Interrupt own the second row. The wide
+lane gains breathing room rather than switching to a different horizontal
+information hierarchy. The selector must never reserve a fixed width that
+collapses the textarea or the toolbar.
 
 The combined selector opens one compact, keyboard-accessible menu with the
 current selection visible at rest, following the approved ChatGPT interaction.
@@ -345,7 +347,11 @@ It exposes structured choices for:
 
 After Conversation creation, Provider remains visible but disabled; model and reasoning effort remain editable between turns.
 
-The composer does not show nonfunctional attachment, microphone, voice, or media icons. Those controls require a separate supported product contract before appearing.
+The reference image's attachment and microphone controls are intentionally not
+copied while they have no product behavior. Fixed CLI execution policy is not
+user-facing chat state and does not appear in the composer. Attachment,
+microphone, voice, and media actions require a separate supported product
+contract before appearing.
 
 General uses the placeholder `무엇을 도와드릴까요?`. Agent drafts and conversations use `<Agent 이름>에게 무엇을 요청할까요?`.
 
@@ -619,8 +625,9 @@ defaults and search rather than dominating the conversation tree.
 - At 1024 pixels and above, the Agent OS shared sidebar is 256 pixels expanded
   or 64 pixels collapsed.
 - Below 1024 pixels, the tree becomes a modal drawer and the conversation keeps the full content width.
-- The 352-pixel composer uses its narrow two-row layout regardless of viewport;
-  smaller mobile widths retain the same usable-input invariant.
+- The shared composer uses the same two-tier layout in the 352-pixel panel and
+  full Agent OS lane; smaller mobile widths retain the same usable-input
+  invariant.
 - Conversation and tree scroll regions remain independent.
 - The global `AI 챗` utility remains keyboard reachable when the ordinary sidebar is expanded or collapsed.
 - Dashboard and Agent OS share the desktop collapse preference, 256/64 geometry,
@@ -790,8 +797,8 @@ rather than a second interaction lifecycle owner.
   user-language `업무 증거` rail for business result cards
 - one shared empty draft across panel and Agent OS; a fresh untouched draft has
   no invalid-selection warning, while a valid saved default is applied
-- narrow panel composer keeps a full-width textarea row with selector and
-  Send/Interrupt below it
+- the shared composer keeps a full-width textarea row with the selector and
+  Send/Interrupt below it at both panel and workspace widths
 - centered Settings dialog with `대화 기본값 | 채팅 기록`
 - no visible Gateway, provider-local, descriptor, binding, transport, active-turn,
   or execution-ID label in normal idle and success states
@@ -857,8 +864,8 @@ Run authenticated browser QA for:
 15. Dashboard and Agent OS sidebar collapse/expand, Dashboard return in both
     states, route-stable desktop preference, labelled controls, keyboard focus,
     touch targets, and reduced motion;
-16. the same new-draft empty state and valid saved default in Dashboard and
-    Agent OS, plus the narrow two-row composer at 352 pixels;
+16. the same new-draft empty state, valid saved default, and two-tier composer
+    in Dashboard and Agent OS;
 17. visually distinct user messages, structured assistant prose, and business
     evidence phrased without generic completion copy or internal identifiers;
     and

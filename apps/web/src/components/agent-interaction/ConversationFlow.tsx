@@ -70,7 +70,6 @@ export function ConversationFlow({
         onStart={runtime.start}
         onInterrupt={runtime.interrupt}
         onUpdateDraft={runtime.isDraft ? runtime.updateDraft : undefined}
-        onRetry={runtime.retryReadiness}
       />
     </div>
   );

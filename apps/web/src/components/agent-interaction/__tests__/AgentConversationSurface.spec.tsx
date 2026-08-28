@@ -18,6 +18,8 @@ const runtimeMocks = vi.hoisted(() => {
   const addMessage = vi.fn();
   const setMessages = vi.fn();
   const connectAgent = vi.fn();
+  const coreRunAgent = vi.fn();
+  const useCapabilities = vi.fn();
   const unsubscribes: Array<ReturnType<typeof vi.fn>> = [];
   return {
     useAgent: vi.fn(),
@@ -25,6 +27,8 @@ const runtimeMocks = vi.hoisted(() => {
     addMessage,
     setMessages,
     connectAgent,
+    coreRunAgent,
+    useCapabilities,
     subscriptions,
     unsubscribes,
     agent: {
@@ -43,12 +47,16 @@ const runtimeMocks = vi.hoisted(() => {
 });
 vi.mock('@copilotkit/react-core/v2', () => ({
   useCopilotKit: () => ({
-    copilotkit: { connectAgent: runtimeMocks.connectAgent },
+    copilotkit: {
+      connectAgent: runtimeMocks.connectAgent,
+      runAgent: runtimeMocks.coreRunAgent,
+    },
   }),
   useAgent: (input: unknown) => {
     runtimeMocks.useAgent(input);
     return { agent: runtimeMocks.agent, isReady: true };
   },
+  useCapabilities: () => runtimeMocks.useCapabilities(),
 }));
 
 const CONVERSATION = {
@@ -116,10 +124,15 @@ describe('AgentConversationSurface', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     runtimeMocks.runAgent.mockResolvedValue(undefined);
+    runtimeMocks.coreRunAgent.mockReset();
+    runtimeMocks.coreRunAgent.mockResolvedValue(undefined);
+    runtimeMocks.useCapabilities.mockReset();
+    runtimeMocks.useCapabilities.mockReturnValue(READINESS_INFO.agents.conversation.capabilities);
     runtimeMocks.addMessage.mockReset();
     runtimeMocks.setMessages.mockReset();
     runtimeMocks.connectAgent.mockReset();
     runtimeMocks.connectAgent.mockResolvedValue(undefined);
+    runtimeMocks.agent.messages = [];
     runtimeMocks.subscriptions.length = 0;
     runtimeMocks.unsubscribes.length = 0;
     useConversationSurfaceState.getState().reset();
@@ -150,12 +163,33 @@ describe('AgentConversationSurface', () => {
     expect(firstFocusable).toHaveAttribute('href', '/dashboard');
   });
 
+  it('retries a transient conversation-list failure once when the full workspace is visible', async () => {
+    let listCalls = 0;
+    vi.mocked(apiClient.get).mockImplementation((path: string) => {
+      if (path === '/api/agent-os/conversations') {
+        listCalls += 1;
+        return listCalls === 1
+          ? Promise.reject(new Error('gateway temporarily unavailable'))
+          : Promise.resolve([CONVERSATION] as never);
+      }
+      if (path.endsWith('/history')) return Promise.resolve([] as never);
+      return Promise.resolve({ schemaVersion: 1, contexts: {} } as never);
+    });
+
+    renderSurface();
+
+    await waitFor(() => expect(listCalls).toBe(2));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(screen.getAllByText('Supplier research')).not.toHaveLength(0);
+  });
+
   it('uses the Task 5 shared 256px shell and a local mobile drawer for the Agent OS workspace', async () => {
     renderSurface();
 
     const shell = await screen.findByTestId('collapsible-sidebar-shell');
     expect(shell).toHaveAttribute('data-desktop-width', '256');
     expect(shell).toHaveClass('lg:w-[256px]');
+    expect(within(shell).getByText('K', { exact: true })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '대화 목록 열기' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
@@ -229,7 +263,7 @@ describe('AgentConversationSurface', () => {
       message: '이번 주 우선순위를 정리해 주세요',
     });
     expect(vi.mocked(apiClient.post)).not.toHaveBeenCalled();
-    expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
+    expect(runtimeMocks.coreRunAgent).not.toHaveBeenCalled();
   });
 
   it('replaces a deleted selection with shared empty guidance and one new local composer draft', async () => {
@@ -250,7 +284,7 @@ describe('AgentConversationSurface', () => {
     });
     expect(vi.mocked(apiClient.delete)).toHaveBeenCalledWith('/api/agent-os/conversations/conversation-1');
     expect(vi.mocked(apiClient.post)).not.toHaveBeenCalledWith('/api/agent-os/conversations', expect.anything());
-    expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
+    expect(runtimeMocks.coreRunAgent).not.toHaveBeenCalled();
   });
 
   it('keeps a deep-linked approval in the centered message lane without an ephemeral conversation selection', async () => {
@@ -379,7 +413,7 @@ describe('AgentConversationSurface', () => {
     });
     expect(vi.mocked(apiClient.post)).not.toHaveBeenCalled();
     expect(vi.mocked(apiClient.get)).not.toHaveBeenCalled();
-    expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
+    expect(runtimeMocks.coreRunAgent).not.toHaveBeenCalled();
   });
 
   it('opens an Agent-bound draft from its folder plus action without creating a conversation', async () => {
@@ -415,10 +449,10 @@ describe('AgentConversationSurface', () => {
 
     await user.type(composer, 'Review the evidence.');
     fireEvent.keyDown(composer, { key: 'Enter', isComposing: true });
-    expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
+    expect(runtimeMocks.coreRunAgent).not.toHaveBeenCalled();
     fireEvent.keyDown(composer, { key: 'Enter' });
 
-    await waitFor(() => expect(runtimeMocks.runAgent).toHaveBeenCalledWith(expect.objectContaining({
+    await waitFor(() => expect(runtimeMocks.coreRunAgent).toHaveBeenCalledWith(expect.objectContaining({
       forwardedProps: { model: 'gpt-5.6', reasoningEffort: 'low' },
     })));
   });
@@ -446,7 +480,7 @@ describe('AgentConversationSurface', () => {
       return Promise.resolve({ schemaVersion: 1, contexts: {} } as never);
     });
     let resolveRun!: () => void;
-    runtimeMocks.runAgent.mockImplementation(() => new Promise<void>((resolve) => { resolveRun = resolve; }));
+    runtimeMocks.coreRunAgent.mockImplementation(() => new Promise<void>((resolve) => { resolveRun = resolve; }));
     useConversationSurfaceState.getState().reset();
     const user = userEvent.setup();
     renderSurface();
@@ -472,13 +506,13 @@ describe('AgentConversationSurface', () => {
       activeConversationId: 'general-draft',
       pendingDraft: null,
     }));
-    expect(runtimeMocks.runAgent).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.coreRunAgent).toHaveBeenCalledTimes(1);
     expect(screen.getByLabelText('일반 AI 챗 메시지')).toHaveValue('');
   });
 
   it('keeps the active conversation and its one subscription while another folder expands during a turn', async () => {
     const running = new Promise<void>(() => undefined);
-    runtimeMocks.runAgent.mockReturnValue(running);
+    runtimeMocks.coreRunAgent.mockReturnValue(running);
     const user = userEvent.setup();
     renderSurface();
     const composer = await screen.findByPlaceholderText('무엇을 도와드릴까요?');
@@ -497,30 +531,20 @@ describe('AgentConversationSurface', () => {
   });
 
   it('suppresses generic provider tool events without leaking their private details', async () => {
-    let resolveRun: (() => void) | undefined;
-    runtimeMocks.runAgent.mockImplementation(() => new Promise<void>((resolve) => { resolveRun = resolve; }));
-    const user = userEvent.setup();
+    runtimeMocks.agent.messages = [{ id: 'copilotkit-reply', role: 'assistant', content: 'Research summary' }];
     renderSurface();
-    const composer = await screen.findByPlaceholderText('무엇을 도와드릴까요?');
-    await chooseCodexPair(user);
-    await user.type(composer, 'Review the evidence.');
-    await user.click(screen.getByRole('button', { name: '보내기' }));
     await waitFor(() => expect(runtimeMocks.subscriptions).toHaveLength(1));
-    await waitFor(() => expect(runtimeMocks.runAgent).toHaveBeenCalledTimes(1));
     const subscriber = runtimeMocks.subscriptions[0] as {
-      onMessagesChanged?: () => void;
       onCustomEvent?: (input: { event: { name: string; value: unknown } }) => void;
     };
 
-    runtimeMocks.agent.messages = [{ id: 'copilotkit-reply', role: 'assistant', content: 'Provider reply' }];
-    await act(async () => subscriber.onMessagesChanged?.());
     await act(async () => subscriber.onCustomEvent?.({
       event: { name: 'kiditem.provider_tool_status', value: { name: 'source_search', status: 'started' } },
     }));
     await act(async () => subscriber.onCustomEvent?.({
       event: { name: 'kiditem.provider_tool_status', value: { name: 'source_search', status: 'completed' } },
     }));
-    expect(screen.getByText('Provider reply')).toBeVisible();
+    expect(screen.getByText('Research summary')).toBeVisible();
     expect(within(screen.getByRole('region', { name: '대화 메시지' })).getByText('일반 AI 챗')).toBeVisible();
     expect(screen.queryByRole('region', { name: '업무 증거' })).not.toBeInTheDocument();
     expect(screen.queryByText('업무 처리')).not.toBeInTheDocument();
@@ -529,6 +553,5 @@ describe('AgentConversationSurface', () => {
 
     expect(vi.mocked(apiClient.get).mock.calls.map(([path]) => String(path)))
       .not.toContain('/api/agent-os/conversations/conversation-1/history');
-    await act(async () => resolveRun?.());
   });
 });

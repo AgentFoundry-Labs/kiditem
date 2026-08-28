@@ -93,6 +93,11 @@ describe('ConversationFolderTree', () => {
       'Earlier sourcing',
     ]);
     expect(sourcingRows.getByRole('button', { name: 'Latest sourcing' })).toHaveAttribute('aria-current', 'page');
+    expect(sourcingRows.getByRole('button', { name: 'Latest sourcing' })).toHaveClass(
+      'bg-primary-soft',
+      'font-semibold',
+      'text-primary',
+    );
     expect(sourcingRows.queryByText('Campaign check')).not.toBeInTheDocument();
   });
 
@@ -128,6 +133,8 @@ describe('ConversationFolderTree', () => {
     const latestMenu = screen.getByRole('button', { name: 'Latest sourcing 메뉴' });
     await user.click(latestMenu);
     expect(screen.getByRole('menu', { name: 'Latest sourcing 메뉴' })).toBeVisible();
+    expect(within(screen.getByRole('menu', { name: 'Latest sourcing 메뉴' })).getAllByRole('menuitem')
+      .map((item) => item.textContent?.trim())).toEqual(['이름 변경', '삭제']);
     expect(screen.getByRole('menuitem', { name: '삭제' })).toBeDisabled();
     await user.keyboard('{Escape}');
     expect(latestMenu).toHaveFocus();

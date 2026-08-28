@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Send, Square } from 'lucide-react';
+import { ArrowUp, Square } from 'lucide-react';
 import { ConversationCombinedSelector } from './ConversationCombinedSelector';
 import { isSupportedConversationPair } from './conversation-preference-selection';
 import type { ConversationRuntime, GatewayReadiness } from './conversation-api';
@@ -30,7 +30,6 @@ export function AgentConversationComposer({
   onStart,
   onInterrupt,
   onUpdateDraft,
-  onRetry,
 }: {
   conversationId: string;
   contextLabel: string;
@@ -46,7 +45,6 @@ export function AgentConversationComposer({
   onStart(input: { message: string; model: string; reasoningEffort: string }): Promise<void>;
   onInterrupt(): Promise<void>;
   onUpdateDraft?(patch: DraftPatch): void;
-  onRetry?(): void;
 }) {
   const messageRef = useRef<HTMLTextAreaElement | null>(null);
   const [message, setMessage] = useState(initialMessage ?? '');
@@ -108,7 +106,7 @@ export function AgentConversationComposer({
     const textarea = messageRef.current;
     if (!textarea) return;
     textarea.style.height = 'auto';
-    textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 52), 240)}px`;
+    textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 48), 240)}px`;
   }, [message]);
 
   const updateMessage = (nextMessage: string) => {
@@ -165,22 +163,21 @@ export function AgentConversationComposer({
 
   return (
     <form
-      className="sticky bottom-0 bg-card px-4 py-3 sm:px-6"
+      className="sticky bottom-0 bg-background px-4 py-3 sm:px-6"
       onSubmit={(event) => {
         event.preventDefault();
         void submit();
       }}
     >
-      <div className="conversation-composer-surface mx-auto w-full max-w-3xl rounded-[28px] border border-input bg-card p-2 shadow-sm">
+      <div className="conversation-composer-surface mx-auto w-full max-w-3xl rounded-[28px] border border-input bg-card p-3 shadow-sm transition-colors focus-within:border-ring">
         {error ? <p role="alert" className="mb-2 text-sm text-destructive">{error}</p> : null}
         {selectionNeedsReview ? <p role="alert" className="mb-2 text-sm text-amber-700">선택한 모델과 추론 수준을 다시 선택해 주세요.</p> : null}
         {runtime && readiness === null ? (
           <div className="mb-2 flex flex-wrap items-center gap-2 text-sm text-amber-700">
             <span>선택한 대화 엔진을 현재 사용할 수 없습니다.</span>
-            {onRetry ? <button type="button" onClick={onRetry} className="rounded-md border px-2 py-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">다시 시도</button> : null}
           </div>
         ) : null}
-        <div className="conversation-composer-layout flex items-end gap-2">
+        <div className="conversation-composer-layout flex flex-col gap-2">
           <label className="sr-only" htmlFor="agent-conversation-message">{contextLabel} 메시지</label>
           <textarea
             ref={messageRef}
@@ -198,41 +195,43 @@ export function AgentConversationComposer({
             }}
             placeholder={placeholder}
             rows={1}
-            className="conversation-composer-input min-h-[52px] min-w-0 flex-1 resize-none bg-card px-3 py-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+            className="conversation-composer-input min-h-[48px] w-full min-w-0 resize-none bg-transparent px-2 py-2 text-[15px] leading-6 outline-none placeholder:text-muted-foreground"
           />
-          <div className="conversation-composer-actions flex min-w-0 flex-1 items-center gap-1">
-            <ConversationCombinedSelector
-              runtime={runtime}
-              readiness={readiness}
-              model={model}
-              reasoningEffort={reasoningEffort}
-              providerEditable={isDraft}
-              disabled={selectorDisabled}
-              needsReview={selectionNeedsReview}
-              onRuntimeChange={updateRuntime}
-              onModelChange={updateModel}
-              onReasoningEffortChange={updateReasoningEffort}
-            />
-            {isRunning ? (
-              <button
-                type="button"
-                aria-label="대화 중단"
-                onClick={() => void interrupt()}
-                disabled={interruptPending}
-                className="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-full border border-input bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 max-lg:min-h-11 max-lg:min-w-11"
-              >
-                <Square aria-hidden="true" size={16} />
-              </button>
-            ) : (
-              <button
-                type="submit"
-                aria-label="보내기"
-                disabled={!canStart}
-                className="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 max-lg:min-h-11 max-lg:min-w-11"
-              >
-                <Send aria-hidden="true" size={17} />
-              </button>
-            )}
+          <div className="conversation-composer-toolbar flex min-h-10 min-w-0 items-center justify-end gap-2 px-1">
+            <div className="conversation-composer-actions ml-auto flex min-w-0 flex-none items-center gap-1">
+              <ConversationCombinedSelector
+                runtime={runtime}
+                readiness={readiness}
+                model={model}
+                reasoningEffort={reasoningEffort}
+                providerEditable={isDraft}
+                disabled={selectorDisabled}
+                needsReview={selectionNeedsReview}
+                onRuntimeChange={updateRuntime}
+                onModelChange={updateModel}
+                onReasoningEffortChange={updateReasoningEffort}
+              />
+              {isRunning ? (
+                <button
+                  type="button"
+                  aria-label="대화 중단"
+                  onClick={() => void interrupt()}
+                  disabled={interruptPending}
+                  className="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 max-lg:min-h-11 max-lg:min-w-11"
+                >
+                  <Square aria-hidden="true" size={14} className="fill-current" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  aria-label="보내기"
+                  disabled={!canStart}
+                  className="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 max-lg:min-h-11 max-lg:min-w-11"
+                >
+                  <ArrowUp aria-hidden="true" size={18} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

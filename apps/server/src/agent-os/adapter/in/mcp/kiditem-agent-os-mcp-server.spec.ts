@@ -123,7 +123,7 @@ describe('KidItem stateless capability MCP server', () => {
     }
   });
 
-  it('maps read results, Operation refs, current status reads, and URL input_required without transport state', async () => {
+  it('maps read results, Operation refs, current status reads, and publishes approval locators from the authoritative active turn', async () => {
     const { handler, dependencies } = makeHandler();
     try {
       const read = await call(handler, 'tools/call', {
@@ -149,13 +149,23 @@ describe('KidItem stateless capability MCP server', () => {
           input: { purchaseOrderId: '00000000-0000-4000-8000-000000000005' },
         },
       });
-      expect(pending.result.resultType).toBe('input_required');
-      expect(pending.result.inputRequests.approval).toMatchObject({
-        method: 'elicitation/create',
-        params: {
-          mode: 'url',
-          url: `https://kiditem.test/agent-os?invocationId=${INVOCATION_ID}`,
+      expect(pending.result.resultType).toBe('complete');
+      expect(pending.result.structuredContent).toMatchObject({
+        kind: 'pending',
+        invocation: {
+          id: INVOCATION_ID,
+          status: 'pending',
+          approvalStatus: 'pending',
+          retryWithSameRequestKey: true,
         },
+      });
+      expect(dependencies.approvalEvents.publish).toHaveBeenCalledOnce();
+      expect(dependencies.approvalEvents.publish).toHaveBeenCalledWith({
+        organizationId: ORGANIZATION_ID,
+        initiatingUserId: USER_ID,
+        conversationId: 'conversation-1',
+        turnId: 'turn-1',
+        invocationId: INVOCATION_ID,
       });
 
       const ambiguous = await call(handler, 'tools/call', {
@@ -345,7 +355,7 @@ describe('KidItem stateless capability MCP server', () => {
           toolNames: CAPABILITY_MCP_TOOL_NAMES,
         }),
       },
-      webOrigin: 'https://kiditem.test',
+      approvalEvents: { publish: vi.fn() },
     }, () => activeTurn());
 
     try {
@@ -440,6 +450,7 @@ function makeHandler(): {
   dependencies: CapabilityMcpDependencies & {
     invocations: { invoke: ReturnType<typeof vi.fn>; get: ReturnType<typeof vi.fn> };
     operations: { get: ReturnType<typeof vi.fn> };
+    approvalEvents: { publish: ReturnType<typeof vi.fn> };
   };
 } {
   const invocation = invocationRecord();
@@ -503,6 +514,9 @@ function makeHandler(): {
         error: { code: 'E'.repeat(150), message: 'M'.repeat(1_100) },
       })),
     },
+    approvalEvents: {
+      publish: vi.fn(),
+    },
     readiness: {
       probe: () => ({
         protocolVersion: MCP_PROTOCOL_VERSION,
@@ -511,10 +525,10 @@ function makeHandler(): {
         toolNames: CAPABILITY_MCP_TOOL_NAMES,
       }),
     },
-    webOrigin: 'https://kiditem.test',
   } as unknown as CapabilityMcpDependencies & {
     invocations: { invoke: ReturnType<typeof vi.fn>; get: ReturnType<typeof vi.fn> };
     operations: { get: ReturnType<typeof vi.fn> };
+    approvalEvents: { publish: ReturnType<typeof vi.fn> };
   };
   return {
     handler: createRequestScopedCapabilityMcpHandler(dependencies, () => activeTurn()),

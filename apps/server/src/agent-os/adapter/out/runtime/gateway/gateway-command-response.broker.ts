@@ -112,7 +112,7 @@ export class GatewayCommandResponseBroker {
   acknowledge(commandId: string): void {
     const pending = this.pending.get(commandId);
     if (!pending) return;
-    if (pending.kind === 'turn.interrupt') this.resolve(commandId, pending.kind, undefined);
+    if (pending.kind === 'turn.interrupt') this.resolve(commandId, pending.kind, undefined, pending.conversationId);
   }
 
   reject(commandId: string, code: string): void {
@@ -153,6 +153,13 @@ export class GatewayCommandResponseBroker {
     }
     this.publish(stream, event);
     if (event.kind === 'status') this.resolve(stream.start.commandId, 'turn.start', undefined, conversationId);
+  }
+
+  /** Server-originated interaction events must still match the live stream owner. */
+  publishOwnedTurnEvent(input: GatewayBrokerTurnFence, event: ProviderEvent): void {
+    const stream = this.streams.get(turnKey(input.conversationId, input.turnId));
+    if (!stream || !sameOwner(stream.owner, owner(input))) return;
+    this.publish(stream, ProviderEventSchema.parse(event));
   }
 
   terminal(conversationId: string, turnId: string, status: 'completed' | 'failed' | 'interrupted' | 'disconnected'): void {

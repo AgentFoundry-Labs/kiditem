@@ -1,7 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   createMcpHandler,
-  inputRequired,
   McpServer,
   type McpHttpHandler,
 } from '@modelcontextprotocol/server';
@@ -16,6 +15,10 @@ import {
   CAPABILITY_INVOCATION_PORT,
   type CapabilityInvocationPort,
 } from '../../../application/port/in/capability/capability-invocation.port';
+import {
+  CAPABILITY_APPROVAL_EVENT_PORT,
+  type CapabilityApprovalEventPort,
+} from '../../../application/port/out/event/capability-approval-event.port';
 import { CapabilityInvocationRecordSchema } from '../../../application/port/out/capability-invocation.repository.port';
 import { AgentCapabilityRegistry } from '../../../application/service/agent-capability-registry.service';
 import { AgentOsError } from '../../../domain/agent-os.errors';
@@ -40,7 +43,7 @@ export interface CapabilityMcpDependencies {
   capabilities: Pick<AgentCapabilityRegistry, 'listDefinitions' | 'resolveDefinition'>;
   operations: Pick<OperationRunnerPort, 'get'>;
   readiness: Pick<McpRuntimeReadinessService, 'probe'>;
-  webOrigin: string;
+  approvalEvents: Pick<CapabilityApprovalEventPort, 'publish'>;
 }
 
 export type ResolveGatewayMcpActiveTurn = () => ResolvedGatewayMcpActiveTurn;
@@ -75,7 +78,11 @@ export function createKidItemAgentOsMcpServer(
     description: 'Invoke one capability using its strict owner-domain input schema.',
     inputSchema: CapabilityMcpWireInputSchemas.capability_invoke,
     outputSchema: CapabilityMcpWireOutputSchemas.capability_invoke,
-  }, async (input) => invokeCapability(dependencies, resolveActiveTurn, input));
+  }, async (input) => invokeCapability(
+    dependencies,
+    resolveActiveTurn,
+    input,
+  ));
 
   server.registerTool('invocation_status', {
     description: 'Read the durable receipt for one exact mutation admission.',
@@ -131,15 +138,17 @@ export class KidItemAgentOsMcpServer {
     @Inject(OPERATION_RUNNER_PORT)
     private readonly operations: OperationRunnerPort,
     private readonly readiness: McpRuntimeReadinessService,
+    @Inject(CAPABILITY_APPROVAL_EVENT_PORT)
+    private readonly approvalEvents: CapabilityApprovalEventPort,
   ) {}
 
-  createHandler(resolveActiveTurn: ResolveGatewayMcpActiveTurn, webOrigin: string): McpHttpHandler {
+  createHandler(resolveActiveTurn: ResolveGatewayMcpActiveTurn): McpHttpHandler {
     const dependencies: CapabilityMcpDependencies = {
       invocations: this.invocations,
       capabilities: this.capabilities,
       operations: this.operations,
       readiness: this.readiness,
-      webOrigin,
+      approvalEvents: this.approvalEvents,
     };
     return createRequestScopedCapabilityMcpHandler(dependencies, resolveActiveTurn);
   }
@@ -184,13 +193,20 @@ async function invokeCapability(
       input: input.input,
     });
     if (outcome.kind === 'input_required') {
-      return inputRequired({
-        inputRequests: {
-          approval: inputRequired.elicitUrl({
-            message: 'Open KidItem to review the exact capability input.',
-            url: approvalUrl(dependencies.webOrigin, outcome.invocationId),
-          }),
-        },
+      dependencies.approvalEvents.publish({
+        organizationId: active.organizationId,
+        initiatingUserId: active.initiatingUserId,
+        conversationId: active.conversationId,
+        turnId: active.turnId,
+        invocationId: outcome.invocationId,
+      });
+      return structuredResult({
+        kind: 'pending' as const,
+        invocation: invocationReceipt(await getInvocation(
+          dependencies.invocations,
+          active.organizationId,
+          outcome.invocationId,
+        )),
       });
     }
 
@@ -368,10 +384,6 @@ function boundedMessage(message: string, fallback: string): string {
 function boundedCode(code: string, fallback: string): string {
   const normalized = code.trim();
   return normalized ? normalized.slice(0, 128) : fallback;
-}
-
-function approvalUrl(webOrigin: string, invocationId: string): string {
-  return `${webOrigin.replace(/\/$/, '')}/agent-os?invocationId=${encodeURIComponent(invocationId)}`;
 }
 
 export function capabilityIsMutation(effects: readonly string[]): boolean {

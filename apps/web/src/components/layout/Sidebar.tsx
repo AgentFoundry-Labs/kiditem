@@ -14,6 +14,7 @@ import { useStore } from "@/store/useStore";
 import { usePanelStore } from "@/components/panel/lib/panel-store";
 import { useAuth } from "@/hooks/useAuth";
 import { CollapsibleSidebarShell } from "./CollapsibleSidebarShell";
+import { SidebarBrandLink } from "./SidebarBrandLink";
 import { menuSections } from "./sidebar-menu";
 
 function isItemActive(href: string, pathname: string): boolean {
@@ -146,22 +147,13 @@ export default function Sidebar({
       onDesktopToggle={lockCollapsed ? undefined : toggleSidebar}
       onMobileOpenChange={setMobileOpen}
       home={
-        <Link
+        <SidebarBrandLink
           href="/"
-          aria-label="KidItem 홈"
-          onClick={(e) => handleNavClick(e, "/")}
-          className="flex min-h-11 min-w-11 items-center gap-2.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 md:min-h-10 md:min-w-10"
+          ariaLabel="KidItem 홈"
           title="KidItem 홈"
-        >
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--primary)]">
-            <span className="text-[12px] font-extrabold text-[var(--primary-contrast)]">K</span>
-          </div>
-          {sidebarOpen && (
-            <span className="text-[16px] font-bold tracking-tight text-[var(--text-primary)]">
-              KidItem
-            </span>
-          )}
-        </Link>
+          showLabel={sidebarOpen}
+          onClick={(event) => handleNavClick(event, "/")}
+        />
       }
       body={
         <nav

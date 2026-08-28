@@ -99,6 +99,49 @@ describe('GatewayCommandResponseBroker', () => {
     ]);
   });
 
+  it('publishes a server-originated approval locator only to the exact live turn owner', async () => {
+    const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
+    const started = broker.beginTurnStart({
+      ...OWNER,
+      ...TURN_START_INPUT,
+      commandId: 'command-1',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    });
+    const events: unknown[] = [];
+    broker.subscribeTurn({ ...OWNER, conversationId: 'conversation-1', turnId: 'turn-1' }, (event) => events.push(event));
+    broker.publishTurnEvent('conversation-1', 'turn-1', { kind: 'status', status: 'started' });
+
+    broker.publishOwnedTurnEvent({
+      ...OWNER,
+      initiatingUserId: '00000000-0000-4000-8000-000000000003',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    }, {
+      kind: 'capability.approval_required',
+      invocationId: '00000000-0000-4000-8000-000000000004',
+    });
+    broker.publishOwnedTurnEvent({
+      ...OWNER,
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    }, {
+      kind: 'capability.approval_required',
+      invocationId: '00000000-0000-4000-8000-000000000005',
+    });
+    broker.publishTurnEvent('conversation-1', 'turn-1', { kind: 'status', status: 'completed' });
+
+    await expect(started.result).resolves.toBeUndefined();
+    expect(events).toEqual([
+      { kind: 'status', status: 'started' },
+      {
+        kind: 'capability.approval_required',
+        invocationId: '00000000-0000-4000-8000-000000000005',
+      },
+      { kind: 'status', status: 'completed' },
+    ]);
+  });
+
   it('rejects bounded pending commands on timeout and disconnect without keeping a durable transcript or queue', async () => {
     vi.useFakeTimers();
     try {

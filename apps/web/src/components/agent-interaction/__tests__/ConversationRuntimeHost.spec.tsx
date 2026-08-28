@@ -22,7 +22,9 @@ const runtimeMocks = vi.hoisted(() => {
   const abortRun = vi.fn();
   const stopAgent = vi.fn();
   const connectAgent = vi.fn();
+  const coreRunAgent = vi.fn();
   const useAgent = vi.fn();
+  const useCapabilities = vi.fn();
   const subscribe = vi.fn((subscriber: Record<string, unknown>) => {
     const subscription = { unsubscribe: vi.fn(), subscriber };
     subscriptions.push(subscription);
@@ -45,8 +47,10 @@ const runtimeMocks = vi.hoisted(() => {
     abortRun,
     stopAgent,
     connectAgent,
+    coreRunAgent,
     subscribe,
     useAgent,
+    useCapabilities,
     agent,
     get isReady() { return isReady; },
     set isReady(value: boolean) { isReady = value; },
@@ -57,6 +61,7 @@ vi.mock('@copilotkit/react-core/v2', () => ({
   useCopilotKit: () => ({
     copilotkit: {
       connectAgent: runtimeMocks.connectAgent,
+      runAgent: runtimeMocks.coreRunAgent,
       stopAgent: runtimeMocks.stopAgent,
     },
   }),
@@ -65,6 +70,7 @@ vi.mock('@copilotkit/react-core/v2', () => ({
     runtimeMocks.subscribe.mockName('agent.subscribe');
     return { agent: runtimeMocks.agent, isReady: runtimeMocks.isReady };
   },
+  useCapabilities: (agentId: string) => runtimeMocks.useCapabilities(agentId),
 }));
 
 const FIRST = {
@@ -75,6 +81,27 @@ const SECOND = {
   ...FIRST, id: 'conversation-2', title: 'Second conversation', updatedAt: '2026-08-26T00:01:00.000Z',
 };
 const IDENTITY = { userId: 'user-a', organizationId: 'org-a' };
+const GATEWAY_READINESS_CAPABILITIES = {
+  custom: {
+    gatewayReadiness: [{
+      runtime: 'codex_cli',
+      ready: true,
+      readiness: {
+        runtime: 'codex_cli',
+        version: '0.149.1',
+        models: ['gpt-5.6'],
+        reasoningEfforts: ['low'],
+        modelReasoningEfforts: [{ model: 'gpt-5.6', reasoningEfforts: ['low'] }],
+        loginVerified: true,
+        mcpProtocolRevision: '2026-07-28',
+      },
+    }, {
+      runtime: 'claude_cli',
+      ready: false,
+      code: 'gateway_provider_unavailable',
+    }],
+  },
+};
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -139,7 +166,11 @@ describe('ConversationRuntimeHost', () => {
     runtimeMocks.stopAgent.mockReset();
     runtimeMocks.connectAgent.mockReset();
     runtimeMocks.connectAgent.mockResolvedValue(undefined);
+    runtimeMocks.coreRunAgent.mockReset();
+    runtimeMocks.coreRunAgent.mockResolvedValue(undefined);
     runtimeMocks.useAgent.mockReset();
+    runtimeMocks.useCapabilities.mockReset();
+    runtimeMocks.useCapabilities.mockReturnValue(GATEWAY_READINESS_CAPABILITIES);
     runtimeMocks.abortRun.mockImplementation(() => { runtimeMocks.agent.isRunning = false; });
     runtimeMocks.subscribe.mockClear();
     runtimeMocks.subscriptions.length = 0;
@@ -181,7 +212,7 @@ describe('ConversationRuntimeHost', () => {
     expect(apiClient.post).not.toHaveBeenCalled();
     expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringMatching(/\/history$/));
     expect(runtimeMocks.addMessage).not.toHaveBeenCalled();
-    expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
+    expect(runtimeMocks.coreRunAgent).not.toHaveBeenCalled();
     expect(runtimeMocks.connectAgent).not.toHaveBeenCalled();
   });
 
@@ -234,6 +265,17 @@ describe('ConversationRuntimeHost', () => {
     });
   });
 
+  it('reads gateway readiness from CopilotKit capabilities without a parallel runtime-info request', async () => {
+    useConversationSurfaceState.getState().selectConversation(FIRST);
+    renderHost(<RuntimeProbe />);
+
+    await waitFor(() => expect(latestRuntime?.readiness).toEqual(
+      GATEWAY_READINESS_CAPABILITIES.custom.gatewayReadiness,
+    ));
+    expect(runtimeMocks.useCapabilities).toHaveBeenCalledWith('conversation');
+    expect(apiClient.post).not.toHaveBeenCalledWith('/api/copilotkit', expect.anything());
+  });
+
   it('waits for the first exact binding connection before handing a promoted draft to runAgent', async () => {
     const connected = deferred<void>();
     runtimeMocks.connectAgent.mockReturnValue(connected.promise);
@@ -254,13 +296,41 @@ describe('ConversationRuntimeHost', () => {
       message: 'Wait for snapshot', model: 'gpt-5.6', reasoningEffort: 'low',
     });
     await waitFor(() => expect(runtimeMocks.connectAgent).toHaveBeenCalledTimes(1));
-    expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
+    expect(runtimeMocks.coreRunAgent).not.toHaveBeenCalled();
 
     await act(async () => {
       connected.resolve();
       await firstSend;
     });
-    expect(runtimeMocks.runAgent).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.coreRunAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands a promoted first send to CopilotKit core so it owns the run lifecycle', async () => {
+    renderHost(<RuntimeProbe />);
+    let draft!: ReturnType<typeof useConversationSurfaceState.getState.openConversation>;
+    act(() => {
+      draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
+      useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
+    });
+    const promoted = { ...FIRST, id: draft.conversationId, title: 'Use the CopilotKit run owner' };
+    vi.mocked(apiClient.post).mockImplementation((path: string) => (
+      path === '/api/agent-os/conversations'
+        ? Promise.resolve(promoted as never)
+        : Promise.resolve({ agents: {} } as never)
+    ));
+
+    await act(async () => {
+      await latestRuntime!.start({
+        message: 'Use the CopilotKit run owner', model: 'gpt-5.6', reasoningEffort: 'low',
+      });
+    });
+
+    expect(runtimeMocks.coreRunAgent).toHaveBeenCalledWith({
+      agent: runtimeMocks.agent,
+      runId: 'uuid-2',
+      forwardedProps: { model: 'gpt-5.6', reasoningEffort: 'low' },
+    });
+    expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
   });
 
   it('promotes matching concurrent first sends through one exact create and one CopilotKit handoff', async () => {
@@ -296,8 +366,9 @@ describe('ConversationRuntimeHost', () => {
     expect(runtimeMocks.addMessage).toHaveBeenCalledWith({
       id: `user-uuid-2`, role: 'user', content: 'Review the supplier evidence',
     });
-    expect(runtimeMocks.runAgent).toHaveBeenCalledTimes(1);
-    expect(runtimeMocks.runAgent).toHaveBeenCalledWith({
+    expect(runtimeMocks.coreRunAgent).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.coreRunAgent).toHaveBeenCalledWith({
+      agent: runtimeMocks.agent,
       runId: 'uuid-2',
       forwardedProps: { model: 'gpt-5.6', reasoningEffort: 'low' },
     });
@@ -354,7 +425,7 @@ describe('ConversationRuntimeHost', () => {
         ? Promise.resolve(promoted as never)
         : Promise.resolve({ agents: {} } as never)
     ));
-    runtimeMocks.runAgent
+    runtimeMocks.coreRunAgent
       .mockRejectedValueOnce(new Error('provider ended'))
       .mockResolvedValueOnce(undefined);
 
@@ -367,9 +438,9 @@ describe('ConversationRuntimeHost', () => {
     await latestRuntime!.start({
       message: 'Try again', model: 'gpt-5.6', reasoningEffort: 'low',
     });
-    expect(runtimeMocks.runAgent).toHaveBeenCalledTimes(2);
-    expect(runtimeMocks.runAgent.mock.calls[1][0].runId)
-      .not.toBe(runtimeMocks.runAgent.mock.calls[0][0].runId);
+    expect(runtimeMocks.coreRunAgent).toHaveBeenCalledTimes(2);
+    expect(runtimeMocks.coreRunAgent.mock.calls[1][0].runId)
+      .not.toBe(runtimeMocks.coreRunAgent.mock.calls[0][0].runId);
     expect(vi.mocked(apiClient.post).mock.calls.filter(([path]) => path === '/api/agent-os/conversations'))
       .toHaveLength(1);
   });
@@ -398,7 +469,7 @@ describe('ConversationRuntimeHost', () => {
   it('projects CopilotKit running state through presentation remounts without rendering provider tool metadata', async () => {
     useConversationSurfaceState.getState().selectConversation(FIRST);
     const running = deferred<void>();
-    runtimeMocks.runAgent.mockImplementation(() => {
+    runtimeMocks.coreRunAgent.mockImplementation(() => {
       runtimeMocks.agent.isRunning = true;
       return running.promise;
     });
@@ -409,7 +480,7 @@ describe('ConversationRuntimeHost', () => {
     const start = latestRuntime!.start({
       message: 'Review evidence', model: 'gpt-5.6', reasoningEffort: 'low',
     });
-    await waitFor(() => expect(runtimeMocks.runAgent).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(runtimeMocks.coreRunAgent).toHaveBeenCalledTimes(1));
     const subscriber = runtimeMocks.subscriptions[0].subscriber as {
       onRunInitialized?: () => void;
       onRunFinalized?: () => void;
@@ -576,7 +647,7 @@ describe('ConversationRuntimeHost', () => {
   it('interrupts an active CopilotKit run through CopilotKit without a browser-owned turn identifier', async () => {
     useConversationSurfaceState.getState().selectConversation(FIRST);
     const run = deferred<void>();
-    runtimeMocks.runAgent.mockImplementation(() => {
+    runtimeMocks.coreRunAgent.mockImplementation(() => {
       runtimeMocks.agent.isRunning = true;
       return run.promise;
     });
@@ -586,7 +657,7 @@ describe('ConversationRuntimeHost', () => {
     const start = latestRuntime!.start({
       message: 'Stop this turn', model: 'gpt-5.6', reasoningEffort: 'low',
     });
-    await waitFor(() => expect(runtimeMocks.runAgent).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(runtimeMocks.coreRunAgent).toHaveBeenCalledTimes(1));
     expect(latestRuntime).not.toHaveProperty('activeTurnId');
     await act(async () => latestRuntime!.interrupt());
     expect(runtimeMocks.stopAgent).toHaveBeenCalledTimes(1);

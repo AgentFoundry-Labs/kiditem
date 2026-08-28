@@ -23,6 +23,11 @@ export interface ConversationTurnCoordinates extends ConversationCoordinates {
   turnId: string;
 }
 
+export interface ConversationStopCoordinates extends ConversationCoordinates {
+  /** Optional exact-run locator only; organization and live authority remain server-owned. */
+  expectedTurnId?: string;
+}
+
 export interface ConversationLiveTurn {
   turnId: string;
   ready: Promise<void>;
@@ -37,8 +42,8 @@ export interface ConversationPort {
   /** Verifies the authenticated organization can access a descriptor before adapter-local replay/start. */
   assertAccessible(input: ConversationCoordinates): Promise<void>;
   isRunning(input: ConversationCoordinates): Promise<boolean>;
-  /** Resolves the stored exact live turn; callers never provide turn or execution authority. */
-  stop(input: ConversationCoordinates): Promise<boolean>;
+  /** Resolves the stored live turn and rejects a stale optional run locator. */
+  stop(input: ConversationStopCoordinates): Promise<boolean>;
   rename(input: ConversationCoordinates & { title: string }): Promise<ConversationSummary>;
   delete(input: ConversationCoordinates): Promise<void>;
   start(input: ConversationCoordinates & {

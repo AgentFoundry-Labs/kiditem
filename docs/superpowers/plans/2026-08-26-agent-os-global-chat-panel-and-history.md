@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Tasks 1–6 complete; approval-dispatch correction, final integrated review, business eval, and browser QA in progress
+**Status:** Tasks 1–7 implementation, acceptance, and same-branch handoff complete
 **Revised:** 2026-08-28
 
 **Goal:** Make one provider-native KidItem conversation available from every authenticated work screen, restore CopilotKit OSS as the interaction owner with its real SQLite event-history runner, and deliver the approved KidItem Agent OS/Dashboard chat design without adding PostgreSQL conversation state or a paid CopilotKit service.
@@ -68,7 +68,7 @@ The following decisions are fixed:
 | Right surface | Exactly `notifications | ai_chat | null`; selecting one replaces the other |
 | Panel mode | 352 px push dock at 1536+; 352 px overlay at 768-1535; full-width modal drawer below 768 px; CSS breakpoints only |
 | Sidebar shell | Shared 256 px expanded / 64 px collapsed desktop shell and preference; different Dashboard and Agent OS bodies; component-local mobile drawer state |
-| Conversation presentation | Opaque `#4c1d95` user bubble, structured assistant prose, shared contextual empty state, narrow two-row composer, compact user-language business-evidence rail |
+| Conversation presentation | Opaque `#4c1d95` user bubble, structured assistant prose, shared contextual empty state, shared two-tier composer, compact user-language business-evidence rail |
 | History deletion | Provider removal first, descriptor removal second, exact namespaced SQLite event history last; an absent-provider retry still finishes local cleanup |
 | Preferences | One strict Host Runner installation-user file; no organization copies |
 | Schema | No Prisma change and no new Task, Session, Attempt, folder, archive, or retention model; the runner's local SQLite schema is adapter-owned |
@@ -96,7 +96,7 @@ Current completion summary:
 - [x] Task 5 accepted 1536+/overlay visual correction and responsive regressions
 - [x] Task 6 accepted shared-sidebar/message/composer visual correction and Batch B review (RESOLVED)
 - [x] Task 7 Step 2 durable architecture/testing update and current deterministic/boot/package evidence
-- [ ] Task 7 mandatory Sol(max) integration review, business eval, and browser QA
+- [x] Task 7 mandatory Sol(max) integration review, business eval, and browser QA
 
 The detailed unchecked steps below describe the current-target acceptance
 recipe. They do not reopen the completed Tasks 1-3; this status summary is the
@@ -1548,8 +1548,9 @@ Test:
   terminal turns;
 - Enter sends only outside IME composition, Shift+Enter inserts a newline, and
   Escape closes the selector; and
-- a 352 px panel composer gives the textarea its own full row and places the
-  selector with Send/Interrupt below it; a valid saved default appears in both
+- the shared composer gives the textarea its own full row and places the
+  selector and Send/Interrupt below it at both widths; a
+  valid saved default appears in both
   surfaces, a fresh missing selection is neutral, and only an unsupported saved
   pair shows a `추론 수준` review warning; and
 - unsupported attachment, microphone, voice, media, Gateway, and session
@@ -1676,12 +1677,16 @@ Do not hide them behind a false condition or retain their tests.
 Use one opaque rounded border-first container, growing textarea, ChatGPT-style
 combined model/reasoning menu, and one circular Send/Interrupt position. Center
 it on the same 720-768 pixel message column, give only the composer a subtle
-elevation, and remove the extra full-width footer-card impression. Make the
-composer its own responsive container: at narrow width the textarea is one full
-row and the selector plus Send/Interrupt are a second row; only a sufficiently
-wide Agent OS container uses the horizontal arrangement. Do not reserve a fixed
-selector width beside the textarea. Preserve visible focus, live-region errors,
-reduced motion, and IME behavior.
+elevation, and remove the extra full-width footer-card impression. Use the
+approved 2026-08-28 reference composition at both widths: a spacious multiline
+input on the first row and a second toolbar row with the compact
+model/reasoning selector and one dark circular Send/Interrupt control on the
+right. The wide
+Agent OS lane gains whitespace without switching back to the old single-row
+layout. Do not expose fixed CLI execution policy as chat state, add
+nonfunctional attachment or microphone controls, or reserve a fixed selector
+width. Preserve visible focus, live-region errors, reduced motion, and IME
+behavior.
 
 Do not render separate persistent Model and Reasoning select rows. Draft mode
 keeps Provider/model/effort editable in the composed control; existing
@@ -2084,17 +2089,17 @@ regression, and browser QA gates.
 Keep the Task 6 `DESIGN.md` semantic-token correction; do not copy the full UX
 spec into architecture/testing documents.
 
-Current integrated evidence (2026-08-28, post-final-review fixes):
+Current integrated evidence (2026-08-28, final):
 
 - Tasks 4-6 Batch B review: **RESOLVED**.
-- Shared agent-runtime and interaction contracts: 27 tests passed and package
-  build passed.
+- Shared agent-runtime contracts: 23 tests passed and package build passed.
 - CopilotKit SQLite runner: 9 tests passed.
-- Agent Gateway: 148 tests passed, 10 skipped, and package build passed.
-- Server Agent OS: 156 tests passed; four upstream sqlite-runner
+- Agent Gateway: 154 tests passed, 10 skipped, and package build passed.
+- Server Agent OS: 176 tests passed; four upstream sqlite-runner
   characterization failures remain expected; package build passed.
-- Web Task 7 surface: 260 tests passed and production build passed.
-- Scripts: 144 Vitest tests passed; TAP reported 211 passed and one skipped.
+- Web: all 379 files and 1,917 tests passed; production build generated all 49
+  pages.
+- Scripts: 144 Vitest tests passed; TAP reported 214 passed and one skipped.
 - Architecture guards passed; Nest listened on port 4100; macOS checks reported
   seven passed and four skipped; direct package-directory `npm pack` passed.
 - The mandatory Sol(max) integration review found four Important issues. TDD
@@ -2102,9 +2107,23 @@ Current integrated evidence (2026-08-28, post-final-review fixes):
   receipt-only mutation persistence/MCP exposure, and history-action focus.
   The same reviewer rechecked only those findings and marked all four
   `RESOLVED`.
-
-The Codex/Terra(max) business evaluation and authenticated browser QA remain
-unchecked.
+- The post-composer Sol(max) review found two further Important issues: a stale
+  CopilotKit stop could interrupt a successor turn, and global assistant text
+  rewriting could alter legitimate technical discussion. Both were reproduced
+  with failing tests, fixed at their narrow boundaries, and rechecked with no
+  remaining Critical or Important finding.
+- Codex/Terra(max) business evaluation: read 3/3, approval-gated providerless
+  mutation 3/3, deterministic commit/result-loss/restart replay 9/9, and live
+  two-turn/restart continuity met the 2/3 threshold; the failed trial became a
+  regression and its rerun passed. Organization intrusion, approval bypass,
+  fabricated canonical input, and duplicate writes were absent in every trial.
+- Authenticated browser QA covered Dashboard and work-route launch, Agent OS
+  history/settings, route round-trips, responsive panel/sidebar behavior, and
+  the shared composer. The final visual recheck confirmed the fixed CLI access
+  policy is not rendered, Dashboard → Agent OS → Dashboard preserves the open
+  chat surface, and 256/64 sidebar collapse does not disturb the panel.
+- Claude live conversation remains non-blocking because no paid login is
+  available; its deterministic contracts pass.
 
 - [x] **Step 3: Run all deterministic package gates**
 
@@ -2195,7 +2214,7 @@ after Tasks 5-6 are updated. Keep the previously observed
 `AiDirectJobWorkerService` Prisma `$queryRaw` isolated-database schema mismatch
 separate unless new evidence ties it to Agent OS.
 
-- [ ] **Step 7: Run the Codex/Terra(max) Dashboard business eval**
+- [x] **Step 7: Run the Codex/Terra(max) Dashboard business eval**
 
 Run the actual Dashboard AI chat against a freshly initialized isolated
 browser-QA fixture. Use Codex with `gpt-5.6-terra` and `max`; do not silently
@@ -2237,7 +2256,7 @@ resource references, and the final domain snapshot. Never store credentials,
 cookies, bearers/tokens, provider raw payloads, private reasoning, or production
 transcripts. Claude live QA remains non-blocking while a paid login is absent.
 
-- [ ] **Step 8: Run authenticated browser QA**
+- [x] **Step 8: Run authenticated browser QA**
 
 Use the isolated Agent OS QA environment and the current development account.
 Do not print credentials, cookies, Gateway bearer, MCP transport token, provider
@@ -2285,9 +2304,9 @@ Verify:
     only fill the composer and cause no API/tool call. A valid saved default is
     selected in both surfaces; only a stored unsupported pair shows the `추론
     수준` warning.
-19. At 352 px the composer keeps a usable full-width textarea row and a second
-    selector/Send row; no word or placeholder collapses to a one-character
-    column.
+19. At panel and workspace widths the composer keeps a usable full-width
+    textarea row and a second selector/Send row; no word or placeholder
+    collapses to a one-character column.
 20. Normal success and idle UI shows no Gateway/provider-local/transport/
     execution label, raw tool/capability name, hash, internal ID, or generic
     `업무 처리 완료` result.
@@ -2302,7 +2321,7 @@ Verify:
 Capture failures as code defects or the explicit Claude environment limitation;
 do not add operator readiness/login UI to make QA pass.
 
-- [ ] **Step 9: Review the final diff against the approved design**
+- [x] **Step 9: Review the final diff against the approved design**
 
 Run:
 
@@ -2340,7 +2359,7 @@ Confirm:
 - the narrow composer, shared empty state, `추론 수준` terminology, structured
   assistant body, and `업무 증거` rail satisfy their focused regressions.
 
-- [ ] **Step 10: Commit documentation and acceptance updates**
+- [x] **Step 10: Commit documentation and acceptance updates**
 
 ~~~bash
 rtk git add scripts/smoke-interaction-os.mjs scripts/__tests__/smoke-interaction-os.test.mjs docs/ARCHITECTURE.md docs/TESTING.md DESIGN.md docs/superpowers/specs/2026-08-26-agent-os-chat-workspace-ux-design.md docs/superpowers/plans/2026-08-26-agent-os-global-chat-panel-and-history.md
@@ -2349,61 +2368,61 @@ rtk git commit -m "docs(agent-os): verify global conversation workspace"
 
 ## Final Acceptance Checklist
 
-- [ ] Browser-reserved create ID is strict, replayable, and drift-conflicting at
+- [x] Browser-reserved create ID is strict, replayable, and drift-conflicting at
   the native owner boundary.
-- [ ] Concurrent descriptor mutations cannot lose or resurrect state.
-- [ ] Codex archives and Claude removes only exact provider-owned session
+- [x] Concurrent descriptor mutations cannot lose or resurrect state.
+- [x] Codex archives and Claude removes only exact provider-owned session
   artifacts.
-- [ ] Live-turn deletion fails before provider mutation; an absent or foreign
+- [x] Live-turn deletion fails before provider mutation; an absent or foreign
   delete cleans only the caller namespace and remains `404`.
-- [ ] Preferences are strict, bounded, atomic, serialized, installation-user
+- [x] Preferences are strict, bounded, atomic, serialized, installation-user
   scoped, and absent from PostgreSQL.
-- [ ] Nest derives user/organization scope for every API and exposes no provider
+- [x] Nest derives user/organization scope for every API and exposes no provider
   coordinate.
-- [ ] One authenticated CopilotKit interaction survives route changes through
+- [x] One authenticated CopilotKit interaction survives route changes through
   the route-stable ConversationProvider/RuntimeHost presentation adapter.
-- [ ] CopilotKit SQLite semantics own full completed-event run/connect/replay;
+- [x] CopilotKit SQLite semantics own full completed-event run/connect/replay;
   Nest alone owns active-turn running/stop authority, and the fake runner plus
   duplicate Web/provider reconciliation lifecycles are absent.
-- [ ] Upstream sqlite-runner characterization covers subscriber departure,
+- [x] Upstream sqlite-runner characterization covers subscriber departure,
   restart stale lock, exact stop, organization namespace, and exact deletion;
   any required fork is limited to that package with provenance and delta tests.
-- [ ] AI chat panel and Agent OS share one runtime, flow, composer, Query cache, and
+- [x] AI chat panel and Agent OS share one runtime, flow, composer, Query cache, and
   first-send coordinator.
-- [ ] Notification and AI chat content are mutually exclusive bodies of one
+- [x] Notification and AI chat content are mutually exclusive bodies of one
   `notifications | ai_chat | null` right surface.
-- [ ] Desktop 1536+ uses one 352 px push dock, 768-1535 uses the same 352 px body
+- [x] Desktop 1536+ uses one 352 px push dock, 768-1535 uses the same 352 px body
   as an overlay, and below 768 px it becomes a full-width modal drawer without
   measured or persisted layout state.
-- [ ] Agent OS suppresses only duplicate ai_chat presentation; notification
+- [x] Agent OS suppresses only duplicate ai_chat presentation; notification
   presentation and the preserved chat runtime follow the fixed route rule.
-- [ ] Dashboard Agent OS UI and business actions are unchanged.
-- [ ] Dashboard and Agent OS use one 256 px expanded / 64 px collapsed sidebar
+- [x] Dashboard Agent OS UI and business actions are unchanged.
+- [x] Dashboard and Agent OS use one 256 px expanded / 64 px collapsed sidebar
   shell and desktop preference with different bodies, an always-available Agent
   OS Dashboard return, sidebar-local controls, and independent mobile drawers.
-- [ ] Agent OS uses the approved quiet header, centered message column, usable
+- [x] Agent OS uses the approved quiet header, centered message column, usable
   narrow/full composer variants, shared contextual empty state, structured
   assistant prose, user-language business-evidence rail, and centered
   Settings/history dialog with canonical KidItem semantic tokens.
-- [ ] Agent and Chat are the only sidebar sections; Agent contains the exact
+- [x] Agent and Chat are the only sidebar sections; Agent contains the exact
   five folders, Chat contains General conversations only, and native subagents
   stay inside parent streams.
-- [ ] Provider is immutable after create; model/reasoning remain explicit per
+- [x] Provider is immutable after create; model/reasoning remain explicit per
   turn with no silent fallback.
-- [ ] Valid saved model/`추론 수준` defaults apply in Dashboard and Agent OS;
+- [x] Valid saved model/`추론 수준` defaults apply in Dashboard and Agent OS;
   only an unsupported stored pair shows a review warning and `사고 수준` is
   absent from user-facing copy.
-- [ ] Search, rename, individual delete, folder delete, and delete all satisfy
+- [x] Search, rename, individual delete, folder delete, and delete all satisfy
   retry/partial-failure behavior.
-- [ ] Replaced panel/sidebar/modal state and components are deleted with their
+- [x] Replaced panel/sidebar/modal state and components are deleted with their
   imports, fixtures, storage key, mocks, and tests; no compatibility layer
   remains.
-- [ ] Shared, Gateway, server, Web, scanner, build, boot, macOS, smoke, and
+- [x] Shared, Gateway, server, Web, scanner, build, boot, macOS, smoke, and
   browser QA evidence is recorded.
-- [ ] Codex/Terra(max) Dashboard business eval passed all three cases at 3 trials
+- [x] Codex/Terra(max) Dashboard business eval passed all three cases at 3 trials
   each, with every forbidden behavior absent and at least 2/3 normal completion
   per case.
 - [x] One Sol(max) integrated review passed before browser QA with no open
   Critical or Important finding.
-- [ ] The only live limitation, when still applicable, is unavailable Claude
+- [x] The only live limitation, when still applicable, is unavailable Claude
   subscription/login; deterministic Claude contracts still pass.

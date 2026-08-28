@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useAgent, useCopilotKit } from '@copilotkit/react-core/v2';
+import { useAgent, useCapabilities, useCopilotKit } from '@copilotkit/react-core/v2';
 import {
   createContext,
   useCallback,
@@ -22,9 +22,9 @@ import { selectTurnPreference, type TurnPreferenceSelection } from './conversati
 import {
   createConversation,
   deleteConversation,
+  gatewayReadinessFromCapabilities,
   getConversationPreferences,
   listConversations,
-  loadConversationReadiness,
   renameConversation,
   setConversationPreference,
   type ConversationPreferences,
@@ -61,7 +61,7 @@ export interface ConversationRuntimeContextValue {
   isRunning: boolean; turnEnded: string | null;
   start(input: TurnInput): Promise<void>;
   interrupt(): Promise<void>;
-  retryReadiness(): void;
+  refreshConversations(): Promise<void>;
   updateDraft(patch: DraftPatch): void;
   setPreference(input: SetConversationPreferenceCommand): Promise<ConversationPreferences>;
   renameConversation(conversationId: string, title: string): Promise<ConversationSummary>;
@@ -123,6 +123,12 @@ export function ConversationRuntimeHost({
     queryFn: listConversations,
     staleTime: 15_000,
   });
+  const refreshConversations = useCallback(async () => {
+    await queryClient.refetchQueries({
+      queryKey: queryKeys.conversations.list(identity),
+      type: 'active',
+    });
+  }, [identity, queryClient]);
   const conversations = conversationsQuery.data ?? [];
   const activeConversation = activeConversationId
     ? conversations.find((conversation) => conversation.id === activeConversationId) ?? null
@@ -138,13 +144,8 @@ export function ConversationRuntimeHost({
   const selectedRuntime = binding?.kind === 'existing'
     ? binding.conversation.runtime
     : binding?.draft.provider ?? null;
-  const readinessQuery = useQuery({
-    queryKey: queryKeys.conversations.readiness(identity),
-    queryFn: loadConversationReadiness,
-    staleTime: 30_000,
-    enabled: selectedRuntime !== null || settingsOpen,
-  });
-  const readiness = readinessQuery.isError ? null : readinessQuery.data;
+  const capabilities = useCapabilities('conversation');
+  const readiness = gatewayReadinessFromCapabilities(capabilities);
   const preferencesQuery = useQuery({
     queryKey: queryKeys.conversations.preferences(identity),
     queryFn: getConversationPreferences,
@@ -267,7 +268,7 @@ export function ConversationRuntimeHost({
     preferencesLoading: preferencesQuery.isLoading,
     preferencesError: preferencesQuery.isError,
     turnPreference,
-    retryReadiness: () => { void readinessQuery.refetch(); },
+    refreshConversations,
     updateDraft,
     setPreference: setPreferenceMutation.mutateAsync,
     renameConversation: (conversationId, title) => renameConversationMutation.mutateAsync({ conversationId, title }),
@@ -289,7 +290,7 @@ export function ConversationRuntimeHost({
           preferencesLoading={preferencesQuery.isLoading}
           preferencesError={preferencesQuery.isError}
           turnPreference={turnPreference}
-          retryReadiness={() => { void readinessQuery.refetch(); }}
+          refreshConversations={refreshConversations}
           coordinator={coordinatorRef.current!}
           runtimeHandleRef={runtimeHandleRef}
           updateDraft={updateDraft}
@@ -335,7 +336,7 @@ function ActiveConversationRuntime({
   preferencesLoading,
   preferencesError,
   turnPreference,
-  retryReadiness,
+  refreshConversations,
   coordinator,
   runtimeHandleRef,
   updateDraft,
@@ -356,7 +357,7 @@ function ActiveConversationRuntime({
   preferencesLoading: boolean;
   preferencesError: boolean;
   turnPreference: TurnPreferenceSelection;
-  retryReadiness(): void;
+  refreshConversations(): Promise<void>;
   coordinator: ConversationFirstSendCoordinator;
   runtimeHandleRef: MutableRefObject<RuntimeHandle | null>;
   updateDraft(patch: Partial<Omit<NewConversationDraft, 'conversationId'>>): void;
@@ -472,7 +473,8 @@ function ActiveConversationRuntime({
     setTurnEnded(null);
     agent.addMessage({ id: `user-${turnId}`, role: 'user', content: input.message });
     try {
-      await agent.runAgent({
+      await copilotkit.runAgent({
+        agent,
         runId: turnId,
         forwardedProps: { model: input.model, reasoningEffort: input.reasoningEffort },
       });
@@ -482,7 +484,7 @@ function ActiveConversationRuntime({
       refreshPresentation();
       throw new Error('conversation_turn_ended');
     }
-  }, [agent, isReady, refreshPresentation]);
+  }, [agent, copilotkit, isReady, refreshPresentation]);
   const startExisting = useCallback(async (input: TurnInput) => {
     if (binding.kind !== 'existing') throw new Error('conversation_draft_not_promoted');
     await ensureConnected();
@@ -565,7 +567,7 @@ function ActiveConversationRuntime({
     turnEnded,
     start,
     interrupt,
-    retryReadiness,
+    refreshConversations,
     updateDraft,
     setPreference,
     renameConversation,
@@ -639,7 +641,7 @@ function inactiveRuntimeValue({
   preferencesLoading,
   preferencesError,
   turnPreference,
-  retryReadiness,
+  refreshConversations,
   updateDraft,
   setPreference,
   renameConversation,
@@ -654,7 +656,7 @@ function inactiveRuntimeValue({
   | 'preferencesLoading'
   | 'preferencesError'
   | 'turnPreference'
-  | 'retryReadiness'
+  | 'refreshConversations'
   | 'updateDraft'
   | 'setPreference'
   | 'renameConversation'
@@ -683,7 +685,7 @@ function inactiveRuntimeValue({
     turnEnded: null,
     start: noActiveConversation,
     interrupt: noActiveConversation,
-    retryReadiness,
+    refreshConversations,
     updateDraft,
     setPreference,
     renameConversation,

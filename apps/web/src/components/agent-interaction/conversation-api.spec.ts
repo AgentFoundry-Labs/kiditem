@@ -6,7 +6,6 @@ import {
   deleteConversation,
   getConversationPreferences,
   listConversations,
-  loadConversationReadiness,
   renameConversation,
   setConversationPreference,
 } from './conversation-api';
@@ -59,6 +58,7 @@ describe('conversation API', () => {
     expect(conversationApi).not.toHaveProperty('sendConversationInput');
     expect(conversationApi).not.toHaveProperty('interruptConversation');
     expect(conversationApi).not.toHaveProperty('stopConversationTurn');
+    expect(conversationApi).not.toHaveProperty('loadConversationReadiness');
     expect(apiClient.patch).toHaveBeenCalledWith('/api/agent-os/conversations/conversation-1', { title: 'Renamed' });
     expect(apiClient.delete).toHaveBeenCalledWith('/api/agent-os/conversations/conversation-1');
     expect(JSON.stringify(vi.mocked(apiClient.post).mock.calls)).not.toMatch(/provider|binding|owner|credential/i);
@@ -82,34 +82,4 @@ describe('conversation API', () => {
     expect(apiClient.patch).not.toHaveBeenCalled();
   });
 
-  it('reads model and effort choices from the public CopilotKit info capability', async () => {
-    vi.mocked(apiClient.post).mockResolvedValue({
-      agents: {
-        conversation: {
-          capabilities: {
-            custom: {
-              gatewayReadiness: [{
-                runtime: 'codex_cli', ready: true,
-                readiness: {
-                  runtime: 'codex_cli', version: '0.149.1', models: ['gpt-5.6'],
-                  reasoningEfforts: ['low'],
-                  modelReasoningEfforts: [{ model: 'gpt-5.6', reasoningEfforts: ['low'] }],
-                  loginVerified: true, mcpProtocolRevision: '2026-07-28',
-                },
-              }, {
-                runtime: 'claude_cli', ready: false, code: 'gateway_provider_unavailable',
-              }],
-            },
-          },
-        },
-      },
-    } as never);
-
-    await expect(loadConversationReadiness()).resolves.toEqual(expect.arrayContaining([
-      expect.objectContaining({ runtime: 'codex_cli', ready: true }),
-    ]));
-    expect(apiClient.post).toHaveBeenCalledWith('/api/copilotkit', {
-      method: 'info', params: {}, body: {},
-    });
-  });
 });

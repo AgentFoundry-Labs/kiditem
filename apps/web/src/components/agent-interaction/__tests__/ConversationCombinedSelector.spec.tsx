@@ -9,9 +9,9 @@ const readiness = [{
   readiness: {
     runtime: 'codex_cli' as const,
     version: '0.149.1',
-    models: ['gpt-5.6'],
-    reasoningEfforts: ['low'],
-    modelReasoningEfforts: [{ model: 'gpt-5.6', reasoningEfforts: ['low'] }],
+    models: ['gpt-5.6-terra'],
+    reasoningEfforts: ['max'],
+    modelReasoningEfforts: [{ model: 'gpt-5.6-terra', reasoningEfforts: ['max'] }],
     loginVerified: true as const,
     mcpProtocolRevision: '2026-07-28',
   },
@@ -21,8 +21,8 @@ function selectorProps(overrides: Partial<React.ComponentProps<typeof Conversati
   return {
     runtime: 'codex_cli' as const,
     readiness,
-    model: 'gpt-5.6',
-    reasoningEffort: 'low',
+    model: 'gpt-5.6-terra',
+    reasoningEffort: 'max',
     providerEditable: false,
     disabled: false,
     onRuntimeChange: vi.fn(),
@@ -33,28 +33,28 @@ function selectorProps(overrides: Partial<React.ComponentProps<typeof Conversati
 }
 
 describe('ConversationCombinedSelector', () => {
-  it('uses one compact summary pill and progressive option lists instead of a native three-select form', async () => {
+  it('keeps the current model and localized effort visible as one quiet compact control', async () => {
     const user = userEvent.setup();
     render(<ConversationCombinedSelector {...selectorProps()} />);
 
     const trigger = screen.getByRole('button', { name: '대화 엔진 설정' });
-    expect(trigger).toHaveClass('rounded-full', 'border-input', 'bg-card');
-    expect(trigger).toHaveTextContent('Codex · gpt-5.6 · low');
+    expect(trigger).toHaveClass('rounded-full', 'border-0', 'bg-transparent');
+    expect(trigger).toHaveTextContent('5.6 Terra · 최대');
     await user.click(trigger);
 
     expect(screen.getByRole('dialog', { name: '대화 엔진 설정' })).toBeVisible();
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '대화 엔진' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '모델' })).toHaveTextContent('gpt-5.6');
-    expect(screen.getByRole('button', { name: '추론 수준' })).toHaveTextContent('low');
+    expect(screen.getByRole('button', { name: '모델' })).toHaveTextContent('gpt-5.6-terra');
+    expect(screen.getByRole('button', { name: '추론 수준' })).toHaveTextContent('max');
 
     await user.click(screen.getByRole('button', { name: '모델' }));
     expect(screen.getByRole('listbox', { name: '모델 목록' })).toBeVisible();
     expect(screen.getByRole('button', { name: '대화 엔진 설정으로 돌아가기' })).toBeVisible();
-    expect(screen.getByRole('option', { name: 'gpt-5.6' })).toHaveAttribute('aria-selected', 'true');
-    await user.click(screen.getByRole('option', { name: 'gpt-5.6' }));
+    expect(screen.getByRole('option', { name: 'gpt-5.6-terra' })).toHaveAttribute('aria-selected', 'true');
+    await user.click(screen.getByRole('option', { name: 'gpt-5.6-terra' }));
 
-    expect(screen.getByRole('button', { name: '모델' })).toHaveTextContent('gpt-5.6');
+    expect(screen.getByRole('button', { name: '모델' })).toHaveTextContent('gpt-5.6-terra');
   });
 
   it('lets a draft choose its provider through the same progressive menu and restores focus on Escape', async () => {

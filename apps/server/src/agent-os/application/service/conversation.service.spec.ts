@@ -557,6 +557,58 @@ describe('ConversationService', () => {
     })).resolves.toBe(false);
   });
 
+  it('does not let a stale exact-stop locator interrupt a successor turn', async () => {
+    const gateway = readyGateway();
+    const lifecycleSinks: Array<(event: { kind: 'status'; status: 'completed' }) => void> = [];
+    vi.mocked(gateway.start)
+      .mockReturnValueOnce({
+        turnId: 'turn-1',
+        ready: Promise.resolve(),
+        subscribe: (sink) => {
+          lifecycleSinks.push(sink as (event: { kind: 'status'; status: 'completed' }) => void);
+          return () => undefined;
+        },
+      })
+      .mockReturnValueOnce({
+        turnId: 'turn-2',
+        ready: Promise.resolve(),
+        subscribe: (sink) => {
+          lifecycleSinks.push(sink as (event: { kind: 'status'; status: 'completed' }) => void);
+          return () => undefined;
+        },
+      });
+    const service = createService(gateway, () => 'generated-turn');
+    const start = {
+      ...OWNER,
+      conversationId: GENERAL_CONVERSATION.id,
+      message: 'Keep the successor turn authoritative.',
+      model: 'gpt-5.6',
+      reasoningEffort: 'low',
+    };
+
+    await service.start({ ...start, turnId: 'turn-1' });
+    lifecycleSinks[0]?.({ kind: 'status', status: 'completed' });
+    await service.start({ ...start, turnId: 'turn-2' });
+
+    await expect(service.stop({
+      ...OWNER,
+      conversationId: GENERAL_CONVERSATION.id,
+      expectedTurnId: 'turn-1',
+    })).resolves.toBe(false);
+    expect(gateway.interrupt).not.toHaveBeenCalled();
+
+    await expect(service.stop({
+      ...OWNER,
+      conversationId: GENERAL_CONVERSATION.id,
+      expectedTurnId: 'turn-2',
+    })).resolves.toBe(true);
+    expect(gateway.interrupt).toHaveBeenCalledWith({
+      ...OWNER,
+      conversationId: GENERAL_CONVERSATION.id,
+      turnId: 'turn-2',
+    });
+  });
+
   it('retries exact local SQLite cleanup after an already-absent Gateway delete while preserving not-found', async () => {
     const gateway = readyGateway();
     vi.mocked(gateway.delete)

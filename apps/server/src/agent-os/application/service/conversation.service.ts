@@ -12,6 +12,7 @@ import {
   type ConversationLiveTurn,
   type ConversationOwner,
   type ConversationPort,
+  type ConversationStopCoordinates,
   CONVERSATION_TURN_ID_FACTORY,
   type ConversationTurnIdFactory,
   type ConversationTurnCoordinates,
@@ -109,10 +110,11 @@ export class ConversationService implements ConversationPort {
     return this.turns.has(activeTurnKey(input));
   }
 
-  async stop(input: ConversationCoordinates): Promise<boolean> {
+  async stop(input: ConversationStopCoordinates): Promise<boolean> {
     assertConversation(input);
     await this.requireConversation(input);
     const turn = this.turns.get(activeTurnKey(input));
+    if (input.expectedTurnId !== undefined && turn?.turnId !== input.expectedTurnId) return false;
     if (!turn || turn.interruptRequested) return false;
     turn.interruptRequested = true;
     try {
