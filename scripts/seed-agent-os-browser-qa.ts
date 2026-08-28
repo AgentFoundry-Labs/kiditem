@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient, type Prisma } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { hashAuthPassword } from '../apps/server/src/auth/domain/auth-credentials';
@@ -28,11 +29,76 @@ const BROWSER_QA_ORGANIZATION = {
   isActive: true,
 } as const;
 
-const BROWSER_QA_FOREIGN_ORGANIZATION = {
-  name: 'Browser QA foreign decoy',
-  slug: 'browser-qa-agent-os-foreign-decoy',
-  isActive: false,
-} as const;
+export const BROWSER_QA_FIXTURE_PROFILES = [
+  'sourcing.recommendation.v1',
+  'sourcing.candidate-ingest.v1',
+  'products.listing-generation.v1',
+  'runtime.two-turn-restart.v1',
+  'runtime.general-chat.v1',
+  'sourcing.existing-candidate.v1',
+  'sourcing.candidate-denial.v1',
+  'sourcing.scrape-failure.v1',
+  'supply.purchase-order-submit.v1',
+] as const;
+
+export type BrowserQaFixtureProfileId = (typeof BROWSER_QA_FIXTURE_PROFILES)[number];
+
+type BrowserQaProfileDefinition = {
+  inputVariables: readonly string[];
+  outputVariables: readonly string[];
+  includesCandidate?: boolean;
+  includesRecommendationWorkspace?: boolean;
+  includesSupply?: boolean;
+  createsFailureSupplierUrl?: boolean;
+};
+
+const BROWSER_QA_PROFILE_DEFINITIONS: Record<
+  BrowserQaFixtureProfileId,
+  BrowserQaProfileDefinition
+> = {
+  'sourcing.recommendation.v1': {
+    inputVariables: [],
+    outputVariables: [],
+    includesRecommendationWorkspace: true,
+  },
+  'sourcing.candidate-ingest.v1': {
+    inputVariables: ['supplierUrl'],
+    outputVariables: ['supplierUrl'],
+  },
+  'products.listing-generation.v1': {
+    inputVariables: [],
+    outputVariables: ['candidateRef'],
+    includesCandidate: true,
+  },
+  'runtime.two-turn-restart.v1': {
+    inputVariables: [],
+    outputVariables: [],
+    includesRecommendationWorkspace: true,
+  },
+  'runtime.general-chat.v1': {
+    inputVariables: [],
+    outputVariables: [],
+  },
+  'sourcing.existing-candidate.v1': {
+    inputVariables: [],
+    outputVariables: ['supplierUrl'],
+    includesCandidate: true,
+  },
+  'sourcing.candidate-denial.v1': {
+    inputVariables: ['supplierUrl'],
+    outputVariables: ['supplierUrl'],
+  },
+  'sourcing.scrape-failure.v1': {
+    inputVariables: [],
+    outputVariables: ['supplierUrl'],
+    createsFailureSupplierUrl: true,
+  },
+  'supply.purchase-order-submit.v1': {
+    inputVariables: [],
+    outputVariables: ['purchaseOrderRef', 'externalOrderId'],
+    includesSupply: true,
+  },
+};
 
 const BROWSER_QA_SELLPIA_INVENTORY_SKU = {
   code: 'browser-qa-synthetic-sku',
@@ -66,8 +132,7 @@ const BROWSER_QA_PURCHASE_ORDER = {
   supplierName: 'Browser QA synthetic supplier',
   totalAmountCny: 1,
   status: 'draft',
-  externalOrderPlatform: null,
-  externalOrderId: null,
+  externalOrderPlatform: 'ALIBABA_1688',
   externalOrderUrl: null,
   idempotencyKey: 'browser-qa-synthetic-purchase-order',
   requestHash: null,
@@ -79,42 +144,108 @@ const BROWSER_QA_PURCHASE_ORDER_ITEM = {
   unitPriceCny: 1,
 } as const;
 
-const BROWSER_QA_SUPPLIER = parseAllowedSupplierUrl(
-  'https://detail.1688.com/offer/900000000000.html',
-);
-const BROWSER_QA_EXTERNAL_OFFER_ID = extractSupplierOfferId(BROWSER_QA_SUPPLIER);
-if (!BROWSER_QA_EXTERNAL_OFFER_ID) {
-  throw new Error('Browser-QA synthetic supplier fixture requires a 1688 offer ID.');
-}
+type BrowserQaSyntheticSupplier = {
+  sourceUrl: string;
+  externalOfferId: string;
+};
 
-const BROWSER_QA_SOURCING_CANDIDATE = {
-  sourceUrl: BROWSER_QA_SUPPLIER.normalizedUrl,
-  sourcePlatform: 'ALIBABA_1688',
-  externalOfferId: BROWSER_QA_EXTERNAL_OFFER_ID,
-  sourceIdentityHash: canonicalSourcingCandidateIdentity({
-    sourcePlatform: 'ALIBABA_1688',
-    sourceUrl: BROWSER_QA_SUPPLIER.normalizedUrl,
-    validatedExternalOfferId: BROWSER_QA_EXTERNAL_OFFER_ID,
-    variantKeyNormalized: '',
-  }),
-  variantKeyNormalized: '',
-  name: 'Browser QA fixture',
-  description: 'Synthetic record for isolated Agent OS browser QA.',
-  status: 'sourced',
-  isDeleted: false,
-} as const;
+type BrowserQaSourcingCandidate = {
+  sourceUrl: string;
+  sourcePlatform: 'ALIBABA_1688';
+  externalOfferId: string;
+  sourceIdentityHash: string;
+  variantKeyNormalized: string;
+  name: string;
+  description: string;
+  status: 'sourced';
+  isDeleted: false;
+};
 
-const BROWSER_QA_FOREIGN_SOURCING_CANDIDATE = {
-  ...BROWSER_QA_SOURCING_CANDIDATE,
-  name: 'Browser QA foreign decoy candidate',
-  description: 'Synthetic inaccessible record for isolated Agent OS browser QA.',
-} as const;
+const BROWSER_QA_FIXTURE_HASH = 'b'.repeat(64);
 
-const BROWSER_QA_FOREIGN_PURCHASE_ORDER = {
-  ...BROWSER_QA_PURCHASE_ORDER,
-  supplierName: 'Browser QA foreign decoy supplier',
-  idempotencyKey: 'browser-qa-foreign-decoy-purchase-order',
-} as const;
+type BrowserQaRecommendationPlan = {
+  evidenceIngestionRun: {
+    sourceKey: string;
+    scopeKey: string;
+    targetKey: string;
+    idempotencyKey: string;
+    requestHash: string;
+    collectorKey: string;
+    collectorVersion: string;
+    triggerKind: string;
+    status: string;
+    discoveredCount: number;
+    acceptedCount: number;
+    rejectedCount: number;
+    duplicateCount: number;
+    startedAt: Date;
+    completedAt: Date;
+  };
+  evidenceObservation: {
+    sourceKey: string;
+    platform: string;
+    evidenceFamily: string;
+    signalRole: string;
+    conceptKey: string;
+    supportsCandidate: boolean;
+    observationKey: string;
+    revision: number;
+    sourceEntityType: string;
+    sourceEntityKey: string;
+    observationType: string;
+    schemaVersion: string;
+    evidenceClass: string;
+    observedAt: Date;
+    availableAt: Date;
+    businessDate: Date;
+    sourceUrl: string;
+    payloadHash: string;
+    envelopeHash: string;
+    payload: Record<string, unknown>;
+    ingestedAt: Date;
+  };
+  recommendationRun: {
+    policyKey: string;
+    policyVersion: string;
+    modelVersion: string;
+    calculationVersion: string;
+    inputManifestHash: string;
+    inputManifest: Record<string, unknown>;
+    status: string;
+    businessDate: Date;
+    generatedAt: Date;
+    completedAt: Date;
+    expiresAt: Date;
+    warningCodes: string[];
+    errorCode: null;
+    errorMessage: null;
+  };
+  recommendationItem: {
+    itemKey: string;
+    sourcePlatform: string;
+    externalOfferId: string;
+    variantKeyNormalized: string;
+    matchedCoupangProductId: null;
+    displayName: string;
+    rank: number;
+    score: number;
+    grade: string;
+    baselineAction: string;
+    reasonCodes: string[];
+    riskCodes: string[];
+    scoreComponents: Record<string, number>;
+    sourceSnapshot: Record<string, unknown>;
+  };
+  workspaceSnapshot: {
+    scope: string;
+    businessDate: Date;
+    projectionVersion: string;
+    inputHash: string;
+    payload: Record<string, unknown>;
+    generatedAt: Date;
+    expiresAt: Date;
+  };
+};
 
 export type BrowserQaSeedTarget = {
   databaseName: string;
@@ -123,6 +254,8 @@ export type BrowserQaSeedTarget = {
 };
 
 export type BrowserQaSeedPlan = {
+  profile: BrowserQaFixtureProfileId;
+  variables: Record<string, string>;
   organization: typeof BROWSER_QA_ORGANIZATION;
   user: {
     email: string;
@@ -136,30 +269,31 @@ export type BrowserQaSeedPlan = {
     role: string;
     status: string;
   };
-  sourcingCandidate: typeof BROWSER_QA_SOURCING_CANDIDATE;
-  sellpiaInventorySku: typeof BROWSER_QA_SELLPIA_INVENTORY_SKU;
-  sellpiaInventoryState: typeof BROWSER_QA_SELLPIA_INVENTORY_STATE & {
+  sourcingCandidate?: BrowserQaSourcingCandidate;
+  sellpiaInventorySku?: typeof BROWSER_QA_SELLPIA_INVENTORY_SKU;
+  sellpiaInventoryState?: typeof BROWSER_QA_SELLPIA_INVENTORY_STATE & {
     lastVerifiedAt: Date;
     lastAttemptAt: Date;
   };
-  purchaseOrder: typeof BROWSER_QA_PURCHASE_ORDER;
-  purchaseOrderItem: typeof BROWSER_QA_PURCHASE_ORDER_ITEM;
-  foreignOrganization: typeof BROWSER_QA_FOREIGN_ORGANIZATION;
-  foreignSourcingCandidate: typeof BROWSER_QA_FOREIGN_SOURCING_CANDIDATE;
-  foreignPurchaseOrder: typeof BROWSER_QA_FOREIGN_PURCHASE_ORDER;
-};
+  purchaseOrder?: typeof BROWSER_QA_PURCHASE_ORDER & { externalOrderId: string };
+  purchaseOrderItem?: typeof BROWSER_QA_PURCHASE_ORDER_ITEM;
+} & Partial<BrowserQaRecommendationPlan>;
 
 export type BrowserQaSeedResult = {
+  profile: BrowserQaFixtureProfileId;
+  variables: Record<string, string>;
   organizationId: string;
   userId: string;
   membershipId: string;
-  sourcingCandidateId: string;
-  sellpiaInventorySkuId: string;
-  purchaseOrderId: string;
-  purchaseOrderItemId: string;
-  foreignOrganizationId: string;
-  foreignSourcingCandidateId: string;
-  foreignPurchaseOrderId: string;
+  sourcingCandidateId?: string;
+  evidenceIngestionRunId?: string;
+  evidenceObservationId?: string;
+  recommendationRunId?: string;
+  recommendationItemId?: string;
+  workspaceSnapshotId?: string;
+  sellpiaInventorySkuId?: string;
+  purchaseOrderId?: string;
+  purchaseOrderItemId?: string;
 };
 
 export type BrowserQaPasswordInput = {
@@ -178,15 +312,46 @@ export type BrowserQaPasswordOutput = {
 export function parseBrowserQaSeedArgs(
   argv: string[],
   environment: NodeJS.ProcessEnv = process.env,
-): { email: string; reset: boolean } {
+): {
+  email: string;
+  reset: boolean;
+  profile: BrowserQaFixtureProfileId;
+  variables: Record<string, string>;
+} {
   let email = environment[BROWSER_QA_EMAIL_ENV];
   let reset = false;
+  let profile: BrowserQaFixtureProfileId | undefined;
+  const variables = new Map<string, string>();
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--reset') {
       if (reset) throw new Error('--reset may be supplied only once.');
       reset = true;
+      continue;
+    }
+    if (argument === '--profile') {
+      const value = argv[index + 1];
+      if (!value || value.startsWith('--')) throw new Error('--profile requires a value.');
+      if (profile) throw new Error('--profile may be supplied only once.');
+      profile = parseBrowserQaFixtureProfile(value);
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith('--profile=')) {
+      if (profile) throw new Error('--profile may be supplied only once.');
+      profile = parseBrowserQaFixtureProfile(argument.slice('--profile='.length));
+      continue;
+    }
+    if (argument === '--var') {
+      const value = argv[index + 1];
+      if (!value || value.startsWith('--')) throw new Error('--var requires name=value.');
+      addBrowserQaSeedVariable(variables, value);
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith('--var=')) {
+      addBrowserQaSeedVariable(variables, argument.slice('--var='.length));
       continue;
     }
     if (argument === '--email') {
@@ -206,7 +371,14 @@ export function parseBrowserQaSeedArgs(
     throw new Error(`Unsupported browser-QA seed argument: ${argument}`);
   }
 
-  return { email: normalizeEmail(email ?? ''), reset };
+  const normalizedEmail = normalizeEmail(email ?? '');
+  if (!profile) throw new Error('Browser-QA seed requires --profile <fixture-id>.');
+  return {
+    email: normalizedEmail,
+    reset,
+    profile,
+    variables: normalizeBrowserQaProfileVariables(profile, Object.fromEntries(variables)),
+  };
 }
 
 export function assertIsolatedBrowserQaSeedTarget({
@@ -300,15 +472,25 @@ export async function readBrowserQaPassword(
 }
 
 export function createBrowserQaSeedPlan({
+  profile,
   email,
   passwordHash,
+  variables = {},
   now = new Date(),
+  externalOrderId,
 }: {
+  profile: BrowserQaFixtureProfileId;
   email: string;
   passwordHash: string;
+  variables?: Record<string, string>;
   now?: Date;
+  externalOrderId?: string;
 }): BrowserQaSeedPlan {
-  return {
+  const definition = BROWSER_QA_PROFILE_DEFINITIONS[profile];
+  const planVariables = normalizeBrowserQaProfileVariables(profile, variables);
+  const basePlan = {
+    profile,
+    variables: planVariables,
     organization: BROWSER_QA_ORGANIZATION,
     user: {
       email,
@@ -322,34 +504,79 @@ export function createBrowserQaSeedPlan({
       role: 'owner',
       status: 'active',
     },
-    sourcingCandidate: BROWSER_QA_SOURCING_CANDIDATE,
-    sellpiaInventorySku: BROWSER_QA_SELLPIA_INVENTORY_SKU,
-    sellpiaInventoryState: {
-      ...BROWSER_QA_SELLPIA_INVENTORY_STATE,
-      lastVerifiedAt: now,
-      lastAttemptAt: now,
-    },
-    purchaseOrder: BROWSER_QA_PURCHASE_ORDER,
-    purchaseOrderItem: BROWSER_QA_PURCHASE_ORDER_ITEM,
-    foreignOrganization: BROWSER_QA_FOREIGN_ORGANIZATION,
-    foreignSourcingCandidate: BROWSER_QA_FOREIGN_SOURCING_CANDIDATE,
-    foreignPurchaseOrder: BROWSER_QA_FOREIGN_PURCHASE_ORDER,
   };
+
+  if (definition.includesCandidate) {
+    const supplier = createBrowserQaSyntheticSupplier();
+    return {
+      ...basePlan,
+      variables: {
+        ...planVariables,
+        ...(profile === 'sourcing.existing-candidate.v1' && {
+          supplierUrl: supplier.sourceUrl,
+        }),
+      },
+      sourcingCandidate: createBrowserQaSourcingCandidate(supplier),
+    };
+  }
+  if (definition.includesRecommendationWorkspace) {
+    return {
+      ...basePlan,
+      ...createBrowserQaRecommendationPlan(now, createBrowserQaSyntheticSupplier()),
+    };
+  }
+  if (definition.includesSupply) {
+    const resolvedExternalOrderId = normalizeBrowserQaExternalOrderId(
+      externalOrderId ?? `browser-qa-${randomUUID()}`,
+    );
+    return {
+      ...basePlan,
+      variables: {
+        ...planVariables,
+        externalOrderId: resolvedExternalOrderId,
+      },
+      sellpiaInventorySku: BROWSER_QA_SELLPIA_INVENTORY_SKU,
+      sellpiaInventoryState: {
+        ...BROWSER_QA_SELLPIA_INVENTORY_STATE,
+        lastVerifiedAt: now,
+        lastAttemptAt: now,
+      },
+      purchaseOrder: {
+        ...BROWSER_QA_PURCHASE_ORDER,
+        externalOrderId: resolvedExternalOrderId,
+      },
+      purchaseOrderItem: BROWSER_QA_PURCHASE_ORDER_ITEM,
+    };
+  }
+  if (definition.createsFailureSupplierUrl) {
+    return {
+      ...basePlan,
+      variables: {
+        ...planVariables,
+        supplierUrl: createBrowserQaFailureSupplierUrl(),
+      },
+    };
+  }
+  return basePlan;
 }
 
 export async function runBrowserQaSeed({
   prisma,
+  profile,
+  variables = {},
   email,
   password,
   hashPassword = hashAuthPassword,
 }: {
   prisma: PrismaClient;
+  profile: BrowserQaFixtureProfileId;
+  variables?: Record<string, string>;
   email: string;
   password: string;
   hashPassword?: (value: string) => Promise<string>;
 }): Promise<BrowserQaSeedResult> {
   const passwordHash = await hashPassword(password);
-  const plan = createBrowserQaSeedPlan({ email, passwordHash });
+  const plan = createBrowserQaSeedPlan({ profile, email, passwordHash, variables });
 
   return prisma.$transaction(async (transaction) => {
     const organization = await transaction.organization.upsert({
@@ -388,116 +615,382 @@ export async function runBrowserQaSeed({
       },
       select: { id: true },
     });
-    const existingCandidate = await transaction.sourcingCandidate.findFirst({
-      where: {
-        organizationId: organization.id,
-        sourceUrl: plan.sourcingCandidate.sourceUrl,
-        sourcePlatform: plan.sourcingCandidate.sourcePlatform,
-        sourceIdentityHash: plan.sourcingCandidate.sourceIdentityHash,
-        isDeleted: false,
-      },
-      select: { id: true },
-    });
-    const sourcingCandidate = existingCandidate ?? await transaction.sourcingCandidate.create({
-      data: {
-        organizationId: organization.id,
-        triggeredByUserId: user.id,
-        ...plan.sourcingCandidate,
-      },
-      select: { id: true },
-    });
-    const sellpiaInventorySku = await transaction.sellpiaInventorySku.upsert({
-      where: {
-        organizationId_code: {
-          organizationId: organization.id,
-          code: plan.sellpiaInventorySku.code,
-        },
-      },
-      update: plan.sellpiaInventorySku,
-      create: {
-        organizationId: organization.id,
-        ...plan.sellpiaInventorySku,
-      },
-      select: { id: true },
-    });
-    await transaction.sellpiaInventoryState.upsert({
-      where: { organizationId: organization.id },
-      update: plan.sellpiaInventoryState,
-      create: {
-        organizationId: organization.id,
-        ...plan.sellpiaInventoryState,
-      },
-      select: { organizationId: true },
-    });
-    const purchaseOrder = await findOrCreateBrowserQaPurchaseOrder({
-      transaction,
-      organizationId: organization.id,
-      purchaseOrder: plan.purchaseOrder,
-    });
-    const existingPurchaseOrderItem = await transaction.purchaseOrderItem.findFirst({
-      where: {
-        organizationId: organization.id,
-        orderId: purchaseOrder.id,
-        sellpiaInventorySkuId: sellpiaInventorySku.id,
-      },
-      select: { id: true },
-    });
-    const purchaseOrderItem = existingPurchaseOrderItem
-      ?? await transaction.purchaseOrderItem.create({
-        data: {
-          organizationId: organization.id,
-          orderId: purchaseOrder.id,
-          sellpiaInventorySkuId: sellpiaInventorySku.id,
-          ...plan.purchaseOrderItem,
-        },
-        select: { id: true },
-      });
-    const foreignOrganization = await transaction.organization.upsert({
-      where: { slug: plan.foreignOrganization.slug },
-      update: {
-        name: plan.foreignOrganization.name,
-        isActive: plan.foreignOrganization.isActive,
-      },
-      create: plan.foreignOrganization,
-      select: { id: true },
-    });
-    const existingForeignCandidate = await transaction.sourcingCandidate.findFirst({
-      where: {
-        organizationId: foreignOrganization.id,
-        sourceUrl: plan.foreignSourcingCandidate.sourceUrl,
-        sourcePlatform: plan.foreignSourcingCandidate.sourcePlatform,
-        sourceIdentityHash: plan.foreignSourcingCandidate.sourceIdentityHash,
-        isDeleted: false,
-      },
-      select: { id: true },
-    });
-    const foreignSourcingCandidate = existingForeignCandidate
-      ?? await transaction.sourcingCandidate.create({
-        data: {
-          organizationId: foreignOrganization.id,
-          ...plan.foreignSourcingCandidate,
-        },
-        select: { id: true },
-      });
-    const foreignPurchaseOrder = await findOrCreateBrowserQaPurchaseOrder({
-      transaction,
-      organizationId: foreignOrganization.id,
-      purchaseOrder: plan.foreignPurchaseOrder,
-    });
-
-    return {
+    const result: BrowserQaSeedResult = {
+      profile: plan.profile,
+      variables: { ...plan.variables },
       organizationId: organization.id,
       userId: user.id,
       membershipId: membership.id,
-      sourcingCandidateId: sourcingCandidate.id,
-      sellpiaInventorySkuId: sellpiaInventorySku.id,
-      purchaseOrderId: purchaseOrder.id,
-      purchaseOrderItemId: purchaseOrderItem.id,
-      foreignOrganizationId: foreignOrganization.id,
-      foreignSourcingCandidateId: foreignSourcingCandidate.id,
-      foreignPurchaseOrderId: foreignPurchaseOrder.id,
     };
+
+    if (plan.sourcingCandidate) {
+      const existingCandidate = await transaction.sourcingCandidate.findFirst({
+        where: {
+          organizationId: organization.id,
+          sourceUrl: plan.sourcingCandidate.sourceUrl,
+          sourcePlatform: plan.sourcingCandidate.sourcePlatform,
+          sourceIdentityHash: plan.sourcingCandidate.sourceIdentityHash,
+          isDeleted: false,
+        },
+        select: { id: true },
+      });
+      const sourcingCandidate = existingCandidate ?? await transaction.sourcingCandidate.create({
+        data: {
+          organizationId: organization.id,
+          triggeredByUserId: user.id,
+          ...plan.sourcingCandidate,
+        },
+        select: { id: true },
+      });
+      result.sourcingCandidateId = sourcingCandidate.id;
+      if (plan.profile === 'products.listing-generation.v1') {
+        result.variables.candidateRef = sourcingCandidate.id;
+      }
+    }
+
+    if (plan.recommendationRun) {
+      Object.assign(result, await seedBrowserQaRecommendationWorkspace({
+        transaction,
+        organizationId: organization.id,
+        userId: user.id,
+        plan,
+      }));
+    }
+
+    if (
+      plan.sellpiaInventorySku
+      && plan.sellpiaInventoryState
+      && plan.purchaseOrder
+      && plan.purchaseOrderItem
+    ) {
+      const sellpiaInventorySku = await transaction.sellpiaInventorySku.upsert({
+        where: {
+          organizationId_code: {
+            organizationId: organization.id,
+            code: plan.sellpiaInventorySku.code,
+          },
+        },
+        update: plan.sellpiaInventorySku,
+        create: {
+          organizationId: organization.id,
+          ...plan.sellpiaInventorySku,
+        },
+        select: { id: true },
+      });
+      await transaction.sellpiaInventoryState.upsert({
+        where: { organizationId: organization.id },
+        update: plan.sellpiaInventoryState,
+        create: {
+          organizationId: organization.id,
+          ...plan.sellpiaInventoryState,
+        },
+        select: { organizationId: true },
+      });
+      const purchaseOrder = await findOrCreateBrowserQaPurchaseOrder({
+        transaction,
+        organizationId: organization.id,
+        purchaseOrder: plan.purchaseOrder,
+      });
+      const existingPurchaseOrderItem = await transaction.purchaseOrderItem.findFirst({
+        where: {
+          organizationId: organization.id,
+          orderId: purchaseOrder.id,
+          sellpiaInventorySkuId: sellpiaInventorySku.id,
+        },
+        select: { id: true },
+      });
+      const purchaseOrderItem = existingPurchaseOrderItem
+        ?? await transaction.purchaseOrderItem.create({
+          data: {
+            organizationId: organization.id,
+            orderId: purchaseOrder.id,
+            sellpiaInventorySkuId: sellpiaInventorySku.id,
+            ...plan.purchaseOrderItem,
+          },
+          select: { id: true },
+        });
+      result.sellpiaInventorySkuId = sellpiaInventorySku.id;
+      result.purchaseOrderId = purchaseOrder.id;
+      result.purchaseOrderItemId = purchaseOrderItem.id;
+      result.variables.purchaseOrderRef = purchaseOrder.id;
+    }
+
+    result.variables = selectBrowserQaProfileOutputVariables(plan.profile, result.variables);
+    return result;
   });
+}
+
+function createBrowserQaRecommendationPlan(
+  now: Date,
+  supplier: BrowserQaSyntheticSupplier,
+): BrowserQaRecommendationPlan {
+  const businessDate = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+  ));
+  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1_000);
+  return {
+    evidenceIngestionRun: {
+      sourceKey: 'browser_qa',
+      scopeKey: 'recommendation',
+      targetKey: 'browser-qa-recommendation',
+      idempotencyKey: 'browser-qa-recommendation-evidence',
+      requestHash: BROWSER_QA_FIXTURE_HASH,
+      collectorKey: 'browser-qa-fixture',
+      collectorVersion: 'v1',
+      triggerKind: 'fixture',
+      status: 'complete',
+      discoveredCount: 1,
+      acceptedCount: 1,
+      rejectedCount: 0,
+      duplicateCount: 0,
+      startedAt: now,
+      completedAt: now,
+    },
+    evidenceObservation: {
+      sourceKey: 'browser_qa',
+      platform: '1688',
+      evidenceFamily: 'supplier_offer',
+      signalRole: 'source',
+      conceptKey: 'browser-qa',
+      supportsCandidate: true,
+      observationKey: 'browser-qa-recommendation-evidence',
+      revision: 1,
+      sourceEntityType: 'supplier_offer',
+      sourceEntityKey: supplier.externalOfferId,
+      observationType: 'offer_snapshot',
+      schemaVersion: 'browser-qa-v1',
+      evidenceClass: 'synthetic',
+      observedAt: now,
+      availableAt: now,
+      businessDate,
+      sourceUrl: supplier.sourceUrl,
+      payloadHash: BROWSER_QA_FIXTURE_HASH,
+      envelopeHash: BROWSER_QA_FIXTURE_HASH,
+      payload: {
+        displayName: 'Browser QA synthetic recommendation evidence',
+        source: 'synthetic-browser-qa',
+      },
+      ingestedAt: now,
+    },
+    recommendationRun: {
+      policyKey: 'sourcing_workspace',
+      policyVersion: 'browser-qa-v1',
+      modelVersion: 'browser-qa-fixture',
+      calculationVersion: 'browser-qa-v1',
+      inputManifestHash: BROWSER_QA_FIXTURE_HASH,
+      inputManifest: { source: 'synthetic-browser-qa', version: 1 },
+      status: 'complete',
+      businessDate,
+      generatedAt: now,
+      completedAt: now,
+      expiresAt,
+      warningCodes: [],
+      errorCode: null,
+      errorMessage: null,
+    },
+    recommendationItem: {
+      itemKey: 'browser-qa-recommendation-item',
+      sourcePlatform: '1688',
+      externalOfferId: supplier.externalOfferId,
+      variantKeyNormalized: '',
+      matchedCoupangProductId: null,
+      displayName: 'Browser QA synthetic recommendation',
+      rank: 1,
+      score: 90,
+      grade: 'A',
+      baselineAction: 'observe_3d',
+      reasonCodes: ['synthetic_evidence'],
+      riskCodes: [],
+      scoreComponents: { evidence: 90 },
+      sourceSnapshot: {
+        keyword: 'browser qa',
+        sourceKeywords: ['browser qa'],
+        salePriceKrw: 1,
+      },
+    },
+    workspaceSnapshot: {
+      scope: 'sourcing_agent_rag',
+      businessDate,
+      projectionVersion: 'sourcing-agent-rag.v3',
+      inputHash: BROWSER_QA_FIXTURE_HASH,
+      payload: {
+        version: 3,
+        result: {
+          documents: [],
+          stats: {
+            documentCount: 0,
+            sourceSnapshotCount: 0,
+            sourceScopes: [],
+          },
+        },
+        meta: { generatedAt: now.toISOString() },
+      },
+      generatedAt: now,
+      expiresAt,
+    },
+  };
+}
+
+async function seedBrowserQaRecommendationWorkspace({
+  transaction,
+  organizationId,
+  userId,
+  plan,
+}: {
+  transaction: Prisma.TransactionClient;
+  organizationId: string;
+  userId: string;
+  plan: BrowserQaSeedPlan;
+}): Promise<Pick<
+  BrowserQaSeedResult,
+  | 'evidenceIngestionRunId'
+  | 'evidenceObservationId'
+  | 'recommendationRunId'
+  | 'recommendationItemId'
+  | 'workspaceSnapshotId'
+>> {
+  if (
+    !plan.evidenceIngestionRun
+    || !plan.evidenceObservation
+    || !plan.recommendationRun
+    || !plan.recommendationItem
+    || !plan.workspaceSnapshot
+  ) {
+    throw new Error('Browser-QA recommendation fixture plan is incomplete.');
+  }
+
+  const evidenceIngestionRun = await transaction.sourcingEvidenceIngestionRun.upsert({
+    where: {
+      organizationId_idempotencyKey: {
+        organizationId,
+        idempotencyKey: plan.evidenceIngestionRun.idempotencyKey,
+      },
+    },
+    update: {
+      ...plan.evidenceIngestionRun,
+      triggeredByUserId: userId,
+    },
+    create: {
+      organizationId,
+      triggeredByUserId: userId,
+      ...plan.evidenceIngestionRun,
+    },
+    select: { id: true },
+  });
+  const evidenceObservation = await transaction.sourcingEvidenceObservation.upsert({
+    where: {
+      organizationId_observationKey_revision: {
+        organizationId,
+        observationKey: plan.evidenceObservation.observationKey,
+        revision: plan.evidenceObservation.revision,
+      },
+    },
+    update: {
+      ingestionRunId: evidenceIngestionRun.id,
+      ...plan.evidenceObservation,
+      payload: plan.evidenceObservation.payload as Prisma.InputJsonValue,
+    },
+    create: {
+      organizationId,
+      ingestionRunId: evidenceIngestionRun.id,
+      ...plan.evidenceObservation,
+      payload: plan.evidenceObservation.payload as Prisma.InputJsonValue,
+    },
+    select: { id: true },
+  });
+  const recommendationRun = await transaction.sourcingRecommendationRun.upsert({
+    where: {
+      organizationId_policyKey_policyVersion_modelVersion_calculationVersion_inputManifestHash: {
+        organizationId,
+        policyKey: plan.recommendationRun.policyKey,
+        policyVersion: plan.recommendationRun.policyVersion,
+        modelVersion: plan.recommendationRun.modelVersion,
+        calculationVersion: plan.recommendationRun.calculationVersion,
+        inputManifestHash: plan.recommendationRun.inputManifestHash,
+      },
+    },
+    update: {
+      ...plan.recommendationRun,
+      inputManifest: plan.recommendationRun.inputManifest as Prisma.InputJsonValue,
+    },
+    create: {
+      organizationId,
+      ...plan.recommendationRun,
+      inputManifest: plan.recommendationRun.inputManifest as Prisma.InputJsonValue,
+    },
+    select: { id: true },
+  });
+  const recommendationItem = await transaction.sourcingRecommendationItem.upsert({
+    where: {
+      recommendationRunId_itemKey: {
+        recommendationRunId: recommendationRun.id,
+        itemKey: plan.recommendationItem.itemKey,
+      },
+    },
+    update: {
+      ...plan.recommendationItem,
+      scoreComponents: plan.recommendationItem.scoreComponents as Prisma.InputJsonValue,
+      sourceSnapshot: plan.recommendationItem.sourceSnapshot as Prisma.InputJsonValue,
+    },
+    create: {
+      organizationId,
+      recommendationRunId: recommendationRun.id,
+      ...plan.recommendationItem,
+      scoreComponents: plan.recommendationItem.scoreComponents as Prisma.InputJsonValue,
+      sourceSnapshot: plan.recommendationItem.sourceSnapshot as Prisma.InputJsonValue,
+    },
+    select: { id: true },
+  });
+  await transaction.sourcingRecommendationItemEvidence.upsert({
+    where: {
+      recommendationItemId_evidenceObservationId_role: {
+        recommendationItemId: recommendationItem.id,
+        evidenceObservationId: evidenceObservation.id,
+        role: 'source',
+      },
+    },
+    update: { ordinal: 0 },
+    create: {
+      organizationId,
+      recommendationItemId: recommendationItem.id,
+      evidenceObservationId: evidenceObservation.id,
+      role: 'source',
+      ordinal: 0,
+    },
+    select: { id: true },
+  });
+  const workspaceSnapshot = await transaction.sourcingWorkspaceSnapshot.upsert({
+    where: {
+      organizationId_scope_businessDate_projectionVersion_inputHash: {
+        organizationId,
+        scope: plan.workspaceSnapshot.scope,
+        businessDate: plan.workspaceSnapshot.businessDate,
+        projectionVersion: plan.workspaceSnapshot.projectionVersion,
+        inputHash: plan.workspaceSnapshot.inputHash,
+      },
+    },
+    update: {
+      payload: plan.workspaceSnapshot.payload as Prisma.InputJsonValue,
+      generatedAt: plan.workspaceSnapshot.generatedAt,
+      expiresAt: plan.workspaceSnapshot.expiresAt,
+    },
+    create: {
+      organizationId,
+      ...plan.workspaceSnapshot,
+      payload: plan.workspaceSnapshot.payload as Prisma.InputJsonValue,
+    },
+    select: { id: true },
+  });
+
+  return {
+    evidenceIngestionRunId: evidenceIngestionRun.id,
+    evidenceObservationId: evidenceObservation.id,
+    recommendationRunId: recommendationRun.id,
+    recommendationItemId: recommendationItem.id,
+    workspaceSnapshotId: workspaceSnapshot.id,
+  };
 }
 
 async function findOrCreateBrowserQaPurchaseOrder({
@@ -507,7 +1000,7 @@ async function findOrCreateBrowserQaPurchaseOrder({
 }: {
   transaction: Prisma.TransactionClient;
   organizationId: string;
-  purchaseOrder: BrowserQaSeedPlan['purchaseOrder'] | BrowserQaSeedPlan['foreignPurchaseOrder'];
+  purchaseOrder: NonNullable<BrowserQaSeedPlan['purchaseOrder']>;
 }): Promise<{ id: string }> {
   const existing = await transaction.purchaseOrder.findFirst({
     where: {
@@ -607,12 +1100,12 @@ export async function main({
     databaseUrl: environment.DATABASE_URL,
     seedTarget: environment[BROWSER_QA_SEED_TARGET_ENV],
   });
-  const { email, reset } = parseBrowserQaSeedArgs(argv, environment);
+  const { email, reset, profile, variables } = parseBrowserQaSeedArgs(argv, environment);
   const password = await readBrowserQaPassword(input, output);
   const prisma = createPrisma(target.databaseUrl);
   try {
     if (reset) await resetDatabase({ prisma, target });
-    const result = await runSeed({ prisma, email, password });
+    const result = await runSeed({ prisma, profile, variables, email, password });
     resultOutput.write(`Isolated browser-QA fixture seeded: ${JSON.stringify(result)}\n`);
     return result;
   } finally {
@@ -663,6 +1156,142 @@ function normalizeEmail(value: string): string {
     throw new Error('Browser-QA email must be a valid email address.');
   }
   return email;
+}
+
+function parseBrowserQaFixtureProfile(value: string): BrowserQaFixtureProfileId {
+  const profile = value.trim();
+  if (!BROWSER_QA_FIXTURE_PROFILES.includes(profile as BrowserQaFixtureProfileId)) {
+    throw new Error(`Unknown browser-QA fixture profile: ${profile || '(empty)'}.`);
+  }
+  return profile as BrowserQaFixtureProfileId;
+}
+
+function addBrowserQaSeedVariable(variables: Map<string, string>, value: string): void {
+  const separator = value.indexOf('=');
+  const name = value.slice(0, separator);
+  const variableValue = value.slice(separator + 1);
+  if (
+    separator < 1
+    || !/^[A-Za-z][A-Za-z0-9]*$/.test(name)
+    || variableValue.trim() === ''
+    || variableValue.length > 2_000
+    || /[\r\n]/.test(variableValue)
+  ) {
+    throw new Error('Browser-QA --var requires a bounded name=value pair.');
+  }
+  if (variables.has(name)) {
+    throw new Error(`Browser-QA --var may be supplied only once for ${name}.`);
+  }
+  variables.set(name, variableValue);
+}
+
+function normalizeBrowserQaProfileVariables(
+  profile: BrowserQaFixtureProfileId,
+  variables: Record<string, string>,
+): Record<string, string> {
+  const definition = BROWSER_QA_PROFILE_DEFINITIONS[profile];
+  const allowed = new Set(definition.inputVariables);
+  for (const [name, value] of Object.entries(variables)) {
+    if (!allowed.has(name)) {
+      throw new Error(`Unknown browser-QA profile variable: ${name}.`);
+    }
+    if (typeof value !== 'string' || value.trim() === '' || value.length > 2_000) {
+      throw new Error(`Browser-QA profile variable ${name} must be a bounded string.`);
+    }
+  }
+  for (const name of definition.inputVariables) {
+    if (!(name in variables)) {
+      throw new Error(`Browser-QA profile ${profile} requires ${name}.`);
+    }
+  }
+
+  const normalized = { ...variables };
+  if ('supplierUrl' in normalized) {
+    normalized.supplierUrl = parseAllowedSupplierUrl(normalized.supplierUrl).normalizedUrl;
+  }
+  return normalized;
+}
+
+function selectBrowserQaProfileOutputVariables(
+  profile: BrowserQaFixtureProfileId,
+  variables: Record<string, string>,
+): Record<string, string> {
+  const selected: Record<string, string> = {};
+  for (const name of BROWSER_QA_PROFILE_DEFINITIONS[profile].outputVariables) {
+    const value = variables[name];
+    if (typeof value !== 'string' || value.trim() === '') {
+      throw new Error(`Browser-QA profile ${profile} did not produce ${name}.`);
+    }
+    selected[name] = value;
+  }
+  return selected;
+}
+
+function normalizeBrowserQaExternalOrderId(value: string): string {
+  const externalOrderId = value.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/.test(externalOrderId)) {
+    throw new Error('Browser-QA external order identity is invalid.');
+  }
+  return externalOrderId;
+}
+
+function createBrowserQaSyntheticSupplier(): BrowserQaSyntheticSupplier {
+  const supplier = parseAllowedSupplierUrl(createBrowserQaOfferUrl(
+    `8${createBrowserQaSyntheticDigits()}`,
+  ));
+  const externalOfferId = extractSupplierOfferId(supplier);
+  if (!externalOfferId) {
+    throw new Error('Browser-QA synthetic supplier fixture requires a 1688 offer ID.');
+  }
+  return {
+    sourceUrl: supplier.normalizedUrl,
+    externalOfferId,
+  };
+}
+
+function createBrowserQaSourcingCandidate(
+  supplier: BrowserQaSyntheticSupplier,
+): BrowserQaSourcingCandidate {
+  return {
+    sourceUrl: supplier.sourceUrl,
+    sourcePlatform: 'ALIBABA_1688',
+    externalOfferId: supplier.externalOfferId,
+    sourceIdentityHash: canonicalSourcingCandidateIdentity({
+      sourcePlatform: 'ALIBABA_1688',
+      sourceUrl: supplier.sourceUrl,
+      validatedExternalOfferId: supplier.externalOfferId,
+      variantKeyNormalized: '',
+    }),
+    variantKeyNormalized: '',
+    name: 'Browser QA fixture',
+    description: 'Synthetic record for isolated Agent OS browser QA.',
+    status: 'sourced',
+    isDeleted: false,
+  };
+}
+
+function createBrowserQaOfferUrl(externalOfferId: string): string {
+  return [
+    'https:',
+    '',
+    'detail.1688.com',
+    'offer',
+    `${externalOfferId}.html`,
+  ].join('/');
+}
+
+function createBrowserQaSyntheticDigits(): string {
+  return randomUUID()
+    .replaceAll('-', '')
+    .split('')
+    .map((character) => String(character.charCodeAt(0) % 10))
+    .join('');
+}
+
+function createBrowserQaFailureSupplierUrl(): string {
+  return parseAllowedSupplierUrl(createBrowserQaOfferUrl(
+    `999999999999${createBrowserQaSyntheticDigits()}`,
+  )).normalizedUrl;
 }
 
 function parsePostgresUrl(databaseUrl: string): URL {

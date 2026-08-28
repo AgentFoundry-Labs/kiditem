@@ -353,9 +353,15 @@ async function runInvocationTests({ databaseUrl }) {
 }
 
 export function createBrowserQaSeedCommand({ email } = {}) {
-  const args = ['run', 'seed:agent-os:browser-qa'];
+  const args = [
+    'run',
+    'seed:agent-os:browser-qa',
+    '--',
+    '--profile',
+    'runtime.general-chat.v1',
+  ];
   if (typeof email === 'string' && email.trim() !== '') {
-    args.push('--', '--email', email);
+    args.push('--email', email);
   }
   return { command: 'npm', args };
 }

@@ -5,7 +5,7 @@
   "messages": [
     {
       "id": "initial",
-      "promptTemplate": "식별자가 {{purchaseOrderRef}}인 기존 발주를 확인하고 제출해 주세요. 실제 제출 전에 제 확인을 받아 주세요."
+      "promptTemplate": "식별자가 {{purchaseOrderRef}}인 기존 발주를 확인하고, 외부 주문 식별자 {{externalOrderId}}로 제출해 주세요. 실제 제출 전에 제 확인을 받아 주세요."
     }
   ],
   "target": {

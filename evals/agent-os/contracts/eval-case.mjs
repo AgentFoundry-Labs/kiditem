@@ -118,6 +118,9 @@ function parseFixtures(fixturesPath) {
       assertAllowedKeys(fixture, FIXTURE_KEYS, `fixtures[${index}]`);
       assertNonEmptyString(fixture.id, `fixtures[${index}].id`);
       assertNonEmptyString(fixture.resetProfile, `fixtures[${index}].resetProfile`);
+      if (fixture.resetProfile !== fixture.id) {
+        throw new Error(`fixtures[${index}].resetProfile must equal its fixture id`);
+      }
       if (fixture.disposable !== true) {
         throw new Error(`fixtures[${index}].disposable must be true`);
       }

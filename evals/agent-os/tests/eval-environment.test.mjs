@@ -140,6 +140,63 @@ test('renders only natural model-facing messages with explicit fixture variables
   assert.doesNotMatch(result.stdout, /grading|capabilityAlternatives|requestKey|rawOutput/);
 });
 
+test('binds every disposable fixture to its exact guarded seed profile without fixed supplier URLs', () => {
+  const fixturesPath = path.join(
+    repoRoot,
+    'evals',
+    'agent-os',
+    'fixtures',
+    'fixtures.json',
+  );
+  const fixtures = JSON.parse(readFileSync(fixturesPath, 'utf8'));
+  assert.equal(fixtures.length, 9);
+  for (const fixture of fixtures) {
+    assert.equal(fixture.resetProfile, fixture.id);
+  }
+  assert.deepEqual(
+    fixtures.find((fixture) => fixture.id === 'supply.purchase-order-submit.v1').variables,
+    ['purchaseOrderRef', 'externalOrderId'],
+  );
+
+  const fixtureAndCaseSource = [
+    readFileSync(fixturesPath, 'utf8'),
+    ...[
+      'candidate-ingest.json',
+      'candidate-approval-denied.json',
+      'scrape-failure.json',
+    ].map((name) => readFileSync(
+      path.join(repoRoot, 'evals', 'agent-os', 'cases', 'sourcing', name),
+      'utf8',
+    )),
+  ].join('\n');
+  assert.doesNotMatch(fixtureAndCaseSource, /https?:\/\//i);
+  const seedSource = readFileSync(
+    path.join(repoRoot, 'scripts', 'seed-agent-os-browser-qa.ts'),
+    'utf8',
+  );
+  assert.doesNotMatch(
+    seedSource,
+    /https:\/\/detail\.1688\.com\/offer\/\d+\.html/,
+  );
+
+  const result = spawnSync(
+    process.execPath,
+    [
+      evalRunner,
+      '--prompt',
+      'supply.purchase-order-submit.v1',
+      '--var',
+      'purchaseOrderRef=opaque-purchase-order-ref',
+      '--var',
+      'externalOrderId=opaque-runtime-external-order-id',
+    ],
+    { cwd: repoRoot, encoding: 'utf8' },
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /opaque-runtime-external-order-id/);
+  assert.doesNotMatch(result.stdout, /supply\.submit_purchase_order/);
+});
+
 test('refuses to render a prompt with unresolved fixture variables', () => {
   const result = spawnSync(
     process.execPath,
@@ -149,6 +206,24 @@ test('refuses to render a prompt with unresolved fixture variables', () => {
 
   assert.equal(result.status, 1);
   assert.match(result.stderr, /missing prompt variable: supplierUrl/);
+  assert.equal(result.stdout, '');
+});
+
+test('refuses unknown prompt variables instead of silently discarding them', () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      evalRunner,
+      '--prompt',
+      'runtime.general-chat-no-tool.v1',
+      '--var',
+      'supplierUrl=https://supplier.example/item/qa',
+    ],
+    { cwd: repoRoot, encoding: 'utf8' },
+  );
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /unused prompt variable: supplierUrl/);
   assert.equal(result.stdout, '');
 });
 
@@ -179,7 +254,7 @@ test('rejects unknown or answer-leaking case fields', () => {
       JSON.stringify([
         {
           id: 'fixture.v1',
-          resetProfile: 'agent-os-browser-qa',
+          resetProfile: 'fixture.v1',
           disposable: true,
           variables: [],
         },

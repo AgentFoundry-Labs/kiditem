@@ -544,11 +544,25 @@ test('uses the built-in interactive browser-QA seed command instead of an ambien
 
   assert.deepEqual(helper.createBrowserQaSeedCommand(), {
     command: 'npm',
-    args: ['run', 'seed:agent-os:browser-qa'],
+    args: [
+      'run',
+      'seed:agent-os:browser-qa',
+      '--',
+      '--profile',
+      'runtime.general-chat.v1',
+    ],
   });
   assert.deepEqual(helper.createBrowserQaSeedCommand({ email: 'browser.qa@example.test' }), {
     command: 'npm',
-    args: ['run', 'seed:agent-os:browser-qa', '--', '--email', 'browser.qa@example.test'],
+    args: [
+      'run',
+      'seed:agent-os:browser-qa',
+      '--',
+      '--profile',
+      'runtime.general-chat.v1',
+      '--email',
+      'browser.qa@example.test',
+    ],
   });
   assert.doesNotThrow(() => helper.assertBrowserQaInteractiveStdin({ isTTY: true }));
   assert.throws(
