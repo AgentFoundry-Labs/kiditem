@@ -48,6 +48,15 @@ function launcherRef(surface = 'ai_chat') {
   return { current: launcher };
 }
 
+function desktopAiChatWidth(width = 480) {
+  return {
+    width,
+    previewWidth: vi.fn(),
+    commitWidth: vi.fn(),
+    cancelPreview: vi.fn(),
+  };
+}
+
 function SettingsOverPanelHarness({
   launcherRef: panelLauncherRef,
   onPanelClose,
@@ -118,12 +127,101 @@ describe('RightAuxiliaryPanel', () => {
     const panel = screen.getByTestId('right-auxiliary-panel');
     expect(panel).toHaveClass('fixed', 'right-0', 'w-[352px]');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('separator', { name: 'AI 챗 패널 너비 조절' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('right-auxiliary-overlay')).not.toBeInTheDocument();
     expect(document.querySelector('[data-right-auxiliary-page-reflow]')).toBeNull();
     await waitFor(() => expect(screen.getByRole('heading', { name: '알림' })).toHaveFocus());
 
     fireEvent.click(screen.getByRole('button', { name: '알림 패널 닫기' }));
     expect(closeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders AI chat at its supplied desktop width with one accessible left-edge separator', async () => {
+    mockViewport(false);
+    const closeMock = vi.fn();
+    const ref = launcherRef();
+    const width = desktopAiChatWidth(480);
+
+    render(
+      <RightAuxiliaryPanel
+        activeRightSurface="ai_chat"
+        onClose={closeMock}
+        launcherRef={ref}
+        desktopAiChatWidth={width}
+      />,
+    );
+
+    const panel = screen.getByTestId('right-auxiliary-panel');
+    const separator = screen.getByRole('separator', { name: 'AI 챗 패널 너비 조절' });
+    expect(panel).toHaveClass('w-[var(--right-auxiliary-width)]');
+    expect(panel.style.getPropertyValue('--right-auxiliary-width')).toBe('480px');
+    expect(separator).toHaveAttribute('aria-orientation', 'vertical');
+    expect(separator).toHaveAttribute('aria-valuemin', '320');
+    expect(separator).toHaveAttribute('aria-valuemax', '640');
+    expect(separator).toHaveAttribute('aria-valuenow', '480');
+    await waitFor(() => expect(screen.getByRole('heading', { name: '일반 AI 챗' })).toHaveFocus());
+  });
+
+  it('previews a pointer drag live, commits on release, and cancels a captured drag', () => {
+    mockViewport(false);
+    const ref = launcherRef();
+    const width = desktopAiChatWidth(480);
+
+    render(
+      <RightAuxiliaryPanel
+        activeRightSurface="ai_chat"
+        onClose={vi.fn()}
+        launcherRef={ref}
+        desktopAiChatWidth={width}
+      />,
+    );
+
+    const separator = screen.getByRole('separator', { name: 'AI 챗 패널 너비 조절' });
+    const setPointerCapture = vi.fn();
+    const releasePointerCapture = vi.fn();
+    Object.defineProperties(separator, {
+      setPointerCapture: { configurable: true, value: setPointerCapture },
+      hasPointerCapture: { configurable: true, value: () => true },
+      releasePointerCapture: { configurable: true, value: releasePointerCapture },
+    });
+
+    fireEvent.pointerDown(separator, { button: 0, clientX: 600, pointerId: 7 });
+    fireEvent.pointerMove(separator, { clientX: 552, pointerId: 7 });
+    fireEvent.pointerUp(separator, { clientX: 536, pointerId: 7 });
+
+    expect(setPointerCapture).toHaveBeenCalledWith(7);
+    expect(width.previewWidth).toHaveBeenLastCalledWith(528);
+    expect(width.commitWidth).toHaveBeenCalledWith(544);
+    expect(releasePointerCapture).toHaveBeenCalledWith(7);
+
+    fireEvent.pointerDown(separator, { button: 0, clientX: 600, pointerId: 8 });
+    fireEvent.pointerMove(separator, { clientX: 568, pointerId: 8 });
+    fireEvent.pointerCancel(separator, { clientX: 568, pointerId: 8 });
+
+    expect(width.cancelPreview).toHaveBeenCalledTimes(1);
+    expect(releasePointerCapture).toHaveBeenCalledWith(8);
+  });
+
+  it('widens with ArrowLeft and narrows with ArrowRight in 16px steps', () => {
+    mockViewport(false);
+    const ref = launcherRef();
+    const width = desktopAiChatWidth(480);
+
+    render(
+      <RightAuxiliaryPanel
+        activeRightSurface="ai_chat"
+        onClose={vi.fn()}
+        launcherRef={ref}
+        desktopAiChatWidth={width}
+      />,
+    );
+
+    const separator = screen.getByRole('separator', { name: 'AI 챗 패널 너비 조절' });
+    fireEvent.keyDown(separator, { key: 'ArrowLeft' });
+    fireEvent.keyDown(separator, { key: 'ArrowRight' });
+
+    expect(width.commitWidth).toHaveBeenNthCalledWith(1, 496);
+    expect(width.commitWidth).toHaveBeenNthCalledWith(2, 464);
   });
 
   it('uses the same content as a full-width modal drawer below 768px and returns focus on Escape', async () => {
@@ -143,6 +241,7 @@ describe('RightAuxiliaryPanel', () => {
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveClass('fixed', 'inset-0', 'w-full');
     expect(screen.getByTestId('right-auxiliary-overlay')).toBeInTheDocument();
+    expect(screen.queryByRole('separator', { name: 'AI 챗 패널 너비 조절' })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('heading', { name: '일반 AI 챗' })).toHaveFocus());
 
     fireEvent.keyDown(window, { key: 'Escape' });

@@ -13,6 +13,12 @@ const readinessMock = vi.hoisted(() => vi.fn(() => null));
 const generationWatcherMock = vi.hoisted(() => vi.fn(() => null));
 const openConversationMock = vi.hoisted(() => vi.fn());
 const rightAuxiliaryPropsMock = vi.hoisted(() => vi.fn());
+const desktopAiChatWidth = vi.hoisted(() => ({
+  width: 496,
+  previewWidth: vi.fn(),
+  commitWidth: vi.fn(),
+  cancelPreview: vi.fn(),
+}));
 const conversationSurfaceState = vi.hoisted(() => ({
   activeConversationId: null as string | null,
   pendingDraft: null as { conversationId: string; message: string } | null,
@@ -53,6 +59,10 @@ vi.mock('@/hooks/useAuth', () => ({
 vi.mock('@/store/useStore', () => ({
   useStore: (selector?: (state: typeof appStoreState) => unknown) =>
     selector ? selector(appStoreState) : appStoreState,
+}));
+
+vi.mock('../useDesktopAiChatWidth', () => ({
+  useDesktopAiChatWidth: () => desktopAiChatWidth,
 }));
 
 vi.mock('../Sidebar', () => ({
@@ -120,6 +130,7 @@ vi.mock('../RightAuxiliaryPanel', () => ({
   RightAuxiliaryPanel: (props: {
     activeRightSurface: 'notifications' | 'ai_chat' | null;
     onClose(): void;
+    desktopAiChatWidth: typeof desktopAiChatWidth;
   }) => {
     rightAuxiliaryPropsMock(props);
     return (
@@ -191,6 +202,10 @@ describe('AppLayout auth gate', () => {
     generationWatcherMock.mockClear();
     openConversationMock.mockReset();
     rightAuxiliaryPropsMock.mockReset();
+    desktopAiChatWidth.width = 496;
+    desktopAiChatWidth.previewWidth.mockReset();
+    desktopAiChatWidth.commitWidth.mockReset();
+    desktopAiChatWidth.cancelPreview.mockReset();
     conversationSurfaceState.activeConversationId = null;
     conversationSurfaceState.pendingDraft = null;
     conversationSurfaceState.reset.mockClear();
@@ -530,10 +545,34 @@ describe('AppLayout auth gate', () => {
 
     expect(screen.getByTestId('right-auxiliary-panel')).toHaveTextContent('notifications');
     expect(screen.getByTestId('quick-action')).toHaveAttribute('data-auxiliary-open', 'true');
-    expect(screen.getByTestId('authenticated-work-surface')).toHaveClass('2xl:mr-[352px]');
-    expect(screen.getByTestId('authenticated-work-surface')).not.toHaveClass('lg:mr-[352px]');
+    expect(screen.getByTestId('authenticated-work-surface')).toHaveClass('2xl:mr-[var(--right-auxiliary-width)]');
+    expect(screen.getByTestId('authenticated-work-surface')).not.toHaveClass('lg:mr-[var(--right-auxiliary-width)]');
+    expect(screen.getByTestId('authenticated-work-surface').style.getPropertyValue('--right-auxiliary-width')).toBe('352px');
     expect(rightAuxiliaryPropsMock).toHaveBeenCalledWith(expect.objectContaining({
       activeRightSurface: 'notifications',
+      desktopAiChatWidth,
+    }));
+  });
+
+  it('uses the current AI chat CSS variable for the 2xl push dock while smaller desktops retain an overlay', () => {
+    appStoreState.activeRightSurface = 'ai_chat';
+    desktopAiChatWidth.width = 544;
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    });
+
+    renderLayout();
+
+    const workSurface = screen.getByTestId('authenticated-work-surface');
+    expect(workSurface).toHaveClass('2xl:mr-[var(--right-auxiliary-width)]');
+    expect(workSurface).not.toHaveClass('lg:mr-[var(--right-auxiliary-width)]');
+    expect(workSurface.style.getPropertyValue('--right-auxiliary-width')).toBe('544px');
+    expect(rightAuxiliaryPropsMock).toHaveBeenCalledWith(expect.objectContaining({
+      activeRightSurface: 'ai_chat',
+      desktopAiChatWidth,
     }));
   });
 
@@ -632,6 +671,8 @@ describe('AppLayout auth gate', () => {
 
     expect(screen.getByTestId('right-auxiliary-panel')).toHaveTextContent('notifications');
     expect(appStoreState.activeRightSurface).toBeNull();
+    expect(screen.getByTestId('authenticated-work-surface').className).not.toMatch(/2xl:mr-/);
+    expect(screen.getByTestId('authenticated-work-surface').style.getPropertyValue('--right-auxiliary-width')).toBe('');
     expect(runtimeOwnershipMocks.hostUnmounted).not.toHaveBeenCalled();
   });
 

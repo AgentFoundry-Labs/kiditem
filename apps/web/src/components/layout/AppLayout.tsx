@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type CSSProperties } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
@@ -23,6 +23,7 @@ import {
 import { RightAuxiliaryPanel } from './RightAuxiliaryPanel';
 import { RightSurfaceLauncherProvider } from './right-surface-launcher-context';
 import Sidebar from './Sidebar';
+import { useDesktopAiChatWidth } from './useDesktopAiChatWidth';
 
 function NotificationDataMount() {
   usePanelStream();
@@ -54,6 +55,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const auth = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const desktopAiChatWidth = useDesktopAiChatWidth();
   const launcherRef = useRef<HTMLElement | null>(null);
   const authenticatedIdentityRef = useRef<string | null>(null);
   const activeConversationId = useConversationSurfaceState((state) => state.activeConversationId);
@@ -152,7 +154,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const visibleRightSurface = isAgentWorkspace && activeRightSurface === 'ai_chat'
     ? null
     : activeRightSurface;
-  const auxiliaryVisible = visibleRightSurface !== null;
+  const auxiliaryVisible = !isAgentWorkspace && visibleRightSurface !== null;
+  const rightAuxiliaryWidth = visibleRightSurface === 'ai_chat'
+    ? desktopAiChatWidth.width
+    : 352;
 
   const selectRightSurfaceFromLauncher = (
     surface: Exclude<typeof activeRightSurface, null>,
@@ -226,9 +231,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <RightSurfaceLauncherProvider openConversationFromLauncher={openConversationFromLauncher}>
         <div
           data-testid="authenticated-work-surface"
+          style={auxiliaryVisible
+            ? { '--right-auxiliary-width': `${rightAuxiliaryWidth}px` } as CSSProperties
+            : undefined}
           className={cn(
             'min-w-0 transition-[margin] duration-150 motion-reduce:transition-none',
-            auxiliaryVisible && '2xl:mr-[352px]',
+            auxiliaryVisible && '2xl:mr-[var(--right-auxiliary-width)]',
           )}
         >
           {isAgentWorkspace ? children : content}
@@ -239,6 +247,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           activeRightSurface={visibleRightSurface}
           onClose={closeRightSurface}
           launcherRef={launcherRef}
+          desktopAiChatWidth={desktopAiChatWidth}
         />
       </PanelErrorBoundary>
     </ConversationRuntimeShell>

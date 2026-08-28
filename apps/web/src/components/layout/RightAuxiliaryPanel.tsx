@@ -2,21 +2,45 @@
 
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
-import { forwardRef, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import {
+  forwardRef,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { ConversationPanel } from '@/components/agent-interaction/ConversationPanel';
 import { NotificationPanelContent } from '@/components/panel/NotificationPanelContent';
 import type { ActiveRightSurface } from '@/store/useStore';
+import {
+  clampDesktopAiChatWidth,
+  DEFAULT_DESKTOP_AI_CHAT_WIDTH,
+  MAX_DESKTOP_AI_CHAT_WIDTH,
+  MIN_DESKTOP_AI_CHAT_WIDTH,
+  type DesktopAiChatWidthController,
+} from './useDesktopAiChatWidth';
 
 interface RightAuxiliaryPanelProps {
   activeRightSurface: ActiveRightSurface;
   onClose(): void;
   launcherRef: RefObject<HTMLElement | null>;
+  desktopAiChatWidth?: DesktopAiChatWidthController;
 }
+
+const fallbackDesktopAiChatWidth: DesktopAiChatWidthController = {
+  width: DEFAULT_DESKTOP_AI_CHAT_WIDTH,
+  previewWidth: () => {},
+  commitWidth: () => {},
+  cancelPreview: () => {},
+};
 
 export function RightAuxiliaryPanel({
   activeRightSurface,
   onClose,
   launcherRef,
+  desktopAiChatWidth = fallbackDesktopAiChatWidth,
 }: RightAuxiliaryPanelProps) {
   const isMobile = useMobileAuxiliaryPanel();
   const panelRef = useRef<HTMLElement | null>(null);
@@ -82,27 +106,105 @@ export function RightAuxiliaryPanel({
     );
   }
 
-  return <PanelFrame ref={panelRef}>{content}</PanelFrame>;
+  const isDesktopAiChat = activeRightSurface === 'ai_chat';
+
+  return (
+    <PanelFrame ref={panelRef} desktopWidth={isDesktopAiChat ? desktopAiChatWidth.width : undefined}>
+      {isDesktopAiChat ? <DesktopAiChatResizeHandle controller={desktopAiChatWidth} /> : null}
+      {content}
+    </PanelFrame>
+  );
 }
 
 const PanelFrame = forwardRef<HTMLElement, {
   children: ReactNode;
   mobile?: boolean;
-}>(function PanelFrame({ children, mobile = false }, ref) {
+  desktopWidth?: number;
+}>(function PanelFrame({ children, mobile = false, desktopWidth }, ref) {
+  const resizableDesktopAiChat = !mobile && desktopWidth !== undefined;
   return (
     <section
       ref={ref}
       data-testid="right-auxiliary-panel"
       role={mobile ? 'dialog' : 'complementary'}
       aria-label="오른쪽 보조 패널"
+      style={resizableDesktopAiChat
+        ? { '--right-auxiliary-width': `${desktopWidth}px` } as CSSProperties
+        : undefined}
       className={mobile
         ? 'fixed inset-0 z-[100] flex w-full max-w-none flex-col bg-background shadow-xl outline-none'
-        : 'fixed inset-y-0 right-0 z-[90] flex w-[352px] max-w-full flex-col border-l bg-background shadow-sm'}
+        : `fixed inset-y-0 right-0 z-[90] flex max-w-full flex-col border-l bg-background shadow-sm ${
+          resizableDesktopAiChat ? 'w-[var(--right-auxiliary-width)]' : 'w-[352px]'
+        }`}
     >
       {children}
     </section>
   );
 });
+
+function DesktopAiChatResizeHandle({
+  controller,
+}: {
+  controller: DesktopAiChatWidthController;
+}) {
+  const dragRef = useRef<{ startWidth: number; startX: number } | null>(null);
+  const widthForClientX = (clientX: number): number | null => {
+    const drag = dragRef.current;
+    if (!drag) return null;
+    return clampDesktopAiChatWidth(drag.startWidth + drag.startX - clientX);
+  };
+  const releasePointerCapture = (element: HTMLDivElement, pointerId: number) => {
+    if (element.hasPointerCapture(pointerId)) element.releasePointerCapture(pointerId);
+  };
+
+  return (
+    <div
+      role="separator"
+      aria-label="AI 챗 패널 너비 조절"
+      aria-orientation="vertical"
+      aria-valuemin={MIN_DESKTOP_AI_CHAT_WIDTH}
+      aria-valuemax={MAX_DESKTOP_AI_CHAT_WIDTH}
+      aria-valuenow={controller.width}
+      tabIndex={0}
+      className="group absolute inset-y-0 -left-[6px] z-20 flex w-[12px] cursor-col-resize touch-none items-stretch outline-none"
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        dragRef.current = { startWidth: controller.width, startX: event.clientX };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        event.preventDefault();
+      }}
+      onPointerMove={(event) => {
+        const nextWidth = widthForClientX(event.clientX);
+        if (nextWidth !== null) controller.previewWidth(nextWidth);
+      }}
+      onPointerUp={(event) => {
+        const nextWidth = widthForClientX(event.clientX);
+        dragRef.current = null;
+        releasePointerCapture(event.currentTarget, event.pointerId);
+        if (nextWidth !== null) controller.commitWidth(nextWidth);
+      }}
+      onPointerCancel={(event) => {
+        if (!dragRef.current) return;
+        dragRef.current = null;
+        releasePointerCapture(event.currentTarget, event.pointerId);
+        controller.cancelPreview();
+      }}
+      onKeyDown={(event) => {
+        const delta = event.key === 'ArrowLeft' ? 16 : event.key === 'ArrowRight' ? -16 : null;
+        if (delta === null) return;
+        const nextWidth = clampDesktopAiChatWidth(controller.width + delta);
+        if (nextWidth === null) return;
+        event.preventDefault();
+        controller.commitWidth(nextWidth);
+      }}
+    >
+      <span
+        aria-hidden="true"
+        className="pointer-events-none mx-auto h-full w-px bg-border/70 transition-colors group-hover:bg-primary group-focus-visible:bg-primary"
+      />
+    </div>
+  );
+}
 
 function PanelBody({
   activeRightSurface,
