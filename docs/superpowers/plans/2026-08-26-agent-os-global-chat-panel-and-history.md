@@ -2,12 +2,12 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Tasks 1–7 implementation, acceptance, and same-branch handoff complete
+**Status:** Tasks 1–7 complete; Task 8 desktop resize and Task 9 domain acceptance in progress
 **Revised:** 2026-08-28
 
 **Goal:** Make one provider-native KidItem conversation available from every authenticated work screen, restore CopilotKit OSS as the interaction owner with its real SQLite event-history runner, and deliver the approved KidItem Agent OS/Dashboard chat design without adding PostgreSQL conversation state or a paid CopilotKit service.
 
-**Architecture:** The authenticated Web app shell mounts exactly one CopilotKit provider, one route-stable presentation host, and one right auxiliary surface whose visible state is `notifications | ai_chat | null`. CopilotKit OSS SQLite-runner semantics, with only the characterization-proven narrow package fork, own completed AG-UI run events, reconnect replay, and in-process run serialization in one API-local file; Nest remains the authenticated active-turn authority and exact provider-stop bridge, while the native Agent Gateway owns provider model continuity and bounded conversation metadata. At 1536 pixels and above the 352-pixel auxiliary surface reduces the work-surface width; from 768 through 1535 pixels it overlays without narrowing Dashboard. Dashboard and Agent OS share one 256/64-pixel collapsible sidebar shell and desktop preference while keeping different navigation bodies. Agent OS and the compact Dashboard panel share message, empty-state, composer, and business-evidence presentation primitives.
+**Architecture:** The authenticated Web app shell mounts exactly one CopilotKit provider, one route-stable presentation host, and one right auxiliary surface whose visible state is `notifications | ai_chat | null`. CopilotKit OSS SQLite-runner semantics, with only the characterization-proven narrow package fork, own completed AG-UI run events, reconnect replay, and in-process run serialization in one API-local file; Nest remains the authenticated active-turn authority and exact provider-stop bridge, while the native Agent Gateway owns provider model continuity and bounded conversation metadata. At 1536 pixels and above the AI chat surface uses its validated 320-640-pixel browser-local width as both panel width and work-surface margin; from 768 through 1535 pixels the same width overlays without narrowing Dashboard. Notifications remain 352 pixels, and Agent OS does not consume the auxiliary width. Dashboard and Agent OS share one 256/64-pixel collapsible sidebar shell and desktop preference while keeping different navigation bodies. Agent OS and the compact Dashboard panel share message, empty-state, composer, and business-evidence presentation primitives.
 
 **Tech Stack:** Next.js App Router, React 19, TypeScript, Zustand, TanStack Query, CopilotKit OSS 1.69.0 v2 hooks/runtime and SQLite-runner semantics, `better-sqlite3` 12.2.0, Radix UI, NestJS, Zod, native Codex app-server, Claude CLI provider-local JSONL state, Vitest, Testing Library. Use upstream `@copilotkit/sqlite-runner` 1.69.0 directly only if its characterization contract passes; otherwise use one provenance-preserving workspace fork of that package and nothing else in CopilotKit.
 
@@ -29,11 +29,14 @@ process-token, provider-Conversation, exact-terminal runtime, and API-owned
 scoped Agent OS/Gateway `AGENTS.md` files supersede older per-turn
 execution-binding, Task/Attempt, and Invocation-worker text.
 
-Execute the seven integrated Tasks below. Task 2 keeps its three tightly
+Execute the nine integrated Tasks below. Task 2 keeps its three tightly
 coupled Gateway-owner phases together, and Task 6 keeps Agent OS history and
 Settings/history management together. Preserve focused tests and commits inside
 those phases; do not turn them back into separate Task-level review boundaries.
-Task 7 is the single cross-process acceptance and browser-QA checkpoint.
+Task 7 is the original cross-process acceptance and browser-QA checkpoint.
+Task 8 adds the approved desktop-only AI-chat resize contract without reopening
+the interaction runtime, and Task 9 adds the two owner-domain acceptance slices
+requested after the original QA pass.
 
 Execution uses Terra(max) implementation workers with TDD, focused tests, and a
 short implementer self-check for every Task. Use a separate Terra(max)
@@ -66,7 +69,7 @@ The following decisions are fixed:
 | Global access | One app-shell AI chat panel from every authenticated normal work surface |
 | Dashboard Agent OS UI | Label, organization chart, cards, and current actions remain unchanged |
 | Right surface | Exactly `notifications | ai_chat | null`; selecting one replaces the other |
-| Panel mode | 352 px push dock at 1536+; 352 px overlay at 768-1535; full-width modal drawer below 768 px; CSS breakpoints only |
+| Panel mode | AI chat defaults to 352 px and stores one validated 320-640 px browser-local desktop preference; 1536+ pushes by the rendered width and 768-1535 overlays at that width. Notifications stay 352 px. Agent OS and the existing below-768 branch do not consume this preference. |
 | Sidebar shell | Shared 256 px expanded / 64 px collapsed desktop shell and preference; different Dashboard and Agent OS bodies; component-local mobile drawer state |
 | Conversation presentation | Opaque `#4c1d95` user bubble, structured assistant prose, shared contextual empty state, shared two-tier composer, compact user-language business-evidence rail |
 | History deletion | Provider removal first, descriptor removal second, exact namespaced SQLite event history last; an absent-provider retry still finishes local cleanup |
@@ -84,7 +87,7 @@ are implementation evidence, not permission to reset or recreate those files:
 | Tasks 1-3 contracts/Gateway/Nest | `2feca802`, `f2c14118`, `a2d07724`, `776471f1`, `c28c32db`, `a427ef87` | Preserve; rerun deterministic gates after the remaining changes |
 | Task 4 route-stable baseline | `5aabc8e0`, `3d067503`, `cccc9f55` | Preserve the completed first-send/public-history cleanup, characterized OSS SQLite-runner boundary, and provider-history control-plane removal; the visual correction does not reopen this runtime work |
 | Runtime Module Locality cleanup | Completed in current integrated diff | Provider Implementations/specs are local to their folders, SQLite history uses an outgoing Adapter lane, `ActiveTurnRegistry` is control-internal, and one deep native-provider-runtime Interface owns Codex/Claude login, startup, readiness, and idempotent close assembly |
-| Task 5 global surface baseline | `c01babbf` | Preserve the single right-surface state and 352px body; correct the push threshold from 1280 to 1536 so a 1280 Dashboard uses overlay |
+| Task 5 global surface baseline | `c01babbf` | Preserve the single right-surface state and 1536 push threshold; Task 8 replaces only the AI-chat surface's fixed 352px width with the validated local desktop preference |
 | Task 6 history/settings baseline | `66e15d0d`, `bb5d5693`, `fc0052ed` | Preserve the working conversation/history behavior; finish the shared sidebar shell, draft/composer parity, message hierarchy, and business-evidence presentation |
 | Prior integration/QA | `bb19e66c`, `7aa31181`, later QA fixes | Evidence remains useful, but final Sol review and browser QA reopen after runtime and visual changes |
 
@@ -97,6 +100,8 @@ Current completion summary:
 - [x] Task 6 accepted shared-sidebar/message/composer visual correction and Batch B review (RESOLVED)
 - [x] Task 7 Step 2 durable architecture/testing update and current deterministic/boot/package evidence
 - [x] Task 7 mandatory Sol(max) integration review, business eval, and browser QA
+- [ ] Task 8 resizable desktop AI-chat panel and focused browser QA
+- [ ] Task 9 Sourcing vertical-slice and Sourcing-to-Products acceptance QA
 
 The detailed unchecked steps below describe the current-target acceptance
 recipe. They do not reopen the completed Tasks 1-3; this status summary is the
@@ -2075,7 +2080,8 @@ runtime-stage `npm ci --ignore-scripts`, and add a build-time load/open smoke
 for the selected runner package plus `better-sqlite3(':memory:')`.
 
 Record only top-level UI ownership: CopilotKit interaction, route-stable Web
-presentation, 352-pixel right surface that pushes only at 1536+, and the shared
+presentation, one validated browser-local 320-640-pixel AI-chat width that
+pushes only at 1536+, a fixed 352-pixel notification surface, and the shared
 Dashboard/Agent OS sidebar shell. Do not copy pixel-level message styling into
 ARCHITECTURE.md.
 
@@ -2190,8 +2196,9 @@ review must cover at least:
 - any sqlite-runner fork remains an attributed package-level delta from 1.69.0
   and does not fork CopilotKit runtime, AG-UI, React, or Web integration;
 - single right-surface ownership and complete legacy presentation removal;
-- exact 352-pixel 1536+ push / 768-1535 overlay / mobile drawer presentation
-  without measured layout state;
+- one validated 320-640-pixel browser-local AI-chat preference, exact rendered
+  width at the 1536+ push/768-1535 overlay boundary, fixed 352-pixel
+  notifications, and no duplicated dock/overlay state owner;
 - shared 256/64 Dashboard/Agent OS sidebar-shell ownership, collapse-route
   continuity, persistent Dashboard return, and separate mobile drawer state;
 - Agent OS folder/history/settings behavior and approved KidItem visual
@@ -2286,10 +2293,10 @@ Verify:
     returning does not create another subscription.
 13. Cross-surface replacement moves focus into the new body; close and Escape
     restore focus to the latest launcher.
-14. A 1536+ viewport uses the 352 px push dock and reduces Dashboard content
-    width; 1280 and every 768-1535 viewport use the 352 px overlay without
-    narrowing Dashboard, and a viewport below 768 px uses the full-width modal
-    drawer.
+14. A 1536+ viewport pushes Dashboard by the current validated AI-chat width;
+    1280 and every 768-1535 viewport use that width as an overlay without
+    narrowing Dashboard. Notification remains 352 px, and Agent OS does not
+    consume the AI-chat width preference.
 15. Quick Action FAB never moves and remains hidden while either auxiliary
     surface is open.
 16. Dashboard and Agent OS share 256/64 sidebar geometry, left-side labelled
@@ -2337,9 +2344,9 @@ Confirm:
 - the intentional `DESIGN.md` token correction matches `globals.css` and
   Tailwind semantic aliases, with no competing `#9333ea` primary contract;
 - no Dashboard Agent OS semantic change entered the diff;
-- the desktop work-surface offset is exactly 352 pixels only at 1536+, 1280 uses
-  overlay, and there is no ResizeObserver, measured width, or persisted dock
-  mode;
+- the desktop work-surface offset equals the validated 320-640-pixel AI-chat
+  width only at 1536+, 1280 uses the same width as an overlay, notifications
+  remain 352 pixels, and there is no ResizeObserver or persisted dock mode;
 - Dashboard and Agent OS use one 256/64 shell and desktop preference, keep
   separate body content, and do not persist mobile drawer state;
 - no duplicate useAgent or ConversationProvider mount exists;
@@ -2366,6 +2373,155 @@ rtk git add scripts/smoke-interaction-os.mjs scripts/__tests__/smoke-interaction
 rtk git commit -m "docs(agent-os): verify global conversation workspace"
 ~~~
 
+## Task 8: Add the Desktop AI-Chat Resize Boundary
+
+This Task supersedes only the fixed-width AI-chat assertions in Tasks 5 and 7.
+It does not reopen CopilotKit interaction ownership, Conversation runtime,
+notification presentation, Agent OS layout, or the existing below-768 branch.
+
+**Files:**
+
+- Create: apps/web/src/components/layout/useDesktopAiChatWidth.ts
+- Create: apps/web/src/components/layout/__tests__/useDesktopAiChatWidth.spec.tsx
+- Modify: apps/web/src/components/layout/RightAuxiliaryPanel.tsx
+- Modify: apps/web/src/components/layout/__tests__/RightAuxiliaryPanel.spec.tsx
+- Modify: apps/web/src/components/layout/AppLayout.tsx
+- Modify: apps/web/src/components/layout/__tests__/AppLayout.auth.spec.tsx
+- Verify only: apps/web/src/store/useStore.ts
+- Verify only: apps/web/src/components/agent-interaction/AgentConversationSurface.tsx
+
+- [ ] **Step 1: Lock the width preference contract with failing tests**
+
+Create a focused hook rather than expanding the global Zustand store. Its
+contract is:
+
+~~~typescript
+const STORAGE_KEY = 'kiditem.ai-chat.desktop-width';
+const DEFAULT_WIDTH = 352;
+const MIN_WIDTH = 320;
+const MAX_WIDTH = 640;
+~~~
+
+Test that a missing value uses 352; a stored integer inside 320-640 restores;
+malformed, fractional, or out-of-range values fail closed to 352; pointer
+preview changes rendered width without writing local storage; commit stores
+one validated integer; and a temporary viewport clamp never overwrites the
+saved preferred width. Run the new hook spec and confirm RED before creating
+the Implementation.
+
+- [ ] **Step 2: Implement the browser-local width owner**
+
+`useDesktopAiChatWidth` owns preferred width, optional drag preview, and current
+viewport measurement. Read local storage only after mount. Resize events may
+recompute the rendered viewport clamp but may not persist a different
+preference. Expose only `width`, `previewWidth`, `commitWidth`, and
+`cancelPreview`; do not add ResizeObserver, Zustand fields, server DTOs,
+cookies, or a second panel-mode state.
+
+Run:
+
+~~~bash
+rtk npm exec --workspace=apps/web vitest -- run src/components/layout/__tests__/useDesktopAiChatWidth.spec.tsx
+~~~
+
+Expected: all preference tests pass.
+
+- [ ] **Step 3: Add failing panel and work-surface regressions**
+
+Update the existing focused tests first. Prove that:
+
+- an AI-chat body renders at the supplied width and exposes one left-edge
+  separator labelled `AI 챗 패널 너비 조절`;
+- pointer movement previews live and pointer release commits the exact final
+  width;
+- ArrowLeft widens and ArrowRight narrows by 16 pixels within 320-640;
+- notifications remain exactly 352 pixels and expose no resize separator;
+- a 1536+ authenticated work surface uses the same CSS width variable as the
+  visible AI panel, while a notification surface uses 352;
+- 768-1535 keeps overlay behavior without applying a work-surface margin;
+- `/agent-os` consumes neither the auxiliary panel nor its width; and
+- the existing below-768 presentation branch is unchanged.
+
+Run the two specs and confirm that the new assertions fail before modifying the
+panel or AppLayout.
+
+- [ ] **Step 4: Implement the narrow resize seam**
+
+Pass the focused width controller from AppLayout to RightAuxiliaryPanel. Render
+the separator only for non-mobile AI chat. Use pointer capture, calculate width
+from the left boundary (`startWidth + startX - clientX`), preview during move,
+commit on pointer-up, cancel on pointer-cancel, and expose separator
+`aria-valuemin`, `aria-valuemax`, and `aria-valuenow`. Keep the visible divider
+quiet until hover/focus and the pointer hit area at least 12 pixels.
+
+Set one `--right-auxiliary-width` custom property on the authenticated work
+surface. At 1536+ use it for the margin; at 768-1535 the panel uses the same
+rendered width as an overlay. The notification branch always supplies 352.
+Agent OS continues to suppress only the duplicate AI-chat presentation.
+
+Run:
+
+~~~bash
+rtk npm exec --workspace=apps/web vitest -- run src/components/layout/__tests__/useDesktopAiChatWidth.spec.tsx src/components/layout/__tests__/RightAuxiliaryPanel.spec.tsx src/components/layout/__tests__/AppLayout.auth.spec.tsx
+rtk npm exec --workspace=apps/web vitest -- run src/components/layout src/components/agent-interaction src/components/panel src/store/useStore.spec.ts
+rtk npm run build --workspace=apps/web
+~~~
+
+Expected: focused tests, surrounding Web regressions, and production build pass.
+
+- [ ] **Step 5: Verify the actual desktop interaction**
+
+In the authenticated QA browser, verify a 1600-pixel Dashboard pushes by the
+live width, drag/reload restores the committed preference, a 1280-pixel
+Dashboard overlays at the same saved width, the notification body stays 352,
+and Agent OS remains a full workspace with no resize seam. Verify pointer and
+keyboard operation and inspect console/network errors. Mobile is not an
+acceptance target for this Task; only confirm the existing branch was not
+modified.
+
+## Task 9: Run the Two Owner-Domain Acceptance Slices
+
+Use the already isolated browser-QA database and actual Dashboard AI chat with
+Codex `gpt-5.6-terra` at `max`. Reset only disposable QA fixture state between
+trials. Never record credentials, cookies, tokens, raw provider/browser
+payloads, private reasoning, or full transcripts. Evidence contains sanitized
+Conversation/Turn/Execution correlations, capability key, canonical input
+hash, Approval/Operation/resource references, and final domain snapshots.
+
+- [ ] **Step 1: Run the Sourcing vertical slice**
+
+From a Sourcing Agent Conversation, retrieve recommendation/evidence data and
+prove no canonical write. Use an actually reachable allowlisted supplier URL
+for `sourcing.duplicateCheck` and `sourcing.scrapeProductUrl`. The scrape must
+return the bounded normalized owner schema and must not create a candidate.
+
+In the same live provider turn, request `sourcing.ingestCandidate` with the
+exact server-returned snapshot/hash and owner idempotency key. Prove candidate
+absence before approval, then approve and prove exactly one candidate. Replay
+the same key/input and prove the same resource is returned; change the
+snapshot/hash under that key and prove rejection with no second write. Confirm
+the resulting candidate appears in the actual Sourcing UI.
+
+- [ ] **Step 2: Run Sourcing-to-Products delegation**
+
+Continue from an existing QA candidate. Ask the Sourcing Agent to prepare a
+listing-generation request that delegates the canonical mutation to
+`products.create_listing_generation_package`. Prove the Products owner
+capability—not a Sourcing DB shortcut—owns the call. Before approval there is
+no new `OperationRun`; after approval there is exactly one owner Operation.
+Replay the same owner key/input and prove candidate and Operation counts remain
+one. Confirm both the Conversation result and the actual product pipeline UI
+reflect the accepted request.
+
+- [ ] **Step 3: Promote only observed failures and publish evidence**
+
+Run each slice against a clean disposable fixture. If an invariant fails, add
+one failing regression at the narrow owner/UI boundary, make the minimum fix,
+and rerun only that finding plus its surrounding deterministic gate before
+repeating the live slice. Record the commands, pass/fail outcome, and sanitized
+final snapshots in the local QA report and update this plan's checkboxes only
+after actual evidence exists. Claude live QA remains non-blocking.
+
 ## Final Acceptance Checklist
 
 - [x] Browser-reserved create ID is strict, replayable, and drift-conflicting at
@@ -2391,9 +2547,10 @@ rtk git commit -m "docs(agent-os): verify global conversation workspace"
   first-send coordinator.
 - [x] Notification and AI chat content are mutually exclusive bodies of one
   `notifications | ai_chat | null` right surface.
-- [x] Desktop 1536+ uses one 352 px push dock, 768-1535 uses the same 352 px body
-  as an overlay, and below 768 px it becomes a full-width modal drawer without
-  measured or persisted layout state.
+- [ ] AI chat defaults to 352 px, accepts and restores one validated 320-640 px
+  desktop-local width, pushes by that width at 1536+, and overlays at that width
+  from 768-1535. Notifications remain 352 px; Agent OS and the existing
+  below-768 branch do not consume the preference.
 - [x] Agent OS suppresses only duplicate ai_chat presentation; notification
   presentation and the preserved chat runtime follow the fixed route rule.
 - [x] Dashboard Agent OS UI and business actions are unchanged.
@@ -2422,6 +2579,12 @@ rtk git commit -m "docs(agent-os): verify global conversation workspace"
 - [x] Codex/Terra(max) Dashboard business eval passed all three cases at 3 trials
   each, with every forbidden behavior absent and at least 2/3 normal completion
   per case.
+- [ ] The Sourcing read/scrape/approved-ingest slice proves exact snapshot
+  admission, same-key replay, drift rejection, one candidate, and Sourcing UI
+  projection.
+- [ ] The Sourcing-to-Products slice proves Products owner delegation,
+  approval-before-write, one OperationRun, replay without duplication, and
+  product-pipeline projection.
 - [x] One Sol(max) integrated review passed before browser QA with no open
   Critical or Important finding.
 - [x] The only live limitation, when still applicable, is unavailable Claude
