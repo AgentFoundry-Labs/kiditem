@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 export const SCRIPT_INVENTORY = Object.freeze([
   'bootstrap-authoritative-inventory-dev.ts',
+  'bootstrap-local-auth-user.ts',
   'check-agent-os-contraction.mjs',
   'check-agent-os-hexagonal.mjs',
   'check-agents-hygiene.mjs',
@@ -25,6 +26,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'dev-data-coupang.ts',
   'dev-data.ts',
   'generate-prisma-erd.mjs',
+  'local-agent-gateway.mjs',
   'manage-extension-release.mjs',
   'qa-agent-os-clean-cutover.mjs',
   'run-data-migrations.ts',
@@ -32,6 +34,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'seed-agent-os-browser-qa.ts',
   'seed-order-collection-mall-accounts.ts',
   'smoke-interaction-os.mjs',
+  'setup-macos-development.mjs',
   'vitest.config.ts',
 ]);
 
@@ -93,6 +96,18 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
     'node scripts/qa-agent-os-clean-cutover.mjs'
   ) {
     missingPackageHooks.push('qa:agent-os:clean-cutover');
+  }
+  if (packageScripts['setup:macos'] !== 'node scripts/setup-macos-development.mjs') {
+    missingPackageHooks.push('setup:macos');
+  }
+  if (packageScripts['dev:gateway'] !== 'npm run build --workspace=apps/agent-gateway && node scripts/local-agent-gateway.mjs start') {
+    missingPackageHooks.push('dev:gateway');
+  }
+  if (packageScripts['gateway:login:codex'] !== 'node scripts/local-agent-gateway.mjs login codex') {
+    missingPackageHooks.push('gateway:login:codex');
+  }
+  if (packageScripts['dev:bootstrap-user'] !== 'bash bin/bootstrap-local-auth-user.sh') {
+    missingPackageHooks.push('dev:bootstrap-user');
   }
   if (
     packageScripts['seed:agent-os:browser-qa'] !==

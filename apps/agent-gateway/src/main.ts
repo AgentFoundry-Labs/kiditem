@@ -64,6 +64,14 @@ export async function runNativeAgentGateway(argv: readonly string[]): Promise<ne
   }
 }
 
+export function gatewayStartupFailureMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : '';
+  return /^gateway_[a-z0-9_]+$/.test(message) ? message : 'gateway_start_failed';
+}
+
 if (process.argv[1]?.endsWith('main.cjs')) {
-  void runNativeAgentGateway(process.argv.slice(2)).catch(() => { process.exitCode = 1; });
+  void runNativeAgentGateway(process.argv.slice(2)).catch((error) => {
+    process.stderr.write(`${gatewayStartupFailureMessage(error)}\n`);
+    process.exitCode = 1;
+  });
 }

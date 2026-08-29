@@ -11,8 +11,92 @@ Do not copy every variable in this runbook into every environment. Keep env
 files minimal, then add feature-specific variables only when that feature is
 actually enabled in that environment.
 
+## Environment Profiles At A Glance
+
+### macOS core
+
+Run `npm run setup:macos` before dependency installation. It creates missing
+files from committed examples and never overwrites existing files.
+
+| File | Owner | Minimum local values | Secret boundary |
+|---|---|---|---|
+| `.env` | Prisma CLI and root dev-data scripts | `DATABASE_URL`; dev-data values only when syncing | Keep app/provider secrets out. |
+| `apps/server/.env` | NestJS API and Operation worker | `NODE_ENV`, `PORT`, `DATABASE_URL`, `WEB_ORIGIN`, `CORS_ORIGINS`, `S3_*`, `API_SELF_URL` | Server/provider/channel values may be secret; never expose them as `NEXT_PUBLIC_*`. |
+| `apps/web/.env.local` | Next.js | `NEXT_PUBLIC_API_URL`; optional query-devtools flag | Every `NEXT_PUBLIC_*` value is browser-visible and must not be a secret. |
+
+The checked-in local database value is exactly:
+
+```text
+postgresql://kiditem:kiditem@localhost:5433/kiditem
+```
+
+It matches `docker-compose.yml` and is development-only. The root file must
+exist before npm postinstall invokes Prisma generate; the setup command enforces
+that order.
+
+Local Sourcing does not inherit the Office Chrome hostname. Keep
+`SOURCING_PLAYWRIGHT_CDP_ENDPOINT` blank and use the dedicated
+`SOURCING_PLAYWRIGHT_USER_DATA_DIR=.kiditem/playwright/sourcing` when local URL
+scrape needs a persistent browser login. Set `SOURCING_PLAYWRIGHT_HEADLESS=false`
+only while preparing/debugging that local profile.
+
+### macOS Agent OS
+
+Agent OS adds one server env path and a protected native configuration; it does
+not add provider credentials to `.env`.
+
+| Location | Owner | Required content | Persistence |
+|---|---|---|---|
+| `apps/server/.env` | Nest Gateway ingress | `KIDITEM_AGENT_GATEWAY_TOKEN_FILE`, `MCP_SDK_GENERATION=v2`, `MCP_PROTOCOL_NEGOTIATION=auto`; optional `AGENT_CLI_MAX_CONCURRENCY` | Token **path** only. |
+| `~/Library/Application Support/KidItem/AgentGateway/gateway-config.json` | native Gateway | strict absolute `controlOrigin`, `tokenFile`, `stateRoot`, `runtimeRoot`, `workspace`, `loginRoot` | 0600 local control config; not an env file. |
+| `.../secrets/installation-token` | Gateway + Nest | random 43-character installation bearer | 0600 secret; never print/copy to env or DB. |
+| `.../provider-home` | bundled Codex/Claude CLI | provider login and provider-local conversation/session history | 0700 host-local provider state; never PostgreSQL. |
+| `.../state` | native Gateway | conversation descriptors, preferences, bounded control files | 0700 host-local state; no business authority. |
+
+`npm run setup:macos` creates these paths and writes the token file path into
+the server env. `npm run gateway:login:codex` and optional
+`npm run gateway:login:claude` authenticate inside `provider-home`. Reusing the
+developer's normal `~/.codex` or default home is not supported because it mixes
+KidItem conversations with personal Desktop/CLI history.
+
+The process-scoped MCP transport token is generated in memory by the Gateway;
+it is not this installation bearer, not an env variable, and not a capability
+grant. Nest's active-turn record remains the only business authority.
+
+### Optional Python agents
+
+The Python FastAPI helper is outside the default `dev:all` path. Create
+`agents/.env` only with `npm run setup:macos -- --with-python-agents` and run it
+with a Python 3.11+ venv.
+
+| File | Owner | Required when enabled | Secret boundary |
+|---|---|---|---|
+| `agents/.env` | optional Python Agent server | `DATABASE_URL`, `AI_MODE`, chosen model names, and the key required by that mode | Provider/Langfuse keys stay here; blank examples are intentional. |
+
+The default Nest TypeScript Sourcing URL scrape does not require Python. Do not
+populate all OpenAI/Gemini/VectorEngine keys at once; provide only the selected
+mode's key.
+
+### Windows Office
+
+Office is deployed through GitHub Actions and protected host files, not the
+macOS setup command.
+
+| Location | Owner | Content |
+|---|---|---|
+| `C:\ProgramData\Kiditem\.env.office` | Office Compose | non-secret deployment/runtime paths and host values |
+| protected file referenced by `OFFICE_API_ENV_FILE` | API container | DB, S3, AI, marketplace, and feature-specific runtime secrets |
+| protected file referenced by `KIDITEM_AGENT_GATEWAY_TOKEN_FILE` | Windows Gateway/Nest | installation bearer only |
+| Windows service-account profile | bundled Codex/Claude CLI | provider login state and provider-local conversation history |
+
+Office keeps `SOURCING_PLAYWRIGHT_CDP_ENDPOINT=http://kiditem-office:9444` in
+`deploy/office/office.env.example`. Never copy that value into the macOS server
+env. See [Office Deploy](office-deploy.md) and
+[Deployment Architecture](deployment-architecture.md).
+
 ## Human Prerequisites
 
+- For macOS, Docker Desktop plus the exact `.nvmrc` Node version.
 - Access to the GitHub repository and the `office` GitHub Environment.
 - Local operator access to the Office host when changing runtime secrets.
 - Access to provider consoles for AI keys and marketplace credentials.
@@ -26,6 +110,10 @@ Local development:
 apps/server/.env        NestJS local runtime env
 apps/web/.env.local     Next.js local env
 agents/.env             Python agent runtime env
+~/Library/Application Support/KidItem/AgentGateway/gateway-config.json
+                        native Gateway config (not dotenv)
+~/Library/Application Support/KidItem/AgentGateway/secrets/installation-token
+                        native Gateway bearer (not dotenv)
 ```
 
 Office:

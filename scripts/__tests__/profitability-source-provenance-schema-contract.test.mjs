@@ -40,7 +40,8 @@ test('persists independent profitability source provenance', () => {
 
 test('starts the operation runtime worker in the all-in-one local development command', () => {
   assert.match(
-    packageJson.scripts['dev:all'],
+    packageJson.scripts['dev:core'],
     /OPERATION_RUNTIME_WORKER_ENABLED=1 npm run dev:server/,
   );
+  assert.match(packageJson.scripts['dev:all'], /npm run dev:core/);
 });

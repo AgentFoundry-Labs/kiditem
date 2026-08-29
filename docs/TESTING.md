@@ -58,6 +58,18 @@ integration/E2E/scanner 가 이미 보호하는 중복 테스트는 아래
 | `scripts/` | `scripts/__tests__/` | `*.spec.ts` |
 | Agent interaction cross-process acceptance | `scripts/smoke-interaction-os.mjs` + Agent OS PostgreSQL integration specs | smoke + `*.pg.integration.spec.ts` |
 
+Fresh-clone developer setup is a public repository contract. Keep its dynamic
+helpers under `scripts/__tests__/*.spec.ts` and its cross-file assertions in
+`scripts/__tests__/developer-onboarding-contract.test.mjs`. The contract must
+cover the Node pin, env/Compose agreement, non-overwrite and file permissions,
+local-auth admission, Gateway provider-home isolation, package entrypoints,
+and README/runbook links. Run it without a database or provider login:
+
+```bash
+node --test scripts/__tests__/developer-onboarding-contract.test.mjs
+npm run test:scripts
+```
+
 새 파일은 주변 파일군의 관습을 따른다. 서버와 scripts 는 config 가 명시한
 `*.spec.ts` / `__tests__` 규칙에서 벗어나지 않는다. 웹은 Vitest 기본 include
 때문에 `*.test.ts` 도 실행되지만, 새 테스트는 주변 route 가 이미 `*.test.ts`
