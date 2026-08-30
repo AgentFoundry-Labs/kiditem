@@ -61,7 +61,7 @@ jobs:
 
       - name: Build and unit-test the Gateway
         run: |
-          npm run build --workspace=packages/shared
+          npm exec --workspace=packages/shared tsup -- src/agent-runtime/index.ts src/identifiers/index.ts --format esm,cjs --no-config --out-dir dist --clean
           npm run build --workspace=apps/agent-gateway
           npm exec --workspace=apps/agent-gateway vitest -- run
 

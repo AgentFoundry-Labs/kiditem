@@ -69,7 +69,9 @@ describe('integration test runtime contract', () => {
     expect(gatewayFastJob).toContain('runs-on: ubuntu-latest');
     expect(gatewayFastJob).toContain('node-version: 22');
     expect(gatewayFastJob).toContain('npm ci --ignore-scripts');
-    expect(gatewayFastJob).toContain('npm run build --workspace=packages/shared');
+    expect(gatewayFastJob).toContain(
+      'npm exec --workspace=packages/shared tsup -- src/agent-runtime/index.ts src/identifiers/index.ts --format esm,cjs --no-config --out-dir dist --clean',
+    );
     expect(gatewayFastJob).toContain('npm run build --workspace=apps/agent-gateway');
     expect(gatewayFastJob).toContain('npm exec --workspace=apps/agent-gateway vitest -- run');
     expect(gatewayFastJob).not.toContain('dotnet publish');

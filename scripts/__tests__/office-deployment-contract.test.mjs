@@ -277,7 +277,10 @@ test('ordinary PR validation stays on fast static and unit checks', () => {
   assert.match(workflow, /name: Gateway fast checks/);
   assert.match(workflow, /runs-on: ubuntu-latest/);
   assert.match(workflow, /npm ci --ignore-scripts/);
-  assert.match(workflow, /npm run build --workspace=packages\/shared/);
+  assert.match(
+    workflow,
+    /npm exec --workspace=packages\/shared tsup -- src\/agent-runtime\/index\.ts src\/identifiers\/index\.ts --format esm,cjs --no-config --out-dir dist --clean/,
+  );
   assert.match(workflow, /npm run build --workspace=apps\/agent-gateway/);
   assert.match(workflow, /npm exec --workspace=apps\/agent-gateway vitest -- run/);
   assert.match(workflow, /node --test scripts\/__tests__\/office-deployment-contract\.test\.mjs/);

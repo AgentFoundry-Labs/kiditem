@@ -421,7 +421,7 @@ PR 작성자는 `AGENTS.md`의 변경 유형별 검증과 PR body guard를 로�
 | Workflow / Job | 실행 시점 | 역할 |
 | --- | --- | --- |
 | `PR Checks / PR hygiene` | `develop`, `main`, `release/office` 대상 PR | PR diff whitespace와 AGENTS hygiene 검증 |
-| `PR Checks / Gateway fast checks` | 동일 PR | lifecycle script 없는 install, Shared/Gateway build, Gateway unit tests |
+| `PR Checks / Gateway fast checks` | 동일 PR | lifecycle script 없는 install, Gateway가 소비하는 Shared 런타임 진입점과 Gateway build, Gateway unit tests |
 | `Develop Gateway Package / Develop Windows Gateway package` | `develop` push | exact SHA에서 Windows 전체 install/staging, .NET helper 2개, Gateway tests, archive/hash provenance를 1회 생성 |
 | `PR Checks / Develop artifact gate` | `release/office` 대상 PR | exact head SHA의 성공·미만료 develop Gateway artifact가 있을 때만 승격 허용 |
 | `Develop Validation / Develop full validation` | `develop`에서 수동 실행 | 한 번의 dependency install 뒤 deployable workspace 전체 build, web/extension tests, real PostgreSQL integration suite 실행 |
