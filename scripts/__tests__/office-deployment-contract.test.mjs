@@ -39,6 +39,7 @@ test('Office release build gates reserve enough heap and keep Windows fixtures p
     assert.match(dockerfile, /ENV NODE_OPTIONS=--max-old-space-size=4096/);
   }
   assert.doesNotMatch(nativeFixture, /\b\d+_\d+\b/);
+  assert.doesNotMatch(nativeFixture, /foreach\s*\(\s*\$pid\s+in/i);
 });
 
 test('office Compose is image-only and preserves external state volumes', () => {
