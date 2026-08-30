@@ -47,9 +47,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $env:NODE_OPTIONS = '--max-old-space-size=4096'
           npm ci
+          if ($LASTEXITCODE -ne 0) { throw 'Gateway dependency installation failed.' }
           npm run build --workspace=packages/shared
+          if ($LASTEXITCODE -ne 0) { throw 'Shared contract build failed.' }
           npm run build --workspace=apps/agent-gateway
+          if ($LASTEXITCODE -ne 0) { throw 'Gateway build failed.' }
           npm run prepack --workspace=apps/agent-gateway
           if ($LASTEXITCODE -ne 0) { throw 'Gateway bundled runtime staging failed.' }
           # Frozen Task 4 Windows sources remain the native build seam. The
