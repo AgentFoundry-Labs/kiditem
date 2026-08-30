@@ -12,6 +12,10 @@ import {
   COMPOSITE_OPERATION_COORDINATOR_PORT,
   type CompositeOperationCoordinatorPort,
 } from '../../../../operations/application/port/in/composite-operation-coordinator.port';
+import {
+  OPERATION_ATTEMPT_VERIFIER_PORT,
+  type OperationAttemptVerifierPort,
+} from '../../../../operations/application/port/in/operation-attempt-verifier.port';
 import { MasterProductAbcService } from '../../../application/service/master-product-abc.service';
 import {
   PRODUCT_PROFITABILITY_OPERATIONS,
@@ -75,6 +79,8 @@ implements OperationHandler, OnModuleInit {
     @Inject(OPERATION_HANDLER_REGISTRY_PORT)
     private readonly registry: OperationHandlerRegistryPort,
     private readonly abc: MasterProductAbcService,
+    @Inject(OPERATION_ATTEMPT_VERIFIER_PORT)
+    private readonly attemptVerifier: OperationAttemptVerifierPort,
   ) {}
 
   onModuleInit(): void {
@@ -82,7 +88,19 @@ implements OperationHandler, OnModuleInit {
   }
 
   async execute(context: OperationHandlerContext): Promise<OperationHandlerResult> {
-    const result = await this.abc.recalculate(context.organizationId);
+    context.signal.throwIfAborted();
+    const result = await this.abc.recalculate(context.organizationId, {
+      signal: context.signal,
+      checkpoint: (stage) => context.checkpoint({ stage }),
+      withinActiveOperationAttemptFence: (commit) =>
+        this.attemptVerifier.withActiveDomainAttemptFence({
+          organizationId: context.organizationId,
+          runId: context.runId,
+          expectedOperationKey: PRODUCT_PROFITABILITY_OPERATIONS[1].key,
+          attemptToken: context.attemptToken,
+        }, (_attempt, transaction) => commit(transaction)),
+    });
+    context.signal.throwIfAborted();
     return {
       kind: 'completed',
       result: {

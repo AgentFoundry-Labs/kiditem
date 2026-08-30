@@ -105,8 +105,10 @@ describe('ConversationPreferenceStore', () => {
     const file = join(root, 'conversation-preferences.json');
     const raw = await readFile(file, 'utf8');
 
-    expect((await stat(root)).mode & 0o777).toBe(0o700);
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') {
+      expect((await stat(root)).mode & 0o777).toBe(0o700);
+      expect((await stat(file)).mode & 0o777).toBe(0o600);
+    }
     expect(JSON.parse(raw)).toEqual({
       schemaVersion: 1,
       contexts: { general: { codex_cli: { model: 'gpt-5.6', reasoningEffort: 'medium' } } },

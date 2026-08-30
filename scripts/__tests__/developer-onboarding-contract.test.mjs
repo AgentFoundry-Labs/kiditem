@@ -50,13 +50,20 @@ test('root commands keep the optional Python runtime out of the default developm
   assert.match(scripts['dev:core'], /npm run dev/);
   assert.match(scripts['dev:core'], /npm run dev:server/);
   assert.match(scripts['dev:core'], /OPERATION_RUNTIME_WORKER_ENABLED=1/);
+  assert.match(scripts['dev:core'], /--kill-others-on-fail/);
   assert.doesNotMatch(scripts['dev:core'], /dev:agents/);
-  assert.match(scripts['dev:all'], /dev:core/);
-  assert.match(scripts['dev:all'], /dev:gateway/);
+  assert.equal(scripts['dev:all'], 'node scripts/run-local-development.mjs');
   assert.doesNotMatch(scripts['dev:all'], /dev:agents/);
+  assert.equal(scripts['gateway:auth:codex'], 'node scripts/local-agent-gateway.mjs auth codex');
   assert.equal(scripts['gateway:login:codex'], 'node scripts/local-agent-gateway.mjs login codex');
   assert.equal(scripts['gateway:login:claude'], 'node scripts/local-agent-gateway.mjs login claude');
   assert.equal(scripts['dev:bootstrap-user'], 'bash bin/bootstrap-local-auth-user.sh');
+});
+
+test('macOS setup hands runtime startup to the auth-aware dev:all entrypoint', () => {
+  const setup = read('scripts/setup-macos-development.mjs');
+  assert.doesNotMatch(setup, /Then: npm run gateway:login:codex/);
+  assert.match(setup, /Run: npm run dev:all/);
 });
 
 test('README uses the repository setup entrypoint and links the detailed authorities', () => {
@@ -83,4 +90,6 @@ test('runbooks describe the current browser-auth and environment ownership contr
   for (const heading of ['macOS core', 'macOS Agent OS', 'Optional Python agents', 'Windows Office']) {
     assert.match(env, new RegExp(heading, 'i'));
   }
+  assert.match(env, /gateway:auth:codex/);
+  assert.match(env, /gateway:login:codex.*forced recovery/is);
 });

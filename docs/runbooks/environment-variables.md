@@ -54,10 +54,12 @@ not add provider credentials to `.env`.
 | `.../state` | native Gateway | conversation descriptors, preferences, bounded control files | 0700 host-local state; no business authority. |
 
 `npm run setup:macos` creates these paths and writes the token file path into
-the server env. `npm run gateway:login:codex` and optional
-`npm run gateway:login:claude` authenticate inside `provider-home`. Reusing the
-developer's normal `~/.codex` or default home is not supported because it mixes
-KidItem conversations with personal Desktop/CLI history.
+the server env. `npm run gateway:auth:codex` checks the isolated Codex login,
+opens the interactive login only when needed, and verifies it again. Optional
+Claude authentication uses `npm run gateway:login:claude`.
+`npm run gateway:login:codex` remains available only for forced recovery.
+Reusing the developer's normal `~/.codex` or default home is not supported
+because it mixes KidItem conversations with personal Desktop/CLI history.
 
 The process-scoped MCP transport token is generated in memory by the Gateway;
 it is not this installation bearer, not an env variable, and not a capability
@@ -96,7 +98,8 @@ env. See [Office Deploy](office-deploy.md) and
 
 ## Human Prerequisites
 
-- For macOS, Docker Desktop plus the exact `.nvmrc` Node version.
+- For macOS, Docker Desktop plus a supported Node 22 release; `.nvmrc` is the
+  recommended reproducible baseline.
 - Access to the GitHub repository and the `office` GitHub Environment.
 - Local operator access to the Office host when changing runtime secrets.
 - Access to provider consoles for AI keys and marketplace credentials.

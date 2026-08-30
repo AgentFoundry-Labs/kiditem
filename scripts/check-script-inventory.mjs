@@ -30,6 +30,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'manage-extension-release.mjs',
   'qa-agent-os-clean-cutover.mjs',
   'run-data-migrations.ts',
+  'run-local-development.mjs',
   'safe-prisma-db-push.mjs',
   'seed-agent-os-browser-qa.ts',
   'seed-order-collection-mall-accounts.ts',
@@ -102,6 +103,12 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   }
   if (packageScripts['dev:gateway'] !== 'npm run build --workspace=apps/agent-gateway && node scripts/local-agent-gateway.mjs start') {
     missingPackageHooks.push('dev:gateway');
+  }
+  if (packageScripts['dev:all'] !== 'node scripts/run-local-development.mjs') {
+    missingPackageHooks.push('dev:all');
+  }
+  if (packageScripts['gateway:auth:codex'] !== 'node scripts/local-agent-gateway.mjs auth codex') {
+    missingPackageHooks.push('gateway:auth:codex');
   }
   if (packageScripts['gateway:login:codex'] !== 'node scripts/local-agent-gateway.mjs login codex') {
     missingPackageHooks.push('gateway:login:codex');

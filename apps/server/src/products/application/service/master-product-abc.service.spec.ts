@@ -67,9 +67,12 @@ function repository(overrides = {}) {
   return {
     getFormulaState: vi.fn().mockResolvedValue({ revision: 1, formulaVersionId: 'formula-1', formula }),
     ensureInitialFormula: vi.fn(),
+    ensureInitialFormulaInAttempt: vi.fn(),
     listSellingMasterProductIds: vi.fn().mockResolvedValue([productId]),
     findCurrentEvaluations: vi.fn().mockResolvedValue(new Map()),
     publishEvaluations: vi.fn().mockResolvedValue({ changedProductCount: 1, stale: false }),
+    publishEvaluationsInAttempt: vi.fn()
+      .mockResolvedValue({ changedProductCount: 1, stale: false }),
     reconcileInventoryActivity: vi.fn().mockResolvedValue({
       deactivatedMasterProductIds: [productId],
       reactivatedMasterProductIds: [],
@@ -139,5 +142,47 @@ describe('MasterProductAbcService', () => {
     });
     await expect(new MasterProductAbcService(staleRepository as never, profitability as never)
       .recalculate(organizationId)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('does not publish after the operation is cancelled', async () => {
+    const products = repository();
+    const profitability = { readMany: vi.fn().mockResolvedValue([evidence()]) };
+    const controller = new AbortController();
+    const checkpoint = vi.fn(async () => {
+      controller.abort(new Error('operator_cancelled'));
+    });
+    const service = new MasterProductAbcService(products as never, profitability as never);
+
+    await expect(service.recalculate(organizationId, {
+      signal: controller.signal,
+      checkpoint,
+      withinActiveOperationAttemptFence: vi.fn(),
+    })).rejects.toThrow('operator_cancelled');
+
+    expect(products.publishEvaluations).not.toHaveBeenCalled();
+    expect(products.publishEvaluationsInAttempt).not.toHaveBeenCalled();
+  });
+
+  it('publishes through the active operation attempt transaction when supplied', async () => {
+    const transaction = { transaction: true };
+    const products = repository({
+      publishEvaluationsInAttempt: vi.fn()
+        .mockResolvedValue({ changedProductCount: 1, stale: false }),
+    });
+    const profitability = { readMany: vi.fn().mockResolvedValue([evidence()]) };
+    const withinActiveOperationAttemptFence = vi.fn(async (commit) => commit(transaction));
+    const service = new MasterProductAbcService(products as never, profitability as never);
+
+    await service.recalculate(organizationId, {
+      signal: new AbortController().signal,
+      checkpoint: vi.fn().mockResolvedValue(undefined),
+      withinActiveOperationAttemptFence,
+    });
+
+    expect(products.publishEvaluations).not.toHaveBeenCalled();
+    expect(products.publishEvaluationsInAttempt).toHaveBeenCalledWith(
+      transaction,
+      expect.objectContaining({ organizationId }),
+    );
   });
 });
