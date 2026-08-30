@@ -96,7 +96,8 @@ env. See [Office Deploy](office-deploy.md) and
 
 ## Human Prerequisites
 
-- For macOS, Docker Desktop plus the exact `.nvmrc` Node version.
+- For macOS, Docker Desktop plus a supported Node 22 release; `.nvmrc` is the
+  recommended reproducible baseline.
 - Access to the GitHub repository and the `office` GitHub Environment.
 - Local operator access to the Office host when changing runtime secrets.
 - Access to provider consoles for AI keys and marketplace credentials.

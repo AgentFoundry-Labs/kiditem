@@ -15,14 +15,26 @@ afterEach(async () => {
 });
 
 describe('macOS development setup', () => {
-  it('requires the repository-pinned macOS Node runtime', () => {
-    expect(() => assertMacosDevelopmentRuntime({ platform: 'darwin', nodeVersion: '22.23.2' }))
-      .not.toThrow();
+  it('requires macOS', () => {
     expect(() => assertMacosDevelopmentRuntime({ platform: 'linux', nodeVersion: '22.23.2' }))
       .toThrow('setup_macos_platform_required');
-    expect(() => assertMacosDevelopmentRuntime({ platform: 'darwin', nodeVersion: '22.22.0' }))
-      .toThrow('setup_node_version_mismatch');
   });
+
+  it.each(['22.0.0', '22.23.1', '22.23.2', '22.99.0'])(
+    'accepts supported Node 22 version %s independently of the recommended patch',
+    (nodeVersion) => {
+      expect(() => assertMacosDevelopmentRuntime({ platform: 'darwin', nodeVersion }))
+        .not.toThrow();
+    },
+  );
+
+  it.each(['21.99.0', '23.0.0', 'invalid'])(
+    'rejects unsupported Node version %s',
+    (nodeVersion) => {
+      expect(() => assertMacosDevelopmentRuntime({ platform: 'darwin', nodeVersion }))
+        .toThrow('setup_node_version_mismatch');
+    },
+  );
 
   it('creates only missing env files and an isolated protected Gateway home', async () => {
     const repoRoot = await fixtureRepo();
@@ -58,6 +70,17 @@ describe('macOS development setup', () => {
     expect((await stat(result.gateway.tokenFile)).mode & 0o777).toBe(0o600);
     expect((await stat(join(repoRoot, 'apps/server/.env'))).mode & 0o777).toBe(0o600);
     expect((await stat(join(repoRoot, 'apps/web/.env.local'))).mode & 0o777).toBe(0o600);
+  });
+
+  it('creates a protected Codex home inside the isolated Gateway login root', async () => {
+    const repoRoot = await fixtureRepo();
+    const home = await tempRoot('kiditem-setup-home-');
+
+    const result = await setupMacosDevelopmentFiles({ repoRoot, home });
+    const codexHome = join(result.gateway.loginRoot, '.codex');
+
+    expect((await stat(codexHome)).isDirectory()).toBe(true);
+    expect((await stat(codexHome)).mode & 0o777).toBe(0o700);
   });
 
   it('preserves a valid token and remains idempotent while refreshing absolute repo paths', async () => {

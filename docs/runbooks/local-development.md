@@ -42,12 +42,13 @@ node --version
 npm --version
 ```
 
-Expected versions are read from `.nvmrc` and `package.json`: Node `22.23.2`,
-Node major 22, and npm major 10. npm itself is pinned as `npm@10.9.8` in
-`packageManager`.
+`.nvmrc` recommends Node `22.23.2` as the reproducible local baseline.
+`package.json` defines the supported runtime as Node `>=22 <23` and npm major
+10; npm itself is pinned as `npm@10.9.8` in `packageManager`.
 
-Block setup if Node is not the exact `.nvmrc` version. The native Gateway train
-validates Node major 22 and exact bundled provider packages.
+Setup accepts any Node 22 release and blocks other majors. The native Gateway
+train likewise validates Node major 22 while keeping bundled provider packages
+exactly pinned.
 
 ## 2. Initialize Local Files
 
@@ -57,7 +58,7 @@ npm run setup:macos
 
 This command runs before repository dependencies are required. It:
 
-1. verifies macOS and the pinned Node version;
+1. verifies macOS and the supported Node major;
 2. creates `.env`, `apps/server/.env`, and `apps/web/.env.local` from committed
    examples only when missing;
 3. creates the protected Gateway tree shown below;
@@ -75,6 +76,7 @@ is a blocker and is not silently rotated.
 │   └── installation-token    0600
 ├── state/                    0700
 └── provider-home/            0700
+    └── .codex/               0700
 ```
 
 The generated config contains absolute paths and exactly:
@@ -172,10 +174,13 @@ extension handoff contract.
 Codex:
 
 ```bash
-npm run gateway:login:codex
+npm run gateway:auth:codex
 ```
 
-This runs the exact bundled `@openai/codex` package with:
+This first checks the exact bundled `@openai/codex` package's login status. A
+valid isolated login exits without opening a browser. Otherwise it starts the
+provider's browser/device flow and verifies login status again before
+succeeding. It uses:
 
 ```text
 HOME=~/Library/Application Support/KidItem/AgentGateway/provider-home
@@ -185,6 +190,12 @@ CODEX_HOME=~/Library/Application Support/KidItem/AgentGateway/provider-home/.cod
 Complete the provider's browser/device flow. Do not copy the normal
 `~/.codex` directory. KidItem conversations then remain separate from Codex
 Desktop's normal history.
+
+To force the interactive Codex login flow for recovery:
+
+```bash
+npm run gateway:login:codex
+```
 
 Claude is optional:
 
@@ -204,7 +215,15 @@ Full Dashboard and Agent OS:
 npm run dev:all
 ```
 
-This runs:
+This single entrypoint runs these boundaries in order:
+
+1. idempotent `setup:macos`;
+2. isolated Codex authentication check, with interactive login only when
+   required; and
+3. `dev:core` plus `dev:gateway` only after both earlier stages succeed.
+
+An existing valid login skips the browser flow on repeat runs. Setup or
+authentication failure starts no long-running service. The running stack is:
 
 ```text
 Next.js Web
@@ -230,6 +249,9 @@ npm run dev
 npm run dev:server
 npm run dev:gateway
 ```
+
+Direct `dev:gateway` use never opens a login flow. It fails with
+`gateway_provider_unauthenticated` until `gateway:auth:codex` succeeds.
 
 Open [http://localhost:3000/login](http://localhost:3000/login), log in with the
 local identity, and verify `GET /api/auth/me` through the UI. Agent OS readiness
@@ -301,12 +323,15 @@ private reasoning in verification evidence.
 
 | Symptom | Check | Recovery |
 |---|---|---|
-| `setup_node_version_mismatch` | `node --version`, `.nvmrc` | install/use the exact `.nvmrc` version |
+| `setup_node_version_mismatch` | `node --version`, `package.json` | install/use any supported Node 22 release; `.nvmrc` remains the recommended baseline |
 | Prisma env error during install | `.env` exists before install | rerun `npm run setup:macos`; do not start with raw `npm install` |
 | Docker services unhealthy | Docker Desktop and `docker compose ps` | start Docker; inspect service logs without deleting volumes |
 | `gateway_installation_token_invalid` | token file length/mode, never print value | move the malformed file aside manually, rerun setup, then restart API/Gateway |
 | `gateway_provider_package_missing` | locked npm install and Gateway build | rerun setup, then `npm run build --workspace=apps/agent-gateway` |
-| Codex unavailable | isolated provider login status | rerun `npm run gateway:login:codex`, then restart Gateway |
+| `gateway_provider_unauthenticated` | isolated provider login status | run `npm run gateway:auth:codex`, then restart Gateway |
+| `gateway_provider_auth_failed` | browser/device login completion | rerun `npm run gateway:auth:codex`; use `gateway:login:codex` only for forced recovery |
+| `local_development_setup_failed` | preceding setup error | resolve the reported setup blocker, then rerun `npm run dev:all` |
+| `local_development_provider_auth_failed` | preceding provider-auth error | complete `npm run gateway:auth:codex`, then rerun `npm run dev:all` |
 | `user_not_found` from `auth:password` | fresh DB has no identity | run `npm run dev:bootstrap-user` first |
 | Prisma table missing at API boot | local schema is stale | stop API, review and run `npm run db:push`; never force-reset silently |
 

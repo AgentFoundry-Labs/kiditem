@@ -59,6 +59,12 @@ test('root commands keep the optional Python runtime out of the default developm
   assert.equal(scripts['dev:bootstrap-user'], 'bash bin/bootstrap-local-auth-user.sh');
 });
 
+test('macOS setup hands runtime startup to the auth-aware dev:all entrypoint', () => {
+  const setup = read('scripts/setup-macos-development.mjs');
+  assert.doesNotMatch(setup, /Then: npm run gateway:login:codex/);
+  assert.match(setup, /Run: npm run dev:all/);
+});
+
 test('README uses the repository setup entrypoint and links the detailed authorities', () => {
   const readme = read('README.md');
   assert.match(readme, /npm run setup:macos/);
