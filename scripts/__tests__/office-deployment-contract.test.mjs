@@ -24,6 +24,23 @@ test('office workflow builds both images and publishes digest refs', () => {
   );
 });
 
+test('Office release build gates reserve enough heap and keep Windows fixtures parseable', () => {
+  const developWorkflow = read('.github/workflows/develop-gateway-package.yml');
+  const apiDockerfile = read('apps/server/Dockerfile');
+  const webDockerfile = read('apps/web/Dockerfile');
+  const nativeFixture = read('scripts/__tests__/office-windows-native-runtime.fixture.ps1');
+
+  assert.match(developWorkflow, /\$env:NODE_OPTIONS = '--max-old-space-size=4096'/);
+  assert.match(
+    developWorkflow,
+    /npm run build --workspace=packages\/shared\r?\n\s+if \(\$LASTEXITCODE -ne 0\) \{ throw 'Shared contract build failed\.' \}/,
+  );
+  for (const dockerfile of [apiDockerfile, webDockerfile]) {
+    assert.match(dockerfile, /ENV NODE_OPTIONS=--max-old-space-size=4096/);
+  }
+  assert.doesNotMatch(nativeFixture, /\b\d+_\d+\b/);
+});
+
 test('office Compose is image-only and preserves external state volumes', () => {
   const compose = read('deploy/office/compose.office.yml');
   const envExample = read('deploy/office/office.env.example');

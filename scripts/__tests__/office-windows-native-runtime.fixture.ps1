@@ -124,7 +124,7 @@ try {
   $pids = @(Get-Content -LiteralPath $pidFile | ForEach-Object { [int]$_ })
   if ($pids.Count -ne 2) { throw 'Windows Job fixture did not report a parent and descendant.' }
   $tree.StandardInput.Close()
-  if (-not $tree.WaitForExit(15_000)) { $tree.Kill(); throw 'Windows Job helper did not terminate after Gateway control EOF.' }
+  if (-not $tree.WaitForExit(15000)) { $tree.Kill(); throw 'Windows Job helper did not terminate after Gateway control EOF.' }
   foreach ($pid in $pids) { Test-FixtureProcessStopped $pid }
   $tree.Dispose()
 
@@ -137,7 +137,7 @@ try {
   }
   $failure = Start-StructuredHelper $failureLaunch -ForceAssignmentFailure
   $failure.StandardInput.Close()
-  if (-not $failure.WaitForExit(15_000)) { $failure.Kill(); throw 'Windows Job helper did not terminate after forced assignment failure.' }
+  if (-not $failure.WaitForExit(15000)) { $failure.Kill(); throw 'Windows Job helper did not terminate after forced assignment failure.' }
   if ($failure.ExitCode -ne 70) { throw "Forced Job assignment failure returned $($failure.ExitCode), expected 70." }
   if (Test-Path -LiteralPath $marker) { throw 'A suspended provider executed after forced Job assignment failure.' }
   $failure.Dispose()

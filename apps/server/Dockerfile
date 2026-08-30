@@ -35,6 +35,8 @@ RUN npm ci \
 
 FROM deps AS builder
 
+ENV NODE_OPTIONS=--max-old-space-size=4096
+
 COPY packages/copilotkit-sqlite-runner ./packages/copilotkit-sqlite-runner
 COPY packages/shared ./packages/shared
 COPY packages/templates ./packages/templates
