@@ -1,12 +1,14 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import * as Dialog from '@radix-ui/react-dialog';
-import { ExternalLink, Loader2, RefreshCw, X } from 'lucide-react';
+import { ExternalLink, Loader2, RefreshCw, Square, X } from 'lucide-react';
 import type {
   ProductOperationsDataSourceStatus,
   ProductOperationsDataStatus,
 } from '@kiditem/shared/product-operations';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { formatDateTime, formatNumber } from '@/lib/utils';
 
 const STATUS_LABEL: Record<ProductOperationsDataSourceStatus['status'], string> = {
@@ -25,7 +27,9 @@ export function ProductOperationsDataStatusDialog({
   loading,
   error,
   refreshing,
+  cancelling,
   onRefresh,
+  onCancel,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -33,14 +37,26 @@ export function ProductOperationsDataStatusDialog({
   loading: boolean;
   error: boolean;
   refreshing: boolean;
+  cancelling: boolean;
   onRefresh: () => void;
+  onCancel: () => Promise<void>;
 }) {
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const refreshDisabled = refreshing || data?.activeRun != null;
+  const confirmCancel = async () => {
+    try {
+      await onCancel();
+      setCancelConfirmOpen(false);
+    } catch {
+      // The caller owns the error toast. Keep confirmation open for retry.
+    }
+  };
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[120] bg-slate-950/45 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-[130] max-h-[92vh] w-[min(94vw,720px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface)] p-6 shadow-2xl">
+    <>
+      <Dialog.Root open={open} onOpenChange={onOpenChange}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[120] bg-slate-950/45 backdrop-blur-sm" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[130] max-h-[92vh] w-[min(94vw,720px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface)] p-6 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
               <Dialog.Title className="text-lg font-extrabold text-[var(--text-primary)]">상품 운영 데이터 현황</Dialog.Title>
@@ -54,8 +70,21 @@ export function ProductOperationsDataStatusDialog({
           {data ? <div className="mt-5 space-y-4">
             {data.activeRun ? (
               <section className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
-                <div className="flex items-center gap-2 text-sm font-extrabold text-blue-800"><Loader2 size={15} className="animate-spin" />수익성 데이터 갱신 중</div>
-                <p className="mt-1 text-xs text-blue-700">{data.activeRun.title}{data.activeRun.progress == null ? '' : ` · ${Math.round(data.activeRun.progress * 100)}%`}</p>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-sm font-extrabold text-blue-800"><Loader2 size={15} className="animate-spin" />수익성 데이터 갱신 중</div>
+                    <p className="mt-1 truncate text-xs text-blue-700">{data.activeRun.title}{data.activeRun.progress == null ? '' : ` · ${Math.round(data.activeRun.progress * 100)}%`}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCancelConfirmOpen(true)}
+                    disabled={cancelling}
+                    className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-3 text-xs font-extrabold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                  >
+                    {cancelling ? <Loader2 size={13} className="animate-spin" /> : <Square size={12} />}
+                    수익성 데이터 갱신 중단
+                  </button>
+                </div>
               </section>
             ) : null}
 
@@ -90,9 +119,21 @@ export function ProductOperationsDataStatusDialog({
               </button>
             </div>
           </div> : null}
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+      <ConfirmDialog
+        open={cancelConfirmOpen}
+        onOpenChange={setCancelConfirmOpen}
+        title="수익성 데이터 갱신을 중단할까요?"
+        description="이미 완료된 수집 결과는 유지하고, 현재 실행과 아직 시작하지 않은 단계만 중단합니다."
+        confirmText="중단"
+        cancelText="계속 실행"
+        tone="danger"
+        isLoading={cancelling}
+        onConfirm={() => void confirmCancel()}
+      />
+    </>
   );
 }
 

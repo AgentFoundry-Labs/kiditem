@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import type { ProductOperationsPeriodDays } from '@kiditem/shared/product-operations';
 import { startProductProfitabilityRefreshAction } from '@/lib/manual-operation-actions';
 import { queryKeys } from '@/lib/query-keys';
+import { useCancelOperationRun } from '@/hooks/useOperationRun';
 import { useProductOperationsDataStatus } from '../hooks/useProductOperationsDataStatus';
 import { ProductOperationsDataStatusDialog } from './ProductOperationsDataStatusDialog';
 
@@ -20,6 +21,7 @@ export function ProductOperationsDataStatusAction({
 }) {
   const queryClient = useQueryClient();
   const status = useProductOperationsDataStatus(open, periodDays);
+  const cancelRun = useCancelOperationRun();
   const refresh = useMutation({
     mutationFn: () => startProductProfitabilityRefreshAction({ sourceSurface: 'domain_screen' }),
     onSuccess: async () => {
@@ -32,6 +34,20 @@ export function ProductOperationsDataStatusAction({
     },
     onError: () => toast.error('수익성 데이터 갱신 요청에 실패했습니다.'),
   });
+  const cancelRefresh = async () => {
+    const activeRun = status.data?.activeRun;
+    if (!activeRun) return;
+    try {
+      await cancelRun.mutateAsync(activeRun.id);
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.products.operations.dataStatus(periodDays),
+      });
+      toast.success('수익성 데이터 갱신을 중단했습니다.');
+    } catch (error) {
+      toast.error('수익성 데이터 갱신 중단에 실패했습니다.');
+      throw error;
+    }
+  };
 
   return (
     <>
@@ -46,7 +62,9 @@ export function ProductOperationsDataStatusAction({
         loading={status.isLoading}
         error={status.isError}
         refreshing={refresh.isPending}
+        cancelling={cancelRun.isPending}
         onRefresh={() => refresh.mutate()}
+        onCancel={cancelRefresh}
       />
     </>
   );
