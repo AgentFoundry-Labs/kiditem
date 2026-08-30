@@ -8,14 +8,16 @@ Office boundary; it does not introduce a second environment by default.
 ## Runtime Shape
 
 ```text
-protected release/office SHA
-  -> immutable API/web images + office-deployment.json
-    -> Office operator guard
-      -> local Docker Compose
-        -> PostgreSQL + MinIO external volumes + API-only CopilotKit SQLite event-history volume
-        -> one API + one worker + one web + nginx
-      -> native Windows Agent Gateway under Task Scheduler
-        -> dedicated service-account login + provider-native session continuity
+develop SHA
+  -> one validated immutable Windows Gateway artifact
+    -> protected release/office promotion of that exact develop tree
+      -> immutable API/web images + reused Gateway hash + office-deployment.json
+        -> Office operator guard
+          -> local Docker Compose
+            -> PostgreSQL + MinIO external volumes + API-only CopilotKit SQLite event-history volume
+            -> one API + one worker + one web + nginx
+          -> native Windows Agent Gateway under Task Scheduler
+            -> dedicated service-account login + provider-native session continuity
 ```
 
 The Office checkout is always `release/office`, tracking
@@ -112,9 +114,16 @@ terminal, process, and Gateway-registration lifecycle messages do not.
 
 ## Release Boundary
 
-- Normal work merges to `develop`.
-- An approved promotion PR updates the permanent protected
-  `release/office` branch.
+- Normal pull requests run only fast static checks and Gateway unit tests; they
+  never stage the bundled provider runtime or publish self-contained .NET
+  helpers.
+- Every new `develop` SHA runs `.github/workflows/develop-gateway-package.yml`
+  once on Windows. That job performs the full install, bundled-runtime staging,
+  native helper publication, Gateway tests, archive verification, and publishes
+  `develop-gateway-windows-<full SHA>` with its SHA-256 provenance record.
+- An approved promotion PR updates the permanent protected `release/office`
+  branch only after the exact head SHA has a successful, unexpired develop
+  Gateway artifact. The promotion merge tree must equal its develop parent.
 - Root `VERSION`, the full branch SHA, and API/web image digests identify the
   release.
 - Mutable `office-candidate` tags are pointers only; Office Compose consumes
@@ -122,19 +131,25 @@ terminal, process, and Gateway-registration lifecycle messages do not.
 - Schema application is an explicit Office operator action and is never
   implied by pulling source code.
 
-The current bundle publication entrypoint is
-`.github/workflows/office-images.yml`. If CI execution moves to a self-hosted
-runner, the same immutable SHA, digest, protected-branch, and operator approval
+The current bundle publication entrypoint is `.github/workflows/office-images.yml`.
+It builds API/web images for the promoted release SHA, derives the exact
+`develop` second parent, and reuses that SHA's validated Gateway archive rather
+than rebuilding it. If CI execution moves to a self-hosted runner, the same
+immutable SHA, artifact hash, digest, protected-branch, and operator approval
 contracts still apply. Runner placement must not give untrusted pull requests
 access to Office secrets or the Docker host.
 
-The GitHub-hosted workflow produces the immutable Office artifact only. It does
-not receive the dedicated Windows Task Scheduler credential and does not invoke
-`apply-deployment.ps1` against the Office host. A human operator supplies that
-credential as an in-memory `PSCredential` only to the explicit
-`InstallOrUpdateGatewayTask` operation after downloading the approved artifact
-onto the guarded Windows host. Ordinary Deploy/CutoverDeploy/Rollback/token
-rotation restarts the existing task and never receive or re-register it.
+The GitHub-hosted workflows produce and bind immutable artifacts only. The
+Office workflow verifies the develop provenance record, archive SHA-256, and
+runtime contract; it does not repeat npm staging, Gateway tests, or .NET
+publication. Neither workflow receives the dedicated Windows Task Scheduler
+credential or invokes `apply-deployment.ps1` against the Office host. A human
+operator supplies that credential as an in-memory `PSCredential` only to the
+explicit `InstallOrUpdateGatewayTask` operation after downloading the approved
+artifact onto the guarded Windows host. Ordinary
+Deploy/CutoverDeploy/Rollback/token rotation verifies the artifact hash,
+restarts the existing task, and requires readiness without receiving or
+re-registering that credential.
 
 ## Runner Decision
 

@@ -235,12 +235,14 @@ test('office API exposes only the loopback Host Gateway boundary and contains no
   assert.doesNotMatch(runbook, /docker exec[^\n]*(codex|claude)/i);
 });
 
-test('Office release builds one immutable Windows Host Gateway artifact alongside the exact image release', () => {
-  const workflow = read('.github/workflows/office-images.yml');
+test('develop builds and validates one immutable Windows Gateway artifact per exact SHA', () => {
+  const workflow = read('.github/workflows/develop-gateway-package.yml');
 
-  assert.match(workflow, /build_gateway_windows:/);
+  assert.match(workflow, /push:\s*\n\s+branches:\s*\n\s+- develop/);
+  assert.match(workflow, /windows_gateway_package:/);
+  assert.match(workflow, /name: Develop Windows Gateway package/);
   assert.match(workflow, /runs-on: windows-latest/);
-  assert.match(workflow, /ref: \$\{\{ needs\.identity_guard\.outputs\.git_sha \}\}/);
+  assert.match(workflow, /ref: \$\{\{ github\.sha \}\}/);
   assert.match(workflow, /node-version:\s*22/);
   assert.match(workflow, /npm ci/);
   assert.match(workflow, /npm run build --workspace=packages\/shared/);
@@ -251,71 +253,96 @@ test('Office release builds one immutable Windows Host Gateway artifact alongsid
   );
   assert.match(workflow, /KidItem\.JobRunner\.Fixture\/KidItem\.JobRunner\.Fixture\.csproj/);
   assert.match(workflow, /KIDITEM_WINDOWS_JOB_RUNNER_PATH/);
-  assert.match(workflow, /npm pack --workspace=apps\/agent-gateway/);
+  assert.match(workflow, /npm exec --workspace=apps\/agent-gateway vitest -- run/);
+  assert.match(workflow, /office-windows-native-runtime\.fixture\.ps1/);
+  assert.match(workflow, /npm pack --workspace=apps\/agent-gateway --ignore-scripts/);
   assert.match(workflow, /kiditem-agent-gateway-windows-x64\.zip/);
   assert.match(workflow, /KidItem\.AgentGateway\.exe/);
   assert.match(workflow, /gateway-runtime-contract\.json/);
+  assert.match(workflow, /gateway-validation\.json/);
   assert.match(workflow, /Get-FileHash .* -Algorithm SHA256/);
   assert.match(workflow, /Expand-Archive/);
   assert.match(workflow, /codex(?:\.cmd|\.js)?[^\r\n]*--version/);
   assert.match(workflow, /claude(?:\.cmd|\.exe)?[^\r\n]*--version/);
   assert.match(workflow, /Run the unpacked Windows Job Object fixture/);
   assert.match(workflow, /unpacked Windows Job Object helper rejected malformed input/);
+  assert.match(workflow, /develop-gateway-windows-\$\{\{ github\.sha \}\}/);
+  assert.doesNotMatch(workflow, /apps\/agent-runner|kiditem-agent-runner/);
+});
+
+test('ordinary PR validation stays on fast static and unit checks', () => {
+  const workflow = read('.github/workflows/pr-checks.yml');
+
+  assert.match(workflow, /gateway_fast_checks:/);
+  assert.match(workflow, /name: Gateway fast checks/);
+  assert.match(workflow, /runs-on: ubuntu-latest/);
+  assert.match(workflow, /npm ci --ignore-scripts/);
+  assert.match(workflow, /npm run build --workspace=packages\/shared/);
+  assert.match(workflow, /npm run build --workspace=apps\/agent-gateway/);
   assert.match(workflow, /npm exec --workspace=apps\/agent-gateway vitest -- run/);
-  assert.match(workflow, /needs:\s*[\s\S]*build_gateway_windows/);
+  assert.match(workflow, /node --test scripts\/__tests__\/office-deployment-contract\.test\.mjs/);
+  assert.match(workflow, /node --test scripts\/__tests__\/office-gateway-launcher\.test\.mjs/);
+  assert.doesNotMatch(workflow, /runs-on: windows-latest/);
+  assert.doesNotMatch(workflow, /dotnet publish/);
+  assert.doesNotMatch(workflow, /npm run prepack|npm pack --workspace=apps\/agent-gateway/);
+  assert.doesNotMatch(workflow, /office-windows-native-runtime\.fixture\.ps1/);
+  assert.doesNotMatch(workflow, /apps\/agent-runner|kiditem-agent-runner/);
+});
+
+test('Office promotion waits for the exact successful develop Gateway artifact', () => {
+  const workflow = read('.github/workflows/pr-checks.yml');
+
+  assert.match(workflow, /develop_artifact_gate:/);
+  assert.match(workflow, /name: Develop artifact gate/);
+  assert.match(workflow, /github\.event\.pull_request\.base\.ref == 'release\/office'/);
+  assert.match(workflow, /github\.event\.pull_request\.head\.ref/);
+  assert.match(workflow, /develop-gateway-package\.yml\/runs/);
+  assert.match(workflow, /head_sha/);
+  assert.match(workflow, /conclusion[^\r\n]+success/);
+  assert.match(workflow, /develop-gateway-windows-/);
+  assert.match(workflow, /expired/);
+});
+
+test('Office release reuses the exact develop Gateway artifact without rebuilding it', () => {
+  const workflow = read('.github/workflows/office-images.yml');
+
+  assert.match(workflow, /reuse_gateway_windows:/);
+  assert.match(workflow, /name: Reuse validated Windows Gateway/);
+  assert.match(workflow, /develop_sha/);
+  assert.match(workflow, /git rev-parse .*\^2/);
+  assert.match(workflow, /git rev-parse .*\^\{tree\}/);
+  assert.match(workflow, /develop-gateway-package\.yml\/runs/);
+  assert.match(workflow, /develop-gateway-windows-/);
+  assert.match(workflow, /gateway-validation\.json/);
+  assert.match(workflow, /gatewayArtifactSha256/);
   assert.match(workflow, /actions\/download-artifact@/);
   assert.match(workflow, /schemaVersion: 2/);
   assert.match(workflow, /gatewayArtifact/);
-  assert.match(workflow, /gatewayArtifactSha256/);
   assert.match(workflow, /(?:platform:\s*'windows'|\.platform == "windows")/);
   assert.match(workflow, /mcpProtocolRevision/);
   assert.match(workflow, /cliContractIdentity/);
   assert.match(workflow, /codexVersion/);
   assert.match(workflow, /claudeVersion/);
+  assert.doesNotMatch(workflow, /runs-on: windows-latest/);
+  assert.doesNotMatch(workflow, /dotnet publish|npm ci|npm run prepack|npm pack --workspace=apps\/agent-gateway/);
   assert.doesNotMatch(workflow, /apps\/agent-runner|kiditem-agent-runner/);
 });
 
-test('PR validation exercises the Windows Gateway packaging boundary without a host install', () => {
-  const workflow = read('.github/workflows/pr-checks.yml');
+test('develop Windows CI keeps the frozen native JobRunner helper as a build-only seam while packaging the Gateway interface', () => {
+  const workflow = read('.github/workflows/develop-gateway-package.yml');
 
-  assert.match(workflow, /windows_gateway_package:/);
-  assert.match(workflow, /runs-on: windows-latest/);
-  assert.match(workflow, /node-version:\s*22/);
-  assert.match(workflow, /npm ci/);
-  assert.match(workflow, /npm run build --workspace=packages\/shared/);
-  assert.match(workflow, /npm run build --workspace=apps\/agent-gateway/);
-  assert.match(workflow, /npm exec --workspace=apps\/agent-gateway vitest -- run/);
-  assert.match(
-    workflow,
-    /dotnet publish apps\/agent-gateway\/windows\/KidItem\.JobRunner\/KidItem\.JobRunner\.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true/,
-  );
-  assert.match(workflow, /npm pack --workspace=apps\/agent-gateway --dry-run/);
-  assert.match(workflow, /node --test scripts\/__tests__\/office-deployment-contract\.test\.mjs/);
-  assert.match(workflow, /node --test scripts\/__tests__\/office-gateway-launcher\.test\.mjs/);
-  assert.match(workflow, /\[System\.Management\.Automation\.Language\.Parser\]::ParseFile\('deploy\/office\/apply-deployment\.ps1'/);
-  assert.match(workflow, /office-windows-native-runtime\.fixture\.ps1/);
-  assert.match(workflow, /KidItem\.JobRunner\.Fixture\/KidItem\.JobRunner\.Fixture\.csproj/);
-  assert.match(workflow, /KIDITEM_WINDOWS_JOB_RUNNER_PATH/);
-  assert.match(workflow, /-AgentGatewayPath .*KidItem\.JobRunner\.exe/);
-  assert.doesNotMatch(workflow, /apps\/agent-runner|kiditem-agent-runner/);
-});
-
-test('Windows CI keeps the frozen native JobRunner helper as a build-only seam while packaging the Gateway interface', () => {
-  const releaseWorkflow = read('.github/workflows/office-images.yml');
-  const prWorkflow = read('.github/workflows/pr-checks.yml');
-
-  for (const workflow of [releaseWorkflow, prWorkflow]) {
+  {
     const publish = workflow.indexOf('dotnet publish apps/agent-gateway/windows/KidItem.JobRunner/KidItem.JobRunner.csproj');
     const vitest = workflow.indexOf('npm exec --workspace=apps/agent-gateway vitest -- run', publish);
     assert.ok(publish >= 0 && vitest > publish,
       'the Windows Job helper must be published before the mandatory Gateway Vitest suite');
-    assert.match(workflow, /\$env:KIDITEM_WINDOWS_JOB_RUNNER_PATH\s*=\s*\(Join-Path \$env:RUNNER_TEMP 'kiditem-agent-gateway-native\\\\KidItem\.JobRunner\.exe'\)/);
+    assert.match(workflow, /\$env:KIDITEM_WINDOWS_JOB_RUNNER_PATH\s*=\s*\(Join-Path \$env:RUNNER_TEMP 'kiditem-agent-gateway-native\\+KidItem\.JobRunner\.exe'\)/);
     assert.doesNotMatch(workflow, /apps\/agent-runner|kiditem-agent-runner/);
   }
 });
 
 test('Windows provider probes stage the bundled runtime before they resolve a production CLI', () => {
-  for (const path of ['.github/workflows/office-images.yml', '.github/workflows/pr-checks.yml']) {
+  for (const path of ['.github/workflows/develop-gateway-package.yml']) {
     const workflow = read(path);
     const stage = workflow.indexOf('npm run prepack --workspace=apps/agent-gateway');
     const vitest = workflow.indexOf('npm exec --workspace=apps/agent-gateway vitest -- run', stage);
@@ -619,8 +646,8 @@ test('Office Gateway separates credentialed task installation from normal runtim
   assert.doesNotMatch(workflow, /GatewayTaskCredential|RUNNER_TASK_(?:PASSWORD|CREDENTIAL)/i);
 });
 
-test('Office artifact verification checks each bundled CLI result before the helper fixture and clears its expected native exit', () => {
-  const workflow = read('.github/workflows/office-images.yml');
+test('develop artifact verification checks each bundled CLI result before the helper fixture and clears its expected native exit', () => {
+  const workflow = read('.github/workflows/develop-gateway-package.yml');
 
   assert.match(workflow, /function Assert-BundledCliVersion/);
   assert.match(workflow, /Codex.*0\.149\.1/);
