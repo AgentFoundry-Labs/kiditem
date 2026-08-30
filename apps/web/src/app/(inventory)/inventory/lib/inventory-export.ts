@@ -1,14 +1,15 @@
-import { fetchAllSellpiaInventorySkus } from '../../_shared/inventory-api';
+import {
+  fetchAllSellpiaInventorySkus,
+  type SellpiaInventorySkuListParams,
+} from '../../_shared/inventory-api';
 import type {
   InventorySkuSnapshotItem,
-  InventorySkuStockStatus,
 } from '@kiditem/shared/inventory';
 
 export async function fetchAllInventoryForExport(
-  stockStatus?: InventorySkuStockStatus,
-  query?: string,
+  params: Omit<SellpiaInventorySkuListParams, 'page' | 'limit'>,
 ): Promise<InventorySkuSnapshotItem[]> {
-  return fetchAllSellpiaInventorySkus({ stockStatus, query });
+  return fetchAllSellpiaInventorySkus(params);
 }
 
 export function toInventoryExportRows(items: InventorySkuSnapshotItem[]) {

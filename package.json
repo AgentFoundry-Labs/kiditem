@@ -12,32 +12,46 @@
   ],
   "scripts": {
     "postinstall": "prisma generate",
+    "setup:macos": "node scripts/setup-macos-development.mjs",
     "dev": "npm run dev --workspace=apps/web",
     "clean:web-cache": "node -e \"require('fs').rmSync('apps/web/.next/dev/cache',{recursive:true,force:true})\"",
     "dev:server": "npm run start:dev --workspace=apps/server",
     "dev:agents": "cd agents && .venv/bin/uvicorn src.server:app --host 0.0.0.0 --port 8001 --reload",
-    "dev:all": "concurrently -n web,server,agents -c blue,green,yellow \"npm run dev\" \"OPERATION_RUNTIME_WORKER_ENABLED=1 npm run dev:server\" \"npm run dev:agents\"",
+    "dev:core": "concurrently --kill-others-on-fail -n web,server -c blue,green \"npm run dev\" \"OPERATION_RUNTIME_WORKER_ENABLED=1 npm run dev:server\"",
+    "dev:gateway": "npm run build --workspace=apps/agent-gateway && node scripts/local-agent-gateway.mjs start",
+    "dev:all": "node scripts/run-local-development.mjs",
+    "gateway:auth:codex": "node scripts/local-agent-gateway.mjs auth codex",
+    "gateway:login:codex": "node scripts/local-agent-gateway.mjs login codex",
+    "gateway:login:claude": "node scripts/local-agent-gateway.mjs login claude",
+    "dev:bootstrap-user": "bash bin/bootstrap-local-auth-user.sh",
     "auth:password": "bash bin/set-local-auth-password.sh",
     "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/server",
     "hooks:install": "git config core.hooksPath .githooks",
     "check:agents-hygiene": "node scripts/check-agents-hygiene.mjs",
-    "check:sellpia-cutover-preflight": "tsx scripts/check-sellpia-cutover-preflight.ts",
+    "check:agent-os-hexagonal": "node scripts/check-agent-os-hexagonal.mjs",
+    "check:agent-os-contraction": "node scripts/check-agent-os-contraction.mjs",
+    "check:identifier-contracts": "node scripts/check-identifier-contracts.mjs",
+    "check:copilotkit-train": "node scripts/check-copilotkit-train.mjs",
+    "skills:profile": "node tools/codex/skills/update-project-skills/scripts/manage-skill-profile.mjs",
+    "skills:hub": "node \"${AGENT_SKILL_HUB_ROOT:-$HOME/workspace/agent-skill-hub}/manage.mjs\"",
+    "skills:update": "bash tools/codex/skills/update-project-skills/scripts/update-local-skills.sh",
+    "skills:verify": "bash tools/codex/skills/update-project-skills/scripts/update-local-skills.sh --verify-only",
     "check:pr-reconstruction": "node scripts/check-pr-reconstruction-contract.mjs",
     "check:pr-release-contract": "node scripts/check-pr-release-contract.mjs",
     "check:scripts-inventory": "node scripts/check-script-inventory.mjs",
     "check:schema-artifact-sync": "node scripts/check-schema-artifact-sync.mjs",
     "check:directory-architecture": "node scripts/check-directory-architecture.mjs",
+    "check:sourcing-long-running-actions": "node scripts/check-sourcing-long-running-actions.mjs",
     "check:web-db-boundary": "./scripts/check-frontend-db-boundary.sh",
     "check:idor": "./scripts/check-queryraw-tenancy.sh",
     "check:tenant-scope": "./scripts/check-tenant-scope.sh",
     "check:raw-snapshot-read-models": "bash scripts/check-raw-snapshot-read-models.sh",
     "check:shared-interface-names": "node scripts/check-shared-interface-names.mjs",
     "check:shared-root-imports": "bash scripts/check-shared-root-imports.sh",
-    "check:conventions": "npm run check:agents-hygiene && npm run check:scripts-inventory && npm run check:schema-artifact-sync && npm run check:directory-architecture && npm run check:web-db-boundary && npm run check:idor && npm run check:tenant-scope && npm run check:raw-snapshot-read-models && npm run check:shared-interface-names && npm run check:shared-root-imports",
+    "check:conventions": "npm run check:agents-hygiene && npm run check:scripts-inventory && npm run check:identifier-contracts && npm run check:schema-artifact-sync && npm run check:directory-architecture && npm run check:agent-os-contraction -- --enforce && npm run check:agent-os-hexagonal && npm run check:sourcing-long-running-actions && npm run check:web-db-boundary && npm run check:idor && npm run check:tenant-scope && npm run check:raw-snapshot-read-models && npm run check:shared-interface-names && npm run check:shared-root-imports",
     "knip:report": "knip --no-exit-code --no-progress --reporter compact",
     "test:scripts": "vitest run --config scripts/vitest.config.ts && node --test scripts/__tests__/*.test.mjs",
     "db:erd": "node scripts/generate-prisma-erd.mjs",
-    "graphify:schema": "npm run db:erd && uv run --with graphifyy --python 3.11 python scripts/generate-schema-graphify.py",
     "db:generate": "prisma generate",
     "db:push": "node scripts/safe-prisma-db-push.mjs",
     "db:migrate": "prisma migrate dev",
@@ -54,26 +68,27 @@
     "data:migrate": "tsx scripts/run-data-migrations.ts",
     "extension:release": "node scripts/manage-extension-release.mjs",
     "inventory:bootstrap:dev": "tsx scripts/bootstrap-authoritative-inventory-dev.ts",
-    "inventory:rebuild": "tsx scripts/authoritative-inventory-rebuild.ts",
-    "storage:cache-control": "tsx scripts/storage-cache-control.ts",
-    "staging:db": "tsx scripts/staging-db-baseline.ts",
-    "seed:agent-os": "tsx scripts/seed-agent-os.ts",
+    "eval:agent-os": "node evals/agent-os/harness/run-eval.mjs",
+    "test:agent-evals": "node --test evals/agent-os/tests/*.test.mjs",
+    "qa:agent-os:clean-cutover": "node scripts/qa-agent-os-clean-cutover.mjs",
+    "seed:agent-os:browser-qa": "tsx scripts/seed-agent-os-browser-qa.ts",
+    "smoke:interaction-os": "node scripts/smoke-interaction-os.mjs",
     "seed:order-collection-malls": "tsx scripts/seed-order-collection-mall-accounts.ts",
-    "agent-os:operator:openai": "npm run build --workspace=apps/server && node apps/server/dist/agent-os/adapter/in/cli/run-openai-operator.js",
-    "agent-os:e2e:hermes-tool-loop": "npm run build --workspace=apps/server && node apps/server/dist/agent-os/adapter/in/cli/run-hermes-tool-loop-e2e.js",
     "test:integration": "npm run test:integration --workspace=apps/server --"
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.1029.0",
-    "@prisma/adapter-pg": "^7.5.0",
-    "@prisma/client": "^7.5.0",
-    "@supabase/supabase-js": "^2.103.2",
+    "@copilotkit/react-core": "1.69.0",
+    "@copilotkit/runtime": "1.69.0",
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "^7.9.1",
     "@testcontainers/postgresql": "^12.0.4",
     "concurrently": "^9.2.1",
     "dotenv": "^16.6.1",
+    "exceljs": "4.4.0",
     "knip": "^6.7.0",
     "playwriter": "^0.1.0",
-    "prisma": "^7.5.0",
+    "prisma": "^7.9.1",
     "tsx": "^4.21.0",
     "vitest": "^4.1.2",
     "xlsx": "npm:@e965/xlsx@^0.20.3"
@@ -81,13 +96,16 @@
   "overrides": {
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@xmorse/playwright-core": {
+      "diff": "8.0.4"
+    },
     "@google/genai": {
-      "protobufjs": "7.5.6"
+      "protobufjs": "7.6.5"
     },
     "@google/genai@1.52.0": {
-      "protobufjs": "7.5.6"
+      "protobufjs": "7.6.5"
     },
-    "@hono/node-server": "1.19.14",
+    "@hono/node-server": "2.1.0",
     "@langchain/core": {
       "langsmith": "0.6.3"
     },
@@ -101,20 +119,27 @@
       "uuid": "13.0.2"
     },
     "basic-ftp": "6.0.1",
+    "esbuild": "0.28.1",
     "express": "^5.2.0",
     "express-rate-limit": "8.5.1",
     "fast-xml-parser": "5.7.3",
-    "hono": "4.12.18",
-    "ip-address": "10.2.0",
+    "hono": "4.13.0",
+    "ip-address": "10.4.0",
     "langchain": {
       "langsmith": "0.6.3"
     },
     "langsmith": "0.6.3",
-    "postcss": "8.5.14",
-    "protobufjs": "7.5.6",
-    "uuid": "11.1.1"
+    "postcss": "8.5.26",
+    "protobufjs": "7.6.5",
+    "qs": "6.15.2",
+    "sharp": "0.35.3",
+    "shell-quote": "1.10.0",
+    "uuid": "11.1.1",
+    "vite": "8.2.0",
+    "ws": "8.21.2",
+    "yauzl": "3.2.1"
   },
   "dependencies": {
-    "@ag-ui/client": "^0.0.53"
+    "@ag-ui/client": "0.0.57"
   }
 }

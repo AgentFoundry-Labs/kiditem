@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/dashboard - Operational Read Models
 
 `dashboard/` owns the landing dashboard for aggregated operational read models:

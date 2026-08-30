@@ -5,8 +5,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   MessageSquare,
-  PanelLeftClose,
-  PanelLeftOpen,
   ChevronDown,
   Bell,
   LogOut,
@@ -15,6 +13,8 @@ import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
 import { usePanelStore } from "@/components/panel/lib/panel-store";
 import { useAuth } from "@/hooks/useAuth";
+import { CollapsibleSidebarShell } from "./CollapsibleSidebarShell";
+import { SidebarBrandLink } from "./SidebarBrandLink";
 import { menuSections } from "./sidebar-menu";
 
 function isItemActive(href: string, pathname: string): boolean {
@@ -54,10 +54,14 @@ function findActiveSection(pathname: string): string | null {
 export default function Sidebar({
   onChatToggle,
   chatOpen,
+  onNotificationToggle,
+  notificationsOpen,
   lockCollapsed = false,
 }: {
-  onChatToggle?: () => void;
+  onChatToggle?: (launcher: HTMLElement) => void;
   chatOpen?: boolean;
+  onNotificationToggle?: (launcher: HTMLElement) => void;
+  notificationsOpen?: boolean;
   lockCollapsed?: boolean;
 }) {
   const pathname = usePathname();
@@ -65,20 +69,26 @@ export default function Sidebar({
   const {
     sidebarOpen: storeSidebarOpen,
     toggleSidebar,
-    setSidebarOpen,
   } = useStore();
-  const sidebarOpen = lockCollapsed ? false : storeSidebarOpen;
+  const desktopExpanded = lockCollapsed ? false : storeSidebarOpen;
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobile, setMobile] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches,
+  );
+  const sidebarOpen = mobile ? mobileOpen : desktopExpanded;
   const editorDirty = useStore((s) => s.editorDirty);
   const setEditorDirty = useStore((s) => s.setEditorDirty);
   const showConfirm = useStore((s) => s.showConfirm);
-  const setPanelOpen = usePanelStore((s) => s.setOpen);
   const unreadAlertCount = usePanelStore((s) => s.unreadCount());
   const runningCount = usePanelStore((s) => s.runningCount());
   const { user, logout } = useAuth();
 
   const handleNavClick = useCallback(
     (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
-      if (!editorDirty) return;
+      if (!editorDirty) {
+        setMobileOpen(false);
+        return;
+      }
       e.preventDefault();
       showConfirm({
         title: "저장하지 않은 변경사항이 있습니다",
@@ -87,6 +97,7 @@ export default function Sidebar({
         cancelText: "계속 편집",
         onConfirm: () => {
           setEditorDirty(false);
+          setMobileOpen(false);
           router.push(href);
         },
       });
@@ -101,17 +112,11 @@ export default function Sidebar({
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
-    if (mq.matches) setSidebarOpen(false);
-    const handler = (e: MediaQueryListEvent) => {
-      if (e.matches) setSidebarOpen(false);
-    };
+    const handler = (event: MediaQueryListEvent) => setMobile(event.matches);
+    setMobile(mq.matches);
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
-  }, [setSidebarOpen]);
-
-  useEffect(() => {
-    if (window.innerWidth < 768) setSidebarOpen(false);
-  }, [pathname, setSidebarOpen]);
+  }, []);
 
   useEffect(() => {
     const active = findActiveSection(pathname);
@@ -135,73 +140,22 @@ export default function Sidebar({
   };
 
   return (
-    <>
-      {/* Mobile overlay */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/30 md:hidden"
-          onClick={toggleSidebar}
+    <CollapsibleSidebarShell
+      expanded={desktopExpanded}
+      mobile={mobile}
+      mobileOpen={mobileOpen}
+      onDesktopToggle={lockCollapsed ? undefined : toggleSidebar}
+      onMobileOpenChange={setMobileOpen}
+      home={
+        <SidebarBrandLink
+          href="/"
+          ariaLabel="KidItem 홈"
+          title="KidItem 홈"
+          showLabel={sidebarOpen}
+          onClick={(event) => handleNavClick(event, "/")}
         />
-      )}
-      <aside
-        className={cn(
-          "fixed left-0 top-0 z-50 h-screen bg-[var(--surface)] border-r border-[var(--border-subtle)] transition-all duration-300 flex flex-col font-sans overflow-hidden",
-          sidebarOpen
-            ? "translate-x-0 w-60 md:translate-x-0 md:w-60"
-            : "-translate-x-full w-60 md:translate-x-0 md:w-[68px]",
-        )}
-      >
-        {/* Logo */}
-        <div className="h-14 shrink-0 flex items-center px-5 border-b border-[var(--border-subtle)]">
-          {sidebarOpen ? (
-            <>
-              <Link
-                href="/"
-                onClick={(e) => handleNavClick(e, "/")}
-                className="flex items-center gap-2.5"
-              >
-                <div className="w-7 h-7 rounded-lg bg-[var(--primary)] flex items-center justify-center flex-shrink-0">
-                  <span className="text-[12px] font-extrabold text-[var(--primary-contrast)]">
-                    K
-                  </span>
-                </div>
-                <span className="text-[16px] font-bold text-[var(--text-primary)] tracking-tight">
-                  Kiditem
-                </span>
-              </Link>
-              {!lockCollapsed && (
-                <button
-                  onClick={toggleSidebar}
-                  className="ml-auto text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-1 rounded transition-colors"
-                >
-                  <PanelLeftClose size={16} />
-                </button>
-              )}
-            </>
-          ) : !lockCollapsed ? (
-            <button
-              onClick={toggleSidebar}
-              className="mx-auto text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-1 transition-colors"
-            >
-              <PanelLeftOpen size={16} />
-            </button>
-          ) : (
-            <Link
-              href="/"
-              onClick={(e) => handleNavClick(e, "/")}
-              className="mx-auto"
-              title="홈으로"
-            >
-              <div className="w-7 h-7 rounded-lg bg-[var(--primary)] flex items-center justify-center">
-                <span className="text-[12px] font-extrabold text-[var(--primary-contrast)]">
-                  K
-                </span>
-              </div>
-            </Link>
-          )}
-        </div>
-
-        {/* Scrollable nav — collapsible sections */}
+      }
+      body={
         <nav
           className="min-h-0 flex-1 overflow-y-auto py-2"
           style={{ scrollbarWidth: "none", overscrollBehaviorY: "contain" }}
@@ -341,9 +295,9 @@ export default function Sidebar({
             );
           })}
         </nav>
-
-        {/* Bottom pinned — Agent OS + 설정 */}
-        <div className="shrink-0 border-t border-[var(--border-subtle)] px-3 py-2 space-y-0.5">
+      }
+      footer={
+        <div className="shrink-0 space-y-0.5 border-t border-[var(--border-subtle)] px-3 py-2">
           {menuSections[menuSections.length - 1].items.map((item) => {
             const active = isItemActive(item.href, pathname);
             const Icon = item.icon;
@@ -385,9 +339,15 @@ export default function Sidebar({
           })}
           {/* 알림 */}
           <button
-            onClick={() => setPanelOpen(true)}
+            type="button"
+            aria-pressed={notificationsOpen}
+            data-right-surface-launcher="notifications"
+            onClick={(event) => onNotificationToggle?.(event.currentTarget)}
             className={cn(
-              "w-full group flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] leading-5 font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text-primary)] transition-colors",
+              "w-full group flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] leading-5 font-medium transition-colors",
+              notificationsOpen
+                ? "bg-[var(--primary-soft)] text-[var(--primary)]"
+                : "text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text-primary)]",
               !sidebarOpen && "justify-center px-0",
             )}
             title={!sidebarOpen ? "알림" : undefined}
@@ -412,7 +372,10 @@ export default function Sidebar({
           {/* AI 챗 토글 */}
           {onChatToggle && (
             <button
-              onClick={onChatToggle}
+              type="button"
+              aria-pressed={chatOpen}
+              data-right-surface-launcher="ai_chat"
+              onClick={(event) => onChatToggle(event.currentTarget)}
               className={cn(
                 "group flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] leading-5 transition-all duration-100 relative w-full",
                 chatOpen
@@ -464,7 +427,7 @@ export default function Sidebar({
             </button>
           )}
         </div>
-      </aside>
-    </>
+      }
+    />
   );
 }

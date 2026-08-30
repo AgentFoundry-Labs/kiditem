@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { menuSections } from '../sidebar-menu';
 
@@ -22,6 +24,7 @@ describe('Sidebar product pipeline navigation', () => {
         ['/sourcing-ai/rising-products', '급상승 탐지'],
         ['/sourcing-ai/recommendations', '오늘의 추천'],
         ['/sourcing-ai/wholesale-search', '도매 상품 검색'],
+        ['/sourcing-ai/decision-center', '의사결정 센터'],
         ['/sourcing-ai/validation', '상품 검증'],
         ['/sourcing-ai/final-selection', '최종 선택'],
         ['/sourcing-ai/settings', '소싱 설정'],
@@ -42,7 +45,6 @@ describe('Sidebar product pipeline navigation', () => {
         ['/product-hub', '상품 관리'],
         ['/product-hub/matching', '상품 매칭'],
         ['/reviews', '리뷰 관리'],
-        ['/product-hub/options', '셀피아 재고'],
       ]],
       ['주문관리', [
         ['/order-collection', '주문수집'],
@@ -64,5 +66,17 @@ describe('Sidebar product pipeline navigation', () => {
         ['/settings', '설정'],
       ]],
     ]);
+  });
+
+  it('keeps Dashboard navigation composition in Sidebar while delegating only its frame to the shared shell', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/components/layout/Sidebar.tsx'),
+      'utf8',
+    );
+
+    expect(source).toContain('CollapsibleSidebarShell');
+    expect(source).toContain('<CollapsibleSidebarShell');
+    expect(source).toContain('menuSections.slice(0, -1).map');
+    expect(source).toContain('menuSections[menuSections.length - 1].items.map');
   });
 });

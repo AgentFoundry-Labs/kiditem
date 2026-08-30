@@ -263,6 +263,7 @@ export class NaverDatalabPopularKeywordAdapter implements NaverDatalabPopularKey
 
     const resolvedBoards: NaverDatalabPopularKeywordBoard[] = [];
     for (const board of boards) {
+      input.signal?.throwIfAborted();
       const candidates = (requestedCandidates.length > 0 ? requestedCandidates : board.candidates)
         .slice(0, limit);
       try {
@@ -271,8 +272,10 @@ export class NaverDatalabPopularKeywordAdapter implements NaverDatalabPopularKey
           timeUnit,
           ...filters,
           candidates,
+          signal: input.signal,
         }));
       } catch (error) {
+        input.signal?.throwIfAborted();
         resolvedBoards.push(toFailedBoard(board, error));
       }
     }
@@ -301,6 +304,7 @@ export class NaverDatalabPopularKeywordAdapter implements NaverDatalabPopularKey
       gender: string | null;
       ages: string[];
       candidates: readonly string[];
+      signal?: AbortSignal;
     },
   ): Promise<NaverDatalabPopularKeywordBoard> {
     // ratio 는 "요청 안에서" 최대 100 으로 정규화되므로 배치별 점수를 그대로 합치면
@@ -312,8 +316,13 @@ export class NaverDatalabPopularKeywordAdapter implements NaverDatalabPopularKey
     let endDate = input.endDate;
 
     for (const [index, batch] of batches.entries()) {
-      if (index > 0) await delay(BATCH_DELAY_MS);
+      input.signal?.throwIfAborted();
+      if (index > 0) {
+        await delay(BATCH_DELAY_MS);
+        input.signal?.throwIfAborted();
+      }
       const response = await this.fetchKeywordTrends(config, board.cid, { ...input, candidates: batch });
+      input.signal?.throwIfAborted();
       if (index === 0) endDate = response.endDate ?? input.endDate;
 
       const batchScores = sumRatiosByKeyword(response);
@@ -357,6 +366,7 @@ export class NaverDatalabPopularKeywordAdapter implements NaverDatalabPopularKey
       gender: string | null;
       ages: string[];
       candidates: readonly string[];
+      signal?: AbortSignal;
     },
   ): Promise<ShoppingInsightKeywordTrendResponse> {
     const body = {
@@ -375,6 +385,7 @@ export class NaverDatalabPopularKeywordAdapter implements NaverDatalabPopularKey
 
     const response = await fetch(`${config.baseUrl}${SHOPPING_KEYWORD_TREND_URI}`, {
       method: 'POST',
+      signal: input.signal,
       headers: {
         'Content-Type': 'application/json',
         'X-NCP-APIGW-API-KEY-ID': config.clientId,

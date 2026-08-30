@@ -29,7 +29,7 @@ on:
         type: string
         default: ""
       extra_tags:
-        description: Optional newline-separated extra image tags, for example ghcr.io/org/app:staging
+        description: Optional newline-separated extra image tags, for example ghcr.io/org/app:office-v1.2.3
         required: false
         type: string
         default: ""

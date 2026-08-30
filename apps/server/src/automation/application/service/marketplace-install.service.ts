@@ -40,10 +40,10 @@ function stringParam(params: MarketplaceInstallParams | undefined, key: string) 
  * applying caller-supplied configurable params. Uninstall removes the
  * tenant's installed instance and decrements the catalog's `installCount`.
  *
- * Agent install is intentionally not implemented. Shipped Agent OS
- * definitions are code-owned and global; `AgentInstance` remains the
- * tenant-owned runnable subject. Definitions are not cloned per-tenant from
- * marketplace rows. The controller rejects agent install with
+ * Agent install is intentionally not implemented. Shipped capability
+ * definitions are code-owned and global; organization mutations use an
+ * explicit request-driven CapabilityInvocation rather than a tenant-owned
+ * runnable cloned from marketplace rows. The controller rejects agent install with
  * `BadRequestException` until a real catalog wiring lands.
  *
  * Catalog read/list (`MarketplaceCatalogService` next to this service)

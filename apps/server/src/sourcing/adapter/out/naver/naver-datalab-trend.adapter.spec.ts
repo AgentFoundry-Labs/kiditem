@@ -112,6 +112,24 @@ describe('NaverDatalabTrendAdapter', () => {
     expect(result.items).toHaveLength(7);
   });
 
+  it('passes the operation AbortSignal to each DataLab batch request', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      startDate: '2026-05-19',
+      endDate: '2026-05-20',
+      timeUnit: 'date',
+      results: [],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    globalThis.fetch = fetchMock as typeof fetch;
+    const controller = new AbortController();
+
+    await new NaverDatalabTrendAdapter().compareSearchTrends({
+      keywords: ['슬라임'],
+      signal: controller.signal,
+    });
+
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
+  });
+
   it('fails clearly when DataLab credentials are missing', async () => {
     delete process.env.NAVER_API_HUB_CLIENT_ID;
     const adapter = new NaverDatalabTrendAdapter();

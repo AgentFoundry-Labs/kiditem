@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # coupang — Coupang Wing + Ad-Center Domain
 
 `extensions/kiditem-os/background/coupang/` collects Coupang Wing catalog and ad-center
@@ -20,8 +18,7 @@ supports explicit Wing page automation.
 
 - KidItem environment profiles are fixed: local web/API use
   `http://localhost:3000` / `http://localhost:4000`, office web/API use
-  `http://kiditem-office`, and staging web/API use
-  `https://staging.merchon.org`.
+  `http://kiditem-office`.
 - Resolve the active profile from the verified external sender origin. Never
   trust a message-provided environment id or keep one global API/token pair.
 - Data sync posts to `/api/ads/extension/sync`.
@@ -31,7 +28,6 @@ supports explicit Wing page automation.
   start/status/chunk/finalize contract.
 - Authorization profiles use `kiditem_environment_profiles_v1` in
   `chrome.storage.local`; tokens and operational state stay environment-bound.
-- Do not send `organizationId`; backend auth resolves organization scope.
 
 ## Browser Boundary
 
@@ -75,15 +71,15 @@ supports explicit Wing page automation.
 
 ## Environment Boundary
 
-- One installed extension supports local, office, and staging simultaneously.
+- One installed extension supports local and Office simultaneously.
 - The popup requires an explicit environment selection when both profiles are
   authenticated and auto-selects only when exactly one profile is available.
-- Follow `docs/runbooks/coupang-wing-catalog-collection.md` for local, office,
-  and staging browser acceptance.
+- Follow `docs/runbooks/coupang-wing-catalog-collection.md` for local and Office
+  browser acceptance.
 
 ## Verification
 
-Inherits [`extensions/kiditem-os/AGENTS.md`](../../AGENTS.md#verification). The
+Inherits [`extensions/AGENTS.md`](../../../AGENTS.md#verification). The
 Coupang tests are the narrow gate for this domain:
 
 ```bash

@@ -93,6 +93,22 @@ describe('NaverSearchAdKeywordAdapter', () => {
     expect(result.seedKeywords).toEqual(['포켓몬카드']);
   });
 
+  it('passes the operation AbortSignal to the SearchAd request', async () => {
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({ keywordList: [] }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    globalThis.fetch = fetchMock as typeof fetch;
+    const controller = new AbortController();
+
+    await new NaverSearchAdKeywordAdapter().searchRelatedKeywords({
+      seedKeywords: ['슬라임'],
+      signal: controller.signal,
+    });
+
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
+  });
+
   it('fails clearly when SearchAd credentials are missing', async () => {
     delete process.env.NAVER_SEARCHAD_API_KEY;
     const adapter = new NaverSearchAdKeywordAdapter();

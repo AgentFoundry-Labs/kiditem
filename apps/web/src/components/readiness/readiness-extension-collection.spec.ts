@@ -39,6 +39,7 @@ const mocks = vi.hoisted(() => ({
   issueRunId: vi.fn(),
   runWingSalesRankCheck: vi.fn(),
   startCoupangCatalogBrowser: vi.fn(),
+  transferExtensionAuthTo: vi.fn(),
   wingSession: null as BrowserCollectionSessionView | null,
 }));
 
@@ -51,14 +52,8 @@ vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => ({ status: 'ready', user: { organizationId: 'org-1' } }),
 }));
 
-vi.mock('@/components/providers/AuthProvider', () => ({
-  useAuthSession: () => ({
-      session: {
-        token: 'kiditem-access-token',
-        expiresAt: '2026-08-29T03:00:00.000Z',
-      },
-    isLoading: false,
-  }),
+vi.mock('@/lib/extension-auth', () => ({
+  transferExtensionAuthTo: mocks.transferExtensionAuthTo,
 }));
 
 vi.mock('@/hooks/useBrowserCollectionSession', () => ({
@@ -207,6 +202,7 @@ describe('readiness extension collection', () => {
     ]);
     vi.mocked(apiClient.post).mockResolvedValue({ id: RUN_ID });
     mocks.startCoupangCatalogBrowser.mockResolvedValue('coupang-extension');
+    mocks.transferExtensionAuthTo.mockResolvedValue(undefined);
     mocks.wingSession = null;
     vi.mocked(syncBrowserCollectionAlert).mockResolvedValue(undefined);
     vi.mocked(recordMissingBrowserCollection).mockResolvedValue({ runId: RUN_ID });
@@ -331,7 +327,6 @@ describe('readiness extension collection', () => {
         producer: 'dashboard.wing_sales',
         extensionId: 'coupang-extension',
         runId: RUN_ID,
-        accessToken: 'kiditem-access-token',
       }),
     ).rejects.toThrow(/새로고침/);
     expect(COUPANG_COLLECTION_EXTENSION_MIN_VERSION).toBe('1.0.0');
@@ -354,7 +349,6 @@ describe('readiness extension collection', () => {
         producer: 'dashboard.wing_sales',
         extensionId: 'coupang-extension',
         runId: RUN_ID,
-        accessToken: 'kiditem-access-token',
       }),
     ).rejects.toThrow(/새로고침/);
 
@@ -398,7 +392,6 @@ describe('readiness extension collection', () => {
     const onSession = vi.fn();
     vi.mocked(sendToExtension)
       .mockResolvedValueOnce(COMPATIBLE_PING)
-      .mockResolvedValueOnce({ success: true })
       .mockResolvedValueOnce({ success: true, started: true, runId: RUN_ID })
       .mockResolvedValueOnce(completed);
 
@@ -408,22 +401,14 @@ describe('readiness extension collection', () => {
         producer: 'dashboard.wing_sales',
         extensionId: 'coupang-extension',
         runId: RUN_ID,
-        accessToken: 'kiditem-access-token',
         onStarted,
         onSession,
       }),
     ).resolves.toEqual(completed);
 
+    expect(mocks.transferExtensionAuthTo).toHaveBeenCalledWith('coupang-extension');
     expect(sendToExtension).toHaveBeenNthCalledWith(
       2,
-      'coupang-extension',
-      {
-        action: 'setAuthToken',
-        token: 'kiditem-access-token',
-      },
-    );
-    expect(sendToExtension).toHaveBeenNthCalledWith(
-      3,
       'coupang-extension',
       expect.objectContaining({
         action: 'scrapeTargets',
@@ -431,7 +416,7 @@ describe('readiness extension collection', () => {
         runId: RUN_ID,
       }),
     );
-    expect(sendToExtension).toHaveBeenNthCalledWith(4, 'coupang-extension', {
+    expect(sendToExtension).toHaveBeenNthCalledWith(3, 'coupang-extension', {
       action: 'getCollectionSession',
       runId: RUN_ID,
     }, 2_000);
@@ -461,7 +446,6 @@ describe('readiness extension collection', () => {
         producer: 'dashboard.coupang_ads',
         extensionId: 'coupang-extension',
         runId: RUN_ID,
-        accessToken: null,
         onPoll,
       });
 
@@ -487,7 +471,6 @@ describe('readiness extension collection', () => {
         producer: 'advertising.ad_sync',
         extensionId: 'coupang-extension',
         runId: RUN_ID,
-        accessToken: 'kiditem-access-token',
         onStarted,
       }),
     ).rejects.toThrow(/1\.2\.72|새로고침/);
@@ -496,7 +479,7 @@ describe('readiness extension collection', () => {
     expect(sendToExtension).toHaveBeenCalledTimes(1);
   });
 
-  it('starts without fabricating an extension credential when the web session is absent', async () => {
+  it('uses the explicit extension handoff before starting collection', async () => {
     const completed = session('dashboard.coupang_ads');
     vi.mocked(sendToExtension)
       .mockResolvedValueOnce(COMPATIBLE_PING)
@@ -509,10 +492,10 @@ describe('readiness extension collection', () => {
         producer: 'dashboard.coupang_ads',
         extensionId: 'coupang-extension',
         runId: RUN_ID,
-        accessToken: null,
       }),
     ).resolves.toEqual(completed);
 
+    expect(mocks.transferExtensionAuthTo).toHaveBeenCalledWith('coupang-extension');
     expect(sendToExtension).toHaveBeenNthCalledWith(
       2,
       'coupang-extension',
@@ -521,16 +504,11 @@ describe('readiness extension collection', () => {
         producer: 'dashboard.coupang_ads',
       }),
     );
-    expect(sendToExtension).not.toHaveBeenCalledWith(
-      'coupang-extension',
-      expect.objectContaining({ action: 'setAuthToken' }),
-    );
   });
 
   it('does not open a collection window when extension auth synchronization fails', async () => {
-    vi.mocked(sendToExtension)
-      .mockResolvedValueOnce(COMPATIBLE_PING)
-      .mockResolvedValueOnce({ success: false, error: 'auth rejected' });
+    vi.mocked(sendToExtension).mockResolvedValueOnce(COMPATIBLE_PING);
+    mocks.transferExtensionAuthTo.mockRejectedValueOnce(new Error('auth rejected'));
 
     await expect(
       runReadinessExtensionCollection({
@@ -538,11 +516,10 @@ describe('readiness extension collection', () => {
         producer: 'dashboard.coupang_ads',
         extensionId: 'coupang-extension',
         runId: RUN_ID,
-        accessToken: 'kiditem-access-token',
       }),
     ).rejects.toThrow('auth rejected');
 
-    expect(sendToExtension).toHaveBeenCalledTimes(2);
+    expect(sendToExtension).toHaveBeenCalledTimes(1);
     expect(sendToExtension).not.toHaveBeenCalledWith(
       'coupang-extension',
       expect.objectContaining({ action: 'scrapeTargets' }),
@@ -553,7 +530,6 @@ describe('readiness extension collection', () => {
     const completed = session('dashboard.wing_sales');
     vi.mocked(sendToExtension)
       .mockResolvedValueOnce(COMPATIBLE_PING)
-      .mockResolvedValueOnce({ success: true })
       .mockResolvedValueOnce({ success: true, started: true, runId: RUN_ID })
       .mockResolvedValueOnce(completed);
     vi.mocked(syncBrowserCollectionAlert).mockRejectedValueOnce(
@@ -567,7 +543,6 @@ describe('readiness extension collection', () => {
         producer: 'dashboard.wing_sales',
         extensionId: 'coupang-extension',
         runId: RUN_ID,
-        accessToken: 'kiditem-access-token',
       }),
     ).resolves.toEqual(completed);
     warn.mockRestore();
@@ -582,7 +557,6 @@ describe('readiness extension collection', () => {
         runId?: string;
       };
       if (command.action === 'ping') return COMPATIBLE_PING;
-      if (command.action === 'setAuthToken') return { success: true };
       if (command.action === 'scrapeTargets') {
         producerByRun.set(command.runId!, command.producer!);
         return { success: true, started: true, runId: command.runId };
@@ -623,7 +597,6 @@ describe('readiness extension collection', () => {
     expect(startCoupangCatalogBrowser).toHaveBeenCalledWith({
       channelAccountId: '00000000-0000-4000-8000-000000000001',
       runId: RUN_ID,
-      accessToken: 'kiditem-access-token',
     });
     expect(READINESS_COLLECTION_PRODUCERS.coupang_products).toBe(
       'channels.coupang_catalog',
@@ -828,8 +801,11 @@ describe('readiness extension collection', () => {
       'COMPETITOR_EXTENSION_MIN_VERSION = KIDITEM_EXTENSION_MIN_VERSION',
     );
     expect(competitorExtensionSource).toContain('browserCollectionSessions');
-    expect(competitorPageSource).toContain('useBrowserCollectionSession');
-    expect(competitorPageSource).toContain('BrowserCollectionRunControls');
-    expect(competitorPageSource).toContain('collectionRun');
+    expect(competitorPageSource).toContain('useSourcingOperationAction');
+    expect(competitorPageSource).toContain('SourcingOperationRunPanel');
+    expect(competitorPageSource).toContain('operation.start(input, [snapshotQueryKey])');
+    expect(competitorPageSource).toContain('params.set("operationRun", run.id)');
+    expect(competitorPageSource).not.toContain('useBrowserCollectionSession');
+    expect(competitorPageSource).not.toContain('BrowserCollectionRunControls');
   });
 });

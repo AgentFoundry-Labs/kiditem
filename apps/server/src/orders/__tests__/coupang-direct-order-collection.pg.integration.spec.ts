@@ -126,7 +126,6 @@ describe('Coupang direct final-order collection (PG integration)', () => {
         matchedLineCount: 1,
       }),
     ]);
-    expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
 
   it('collects without an active confirmation and keeps the row as a Sellpia candidate', async () => {
@@ -156,7 +155,6 @@ describe('Coupang direct final-order collection (PG integration)', () => {
     expect(await prisma.sourceImportRun.count({
       where: { sourceType: 'coupang_rocket_final_order', status: 'completed' },
     })).toBe(1);
-    expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
 
   it('rolls back import run and Orders when reconciliation fails', async () => {
@@ -176,7 +174,6 @@ describe('Coupang direct final-order collection (PG integration)', () => {
       collectedOrderLineItemId: null,
     });
     expect(await prisma.rocketPurchaseConfirmationTransmission.count()).toBe(0);
-    expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
 
   it('persists an empty transport probe so a fresh no-match check is durable', async () => {

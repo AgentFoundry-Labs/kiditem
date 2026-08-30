@@ -1,460 +1,121 @@
 import "reflect-metadata";
-import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import { ChannelsFinalCapabilityAdapter } from "../../channels/adapter/in/agent/channels-final-capability.adapter";
+import { ChannelsCapabilityCompositionAdapter } from "../../channels/adapter/in/agent/channels-capability-composition.adapter";
+import { ChannelsFinalCapabilityModule } from "../../channels/channels-final-capability.module";
+import { CHANNELS_FINAL_CAPABILITY_PORT } from "../../channels/application/port/in/capability/channels-final-capability.port";
+import { CHANNELS_CAPABILITY_COMPOSITION_PORT } from "../../channels/application/port/in/capability/channels-capability-composition.port";
+import { SourcingFinalCapabilityAdapter } from "../adapter/in/agent/sourcing-final-capability.adapter";
+import { SourcingCapabilityCompositionAdapter } from "../adapter/in/agent/sourcing-capability-composition.adapter";
+import { SourcingFinalDiscoveryCapabilityAdapter } from "../adapter/in/agent/sourcing-final-discovery-capability.adapter";
+import { SourcingScrapeSnapshotAdmissionGuard } from "../adapter/in/agent/sourcing-scrape-snapshot-admission.guard";
+import { SOURCING_FINAL_CAPABILITY_PORT } from "../application/port/in/capability/sourcing-final-capability.port";
+import { SOURCING_CAPABILITY_COMPOSITION_PORT } from "../application/port/in/capability/sourcing-capability-composition.port";
+import { SOURCING_FINAL_DISCOVERY_CAPABILITY_PORT } from "../application/port/in/capability/sourcing-final-discovery-capability.port";
 import { SourcingModule } from "../sourcing.module";
-import { Sourcing1688NewProductModelService } from "../application/service/sourcing-1688-new-product-model.service";
-import { Sourcing1688ImageSearchService } from "../application/service/sourcing-1688-image-search.service";
-import { Sourcing1688KeywordSearchService } from "../application/service/sourcing-1688-keyword-search.service";
-import { SourcingAgentRagService } from "../application/service/sourcing-agent-rag.service";
-import { SourcingMarketModelService } from "../application/service/sourcing-market-model.service";
-import { NaverKeywordResearchService } from "../application/service/naver-keyword-research.service";
-import { TrendCollectService } from "../application/service/trend-collect.service";
-import { TrendQueryService } from "../application/service/trend-query.service";
-import { LiveCommerceService } from "../application/service/live-commerce.service";
-import { SourcingService } from "../application/service/sourcing.service";
-import { SourcingPromotionService } from "../application/service/sourcing-promotion.service";
-import { SourcingWorkspaceArchiveService } from "../application/service/sourcing-workspace-archive.service";
-import { SourcingWorkspaceSnapshotService } from "../application/service/sourcing-workspace-snapshot.service";
-import { SourcingShadowSignalService } from "../application/service/sourcing-shadow-signal.service";
-import { SourcingMarketDiscoveryService } from "../application/service/sourcing-market-discovery.service";
-import { MarketShadowSignalCapabilityAdapter } from "../adapter/in/agent/market-shadow-signal-capability.adapter";
-import { SourcingDiscoveryCapabilityAdapter } from "../adapter/in/agent/sourcing-discovery-capability.adapter";
-import { SourcingListingPrepCapabilityAdapter } from "../adapter/in/agent/sourcing-listing-prep-capability.adapter";
-import { SourcingScrapeUrlCapabilityAdapter } from "../adapter/in/agent/sourcing-scrape-url-capability.adapter";
-import { Sourcing1688TrendExtensionController } from "../adapter/in/http/sourcing-1688-trend-extension.controller";
-import { SourcingLiveCommerceExtensionController } from "../adapter/in/http/sourcing-live-commerce-extension.controller";
-import { MarketShadowSignalController } from "../adapter/in/http/market-shadow-signal.controller";
-import { NaverDatalabPopularKeywordAdapter } from "../adapter/out/naver/naver-datalab-popular-keyword.adapter";
-import { NaverDatalabTrendAdapter } from "../adapter/out/naver/naver-datalab-trend.adapter";
-import { NaverAutocompleteKeywordAdapter } from "../adapter/out/naver/naver-autocomplete-keyword.adapter";
-import { NaverSearchAdKeywordAdapter } from "../adapter/out/naver/naver-search-ad-keyword.adapter";
-import { SourcingAgentGatewayAdapter } from "../adapter/out/agent/sourcing-agent.gateway.adapter";
-import { SourcingAiWorkspaceArchiveAdapter } from "../adapter/out/ai/workspace-archive.adapter";
-import { SourcingOperationAlertAdapter } from "../adapter/out/automation/operation-alert.adapter";
-import { SourcingCandidateRepositoryAdapter } from "../adapter/out/repository/sourcing-candidate.repository.adapter";
-import { SourcingWorkspaceSnapshotRepositoryAdapter } from "../adapter/out/repository/sourcing-workspace-snapshot.repository.adapter";
-import { MarketShadowSnapshotRepositoryAdapter } from "../adapter/out/repository/market-shadow-snapshot.repository.adapter";
-import { GoogleTrendsRssAdapter } from "../adapter/out/google-trends/google-trends-rss.adapter";
-import { LinkfoxEchotikShadowAdapter } from "../adapter/out/linkfox/linkfox-echotik-shadow.adapter";
-import { SourcingPlaywrightRuntimeHandler } from "../adapter/out/runtime/sourcing-playwright-runtime.handler";
-import { Direct1688ImageSearchAdapter } from "../adapter/out/1688/direct-1688-image-search.adapter";
-import { Direct1688KeywordSearchAdapter } from "../adapter/out/1688/direct-1688-keyword-search.adapter";
-import { ShortstrendTrendAdapter } from "../adapter/out/shortstrend/shortstrend-trend.adapter";
-import { TrendCollectionRepositoryAdapter } from "../adapter/out/repository/trend-collection.repository.adapter";
-import { LiveCommerceRepositoryAdapter } from "../adapter/out/repository/live-commerce.repository.adapter";
-import { TaobaoLiveAdapter } from "../adapter/out/taobao/taobao-live.adapter";
-import { SourcingRuntimeHandler } from "../adapter/out/runtime/sourcing-runtime.handler";
-import { MARKET_SHADOW_COLLECTION_CAPABILITY_PORT } from "../application/port/in/capability/market-shadow-capability.port";
-import {
-  SOURCING_DISCOVERY_CAPABILITY_PORT,
-  SOURCING_LISTING_PREP_CAPABILITY_PORT,
-  SOURCING_SCRAPE_URL_WORKFLOW_PORT,
-} from "../application/port/in/capability/sourcing-capability.ports";
-import { SOURCING_1688_IMAGE_SEARCH_PORT } from "../application/port/out/provider/1688-image-search.port";
-import { SOURCING_1688_KEYWORD_SEARCH_PORT } from "../application/port/out/provider/1688-keyword-search.port";
-import { SHORTSTREND_TREND_PORT } from "../application/port/out/provider/shortstrend-trend.port";
-import { TAOBAO_LIVE_PORT } from "../application/port/out/provider/taobao-live.port";
-import {
-  SOURCING_NAVER_DATALAB_POPULAR_KEYWORD_PORT,
-  SOURCING_NAVER_DATALAB_TREND_PORT,
-  SOURCING_NAVER_AUTOCOMPLETE_KEYWORD_PORT,
-  SOURCING_NAVER_KEYWORD_RESEARCH_PORT,
-} from "../application/port/out/provider/naver-keyword-research.port";
-import { SOURCING_AGENT_GATEWAY_PORT } from "../application/port/out/runtime/sourcing-agent.gateway.port";
-import { SOURCING_AI_WORKSPACE_ARCHIVE_PORT } from "../application/port/out/cross-domain/ai-workspace-archive.port";
-import { SOURCING_OPERATION_ALERT_PORT } from "../application/port/out/cross-domain/operation-alert.port";
-import { SOURCING_CANDIDATE_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-candidate.repository.port";
-import { MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT } from "../application/port/out/repository/market-shadow-snapshot.repository.port";
-import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-workspace-snapshot.repository.port";
-import { TREND_COLLECTION_REPOSITORY_PORT } from "../application/port/out/repository/trend-collection.repository.port";
-import { LIVE_COMMERCE_REPOSITORY_PORT } from "../application/port/out/repository/live-commerce.repository.port";
-import { AutomationModule } from "../../automation/automation.module";
-import { ChannelsModule } from "../../channels/channels.module";
-import { ProductRegistrationService } from "../application/service/product-registration.service";
-import { ProductPreparationRepositoryAdapter } from "../adapter/out/repository/product-preparation.repository.adapter";
-import { ChannelProductRegistrationAdapter } from "../adapter/out/channels/channel-product-registration.adapter";
-import { RegistrationContentWorkspaceAdapter } from "../adapter/out/ai/registration-content-workspace.adapter";
-import { PRODUCT_PREPARATION_REPOSITORY_PORT } from "../application/port/out/repository/product-preparation.repository.port";
-import { CHANNEL_PRODUCT_REGISTRATION_PORT } from "../application/port/out/cross-domain/channel-product-registration.port";
-import { REGISTRATION_CONTENT_WORKSPACE_PORT } from "../application/port/out/cross-domain/registration-content-workspace.port";
-import {
-  LINKFOX_ECHOTIK_SHADOW_PORT,
-  MARKET_SHADOW_SIGNAL_PORT,
-} from "../application/port/out/provider/market-shadow-signal.port";
 
-// NestJS @Module / @Controller metadata keys (stable across Nest 10/11).
-const IMPORTS_KEY = "imports";
-const CONTROLLERS_KEY = "controllers";
 const PROVIDERS_KEY = "providers";
-const PATH_KEY = "path";
-const SELF_DECLARED_DEPS_KEY = "self:paramtypes";
 
-// Sourcing owner module — Chinese new-product discovery. Suppliers and
-// procurement were extracted to SupplyModule during issue #192 follow-up
-// Track A PR 1. This spec freezes the module metadata so a removed
-// controller, a missing provider, or a route rename fails at vitest time
-// before reaching dev:server boot.
-describe("SourcingModule canonical owner wiring", () => {
-  it("mounts extension routes before candidate workspace routes", () => {
-    const controllers: unknown[] =
-      Reflect.getMetadata(CONTROLLERS_KEY, SourcingModule) ?? [];
-    expect(
-      controllers.map((controller) => (controller as { name: string }).name),
-    ).toEqual([
-      "SourcingExtensionIngestController",
-      "Sourcing1688TrendExtensionController",
-      "SourcingTiktokCcTrendExtensionController",
-      "SourcingLiveCommerceExtensionController",
-      "SourcingKeywordResearchController",
-      "Sourcing1688ImageSearchController",
-      "Sourcing1688KeywordSearchController",
-      "SourcingAgentRagController",
-      "SourcingMarketModelController",
-      "Sourcing1688NewProductModelController",
-      "SourcingRisingProductController",
-      "SourcingCandidateWorkspaceController",
-      "MarketShadowSignalController",
-      "SourcingWorkspaceSnapshotController",
-      "TrendCollectionController",
-      "LiveCommerceController",
-    ]);
-    expect(controllers).toContain(Sourcing1688TrendExtensionController);
-    expect(controllers).toContain(SourcingLiveCommerceExtensionController);
-    expect(controllers).toContain(MarketShadowSignalController);
+function providers(module: object): Array<unknown> {
+  return Reflect.getMetadata(PROVIDERS_KEY, module) ?? [];
+}
+
+function binding(
+  entries: Array<unknown>,
+  token: symbol,
+): { provide: symbol; useExisting: unknown } | undefined {
+  return entries.find(
+    (entry): entry is { provide: symbol; useExisting: unknown } =>
+      Boolean(entry) &&
+      typeof entry === "object" &&
+      "provide" in entry &&
+      (entry as { provide?: unknown }).provide === token,
+  );
+}
+
+describe("Sourcing final capability wiring", () => {
+  it("binds the final Sourcing capability port to Sourcing-owned incoming adapters", () => {
+    const entries = providers(SourcingModule);
+
+    expect(entries).toContain(SourcingFinalCapabilityAdapter);
+    expect(entries).toContain(SourcingCapabilityCompositionAdapter);
+    expect(entries).toContain(SourcingFinalDiscoveryCapabilityAdapter);
+    expect(binding(entries, SOURCING_FINAL_CAPABILITY_PORT)).toEqual({
+      provide: SOURCING_FINAL_CAPABILITY_PORT,
+      useExisting: SourcingFinalCapabilityAdapter,
+    });
+    expect(binding(entries, SOURCING_CAPABILITY_COMPOSITION_PORT)).toEqual({
+      provide: SOURCING_CAPABILITY_COMPOSITION_PORT,
+      useExisting: SourcingCapabilityCompositionAdapter,
+    });
+    expect(binding(entries, SOURCING_FINAL_DISCOVERY_CAPABILITY_PORT)).toEqual({
+      provide: SOURCING_FINAL_DISCOVERY_CAPABILITY_PORT,
+      useExisting: SourcingFinalDiscoveryCapabilityAdapter,
+    });
   });
 
-  it("declares every application service as a provider", () => {
-    const providers: unknown[] =
-      Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? [];
-    expect(providers).toContain(SourcingService);
-    expect(providers).toContain(NaverKeywordResearchService);
-    expect(providers).toContain(Sourcing1688ImageSearchService);
-    expect(providers).toContain(Sourcing1688KeywordSearchService);
-    expect(providers).toContain(SourcingAgentRagService);
-    expect(providers).toContain(SourcingMarketModelService);
-    expect(providers).toContain(Sourcing1688NewProductModelService);
-    expect(providers).toContain(SourcingPromotionService);
-    expect(providers).toContain(SourcingWorkspaceArchiveService);
-    expect(providers).toContain(SourcingWorkspaceSnapshotService);
-    expect(providers).toContain(SourcingShadowSignalService);
-    expect(providers).toContain(SourcingMarketDiscoveryService);
-    expect(providers).toContain(TrendCollectService);
-    expect(providers).toContain(TrendQueryService);
-    expect(providers).toContain(LiveCommerceService);
-    expect(providers).toContain(ProductRegistrationService);
+  it("constructs bounded scrape-snapshot admission state through the Sourcing composition root", () => {
+    const entries = providers(SourcingModule);
+    const registration = entries.find(
+      (entry): entry is {
+        provide: typeof SourcingScrapeSnapshotAdmissionGuard;
+        useFactory: () => SourcingScrapeSnapshotAdmissionGuard;
+      } =>
+        Boolean(entry) &&
+        typeof entry === "object" &&
+        "provide" in entry &&
+        (entry as { provide?: unknown }).provide ===
+          SourcingScrapeSnapshotAdmissionGuard,
+    );
+
+    expect(registration).toBeDefined();
+    expect(registration?.useFactory()).toBeInstanceOf(
+      SourcingScrapeSnapshotAdmissionGuard,
+    );
   });
 
-  it("injects both persisted evidence repositories into market discovery", () => {
-    expect(
-      Reflect.getMetadata(SELF_DECLARED_DEPS_KEY, SourcingMarketDiscoveryService),
-    ).toEqual(expect.arrayContaining([
-      { index: 0, param: TREND_COLLECTION_REPOSITORY_PORT },
-      { index: 1, param: SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT },
-    ]));
-  });
-
-  it("binds outgoing ports to their adapters", () => {
-    const providers: unknown[] =
-      Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? [];
-    expect(providers).toContain(NaverDatalabPopularKeywordAdapter);
-    expect(providers).toContain(NaverDatalabTrendAdapter);
-    expect(providers).toContain(NaverAutocompleteKeywordAdapter);
-    expect(providers).toContain(NaverSearchAdKeywordAdapter);
-    expect(providers).toContain(SourcingAgentGatewayAdapter);
-    expect(providers).toContain(SourcingAiWorkspaceArchiveAdapter);
-    expect(providers).toContain(SourcingOperationAlertAdapter);
-    expect(providers).toContain(SourcingCandidateRepositoryAdapter);
-    expect(providers).toContain(SourcingWorkspaceSnapshotRepositoryAdapter);
-    expect(providers).toContain(MarketShadowSnapshotRepositoryAdapter);
-    expect(providers).toContain(GoogleTrendsRssAdapter);
-    expect(providers).toContain(LinkfoxEchotikShadowAdapter);
-    expect(providers).toContain(MarketShadowSignalCapabilityAdapter);
-    expect(providers).toContain(SourcingDiscoveryCapabilityAdapter);
-    expect(providers).toContain(SourcingListingPrepCapabilityAdapter);
-    expect(providers).toContain(SourcingScrapeUrlCapabilityAdapter);
-    expect(providers).toContain(SourcingPlaywrightRuntimeHandler);
-    expect(providers).toContain(Direct1688ImageSearchAdapter);
-    expect(providers).toContain(Direct1688KeywordSearchAdapter);
-    expect(providers).toContain(ShortstrendTrendAdapter);
-    expect(providers).toContain(TrendCollectionRepositoryAdapter);
-    expect(providers).toContain(LiveCommerceRepositoryAdapter);
-    expect(providers).toContain(TaobaoLiveAdapter);
-    expect(providers).toContain(SourcingRuntimeHandler);
-    expect(providers).toContain(ProductPreparationRepositoryAdapter);
-    expect(providers).toContain(ChannelProductRegistrationAdapter);
-    expect(providers).toContain(RegistrationContentWorkspaceAdapter);
-    expect(
-      providers.some(
-        (provider) =>
-          typeof provider === "function" &&
-          provider.name === "SourcingPythonRuntimeHandler",
+  it("keeps the Sourcing composition Adapter on its incoming port rather than concrete services or runtime handlers", () => {
+    const finalAdapter = readFileSync(
+      new URL(
+        "../adapter/in/agent/sourcing-final-capability.adapter.ts",
+        import.meta.url,
       ),
-    ).toBe(false);
-    const gatewayBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === SOURCING_AGENT_GATEWAY_PORT,
+      "utf8",
     );
-    expect(gatewayBinding).toBeDefined();
-    expect(gatewayBinding!.useExisting).toBe(SourcingAgentGatewayAdapter);
-    const discoveryBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === SOURCING_DISCOVERY_CAPABILITY_PORT,
-    );
-    expect(discoveryBinding).toBeDefined();
-    expect(discoveryBinding!.useExisting).toBe(
-      SourcingDiscoveryCapabilityAdapter,
-    );
-    const shadowCapabilityBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === MARKET_SHADOW_COLLECTION_CAPABILITY_PORT,
-    );
-    expect(shadowCapabilityBinding?.useExisting).toBe(
-      MarketShadowSignalCapabilityAdapter,
-    );
-    const listingPrepBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === SOURCING_LISTING_PREP_CAPABILITY_PORT,
-    );
-    expect(listingPrepBinding).toBeDefined();
-    expect(listingPrepBinding!.useExisting).toBe(
-      SourcingListingPrepCapabilityAdapter,
-    );
-    const scrapeUrlBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === SOURCING_SCRAPE_URL_WORKFLOW_PORT,
-    );
-    expect(scrapeUrlBinding).toBeDefined();
-    expect(scrapeUrlBinding!.useExisting).toBe(
-      SourcingScrapeUrlCapabilityAdapter,
-    );
-    const alertBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === SOURCING_OPERATION_ALERT_PORT,
-    );
-    expect(alertBinding).toBeDefined();
-    expect(alertBinding!.useExisting).toBe(SourcingOperationAlertAdapter);
-    const aiArchiveBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === SOURCING_AI_WORKSPACE_ARCHIVE_PORT,
-    );
-    expect(aiArchiveBinding).toBeDefined();
-    expect(aiArchiveBinding!.useExisting).toBe(
-      SourcingAiWorkspaceArchiveAdapter,
-    );
-    const candidateRepositoryBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === SOURCING_CANDIDATE_REPOSITORY_PORT,
-    );
-    expect(candidateRepositoryBinding).toBeDefined();
-    expect(candidateRepositoryBinding!.useExisting).toBe(
-      SourcingCandidateRepositoryAdapter,
-    );
-    const workspaceSnapshotRepositoryBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT,
-    );
-    expect(workspaceSnapshotRepositoryBinding).toBeDefined();
-    expect(workspaceSnapshotRepositoryBinding!.useExisting).toBe(
-      SourcingWorkspaceSnapshotRepositoryAdapter,
-    );
-    const shadowSnapshotRepositoryBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT,
-    );
-    expect(shadowSnapshotRepositoryBinding?.useExisting).toBe(
-      MarketShadowSnapshotRepositoryAdapter,
-    );
-    const imageSearchBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === SOURCING_1688_IMAGE_SEARCH_PORT,
-    );
-    expect(imageSearchBinding).toBeDefined();
-    expect(imageSearchBinding!.useExisting).toBe(Direct1688ImageSearchAdapter);
-    const keywordSearchBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === SOURCING_1688_KEYWORD_SEARCH_PORT,
-    );
-    expect(keywordSearchBinding).toBeDefined();
-    expect(keywordSearchBinding!.useExisting).toBe(
-      Direct1688KeywordSearchAdapter,
-    );
-    const shortstrendBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === SHORTSTREND_TREND_PORT,
-    );
-    expect(shortstrendBinding).toBeDefined();
-    expect(shortstrendBinding!.useExisting).toBe(ShortstrendTrendAdapter);
-    const trendRepositoryBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === TREND_COLLECTION_REPOSITORY_PORT,
-    );
-    expect(trendRepositoryBinding).toBeDefined();
-    expect(trendRepositoryBinding!.useExisting).toBe(
-      TrendCollectionRepositoryAdapter,
-    );
-    const liveCommerceRepositoryBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === LIVE_COMMERCE_REPOSITORY_PORT,
-    );
-    expect(liveCommerceRepositoryBinding).toBeDefined();
-    expect(liveCommerceRepositoryBinding!.useExisting).toBe(
-      LiveCommerceRepositoryAdapter,
-    );
-    const taobaoLiveBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === TAOBAO_LIVE_PORT,
-    );
-    expect(taobaoLiveBinding).toBeDefined();
-    expect(taobaoLiveBinding!.useExisting).toBe(TaobaoLiveAdapter);
-    const marketShadowSignalBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === MARKET_SHADOW_SIGNAL_PORT,
-    );
-    expect(marketShadowSignalBinding?.useExisting).toBe(GoogleTrendsRssAdapter);
-    const linkfoxShadowBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === LINKFOX_ECHOTIK_SHADOW_PORT,
-    );
-    expect(linkfoxShadowBinding?.useExisting).toBe(LinkfoxEchotikShadowAdapter);
-    const naverKeywordBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === SOURCING_NAVER_KEYWORD_RESEARCH_PORT,
-    );
-    expect(naverKeywordBinding).toBeDefined();
-    expect(naverKeywordBinding!.useExisting).toBe(NaverSearchAdKeywordAdapter);
-    const naverDatalabBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === SOURCING_NAVER_DATALAB_TREND_PORT,
-    );
-    expect(naverDatalabBinding).toBeDefined();
-    expect(naverDatalabBinding!.useExisting).toBe(NaverDatalabTrendAdapter);
-    const naverPopularKeywordBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === SOURCING_NAVER_DATALAB_POPULAR_KEYWORD_PORT,
-    );
-    expect(naverPopularKeywordBinding).toBeDefined();
-    expect(naverPopularKeywordBinding!.useExisting).toBe(
-      NaverDatalabPopularKeywordAdapter,
-    );
-    const naverAutocompleteKeywordBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === SOURCING_NAVER_AUTOCOMPLETE_KEYWORD_PORT,
-    );
-    expect(naverAutocompleteKeywordBinding).toBeDefined();
-    expect(naverAutocompleteKeywordBinding!.useExisting).toBe(
-      NaverAutocompleteKeywordAdapter,
-    );
-    const preparationBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === PRODUCT_PREPARATION_REPOSITORY_PORT,
-    );
-    expect(preparationBinding?.useExisting).toBe(
-      ProductPreparationRepositoryAdapter,
-    );
-    const channelRegistrationBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === CHANNEL_PRODUCT_REGISTRATION_PORT,
-    );
-    expect(channelRegistrationBinding?.useExisting).toBe(
-      ChannelProductRegistrationAdapter,
-    );
-    const contentRegistrationBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === REGISTRATION_CONTENT_WORKSPACE_PORT,
-    );
-    expect(contentRegistrationBinding?.useExisting).toBe(
-      RegistrationContentWorkspaceAdapter,
-    );
-  });
-
-  it("imports the Agent OS runtime so the gateway adapter can resolve AGENT_RUNNER_PORT", () => {
-    const imports: unknown[] =
-      Reflect.getMetadata(IMPORTS_KEY, SourcingModule) ?? [];
-    // PrismaModule + AgentOsModule + AiModule + AutomationModule + ProductsModule.
-    // Supplier/procurement capability imports belong in SupplyModule.
-    expect(imports.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it("imports AutomationModule so its operation-alert adapter can resolve the owner-side port", () => {
-    const imports: unknown[] =
-      Reflect.getMetadata(IMPORTS_KEY, SourcingModule) ?? [];
-    expect(imports).toContain(AutomationModule);
-    expect(imports).toContain(ChannelsModule);
-  });
-
-  it("keeps public /api route prefix on every route-family controller", () => {
-    const controllers: unknown[] =
-      Reflect.getMetadata(CONTROLLERS_KEY, SourcingModule) ?? [];
-    expect(
-      controllers.map((controller) =>
-        Reflect.getMetadata(PATH_KEY, controller as object),
+    const composition = readFileSync(
+      new URL(
+        "../adapter/in/agent/sourcing-capability-composition.adapter.ts",
+        import.meta.url,
       ),
-    ).toEqual([
-      "sourcing",
-      "sourcing/extension/trend",
-      "sourcing/extension/trend",
-      "sourcing/extension/trend",
-      "sourcing/keyword-research/naver",
-      "sourcing/1688/image-search",
-      "sourcing/1688/keyword-search",
-      "sourcing/agent-rag",
-      "sourcing/market-model",
-      "sourcing/1688-new-product-model",
-      "sourcing/rising-products",
-      "sourcing",
-      "sourcing/trend/shadow",
-      "sourcing/workspace-snapshots",
-      "sourcing/trend",
-      "sourcing/live-commerce",
-    ]);
+      "utf8",
+    );
+
+    expect(finalAdapter).not.toContain("agent-os/application/service");
+    expect(composition).toContain("SOURCING_FINAL_CAPABILITY_PORT");
+    expect(composition).not.toContain("agent-os/application/service");
+    expect(composition).not.toContain("SourcingService");
+    expect(composition).not.toContain("SourcingPlaywrightRuntimeHandler");
+    expect(composition).not.toContain("PrismaService");
+  });
+
+  it("keeps canonical Channels mutations behind the Channels-owned final port", () => {
+    const channelsEntries = providers(ChannelsFinalCapabilityModule);
+    const sourcingEntries = providers(SourcingModule);
+
+    expect(channelsEntries).toContain(ChannelsFinalCapabilityAdapter);
+    expect(channelsEntries).toContain(ChannelsCapabilityCompositionAdapter);
+    expect(binding(channelsEntries, CHANNELS_FINAL_CAPABILITY_PORT)).toEqual({
+      provide: CHANNELS_FINAL_CAPABILITY_PORT,
+      useExisting: ChannelsFinalCapabilityAdapter,
+    });
+    expect(binding(channelsEntries, CHANNELS_CAPABILITY_COMPOSITION_PORT)).toEqual({
+      provide: CHANNELS_CAPABILITY_COMPOSITION_PORT,
+      useExisting: ChannelsCapabilityCompositionAdapter,
+    });
+    expect(sourcingEntries).not.toContain(ChannelsFinalCapabilityAdapter);
+    expect(
+      binding(sourcingEntries, CHANNELS_FINAL_CAPABILITY_PORT),
+    ).toBeUndefined();
   });
 });

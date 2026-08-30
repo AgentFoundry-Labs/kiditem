@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { DashboardModule } from '../dashboard.module';
+import { DashboardCapabilityModule } from '../dashboard-capability.module';
 import { PrismaModule } from '../../../prisma/prisma.module';
 
 import { DashboardController } from '../adapter/in/http/dashboard.controller';
@@ -14,7 +15,6 @@ import { DashboardAdRepositoryAdapter } from '../adapter/out/repository/dashboar
 import { DashboardTrendRepositoryAdapter } from '../adapter/out/repository/dashboard-trend.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { DashboardInventoryRepositoryAdapter } from '../adapter/out/repository/dashboard-inventory.repository.adapter';
-import { RocketRevenueRepositoryAdapter } from '../adapter/out/repository/rocket-revenue.repository.adapter';
 
 // application/service
 import { DashboardContextService } from '../application/service/dashboard-context.service';
@@ -22,6 +22,8 @@ import { DashboardSalesService } from '../application/service/dashboard-sales.se
 import { DashboardAdService } from '../application/service/dashboard-ad.service';
 import { DashboardInventoryService } from '../application/service/dashboard-inventory.service';
 import { DashboardTrendService } from '../application/service/dashboard-trend.service';
+import { AnalyticsOverviewCapabilityAdapter } from '../adapter/in/agent/analytics-overview-capability.adapter';
+import { ANALYTICS_OVERVIEW_CAPABILITY_PORT } from '../application/port/in/analytics-overview-capability.port';
 
 // application/port/out tokens
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/repository/profit-calculation.repository.port';
@@ -32,7 +34,6 @@ import { DASHBOARD_AD_REPOSITORY_PORT } from '../application/port/out/repository
 import { DASHBOARD_TREND_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-trend.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
 import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-inventory.repository.port';
-import { ROCKET_REVENUE_REPOSITORY_PORT } from '../application/port/out/repository/rocket-revenue.repository.port';
 
 const IMPORTS_KEY = 'imports';
 const CONTROLLERS_KEY = 'controllers';
@@ -48,7 +49,6 @@ const EXPECTED_PORT_BINDINGS = [
   [DASHBOARD_TREND_REPOSITORY_PORT, DashboardTrendRepositoryAdapter],
   [WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, WingTrafficAggregationRepositoryAdapter],
   [DASHBOARD_INVENTORY_REPOSITORY_PORT, DashboardInventoryRepositoryAdapter],
-  [ROCKET_REVENUE_REPOSITORY_PORT, RocketRevenueRepositoryAdapter],
 ] as const;
 
 // Architecture-guard companion to dashboard.architecture.spec.ts. This spec
@@ -56,10 +56,13 @@ const EXPECTED_PORT_BINDINGS = [
 // stray legacy controller, or an accidental route rename fails at vitest
 // time before reaching dev:server boot.
 describe('DashboardModule capability wiring', () => {
-  it('imports exactly PrismaModule', () => {
+  it('does not import Agent OS from the analytics owner module', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, DashboardModule) ?? [];
-    expect(imports).toHaveLength(1);
-    expect(new Set(imports)).toEqual(new Set([PrismaModule]));
+    expect(imports).toEqual([DashboardCapabilityModule]);
+    expect(Reflect.getMetadata(IMPORTS_KEY, DashboardCapabilityModule) ?? [])
+      .toEqual([PrismaModule]);
+    expect(Reflect.getMetadata(CONTROLLERS_KEY, DashboardCapabilityModule) ?? [])
+      .toEqual([]);
   });
 
   it('mounts the dashboard controller from adapter/in/http', () => {
@@ -69,8 +72,8 @@ describe('DashboardModule capability wiring', () => {
   });
 
   it('declares every repository adapter as a provider', () => {
-    const providers: unknown[] =
-      Reflect.getMetadata(PROVIDERS_KEY, DashboardModule) ?? [];
+    const capabilityProviders: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, DashboardCapabilityModule) ?? [];
     for (const cls of [
       ProfitCalculationRepositoryAdapter,
       AdAggregationRepositoryAdapter,
@@ -80,21 +83,21 @@ describe('DashboardModule capability wiring', () => {
       DashboardTrendRepositoryAdapter,
       WingTrafficAggregationRepositoryAdapter,
       DashboardInventoryRepositoryAdapter,
-      RocketRevenueRepositoryAdapter,
     ]) {
-      expect(providers).toContain(cls);
+      expect(capabilityProviders).toContain(cls);
     }
   });
 
   it('declares every application service as a provider', () => {
     const providers: unknown[] =
-      Reflect.getMetadata(PROVIDERS_KEY, DashboardModule) ?? [];
+      Reflect.getMetadata(PROVIDERS_KEY, DashboardCapabilityModule) ?? [];
     for (const cls of [
       DashboardContextService,
       DashboardSalesService,
       DashboardAdService,
       DashboardInventoryService,
       DashboardTrendService,
+      AnalyticsOverviewCapabilityAdapter,
     ]) {
       expect(providers).toContain(cls);
     }
@@ -102,7 +105,7 @@ describe('DashboardModule capability wiring', () => {
 
   it('binds every application/port/out/* token via a token-shaped provider', () => {
     const providers: unknown[] =
-      Reflect.getMetadata(PROVIDERS_KEY, DashboardModule) ?? [];
+      Reflect.getMetadata(PROVIDERS_KEY, DashboardCapabilityModule) ?? [];
     // Token-shaped providers are objects with a `provide` field; everything
     // else is a class provider. The repository ports are bound via
     // useExisting so application services depend on tokens rather than
@@ -111,13 +114,17 @@ describe('DashboardModule capability wiring', () => {
       (p): p is { provide: unknown; useExisting?: unknown } =>
         typeof p === 'object' && p !== null && 'provide' in p,
     );
-    expect(tokenProviders).toHaveLength(EXPECTED_PORT_BINDINGS.length);
+    expect(tokenProviders).toHaveLength(EXPECTED_PORT_BINDINGS.length + 1);
     for (const [token, adapterClass] of EXPECTED_PORT_BINDINGS) {
       expect(tokenProviders).toContainEqual({
         provide: token,
         useExisting: adapterClass,
       });
     }
+    expect(tokenProviders).toContainEqual({
+      provide: ANALYTICS_OVERVIEW_CAPABILITY_PORT,
+      useExisting: AnalyticsOverviewCapabilityAdapter,
+    });
   });
 
   it('keeps the /api/dashboard route prefix', () => {

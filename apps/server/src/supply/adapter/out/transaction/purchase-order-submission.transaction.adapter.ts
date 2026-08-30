@@ -33,6 +33,7 @@ type LockedOrderRow = { id: string; status: string };
 type LockedAttemptRow = {
   id: string;
   idempotencyKey: string;
+  requestHash: string;
   status: string;
   providerReference: string | null;
   reconciliationOutcome: string | null;
@@ -123,6 +124,7 @@ implements PurchaseOrderSubmissionTransactionPort {
   ): Promise<PreparePurchaseOrderSubmissionResult> {
     return this.prisma.$transaction(async (tx) => {
       assertNormalizedIdempotencyKey(input.idempotencyKey);
+      assertRequestHash(input.requestHash);
       const freshness = await lockFreshness(tx, input.organizationId);
       const order = await lockOrder(tx, input.organizationId, input.purchaseOrderId);
       if (!order) throw referenceInvalid();
@@ -170,6 +172,7 @@ implements PurchaseOrderSubmissionTransactionPort {
         select: {
           id: true,
           idempotencyKey: true,
+          requestHash: true,
           status: true,
           providerReference: true,
           reconciliationOutcome: true,
@@ -177,6 +180,14 @@ implements PurchaseOrderSubmissionTransactionPort {
         },
       });
       if (latest) {
+        if (
+          latest.idempotencyKey === input.idempotencyKey
+          && latest.requestHash !== input.requestHash
+        ) {
+          throw new ConflictException(
+            'Purchase submission idempotency key conflicts with a different canonical input.',
+          );
+        }
         const promoted = await promoteExpiredPrepared(
           tx,
           input,
@@ -201,6 +212,7 @@ implements PurchaseOrderSubmissionTransactionPort {
           organizationId: input.organizationId,
           purchaseOrderId: input.purchaseOrderId,
           idempotencyKey: input.idempotencyKey,
+          requestHash: input.requestHash,
           freshnessGeneration: freshness.freshnessGeneration,
           status: 'prepared',
         },
@@ -268,6 +280,7 @@ implements PurchaseOrderSubmissionTransactionPort {
         SELECT
           id,
           idempotency_key AS "idempotencyKey",
+          request_hash AS "requestHash",
           status,
           provider_reference AS "providerReference",
           reconciliation_outcome AS "reconciliationOutcome",
@@ -395,7 +408,8 @@ async function lockAttempt(
   const rows = await tx.$queryRaw<LockedAttemptRow[]>`
     SELECT
       id,
-      idempotency_key AS "idempotencyKey",
+          idempotency_key AS "idempotencyKey",
+          request_hash AS "requestHash",
       status,
       provider_reference AS "providerReference",
       reconciliation_outcome AS "reconciliationOutcome",
@@ -532,6 +546,14 @@ function assertNormalizedIdempotencyKey(value: string): void {
   if (!value || value !== value.trim()) {
     throw new BadRequestException(
       'Purchase submission idempotency key must be normalized and nonblank.',
+    );
+  }
+}
+
+function assertRequestHash(value: string): void {
+  if (!/^[a-f0-9]{64}$/.test(value)) {
+    throw new BadRequestException(
+      'Purchase submission request hash must be a canonical SHA-256 receipt.',
     );
   }
 }

@@ -138,6 +138,8 @@ function loadBackground(initialStorage = {}, plannedResponses = []) {
     },
     Headers,
     setTimeout,
+    setInterval,
+    clearInterval,
     URL,
   };
 
@@ -215,7 +217,7 @@ test('clears only the sender environment profile on sign-out', async () => {
   const env = loadBackground({
     kiditem_environment_profiles_v1: {
       local: { accessToken: 'local-token', updatedAt: 1 },
-      staging: { accessToken: 'staging-token', updatedAt: 2 },
+      office: { accessToken: 'office-token', updatedAt: 2 },
     },
     kiditem_sourcing_ingest_token: 'legacy-token',
   });
@@ -227,8 +229,8 @@ test('clears only the sender environment profile on sign-out', async () => {
   assert.equal(response?.success, true);
   assert.equal(env.storage.kiditem_environment_profiles_v1.local, undefined);
   assert.equal(
-    env.storage.kiditem_environment_profiles_v1.staging.accessToken,
-    'staging-token',
+    env.storage.kiditem_environment_profiles_v1.office.accessToken,
+    'office-token',
   );
 });
 
@@ -269,7 +271,9 @@ test('통합 서비스워커가 공용 모듈과 소싱 모듈을 소싱 워커�
   assert.ok(at('collection-session.js') > at('environment-context.js'));
   assert.ok(at('interactive-tabs.js') > at('collection-session.js'));
   assert.ok(at('worker-globals.js') > at('interactive-tabs.js'));
+  assert.ok(at('sourcing/url-policy.js') > at('worker-globals.js'));
   assert.ok(at('sourcing/1688-trend-collector.js') > at('worker-globals.js'));
+  assert.ok(at('sourcing/1688-trend-collector.js') > at('sourcing/url-policy.js'));
   assert.ok(
     at('sourcing/live-commerce-collector.js') > at('sourcing/1688-trend-collector.js'),
   );
@@ -290,7 +294,7 @@ test('통합 서비스워커가 공용 모듈과 소싱 모듈을 소싱 워커�
 
 // 세 도메인 워커가 각자 응답하면 같은 메시지에 경쟁 응답이 된다. 공통 액션은
 // external-dispatch.js 만 처리하고, 소싱 워커는 자기 액션만 남긴다.
-test('수집 세션 공통 액션은 통합 dispatch 가 단독으로 처리한다', () => {
+test('수집 세션 공통 액션은 통합 dispatch 가 단독으로 처리하고 소싱은 exact Operation만 등록한다', () => {
   const dispatchSource = fs.readFileSync(
     path.resolve('extensions/kiditem-os/background/external-dispatch.js'),
     'utf8',
@@ -310,7 +314,24 @@ test('수집 세션 공통 액션은 통합 dispatch 가 단독으로 처리한�
     );
   }
   assert.doesNotMatch(backgroundSource, /msg\.action === ["']ping["']/);
-  assert.match(backgroundSource, /msg\.action === "start1688TrendCollection"/);
+  for (const legacyAction of [
+    'start1688TrendCollection',
+    'get1688TrendCollectionStatus',
+    'cancel1688TrendCollection',
+    'startTiktokCcCollection',
+    'getTiktokCcCollectionStatus',
+    'cancelTiktokCcCollection',
+    'collectLiveCommerceUrl',
+  ]) {
+    assert.doesNotMatch(
+      backgroundSource,
+      new RegExp(`msg\\.action === ["']${legacyAction}["']`),
+      legacyAction,
+    );
+  }
+  assert.match(backgroundSource, /"sourcing\.collect_1688_trends": runSourcing1688TrendOperation/);
+  assert.match(backgroundSource, /"sourcing\.collect_tiktok_cc_trends": runSourcingTiktokCcTrendOperation/);
+  assert.match(backgroundSource, /"sourcing\.collect_live_commerce_url": runSourcingLiveCommerceOperation/);
 });
 
 test('accepts a heartbeat port that keeps long 1688 trend runs alive', () => {
@@ -324,45 +345,6 @@ test('accepts a heartbeat port that keeps long 1688 trend runs alive', () => {
   });
 
   assert.equal(messageListeners.length, 1);
-});
-
-test('rejects invalid 1688 trend collection inputs before opening a tab', async () => {
-  const env = loadBackground();
-
-  const empty = await sendExternal(env.externalListeners, {
-    action: 'start1688TrendCollection',
-    keywords: [],
-    maxResultsPerKeyword: 20,
-  });
-  const oversized = await sendExternal(env.externalListeners, {
-    action: 'start1688TrendCollection',
-    keywords: ['문구'],
-    maxResultsPerKeyword: 21,
-  });
-
-  assert.equal(empty?.success, false);
-  assert.equal(oversized?.success, false);
-});
-
-test('stores staging auth without accepting a client API base', async () => {
-  const env = loadBackground();
-
-  const response = await sendExternal(
-    env.externalListeners,
-    {
-      action: 'setAuthToken',
-      apiBase: 'https://staging.merchon.org/api/sourcing/extension',
-      token: 'token-from-web',
-    },
-    { url: 'https://staging.merchon.org/product-pipeline/collected-products' },
-  );
-
-  assert.equal(response?.success, true);
-  assert.equal(env.storage.apiBase, undefined);
-  assert.equal(
-    env.storage.kiditem_environment_profiles_v1.staging.accessToken,
-    'token-from-web',
-  );
 });
 
 test('stores office auth and routes requests to the office API origin', async () => {
@@ -417,27 +399,6 @@ test('sends the stored token as Bearer auth to the sourcing ingest API', async (
   assert.equal(env.fetchCalls.length, 1);
   const headers = new Headers(env.fetchCalls[0].init.headers);
   assert.equal(headers.get('content-type'), 'application/json');
-  assert.equal(headers.get('authorization'), 'Bearer stored-token');
-});
-
-test('sends stored tokens to the approved staging API base', async () => {
-  const env = loadBackground({
-    kiditem_environment_profiles_v1: {
-      staging: { accessToken: 'stored-token', updatedAt: 1 },
-    },
-  });
-
-  await env.context.sendToBackend(
-    { source_url: 'https://detail.1688.com/offer/607635921546.html' },
-    'staging',
-  );
-
-  assert.equal(env.fetchCalls.length, 1);
-  assert.equal(
-    env.fetchCalls[0].url,
-    'https://staging.merchon.org/api/sourcing/extension/product-data',
-  );
-  const headers = new Headers(env.fetchCalls[0].init.headers);
   assert.equal(headers.get('authorization'), 'Bearer stored-token');
 });
 

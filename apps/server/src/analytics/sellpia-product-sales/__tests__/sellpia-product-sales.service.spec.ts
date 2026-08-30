@@ -395,7 +395,6 @@ describe('SellpiaProductSalesService.getSummary', () => {
     expect(byCode['9882'].inventoryResolution).toMatchObject({
       status: 'matched',
       currentStock: 200,
-      activeCommitmentQuantity: 0,
       availableStock: 200,
     });
     expect(byCode['9882'].reorderPoint).toBe(600);
@@ -620,7 +619,6 @@ function collectedInventory(
     items: rows.map((row) => ({
       sellpiaInventorySkuId: row.id,
       currentStock: row.currentStock,
-      activeCommitmentQuantity: 0,
       availableStock: row.currentStock,
       isActive: row.isActive,
       generation: '12',

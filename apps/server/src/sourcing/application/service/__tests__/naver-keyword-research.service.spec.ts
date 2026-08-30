@@ -11,6 +11,8 @@ import type {
   NaverPopularKeywordSnapshotRow,
   TrendCollectionRepositoryPort,
 } from '../../port/out/repository/trend-collection.repository.port';
+import type { SourcingTypedCollectionRecord } from '../../port/out/repository/sourcing-collection.repository.port';
+import type { SourcingCollectionCoordinator } from '../sourcing-collection-coordinator.service';
 
 function board(ranks: Array<{ rank: number; keyword: string }>): NaverDatalabPopularKeywordBoard {
   return {
@@ -39,6 +41,35 @@ function priorRow(rank: number, keyword: string): NaverPopularKeywordSnapshotRow
 }
 
 function makeService(history: NaverPopularKeywordSnapshotRow[], boards: NaverDatalabPopularKeywordBoard[]) {
+  const keywordResearch = {
+    getStatus: vi.fn(() => ({ configured: true, requiredEnv: [] })),
+    searchRelatedKeywords: vi.fn(async (input: { seedKeywords: string[] }) => ({
+      source: 'naver-searchad-keywordstool' as const,
+      seedKeywords: input.seedKeywords,
+      generatedAt: '2026-08-14T00:00:00.000Z',
+      items: [],
+    })),
+  } as unknown as NaverKeywordResearchPort;
+  const trends = {
+    getStatus: vi.fn(() => ({ configured: true, requiredEnv: [] })),
+    compareSearchTrends: vi.fn(async (input: { keywords: string[] }) => ({
+      source: 'naver-datalab-search-trend' as const,
+      keywords: input.keywords,
+      startDate: '2026-08-01',
+      endDate: '2026-08-14',
+      timeUnit: 'date' as const,
+      generatedAt: '2026-08-14T00:00:00.000Z',
+      items: [],
+    })),
+  } as unknown as NaverDatalabTrendPort;
+  const autocomplete = {
+    searchAutocompleteKeywords: vi.fn(async (input: { keyword: string }) => ({
+      source: 'naver-search-autocomplete' as const,
+      keyword: input.keyword,
+      generatedAt: '2026-08-14T00:00:00.000Z',
+      items: [],
+    })),
+  } as unknown as NaverAutocompleteKeywordPort;
   const popular = {
     searchPopularKeywords: vi.fn(async () => ({
       source: 'naver-datalab-shopping-keyword-rank' as const,
@@ -54,22 +85,56 @@ function makeService(history: NaverPopularKeywordSnapshotRow[], boards: NaverDat
   } as unknown as NaverDatalabPopularKeywordPort;
   const trendRepo = {
     findPopularKeywordHistory: vi.fn(async () => history),
-    replaceNaverPopularKeywordSnapshots: vi.fn(async () => boards[0].ranks.length),
   } as unknown as TrendCollectionRepositoryPort;
-  const noop = {} as unknown;
-  const service = new NaverKeywordResearchService(
-    noop as NaverKeywordResearchPort,
-    noop as NaverDatalabTrendPort,
+  let committedRecords: SourcingTypedCollectionRecord[] = [];
+  const collectionCoordinator = {
+    execute: vi.fn(async (input: any, collector: any) => {
+      const output = await collector({
+        permit: {
+          runId: '00000000-0000-4000-8000-000000000001',
+          organizationId: input.organizationId,
+          sourceKey: input.sourceKey,
+          scopeKey: input.scopeKey,
+          targetKey: input.targetKey,
+          leaseToken: '00000000-0000-4000-8000-000000000002',
+          generation: 1,
+          leaseExpiresAt: new Date('2026-08-08T01:02:00.000Z'),
+        },
+        checkpoint: async () => undefined,
+      });
+      committedRecords = output.typedRecords;
+      return { kind: 'committed', runId: input.idempotencyKey, acceptedCount: output.discoveredCount, duplicateCount: 0, staleDiscardedCount: 0 };
+    }),
+  } as unknown as SourcingCollectionCoordinator;
+  const snapshots = {
+    upsertInAttempt: vi.fn(async (_transaction: unknown, input: unknown) => input),
+  };
+  const ServiceWithSnapshots = NaverKeywordResearchService as unknown as new (
+    ...args: unknown[]
+  ) => NaverKeywordResearchService;
+  const service = new ServiceWithSnapshots(
+    keywordResearch,
+    trends,
     popular,
-    noop as NaverAutocompleteKeywordPort,
+    autocomplete,
     trendRepo,
+    collectionCoordinator,
+    snapshots,
   );
-  return { service, trendRepo };
+  return {
+    service,
+    keywordResearch,
+    trends,
+    autocomplete,
+    snapshots,
+    trendRepo,
+    committedRecords: () => committedRecords,
+  };
 }
 
 describe('NaverKeywordResearchService.searchPopularKeywords NEW/급상승', () => {
   it('직전 저장일과 비교해 신규/상승/하락을 채운다', async () => {
-    const { service, trendRepo } = makeService(
+    const { service, committedRecords } = makeService(
       [priorRow(1, '토미카'), priorRow(2, '레고')],
       [board([
         { rank: 1, keyword: '레고' }, // 이전 2위 → 상승(+1)
@@ -85,9 +150,10 @@ describe('NaverKeywordResearchService.searchPopularKeywords NEW/급상승', () =
     expect(ranks[1]).toMatchObject({ keyword: '신상완구', isNew: true, previousRank: null, rankDelta: null });
     expect(ranks[2]).toMatchObject({ keyword: '토미카', isNew: false, previousRank: 1, rankDelta: -2 });
 
-    // 오늘 순위를 일별 스냅샷으로 저장한다
-    expect(trendRepo.replaceNaverPopularKeywordSnapshots).toHaveBeenCalledOnce();
-    const savedRows = (trendRepo.replaceNaverPopularKeywordSnapshots as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    // 오늘 순위는 coordinator의 단일 typed-record commit으로 전달한다.
+    const savedRows = committedRecords()
+      .filter((record) => record.kind === 'naver_popular_keyword')
+      .map((record) => record.row);
     expect(savedRows).toHaveLength(3);
     expect(savedRows[0]).toMatchObject({ organizationId: 'org-1', boardKey: 'toys_dolls', keyword: '레고', rank: 1 });
   });
@@ -103,5 +169,133 @@ describe('NaverKeywordResearchService.searchPopularKeywords NEW/급상승', () =
     (trendRepo.findPopularKeywordHistory as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('db down'));
     const result = await service.searchPopularKeywords({ boardKeys: ['toys_dolls'] }, 'org-1');
     expect(result.boards[0].ranks[0].keyword).toBe('레고');
+  });
+
+  it('publishes the trend-agent snapshot only inside the active operation attempt after signal-aware provider work', async () => {
+    const { service, keywordResearch, trends, autocomplete, snapshots } = makeService(
+      [],
+      [board([{ rank: 1, keyword: '레고' }])],
+    );
+    const controller = new AbortController();
+    const transaction = { opaque: true };
+    const withinActiveOperationAttemptFence = vi.fn(async (commit: (tx: unknown) => Promise<unknown>) =>
+      commit(transaction));
+    const keywordAnalysis = service as unknown as {
+      collectAnalysis(input: {
+        organizationId: string;
+        input: Record<string, unknown>;
+        signal: AbortSignal;
+        checkpoint: () => Promise<void>;
+        withinActiveOperationAttemptFence: (commit: (tx: unknown) => Promise<unknown>) => Promise<unknown>;
+      }): Promise<{ snapshot: unknown }>;
+    };
+
+    await expect(keywordAnalysis.collectAnalysis({
+      organizationId: 'org-1',
+      input: {
+        action: 'trend_agent',
+        timeUnit: 'date',
+        gender: 'all',
+        age: '20',
+        device: 'all',
+        selectedBoardKey: 'all',
+        rankLimit: 20,
+        focusMode: 'all',
+        finalLimit: 30,
+      },
+      signal: controller.signal,
+      checkpoint: vi.fn(async () => undefined),
+      withinActiveOperationAttemptFence,
+    })).resolves.toEqual(expect.objectContaining({ snapshot: expect.anything() }));
+
+    expect(keywordResearch.searchRelatedKeywords).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+    expect(trends.compareSearchTrends).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal, ages: ['3', '4'] }),
+    );
+    expect(autocomplete.searchAutocompleteKeywords).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+    expect(withinActiveOperationAttemptFence).toHaveBeenCalledTimes(1);
+    expect(snapshots.upsertInAttempt).toHaveBeenCalledWith(
+      transaction,
+      expect.objectContaining({ organizationId: 'org-1', scope: 'keyword_analysis' }),
+    );
+  });
+
+  it('drops provider-only SearchAd raw rows before validating and publishing the shared snapshot', async () => {
+    const { service, keywordResearch, snapshots } = makeService([], []);
+    vi.mocked(keywordResearch.searchRelatedKeywords).mockResolvedValueOnce({
+      source: 'naver-searchad-keywordstool',
+      seedKeywords: ['레고'],
+      generatedAt: '2026-08-14T00:00:00.000Z',
+      items: [{
+        keyword: '레고 장난감',
+        monthlyPcSearchCount: 100,
+        monthlyMobileSearchCount: 200,
+        monthlyTotalSearchCount: 300,
+        monthlyPcClickCount: 10,
+        monthlyMobileClickCount: 20,
+        monthlyTotalClickCount: 30,
+        monthlyPcClickRate: 0.1,
+        monthlyMobileClickRate: 0.2,
+        averageAdRank: 3,
+        competitionIndex: '높음',
+        raw: { relKeyword: '레고 장난감', credentialAdjacentProviderField: 'discard' },
+      }],
+    });
+    const transaction = { opaque: true };
+
+    await expect(service.collectAnalysis({
+      organizationId: 'org-1',
+      input: { action: 'related', keyword: '레고' },
+      signal: new AbortController().signal,
+      checkpoint: vi.fn(async () => undefined),
+      withinActiveOperationAttemptFence: vi.fn(async (commit) => commit(transaction as never)),
+    })).resolves.toEqual(expect.objectContaining({ snapshot: expect.anything() }));
+
+    const published = vi.mocked(snapshots.upsertInAttempt).mock.calls[0][1] as {
+      payload: { result: { related: { items: Array<Record<string, unknown>> } } };
+    };
+    expect(published.payload.result.related.items).toEqual([
+      expect.objectContaining({ keyword: '레고 장난감' }),
+    ]);
+    expect(published.payload.result.related.items[0]).not.toHaveProperty('raw');
+  });
+
+  it('does not publish the trend-agent snapshot when the final active attempt fence is lost', async () => {
+    const { service, snapshots } = makeService([], [board([{ rank: 1, keyword: '레고' }])]);
+    const keywordAnalysis = service as unknown as {
+      collectAnalysis(input: {
+        organizationId: string;
+        input: Record<string, unknown>;
+        signal: AbortSignal;
+        checkpoint: () => Promise<void>;
+        withinActiveOperationAttemptFence: (commit: (tx: unknown) => Promise<unknown>) => Promise<unknown>;
+      }): Promise<unknown>;
+    };
+
+    await expect(keywordAnalysis.collectAnalysis({
+      organizationId: 'org-1',
+      input: {
+        action: 'trend_agent',
+        timeUnit: 'date',
+        gender: 'all',
+        age: 'all',
+        device: 'all',
+        selectedBoardKey: 'all',
+        rankLimit: 20,
+        focusMode: 'all',
+        finalLimit: 30,
+      },
+      signal: new AbortController().signal,
+      checkpoint: vi.fn(async () => undefined),
+      withinActiveOperationAttemptFence: vi.fn(async () => {
+        throw new Error('operation_attempt_fence_lost');
+      }),
+    })).rejects.toThrow('operation_attempt_fence_lost');
+
+    expect(snapshots.upsertInAttempt).not.toHaveBeenCalled();
   });
 });

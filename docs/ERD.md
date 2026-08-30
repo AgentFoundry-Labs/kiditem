@@ -2,13 +2,13 @@
 
 > Generated from `prisma/models/*.prisma`. Do not edit the diagram by hand.
 > Regenerate this file with `npm run db:erd` after Prisma schema changes.
-> When committing schema navigation artifacts, run `npm run graphify:schema` as well.
 
 This ERD is a development-time navigation aid. The source of truth is the Prisma schema under `prisma/`.
 
 ## Sources
 
 - `prisma/models/advertising.prisma`
+- `prisma/models/agent-work.prisma`
 - `prisma/models/agents.prisma`
 - `prisma/models/ai.prisma`
 - `prisma/models/channels.prisma`
@@ -25,16 +25,17 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Domain | Models |
 |---|---:|
 | [Advertising](erd/advertising.md) | 5 |
-| [AgentOS](erd/agentos.md) | 17 |
+| [AgentOS](erd/agentos.md) | 1 |
 | [AI](erd/ai.md) | 22 |
-| [Channels](erd/channels.md) | 23 |
+| [Automation](erd/automation.md) | 2 |
+| [Channels](erd/channels.md) | 22 |
 | [Core](erd/core.md) | 16 |
-| [Finance](erd/finance.md) | 5 |
-| [Inventory](erd/inventory.md) | 12 |
-| [Orders](erd/orders.md) | 13 |
-| [Sourcing](erd/sourcing.md) | 12 |
-| [Supply](erd/supply.md) | 10 |
-| [System](erd/system.md) | 11 |
+| [Finance](erd/finance.md) | 1 |
+| [Inventory](erd/inventory.md) | 6 |
+| [Orders](erd/orders.md) | 9 |
+| [Sourcing](erd/sourcing.md) | 31 |
+| [Supply](erd/supply.md) | 13 |
+| [System](erd/system.md) | 12 |
 
 ## Model Index
 
@@ -45,23 +46,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ExecutionTask | Advertising | `execution_tasks` | - |
 | ExecutionWorker | Advertising | `execution_workers` | - |
 | ScrapeTarget | Advertising | `scrape_targets` | - |
-| AgentApprovalRequest | AgentOS | `agent_approval_requests` | Human approval state. While pending, AgentRunRequest.status = requires_approval. |
-| AgentArtifact | AgentOS | `agent_artifacts` | User-visible output card linked to task, tool, or domain record. |
-| AgentAuthorizationEvent | AgentOS | `agent_authorization_events` | Authorization audit. Logged before, during, and outside runs (eg. admin policy widening). |
-| AgentConversation | AgentOS | `agent_conversations` | User-facing Agent OS conversation thread. |
-| AgentCostEvent | AgentOS | `agent_cost_events` | Cost ledger source of truth. Insert + AgentRuntimeState aggregate update share one transaction. |
-| AgentInstance | AgentOS | `agent_instances` | Organization-owned runnable subject. Type must match the code-owned Agent Definition Registry. |
-| AgentInstanceToolPolicy | AgentOS | `agent_instance_tool_policies` | Per-instance override for tool policy. Registry defaults are code-owned; DB stores organization overrides. |
-| AgentMessage | AgentOS | `agent_messages` | Visible conversation message tied to user, Operator, agent, or tool output. |
-| AgentRun | AgentOS | `agent_runs` | Accepted execution attempt. Replaces HeartbeatRun. Always starts at status="running"; queue state lives on AgentRunRequest. |
-| AgentRunEvent | AgentOS | `agent_run_events` | Run-local event timeline (status, tool, model, safety, fallback). Bulk logs go to external store via logRef. |
-| AgentRunRequest | AgentOS | `agent_run_requests` | Durable request inbox + queue + dedupe + audit. Replaces AgentWakeupRequest. Queue state lives here, not on AgentRun. |
-| AgentRuntimeState | AgentOS | `agent_runtime_states` | Frequently-changing per-instance runtime state (last run, totals, cached aggregates). 1:1 with AgentInstance. |
-| AgentTaskSession | AgentOS | `agent_task_sessions` | Per-task durable session. taskKey defaults to "default" only at API boundary. |
-| AgentToolDefinition | AgentOS | `agent_tool_definitions` | Catalog of business tools agents may invoke. KidItem ships a curated set; not a generic HTTP/DB tool marketplace. |
-| AgentToolInvocation | AgentOS | `agent_tool_invocations` | Durable capability/tool invocation audit record. |
-| WorkflowRun | AgentOS | `workflow_runs` | Workflow run record. Workflow runner triggers Agent OS via AgentRunnerPort with sourceWorkflowRunId. |
-| WorkflowTemplate | AgentOS | `workflow_templates` | Workflow definition. Trigger config + nodes/edges. |
+| CapabilityInvocation | AgentOS | `capability_invocations` | Exact request-driven mutation admission and replay receipt. |
 | AiDirectJob | AI | `ai_direct_jobs` | Durable queue and projection checkpoint for direct thumbnail, detail-page, and image-edit model work. |
 | ContentAsset | AI | `content_assets` | Organization-scoped managed media with optional generation-group provenance. |
 | ContentGeneration | AI | `content_generations` | - |
@@ -84,11 +69,14 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ThumbnailRegistrationAttempt | AI | `thumbnail_registration_attempts` | Wing 등 외부 채널 등록 시도 이력. 마지막 상태만 덮어쓰지 않고 재시도/실패 원인을 보존한다. |
 | ThumbnailTracking | AI | `thumbnail_trackings` | - |
 | ThumbnailTrackingDailySnapshot | AI | `thumbnail_tracking_daily_snapshots` | 적용된 썸네일의 30일 매출/판매량 시계열 — playwriter 로 Wing vendor-inventory 검색해서 매일 한 row 씩 적재. |
+| WorkflowRun | Automation | `workflow_runs` | Durable deterministic workflow run. |
+| WorkflowTemplate | Automation | `workflow_templates` | Deterministic workflow definition. |
 | ChannelAccountDailyKpiSnapshot | Channels | `channel_account_daily_kpi_snapshots` | 채널 계정/스토어 단위 KPI 일별 정규화 fact (listing 에 귀속되지 않는 dashboard KPI 용). |
 | ChannelAdTargetDailySnapshot | Channels | `channel_ad_target_daily_snapshots` | 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive. |
 | ChannelListingDailySnapshot | Channels | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
 | ChannelListingDeletionOperation | Channels | `channel_listing_deletion_operations` | Channel listing 삭제의 provider side effect 실행 기록. 삭제 대상 외부 listing identity를 요청 시점에 동결한다. |
 | ChannelListingOptionDailySnapshot | Channels | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
+| ChannelRegistrationOwnerIdempotencyReceipt | Channels | `channel_registration_owner_idempotency_receipts` | Agent-triggered registration mutation receipt keyed by the exact Channels owner input, atomically retained with local listing resolution. |
 | ChannelScrapeChunk | Channels | `channel_scrape_chunks` | Browser catalog collection payloads kept in JSONB until an atomic publication succeeds. |
 | ChannelScrapeRun | Channels | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | Channels | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
@@ -101,8 +89,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | CoupangWingTrackedProductDailySnapshot | Channels | `coupang_wing_tracked_product_daily_snapshots` | 쿠팡 Wing 추적상품 일별 지표 스냅샷(상품×일자당 최신본 upsert). Wing 카탈로그 28일 지표(클릭 pv·판매·매출·전환) + 판매가·리뷰. |
 | RocketPoCatalogLine | Channels | `rocket_po_catalog_lines` | Normalized Rocket PO line and confirmation-workbook evidence owned by one completed catalog snapshot. |
 | RocketPoCatalogSnapshot | Channels | `rocket_po_catalog_snapshots` | Completed Coupang Rocket PO collection evidence that can be reopened without another provider collection. Inventory capacity is never stored here. |
-| RocketPurchaseOrder | Channels | `rocket_purchase_orders` | 쿠팡 로켓 발주 단건(per-PO) 상세 — 매출분석 드릴다운(일자→발주→품목)용. items 는 발주서 품목(SKU) 라인 JSON(표시 전용). |
-| RocketSupplyDailySnapshot | Channels | `rocket_supply_daily_snapshots` | 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스. |
 | SellpiaManualMatchAlias | Channels | `sellpia_manual_match_aliases` | Exact normalized marketplace-title evidence linking one historical Sellpia manual match to an active physical SKU and positive unit quantity. |
 | SellpiaManualMatchSnapshot | Channels | `sellpia_manual_match_snapshots` | Current organization-scoped, read-only Sellpia manual-match evidence restricted to exact aliases used by current channel listings. |
 | SellpiaProductMonthlySales | Channels | `sellpia_product_monthly_sales` | Sellpia 상품별 이익현황(stat_prd_profit) 월별 판매수량(재고 소진) fact. stat_action.ajax.html(mode=stat_prd_profit)의 graph(월별 매입액/판매액/판매수량)에서 상품×옵션×연월로 수집. 재고관리용 1개월/2개월 평균 소진량 산정 소스. 메이크샵 주문 데이터 기준. |
@@ -114,7 +100,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ChannelListingOption | Core | `channel_listing_options` | One sellable SKU under a channel listing. |
 | ChannelListingOptionInventoryComponent | Core | `channel_listing_option_inventory_components` | Confirmed Sellpia inventory consumption for one channel sellable option. |
 | LegalEntity | Core | `legal_entities` | Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary. |
-| MasterProduct | Core | `master_products` | KidItem-operated product identity and product-level operating metadata. |
+| MasterProduct | Core | `master_products` | Organization-owned canonical inventory product and sole official product ABC identity. |
 | MasterProductAbcEvaluation | Core | `master_product_abc_evaluations` | Current Products-owned automatic profitability ABC explanation snapshot for one MasterProduct. |
 | MasterProductAbcFormulaState | Core | `master_product_abc_formula_states` | One Prisma-owned current-formula pointer for each organization. |
 | MasterProductAbcFormulaVersion | Core | `master_product_abc_formula_versions` | Immutable organization-owned formula versions for automatic product profitability ABC. |
@@ -122,26 +108,15 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Organization | Core | `organizations` | - |
 | OrganizationMembership | Core | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
 | SourceImportRun | Core | `source_import_runs` | Durable provenance and publication fence for Sellpia and channel full-snapshot imports. |
-| User | Core | `users` | human(직원) / agent(AI, agentInstanceId 연결) / system(챗봇). 조직 소속은 OrganizationMembership 이 source of truth. |
-| GradeHistory | Finance | `grade_histories` | ABC 등급 변경 추적. |
-| ManualLedger | Finance | `manual_ledgers` | 자동 집계 외 수기 수입/지출. |
-| ProcessingCost | Finance | `processing_costs` | - |
-| ProfitLoss | Finance | `profit_loss` | 월간 손익. organizationId+listingId+year+month unique. |
+| User | Core | `users` | Human or system account. Organization membership is the source of truth. |
 | SalesPlan | Finance | `sales_plans` | - |
 | CoupangShipmentDateSummary | Inventory | `coupang_shipment_date_summaries` | Persisted Coupang shipment 발송일별 건수/박스 요약 snapshot so the calendar survives reload and only new dates are collected. |
-| InventoryCommitment | Inventory | `inventory_commitments` | Physical-stock-independent commitment that reduces common available Sellpia capacity. |
-| InventoryCommitmentAllocation | Inventory | `inventory_commitment_allocations` | Component-level Sellpia SKU quantity held by one inventory commitment. |
-| PickingItem | Inventory | `picking_items` | - |
-| PickingList | Inventory | `picking_lists` | - |
 | ReturnTransfer | Inventory | `return_transfers` | - |
-| SellpiaInventorySku | Inventory | `sellpia_inventory_skus` | One physical Sellpia product-code row and its latest imported current stock. |
+| SellpiaInventorySku | Inventory | `sellpia_inventory_skus` | One physical Sellpia source SKU owned by at most one canonical MasterProduct, with its latest imported current stock. |
 | SellpiaInventoryState | Inventory | `sellpia_inventory_states` | Organization-scoped Sellpia inventory trust state, source binding, generation fence, and active collection lease. |
-| SellpiaReceiptUploadBatch | Inventory | `sellpia_receipt_upload_batches` | Record of an operator-confirmed receipt file upload to Sellpia. |
-| StockAudit | Inventory | `stock_audits` | - |
 | StockTransfer | Inventory | `stock_transfers` | Warehouse-to-warehouse movement record. It never mutates SellpiaInventorySku.currentStock. |
 | Warehouse | Inventory | `warehouses` | - |
 | CoupangDirectPoSnapshot | Orders | `coupang_direct_po_snapshots` | 쿠팡직배송 발주확정 스냅샷. 입고예정일 달력이 매번 쿠팡을 다시 긁지 않도록 |
-| CSRecord | Orders | `cs_records` | - |
 | Order | Orders | `orders` | 채널-agnostic 주문 aggregate. Coupang 등 채널별 raw payload 는 metadata Json. 라인 아이템은 OrderLineItem. |
 | OrderLineItem | Orders | `order_line_items` | 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. order FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
 | OrderReturn | Orders | `order_returns` | 채널-agnostic 반품 aggregate. 반품 item 은 OrderReturnLineItem 으로 정규화. type=RETURN/EXCHANGE 구분 first-class. |
@@ -150,9 +125,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | SellpiaOrderTransmissionIntent | Orders | `sellpia_order_transmission_intents` | Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness. |
 | SellpiaOrderTransmissionIntentReconciliation | Orders | `sellpia_order_transmission_intent_reconciliations` | Append-only owner/admin audit for resolving an ambiguous Sellpia order transmission outcome. |
 | Settlement | Orders | `settlements` | 월별 정산 (예상 vs 실제 비교). |
-| Shipment | Orders | `shipments` | - |
-| ShipmentItem | Orders | `shipment_items` | Order-line shipment detail. |
-| UnshippedItem | Orders | `unshipped_items` | - |
 | CandidateImage | Sourcing | `sourcing_candidate_images` | 소싱 후보가 소유하는 이미지 갤러리. 소싱 콘텐츠와 썸네일 생성 입력으로 사용한다. |
 | LiveCommerceBroadcastDailySnapshot | Sourcing | `live_commerce_broadcast_daily_snapshots` | 타오바오 공식 API 또는 로그인된 1688·도우인 브라우저 화면에서 수집한 라이브 방송 일별 스냅샷. source와 broadcastId가 외부 방송 식별자를 이룬다. |
 | LiveCommerceProductDailySnapshot | Sourcing | `live_commerce_product_daily_snapshots` | 중국 라이브 방송에 노출된 상품의 일별 스냅샷. broadcastId로 방송 스냅샷과 논리적으로 연결하고 상품 단위 비교를 지원한다. |
@@ -160,11 +132,31 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | NaverPopularKeywordDailySnapshot | Sourcing | `naver_popular_keyword_daily_snapshots` | 네이버 데이터랩 인기키워드 보드(출산/육아·완구/인형·문구/사무 등)의 일별 순위 스냅샷. 보드×키워드 identity를 사용하고 매 수집마다 보드×일자 범위를 통째로 교체한다. |
 | ProductRegistrationExecution | Sourcing | `product_registration_executions` | Reviewed product preparation의 marketplace create/reconcile side effect 실행 기록. 준비 입력과 provider lifecycle을 분리해 보존한다. |
 | ShortsTrendDailySnapshot | Sourcing | `shorts_trend_daily_snapshots` | 쇼츠트렌드(shortstrend.co.kr) 급상승 쇼츠 일별 스냅샷. rank 는 소스 노출 순위, videoKey 는 영상 식별자. video×일자당 1행. |
-| Sourcing1688HotProductDailySnapshot | Sourcing | `sourcing_1688_hot_product_daily_snapshots` | 1688 키워드별 핫셀링 offer 일별 스냅샷. sourceKeyword 는 시드 키워드, rank 는 해당 키워드 결과셋 내 monthlySales 내림차순 순위. offer×일자당 1행. |
+| Sourcing1688OfferKeywordObservation | Sourcing | `sourcing_1688_offer_keyword_observations` | 1688 키워드 검색에서 수집한 정확한 offer/variant 관측치. 같은 offer가 여러 키워드에서 발견된 provenance를 보존한다. |
 | SourcingCandidate | Sourcing | `sourcing_candidates` | 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox. |
+| SourcingCollectionSourceControl | Sourcing | `sourcing_collection_source_controls` | Optional organization-level pause for an allowlisted collection source. Absence means enabled. |
+| SourcingDecisionBatch | Sourcing | `sourcing_decision_batches` | Immutable point-in-time policy decision header. Items and evidence are inserted in the same transaction after deterministic evaluation succeeds. |
+| SourcingDecisionBatchItem | Sourcing | `sourcing_decision_batch_items` | One immutable canonical test_order, hold, or reject decision. Offer-only rows support RFQ provenance before an exact LaunchCandidate exists. |
+| SourcingDecisionEvidence | Sourcing | `sourcing_decision_evidence` | Immutable many-to-many link from one decision item to the exact observations available at its decision cutoff. |
+| SourcingEvidenceIngestionRun | Sourcing | `sourcing_evidence_ingestion_runs` | Durable collector attempt with a fenced lease, request identity, collection window, coverage, and terminal result. |
+| SourcingEvidenceObservation | Sourcing | `sourcing_evidence_observations` | Append-only, revision-aware source fact. Feature and decision reads must apply both availableAt and ingestedAt point-in-time cutoffs. |
+| SourcingInterestTarget | Sourcing | `sourcing_interest_targets` | 서버가 소유하는 관심 키워드. 화면의 전체 JSON snapshot 대체를 금지하고 낙관적 버전으로 개별 변경을 보장한다. |
+| SourcingKeywordPreference | Sourcing | `sourcing_keyword_preferences` | 조직별 키워드 제외 설정. 전체 JSON snapshot 대신 키 하나를 낙관적으로 갱신한다. |
+| SourcingLaunchCandidate | Sourcing | `sourcing_launch_candidates` | Immutable launch and outcome identity that freezes an exact supplier variant, Korean bundle, launch plan, compliance/IP/quality versions, target account, price, and initial quantity. |
+| SourcingOwnerIdempotencyReceipt | Sourcing | `sourcing_owner_idempotency_receipts` | 최종 소싱 capability의 불변 owner idempotency 결과. 후보 수명주기와 독립적으로 replay 결과를 보존한다. |
+| SourcingRecommendationItem | Sourcing | `sourcing_recommendation_items` | 한 추천 실행 안의 stable offer/variant 후보. 점수와 근거는 이 행을 기준으로 추적한다. |
+| SourcingRecommendationItemEvidence | Sourcing | `sourcing_recommendation_item_evidence` | 추천 후보가 사용한 immutable evidence 링크. retention과 재현성의 기준이다. |
+| SourcingRecommendationRun | Sourcing | `sourcing_recommendation_runs` | 재현 가능한 추천 계산의 immutable header. 입력 manifest와 모델 버전을 함께 고정한다. |
+| SourcingReviewBatch | Sourcing | `sourcing_review_batches` | Final 화면에서 생성하는 immutable review handoff. procurement intent나 provider side effect를 만들지 않는다. |
+| SourcingReviewBatchItem | Sourcing | `sourcing_review_batch_items` | review batch가 실제로 검토한 recommendation, validation, exact offer observation을 동결한다. |
+| SourcingReviewSelection | Sourcing | `sourcing_review_selections` | Entry/Final 화면 선택 상태의 org-scoped, optimistic-concurrency record. |
+| SourcingValidationCheck | Sourcing | `sourcing_validation_checks` | 하나의 검증 episode를 구성하는 데이터 기반 check 결과. |
+| SourcingValidationCheckEvidence | Sourcing | `sourcing_validation_check_evidence` | 검증 check가 참조한 immutable evidence link. |
+| SourcingValidationEpisode | Sourcing | `sourcing_validation_episodes` | 추천 후보의 실데이터 검증 life-cycle. fixture 점수는 이 record로 대체된다. |
 | SourcingWorkspaceSnapshot | Sourcing | `sourcing_workspace_snapshots` | 조직/KST 날짜/scope 단위의 소싱 AI 결과 캐시. 오늘의 추천/키워드 분석 결과를 최신 1개로 재사용한다. |
 | TiktokCreativeTrendDailySnapshot | Sourcing | `tiktok_creative_trend_daily_snapshots` | 틱톡 크리에이티브 센터(Creative Center)에서 확장이 스크랩한 인기 트렌드 일별 스냅샷. trendType(hashtag\|keyword\|product\|song)으로 종류를, region(국가코드)으로 시장을 구분하고 (region,trendType,entityKey)가 외부 식별자를 이룬다. viewCount 는 int4 를 초과할 수 있어 BigInt. ⚠️ 라이브 틱톡 원본은 봇/리전 차단이라 무료로는 확장 스크랩 경로로만 적재한다([[reference_market_trend_research_tools]]). |
 | TrendSeedKeyword | Sourcing | `trend_seed_keywords` | 문구·완구 시장 트렌드 정기 수집의 시드 키워드. sources 로 몰별(naver/shorts/1688) 수집 대상을 제어. keywordCn 은 1688 中文 검색어(null이면 keyword 사용). |
+| ProcurementTestIntent | Supply | `procurement_test_intents` | Reviewable pre-inventory RFQ, sample, or test-order intent. Approval never submits to a provider; provider IO remains PurchaseOrderSubmissionAttempt-owned. |
 | PurchaseOrder | Supply | `purchase_orders` | 발주 state machine (draft→pending→ordered→shipped→received). 입고 검수 필드 포함 (receivedQty, defectQty). 단위는 CNY(Decimal 12,2). |
 | PurchaseOrderItem | Supply | `purchase_order_items` | - |
 | PurchaseOrderSubmissionAttempt | Supply | `purchase_order_submission_attempts` | Durable idempotency intent and reconciliation record for an external purchase-order submission. |
@@ -173,6 +165,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | RocketPurchaseConfirmationLine | Supply | `rocket_purchase_confirmation_lines` | Immutable Rocket workbook line decision and matching final-order evidence. |
 | RocketPurchaseConfirmationTransmission | Supply | `rocket_purchase_confirmation_transmissions` | One transport-specific Coupang collection probe and optional stable Sellpia transmission key for a Rocket workbook export. |
 | Supplier | Supply | `suppliers` | - |
+| SupplierOfferPriceTier | Supply | `supplier_offer_price_tiers` | Immutable quantity price tier nested under one supplier-offer snapshot. |
+| SupplierOfferSkuSnapshot | Supply | `supplier_offer_sku_snapshots` | Immutable observed supplier-offer identity and commercial terms before a Sellpia inventory SKU exists. identityStatus is offer_only or exact_variant. |
 | SupplierPayment | Supply | `supplier_payments` | - |
 | SupplierProduct | Supply | `supplier_products` | 공급사별 Sellpia 물리 상품 단위 공급가/주공급처 정책. |
 | ActionTask | System | `action_tasks` | 액션 보드 (수동 할일 관리). |
@@ -182,9 +176,10 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | DataMigrationRun | System | `data_migration_runs` | 운영 data migration ledger. Schema-only db push와 별도로 영속 데이터 보정 실행 여부를 기록한다. |
 | FeatureGate | System | `feature_gates` | 피처 플래그. allowedOrganizations: string[] 로 회사별 enable. |
 | Marketplace | System | `marketplace` | type 으로 agent/workflow 카탈로그 통합. |
-| MigrationCheckpoint | System | `migration_checkpoints` | 이관 스크립트 체크포인트 (Plan C 용). 이관 완료 후 drop 가능. |
 | OperationRun | System | `operation_runs` | Organization-scoped top-level execution ledger for dashboard, domain, Agent OS, and scheduled work. |
+| OperationRunCheckpoint | System | `operation_run_checkpoints` | Immutable monotonic recovery checkpoint owned by an organization-scoped Operation run. |
 | OperationSchedule | System | `operation_schedules` | Organization-managed cron schedule for a code-owned operation definition. All schedules start disabled. |
+| RulesEvaluationApplication | System | `rules_evaluation_applications` | Exactly-once Rules result-application receipt for one organization-scoped Operation run. |
 | SystemSetting | System | `system_settings` | - |
 
 ## Mermaid ER Diagram
@@ -248,304 +243,6 @@ erDiagram
     DateTime approvedAt
     DateTime executedAt
     DateTime createdAt
-  }
-  AgentApprovalRequest {
-    String id PK
-    String organizationId FK
-    String agentInstanceId FK
-    String requestId FK
-    String runId FK
-    String status
-    String reasonCode
-    String reason
-    String prompt
-    Json payload
-    Json actionSnapshot
-    String requestedByActorType
-    String requestedByActorId
-    String requestedByUserId FK
-    String approverUserId FK
-    String decidedByUserId FK
-    DateTime decidedAt
-    String decisionReason
-    DateTime expiresAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  AgentArtifact {
-    String id PK
-    String organizationId FK
-    String conversationId FK
-    String agentInstanceId FK
-    String requestId FK
-    String runId FK
-    String toolInvocationId FK
-    String artifactType
-    String targetDomain
-    String targetModel
-    String targetId
-    String title
-    String href
-    Json summary
-    String status
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  AgentAuthorizationEvent {
-    String id PK
-    String organizationId FK
-    String agentInstanceId FK
-    String requestId FK
-    String runId FK
-    String toolId FK
-    String actorType
-    String actorId
-    String action
-    String decision
-    String reasonCode
-    String reason
-    String resourceType
-    String resourceId
-    Json policySnapshot
-    String requestedByUserId FK
-    String decidedByUserId FK
-    DateTime createdAt
-  }
-  AgentConversation {
-    String id PK
-    String organizationId FK
-    String title
-    String status
-    String createdByUserId FK
-    String rootRequestId FK
-    DateTime lastMessageAt
-    Json metadata
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  AgentCostEvent {
-    String id PK
-    String organizationId FK
-    String agentInstanceId FK
-    String requestId FK
-    String runId FK
-    String provider
-    String model
-    String biller
-    String billingType
-    Int inputTokens
-    Int outputTokens
-    Int cachedInputTokens
-    BigInt costMicros
-    Json metadata
-    DateTime occurredAt
-    DateTime createdAt
-  }
-  AgentInstance {
-    String id PK
-    String organizationId FK
-    String type
-    String name
-    String role
-    String title
-    String icon
-    String reportsToId FK
-    String lifecycleStatus
-    String pauseReason
-    DateTime pausedAt
-    Int trustLevel
-    String adapterType
-    String modelOverride
-    Json adapterConfig
-    Json runtimeConfig
-    String promptPathOverride
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  AgentInstanceToolPolicy {
-    String id PK
-    String organizationId FK
-    String agentInstanceId FK
-    String toolId FK
-    String effect
-    String approvalMode
-    String dryRunMode
-    Json constraints
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  AgentMessage {
-    String id PK
-    String organizationId FK
-    String conversationId FK
-    String role
-    String content
-    String agentInstanceId FK
-    String requestId FK
-    String runId FK
-    Json metadata
-    DateTime createdAt
-  }
-  AgentRun {
-    String id PK
-    String organizationId FK
-    String agentInstanceId FK
-    String requestId FK
-    String taskSessionId FK
-    String retryOfRunId FK
-    String status
-    Int attempt
-    String invocationSource
-    String adapterType
-    String model
-    String provider
-    String taskKey
-    String sessionDisplayBefore
-    String sessionDisplayAfter
-    Json input
-    Json output
-    DateTime startedAt
-    DateTime finishedAt
-    DateTime heartbeatAt
-    Int exitCode
-    String signal
-    String errorCode
-    String errorMessage
-    Json usageJson
-    Json resultJson
-    String logStore
-    String logRef
-    String logSha256
-    BigInt logBytes
-    Boolean logCompressed
-    String stdoutExcerpt
-    String stderrExcerpt
-    Int lastEventSeq
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  AgentRunEvent {
-    String id PK
-    String organizationId FK
-    String runId FK
-    String agentInstanceId FK
-    Int seq
-    String type
-    String level
-    String stream
-    String message
-    Json data
-    String logRef
-    DateTime createdAt
-  }
-  AgentRunRequest {
-    String id PK
-    String organizationId FK
-    String agentInstanceId FK
-    String taskSessionId FK
-    String source
-    String triggerDetail
-    String reason
-    String idempotencyKey
-    Int priority
-    String sourceWorkflowRunId FK
-    String sourceWorkflowNodeId
-    String sourceResourceType
-    String sourceResourceId
-    String requestedByUserId FK
-    String requestedByActorType
-    String requestedByActorId
-    String conversationId FK
-    String initiatedByMessageId FK
-    String parentRequestId FK
-    String delegatedByRunId FK
-    String playbookKey
-    String planStepKey
-    String displayName
-    String statusReason
-    Json dependencyKeys
-    Json payload
-    String status
-    DateTime scheduledFor
-    DateTime claimedAt
-    String claimedBy
-    Int attempts
-    Int maxAttempts
-    DateTime finishedAt
-    String coalescedIntoRequestId FK
-    String lastErrorCode
-    String lastErrorMessage
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  AgentRuntimeState {
-    String id PK
-    String organizationId FK
-    String agentInstanceId FK,UK
-    String lastRunId FK
-    String lastRunStatus
-    String lastError
-    DateTime lastHeartbeatAt
-    Int consecutiveFailureCount
-    Int totalRuns
-    Int totalInputTokens
-    Int totalOutputTokens
-    BigInt totalCostMicros
-    Json stateJson
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  AgentTaskSession {
-    String id PK
-    String organizationId FK
-    String agentInstanceId FK
-    String adapterType
-    String taskKey
-    String title
-    Json metadata
-    Json sessionParams
-    String sessionDisplay
-    String lastRunId FK
-    String lastError
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  AgentToolDefinition {
-    String id PK
-    String key UK
-    String name
-    String description
-    String riskLevel
-    String credentialKind
-    Json inputSchemaJson
-    Json outputSchemaJson
-    Boolean isActive
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  AgentToolInvocation {
-    String id PK
-    String organizationId FK
-    String conversationId FK
-    String agentInstanceId FK
-    String requestId FK
-    String runId FK
-    String approvalRequestId FK
-    String capabilityKey
-    String status
-    String policyDecision
-    String reasonCode
-    String resourceType
-    String resourceId
-    String idempotencyKey
-    Json inputSummary
-    Json outputSummary
-    String errorCode
-    String errorMessage
-    DateTime startedAt
-    DateTime completedAt
-    DateTime createdAt
-    DateTime updatedAt
   }
   AiDirectJob {
     String id PK
@@ -640,6 +337,29 @@ erDiagram
     DateTime deletedAt
     DateTime createdAt
     DateTime updatedAt
+  }
+  CapabilityInvocation {
+    String id PK
+    String organizationId FK
+    String initiatingUserId FK
+    String capabilityKey
+    String actingAgentKey
+    String requestKey
+    Json canonicalInput
+    String inputHash
+    String status
+    String approvalStatus
+    String approvalInputHash
+    DateTime approvalRequestedAt
+    DateTime approvalExpiresAt
+    String approvalDecidedByUserId FK
+    String approvalDecisionReason
+    DateTime approvalDecidedAt
+    Json result
+    Json error
+    DateTime createdAt
+    DateTime updatedAt
+    DateTime finishedAt
   }
   CategoryMapping {
     String id PK
@@ -885,6 +605,15 @@ erDiagram
     Int quantity
     DateTime createdAt
     DateTime updatedAt
+  }
+  ChannelRegistrationOwnerIdempotencyReceipt {
+    String id PK
+    String organizationId FK
+    String capabilityKey
+    String ownerIdempotencyKey
+    String requestHash
+    Json resultJson
+    DateTime createdAt
   }
   ChannelScrapeChunk {
     String id PK
@@ -1198,21 +927,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  CSRecord {
-    String id PK
-    String organizationId FK
-    String orderId FK
-    String listingId FK
-    String csType
-    String csStatus
-    String priority
-    String assignee
-    String content
-    String resolution
-    String createdBy
-    DateTime createdAt
-    DateTime updatedAt
-  }
   DataMigrationRun {
     String migrationId PK
     String releaseVersion
@@ -1344,48 +1058,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  GradeHistory {
-    String id PK
-    String organizationId FK
-    String listingId FK
-    String oldGrade
-    String newGrade
-    Decimal score
-    Decimal revenueScore
-    Decimal marginScore
-    Decimal velocityScore
-    String reason
-    DateTime calculatedAt
-  }
-  InventoryCommitment {
-    String id PK
-    String organizationId FK
-    String kind
-    String sourceId
-    String businessKey
-    Int unitQuantity
-    String status
-    BigInt inventoryGeneration
-    String predecessorCommitmentId FK
-    String createdBy FK
-    String releasedBy FK
-    DateTime releasedAt
-    String releaseReason
-    String settledBy FK
-    DateTime settledAt
-    String settlementReason
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  InventoryCommitmentAllocation {
-    String id PK
-    String organizationId FK
-    String commitmentId FK
-    String sellpiaInventorySkuId FK
-    Int unitsPerItem
-    Int quantity
-    DateTime createdAt
-  }
   LegalEntity {
     String id PK
     String organizationId FK
@@ -1435,20 +1107,6 @@ erDiagram
     DateTime capturedAt
     DateTime createdAt
     DateTime updatedAt
-  }
-  ManualLedger {
-    String id PK
-    String organizationId FK
-    DateTime date
-    String type
-    String category
-    String counterpart
-    String description
-    Int amount
-    Int tax
-    String memo
-    String createdBy
-    DateTime createdAt
   }
   Marketplace {
     String id PK
@@ -1575,17 +1233,6 @@ erDiagram
     String reason
     DateTime calculatedAt
   }
-  MigrationCheckpoint {
-    String id PK
-    String scriptName
-    String stepName
-    String entityKey
-    String status
-    String error
-    Json payload
-    DateTime createdAt
-    DateTime updatedAt
-  }
   NaverKeywordDailySnapshot {
     String id PK
     String organizationId FK
@@ -1625,6 +1272,8 @@ erDiagram
     String ownerDomain
     String title
     String engineType
+    String resourceClass
+    Int executionTimeoutMs
     String status
     String triggerSource
     String requestedByUserId FK
@@ -1634,6 +1283,11 @@ erDiagram
     Json input
     Json result
     Float progress
+    String stage
+    DateTime stageUpdatedAt
+    Int progressCurrent
+    Int progressTotal
+    DateTime deadlineAt
     String nativeRunType
     String nativeRunId
     Int attempts
@@ -1649,6 +1303,15 @@ erDiagram
     DateTime finishedAt
     DateTime createdAt
     DateTime updatedAt
+  }
+  OperationRunCheckpoint {
+    String id PK
+    String organizationId FK
+    String operationRunId FK
+    BigInt sequence
+    String kind
+    Json state
+    DateTime createdAt
   }
   OperationSchedule {
     String id PK
@@ -1761,49 +1424,32 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  PickingItem {
+  ProcurementTestIntent {
     String id PK
     String organizationId FK
-    String pickingListId FK
-    String orderId
-    String sellpiaInventorySkuId FK
-    String productName
-    String sku
-    Int quantity
-    String location
-    Boolean isPicked
-    Boolean isVerified
-    DateTime pickedAt
-    DateTime verifiedAt
-    DateTime createdAt
-  }
-  PickingList {
-    String id PK
-    String organizationId FK
-    String listNumber
+    String decisionBatchItemId FK
+    String launchCandidateId FK
+    String supplierOfferSkuSnapshotId FK
+    String selectedPriceTierId FK
+    String sourceRecommendationArtifactId
+    String requestedByUserId FK
+    String reviewedByUserId FK
+    String kind
     String status
-    Int totalItems
-    Int pickedItems
-    String assignedTo
-    DateTime startedAt
-    DateTime completedAt
+    String idempotencyKey
+    String requestHash
+    Int requestedPurchaseUnits
+    Int unitsPerPurchaseUnit
+    Int unitsPerSellableBundle
+    Int requestedSellableUnits
+    Decimal selectedUnitPriceCny
+    Decimal expectedGoodsTotalCny
+    String currency
+    DateTime expiresAt
+    DateTime reviewedAt
+    String reviewReason
     DateTime createdAt
     DateTime updatedAt
-  }
-  ProcessingCost {
-    String id PK
-    String organizationId FK
-    String masterId FK
-    String productName
-    String vendor
-    String processType
-    Int unitCost
-    Int quantity
-    Int totalCost
-    DateTime date
-    String status
-    String notes
-    DateTime createdAt
   }
   ProductPreparation {
     String id PK
@@ -1849,6 +1495,7 @@ erDiagram
     String expectedProviderAccountId
     String idempotencyKey
     String requestHash
+    String ownerIdempotencyKey
     Json submissionPayloadJson
     String submissionPayloadHash
     String status
@@ -1866,25 +1513,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  ProfitLoss {
-    String id PK
-    String organizationId FK
-    String listingId FK
-    Int year
-    Int month
-    Int revenue
-    Int cogs
-    Int commission
-    Int shippingCost
-    Int adCost
-    Int otherCost
-    Int netProfit
-    Decimal profitRate
-    Int orderCount
-    Int returnCount
-    DateTime createdAt
-    DateTime updatedAt
-  }
   PurchaseOrder {
     String id PK
     String organizationId FK
@@ -1899,6 +1527,8 @@ erDiagram
     String externalOrderPlatform
     String externalOrderId
     String externalOrderUrl
+    String idempotencyKey
+    String requestHash
     DateTime receivedAt
     Int receivedQty
     Int defectQty
@@ -1925,6 +1555,7 @@ erDiagram
     String organizationId FK
     String purchaseOrderId FK
     String idempotencyKey
+    String requestHash
     BigInt freshnessGeneration
     String status
     String providerReference
@@ -2082,34 +1713,14 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  RocketPurchaseOrder {
+  RulesEvaluationApplication {
     String id PK
     String organizationId FK
-    Int poSeq
-    DateTime businessDate
-    DateTime orderedAt
-    String status
-    String vendorName
-    String centerName
-    String firstSkuName
-    Int skuCount
-    Int orderQty
-    Int orderAmount
-    Json items
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  RocketSupplyDailySnapshot {
-    String id PK
-    String organizationId FK
-    DateTime businessDate
-    Int revenueKrw
-    Int poCount
-    Int itemQty
-    String source
-    Json rawJson
-    DateTime createdAt
-    DateTime updatedAt
+    String operationRunId FK
+    Int productCount
+    Int violationCount
+    Int criticalCount
+    DateTime appliedAt
   }
   SalesPlan {
     String id PK
@@ -2138,6 +1749,7 @@ erDiagram
   SellpiaInventorySku {
     String id PK
     String organizationId FK
+    String masterProductId FK
     String code
     String name
     String optionName
@@ -2251,21 +1863,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  SellpiaReceiptUploadBatch {
-    String id PK
-    String organizationId FK
-    String status
-    String sourceType
-    String sourceRef
-    String templateVersion
-    String uploadedBy
-    DateTime uploadedAt
-    String note
-    Json metaJson
-    String createdBy
-    DateTime createdAt
-    DateTime updatedAt
-  }
   SellpiaSalesDailySnapshot {
     String id PK
     String organizationId FK
@@ -2297,29 +1894,6 @@ erDiagram
     String notes
     DateTime createdAt
     DateTime updatedAt
-  }
-  Shipment {
-    String id PK
-    String organizationId FK
-    String orderId FK
-    String trackingNo
-    String courierCode
-    String courierName
-    String status
-    DateTime shippedAt
-    DateTime deliveredAt
-    Int deliveryDays
-    String warehouseId FK
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ShipmentItem {
-    String id PK
-    String organizationId FK
-    String shipmentId FK
-    String orderLineItemId FK
-    Int quantity
-    DateTime createdAt
   }
   ShortsTrendDailySnapshot {
     String id PK
@@ -2368,21 +1942,23 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  Sourcing1688HotProductDailySnapshot {
+  Sourcing1688OfferKeywordObservation {
     String id PK
     String organizationId FK
+    String evidenceObservationId FK
+    String ingestionRunId FK
     DateTime businessDate
-    String offerId
-    String sourceKeyword
-    Int rank
+    String sourceKeywordNormalized
+    String externalOfferId
+    String variantKeyNormalized
+    String sourceUrl
     String title
-    Decimal priceCny
-    Int monthlySales
-    String repurchaseRate
-    String tradeScore
     String supplierName
     String imageUrl
-    String sourceUrl
+    Int rank
+    Decimal priceCny
+    Int monthlySales
+    Json rawOffer
     DateTime capturedAt
     DateTime createdAt
     DateTime updatedAt
@@ -2392,6 +1968,9 @@ erDiagram
     String organizationId FK
     String sourceUrl
     String sourcePlatform
+    String externalOfferId
+    String variantKeyNormalized
+    String sourceIdentityHash
     Json rawData
     String name
     String description
@@ -2411,28 +1990,362 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SourcingCollectionSourceControl {
+    String id PK
+    String organizationId FK
+    String sourceKey
+    Boolean enabled
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SourcingDecisionBatch {
+    String id PK
+    String organizationId FK
+    String requestedByUserId FK
+    String idempotencyKey
+    String requestHash
+    String decisionMode
+    DateTime businessDate
+    DateTime decisionAt
+    DateTime evidenceCutoffAt
+    String policyKey
+    String policyVersion
+    String modelVersionKey
+    String status
+    String keyword
+    String category
+    String modelPipeline
+    String modelGeneratorVersion
+    DateTime expiresAt
+    String heuristicArtifactHash
+    Int capitalBudgetKrw
+    Int testSlotLimit
+    String constraintSetHash
+    DateTime createdAt
+  }
+  SourcingDecisionBatchItem {
+    String id PK
+    String organizationId FK
+    String decisionBatchId FK
+    String launchCandidateId FK
+    String supplierOfferSkuSnapshotId FK
+    String itemKey
+    String modelCandidateId
+    String displayName
+    Int rank
+    String baselineDecision
+    String decision
+    Boolean executionEligible
+    String confidenceKind
+    Decimal policyProbability
+    Int evidenceFamilyCount
+    Int evidencePlatformCount
+    Boolean hasCoupangEvidence
+    Boolean has1688Evidence
+    String nextEvidenceAction
+    Decimal heuristicScore
+    Decimal decisionConfidence
+    Int expectedContributionProfit90dKrw
+    Int capitalAtRiskKrw
+    StringArray reasonCodes
+    StringArray riskCodes
+    Json modelOutput
+    String featureManifestHash
+    DateTime createdAt
+  }
+  SourcingDecisionEvidence {
+    String id PK
+    String organizationId FK
+    String decisionBatchItemId FK
+    String evidenceObservationId FK
+    String role
+    Int ordinal
+    DateTime createdAt
+  }
+  SourcingEvidenceIngestionRun {
+    String id PK
+    String organizationId FK
+    String sourceKey
+    String scopeKey
+    String leaseToken
+    DateTime leaseExpiresAt
+    DateTime sourceControlCheckedAt
+    Int generation
+    DateTime cancelRequestedAt
+    Int staleDiscardedCount
+    String targetKey
+    String idempotencyKey
+    String requestHash
+    String collectorKey
+    String collectorVersion
+    String triggerKind
+    String triggeredByUserId FK
+    String status
+    DateTime sourceWindowStartAt
+    DateTime sourceWindowEndAt
+    String watermarkBefore
+    String watermarkAfter
+    Int discoveredCount
+    Int acceptedCount
+    Int rejectedCount
+    Int duplicateCount
+    Int coverageNumerator
+    Int coverageDenominator
+    Json qualityReport
+    String errorCode
+    String errorMessage
+    DateTime startedAt
+    DateTime completedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SourcingEvidenceObservation {
+    String id PK
+    String organizationId FK
+    String ingestionRunId FK
+    String supersedesObservationId FK
+    String sourceKey
+    String platform
+    String evidenceFamily
+    String signalRole
+    String conceptKey
+    Boolean supportsCandidate
+    String observationKey
+    Int revision
+    String sourceEntityType
+    String sourceEntityKey
+    String observationType
+    String schemaVersion
+    String evidenceClass
+    DateTime eventAt
+    DateTime observedAt
+    DateTime availableAt
+    DateTime revisionAt
+    DateTime businessDate
+    String sourceRevisionKey
+    String sourceUrl
+    String payloadHash
+    String envelopeHash
+    Json payload
+    String rawArtifactRef
+    DateTime ingestedAt
+    DateTime createdAt
+  }
+  SourcingInterestTarget {
+    String id PK
+    String organizationId FK
+    String targetKey
+    String targetType
+    String label
+    StringArray sourceKeys
+    String keyword
+    String category
+    String productId
+    String itemId
+    String vendorItemId
+    String productName
+    Boolean enabled
+    Int version
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SourcingKeywordPreference {
+    String id PK
+    String organizationId FK
+    String keywordNormalized
+    String displayKeyword
+    Boolean excluded
+    Int version
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SourcingLaunchCandidate {
+    String id PK
+    String organizationId FK
+    String sourceCandidateId FK
+    String supplierOfferSkuSnapshotId FK
+    String targetChannelAccountId FK
+    String supersedesLaunchCandidateId FK
+    String candidateSeriesKey
+    Int revision
+    String identityHash
+    String name
+    String productConceptVersionKey
+    String koreanSellableBundleVersionKey
+    String launchPlanVersionKey
+    String complianceAssessmentVersionKey
+    String ipClearanceVersionKey
+    String qualitySpecVersionKey
+    Int intendedAgeMinMonths
+    Int intendedAgeMaxMonths
+    String intendedUse
+    String materialProfileKey
+    String labelingProfileKey
+    Int unitsPerSellableBundle
+    Int initialOrderQuantity
+    Int targetSalePriceKrw
+    String fulfillmentMode
+    String economicsStatus
+    String complianceStatus
+    String qualityStatus
+    String ipStatus
+    Int landedCostKrw
+    Int profitP10Krw
+    StringArray blockingRiskCodes
+    StringArray unknownRiskCodes
+    Json bundleSnapshot
+    Json launchPlanSnapshot
+    Json economicsSnapshot
+    Json complianceSnapshot
+    Json qualitySnapshot
+    Json ipSnapshot
+    DateTime validUntil
+    String createdByUserId FK
+    DateTime createdAt
+  }
+  SourcingOwnerIdempotencyReceipt {
+    String id PK
+    String organizationId FK
+    String capabilityKey
+    String idempotencyKey
+    String requestHash
+    Json result
+    DateTime createdAt
+  }
+  SourcingRecommendationItem {
+    String id PK
+    String organizationId FK
+    String recommendationRunId FK
+    String itemKey
+    String sourcePlatform
+    String externalOfferId
+    String variantKeyNormalized
+    String matchedCoupangProductId
+    String displayName
+    Int rank
+    Int score
+    String grade
+    String baselineAction
+    StringArray reasonCodes
+    StringArray riskCodes
+    Json scoreComponents
+    Json sourceSnapshot
+    DateTime createdAt
+  }
+  SourcingRecommendationItemEvidence {
+    String id PK
+    String organizationId FK
+    String recommendationItemId FK
+    String evidenceObservationId FK
+    String role
+    Int ordinal
+    DateTime createdAt
+  }
+  SourcingRecommendationRun {
+    String id PK
+    String organizationId FK
+    String policyKey
+    String policyVersion
+    String modelVersion
+    String calculationVersion
+    String inputManifestHash
+    Json inputManifest
+    String status
+    DateTime businessDate
+    DateTime generatedAt
+    DateTime completedAt
+    DateTime expiresAt
+    StringArray warningCodes
+    String errorCode
+    String errorMessage
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SourcingReviewBatch {
+    String id PK
+    String organizationId FK
+    String recommendationRunId FK
+    String requestedByUserId FK
+    String idempotencyKey
+    String requestHash
+    String status
+    DateTime requestedAt
+    DateTime cancelledAt
+    String cancelReason
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SourcingReviewBatchItem {
+    String id PK
+    String organizationId FK
+    String reviewBatchId FK
+    String recommendationItemId FK
+    String validationEpisodeId FK
+    String offerKeywordObservationId FK
+    Int ordinal
+    DateTime createdAt
+  }
+  SourcingReviewSelection {
+    String id PK
+    String organizationId FK
+    String recommendationRunId FK
+    String workspaceKey
+    String itemKey
+    String state
+    Int version
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SourcingValidationCheck {
+    String id PK
+    String organizationId FK
+    String validationEpisodeId FK
+    String checkKey
+    String status
+    String severity
+    Int score
+    String summary
+    Json details
+    DateTime evaluatedAt
+    DateTime createdAt
+  }
+  SourcingValidationCheckEvidence {
+    String id PK
+    String organizationId FK
+    String validationCheckId FK
+    String evidenceObservationId FK
+    String role
+    Int ordinal
+    DateTime createdAt
+  }
+  SourcingValidationEpisode {
+    String id PK
+    String organizationId FK
+    String recommendationRunId FK
+    String recommendationItemId FK
+    String status
+    String policyKey
+    String policyVersion
+    DateTime evidenceCutoffAt
+    DateTime startedAt
+    DateTime completedAt
+    DateTime validUntil
+    Json summary
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SourcingWorkspaceSnapshot {
     String id PK
     String organizationId FK
     String scope
     DateTime businessDate
+    String projectionVersion
+    String inputHash
     Json payload
+    DateTime generatedAt
+    DateTime expiresAt
     DateTime createdAt
     DateTime updatedAt
-  }
-  StockAudit {
-    String id PK
-    String organizationId FK
-    String auditNumber
-    String status
-    Int totalProducts
-    Int matchedCount
-    Int diffCount
-    String auditedBy
-    DateTime completedAt
-    String notes
-    Json items
-    DateTime createdAt
   }
   StockTransfer {
     String id PK
@@ -2463,6 +2376,52 @@ erDiagram
     String status
     DateTime createdAt
     DateTime updatedAt
+  }
+  SupplierOfferPriceTier {
+    String id PK
+    String organizationId FK
+    String supplierOfferSkuSnapshotId FK
+    Int minQuantity
+    Int maxQuantity
+    Decimal unitPriceCny
+    DateTime createdAt
+  }
+  SupplierOfferSkuSnapshot {
+    String id PK
+    String organizationId FK
+    String evidenceObservationId FK
+    String supplierId FK
+    String identityStatus
+    String sourcePlatform
+    String sourceUrl
+    String externalSupplierKey
+    String externalOfferId
+    String externalSkuId
+    String variantKey
+    String productName
+    String supplierName
+    String variantName
+    String currency
+    String orderUnit
+    Int unitsPerOrderUnit
+    Int minOrderQuantity
+    Boolean sampleAvailable
+    Decimal samplePriceCny
+    Decimal domesticFreightCny
+    Int productionLeadTimeDaysMin
+    Int productionLeadTimeDaysMax
+    Int dispatchLeadTimeDaysMin
+    Int dispatchLeadTimeDaysMax
+    Int grossWeightGrams
+    Int lengthMm
+    Int widthMm
+    Int heightMm
+    String material
+    Int packCount
+    DateTime capturedAt
+    DateTime validUntil
+    String snapshotHash
+    DateTime createdAt
   }
   SupplierPayment {
     String id PK
@@ -2613,6 +2572,10 @@ erDiagram
     String organizationId FK
     String generationId FK
     String status
+    String ownerIdempotencyKey
+    String requestHash
+    String providerOutcome
+    Json resultJson
     String errorMessage
     String screenshotUrl
     String externalId
@@ -2686,22 +2649,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  UnshippedItem {
-    String id PK
-    String organizationId FK
-    String orderId FK
-    String orderLineItemId FK
-    String productName
-    String optionName
-    String externalSku
-    Int quantity
-    DateTime orderDate
-    Int delayDays
-    String reason
-    Boolean isNotified
-    DateTime notifiedAt
-    DateTime createdAt
-  }
   User {
     String id PK
     String email UK
@@ -2711,7 +2658,6 @@ erDiagram
     String type
     String team
     String avatarUrl
-    String agentInstanceId FK
     Boolean isActive
     DateTime lastLoginAt
     DateTime createdAt
@@ -2763,52 +2709,6 @@ erDiagram
   }
   ActionTask o|--o{ Alert : "actionTask"
   AdAction ||--o{ ExecutionTask : "action"
-  AgentApprovalRequest o|--o{ AgentToolInvocation : "approvalRequest"
-  AgentConversation o|--o{ AgentArtifact : "conversation"
-  AgentConversation ||--o{ AgentMessage : "conversation"
-  AgentConversation o|--o{ AgentRunRequest : "conversation"
-  AgentConversation o|--o{ AgentToolInvocation : "conversation"
-  AgentInstance ||--o{ AgentApprovalRequest : "agentInstance"
-  AgentInstance o|--o{ AgentArtifact : "agentInstance"
-  AgentInstance ||--o{ AgentAuthorizationEvent : "agentInstance"
-  AgentInstance ||--o{ AgentCostEvent : "agentInstance"
-  AgentInstance o|--o{ AgentInstance : "parent"
-  AgentInstance ||--o{ AgentInstanceToolPolicy : "agentInstance"
-  AgentInstance o|--o{ AgentMessage : "agentInstance"
-  AgentInstance ||--o{ AgentRun : "agentInstance"
-  AgentInstance ||--o{ AgentRunEvent : "agentInstance"
-  AgentInstance ||--o{ AgentRunRequest : "agentInstance"
-  AgentInstance ||--|| AgentRuntimeState : "agentInstance"
-  AgentInstance ||--o{ AgentTaskSession : "agentInstance"
-  AgentInstance ||--o{ AgentToolInvocation : "agentInstance"
-  AgentInstance o|--o{ User : "agentInstance"
-  AgentMessage o|--o{ AgentRunRequest : "initiatedByMessage"
-  AgentRun o|--o{ AgentApprovalRequest : "run"
-  AgentRun o|--o{ AgentArtifact : "run"
-  AgentRun o|--o{ AgentAuthorizationEvent : "run"
-  AgentRun ||--o{ AgentCostEvent : "run"
-  AgentRun o|--o{ AgentMessage : "run"
-  AgentRun o|--o{ AgentRun : "retryOfRun"
-  AgentRun ||--o{ AgentRunEvent : "run"
-  AgentRun o|--o{ AgentRunRequest : "delegatedByRun"
-  AgentRun o|--o{ AgentRuntimeState : "lastRun"
-  AgentRun o|--o{ AgentTaskSession : "lastRun"
-  AgentRun o|--o{ AgentToolInvocation : "run"
-  AgentRunRequest ||--o{ AgentApprovalRequest : "request"
-  AgentRunRequest o|--o{ AgentArtifact : "request"
-  AgentRunRequest o|--o{ AgentAuthorizationEvent : "request"
-  AgentRunRequest o|--o{ AgentConversation : "rootRequest"
-  AgentRunRequest ||--o{ AgentCostEvent : "request"
-  AgentRunRequest o|--o{ AgentMessage : "request"
-  AgentRunRequest ||--o{ AgentRun : "request"
-  AgentRunRequest o|--o{ AgentRunRequest : "coalescedIntoRequest"
-  AgentRunRequest o|--o{ AgentRunRequest : "parentRequest"
-  AgentRunRequest o|--o{ AgentToolInvocation : "request"
-  AgentTaskSession ||--o{ AgentRun : "taskSession"
-  AgentTaskSession ||--o{ AgentRunRequest : "taskSession"
-  AgentToolDefinition o|--o{ AgentAuthorizationEvent : "tool"
-  AgentToolDefinition ||--o{ AgentInstanceToolPolicy : "tool"
-  AgentToolInvocation o|--o{ AgentArtifact : "toolInvocation"
   CandidateImage o|--o{ ThumbnailGenerationInputImage : "candidateImage"
   ChannelAccount ||--o{ ChannelAccountDailyKpiSnapshot : "channelAccount"
   ChannelAccount ||--o{ ChannelAdTargetDailySnapshot : "channelAccount"
@@ -2822,6 +2722,7 @@ erDiagram
   ChannelAccount ||--o{ RocketPoCatalogSnapshot : "channelAccount"
   ChannelAccount ||--o{ RocketPurchaseConfirmation : "channelAccount"
   ChannelAccount o|--o{ SourceImportRun : "channelAccount"
+  ChannelAccount ||--o{ SourcingLaunchCandidate : "targetChannelAccount"
   ChannelAdTargetDailySnapshot o|--o{ AdAction : "adTargetDaily"
   ChannelListing o|--o{ AdAction : "listing"
   ChannelListing o|--o{ ChannelAdTargetDailySnapshot : "listing"
@@ -2831,12 +2732,9 @@ erDiagram
   ChannelListing ||--o{ ChannelListingOptionDailySnapshot : "listing"
   ChannelListing o|--o{ ChannelScrapeSnapshot : "listing"
   ChannelListing o|--o{ ContentWorkspace : "channelListing"
-  ChannelListing o|--o{ CSRecord : "listing"
-  ChannelListing ||--o{ GradeHistory : "listing"
   ChannelListing o|--o| MasterProduct : "originChannelListing"
   ChannelListing o|--o{ ProductPreparation : "channelListing"
   ChannelListing o|--o{ ProductRegistrationExecution : "channelListing"
-  ChannelListing ||--o{ ProfitLoss : "listing"
   ChannelListing o|--o{ Review : "listing"
   ChannelListing ||--o{ Thumbnail : "listing"
   ChannelListing ||--o{ ThumbnailTracking : "listing"
@@ -2889,49 +2787,31 @@ erDiagram
   DetailPageRevision o|--o{ ProductPreparation : "selectedDetailPageRevision"
   ExecutionTask ||--o{ ExecutionLog : "task"
   ExecutionWorker o|--o{ ExecutionTask : "worker"
-  InventoryCommitment o|--o{ InventoryCommitment : "predecessor"
-  InventoryCommitment ||--o{ InventoryCommitmentAllocation : "commitment"
   Marketplace o|--o{ WorkflowTemplate : "marketplace"
   MasterProduct o|--o{ ChannelListing : "masterProduct"
   MasterProduct ||--|| MasterProductAbcEvaluation : "masterProduct"
   MasterProduct ||--o{ MasterProductAbcGradeHistory : "masterProduct"
-  MasterProduct ||--o{ ProcessingCost : "master"
+  MasterProduct o|--o{ SellpiaInventorySku : "masterProduct"
   MasterProduct o|--o| SourcingCandidate : "provenanceMasterProduct"
   MasterProductAbcFormulaVersion o|--o{ MasterProductAbcEvaluation : "formulaVersion"
   MasterProductAbcFormulaVersion o|--o| MasterProductAbcFormulaState : "activeFormulaVersion"
   MasterProductAbcFormulaVersion ||--o{ MasterProductAbcGradeHistory : "formulaVersion"
   OperationRun o|--o{ OperationRun : "parentRun"
+  OperationRun ||--o{ OperationRunCheckpoint : "operationRun"
+  OperationRun ||--|| RulesEvaluationApplication : "operationRun"
   OperationSchedule o|--o{ OperationRun : "schedule"
-  Order o|--o{ CSRecord : "order"
   Order ||--o{ OrderLineItem : "order"
   Order o|--o{ OrderReturn : "order"
-  Order ||--o{ Shipment : "order"
-  Order ||--o{ UnshippedItem : "order"
   OrderLineItem o|--o{ OrderReturnLineItem : "orderLineItem"
-  OrderLineItem ||--o{ ShipmentItem : "orderLineItem"
-  OrderLineItem ||--o{ UnshippedItem : "orderLineItem"
   OrderReturn ||--o{ OrderReturnLineItem : "return"
   Organization ||--o{ ActionTask : "organization"
   Organization ||--o{ ActivityEvent : "organization"
   Organization ||--o{ AdAction : "organization"
-  Organization ||--o{ AgentApprovalRequest : "organization"
-  Organization ||--o{ AgentArtifact : "organization"
-  Organization ||--o{ AgentAuthorizationEvent : "organization"
-  Organization ||--o{ AgentConversation : "organization"
-  Organization ||--o{ AgentCostEvent : "organization"
-  Organization ||--o{ AgentInstance : "organization"
-  Organization ||--o{ AgentInstanceToolPolicy : "organization"
-  Organization ||--o{ AgentMessage : "organization"
-  Organization ||--o{ AgentRun : "organization"
-  Organization ||--o{ AgentRunEvent : "organization"
-  Organization ||--o{ AgentRunRequest : "organization"
-  Organization ||--o{ AgentRuntimeState : "organization"
-  Organization ||--o{ AgentTaskSession : "organization"
-  Organization ||--o{ AgentToolInvocation : "organization"
   Organization ||--o{ AiDirectJob : "organization"
   Organization ||--o{ Alert : "organization"
   Organization ||--o{ BusinessRule : "organization"
   Organization ||--o{ CandidateImage : "organization"
+  Organization ||--o{ CapabilityInvocation : "organization"
   Organization ||--o{ CategoryMapping : "organization"
   Organization ||--o{ ChannelAccount : "organization"
   Organization ||--o{ ChannelAccountDailyKpiSnapshot : "organization"
@@ -2942,6 +2822,7 @@ erDiagram
   Organization ||--o{ ChannelListingOption : "organization"
   Organization ||--o{ ChannelListingOptionDailySnapshot : "organization"
   Organization ||--o{ ChannelListingOptionInventoryComponent : "organization"
+  Organization ||--o{ ChannelRegistrationOwnerIdempotencyReceipt : "organization"
   Organization ||--o{ ChannelScrapeChunk : "organization"
   Organization ||--o{ ChannelScrapeRun : "organization"
   Organization ||--o{ ChannelScrapeSnapshot : "organization"
@@ -2961,19 +2842,14 @@ erDiagram
   Organization ||--o{ CoupangWingSalesRankDailySnapshot : "organization"
   Organization ||--o{ CoupangWingTrackedProduct : "organization"
   Organization ||--o{ CoupangWingTrackedProductDailySnapshot : "organization"
-  Organization ||--o{ CSRecord : "organization"
   Organization ||--o{ DetailPageArtifact : "organization"
   Organization ||--o{ DetailPageImageArtifact : "organization"
   Organization ||--o{ DetailPageImageRenderIntent : "organization"
   Organization ||--o{ DetailPageRevision : "organization"
   Organization ||--o{ ExecutionWorker : "organization"
-  Organization ||--o{ GradeHistory : "organization"
-  Organization ||--o{ InventoryCommitment : "organization"
-  Organization ||--o{ InventoryCommitmentAllocation : "organization"
   Organization ||--o{ LegalEntity : "organization"
   Organization ||--o{ LiveCommerceBroadcastDailySnapshot : "organization"
   Organization ||--o{ LiveCommerceProductDailySnapshot : "organization"
-  Organization ||--o{ ManualLedger : "organization"
   Organization ||--o{ MasterProduct : "organization"
   Organization ||--o{ MasterProductAbcEvaluation : "organization"
   Organization ||--o{ MasterProductAbcFormulaState : "organization"
@@ -2982,18 +2858,16 @@ erDiagram
   Organization ||--o{ NaverKeywordDailySnapshot : "organization"
   Organization ||--o{ NaverPopularKeywordDailySnapshot : "organization"
   Organization ||--o{ OperationRun : "organization"
+  Organization ||--o{ OperationRunCheckpoint : "organization"
   Organization ||--o{ OperationSchedule : "organization"
   Organization ||--o{ Order : "organization"
   Organization ||--o{ OrderLineItem : "organization"
   Organization ||--o{ OrderReturn : "organization"
   Organization ||--o{ OrderReturnLineItem : "organization"
   Organization ||--o{ OrganizationMembership : "organization"
-  Organization ||--o{ PickingItem : "organization"
-  Organization ||--o{ PickingList : "organization"
-  Organization ||--o{ ProcessingCost : "organization"
+  Organization ||--o{ ProcurementTestIntent : "organization"
   Organization ||--o{ ProductPreparation : "organization"
   Organization ||--o{ ProductRegistrationExecution : "organization"
-  Organization ||--o{ ProfitLoss : "organization"
   Organization ||--o{ PurchaseOrder : "organization"
   Organization ||--o{ PurchaseOrderItem : "organization"
   Organization ||--o{ PurchaseOrderSubmissionAttempt : "organization"
@@ -3005,8 +2879,7 @@ erDiagram
   Organization ||--o{ RocketPurchaseConfirmationAllocation : "organization"
   Organization ||--o{ RocketPurchaseConfirmationLine : "organization"
   Organization ||--o{ RocketPurchaseConfirmationTransmission : "organization"
-  Organization ||--o{ RocketPurchaseOrder : "organization"
-  Organization ||--o{ RocketSupplyDailySnapshot : "organization"
+  Organization ||--o{ RulesEvaluationApplication : "organization"
   Organization ||--o{ SalesPlan : "organization"
   Organization ||--o{ ScrapeTarget : "organization"
   Organization ||--o{ SellpiaInventorySku : "organization"
@@ -3016,19 +2889,36 @@ erDiagram
   Organization ||--o{ SellpiaOrderTransmissionIntent : "organization"
   Organization ||--o{ SellpiaOrderTransmissionIntentReconciliation : "organization"
   Organization ||--o{ SellpiaProductMonthlySales : "organization"
-  Organization ||--o{ SellpiaReceiptUploadBatch : "organization"
   Organization ||--o{ SellpiaSalesDailySnapshot : "organization"
   Organization ||--o{ Settlement : "organization"
-  Organization ||--o{ Shipment : "organization"
-  Organization ||--o{ ShipmentItem : "organization"
   Organization ||--o{ ShortsTrendDailySnapshot : "organization"
   Organization ||--o{ SourceImportRun : "organization"
-  Organization ||--o{ Sourcing1688HotProductDailySnapshot : "organization"
+  Organization ||--o{ Sourcing1688OfferKeywordObservation : "organization"
   Organization ||--o{ SourcingCandidate : "organization"
+  Organization ||--o{ SourcingCollectionSourceControl : "organization"
+  Organization ||--o{ SourcingDecisionBatch : "organization"
+  Organization ||--o{ SourcingDecisionBatchItem : "organization"
+  Organization ||--o{ SourcingDecisionEvidence : "organization"
+  Organization ||--o{ SourcingEvidenceIngestionRun : "organization"
+  Organization ||--o{ SourcingEvidenceObservation : "organization"
+  Organization ||--o{ SourcingInterestTarget : "organization"
+  Organization ||--o{ SourcingKeywordPreference : "organization"
+  Organization ||--o{ SourcingLaunchCandidate : "organization"
+  Organization ||--o{ SourcingOwnerIdempotencyReceipt : "organization"
+  Organization ||--o{ SourcingRecommendationItem : "organization"
+  Organization ||--o{ SourcingRecommendationItemEvidence : "organization"
+  Organization ||--o{ SourcingRecommendationRun : "organization"
+  Organization ||--o{ SourcingReviewBatch : "organization"
+  Organization ||--o{ SourcingReviewBatchItem : "organization"
+  Organization ||--o{ SourcingReviewSelection : "organization"
+  Organization ||--o{ SourcingValidationCheck : "organization"
+  Organization ||--o{ SourcingValidationCheckEvidence : "organization"
+  Organization ||--o{ SourcingValidationEpisode : "organization"
   Organization ||--o{ SourcingWorkspaceSnapshot : "organization"
-  Organization ||--o{ StockAudit : "organization"
   Organization ||--o{ StockTransfer : "organization"
   Organization ||--o{ Supplier : "organization"
+  Organization ||--o{ SupplierOfferPriceTier : "organization"
+  Organization ||--o{ SupplierOfferSkuSnapshot : "organization"
   Organization ||--o{ SupplierPayment : "organization"
   Organization ||--o{ SupplierProduct : "organization"
   Organization ||--o{ SystemSetting : "organization"
@@ -3043,10 +2933,8 @@ erDiagram
   Organization ||--o{ ThumbnailTrackingDailySnapshot : "organization"
   Organization ||--o{ TiktokCreativeTrendDailySnapshot : "organization"
   Organization ||--o{ TrendSeedKeyword : "organization"
-  Organization ||--o{ UnshippedItem : "organization"
   Organization ||--o{ Warehouse : "organization"
   Organization ||--o{ WorkflowTemplate : "organization"
-  PickingList ||--o{ PickingItem : "pickingList"
   ProductPreparation ||--o{ ProductRegistrationExecution : "productPreparation"
   PurchaseOrder ||--o{ PurchaseOrderItem : "order"
   PurchaseOrder ||--o{ PurchaseOrderSubmissionAttempt : "purchaseOrder"
@@ -3056,8 +2944,6 @@ erDiagram
   RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationTransmission : "confirmation"
   RocketPurchaseConfirmationLine ||--o{ RocketPurchaseConfirmationAllocation : "confirmationLine"
   SellpiaInventorySku ||--o{ ChannelListingOptionInventoryComponent : "sellpiaInventorySku"
-  SellpiaInventorySku ||--o{ InventoryCommitmentAllocation : "sellpiaInventorySku"
-  SellpiaInventorySku ||--o{ PickingItem : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ PurchaseOrderItem : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ ReturnTransfer : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ RocketPurchaseConfirmationAllocation : "sellpiaInventorySku"
@@ -3066,7 +2952,6 @@ erDiagram
   SellpiaInventorySku ||--o{ SupplierProduct : "sellpiaInventorySku"
   SellpiaManualMatchSnapshot ||--o{ SellpiaManualMatchAlias : "snapshot"
   SellpiaOrderTransmissionIntent ||--o{ SellpiaOrderTransmissionIntentReconciliation : "intent"
-  Shipment ||--o{ ShipmentItem : "shipment"
   SourceImportRun o|--o{ ChannelListing : "lastImportRun"
   SourceImportRun o|--o{ ChannelListingOption : "lastImportRun"
   SourceImportRun o|--o{ ChannelScrapeRun : "sourceImportRun"
@@ -3076,6 +2961,7 @@ erDiagram
   SourceImportRun ||--o{ RocketPurchaseConfirmationTransmission : "sourceImportRun"
   SourceImportRun o|--o{ SellpiaInventorySku : "lastImportRun"
   SourceImportRun o|--o{ SellpiaInventoryState : "lastCompletedImportRun"
+  Sourcing1688OfferKeywordObservation ||--o{ SourcingReviewBatchItem : "offerKeywordObservation"
   SourcingCandidate ||--o{ CandidateImage : "candidate"
   SourcingCandidate o|--o{ ChannelListing : "sourceCandidate"
   SourcingCandidate o|--o{ ContentGeneration : "sourceCandidate"
@@ -3083,10 +2969,42 @@ erDiagram
   SourcingCandidate o|--o{ ContentWorkspace : "sourceCandidate"
   SourcingCandidate ||--o{ DetailPageImageRenderIntent : "sourceCandidate"
   SourcingCandidate ||--o{ ProductPreparation : "sourceCandidate"
+  SourcingCandidate o|--o{ SourcingLaunchCandidate : "sourceCandidate"
   SourcingCandidate o|--o{ ThumbnailGeneration : "sourceCandidate"
+  SourcingDecisionBatch ||--o{ SourcingDecisionBatchItem : "decisionBatch"
+  SourcingDecisionBatchItem ||--o{ ProcurementTestIntent : "decisionBatchItem"
+  SourcingDecisionBatchItem ||--o{ SourcingDecisionEvidence : "decisionBatchItem"
+  SourcingEvidenceIngestionRun ||--o{ Sourcing1688OfferKeywordObservation : "ingestionRun"
+  SourcingEvidenceIngestionRun ||--o{ SourcingEvidenceObservation : "ingestionRun"
+  SourcingEvidenceObservation ||--|| Sourcing1688OfferKeywordObservation : "evidenceObservation"
+  SourcingEvidenceObservation ||--o{ SourcingDecisionEvidence : "evidenceObservation"
+  SourcingEvidenceObservation o|--o| SourcingEvidenceObservation : "supersedesObservation"
+  SourcingEvidenceObservation ||--o{ SourcingRecommendationItemEvidence : "evidenceObservation"
+  SourcingEvidenceObservation ||--o{ SourcingValidationCheckEvidence : "evidenceObservation"
+  SourcingEvidenceObservation ||--o{ SupplierOfferSkuSnapshot : "evidenceObservation"
+  SourcingLaunchCandidate o|--o{ ProcurementTestIntent : "launchCandidate"
+  SourcingLaunchCandidate o|--o{ SourcingDecisionBatchItem : "launchCandidate"
+  SourcingLaunchCandidate o|--o| SourcingLaunchCandidate : "supersedesLaunchCandidate"
+  SourcingRecommendationItem ||--o{ SourcingRecommendationItemEvidence : "recommendationItem"
+  SourcingRecommendationItem ||--o{ SourcingReviewBatchItem : "recommendationItem"
+  SourcingRecommendationItem ||--o{ SourcingValidationEpisode : "recommendationItem"
+  SourcingRecommendationRun ||--o{ SourcingRecommendationItem : "recommendationRun"
+  SourcingRecommendationRun ||--o{ SourcingReviewBatch : "recommendationRun"
+  SourcingRecommendationRun ||--o{ SourcingReviewSelection : "recommendationRun"
+  SourcingRecommendationRun ||--o{ SourcingValidationEpisode : "recommendationRun"
+  SourcingReviewBatch ||--o{ SourcingReviewBatchItem : "reviewBatch"
+  SourcingValidationCheck ||--o{ SourcingValidationCheckEvidence : "validationCheck"
+  SourcingValidationEpisode o|--o{ SourcingReviewBatchItem : "validationEpisode"
+  SourcingValidationEpisode ||--o{ SourcingValidationCheck : "validationEpisode"
   Supplier o|--o{ PurchaseOrder : "supplier"
+  Supplier o|--o{ SupplierOfferSkuSnapshot : "supplier"
   Supplier ||--o{ SupplierPayment : "supplier"
   Supplier ||--o{ SupplierProduct : "supplier"
+  SupplierOfferPriceTier o|--o{ ProcurementTestIntent : "selectedPriceTier"
+  SupplierOfferSkuSnapshot ||--o{ ProcurementTestIntent : "supplierOfferSkuSnapshot"
+  SupplierOfferSkuSnapshot o|--o{ SourcingDecisionBatchItem : "supplierOfferSkuSnapshot"
+  SupplierOfferSkuSnapshot ||--o{ SourcingLaunchCandidate : "supplierOfferSkuSnapshot"
+  SupplierOfferSkuSnapshot ||--o{ SupplierOfferPriceTier : "supplierOfferSkuSnapshot"
   ThumbnailGeneration o|--o{ ContentWorkspaceThumbnailSelection : "sourceGeneration"
   ThumbnailGeneration o|--o{ ProductPreparation : "selectedThumbnailGeneration"
   ThumbnailGeneration ||--o{ ThumbnailGenerationCandidate : "generation"
@@ -3099,15 +3017,10 @@ erDiagram
   ThumbnailGenerationCandidate o|--o{ ThumbnailGenerationInputImage : "sourceThumbnailCandidate"
   ThumbnailTracking ||--o{ ThumbnailTrackingDailySnapshot : "tracking"
   User o|--o{ ActionTask : "assigneeUser"
-  User o|--o{ AgentApprovalRequest : "approver"
-  User o|--o{ AgentApprovalRequest : "decidedBy"
-  User o|--o{ AgentApprovalRequest : "requestedBy"
-  User o|--o{ AgentAuthorizationEvent : "decidedBy"
-  User o|--o{ AgentAuthorizationEvent : "requestedBy"
-  User o|--o{ AgentConversation : "createdBy"
-  User o|--o{ AgentRunRequest : "requestedBy"
   User o|--o{ Alert : "actorUser"
   User ||--o{ AuthSession : "user"
+  User o|--o{ CapabilityInvocation : "approvalDecidedByUser"
+  User ||--o{ CapabilityInvocation : "initiatingUser"
   User o|--o{ ChannelListingDeletionOperation : "requestedByUser"
   User o|--o{ ContentAsset : "createdByUser"
   User o|--o{ ContentGeneration : "triggeredByUser"
@@ -3118,13 +3031,12 @@ erDiagram
   User o|--o{ DetailPageImageRenderIntent : "claimedBy"
   User o|--o{ DetailPageImageRenderIntent : "requestedBy"
   User o|--o{ DetailPageRevision : "createdByUser"
-  User ||--o{ InventoryCommitment : "creator"
-  User o|--o{ InventoryCommitment : "releaser"
-  User o|--o{ InventoryCommitment : "settler"
   User o|--o{ OperationRun : "requestedBy"
   User o|--o{ OperationSchedule : "createdBy"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
+  User ||--o{ ProcurementTestIntent : "requestedByUser"
+  User o|--o{ ProcurementTestIntent : "reviewedByUser"
   User o|--o{ ProductPreparation : "approvedByUser"
   User o|--o{ ProductPreparation : "createdByUser"
   User o|--o{ ProductRegistrationExecution : "requestedByUser"
@@ -3137,12 +3049,14 @@ erDiagram
   User o|--o{ SourceImportRun : "manualFreshExportConfirmer"
   User o|--o{ SourcingCandidate : "rejectedByUser"
   User o|--o{ SourcingCandidate : "triggeredByUser"
+  User ||--o{ SourcingDecisionBatch : "requestedByUser"
+  User o|--o{ SourcingEvidenceIngestionRun : "triggeredByUser"
+  User ||--o{ SourcingLaunchCandidate : "createdByUser"
+  User ||--o{ SourcingReviewBatch : "requestedBy"
   User o|--o{ ThumbnailGeneration : "triggeredByUser"
   User o|--o{ ThumbnailGenerationEvent : "actor"
   User o|--o{ WorkflowRun : "triggeredByUser"
-  Warehouse o|--o{ Shipment : "warehouse"
   Warehouse ||--o{ StockTransfer : "fromWarehouse"
   Warehouse ||--o{ StockTransfer : "toWarehouse"
-  WorkflowRun o|--o{ AgentRunRequest : "sourceWorkflowRun"
   WorkflowTemplate ||--o{ WorkflowRun : "template"
 ```

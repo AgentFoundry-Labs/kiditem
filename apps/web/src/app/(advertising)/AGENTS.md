@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/advertising - Ad Operations
 
 `app/(advertising)/` owns the ad operations UI for Coupang ads, campaign

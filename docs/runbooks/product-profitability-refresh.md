@@ -101,7 +101,6 @@ rtk npm run build --workspace=apps/server
 rtk npm run build --workspace=apps/web
 rtk npm run test:scripts
 rtk npm run db:erd
-GRAPHIFY_VIZ_NODE_LIMIT=7000 rtk npm run graphify:schema
 rtk node --test extensions/tests/coupang-ads-scraper/ads-report.test.mjs extensions/tests/coupang-ads-scraper/profitability-report.test.mjs extensions/tests/coupang-ads-scraper/collection-window.test.mjs extensions/tests/kiditem-os-service-worker-boot.test.mjs
 ```
 

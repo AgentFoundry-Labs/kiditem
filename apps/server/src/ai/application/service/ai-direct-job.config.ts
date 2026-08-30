@@ -5,6 +5,7 @@ import type {
 } from '../../domain/direct-job/ai-direct-job.schema';
 
 export interface AiDirectJobRuntimeConfig {
+  workerEnabled: boolean;
   workerIntervalMs: number;
   workerMaxIntervalMs: number;
   workerErrorMaxIntervalMs: number;
@@ -77,6 +78,7 @@ export function resolveAiDirectJobRuntimeConfig(
     throw new Error('AI direct job heartbeat must be shorter than the lease.');
   }
   return {
+    workerEnabled: env.AI_DIRECT_JOB_WORKER_ENABLED !== '0',
     workerIntervalMs,
     workerMaxIntervalMs,
     workerErrorMaxIntervalMs,

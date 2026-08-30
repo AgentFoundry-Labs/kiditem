@@ -12,8 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@copilotkit/react-core": "^1.57.1",
-    "@copilotkit/react-ui": "^1.57.1",
+    "@copilotkit/react-core": "1.69.0",
     "@grapesjs/react": "^2.0.0",
     "@kiditem/shared": "*",
     "@kiditem/templates": "*",
@@ -27,7 +26,7 @@
     "exceljs": "^4.4.0",
     "grapesjs": "^0.22.14",
     "lucide-react": "^0.577.0",
-    "next": "^16.2.6",
+    "next": "16.2.11",
     "pdf-lib": "^1.17.1",
     "react": "^19",
     "react-day-picker": "^9.14.0",
@@ -55,7 +54,7 @@
     "eslint-plugin-import": "^2.32.0",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^29.0.1",
-    "postcss": "^8.5.14",
+    "postcss": "^8.5.26",
     "postcss-load-config": "^6.0.1",
     "tailwindcss": "^3.4.1",
     "typescript": "^5",

@@ -1,15 +1,11 @@
+import type { ActiveOperationAttemptTransaction } from '../../../../../operations/application/port/active-browser-attempt-transaction';
+
 export const SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT = Symbol('SourcingWorkspaceSnapshotRepositoryPort');
 
 export const SOURCING_WORKSPACE_SNAPSHOT_SCOPES = [
-  'keyword_analysis',
-  'today_recommendations',
-  'interest_tracking',
-  '1688_new_products',
   'sourcing_agent_rag',
-  'sourcing_market_model',
-  'sourcing_1688_new_product_model',
   'coupang_rising_products',
-  'market_shadow_signals',
+  'keyword_analysis',
 ] as const;
 
 export type SourcingWorkspaceSnapshotScope = (typeof SOURCING_WORKSPACE_SNAPSHOT_SCOPES)[number];
@@ -19,7 +15,10 @@ export interface SourcingWorkspaceSnapshotRow {
   organizationId: string;
   scope: SourcingWorkspaceSnapshotScope;
   businessDate: Date;
+  projectionVersion: string;
+  inputHash: string;
   payload: Record<string, unknown>;
+  expiresAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -29,6 +28,8 @@ export interface SourcingWorkspaceSnapshotRepositoryPort {
     organizationId: string;
     scope: SourcingWorkspaceSnapshotScope;
     businessDate: Date;
+    projectionVersion?: string;
+    inputHash?: string;
   }): Promise<SourcingWorkspaceSnapshotRow | null>;
 
   listRecent(input: {
@@ -37,12 +38,31 @@ export interface SourcingWorkspaceSnapshotRepositoryPort {
     fromBusinessDate: Date;
     toBusinessDate: Date;
     limit: number;
+    projectionVersion?: string;
+    inputHash?: string;
   }): Promise<SourcingWorkspaceSnapshotRow[]>;
 
   upsert(input: {
     organizationId: string;
     scope: SourcingWorkspaceSnapshotScope;
     businessDate: Date;
+    projectionVersion?: string;
+    inputHash?: string;
     payload: Record<string, unknown>;
+    expiresAt?: Date | null;
   }): Promise<SourcingWorkspaceSnapshotRow>;
+
+  upsertInAttempt(
+    transaction: ActiveOperationAttemptTransaction,
+    input: {
+      organizationId: string;
+      scope: SourcingWorkspaceSnapshotScope;
+      businessDate: Date;
+      projectionVersion?: string;
+      inputHash?: string;
+      payload: Record<string, unknown>;
+      expiresAt?: Date | null;
+    },
+  ): Promise<SourcingWorkspaceSnapshotRow>;
+
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SourcingService } from '../sourcing.service';
+import type { SourcingAgentCommandService } from '../sourcing-agent-command.service';
 
 /**
  * 수집상품 **목록**의 대표 썸네일 되읽기.
@@ -31,10 +32,10 @@ function buildService(input: {
   const service = new SourcingService(
     { listSourced } as never,
     {} as never,
-    {} as never,
     { findCurrentThumbnails, findCurrentThumbnail } as never,
     {} as never,
     {} as never,
+    {} as SourcingAgentCommandService,
   );
   return { service, listSourced, findCurrentThumbnails, findCurrentThumbnail };
 }

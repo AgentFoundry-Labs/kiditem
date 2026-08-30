@@ -1,59 +1,28 @@
-# web/app - App Router Routes
+# web/app — App Router Routes
 
-`src/app/` owns the Next.js App Router tree: route groups, pages, layouts, and
-route-local components/hooks/lib folders. It does not own global UI primitives,
-global data clients, backend API route handlers, or database access.
-
-Route groups do not affect URLs. Treat the group folder as a documentation and
-ownership boundary, not as a public path segment.
+`src/app/` owns App Router pages, layouts, route groups, and route-local
+components, hooks, and helpers. It does not own global UI primitives, global
+data clients, Nest API proxies, or database access. Route groups are ownership
+boundaries and do not affect public URLs.
 
 ## Route Shape
 
-```text
-(group)/route/
-├── page.tsx                 # composition and route state
-├── components/              # route-local UI
-├── hooks/                   # route-local React Query or workflow hooks
-└── lib/                     # route-local API wrappers, pure helpers, schemas
-```
+Keep page composition and route state in `page.tsx`; place route-local UI,
+queries, and pure helpers in sibling `components/`, `hooks/`, and
+`lib/`. Group-private shared code belongs in `(group)/_shared/`. Promote
+code globally only after two route groups consume it.
 
-Route-group private shared code lives in `(group)/_shared/`. Global shared code
-belongs in `src/components`, `src/hooks`, or `src/lib` only after at least two
-route groups need it.
+## Boundaries
 
-## State Rules
+- Inherit the web API, React Query, database, and organization-scope rules.
+- Move reusable behavior out of a page before it becomes hard to scan.
+- New SSE or WebSocket surfaces require a scoped design and instruction update.
+- Update the web guide and architecture map when adding or moving a route group.
 
-- Backend data flows through `apiClient` and React Query.
-- Keep durable server state out of local React state and Zustand.
-- `page.tsx` should compose state and sections; move reusable behavior to
-  route-local `hooks/` or `lib/` before the page becomes hard to scan.
-- Prefer `queryKeys` entries for server state. Add a key before introducing a
-  new cross-component query family.
-- Use `refetchInterval` for polling. New SSE or WebSocket surfaces require a
-  scoped plan and an instruction update.
-
-## Boundary Rules
-
-- Do not add `app/api/*/route.ts` handlers for Nest-owned APIs.
-- Do not send `organizationId`; backend session scope owns tenancy.
-- Do not import Prisma, `pg`, Supabase DB clients, or backend adapters.
-- Do not move route-local components into global `src/components` until another
-  route group actually imports them.
-- When adding a route group or moving a route, update `apps/web/AGENTS.md` and
-  `docs/ARCHITECTURE.md`.
-
-## Active And Retired Route Contracts
-
-The Frontend Route Map in
-[`docs/ARCHITECTURE.md`](../../../../docs/ARCHITECTURE.md) is the preservation
-authority for active routes. Before changing an active route's composition or
-tabs, read the nearest route guide; it owns the exact route-specific layout and
-tab contract.
-
-To retire a public URL, add it to
+The active Frontend Route Map in
+[docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md) is the preservation
+authority. The nearest route guide owns exact composition and tab contracts.
+To retire a URL, extend
 `src/app/__tests__/retired-sidebar-routes.spec.ts`, move every live consumer,
-then delete route-only code. The scanner covers sidebar links and App Router
-pages with root-app precedence, symlinks, default page extensions, and one
-longest exact `(.)`/`(..)`/`(..)(..)`/`(...)` marker; parent underflow fails
-closed. Do not leave a compatibility redirect without a product-named
-canonical replacement.
+then remove route-only code. Do not leave a compatibility redirect without a
+product-named canonical replacement.

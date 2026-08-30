@@ -1,21 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { kstBusinessDate } from '../../../common/kst';
 import {
-  buildSourcing1688NewProductModel,
-  SOURCING_1688_NEW_PRODUCT_MODEL_PIPELINE,
-  type Sourcing1688NewProductCandidate,
-  type Sourcing1688NewProductModelSourceSnapshot,
-} from '../../domain/sourcing-1688-new-product-model';
-import {
-  buildSourcingMarketModel,
-  type SourcingMarketModelCandidate,
-  type SourcingMarketModelSourceSnapshot,
-} from '../../domain/sourcing-market-model';
-import {
-  SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT,
-  type SourcingWorkspaceSnapshotRepositoryPort,
-  type SourcingWorkspaceSnapshotRow,
-} from '../port/out/repository/sourcing-workspace-snapshot.repository.port';
+  SOURCING_RECOMMENDATION_PROJECTION_PIPELINE,
+  type SourcingRecommendationProjectionCoupangCandidate,
+  type SourcingRecommendationProjectionSupplierCandidate,
+} from '../../domain/sourcing-recommendation-projection';
 import {
   TREND_COLLECTION_REPOSITORY_PORT,
   type NaverKeywordSnapshotRow,
@@ -24,10 +12,14 @@ import {
   type Sourcing1688HotProductSnapshotRow,
   type TrendCollectionRepositoryPort,
 } from '../port/out/repository/trend-collection.repository.port';
+import {
+  SourcingRecommendationService,
+  type SourcingRecommendationPresenterItem,
+} from './sourcing-recommendation.service';
 
 const DISCOVERY_WINDOW_DAYS = 30;
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const SOURCE_GROUP_COUNT = 6;
+const RECOMMENDATION_LIMIT = 100;
 
 export interface SourcingMarketDiscoveryInput {
   organizationId: string;
@@ -37,15 +29,15 @@ export interface SourcingMarketDiscoveryInput {
 }
 
 export type SourcingRecommendationScore = Pick<
-  Sourcing1688NewProductCandidate,
+  SourcingRecommendationProjectionSupplierCandidate,
   'score' | 'grade' | 'decision' | 'components' | 'reasons' | 'risks' | 'modelTags'
 >;
 
 export interface SourcingRecommendationCandidate {
   id: string;
   productName: string;
-  coupangEvidence: NonNullable<Sourcing1688NewProductCandidate['matchedCoupang']>;
-  supplierEvidence: Sourcing1688NewProductCandidate['wholesale'] & {
+  coupangEvidence: NonNullable<SourcingRecommendationProjectionSupplierCandidate['matchedCoupang']>;
+  supplierEvidence: SourcingRecommendationProjectionSupplierCandidate['wholesale'] & {
     offerId: string | null;
     sourceUrl: string;
     imageUrl: string | null;
@@ -59,12 +51,12 @@ export interface SourcingRecommendationCandidate {
 
 export interface SourcingScoredOpportunity {
   id: string;
-  pipeline: typeof SOURCING_1688_NEW_PRODUCT_MODEL_PIPELINE;
+  pipeline: typeof SOURCING_RECOMMENDATION_PROJECTION_PIPELINE;
   productName: string;
   score: number;
-  grade: Sourcing1688NewProductCandidate['grade'];
-  decision: Sourcing1688NewProductCandidate['decision'];
-  components: Sourcing1688NewProductCandidate['components'];
+  grade: SourcingRecommendationProjectionSupplierCandidate['grade'];
+  decision: SourcingRecommendationProjectionSupplierCandidate['decision'];
+  components: SourcingRecommendationProjectionSupplierCandidate['components'];
   reasons: string[];
   risks: string[];
   modelTags: string[];
@@ -78,9 +70,9 @@ export interface SourcingMarketDiscoveryResult {
   confidence: number;
   dataGaps: string[];
   marketSignals: Array<Record<string, unknown>>;
-  coupangMatches: SourcingMarketModelCandidate[];
+  coupangMatches: SourcingRecommendationProjectionCoupangCandidate[];
   trackingSnapshots: Array<Record<string, unknown>>;
-  supplierMatches: Sourcing1688NewProductCandidate[];
+  supplierMatches: SourcingRecommendationProjectionSupplierCandidate[];
   scoredOpportunities: SourcingScoredOpportunity[];
   recommendations: SourcingRecommendationCandidate[];
 }
@@ -90,70 +82,63 @@ interface DiscoveryEvidence {
   popularKeywords: NaverPopularKeywordSnapshotRow[];
   hot1688: Sourcing1688HotProductSnapshotRow[];
   shorts: ShortsSnapshotRow[];
-  todayRecommendations: SourcingWorkspaceSnapshotRow[];
-  new1688Products: SourcingWorkspaceSnapshotRow[];
+  recommendationRun: {
+    id: string;
+    generatedAt: string;
+    items: SourcingRecommendationPresenterItem[];
+  } | null;
 }
 
+/**
+ * AgentOS discovery is a read-model projection. It never rebuilds browser
+ * cache JSON or re-runs a client score: all supplier and Coupang rows come from
+ * the same immutable recommendation run used by the sourcing screens.
+ */
 @Injectable()
 export class SourcingMarketDiscoveryService {
   constructor(
     @Inject(TREND_COLLECTION_REPOSITORY_PORT)
     private readonly trends: TrendCollectionRepositoryPort,
-    @Inject(SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT)
-    private readonly snapshots: SourcingWorkspaceSnapshotRepositoryPort,
+    private readonly recommendations: SourcingRecommendationService,
   ) {}
 
   async discover(
     input: SourcingMarketDiscoveryInput,
   ): Promise<SourcingMarketDiscoveryResult> {
     const searchTerms = compactStrings([input.keyword, input.category]);
-    const evidence = await this.loadEvidence(input.organizationId);
-    const relevant = filterEvidence(evidence, searchTerms);
+    const evidence = filterEvidence(await this.loadEvidence(input.organizationId), searchTerms);
+    const recommendationRun = evidence.recommendationRun;
+    const items = recommendationRun?.items ?? [];
+    const sourceDate = recommendationRun?.generatedAt.slice(0, 10) ?? '';
+    const sourcePrefix = recommendationRun?.id ?? 'recommendation-run-missing';
 
-    const marketSourceSnapshots = relevant.todayRecommendations.map(toMarketSourceSnapshot);
-    const marketModel = buildSourcingMarketModel({ snapshots: marketSourceSnapshots });
-    const coupangMatches = marketModel.candidates.filter((candidate) => (
-      matchesSearchTerms([
-        candidate.productName,
-        candidate.primaryKeyword,
-        ...candidate.keywords,
-      ], searchTerms)
-    ));
-
-    const supplierSourceSnapshots = [
-      ...relevant.new1688Products.map(to1688SourceSnapshot),
-      ...to1688TrendSourceSnapshots(relevant.hot1688),
-      ...relevant.todayRecommendations.map(to1688SourceSnapshot),
-      toDerivedMarketSourceSnapshot(input.organizationId, marketModel, relevant.todayRecommendations),
-    ];
-    const supplierModel = buildSourcing1688NewProductModel({
-      snapshots: supplierSourceSnapshots,
-    });
-    const supplierMatches = supplierModel.candidates.filter((candidate) => (
-      matchesSearchTerms([
-        candidate.title,
-        candidate.keyword,
-        candidate.matchedCoupang?.productName,
-        candidate.matchedCoupang?.primaryKeyword,
-      ], searchTerms)
-    ));
+    const coupangMatches = items
+      .filter((item) => item.sourcePlatform === 'coupang')
+      .filter((item) => matchesSearchTerms(coupangSearchTerms(item), searchTerms))
+      .map((item) => toCoupangCandidate(item, sourcePrefix, sourceDate));
+    const supplierMatches = items
+      .filter((item) => item.sourcePlatform === '1688')
+      .filter((item) => matchesSearchTerms(supplierSearchTerms(item), searchTerms))
+      .map((item) => toSupplierCandidate(item, sourcePrefix, sourceDate))
+      .filter((item): item is SourcingRecommendationProjectionSupplierCandidate => item !== null)
+      .map((item) => ({ ...item, matchedCoupang: findCoupangMatch(item, coupangMatches) }));
     const recommendations = supplierMatches
-      .filter((candidate): candidate is Sourcing1688NewProductCandidate & {
-        matchedCoupang: NonNullable<Sourcing1688NewProductCandidate['matchedCoupang']>;
-      } => candidate.matchedCoupang != null && candidate.decision !== 'exclude')
+      .filter((candidate): candidate is SourcingRecommendationProjectionSupplierCandidate & {
+        matchedCoupang: NonNullable<SourcingRecommendationProjectionSupplierCandidate['matchedCoupang']>;
+      } => candidate.matchedCoupang !== null && candidate.decision !== 'exclude')
       .map((candidate) => toRecommendation(candidate, input, confidenceFromEvidence({
-        naverKeywordCount: relevant.naverKeywords.length,
-        popularKeywordCount: relevant.popularKeywords.length,
-        hot1688Count: relevant.hot1688.length,
-        shortsCount: relevant.shorts.length,
+        naverKeywordCount: evidence.naverKeywords.length,
+        popularKeywordCount: evidence.popularKeywords.length,
+        hot1688Count: evidence.hot1688.length,
+        shortsCount: evidence.shorts.length,
         coupangCount: coupangMatches.length,
         supplierCount: supplierMatches.length,
       })));
     const coverage = {
-      naverKeywordCount: relevant.naverKeywords.length,
-      popularKeywordCount: relevant.popularKeywords.length,
-      hot1688Count: relevant.hot1688.length,
-      shortsCount: relevant.shorts.length,
+      naverKeywordCount: evidence.naverKeywords.length,
+      popularKeywordCount: evidence.popularKeywords.length,
+      hot1688Count: evidence.hot1688.length,
+      shortsCount: evidence.shorts.length,
       coupangCount: coupangMatches.length,
       supplierCount: supplierMatches.length,
     };
@@ -163,7 +148,7 @@ export class SourcingMarketDiscoveryService {
       windowDays: DISCOVERY_WINDOW_DAYS,
       confidence: confidenceFromEvidence(coverage),
       dataGaps: dataGaps(coverage, recommendations.length),
-      marketSignals: toMarketSignals(relevant),
+      marketSignals: toMarketSignals(evidence),
       coupangMatches,
       trackingSnapshots: coupangMatches.map(toTrackingSnapshot),
       supplierMatches,
@@ -173,39 +158,30 @@ export class SourcingMarketDiscoveryService {
   }
 
   private async loadEvidence(organizationId: string): Promise<DiscoveryEvidence> {
-    const toBusinessDate = kstBusinessDate(new Date());
-    const fromBusinessDate = new Date(
-      toBusinessDate.getTime() - (DISCOVERY_WINDOW_DAYS - 1) * ONE_DAY_MS,
-    );
     const query = { organizationId, days: DISCOVERY_WINDOW_DAYS };
-    const snapshotQuery = {
-      organizationId,
-      fromBusinessDate,
-      toBusinessDate,
-      limit: DISCOVERY_WINDOW_DAYS,
-    };
-    const [
-      naverKeywords,
-      popularKeywords,
-      hot1688,
-      shorts,
-      todayRecommendations,
-      new1688Products,
-    ] = await Promise.all([
+    const [naverKeywords, popularKeywords, hot1688, shorts, response] = await Promise.all([
       this.trends.findNaverKeywordHistory(query),
       this.trends.findPopularKeywordHistory(query),
       this.trends.find1688HotHistory(query),
       this.trends.findShortsHistory(query),
-      this.snapshots.listRecent({ ...snapshotQuery, scope: 'today_recommendations' }),
-      this.snapshots.listRecent({ ...snapshotQuery, scope: '1688_new_products' }),
+      this.recommendations.latest({
+        organizationId,
+        surface: 'home',
+        limit: RECOMMENDATION_LIMIT,
+      }),
     ]);
     return {
       naverKeywords,
       popularKeywords,
       hot1688,
       shorts,
-      todayRecommendations,
-      new1688Products,
+      recommendationRun: response.data
+        ? {
+            id: response.data.runId,
+            generatedAt: response.lastSuccessfulAt ?? response.generatedAt,
+            items: response.data.items,
+          }
+        : null,
     };
   }
 }
@@ -227,85 +203,168 @@ function filterEvidence(
     shorts: evidence.shorts.filter((row) => (
       matchesSearchTerms([row.keyword, row.title, row.channelName], searchTerms)
     )),
-    todayRecommendations: evidence.todayRecommendations,
-    new1688Products: evidence.new1688Products,
+    recommendationRun: evidence.recommendationRun,
   };
 }
 
-function toMarketSourceSnapshot(
-  row: SourcingWorkspaceSnapshotRow,
-): SourcingMarketModelSourceSnapshot {
+function toCoupangCandidate(
+  item: SourcingRecommendationPresenterItem,
+  runId: string,
+  sourceDate: string,
+): SourcingRecommendationProjectionCoupangCandidate {
+  const coupang = item.coupang;
+  const productId = coupang?.productId ?? item.externalOfferId;
+  const itemId = item.variantKey || null;
+  const vendorItemId = item.variantKey || null;
+  const keyword = item.keyword ?? '';
+  const salePrice = coupang?.salePriceKrw ?? item.salePriceKrw;
+  const salesLast28d = nonNegative(coupang?.salesLast28d ?? null);
+  const viewsLast3d = nonNegative(coupang?.viewsLast28d ?? null);
+  const reviews = nonNegative(coupang?.ratingCount ?? null);
+  const conversionRate = viewsLast3d > 0 ? roundOne(salesLast28d / viewsLast3d) : 0;
+  const sourceSnapshotId = `${runId}:${item.itemKey}`;
+
   return {
-    id: row.id,
-    scope: 'today_recommendations',
-    businessDate: dateString(row.businessDate),
-    payload: row.payload,
-    updatedAt: row.updatedAt.toISOString(),
-  };
-}
-
-function to1688SourceSnapshot(
-  row: SourcingWorkspaceSnapshotRow,
-): Sourcing1688NewProductModelSourceSnapshot {
-  return {
-    id: row.id,
-    scope: row.scope === '1688_new_products'
-      ? '1688_new_products'
-      : 'today_recommendations',
-    businessDate: dateString(row.businessDate),
-    payload: row.payload,
-    updatedAt: row.updatedAt.toISOString(),
-  };
-}
-
-function toDerivedMarketSourceSnapshot(
-  organizationId: string,
-  result: ReturnType<typeof buildSourcingMarketModel>,
-  rows: SourcingWorkspaceSnapshotRow[],
-): Sourcing1688NewProductModelSourceSnapshot {
-  const latest = [...rows].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
-  const businessDate = latest?.businessDate ?? kstBusinessDate(new Date());
-  const updatedAt = latest?.updatedAt ?? businessDate;
-  return {
-    id: `discovery-market-model:${organizationId}:${dateString(businessDate)}`,
-    scope: 'sourcing_market_model',
-    businessDate: dateString(businessDate),
-    payload: { result },
-    updatedAt: updatedAt.toISOString(),
-  };
-}
-
-function to1688TrendSourceSnapshots(
-  rows: Sourcing1688HotProductSnapshotRow[],
-): Sourcing1688NewProductModelSourceSnapshot[] {
-  const byDate = new Map<string, Sourcing1688HotProductSnapshotRow[]>();
-  for (const row of rows) {
-    const date = dateString(row.businessDate);
-    byDate.set(date, [...(byDate.get(date) ?? []), row]);
-  }
-  return [...byDate.entries()].map(([businessDate, dateRows]) => ({
-    id: `trend-1688:${businessDate}`,
-    scope: '1688_new_products',
-    businessDate,
-    payload: {
-      result: {
-        items: dateRows.map((row) => ({
-          offerId: row.offerId,
-          keyword: row.sourceKeyword,
-          rank: row.rank,
-          title: row.title,
-          priceCny: row.priceCny,
-          monthlySales: row.monthlySales,
-          repurchaseRate: row.repurchaseRate,
-          tradeScore: row.tradeScore,
-          supplierName: row.supplierName,
-          imageUrl: row.imageUrl,
-          sourceUrl: row.sourceUrl,
-        })),
-      },
+    id: item.itemKey,
+    rank: item.rank,
+    productId,
+    itemId,
+    vendorItemId,
+    productName: coupang?.productName ?? item.displayName,
+    imagePath: item.imageUrl,
+    primaryKeyword: keyword,
+    keywords: compactStrings([keyword]),
+    score: item.score,
+    grade: item.grade,
+    decision: item.baselineAction === 'order'
+      ? 'recommend'
+      : item.baselineAction === 'observe_3d'
+        ? 'watch'
+        : 'exclude',
+    components: {
+      marketReaction: component(item.scoreComponents, 'sales', 'views'),
+      newProductReaction: component(item.scoreComponents, 'sales'),
+      interestFit: 0,
+      marginPotential: salePrice == null ? 0 : 50,
+      supplyReadiness: 0,
+      existingRecommendation: item.score,
+      riskPenalty: 0,
     },
-    updatedAt: new Date(Math.max(...dateRows.map((row) => row.capturedAt.getTime()))).toISOString(),
-  }));
+    metrics: {
+      salesLast3d: Math.round(salesLast28d / 9),
+      salesLast28d,
+      viewsLast3d,
+      reviews,
+      salePrice,
+      conversionRate,
+      lowReviewSalesPower: roundOne(salesLast28d / Math.max(reviews, 1)),
+      reviewDelta: null,
+      salesDelta: null,
+    },
+    reasons: item.reasonCodes,
+    risks: item.riskCodes,
+    modelTags: ['canonical_recommendation_run', 'coupang_demand'],
+    sourceSnapshotId,
+    sourceDate,
+  };
+}
+
+function toSupplierCandidate(
+  item: SourcingRecommendationPresenterItem,
+  runId: string,
+  sourceDate: string,
+): SourcingRecommendationProjectionSupplierCandidate | null {
+  const sourceUrl = item.sourceUrl;
+  if (!sourceUrl) return null;
+  const priceCny = item.overseasPriceCny;
+  const supplierScore = component(item.scoreComponents, 'supplier');
+  const marginPotential = component(item.scoreComponents, 'margin');
+  const demand = component(item.scoreComponents, 'demand');
+  const momentum = component(item.scoreComponents, 'momentum');
+  const competition = component(item.scoreComponents, 'competition');
+
+  return {
+    id: item.itemKey,
+    rank: item.rank,
+    offerId: item.externalOfferId,
+    title: item.displayName,
+    imageUrl: item.imageUrl,
+    sourceUrl,
+    keyword: item.keyword,
+    matchMethod: 'keyword',
+    score: item.score,
+    grade: item.grade,
+    decision: item.baselineAction,
+    components: {
+      newProductSignal: demand,
+      supplyQuality: supplierScore,
+      coupangMatch: competition,
+      marketReaction: demand,
+      threeDayValidation: momentum,
+      marginPotential,
+      riskPenalty: 0,
+    },
+    wholesale: {
+      priceCny,
+      monthlySales: item.monthlySales,
+      tradeScore: item.tradeScore,
+      repurchaseRate: item.repurchaseRate,
+      supplierName: item.supplierName,
+      shippingFulfillmentRate: null,
+      shippingPickupRate: null,
+      serviceScore: item.rating,
+      landedCostKrw: item.overseasPriceKrw,
+      estimatedProfitKrw: item.estimatedProfitKrw,
+      estimatedMarginRate: item.estimatedMarginRate,
+      sourceDate,
+    },
+    matchedCoupang: null,
+    reasons: item.reasonCodes,
+    risks: item.riskCodes,
+    modelTags: ['canonical_recommendation_run', '1688_supply'],
+    sourceSnapshotId: `${runId}:${item.itemKey}`,
+    sourceDate,
+  };
+}
+
+function findCoupangMatch(
+  supplier: SourcingRecommendationProjectionSupplierCandidate,
+  candidates: SourcingRecommendationProjectionCoupangCandidate[],
+): SourcingRecommendationProjectionSupplierCandidate['matchedCoupang'] {
+  const supplierTerms = compactStrings([supplier.keyword, supplier.title]);
+  const match = candidates
+    .filter((candidate) => matchesSearchTerms([
+      candidate.productName,
+      candidate.primaryKeyword,
+      ...candidate.keywords,
+    ], supplierTerms))
+    .sort((left, right) => right.score - left.score || left.id.localeCompare(right.id))[0];
+  if (!match) return null;
+
+  return {
+    productId: match.productId,
+    productName: match.productName,
+    primaryKeyword: match.primaryKeyword,
+    score: match.score,
+    grade: match.grade,
+    salePrice: match.metrics.salePrice,
+    salesLast3d: match.metrics.salesLast3d,
+    salesLast28d: match.metrics.salesLast28d,
+    reviews: match.metrics.reviews,
+    matchScore: normalizedText(supplier.keyword) === normalizedText(match.primaryKeyword) ? 100 : 70,
+  };
+}
+
+function supplierSearchTerms(item: SourcingRecommendationPresenterItem): string[] {
+  return [item.displayName, item.keyword].filter(
+    (value): value is string => Boolean(value),
+  );
+}
+
+function coupangSearchTerms(item: SourcingRecommendationPresenterItem): string[] {
+  return [item.displayName, item.keyword, item.coupang?.productName].filter(
+    (value): value is string => Boolean(value),
+  );
 }
 
 function toMarketSignals(evidence: DiscoveryEvidence): Array<Record<string, unknown>> {
@@ -368,7 +427,7 @@ function toMarketSignals(evidence: DiscoveryEvidence): Array<Record<string, unkn
   ];
 }
 
-function toTrackingSnapshot(candidate: SourcingMarketModelCandidate): Record<string, unknown> {
+function toTrackingSnapshot(candidate: SourcingRecommendationProjectionCoupangCandidate): Record<string, unknown> {
   return {
     id: candidate.id,
     productId: candidate.productId,
@@ -389,11 +448,11 @@ function toTrackingSnapshot(candidate: SourcingMarketModelCandidate): Record<str
 }
 
 function toScoredOpportunity(
-  candidate: Sourcing1688NewProductCandidate,
+  candidate: SourcingRecommendationProjectionSupplierCandidate,
 ): SourcingScoredOpportunity {
   return {
     id: candidate.id,
-    pipeline: SOURCING_1688_NEW_PRODUCT_MODEL_PIPELINE,
+    pipeline: SOURCING_RECOMMENDATION_PROJECTION_PIPELINE,
     productName: candidate.title,
     score: candidate.score,
     grade: candidate.grade,
@@ -408,8 +467,8 @@ function toScoredOpportunity(
 }
 
 function toRecommendation(
-  candidate: Sourcing1688NewProductCandidate & {
-    matchedCoupang: NonNullable<Sourcing1688NewProductCandidate['matchedCoupang']>;
+  candidate: SourcingRecommendationProjectionSupplierCandidate & {
+    matchedCoupang: NonNullable<SourcingRecommendationProjectionSupplierCandidate['matchedCoupang']>;
   },
   input: SourcingMarketDiscoveryInput,
   confidence: number,
@@ -503,9 +562,9 @@ function matchesSearchTerms(
   searchTerms: string[],
 ): boolean {
   if (searchTerms.length === 0) return true;
-  const normalizedValues = compactStrings(values).map(normalizeText);
+  const normalizedValues = compactStrings(values).map(normalizedText);
   return searchTerms.some((term) => {
-    const normalizedTerm = normalizeText(term);
+    const normalizedTerm = normalizedText(term);
     return normalizedValues.some((value) => (
       value.includes(normalizedTerm) || normalizedTerm.includes(value)
     ));
@@ -518,8 +577,24 @@ function compactStrings(values: Array<string | null | undefined>): string[] {
     .filter((value): value is string => Boolean(value))));
 }
 
-function normalizeText(value: string): string {
-  return value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+function normalizedText(value: string | null | undefined): string {
+  return value?.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '') ?? '';
+}
+
+function component(values: Record<string, number>, ...keys: string[]): number {
+  const known = keys
+    .map((key) => values[key])
+    .filter((value): value is number => Number.isFinite(value));
+  if (known.length === 0) return 0;
+  return Math.round(known.reduce((sum, value) => sum + value, 0) / known.length);
+}
+
+function nonNegative(value: number | null): number {
+  return value == null ? 0 : Math.max(0, value);
+}
+
+function roundOne(value: number): number {
+  return Math.round(value * 10) / 10;
 }
 
 function dateString(value: Date): string {

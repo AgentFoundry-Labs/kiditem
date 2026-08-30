@@ -1,7 +1,7 @@
 # Core ERD
 
 > Generated from `prisma/models/*.prisma`. Do not edit by hand.
-> Regenerate with `npm run db:erd` or `npm run graphify:schema`.
+> Regenerate with `npm run db:erd` after Prisma schema changes.
 
 [Back to full ERD](../ERD.md)
 
@@ -16,7 +16,7 @@
 | ChannelListingOption | `channel_listing_options` | One sellable SKU under a channel listing. |
 | ChannelListingOptionInventoryComponent | `channel_listing_option_inventory_components` | Confirmed Sellpia inventory consumption for one channel sellable option. |
 | LegalEntity | `legal_entities` | Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary. |
-| MasterProduct | `master_products` | KidItem-operated product identity and product-level operating metadata. |
+| MasterProduct | `master_products` | Organization-owned canonical inventory product and sole official product ABC identity. |
 | MasterProductAbcEvaluation | `master_product_abc_evaluations` | Current Products-owned automatic profitability ABC explanation snapshot for one MasterProduct. |
 | MasterProductAbcFormulaState | `master_product_abc_formula_states` | One Prisma-owned current-formula pointer for each organization. |
 | MasterProductAbcFormulaVersion | `master_product_abc_formula_versions` | Immutable organization-owned formula versions for automatic product profitability ABC. |
@@ -24,7 +24,7 @@
 | Organization | `organizations` | - |
 | OrganizationMembership | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
 | SourceImportRun | `source_import_runs` | Durable provenance and publication fence for Sellpia and channel full-snapshot imports. |
-| User | `users` | human(직원) / agent(AI, agentInstanceId 연결) / system(챗봇). 조직 소속은 OrganizationMembership 이 source of truth. |
+| User | `users` | Human or system account. Organization membership is the source of truth. |
 
 ## Mermaid ER Diagram
 
@@ -290,7 +290,6 @@ erDiagram
     String type
     String team
     String avatarUrl
-    String agentInstanceId FK
     Boolean isActive
     DateTime lastLoginAt
     DateTime createdAt
@@ -342,6 +341,7 @@ erDiagram
 | ChannelAccount | channelAccount | referenced by external | Orders | OrderReturn |
 | ChannelAccount | channelAccount | referenced by external | Sourcing | ProductRegistrationExecution |
 | ChannelAccount | channelAccount | referenced by external | Supply | RocketPurchaseConfirmation |
+| ChannelAccount | targetChannelAccount | referenced by external | Sourcing | SourcingLaunchCandidate |
 | ChannelListing | channelListing | referenced by external | AI | ContentWorkspace |
 | ChannelListing | channelListing | referenced by external | AI | ProductPreparation |
 | ChannelListing | channelListing | referenced by external | Channels | ChannelListingDeletionOperation |
@@ -353,9 +353,6 @@ erDiagram
 | ChannelListing | listing | referenced by external | Channels | ChannelListingDailySnapshot |
 | ChannelListing | listing | referenced by external | Channels | ChannelListingOptionDailySnapshot |
 | ChannelListing | listing | referenced by external | Channels | ChannelScrapeSnapshot |
-| ChannelListing | listing | referenced by external | Finance | GradeHistory |
-| ChannelListing | listing | referenced by external | Finance | ProfitLoss |
-| ChannelListing | listing | referenced by external | Orders | CSRecord |
 | ChannelListing | listing | referenced by external | Orders | Review |
 | ChannelListing | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | ChannelListingOption | channelListingOption | referenced by external | Supply | RocketPurchaseConfirmationLine |
@@ -366,26 +363,12 @@ erDiagram
 | ChannelListingOption | listingOption | referenced by external | Orders | OrderLineItem |
 | ChannelListingOption | listingOption | referenced by external | Orders | OrderReturnLineItem |
 | ChannelListingOptionInventoryComponent | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
-| MasterProduct | master | referenced by external | Finance | ProcessingCost |
+| MasterProduct | masterProduct | referenced by external | Inventory | SellpiaInventorySku |
 | MasterProduct | provenanceMasterProduct | referenced by external | Sourcing | SourcingCandidate |
 | Organization | organization | referenced by external | Advertising | AdAction |
 | Organization | organization | referenced by external | Advertising | ExecutionWorker |
 | Organization | organization | referenced by external | Advertising | ScrapeTarget |
-| Organization | organization | referenced by external | AgentOS | AgentApprovalRequest |
-| Organization | organization | referenced by external | AgentOS | AgentArtifact |
-| Organization | organization | referenced by external | AgentOS | AgentAuthorizationEvent |
-| Organization | organization | referenced by external | AgentOS | AgentConversation |
-| Organization | organization | referenced by external | AgentOS | AgentCostEvent |
-| Organization | organization | referenced by external | AgentOS | AgentInstance |
-| Organization | organization | referenced by external | AgentOS | AgentInstanceToolPolicy |
-| Organization | organization | referenced by external | AgentOS | AgentMessage |
-| Organization | organization | referenced by external | AgentOS | AgentRun |
-| Organization | organization | referenced by external | AgentOS | AgentRunEvent |
-| Organization | organization | referenced by external | AgentOS | AgentRunRequest |
-| Organization | organization | referenced by external | AgentOS | AgentRuntimeState |
-| Organization | organization | referenced by external | AgentOS | AgentTaskSession |
-| Organization | organization | referenced by external | AgentOS | AgentToolInvocation |
-| Organization | organization | referenced by external | AgentOS | WorkflowTemplate |
+| Organization | organization | referenced by external | AgentOS | CapabilityInvocation |
 | Organization | organization | referenced by external | AI | AiDirectJob |
 | Organization | organization | referenced by external | AI | ContentAsset |
 | Organization | organization | referenced by external | AI | ContentGeneration |
@@ -408,11 +391,13 @@ erDiagram
 | Organization | organization | referenced by external | AI | ThumbnailRegistrationAttempt |
 | Organization | organization | referenced by external | AI | ThumbnailTracking |
 | Organization | organization | referenced by external | AI | ThumbnailTrackingDailySnapshot |
+| Organization | organization | referenced by external | Automation | WorkflowTemplate |
 | Organization | organization | referenced by external | Channels | ChannelAccountDailyKpiSnapshot |
 | Organization | organization | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | Organization | organization | referenced by external | Channels | ChannelListingDailySnapshot |
 | Organization | organization | referenced by external | Channels | ChannelListingDeletionOperation |
 | Organization | organization | referenced by external | Channels | ChannelListingOptionDailySnapshot |
+| Organization | organization | referenced by external | Channels | ChannelRegistrationOwnerIdempotencyReceipt |
 | Organization | organization | referenced by external | Channels | ChannelScrapeChunk |
 | Organization | organization | referenced by external | Channels | ChannelScrapeRun |
 | Organization | organization | referenced by external | Channels | ChannelScrapeSnapshot |
@@ -425,31 +410,18 @@ erDiagram
 | Organization | organization | referenced by external | Channels | CoupangWingTrackedProductDailySnapshot |
 | Organization | organization | referenced by external | Channels | RocketPoCatalogLine |
 | Organization | organization | referenced by external | Channels | RocketPoCatalogSnapshot |
-| Organization | organization | referenced by external | Channels | RocketPurchaseOrder |
-| Organization | organization | referenced by external | Channels | RocketSupplyDailySnapshot |
 | Organization | organization | referenced by external | Channels | SellpiaManualMatchAlias |
 | Organization | organization | referenced by external | Channels | SellpiaManualMatchSnapshot |
 | Organization | organization | referenced by external | Channels | SellpiaProductMonthlySales |
 | Organization | organization | referenced by external | Channels | SellpiaSalesDailySnapshot |
-| Organization | organization | referenced by external | Finance | GradeHistory |
-| Organization | organization | referenced by external | Finance | ManualLedger |
-| Organization | organization | referenced by external | Finance | ProcessingCost |
-| Organization | organization | referenced by external | Finance | ProfitLoss |
 | Organization | organization | referenced by external | Finance | SalesPlan |
 | Organization | organization | referenced by external | Inventory | CoupangShipmentDateSummary |
-| Organization | organization | referenced by external | Inventory | InventoryCommitment |
-| Organization | organization | referenced by external | Inventory | InventoryCommitmentAllocation |
-| Organization | organization | referenced by external | Inventory | PickingItem |
-| Organization | organization | referenced by external | Inventory | PickingList |
 | Organization | organization | referenced by external | Inventory | ReturnTransfer |
 | Organization | organization | referenced by external | Inventory | SellpiaInventorySku |
 | Organization | organization | referenced by external | Inventory | SellpiaInventoryState |
-| Organization | organization | referenced by external | Inventory | SellpiaReceiptUploadBatch |
-| Organization | organization | referenced by external | Inventory | StockAudit |
 | Organization | organization | referenced by external | Inventory | StockTransfer |
 | Organization | organization | referenced by external | Inventory | Warehouse |
 | Organization | organization | referenced by external | Orders | CoupangDirectPoSnapshot |
-| Organization | organization | referenced by external | Orders | CSRecord |
 | Organization | organization | referenced by external | Orders | Order |
 | Organization | organization | referenced by external | Orders | OrderLineItem |
 | Organization | organization | referenced by external | Orders | OrderReturn |
@@ -458,9 +430,6 @@ erDiagram
 | Organization | organization | referenced by external | Orders | SellpiaOrderTransmissionIntent |
 | Organization | organization | referenced by external | Orders | SellpiaOrderTransmissionIntentReconciliation |
 | Organization | organization | referenced by external | Orders | Settlement |
-| Organization | organization | referenced by external | Orders | Shipment |
-| Organization | organization | referenced by external | Orders | ShipmentItem |
-| Organization | organization | referenced by external | Orders | UnshippedItem |
 | Organization | organization | referenced by external | Sourcing | CandidateImage |
 | Organization | organization | referenced by external | Sourcing | LiveCommerceBroadcastDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | LiveCommerceProductDailySnapshot |
@@ -468,11 +437,31 @@ erDiagram
 | Organization | organization | referenced by external | Sourcing | NaverPopularKeywordDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | ProductRegistrationExecution |
 | Organization | organization | referenced by external | Sourcing | ShortsTrendDailySnapshot |
-| Organization | organization | referenced by external | Sourcing | Sourcing1688HotProductDailySnapshot |
+| Organization | organization | referenced by external | Sourcing | Sourcing1688OfferKeywordObservation |
 | Organization | organization | referenced by external | Sourcing | SourcingCandidate |
+| Organization | organization | referenced by external | Sourcing | SourcingCollectionSourceControl |
+| Organization | organization | referenced by external | Sourcing | SourcingDecisionBatch |
+| Organization | organization | referenced by external | Sourcing | SourcingDecisionBatchItem |
+| Organization | organization | referenced by external | Sourcing | SourcingDecisionEvidence |
+| Organization | organization | referenced by external | Sourcing | SourcingEvidenceIngestionRun |
+| Organization | organization | referenced by external | Sourcing | SourcingEvidenceObservation |
+| Organization | organization | referenced by external | Sourcing | SourcingInterestTarget |
+| Organization | organization | referenced by external | Sourcing | SourcingKeywordPreference |
+| Organization | organization | referenced by external | Sourcing | SourcingLaunchCandidate |
+| Organization | organization | referenced by external | Sourcing | SourcingOwnerIdempotencyReceipt |
+| Organization | organization | referenced by external | Sourcing | SourcingRecommendationItem |
+| Organization | organization | referenced by external | Sourcing | SourcingRecommendationItemEvidence |
+| Organization | organization | referenced by external | Sourcing | SourcingRecommendationRun |
+| Organization | organization | referenced by external | Sourcing | SourcingReviewBatch |
+| Organization | organization | referenced by external | Sourcing | SourcingReviewBatchItem |
+| Organization | organization | referenced by external | Sourcing | SourcingReviewSelection |
+| Organization | organization | referenced by external | Sourcing | SourcingValidationCheck |
+| Organization | organization | referenced by external | Sourcing | SourcingValidationCheckEvidence |
+| Organization | organization | referenced by external | Sourcing | SourcingValidationEpisode |
 | Organization | organization | referenced by external | Sourcing | SourcingWorkspaceSnapshot |
 | Organization | organization | referenced by external | Sourcing | TiktokCreativeTrendDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | TrendSeedKeyword |
+| Organization | organization | referenced by external | Supply | ProcurementTestIntent |
 | Organization | organization | referenced by external | Supply | PurchaseOrder |
 | Organization | organization | referenced by external | Supply | PurchaseOrderItem |
 | Organization | organization | referenced by external | Supply | PurchaseOrderSubmissionAttempt |
@@ -481,6 +470,8 @@ erDiagram
 | Organization | organization | referenced by external | Supply | RocketPurchaseConfirmationLine |
 | Organization | organization | referenced by external | Supply | RocketPurchaseConfirmationTransmission |
 | Organization | organization | referenced by external | Supply | Supplier |
+| Organization | organization | referenced by external | Supply | SupplierOfferPriceTier |
+| Organization | organization | referenced by external | Supply | SupplierOfferSkuSnapshot |
 | Organization | organization | referenced by external | Supply | SupplierPayment |
 | Organization | organization | referenced by external | Supply | SupplierProduct |
 | Organization | organization | referenced by external | System | ActionTask |
@@ -488,7 +479,9 @@ erDiagram
 | Organization | organization | referenced by external | System | Alert |
 | Organization | organization | referenced by external | System | BusinessRule |
 | Organization | organization | referenced by external | System | OperationRun |
+| Organization | organization | referenced by external | System | OperationRunCheckpoint |
 | Organization | organization | referenced by external | System | OperationSchedule |
+| Organization | organization | referenced by external | System | RulesEvaluationApplication |
 | Organization | organization | referenced by external | System | SystemSetting |
 | SourceImportRun | lastCompletedImportRun | referenced by external | Inventory | SellpiaInventoryState |
 | SourceImportRun | lastImportRun | referenced by external | Inventory | SellpiaInventorySku |
@@ -500,13 +493,11 @@ erDiagram
 | User | activeSyncOwner | referenced by external | Inventory | SellpiaInventoryState |
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
 | User | actorUser | referenced by external | System | Alert |
-| User | agentInstance | references external | AgentOS | AgentInstance |
+| User | approvalDecidedByUser | referenced by external | AgentOS | CapabilityInvocation |
 | User | approvedByUser | referenced by external | AI | ProductPreparation |
-| User | approver | referenced by external | AgentOS | AgentApprovalRequest |
 | User | assigneeUser | referenced by external | System | ActionTask |
 | User | claimedBy | referenced by external | AI | DetailPageImageRenderIntent |
 | User | confirmer | referenced by external | Supply | RocketPurchaseConfirmation |
-| User | createdBy | referenced by external | AgentOS | AgentConversation |
 | User | createdBy | referenced by external | AI | DetailPageImageArtifact |
 | User | createdBy | referenced by external | System | OperationSchedule |
 | User | createdByUser | referenced by external | AI | ContentAsset |
@@ -515,24 +506,23 @@ erDiagram
 | User | createdByUser | referenced by external | AI | DetailPageArtifact |
 | User | createdByUser | referenced by external | AI | DetailPageRevision |
 | User | createdByUser | referenced by external | AI | ProductPreparation |
-| User | creator | referenced by external | Inventory | InventoryCommitment |
+| User | createdByUser | referenced by external | Sourcing | SourcingLaunchCandidate |
 | User | creator | referenced by external | Orders | SellpiaOrderTransmissionIntent |
-| User | decidedBy | referenced by external | AgentOS | AgentApprovalRequest |
-| User | decidedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
+| User | initiatingUser | referenced by external | AgentOS | CapabilityInvocation |
 | User | reconciler | referenced by external | Orders | SellpiaOrderTransmissionIntentReconciliation |
 | User | reconciler | referenced by external | Supply | PurchaseOrderSubmissionAttempt |
 | User | rejectedByUser | referenced by external | Sourcing | SourcingCandidate |
-| User | releaser | referenced by external | Inventory | InventoryCommitment |
 | User | releaser | referenced by external | Supply | RocketPurchaseConfirmation |
-| User | requestedBy | referenced by external | AgentOS | AgentApprovalRequest |
-| User | requestedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
-| User | requestedBy | referenced by external | AgentOS | AgentRunRequest |
 | User | requestedBy | referenced by external | AI | DetailPageImageRenderIntent |
+| User | requestedBy | referenced by external | Sourcing | SourcingReviewBatch |
 | User | requestedBy | referenced by external | System | OperationRun |
 | User | requestedByUser | referenced by external | Channels | ChannelListingDeletionOperation |
 | User | requestedByUser | referenced by external | Sourcing | ProductRegistrationExecution |
-| User | settler | referenced by external | Inventory | InventoryCommitment |
-| User | triggeredByUser | referenced by external | AgentOS | WorkflowRun |
+| User | requestedByUser | referenced by external | Sourcing | SourcingDecisionBatch |
+| User | requestedByUser | referenced by external | Supply | ProcurementTestIntent |
+| User | reviewedByUser | referenced by external | Supply | ProcurementTestIntent |
 | User | triggeredByUser | referenced by external | AI | ContentGeneration |
 | User | triggeredByUser | referenced by external | AI | ThumbnailGeneration |
+| User | triggeredByUser | referenced by external | Automation | WorkflowRun |
 | User | triggeredByUser | referenced by external | Sourcing | SourcingCandidate |
+| User | triggeredByUser | referenced by external | Sourcing | SourcingEvidenceIngestionRun |

@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { zIsoDate } from './common.js';
 
 export const LoginRequestSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
@@ -18,17 +17,19 @@ export const AuthUserPublicSchema = z.object({
 });
 export type AuthUserPublic = z.infer<typeof AuthUserPublicSchema>;
 
-export const AuthSessionPublicSchema = z.object({
-  token: z.string().min(43).max(43),
-  expiresAt: zIsoDate,
-});
-export type AuthSessionPublic = z.infer<typeof AuthSessionPublicSchema>;
-
 export const LoginResponseSchema = z.object({
-  session: AuthSessionPublicSchema,
   user: AuthUserPublicSchema,
-});
+}).strict();
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;
+
+/**
+ * Explicit browser-to-extension credential handoff. Browser API calls never
+ * consume or persist this token; ordinary browser auth stays cookie-only.
+ */
+export const ExtensionAuthHandoffSchema = z.object({
+  token: z.string().length(43),
+}).strict();
+export type ExtensionAuthHandoff = z.infer<typeof ExtensionAuthHandoffSchema>;
 
 // Shared response envelope for HTTP 401 `auth_required`. Backend
 // `GlobalExceptionFilter` and Next.js `proxy.ts` both emit this exact shape so

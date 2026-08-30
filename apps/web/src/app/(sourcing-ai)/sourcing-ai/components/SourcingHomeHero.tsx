@@ -25,13 +25,8 @@ import {
   fetchShortsTrends,
 } from '../market/lib/trend-collection-api';
 import { normalizeKeyword } from '../rising-products/lib/rising-keywords';
-import { useTodayRecommendationRows } from '../lib/use-today-recommendation-rows';
-import { getTodaySourcingWorkspaceSnapshot } from '../lib/sourcing-workspace-snapshot-api';
 import { SourcingHomeRecommendationRail } from './SourcingHomeRecommendationRail';
 import { SourcingHomeRankBoard, type RankColumn } from './SourcingHomeRankBoard';
-import type { TodayRecommendationRow } from '../recommendations/lib/today-recommendations';
-
-type SnapshotPayload = { result?: { rows?: TodayRecommendationRow[] } };
 
 // 실시간 폴링 간격 — 메인 대시보드와 동일하게 60초.
 const REFETCH_MS = 60_000;
@@ -43,7 +38,6 @@ const LIST_LIMIT = 10;
  */
 export function SourcingHomeHero() {
   const queryClient = useQueryClient();
-  const localRecs = useTodayRecommendationRows();
 
   const risingQuery = useQuery({
     queryKey: ['sourcing', 'home', 'rising'],
@@ -72,16 +66,6 @@ export function SourcingHomeHero() {
     queryFn: () => fetchShortsTrends(30),
     refetchInterval: REFETCH_MS,
   });
-  const { data: recSnapshot = [] } = useQuery({
-    queryKey: ['sourcing', 'home', 'today-rec-snapshot'],
-    queryFn: async () => {
-      const { snapshot } =
-        await getTodaySourcingWorkspaceSnapshot<SnapshotPayload>('today_recommendations');
-      return snapshot?.payload?.result?.rows ?? [];
-    },
-    refetchInterval: REFETCH_MS,
-  });
-
   const rising = useMemo(
     () => (risingQuery.data?.model?.candidates ?? []).filter((c) => c.grade !== 'EXCLUDE'),
     [risingQuery.data],

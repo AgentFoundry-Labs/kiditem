@@ -1,28 +1,6 @@
-import {
-  defineCapabilities,
-  type CapabilityManifest,
-} from '../../../common/capability-manifest';
-import { AI_WING_REGISTRATION_CAPABILITY_PORT } from '../../application/port/in/capability/wing-registration.port';
+import type { CapabilityDefinition } from '../../../common/capability-definition';
 
-export const AI_CAPABILITIES = defineCapabilities([
-  {
-    key: 'product_listing.submit_wing_thumbnail',
-    ownerDomain: 'ai',
-    kind: 'workflow',
-    description: 'Submit an approved thumbnail generation result to Wing.',
-    inputSchema: { generationId: 'string' },
-    outputSchema: { success: 'boolean', screenshotPath: 'string|null' },
-    effects: ['external_write', 'browser', 'db_write'],
-    approval: 'always',
-    idempotency: 'required',
-    visibility: 'agent',
-    entrypoint: {
-      type: 'incoming_port',
-      token:
-        AI_WING_REGISTRATION_CAPABILITY_PORT.description ??
-        'AI_WING_REGISTRATION_CAPABILITY_PORT',
-    },
-  },
-] as const satisfies readonly CapabilityManifest[]);
+/** AI is a dependency of owner capabilities; it has no Agent-facing capability today. */
+export const AI_CAPABILITIES = [] as const satisfies readonly CapabilityDefinition[];
 
 export type AiCapabilityKey = (typeof AI_CAPABILITIES)[number]['key'];

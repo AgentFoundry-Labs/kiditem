@@ -4,6 +4,7 @@ export interface Search1688ImageInput {
   imageUrl: string;
   keyword?: string;
   maxResults?: number;
+  signal?: AbortSignal;
 }
 
 export interface Search1688ImageItem {

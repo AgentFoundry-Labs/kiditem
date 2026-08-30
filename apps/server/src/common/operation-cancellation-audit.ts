@@ -2,8 +2,6 @@ import type { Prisma } from '@prisma/client';
 
 export interface OperationCancellationAffectedAudit {
   workflowRunIds: string[];
-  agentRunRequestIds: string[];
-  agentRunIds: string[];
   contentGenerationIds: string[];
   thumbnailGenerationIds: string[];
   directAiJobIds: string[];
@@ -17,8 +15,6 @@ export interface OperationCancellationPreservedAudit {
 export type OperationCancellationTargetAudit =
   | { targetType: 'operation_key'; operationKey: string }
   | { targetType: 'workflow_run'; runId: string }
-  | { targetType: 'agent_run_request'; requestId: string }
-  | { targetType: 'agent_run'; runId: string }
   | { targetType: 'content_generation'; generationId: string }
   | { targetType: 'thumbnail_generation'; generationId: string };
 
@@ -47,8 +43,6 @@ export type OperationCancellationAudit = Prisma.InputJsonObject;
 export function emptyOperationCancellationAffected(): OperationCancellationAffectedAudit {
   return {
     workflowRunIds: [],
-    agentRunRequestIds: [],
-    agentRunIds: [],
     contentGenerationIds: [],
     thumbnailGenerationIds: [],
     directAiJobIds: [],
@@ -67,8 +61,6 @@ export function operationCancellationAudit(
 ): OperationCancellationAudit {
   const affected: OperationCancellationAffectedAudit = {
     workflowRunIds: input.affected?.workflowRunIds ?? [],
-    agentRunRequestIds: input.affected?.agentRunRequestIds ?? [],
-    agentRunIds: input.affected?.agentRunIds ?? [],
     contentGenerationIds: input.affected?.contentGenerationIds ?? [],
     thumbnailGenerationIds: input.affected?.thumbnailGenerationIds ?? [],
     directAiJobIds: input.affected?.directAiJobIds ?? [],

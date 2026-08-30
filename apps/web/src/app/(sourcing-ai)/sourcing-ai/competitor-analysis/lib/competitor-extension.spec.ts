@@ -1,10 +1,13 @@
-import { sendToExtension } from "@/lib/extension-bridge";
+import {
+  detectExtensionId,
+  isChromeExtensionRuntimeAvailable,
+  sendToExtension,
+} from "@/lib/extension-bridge";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   COMPETITOR_EXTENSION_MIN_VERSION,
+  detectCompetitorExtensionGate,
   isVersionAtLeast,
-  runCompetitorCollection,
-  runCompetitorSellerCollection,
 } from "./competitor-extension";
 
 vi.mock("@/lib/extension-bridge", () => ({
@@ -13,15 +16,11 @@ vi.mock("@/lib/extension-bridge", () => ({
   sendToExtension: vi.fn(),
 }));
 
-vi.mock('@/lib/browser-collection-session', () => ({
-  issueBrowserCollectionRunId: vi.fn().mockImplementation(
-    async (runId?: string) => runId ?? '11111111-1111-4111-8111-111111111111',
-  ),
-}));
-
 describe("competitor extension version gate", () => {
   beforeEach(() => {
     vi.mocked(sendToExtension).mockReset();
+    vi.mocked(detectExtensionId).mockResolvedValue('coupang-extension');
+    vi.mocked(isChromeExtensionRuntimeAvailable).mockReturnValue(true);
   });
   it("requires the browser collection session extension version", () => {
     expect(COMPETITOR_EXTENSION_MIN_VERSION).toBe("1.0.0");
@@ -57,36 +56,23 @@ describe("competitor extension version gate", () => {
     );
   });
 
-  it("passes the current run id through all and seller same-run restarts", async () => {
+  it("reports a ready extension only when the safe capability gate passes", async () => {
     vi.mocked(sendToExtension).mockResolvedValue({
       success: true,
-      started: true,
-      runId: "11111111-1111-4111-8111-111111111111",
-    });
-
-    await runCompetitorCollection(
-      "coupang-extension",
-      "11111111-1111-4111-8111-111111111111",
-    );
-    await runCompetitorSellerCollection(
-      "coupang-extension",
-      "seller-a",
-      "22222222-2222-4222-8222-222222222222",
-    );
-
-    expect(sendToExtension).toHaveBeenNthCalledWith(1, "coupang-extension", {
-      action: "runCoupangKeywordRankCheck",
-      runId: "11111111-1111-4111-8111-111111111111",
-    });
-    expect(sendToExtension).toHaveBeenNthCalledWith(
-      2,
-      "coupang-extension",
-      {
-        action: "runCoupangCompetitorSellerCatalog",
-        sellerId: "seller-a",
-        runId: "22222222-2222-4222-8222-222222222222",
+      version: '1.0.2',
+      capabilities: {
+        coupangKeywordRank: true,
+        coupangCompetitorSeller: true,
+        coupangCompetitorSellerCatalog: true,
+        coupangCompetitorSellerCatalogOnDemand: true,
+        browserCollectionSessions: true,
       },
-      30_000,
-    );
+    });
+
+    await expect(detectCompetitorExtensionGate()).resolves.toEqual({
+      status: 'ready',
+      extensionId: 'coupang-extension',
+      version: '1.0.2',
+    });
   });
 });

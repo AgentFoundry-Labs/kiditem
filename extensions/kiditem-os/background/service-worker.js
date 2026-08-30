@@ -29,6 +29,7 @@ importScripts(
   "coupang/ad-collector-delay.js",
   "coupang/collection-window.js",
   "coupang/collection-runs.js",
+  "coupang/wing-keyword-contract.js",
   "coupang/profitability-operation-checkpoint.js",
   "coupang/wing-image-fetch.js",
   "coupang/wing-form-runtime-compat.js",
@@ -46,6 +47,7 @@ importScripts(
   "orders/coupang-po-session.js",
   "orders/rocket-po-collection.js",
   // 소싱 도메인 모듈
+  "sourcing/url-policy.js",
   "sourcing/1688-trend-collector.js",
   "sourcing/live-commerce-collector.js",
   "sourcing/tiktok-cc-collector.js",
@@ -55,6 +57,15 @@ importScripts(
   "sourcing/worker.js",
 );
 
+// 서버가 발행한 browser Operation만 claim한다. 이 인스턴스 하나가 alarm과
+// active attempt를 소유하고, 공용 dispatch는 wake만 위임한다.
+const browserOperationRuntime = KidItemOperationRuntimeClient.create({
+  chrome,
+  environmentContext: browserOperationRuntimeEnvironmentContext,
+  domains: KidItemDomains,
+  sessions: collectionSessions,
+});
+
 // `worker-globals.js` 가 만든 공용 인스턴스를 그대로 쓴다. ping 과 세션 조회만
 // 담당하므로 토큰을 요구하지 않는다(미로그인 환경에서도 웹앱이 확장 버전과
 // capabilities 를 읽을 수 있어야 한다).
@@ -63,12 +74,9 @@ KidItemExternalDispatch.create({
   environmentContext: sharedEnvironmentContext,
   sessions: collectionSessions,
   domains: KidItemDomains,
+  operationRuntime: browserOperationRuntime,
 }).install();
 
-// 서버가 발행한 browser Operation만 claim한다. 도메인 worker의 독자 cron은
-// 여기로 옮기지 않으며, 이 alarm은 실행 payload를 보관하지 않는 wake-up 용도다.
-KidItemOperationRuntimeClient.create({
-  chrome,
-  environmentContext: browserOperationRuntimeEnvironmentContext,
-  domains: KidItemDomains,
-}).install();
+// 도메인 worker의 독자 cron은 여기로 옮기지 않으며, 이 alarm은 실행 payload를
+// 보관하지 않는 same-lifecycle wake-up 용도다.
+browserOperationRuntime.install();

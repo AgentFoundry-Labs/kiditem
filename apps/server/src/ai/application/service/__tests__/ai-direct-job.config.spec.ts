@@ -109,6 +109,7 @@ describe('ai direct job configuration', () => {
 
   it('uses always-enabled runtime defaults', () => {
     expect(resolveAiDirectJobRuntimeConfig({})).toEqual({
+      workerEnabled: true,
       workerIntervalMs: 1_000,
       workerMaxIntervalMs: 10_000,
       workerErrorMaxIntervalMs: 30_000,
@@ -118,5 +119,12 @@ describe('ai direct job configuration', () => {
       heldRecoveryMs: 30_000,
       retryDelaysMs: [5_000, 30_000, 120_000],
     });
+  });
+
+  it('allows an Agent OS MCP child to disable the direct AI worker', () => {
+    expect(
+      resolveAiDirectJobRuntimeConfig({ AI_DIRECT_JOB_WORKER_ENABLED: '0' })
+        .workerEnabled,
+    ).toBe(false);
   });
 });

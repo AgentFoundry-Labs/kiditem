@@ -137,7 +137,7 @@ of Coupang acceptance and does not call a marketplace provider.
 | `/rocket-orders` | Preserved `c9e7caf8` calendar/list/file-history UI with the stale capacity-decision placeholder replaced by authenticated collection, completeness evidence, editable deterministic preview, confirmation/workbook, and release. |
 | `/purchase-orders` | General supplier purchase-order operations only. |
 | `/product-hub/matching` | Baseline Coupang/Rocket listing queue and exact Sellpia option-component confirmation workspace. |
-| `/inventory-hub?tab=sellpia-sync` | Shared Sellpia freshness status, current basis, attempts, warnings, and manual fallback. |
+| `/inventory-hub` | Tabless current physical Sellpia basis, complete SKU/connection table, and manual sync action; no Rocket-specific inventory workspace. |
 | `/stock-ops?tab=product-outflow` | Direct Sellpia SKU sales/depletion with current stock, mapping state, and operating-product destinations. |
 
 On `/rocket-orders`, integrate the Supply-owned contract only at the existing
@@ -146,10 +146,10 @@ shell or expose a duplicate Rocket review workspace under `/purchase-orders`.
 
 ## Record-Only Operations
 
-`StockTransfer`, `PickingItem`, `ReturnTransfer`, and receipt/upload records may
-reference physical `SellpiaInventorySku` identities. Their status changes do not
-write `currentStock`. The next completed Sellpia full snapshot is the evidence
-for a real-world stock change.
+`StockTransfer` and `ReturnTransfer` records may reference physical
+`SellpiaInventorySku` identities. Their status changes do not write
+`currentStock`. The next completed Sellpia full snapshot is the evidence for a
+real-world stock change.
 
 ## Forbidden Actions
 
@@ -214,14 +214,14 @@ any marketplace provider/physical-stock side effect is reachable.
 ## Final Report Format
 
 ```text
-Release: 0.1.21
+Release: <root VERSION>
 Rocket account/vendor: <sanitized account id>; matched <yes/no>
 Collection: complete <yes/no>; list pages <n>; details <n>; failed <count>; truncated <yes/no>
 Catalog publication: <new|duplicate>; rows <count>
 Sellpia freshness generation: <decimal string>
 Preview: rows <count>; blocked <count>; edited bounds verified <yes/no>
 Confirmation: <not executed|active id>; idempotent <yes/no>; shortage reasons <verified/not applicable>
-Common commitment: <request|final|released|settled>; current/active/available <n/n/n>
+Physical availability: current/available <n/n>; equal <yes/no>
 PA reconciliation: <not executed|committed import id>; replay <not tested|idempotent>
 Workbook: <not generated|downloaded>; rows <count>
 Provider/physical-stock actions invoked: 0

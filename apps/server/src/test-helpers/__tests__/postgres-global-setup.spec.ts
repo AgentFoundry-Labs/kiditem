@@ -1,5 +1,11 @@
+import { readFile, rm, stat } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
-import { createPostgresGlobalSetup } from '../postgres-global-setup';
+import {
+  createEphemeralGatewayInstallationToken,
+  createPostgresGlobalSetup,
+  type EphemeralGatewayInstallationToken,
+  type PostgresGlobalSetupDependencies,
+} from '../postgres-global-setup';
 
 type StartedPostgres = {
   getConnectionUri: () => string;
@@ -16,8 +22,39 @@ function createStartedPostgres(databaseUrl: string) {
   return { container, stop };
 }
 
+function createGatewayInstallationToken() {
+  const token: EphemeralGatewayInstallationToken = {
+    directory: '/tmp/kiditem-integration-gateway-token-123',
+    filePath: '/tmp/kiditem-integration-gateway-token-123/installation-token',
+  };
+  return {
+    token,
+    createToken: vi.fn(async () => token),
+    removeToken: vi.fn(async () => undefined),
+  };
+}
+
+function setupDependencies(
+  startPostgres: () => Promise<StartedPostgres>,
+  pushSchema: (databaseUrl: string) => void | Promise<void>,
+  gatewayToken = createGatewayInstallationToken(),
+) {
+  const dependencies = {
+    startPostgres,
+    pushSchema,
+    createGatewayInstallationToken: gatewayToken.createToken,
+    removeGatewayInstallationToken: gatewayToken.removeToken,
+  } satisfies PostgresGlobalSetupDependencies;
+  return {
+    token: gatewayToken.token,
+    createToken: gatewayToken.createToken,
+    removeToken: gatewayToken.removeToken,
+    dependencies,
+  };
+}
+
 describe('Postgres integration global setup orchestration', () => {
-  it('starts exactly once and pushes the schema before providing the database URL', async () => {
+  it('creates an installation token and provides hermetic runtime values after the schema is ready', async () => {
     const databaseUrl = 'postgresql://kiditem_test:secret@localhost:6543/kiditem_test';
     const events: string[] = [];
     const { container } = createStartedPostgres(databaseUrl);
@@ -25,55 +62,83 @@ describe('Postgres integration global setup orchestration', () => {
     const pushSchema = vi.fn(async (url: string) => {
       events.push(`push:${url}`);
     });
-    const provide = vi.fn((key: 'databaseUrl', value: string) => {
+    const gatewayToken = createGatewayInstallationToken();
+    gatewayToken.createToken.mockImplementation(async () => {
+      events.push('token:create');
+      return gatewayToken.token;
+    });
+    const { dependencies, token, createToken } = setupDependencies(
+      startPostgres,
+      pushSchema,
+      gatewayToken,
+    );
+    const provide = vi.fn((key: 'databaseUrl' | 'gatewayInstallationTokenFile' | 'webOrigin', value: string) => {
       events.push(`provide:${key}:${value}`);
     });
 
-    await createPostgresGlobalSetup({ startPostgres, pushSchema })({ provide });
+    const teardown = await createPostgresGlobalSetup(dependencies)({ provide });
 
     expect(startPostgres).toHaveBeenCalledTimes(1);
     expect(pushSchema).toHaveBeenCalledWith(databaseUrl);
+    expect(createToken).toHaveBeenCalledTimes(1);
     expect(provide).toHaveBeenCalledWith('databaseUrl', databaseUrl);
+    expect(provide).toHaveBeenCalledWith('gatewayInstallationTokenFile', token.filePath);
+    expect(provide).toHaveBeenCalledWith('webOrigin', 'http://127.0.0.1:3000');
     expect(events).toEqual([
+      'token:create',
       `push:${databaseUrl}`,
       `provide:databaseUrl:${databaseUrl}`,
+      `provide:gatewayInstallationTokenFile:${token.filePath}`,
+      'provide:webOrigin:http://127.0.0.1:3000',
     ]);
+
+    await teardown();
+    expect(gatewayToken.removeToken).toHaveBeenCalledWith(token);
   });
 
-  it('stops the container and does not provide a URL when schema setup fails', async () => {
+  it('stops the container and removes the token when schema setup fails', async () => {
     const databaseUrl = 'postgresql://kiditem_test:secret@localhost:6543/kiditem_test';
     const { container, stop } = createStartedPostgres(databaseUrl);
     const setupError = new Error('schema push failed');
     const provide = vi.fn();
-    const setup = createPostgresGlobalSetup({
-      startPostgres: vi.fn(async () => container),
-      pushSchema: vi.fn(async () => {
+    const gatewayToken = createGatewayInstallationToken();
+    const { dependencies, token } = setupDependencies(
+      vi.fn(async () => container),
+      vi.fn(async () => {
         throw setupError;
       }),
-    });
+      gatewayToken,
+    );
+    const setup = createPostgresGlobalSetup(dependencies);
 
     await expect(setup({ provide })).rejects.toBe(setupError);
 
     expect(stop).toHaveBeenCalledTimes(1);
+    expect(gatewayToken.removeToken).toHaveBeenCalledWith(token);
     expect(provide).not.toHaveBeenCalled();
   });
 
-  it('preserves schema setup and cleanup errors when both operations fail', async () => {
+  it('preserves setup and both cleanup errors', async () => {
     const databaseUrl = 'postgresql://kiditem_test:secret@localhost:6543/kiditem_test';
     const { container } = createStartedPostgres(databaseUrl);
     const setupError = new Error('schema push failed');
     const cleanupError = new Error('container stop failed');
+    const tokenCleanupError = new Error('runner token cleanup failed');
     const stop = vi.fn(async () => {
       throw cleanupError;
     });
     container.stop = stop;
     const provide = vi.fn();
-    const setup = createPostgresGlobalSetup({
-      startPostgres: vi.fn(async () => container),
-      pushSchema: vi.fn(async () => {
+    const gatewayToken = createGatewayInstallationToken();
+    gatewayToken.removeToken.mockRejectedValueOnce(tokenCleanupError);
+    const { dependencies, token } = setupDependencies(
+      vi.fn(async () => container),
+      vi.fn(async () => {
         throw setupError;
       }),
-    });
+      gatewayToken,
+    );
+    const setup = createPostgresGlobalSetup(dependencies);
 
     let thrown: unknown;
     try {
@@ -83,19 +148,45 @@ describe('Postgres integration global setup orchestration', () => {
     }
 
     expect(thrown).toBeInstanceOf(AggregateError);
-    expect((thrown as AggregateError).errors).toEqual([setupError, cleanupError]);
+    expect((thrown as AggregateError).errors).toEqual([
+      setupError,
+      cleanupError,
+      tokenCleanupError,
+    ]);
     expect(stop).toHaveBeenCalledTimes(1);
+    expect(gatewayToken.removeToken).toHaveBeenCalledWith(token);
     expect(provide).not.toHaveBeenCalled();
   });
 
-  it('returns a teardown that stops the started container', async () => {
+  it('removes the exact token directory when starting the container fails', async () => {
+    const startError = new Error('container start failed');
+    const gatewayToken = createGatewayInstallationToken();
+    const { dependencies, token } = setupDependencies(
+      vi.fn(async () => {
+        throw startError;
+      }),
+      vi.fn(),
+      gatewayToken,
+    );
+
+    await expect(createPostgresGlobalSetup(dependencies)({ provide: vi.fn() }))
+      .rejects.toBe(startError);
+
+    expect(gatewayToken.removeToken).toHaveBeenCalledTimes(1);
+    expect(gatewayToken.removeToken).toHaveBeenCalledWith(token);
+  });
+
+  it('returns a teardown that stops the started container and removes the exact token directory', async () => {
     const { container, stop } = createStartedPostgres(
       'postgresql://kiditem_test:secret@localhost:6543/kiditem_test',
     );
-    const setup = createPostgresGlobalSetup({
-      startPostgres: vi.fn(async () => container),
-      pushSchema: vi.fn(),
-    });
+    const gatewayToken = createGatewayInstallationToken();
+    const { dependencies, token } = setupDependencies(
+      vi.fn(async () => container),
+      vi.fn(),
+      gatewayToken,
+    );
+    const setup = createPostgresGlobalSetup(dependencies);
 
     const teardown = await setup({ provide: vi.fn() });
     expect(stop).not.toHaveBeenCalled();
@@ -103,5 +194,20 @@ describe('Postgres integration global setup orchestration', () => {
     await teardown();
 
     expect(stop).toHaveBeenCalledTimes(1);
+    expect(gatewayToken.removeToken).toHaveBeenCalledWith(token);
+  });
+
+  it('creates a 32-byte unpadded base64url token in a private ephemeral file', async () => {
+    const token = await createEphemeralGatewayInstallationToken();
+    try {
+      const raw = await readFile(token.filePath, 'utf8');
+      expect(raw).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(Buffer.from(raw, 'base64url')).toHaveLength(32);
+      if (process.platform !== 'win32') {
+        expect((await stat(token.filePath)).mode & 0o777).toBe(0o600);
+      }
+    } finally {
+      await rm(token.directory, { recursive: true, force: true });
+    }
   });
 });

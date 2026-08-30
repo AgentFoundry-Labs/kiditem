@@ -13,8 +13,6 @@ import {
   APPLY_DATA_MIGRATIONS_CONFIRMATION,
   assertApplyDataMigrationsConfirmation,
   assertMutatingTarget,
-  buildRebuildBaselineManifest,
-  assertRebuildBaselineRestore,
   dataMigrationTransactionTimeoutMs,
   DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS,
   isDefinitelyProductionDatabaseUrl,
@@ -33,7 +31,6 @@ describe("data migration registry", () => {
       "v0.1.7:001_record_sellpia_rocket_inventory_sync_release",
       "v0.1.18:001_migrate_representative_keyword_overrides",
       "v0.1.19:001_sellpia_inventory_freshness",
-      "v0.1.21:001_backfill_inventory_commitments",
       "v0.1.24:001_dedupe_detail_page_artifacts",
       "v0.1.25:001_repair_ad_campaign_daily_business_dates",
       "v0.1.25:002_repair_coupang_ads_daily_conversions",
@@ -45,18 +42,18 @@ describe("data migration registry", () => {
       "v0.1.30:002_backfill_profitability_source_freshness",
       "v0.1.30:003_move_variant_recipes_to_channel_options",
       "v0.1.30:004_canonical_master_inventory_identity",
+      "v0.1.30:005_reset_sourcing_display_state",
     ]);
     expect(
       DATA_MIGRATION_IDS.filter((id) =>
         /backfill|normalize|rewrite|repoint|verify/.test(id),
       ),
     ).toEqual([
-      "v0.1.21:001_backfill_inventory_commitments",
       "v0.1.30:002_backfill_profitability_source_freshness",
     ]);
   });
 
-  it("registers the 0.1.25 ad campaign repairs and the 0.1.21 inventory commitment backfill", () => {
+  it("registers the current ad campaign and ABC migrations without the retired inventory commitment backfill", () => {
     const migrationIds = dataMigrations.map((migration) => migration.id);
 
     expect(migrationIds).toContain(
@@ -65,7 +62,6 @@ describe("data migration registry", () => {
     expect(migrationIds).toContain(
       "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
     );
-    expect(migrationIds).toContain("v0.1.21:001_backfill_inventory_commitments");
     expect(migrationIds).toContain(
       "v0.1.26:001_initialize_master_product_abc_policy",
     );
@@ -78,6 +74,7 @@ describe("data migration registry", () => {
     expect(migrationIds).toContain(
       "v0.1.30:004_canonical_master_inventory_identity",
     );
+    expect(migrationIds).toContain("v0.1.30:005_reset_sourcing_display_state");
   });
 
   it("keeps historical release 0.1.22 migration-free and never registers ahead of the root VERSION", () => {
@@ -88,7 +85,11 @@ describe("data migration registry", () => {
     const compare = (a: string, b: string) => {
       const left = toParts(a);
       const right = toParts(b);
-      for (let index = 0; index < Math.max(left.length, right.length); index++) {
+      for (
+        let index = 0;
+        index < Math.max(left.length, right.length);
+        index++
+      ) {
         const diff = (left[index] ?? 0) - (right[index] ?? 0);
         if (diff !== 0) return diff;
       }
@@ -96,7 +97,7 @@ describe("data migration registry", () => {
     };
 
     expect(releaseVersions).toContain("0.1.19");
-    expect(releaseVersions).toContain("0.1.21");
+    expect(releaseVersions).not.toContain("0.1.21");
     expect(releaseVersions).not.toContain("0.1.22");
 
     // Migrations for the open release train carry the root VERSION in their
@@ -119,7 +120,11 @@ describe("data migration registry", () => {
   });
 
   it("runs artifact deduplication before schema constraints and other migrations after", () => {
-    expect(selectDataMigrationsForPhase(dataMigrations, "pre-schema").map(({ id }) => id)).toEqual([
+    expect(
+      selectDataMigrationsForPhase(dataMigrations, "pre-schema").map(
+        ({ id }) => id,
+      ),
+    ).toEqual([
       "v0.1.24:001_dedupe_detail_page_artifacts",
       "v0.1.30:001_reset_legacy_product_abc_grades",
       "v0.1.30:003_move_variant_recipes_to_channel_options",
@@ -146,6 +151,7 @@ describe("data migration registry", () => {
     expect(postSchema).toEqual([
       "v0.1.30:002_backfill_profitability_source_freshness",
       "v0.1.30:004_canonical_master_inventory_identity",
+      "v0.1.30:005_reset_sourcing_display_state",
     ]);
   });
 
@@ -197,7 +203,7 @@ describe("data migration CLI guardrails", () => {
     ).not.toThrow();
   });
 
-  it("keeps local and staging targets away from production-looking URLs", () => {
+  it("keeps local and Office targets away from production-looking URLs", () => {
     const productionUrl = "postgresql://u:p@prod-db.example.com/app";
     expect(isDefinitelyProductionDatabaseUrl(productionUrl)).toBe(true);
     expect(
@@ -205,36 +211,18 @@ describe("data migration CLI guardrails", () => {
         "postgresql://u:p@staging-db.example.com/app",
       ),
     ).toBe(false);
-    expect(() => assertMutatingTarget("local", productionUrl, {})).toThrow(
+    expect(() => assertMutatingTarget("local", productionUrl)).toThrow(
       /production/i,
     );
-    expect(() => assertMutatingTarget("staging", productionUrl, {})).toThrow(
+    expect(() => assertMutatingTarget("office", productionUrl)).toThrow(
       /production/i,
     );
-  });
-
-  it("allows production only in GitHub Actions with independent confirmation", () => {
-    const productionUrl = "postgresql://u:p@prod-db.example.com/app";
-    expect(() => assertMutatingTarget("production", productionUrl, {})).toThrow(
-      /GitHub Actions/i,
-    );
-    expect(() =>
-      assertMutatingTarget("production", productionUrl, {
-        GITHUB_ACTIONS: "true",
-      }),
-    ).toThrow(/DATA_MIGRATION_PRODUCTION_CONFIRM/i);
-    expect(() =>
-      assertMutatingTarget("production", productionUrl, {
-        GITHUB_ACTIONS: "true",
-        DATA_MIGRATION_PRODUCTION_CONFIRM: "DEPLOY_PRODUCTION",
-      }),
-    ).not.toThrow();
   });
 
   it("rejects unknown targets and invalid transaction timeouts", () => {
     expect(() =>
-      assertMutatingTarget("development", "postgresql://localhost/app", {}),
-    ).toThrow(/local, staging, or production/i);
+      assertMutatingTarget("development", "postgresql://localhost/app"),
+    ).toThrow(/local or office/i);
     expect(dataMigrationTransactionTimeoutMs(undefined)).toBe(
       DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS,
     );
@@ -242,69 +230,5 @@ describe("data migration CLI guardrails", () => {
     expect(() => dataMigrationTransactionTimeoutMs("0")).toThrow(
       /positive integer/,
     );
-  });
-});
-
-describe('authoritative rebuild migration baseline', () => {
-  const registry = [
-    { id: 'v0.1.21:001_old', releaseVersion: '0.1.21', name: 'old' },
-    { id: 'v0.1.24:001_current', releaseVersion: '0.1.24', name: 'current' },
-  ];
-  const ledger = registry.map((migration) => ({
-    migrationId: migration.id,
-    releaseVersion: migration.releaseVersion,
-    name: migration.name,
-    status: 'succeeded',
-  }));
-  const binding = {
-    rootReleaseVersion: '0.1.24',
-    expectedGitSha: '0123456789abcdef0123456789abcdef01234567',
-    prismaSchemaHash: 'a'.repeat(64),
-    originRunId: '12345',
-  };
-
-  it('hashes the exact ordered registry and succeeded ledger', () => {
-    const manifest = buildRebuildBaselineManifest({ registry, ledger, ...binding });
-    expect(manifest.registry.map(({ id }) => id)).toEqual(registry.map(({ id }) => id));
-    expect(manifest.manifestSha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(() => assertRebuildBaselineRestore({
-      manifest,
-      registry,
-      existingLedgerIds: [],
-      ...binding,
-    })).not.toThrow();
-  });
-
-  it.each([
-    { ledger: [{ ...ledger[0], status: 'running' }, ledger[1]] },
-    { ledger: [{ ...ledger[0], status: 'failed' }, ledger[1]] },
-    { ledger: [ledger[0]] },
-    { ledger: [...ledger, { migrationId: 'v9.0.0:999_unknown', releaseVersion: '9.0.0', name: 'x', status: 'succeeded' }] },
-  ])('rejects unsafe or non-exact ledgers', ({ ledger: unsafeLedger }) => {
-    expect(() => buildRebuildBaselineManifest({
-      registry,
-      ledger: unsafeLedger,
-      ...binding,
-    })).toThrow(/ledger|registry|succeeded/i);
-  });
-
-  it('rejects changed registry, binding, manifest hash, or a nonempty recreated ledger', () => {
-    const manifest = buildRebuildBaselineManifest({ registry, ledger, ...binding });
-    for (const override of [
-      { registry: [...registry].reverse() },
-      { expectedGitSha: 'f'.repeat(40) },
-      { prismaSchemaHash: 'b'.repeat(64) },
-      { originRunId: '54321' },
-      { existingLedgerIds: [registry[0].id] },
-      { manifest: { ...manifest, manifestSha256: '0'.repeat(64) } },
-    ]) {
-      expect(() => assertRebuildBaselineRestore({
-        manifest,
-        registry,
-        existingLedgerIds: [],
-        ...binding,
-        ...override,
-      })).toThrow(/baseline|manifest|registry|ledger|binding/i);
-    }
   });
 });

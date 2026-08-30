@@ -10,8 +10,7 @@ describe('product operations inventory mapper', () => {
       new Map([[SKU_ID, {
         sellpiaInventorySkuId: SKU_ID,
         currentStock: 100,
-        activeCommitmentQuantity: 80,
-        availableStock: 20,
+        availableStock: 100,
         isActive: true,
         generation: '12',
       }]]),
@@ -26,7 +25,7 @@ describe('product operations inventory mapper', () => {
     expect(result).toMatchObject({
       imageUrls: [],
       displayImageUrls: [],
-      inventoryUnits: 20,
+      inventoryUnits: 100,
       inventoryStatus: 'sellable',
       depletion: { needsReorder: true },
       activeChannels: [{
@@ -90,7 +89,6 @@ function rawListItem() {
     orderCount: null,
     salesAmount: null,
     adSpend: null,
-    profit: null,
     contributionMargin: null,
     contributionProfitVelocity30: null,
     inventorySkuIds: [SKU_ID],

@@ -1,53 +1,37 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import {
+  sourcingWingCatalogKeywordIdentity,
+  type Sourcing1688SearchObservation,
+} from '@kiditem/shared/sourcing';
 import { KeyRound, Loader2, PackageSearch, RefreshCw, Search } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
-import { useTodayRecommendationRows } from '../lib/use-today-recommendation-rows';
 import {
   build1688SearchUrl,
   buildCoupangImageSearchRows,
   buildImageSearchOffer,
   type CoupangImageSearchRow,
 } from '../lib/coupang-1688-matching';
+import { createKeywordInterestTarget } from '../lib/sourcing-interest-target';
+import { toTodayRecommendationRows } from '../lib/sourcing-recommendation-presenter';
+import { normalizeWingOperationKeywords } from '../lib/wing-operation-input';
 import {
-  get1688KeywordSearchStatus,
-  search1688ByKeyword,
-  type Search1688KeywordResponse,
-} from '../lib/1688-keyword-search-api';
-import { append1688NewProductSnapshot } from '../lib/1688-new-product-snapshot';
-import { getTodaySourcingWorkspaceSnapshot } from '../lib/sourcing-workspace-snapshot-api';
-import {
-  addSourcingInterestTarget,
-  createKeywordInterestTarget,
-  loadLatestInterestTrackingPayload,
-  removeSourcingInterestTarget,
-  type SourcingInterestTrackingSnapshotPayload,
-} from '../lib/sourcing-interest-tracking';
+  useRemoveSourcingInterestTarget,
+  useSaveSourcingInterestTarget,
+  useSourcingInterestTargets,
+  useSourcingRecommendations,
+} from '../hooks/use-sourcing-workspace';
 import { InterestKeywordManager } from '../keywords/components/InterestKeywordManager';
+import { useSourcingOperationAction } from '../hooks/use-sourcing-operation-action';
+import { useWholesale1688Results } from '../hooks/use-wholesale-1688-results';
+import { wholesale1688ResultsQueryKey } from '../lib/wholesale-1688-results-api';
+import { SourcingOperationRunPanel } from './SourcingOperationRunPanel';
 import { SellochWholesaleOfferGrid } from './SellochWholesaleOfferGrid';
-import type { TodayRecommendationRow } from '../recommendations/lib/today-recommendations';
 
 const AUTO_KEYWORD_SEARCH_LIMIT = 6;
-const KEYWORD_SEARCH_RESULT_LIMIT = 6;
 const INLINE_KEYWORD_RESULT_LIMIT = 6;
 const DEFAULT_KEYWORD_TARGET_SALE_PRICE_KRW = 15900;
-
-type TodayRecommendationSnapshotPayload = Record<string, unknown> & {
-  result?: {
-    rows?: TodayRecommendationRow[];
-  };
-};
-
-type KeywordSearchState =
-  | { status: 'loading' }
-  | { status: 'success'; result: Search1688KeywordResponse }
-  | { status: 'error'; message: string };
-
-type KeywordSearchAvailability =
-  | { status: 'checking' }
-  | { status: 'ready'; configured: boolean }
-  | { status: 'error'; message: string };
 
 interface KeywordSearchCandidate {
   id: string;
@@ -58,23 +42,28 @@ interface KeywordSearchCandidate {
 }
 
 export function SellochWholesaleKeywordSearch() {
-  const localRows = useTodayRecommendationRows();
-  const [snapshotRows, setSnapshotRows] = useState<TodayRecommendationRow[]>([]);
-  const [keywordSearches, setKeywordSearches] = useState<Record<string, KeywordSearchState>>({});
-  const [availability, setAvailability] = useState<KeywordSearchAvailability>({ status: 'checking' });
-  const [interestPayload, setInterestPayload] = useState<SourcingInterestTrackingSnapshotPayload | null>(null);
-  const [loadingInterestKeywords, setLoadingInterestKeywords] = useState(false);
+  const recommendationsQuery = useSourcingRecommendations('today');
+  const coupangRows = useMemo(
+    () => toTodayRecommendationRows(recommendationsQuery.data?.data?.items ?? []),
+    [recommendationsQuery.data],
+  );
+  const interestTargetsQuery = useSourcingInterestTargets();
+  const saveInterestTarget = useSaveSourcingInterestTarget();
+  const removeInterestTarget = useRemoveSourcingInterestTarget();
   const [interestNotice, setInterestNotice] = useState<string | null>(null);
   const [newKeywordText, setNewKeywordText] = useState('');
-  const autoRequestedQueries = useRef<Set<string>>(new Set());
 
-  const coupangRows = localRows.length > 0 ? localRows : snapshotRows;
   const interestKeywords = useMemo(
-    () => (interestPayload?.result.targets ?? [])
-      .filter((target) => target.type === 'keyword' && target.keyword)
+    () => (interestTargetsQuery.data ?? [])
+      .filter((target) => target.targetType === 'keyword' && target.keyword)
       .map((target) => target.keyword as string),
-    [interestPayload],
+    [interestTargetsQuery.data],
   );
+  const loadingInterestKeywords =
+    interestTargetsQuery.isLoading ||
+    interestTargetsQuery.isFetching ||
+    saveInterestTarget.isPending ||
+    removeInterestTarget.isPending;
   const matches = useMemo(
     () => {
       if (interestKeywords.length > 0) {
@@ -100,168 +89,93 @@ export function SellochWholesaleKeywordSearch() {
     [coupangRows, interestKeywords],
   );
   const usingInterestKeywords = interestKeywords.length > 0;
-  const canRunKeywordSearch = availability.status === 'ready' && availability.configured;
+  const operationKeywords = useMemo(
+    () => normalizeWingOperationKeywords(
+      matches.map((match) => match.searchQuery),
+      AUTO_KEYWORD_SEARCH_LIMIT,
+    ),
+    [matches],
+  );
+  const resultQuery = useWholesale1688Results({ keywords: operationKeywords });
+  const snapshotQueryKey = wholesale1688ResultsQueryKey({
+    keywords: operationKeywords,
+  });
+  const operationInput = useMemo(
+    () => ({ keywords: operationKeywords }),
+    [operationKeywords],
+  );
+  const operation = useSourcingOperationAction({
+    operationKey: 'sourcing.search_1688_keyword_batch',
+    input: operationInput,
+    snapshotQueryKey,
+    wakeBrowserRuntime: true,
+  });
+  const operationActive = operation.isStarting || isActiveOperation(operation.run?.status);
+  const observationsByKeyword = useMemo(
+    () => new Map(
+      (resultQuery.data?.observations ?? [])
+        .filter((observation) => observation.targetId === null)
+        .map((observation) => [
+          sourcingWingCatalogKeywordIdentity(observation.keyword),
+          observation,
+        ]),
+    ),
+    [resultQuery.data?.observations],
+  );
 
-  const runKeywordSearch = useCallback(async (match: KeywordSearchCandidate) => {
-    if (!canRunKeywordSearch) {
-      setKeywordSearches((prev) => ({
-        ...prev,
-        [match.searchQuery]: {
-          status: 'error',
-          message: keywordSearchUnavailableMessage(availability),
-        },
-      }));
-      return;
-    }
-
-    setKeywordSearches((prev) => ({ ...prev, [match.searchQuery]: { status: 'loading' } }));
-    try {
-      const result = await search1688ByKeyword({
-        keyword: match.searchQuery,
-        page: 1,
-        maxResults: KEYWORD_SEARCH_RESULT_LIMIT,
-      });
-      void append1688NewProductSnapshot({
-        source: '1688_keyword_search',
-        keyword: match.searchQuery,
-        items: result.items,
-      }).catch(() => undefined);
-      setKeywordSearches((prev) => ({ ...prev, [match.searchQuery]: { status: 'success', result } }));
-    } catch (error) {
-      setKeywordSearches((prev) => ({
-        ...prev,
-        [match.searchQuery]: {
-          status: 'error',
-          message: formatKeywordSearchError(error),
-        },
-      }));
-    }
-  }, [availability, canRunKeywordSearch]);
+  const runKeywordSearch = useCallback((match: KeywordSearchCandidate) => {
+    void operation.start({ keywords: [match.searchQuery] }, [snapshotQueryKey]);
+  }, [operation, snapshotQueryKey]);
 
   const rerunTopSearches = useCallback(() => {
-    if (!canRunKeywordSearch) return;
-    for (const match of matches.slice(0, AUTO_KEYWORD_SEARCH_LIMIT)) {
-      autoRequestedQueries.current.add(match.searchQuery);
-      void runKeywordSearch(match);
-    }
-  }, [canRunKeywordSearch, matches, runKeywordSearch]);
+    if (operationKeywords.length === 0) return;
+    void operation.start();
+  }, [operation, operationKeywords.length]);
 
   const loadInterestKeywords = useCallback(async () => {
-    setLoadingInterestKeywords(true);
+    setInterestNotice(null);
     try {
-      setInterestPayload(await loadLatestInterestTrackingPayload(3));
+      const result = await interestTargetsQuery.refetch();
+      if (result.error) throw result.error;
     } catch (error) {
       setInterestNotice(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoadingInterestKeywords(false);
     }
-  }, []);
+  }, [interestTargetsQuery]);
 
   const registerKeywords = useCallback(async () => {
     const keywords = parseKeywordText(newKeywordText);
     if (keywords.length === 0) return;
-    setLoadingInterestKeywords(true);
     setInterestNotice(null);
     try {
-      let payload: SourcingInterestTrackingSnapshotPayload | null = null;
       for (const keyword of keywords) {
-        payload = await addSourcingInterestTarget({
-          target: createKeywordInterestTarget({
-            keyword,
-            source: 'manual',
-          }),
-          observation: {
-            source: 'manual',
-            metrics: {
-              label: '1688 검색어 직접 등록',
-            },
-            note: '1688 키워드검색에서 관심 키워드로 저장',
-          },
-          trackingWindowDays: 3,
-        });
+        await saveInterestTarget.mutateAsync(
+          createKeywordInterestTarget({ keyword, source: 'manual' }),
+        );
       }
-      if (payload) setInterestPayload(payload);
+      await interestTargetsQuery.refetch();
       setNewKeywordText('');
       setInterestNotice(`${formatNumber(keywords.length)}개 키워드를 관심 키워드에 등록했습니다.`);
     } catch (error) {
       setInterestNotice(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoadingInterestKeywords(false);
     }
-  }, [newKeywordText]);
+  }, [interestTargetsQuery, newKeywordText, saveInterestTarget]);
 
   const removeKeywordInterest = useCallback(async (targetId: string) => {
-    setLoadingInterestKeywords(true);
     setInterestNotice(null);
     try {
-      const payload = await removeSourcingInterestTarget({
-        targetId,
-        trackingWindowDays: 3,
-      });
-      setInterestPayload(payload);
+      await removeInterestTarget.mutateAsync(targetId);
+      await interestTargetsQuery.refetch();
       setInterestNotice('관심 키워드를 삭제했습니다.');
     } catch (error) {
       setInterestNotice(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoadingInterestKeywords(false);
     }
-  }, []);
+  }, [interestTargetsQuery, removeInterestTarget]);
 
   const runManagedKeywordSearch = useCallback((keyword: string) => {
     const normalizedKeyword = keyword.trim();
     if (!normalizedKeyword) return;
     void runKeywordSearch(buildKeywordCandidate(normalizedKeyword, '관심 키워드'));
   }, [runKeywordSearch]);
-
-  useEffect(() => {
-    if (!canRunKeywordSearch) return;
-    for (const match of matches.slice(0, AUTO_KEYWORD_SEARCH_LIMIT)) {
-      if (autoRequestedQueries.current.has(match.searchQuery)) continue;
-      autoRequestedQueries.current.add(match.searchQuery);
-      void runKeywordSearch(match);
-    }
-  }, [canRunKeywordSearch, matches, runKeywordSearch]);
-
-  useEffect(() => {
-    void loadInterestKeywords();
-  }, [loadInterestKeywords]);
-
-  useEffect(() => {
-    let active = true;
-    void get1688KeywordSearchStatus()
-      .then((status) => {
-        if (active) setAvailability({ status: 'ready', configured: status.configured });
-      })
-      .catch((error) => {
-        if (active) setAvailability({ status: 'error', message: formatKeywordSearchError(error) });
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    if (localRows.length > 0) return () => {
-      active = false;
-    };
-
-    void getTodaySourcingWorkspaceSnapshot<TodayRecommendationSnapshotPayload>('today_recommendations')
-      .then(({ snapshot }) => {
-        const rows = snapshot?.payload?.result?.rows;
-        if (active && Array.isArray(rows)) setSnapshotRows(rows);
-      })
-      .catch(() => {
-        if (active) setSnapshotRows([]);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [localRows.length]);
-
-  const loadingSearchCount = matches.filter((match) => keywordSearches[match.searchQuery]?.status === 'loading').length;
 
   return (
     <section className="rounded-[18px] border border-[#eef1f5] bg-white p-5 shadow-[0_12px_30px_rgba(15,23,42,0.05)]">
@@ -279,17 +193,22 @@ export function SellochWholesaleKeywordSearch() {
         <button
           type="button"
           onClick={rerunTopSearches}
-          disabled={!canRunKeywordSearch || matches.length === 0 || loadingSearchCount > 0}
+          disabled={operationKeywords.length === 0 || operationActive}
           className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-[#dbe2ea] bg-[#fbfbfc] px-4 text-xs font-black text-[#4b5563] transition hover:border-[#6d5dfc] hover:text-[#6d5dfc] disabled:opacity-60"
         >
-          {loadingSearchCount > 0 ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
-          상위 {AUTO_KEYWORD_SEARCH_LIMIT}개 다시 검색
+          {operationActive ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+          상위 {AUTO_KEYWORD_SEARCH_LIMIT}개 검색
         </button>
       </div>
 
-      {!canRunKeywordSearch && (
-        <KeywordSearchSetupNotice availability={availability} />
-      )}
+      <SourcingOperationRunPanel
+        run={operation.run}
+        onCancel={() => { void operation.cancel(); }}
+        onRetryAttention={() => { void operation.retryAttention(); }}
+        isCancelling={operation.isCancelling}
+        isRetrying={operation.isRetrying}
+        className="mt-5"
+      />
 
       <div className="mt-5 rounded-xl border border-[#eef1f5] bg-[#fbfcfe] p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
@@ -331,8 +250,7 @@ export function SellochWholesaleKeywordSearch() {
           className="mt-4 border-[#eef1f5] bg-white shadow-none"
           loading={loadingInterestKeywords}
           notice={interestNotice}
-          observations={interestPayload?.result.observations ?? []}
-          targets={interestPayload?.result.targets ?? []}
+          targets={interestTargetsQuery.data ?? []}
           onRefresh={() => void loadInterestKeywords()}
           onRemove={(targetId) => {
             void removeKeywordInterest(targetId);
@@ -351,9 +269,11 @@ export function SellochWholesaleKeywordSearch() {
             <KeywordMatchCard
               key={match.id}
               match={match}
-              state={keywordSearches[match.searchQuery]}
+              observation={observationsByKeyword.get(
+                sourcingWingCatalogKeywordIdentity(match.searchQuery),
+              )}
               onSearch={runKeywordSearch}
-              availability={availability}
+              busy={operationActive}
             />
           ))}
         </div>
@@ -364,17 +284,17 @@ export function SellochWholesaleKeywordSearch() {
 
 function KeywordMatchCard({
   match,
-  state,
+  observation,
   onSearch,
-  availability,
+  busy,
 }: {
   match: KeywordSearchCandidate;
-  state: KeywordSearchState | undefined;
+  observation: Sourcing1688SearchObservation | undefined;
   onSearch: (match: KeywordSearchCandidate) => void;
-  availability: KeywordSearchAvailability;
+  busy: boolean;
 }) {
-  const offers = state?.status === 'success'
-    ? state.result.items.slice(0, INLINE_KEYWORD_RESULT_LIMIT).map((item) => {
+  const offers = observation
+    ? observation.items.slice(0, INLINE_KEYWORD_RESULT_LIMIT).map((item) => {
       const offer = buildImageSearchOffer(item, match.targetSalePriceKrw);
       return {
         ...offer,
@@ -383,8 +303,6 @@ function KeywordMatchCard({
       };
     })
     : [];
-  const isLoading = state?.status === 'loading';
-  const disabled = isLoading || availability.status !== 'ready' || !availability.configured;
 
   return (
     <article className="rounded-xl border border-[#eef1f5] bg-[#fbfcfe] p-4">
@@ -397,22 +315,22 @@ function KeywordMatchCard({
         <button
           type="button"
           onClick={() => onSearch(match)}
-          disabled={disabled}
+          disabled={busy}
           className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-[#111827] px-3 text-xs font-black text-white transition hover:bg-[#6d5dfc] disabled:bg-[#dbe2ea] disabled:text-[#8a94a6]"
         >
-          {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
           검색
         </button>
       </div>
 
       <div className="mt-4 space-y-2">
-        {state?.status === 'error' && (
-          <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs font-bold leading-5 text-red-800">{state.message}</p>
-        )}
-        {isLoading && (
+        {busy && !observation && (
           <p className="rounded-lg border border-[#dbe2ea] bg-white p-3 text-xs font-bold text-[#667085]">1688 상품 후보를 불러오는 중입니다.</p>
         )}
-        {state?.status === 'success' && offers.length === 0 && (
+        {!busy && !observation && (
+          <p className="rounded-lg border border-dashed border-[#dbe2ea] bg-white p-3 text-xs font-bold text-[#667085]">아직 저장된 검색 결과가 없습니다.</p>
+        )}
+        {observation && offers.length === 0 && (
           <p className="rounded-lg border border-[#dbe2ea] bg-white p-3 text-xs font-bold text-[#667085]">검색 결과가 없습니다. 다른 검색어로 다시 시도해보세요.</p>
         )}
         {offers.length > 0 && (
@@ -424,32 +342,6 @@ function KeywordMatchCard({
         )}
       </div>
     </article>
-  );
-}
-
-function KeywordSearchSetupNotice({ availability }: { availability: KeywordSearchAvailability }) {
-  const checking = availability.status === 'checking';
-  return (
-    <div className={cn(
-      'mt-5 rounded-xl border p-4',
-      checking ? 'border-[#eef1f5] bg-[#f8fafc]' : 'border-red-200 bg-red-50',
-    )}>
-      <div className="flex items-start gap-3">
-        {checking ? (
-          <Loader2 size={18} className="mt-0.5 shrink-0 animate-spin text-[#667085]" />
-        ) : (
-          <KeyRound size={18} className="mt-0.5 shrink-0 text-red-700" />
-        )}
-        <div>
-          <h3 className="text-sm font-black text-[#111827]">
-            {checking ? '1688 키워드검색 연결 확인 중' : '1688 키워드검색 연결 전입니다'}
-          </h3>
-          <p className={cn('mt-1 text-xs font-bold leading-5', checking ? 'text-[#667085]' : 'text-red-800')}>
-            {keywordSearchUnavailableMessage(availability)}
-          </p>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -484,21 +376,6 @@ function parseKeywordText(value: string): string[] {
     });
 }
 
-function keywordSearchUnavailableMessage(availability: KeywordSearchAvailability): string {
-  if (availability.status === 'checking') {
-    return '백엔드에서 1688 키워드검색 설정을 확인하고 있습니다.';
-  }
-  if (availability.status === 'error') {
-    return availability.message;
-  }
-  if (!availability.configured) {
-    return '1688 직접 키워드검색 연결이 비활성화되어 있습니다. 서버 설정을 확인해주세요.';
-  }
-  return '1688 키워드검색을 실행할 수 있습니다.';
-}
-
-function formatKeywordSearchError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === 'string') return error;
-  return '1688 키워드검색 중 알 수 없는 오류가 발생했습니다.';
+function isActiveOperation(status: string | undefined): boolean {
+  return status === 'queued' || status === 'running' || status === 'attention_required';
 }

@@ -25,8 +25,9 @@ discovery of the guides that apply to the files being changed.
    node <skill-dir>/scripts/audit-agents-md.mjs --root .
    ```
 
-   Use `--limit 32768` to match Codex's default project instruction byte cap,
-   and `--target path/to/dir` for a specific work area.
+   The KidItem default is 18432 bytes (18 KiB). Use `--limit <bytes>` only
+   when auditing a repository with a different explicit cap, and
+   `--target path/to/dir` for a specific work area.
 
 3. Read the active chain for the target path from root to nearest guide. If the
    work moves into another nested area, rerun discovery and read the new chain.
@@ -42,7 +43,7 @@ discovery of the guides that apply to the files being changed.
 |---|---|---|
 | Discovery | Root tells agents to find scoped guides before editing. | Agents rely on memory or a stale route table. |
 | Scope | Root has global contracts; nested files add local exceptions. | Same commands/rules repeated in many children. |
-| Size | Active chain stays under the configured byte cap; aim below 28 KiB. | Root or parent files grow with route inventories. |
+| Size | Active chain stays under the configured byte cap; aim at or below 18 KiB. | Root or parent files grow with route inventories. |
 | Verification | Local `Verification` exists only for different or narrower gates. | Every file repeats the same build command. |
 | Folder maps | Map encodes ownership, architecture, or exception contracts. | Map only duplicates `rg --files` output. |
 | Overrides | `AGENTS.override.md` is rare and intentional. | Override accidentally hides sibling `AGENTS.md`. |

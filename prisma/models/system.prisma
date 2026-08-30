@@ -69,6 +69,26 @@ model BusinessRule {
 }
 
 /// @namespace System
+/// @describe Exactly-once Rules result-application receipt for one organization-scoped Operation run.
+model RulesEvaluationApplication {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  operationRunId String   @map("operation_run_id") @db.Uuid
+  productCount   Int      @map("product_count")
+  violationCount Int      @map("violation_count")
+  criticalCount  Int      @map("critical_count")
+  appliedAt      DateTime @default(now()) @map("applied_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  operationRun OperationRun @relation(fields: [operationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([operationRunId, organizationId], map: "rules_evaluation_applications_run_org_key")
+  @@index([organizationId, appliedAt])
+  @@index([operationRunId, organizationId])
+  @@map("rules_evaluation_applications")
+}
+
+/// @namespace System
 /// @describe 액션 보드 (수동 할일 관리).
 model ActionTask {
   id             String   @id @default(uuid()) @db.Uuid
@@ -199,54 +219,86 @@ model Alert {
 /// @namespace System
 /// @describe Organization-scoped top-level execution ledger for dashboard, domain, Agent OS, and scheduled work.
 model OperationRun {
-  id                String    @id @default(uuid()) @db.Uuid
-  organizationId    String    @map("organization_id") @db.Uuid
-  operationKey      String    @map("operation_key")
-  definitionVersion Int       @map("definition_version")
-  ownerDomain       String    @map("owner_domain")
-  title             String
-  engineType        String    @map("engine_type")
-  status            String    @default("queued")
-  triggerSource     String    @map("trigger_source")
-  requestedByUserId String?   @map("requested_by_user_id") @db.Uuid
-  parentRunId       String?   @map("parent_run_id") @db.Uuid
-  scheduleId        String?   @map("schedule_id") @db.Uuid
-  idempotencyKey    String?   @map("idempotency_key")
-  input             Json      @default("{}") @db.JsonB
-  result            Json?     @db.JsonB
-  progress          Float?
-  nativeRunType     String?   @map("native_run_type")
-  nativeRunId       String?   @map("native_run_id")
-  attempts          Int       @default(0)
-  maxAttempts       Int       @default(3) @map("max_attempts")
-  claimedBy         String?   @map("claimed_by")
-  attemptToken      String?   @map("attempt_token") @db.Uuid
-  claimedAt         DateTime? @map("claimed_at") @db.Timestamptz
-  leaseExpiresAt    DateTime? @map("lease_expires_at") @db.Timestamptz
-  scheduledFor      DateTime? @map("scheduled_for") @db.Timestamptz
-  errorCode         String?   @map("error_code")
-  errorMessage      String?   @map("error_message")
-  startedAt         DateTime? @map("started_at") @db.Timestamptz
-  finishedAt        DateTime? @map("finished_at") @db.Timestamptz
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id                 String    @id @default(uuid()) @db.Uuid
+  organizationId     String    @map("organization_id") @db.Uuid
+  operationKey       String    @map("operation_key")
+  definitionVersion  Int       @map("definition_version")
+  ownerDomain        String    @map("owner_domain")
+  title              String
+  engineType         String    @map("engine_type")
+  resourceClass      String    @default("default") @map("resource_class")
+  executionTimeoutMs Int       @default(900000) @map("execution_timeout_ms")
+  status             String    @default("queued")
+  triggerSource      String    @map("trigger_source")
+  requestedByUserId  String?   @map("requested_by_user_id") @db.Uuid
+  parentRunId        String?   @map("parent_run_id") @db.Uuid
+  scheduleId         String?   @map("schedule_id") @db.Uuid
+  idempotencyKey     String?   @map("idempotency_key")
+  input              Json      @default("{}") @db.JsonB
+  result             Json?     @db.JsonB
+  progress           Float?
+  stage              String?
+  stageUpdatedAt     DateTime? @map("stage_updated_at") @db.Timestamptz
+  progressCurrent    Int?      @map("progress_current")
+  progressTotal      Int?      @map("progress_total")
+  deadlineAt         DateTime? @map("deadline_at") @db.Timestamptz
+  nativeRunType      String?   @map("native_run_type")
+  nativeRunId        String?   @map("native_run_id")
+  attempts           Int       @default(0)
+  maxAttempts        Int       @default(3) @map("max_attempts")
+  claimedBy          String?   @map("claimed_by")
+  attemptToken       String?   @map("attempt_token") @db.Uuid
+  claimedAt          DateTime? @map("claimed_at") @db.Timestamptz
+  leaseExpiresAt     DateTime? @map("lease_expires_at") @db.Timestamptz
+  scheduledFor       DateTime? @map("scheduled_for") @db.Timestamptz
+  errorCode          String?   @map("error_code")
+  errorMessage       String?   @map("error_message")
+  startedAt          DateTime? @map("started_at") @db.Timestamptz
+  finishedAt         DateTime? @map("finished_at") @db.Timestamptz
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  requestedBy  User?              @relation("OperationRunRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
-  parentRun    OperationRun?      @relation("OperationRunHierarchy", fields: [parentRunId], references: [id], onDelete: SetNull)
-  childRuns    OperationRun[]     @relation("OperationRunHierarchy")
-  schedule     OperationSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  organization                                     Organization                            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedBy                                      User?                                   @relation("OperationRunRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  parentRun                                        OperationRun?                           @relation("OperationRunHierarchy", fields: [parentRunId], references: [id], onDelete: SetNull)
+  childRuns                                        OperationRun[]                          @relation("OperationRunHierarchy")
+  schedule                                         OperationSchedule?                      @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  checkpoints                                      OperationRunCheckpoint[]                @relation("OperationRunCheckpoints")
+  rulesEvaluationApplications                      RulesEvaluationApplication[]
 
   @@unique([id, organizationId], map: "operation_runs_id_org_key")
   @@unique([organizationId, operationKey, idempotencyKey], map: "operation_runs_idempotency_key", where: raw("idempotency_key IS NOT NULL"))
   @@index([organizationId, status, createdAt])
   @@index([status, scheduledFor])
   @@index([status, leaseExpiresAt])
+  @@index([resourceClass, status, scheduledFor])
+  @@index([resourceClass, status, leaseExpiresAt])
   @@index([parentRunId])
   @@index([scheduleId])
   @@index([requestedByUserId])
   @@index([organizationId, nativeRunType, nativeRunId])
   @@map("operation_runs")
+}
+
+/// @namespace System
+/// @describe Immutable monotonic recovery checkpoint owned by an organization-scoped Operation run.
+model OperationRunCheckpoint {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  operationRunId String   @map("operation_run_id") @db.Uuid
+  sequence       BigInt   @db.BigInt
+  kind           String
+  state          Json     @default("{}") @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  operationRun OperationRun @relation("OperationRunCheckpoints", fields: [operationRunId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([operationRunId, sequence], map: "operation_run_checkpoints_run_sequence_key")
+  @@unique([id, organizationId], map: "operation_run_checkpoints_id_org_key")
+  @@index([organizationId, operationRunId, sequence])
+  @@index([operationRunId, organizationId])
+  @@map("operation_run_checkpoints")
 }
 
 /// @namespace System
@@ -289,24 +341,6 @@ model SystemSetting {
 
   @@unique([organizationId, key])
   @@map("system_settings")
-}
-
-/// @namespace System
-/// @describe 이관 스크립트 체크포인트 (Plan C 용). 이관 완료 후 drop 가능.
-model MigrationCheckpoint {
-  id         String   @id @default(uuid()) @db.Uuid
-  scriptName String   @map("script_name")
-  stepName   String   @map("step_name")
-  entityKey  String   @map("entity_key")
-  status     String
-  error      String?
-  payload    Json?
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  @@unique([scriptName, stepName, entityKey])
-  @@index([scriptName, status])
-  @@map("migration_checkpoints")
 }
 
 /// @namespace System

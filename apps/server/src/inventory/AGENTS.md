@@ -1,174 +1,74 @@
-Consult this document first instead of relying on memorized knowledge.
+# inventory — Sellpia Snapshot And Inventory Operations
 
-# inventory — Sellpia SKU Snapshot, Warehouses, Operation Records
+`src/inventory/` owns Sellpia imports and authoritative physical SKU snapshots,
+freshness/generation fencing, warehouses, stock transfers, return records, and
+the Inventory availability boundaries consumed by matching and purchase
+preview workflows. KidItem has no second mutable stock balance.
 
-`src/inventory/` owns the Sellpia-authoritative physical `SellpiaInventorySku`
-snapshot and adjacent warehouse, transfer, picking, receipt, unshipped, and
-shipment-file capabilities. KidItem does not maintain a second mutable stock
-balance.
+## Identity And Ownership
 
-## Folder Map
+- `SellpiaInventorySku` is one provider product-code identity and
+  `currentStock` is its physical quantity authority.
+- `SourceImportRun` owns source provenance, idempotency, and attempt fencing.
+- Public physical availability is exactly `availableStock === currentStock`.
+- Transfer, return-transfer, and warehouse rows are operation records;
+  completing them does not change `currentStock`.
+- Commitment, Picking, Unshipped, and Sellpia receipt-batch capabilities are
+  retired and their persistence models are absent.
 
-```text
-inventory/
-├── inventory.module.ts
-├── adapter/in/http/          # snapshot/import, warehouse, transfer, picking controllers
-├── adapter/out/
-│   ├── repository/           # the only PrismaService import lane
-│   └── storage/              # generated shipment-file storage
-├── application/
-│   ├── port/in/              # exported use-case ports
-│   ├── port/out/             # repository/cross-domain/storage ports
-│   └── service/              # orchestration; no Prisma/adapter imports
-├── domain/policy/            # pure transfer/picking rules
-└── __tests__/                # wiring, architecture, integration specs
-```
+The full schema is
+[prisma/models/inventory.prisma](../../../../prisma/models/inventory.prisma).
+Publication, freshness, availability, transfer, and controller boundaries are
+executable in [the Inventory tests](__tests__/).
 
-`application/port/in/` is capability-grouped:
+## Snapshot And Freshness Contract
 
-- `stock/`: Sellpia import, snapshot/history reads, matching reads, and receipt
-  batch records.
-- `warehouse/`: warehouse and stock-transfer use cases.
-- `fulfillment/`: unshipped and picking use cases.
+- Sellpia import is the only writer of physical `currentStock`. It atomically
+  replaces one organization/source snapshot under an import attempt fence,
+  marks absent known codes inactive with zero stock, and preserves identity and
+  component references.
+- Automatic JSON collection and manual recovery uploads enter the same hash,
+  generation, quality, and publication path.
+- Publication may update only Inventory-owned source facts and the one-to-one
+  canonical owner provision required by that snapshot. It never translates
+  source differences into channel, order, transfer, purchase, or Rocket writes.
+- Inventory owns freshness policy, generation high-water mark, source binding,
+  browser lease, and advisory lock. Expired browser work follows the explicit
+  retry policy; it is not silently reclaimed.
+- The availability and freshness gates return `currentStock`, equal
+  `availableStock`, and active state from the same fenced generation. Before a
+  snapshot is collected, availability contains no SKU items. Consumers may
+  join/request a target generation but cannot control leases or persistence.
+- Public generation values are decimal strings and control authority derives
+  from the authenticated actor without exposing owner IDs.
 
-## Owned Surfaces
+Read
+[sellpia-inventory-freshness.md](../../../../docs/runbooks/sellpia-inventory-freshness.md)
+and
+[sellpia-rocket-inventory-sync.md](../../../../docs/runbooks/sellpia-rocket-inventory-sync.md)
+before changing refresh or Rocket interactions.
 
-- Sellpia source-stock snapshot: `POST /api/inventory/sellpia-sync/import`
-- Sellpia current-stock snapshot read: `GET /api/inventory/sellpia-skus`
-- Sellpia single-SKU snapshot read: `GET /api/inventory/sellpia-skus/:sellpiaInventorySkuId`
-- Sellpia import-run history: `GET /api/inventory/sellpia-sync/import-runs`
-- Sellpia freshness state and browser leases:
-  `/api/inventory/sellpia-freshness/*`
-- `inventory.refresh_sellpia_snapshot` owns both explicit collection scopes:
-  `inventory` refreshes only the physical snapshot, while `full` additionally
-  requires authoritative product-profit ingest before snapshot publication.
-  Missing scope defaults to `inventory` for schedules and legacy callers.
-- An expired Sellpia browser lease is terminalized as
-  `sellpia_background_timeout`; it must not be reclaimed automatically. A new
-  generation may be claimed only after an explicit operator `retry` request.
-  Inventory also best-effort fails the matching browser operation alert through
-  its local Automation port after the failed state is committed.
-- Sellpia receipt batches: `/api/inventory/sellpia-receipt-batches/*`
-- Physical-stock-independent commitments that reduce common available Sellpia
-  capacity for cross-domain workflows. These records never mutate
-  `SellpiaInventorySku.currentStock`. Rocket workbook workflows do not use
-  this ledger.
-- Read-only Rocket workbook progress projection from linked Orders-owned
-  transmission intents
-- Unshipped reads: `/api/unshipped/*`
-- Warehouses: `/api/warehouses/*`
-- Record-only stock transfers: `/api/stock-transfers/*`
-- Record-only picking: `/api/picking/*`
-- Coupang shipment files: `/api/coupang-shipments/*`
-- Shipment summaries use one tenant-bound bulk upsert with identity
-  deduplication and last-write-wins; no row loops.
+## Published Capabilities
 
-Route shape is frozen.
+- Read-only physical-SKU identity and matching evidence.
+- Snapshot-aware physical availability where `availableStock === currentStock`.
+- Fresh-and-active capacity with same-generation gating.
+- Read-only Rocket workflow progress projected from Orders-owned transmission
+  intents.
 
-## Main Data Models
+External domains use these incoming ports rather than Inventory services.
+Product and channel destinations are read-only projections of confirmed direct
+component relations; never infer them from codes, names, or barcodes.
 
-- A physical `SellpiaInventorySku` is one Sellpia product-code row and owns the
-  current quantity in `currentStock`.
-- `SourceImportRun` records source-artifact provenance, idempotency, and attempt
-  fencing.
-- `InventoryCommitment` and `InventoryCommitmentAllocation` own auditable,
-  line-level holds against Sellpia SKU capacity independently of physical stock.
-- `Warehouse` is warehouse metadata.
-- `StockTransfer`, `PickingItem`, and `ReturnTransfer` reference
-  `SellpiaInventorySku`; they record operations and never adjust `currentStock`.
-- `SellpiaReceiptUploadBatch` records receipt-upload workflow state separately
-  from the stock snapshot.
+## Boundaries
 
-## Sellpia Inventory Snapshot
-
-`POST /api/inventory/sellpia-sync/import` is the only writer of physical
-`SellpiaInventorySku.currentStock`. It is an organization-scoped full snapshot
-replacement: one valid source-artifact row maps to one physical `SellpiaInventorySku`, and a
-completed import marks absent known Sellpia codes inactive with zero stock
-without deleting their identity or direct channel-option component references.
-
-Automatic browser refresh imports a versioned, deterministic Sellpia JSON full
-snapshot. Manual XLS/XLSX/CSV upload remains an operator recovery path; both
-artifacts enter the same route, hash, generation fence, quality policy, and
-atomic publication flow.
-
-The replacement is atomic and fenced by its `SourceImportRun` attempt token.
-It may update only physical `SellpiaInventorySku` source metadata, `currentStock`,
-active state, and import provenance. Never translate source-artifact differences into
-channel, transfer, picking, return, purchase-order, or Rocket writes.
-Receipt-batch create/list/mark-uploaded behavior is separate and does not
-change stock.
-
-## Cross-Domain Ports
-
-- `InventoryModule` exports a read-only Sellpia inventory-SKU capability for
-  product recipes, matching evidence, and capacity consumers. `MasterProduct`
-  is the canonical inventory product, while SellpiaInventorySku remains the
-  provider source row and sole physical quantity authority.
-- `InventoryModule` exports organization-fenced availability and commitment
-  ports. Other domains pass structured source identity; Inventory canonicalizes
-  business keys and owns commitment lifecycle transitions.
-- Availability terms are fixed: `currentStock` is the latest physical Sellpia
-  snapshot, `activeCommitmentQuantity` is the sum of active logical holds, and
-  `availableStock = max(currentStock - activeCommitmentQuantity, 0)`.
-- Commitment ports remain available for non-Rocket workflows. Rocket workbook
-  export, order linkage, and completion never create, replace, release, or
-  settle an `InventoryCommitment`.
-- `InventoryModule` exports `SELLPIA_INVENTORY_FRESHNESS_GATE_PORT` for the
-  final fresh-and-active purchase assertion. Consumers do not control leases
-  or read persistence.
-- `SELLPIA_INVENTORY_FRESHNESS_GATE_PORT.readFreshCapacity` returns component
-  `currentStock` and active state from the same Inventory-owned freshness lock,
-  fence, and verified generation. Rocket preview consumers must allocate from
-  this gated snapshot rather than a stock value read before the gate.
-- `readFreshCapacityOrRequest` returns same-generation capacity when fresh;
-  otherwise it atomically schedules or joins `purchase_preflight` and returns
-  only its target generation. Concurrent finalization advances one high-water
-  target, and an active generation permits one follow-up.
-- `ROCKET_WORKBOOK_PROGRESS_PORT` projects a Rocket workflow from its linked
-  Orders-owned transmission intents. It is read-only and never adjusts stock
-  or requests a refresh.
-- External domains do not inject warehouse, transfer, or picking
-  services directly.
-
-## Freshness Ownership
-
-- Inventory owns the ten-minute Sellpia freshness policy, generation fence,
-  source binding, and organization/source advisory lock.
-- Capacity snapshots acquired through the freshness gate are serialized with
-  full Sellpia snapshot publication by that same organization/source lock.
-- Browser collection claims use a 90-second lease. Only the authenticated
-  user who owns a live lease may heartbeat, fail, or cancel it; another user
-  may claim only after expiry.
-- Order-file preparation, submission, rejection, finalization, and recovery
-  belong to Orders. They never read freshness, request or advance an Inventory
-  generation, invalidate Inventory queries, or expose Inventory recovery
-  actions. Sellpia validates stock when it accepts the uploaded workbook.
-- Every public view serializes generations as decimal strings and derives
-  `activeSync.canControl` from the authenticated user without exposing the
-  owner ID.
-
-## Boundary Rules
-
-- HTTP controllers depend on incoming ports, not application service classes.
-- `PrismaService` imports stay under `adapter/out/repository/**`.
-- `application/**` does not import `@prisma/client`, Prisma types, or concrete
-  adapters.
-- `domain/**` imports no NestJS, Prisma, DTOs, HTTP adapters, or filesystem.
-- Every single-resource read/write includes `organizationId`; DTOs do not carry
-  organization id.
-- Route declaration order keeps static paths before `/:id`.
-- No controller or service may mutate physical `currentStock` through receive,
-  issue, adjust, reserve, release, restock, stock-ledger, or Rocket stock-event
-  operations. Inventory-owned commitments may serve other domains through the
-  exported commitment port only; Rocket must not use them.
-- Transfer, picking, and return completion updates operational record fields
-  only; they do not write `SellpiaInventorySku.currentStock`.
-- Product operations reads must enter through Products APIs. The atomic Sellpia
-  snapshot publication is the only Inventory path allowed to provision/update
-  the one-to-one canonical MasterProduct owner for each source SKU; ordinary
-  Inventory reads and operations must not mutate MasterProduct rows.
-- Inventory SKU linked product/channel-option destinations are distinct
-  read-only projections of actual, active, organization-fenced
-  `ChannelListingOptionInventoryComponent` relations; never infer destinations
-  from codes, names, or barcodes.
+- Controllers depend on incoming ports; application and domain code follow the
+  server adapter/purity rules. Prisma imports stay in repository adapters.
+- No receive, issue, adjust, reserve, release, restock, stock-ledger, or Rocket
+  event may write physical stock. No active logical-hold path reduces public
+  availability.
+- Route order keeps static paths before parameter routes.
+- Product operations enter through Products APIs. Ordinary Inventory reads and
+  operation records do not mutate MasterProduct rows.
+- Shipment bulk persistence remains tenant-bound, deduplicated, and
+  last-write-wins rather than row-by-row.

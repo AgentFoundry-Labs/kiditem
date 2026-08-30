@@ -68,6 +68,100 @@ test('extracts only canonical current 1688 offer cards with normalized trend fie
   assert.equal(items[1].imageUrl, 'https://cbu01.alicdn.com/k35.jpg');
 });
 
+test('extracts canonical current results below open shadow roots', () => {
+  const dom = loadExtractor('<section class="space-common-offerlist"></section>');
+  const root = dom.window.document.querySelector('.space-common-offerlist');
+  const shadow = root.attachShadow({ mode: 'open' });
+  shadow.innerHTML = `
+    <article class="offer-card" data-offer-id="934567890123">
+      <a href="https://detail.1688.com/offer/934567890123.html" title="儿童文具袋套装">
+        <img src="https://cbu01.alicdn.com/shadow-card.jpg" />
+      </a>
+      <span class="price">¥ 5.60</span>
+      <span class="trade-count">近30天成交 96 笔</span>
+      <span class="company-name">义乌文具厂</span>
+    </article>
+  `;
+
+  const result = dom.window.ProductScraper.alibaba1688.extractTrendSearch(6);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.items)), [{
+    offerId: '934567890123',
+    monthlySales: 96,
+    rank: 1,
+    title: '儿童文具袋套装',
+    priceCny: 5.6,
+    supplierName: '义乌文具厂',
+    imageUrl: 'https://cbu01.alicdn.com/shadow-card.jpg',
+    sourceUrl: 'https://detail.1688.com/offer/934567890123.html',
+  }]);
+});
+
+test('extracts mobile-detail offer IDs with canonical HTTPS URLs and transaction counts', () => {
+  const dom = loadExtractor(`
+    <section class="space-common-offerlist">
+      <a class="search-offer-wrapper cardui-normal search-offer-item major-offer"
+         href="http://detail.m.1688.com/page/index.html?offerId=972449775957&amp;skuId=6091522651976"
+         title="透明网纱双层儿童文具袋">
+        <img src="https://cbu01.alicdn.com/current-card.jpg" />
+        <span class="price">¥ 7.20</span>
+        <span class="trade-count">近30天成交 88 笔</span>
+        <span class="company-name">义乌晨翔文化用品有限公司</span>
+      </a>
+    </section>
+  `);
+
+  const result = dom.window.ProductScraper.alibaba1688.extractTrendSearch(6);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.items)), [{
+    offerId: '972449775957',
+    monthlySales: 88,
+    rank: 1,
+    title: '透明网纱双层儿童文具袋',
+    priceCny: 7.2,
+    supplierName: '义乌晨翔文化用品有限公司',
+    imageUrl: 'https://cbu01.alicdn.com/current-card.jpg',
+    sourceUrl: 'https://detail.1688.com/offer/972449775957.html',
+  }]);
+});
+
+// Regression: ISSUE-001 — the current 1688 search shell no longer uses the
+// historical i18n-card-wrap class, so a valid logged-in result page produced
+// zero cards and the browser Operation failed after both extraction attempts.
+// Found by /qa on 2026-08-20
+// Report: ~/.gstack/qa-reports/kiditem-1688-2026-08-20/qa-report-localhost-2026-08-20.md
+test('extracts canonical offer anchors from the current space-common offer list', () => {
+  const dom = loadExtractor(`
+    <section class="space-common-offerlist">
+      <div class="next-search-result-tile">
+        <a
+          class="next-search-result-link"
+          href="//detail.1688.com/offer/923456789012.html?spm=current"
+          title="儿童文具袋套装"
+        >
+          <img src="//cbu01.alicdn.com/current.jpg" />
+        </a>
+        <strong class="price-text">¥ 4.80</strong>
+        <span class="sale-count">近30天成交 320+ 笔</span>
+        <span class="company-name" title="义乌文具厂"></span>
+      </div>
+      <a href="https://dj.1688.com/ci_king?tracking=only">광고</a>
+    </section>
+  `);
+
+  const result = dom.window.ProductScraper.alibaba1688.extractTrendSearch(6);
+  const items = JSON.parse(JSON.stringify(result.items));
+
+  assert.deepEqual(items, [{
+    offerId: '923456789012',
+    monthlySales: 320,
+    rank: 1,
+    title: '儿童文具袋套装',
+    priceCny: 4.8,
+    supplierName: '义乌文具厂',
+    imageUrl: 'https://cbu01.alicdn.com/current.jpg',
+    sourceUrl: 'https://detail.1688.com/offer/923456789012.html',
+  }]);
+});
+
 test('normalizes Chinese and Korean displayed purchase counts to integer lower bounds', () => {
   const dom = loadExtractor('<main></main>');
   const normalize = dom.window.ProductScraper.alibaba1688.normalizeMonthlySales;

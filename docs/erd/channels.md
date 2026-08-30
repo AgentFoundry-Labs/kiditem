@@ -1,7 +1,7 @@
 # Channels ERD
 
 > Generated from `prisma/models/*.prisma`. Do not edit by hand.
-> Regenerate with `npm run db:erd` or `npm run graphify:schema`.
+> Regenerate with `npm run db:erd` after Prisma schema changes.
 
 [Back to full ERD](../ERD.md)
 
@@ -14,6 +14,7 @@
 | ChannelListingDailySnapshot | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
 | ChannelListingDeletionOperation | `channel_listing_deletion_operations` | Channel listing 삭제의 provider side effect 실행 기록. 삭제 대상 외부 listing identity를 요청 시점에 동결한다. |
 | ChannelListingOptionDailySnapshot | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
+| ChannelRegistrationOwnerIdempotencyReceipt | `channel_registration_owner_idempotency_receipts` | Agent-triggered registration mutation receipt keyed by the exact Channels owner input, atomically retained with local listing resolution. |
 | ChannelScrapeChunk | `channel_scrape_chunks` | Browser catalog collection payloads kept in JSONB until an atomic publication succeeds. |
 | ChannelScrapeRun | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
@@ -26,8 +27,6 @@
 | CoupangWingTrackedProductDailySnapshot | `coupang_wing_tracked_product_daily_snapshots` | 쿠팡 Wing 추적상품 일별 지표 스냅샷(상품×일자당 최신본 upsert). Wing 카탈로그 28일 지표(클릭 pv·판매·매출·전환) + 판매가·리뷰. |
 | RocketPoCatalogLine | `rocket_po_catalog_lines` | Normalized Rocket PO line and confirmation-workbook evidence owned by one completed catalog snapshot. |
 | RocketPoCatalogSnapshot | `rocket_po_catalog_snapshots` | Completed Coupang Rocket PO collection evidence that can be reopened without another provider collection. Inventory capacity is never stored here. |
-| RocketPurchaseOrder | `rocket_purchase_orders` | 쿠팡 로켓 발주 단건(per-PO) 상세 — 매출분석 드릴다운(일자→발주→품목)용. items 는 발주서 품목(SKU) 라인 JSON(표시 전용). |
-| RocketSupplyDailySnapshot | `rocket_supply_daily_snapshots` | 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스. |
 | SellpiaManualMatchAlias | `sellpia_manual_match_aliases` | Exact normalized marketplace-title evidence linking one historical Sellpia manual match to an active physical SKU and positive unit quantity. |
 | SellpiaManualMatchSnapshot | `sellpia_manual_match_snapshots` | Current organization-scoped, read-only Sellpia manual-match evidence restricted to exact aliases used by current channel listings. |
 | SellpiaProductMonthlySales | `sellpia_product_monthly_sales` | Sellpia 상품별 이익현황(stat_prd_profit) 월별 판매수량(재고 소진) fact. stat_action.ajax.html(mode=stat_prd_profit)의 graph(월별 매입액/판매액/판매수량)에서 상품×옵션×연월로 수집. 재고관리용 1개월/2개월 평균 소진량 산정 소스. 메이크샵 주문 데이터 기준. |
@@ -201,6 +200,15 @@ erDiagram
     Json metaJson
     DateTime createdAt
     DateTime updatedAt
+  }
+  ChannelRegistrationOwnerIdempotencyReceipt {
+    String id PK
+    String organizationId FK
+    String capabilityKey
+    String ownerIdempotencyKey
+    String requestHash
+    Json resultJson
+    DateTime createdAt
   }
   ChannelScrapeChunk {
     String id PK
@@ -418,35 +426,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  RocketPurchaseOrder {
-    String id PK
-    String organizationId FK
-    Int poSeq
-    DateTime businessDate
-    DateTime orderedAt
-    String status
-    String vendorName
-    String centerName
-    String firstSkuName
-    Int skuCount
-    Int orderQty
-    Int orderAmount
-    Json items
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  RocketSupplyDailySnapshot {
-    String id PK
-    String organizationId FK
-    DateTime businessDate
-    Int revenueKrw
-    Int poCount
-    Int itemQty
-    String source
-    Json rawJson
-    DateTime createdAt
-    DateTime updatedAt
-  }
   SellpiaManualMatchAlias {
     String id PK
     String organizationId FK
@@ -542,6 +521,7 @@ erDiagram
 | ChannelListingOptionDailySnapshot | listing | references external | Core | ChannelListing |
 | ChannelListingOptionDailySnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelListingOptionDailySnapshot | organization | references external | Core | Organization |
+| ChannelRegistrationOwnerIdempotencyReceipt | organization | references external | Core | Organization |
 | ChannelScrapeChunk | organization | references external | Core | Organization |
 | ChannelScrapeRun | channelAccount | references external | Core | ChannelAccount |
 | ChannelScrapeRun | organization | references external | Core | Organization |
@@ -560,8 +540,6 @@ erDiagram
 | RocketPoCatalogSnapshot | channelAccount | references external | Core | ChannelAccount |
 | RocketPoCatalogSnapshot | organization | references external | Core | Organization |
 | RocketPoCatalogSnapshot | sourceImportRun | references external | Core | SourceImportRun |
-| RocketPurchaseOrder | organization | references external | Core | Organization |
-| RocketSupplyDailySnapshot | organization | references external | Core | Organization |
 | SellpiaManualMatchAlias | organization | references external | Core | Organization |
 | SellpiaManualMatchAlias | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
 | SellpiaManualMatchSnapshot | organization | references external | Core | Organization |

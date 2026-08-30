@@ -95,6 +95,23 @@ describe('purchase-order submission transaction (PG integration)', () => {
     })).toBe(1);
   });
 
+  it('reuses the owner intent for the same key and hash but rejects hash drift', async () => {
+    const input = submissionInput('replay-key');
+
+    const first = await adapter.prepare(input);
+    const replay = await adapter.prepare(input);
+
+    expect(first.kind).toBe('created');
+    expect(replay.kind).toBe('existing');
+    await expect(adapter.prepare({
+      ...input,
+      requestHash: 'b'.repeat(64),
+    })).rejects.toThrow('different canonical input');
+    expect(await prisma.purchaseOrderSubmissionAttempt.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, purchaseOrderId: ORDER_ID },
+    })).toBe(1);
+  });
+
   it('keeps a durable provider intent when deletion races submission', async () => {
     const prepared = await adapter.prepare(submissionInput('delete-race-key'));
     expect(prepared.kind).toBe('created');
@@ -240,12 +257,16 @@ describe('purchase-order submission transaction (PG integration)', () => {
   });
 });
 
-function submissionInput(idempotencyKey: string) {
+function submissionInput(
+  idempotencyKey: string,
+  requestHash = 'a'.repeat(64),
+) {
   return {
     organizationId: TEST_ORGANIZATION_ID,
     purchaseOrderId: ORDER_ID,
     sellpiaInventorySkuIds: [SELLPIA_SKU_ID],
     idempotencyKey,
+    requestHash,
     userId: TEST_USER_ID,
     freshnessFence: FENCE,
     freshnessLastVerifiedAt: verifiedAt.toISOString(),

@@ -24,10 +24,6 @@ const COLLECTION_PRODUCERS = new Map<
   CollectionProducerDefinition
 >([
   ['dashboard.wing_sales', { title: '쿠팡 Wing 데이터 수집', href: '/dashboard' }],
-  [
-    'dashboard.rocket_sales',
-    { title: '쿠팡 로켓 매출 수집', href: '/sales-analysis?tab=rocket-daily' },
-  ],
   ['dashboard.coupang_ads', { title: '쿠팡 광고 데이터 수집', href: '/ad-ops' }],
   [
     'dashboard.coupang_products',
@@ -89,7 +85,7 @@ const COLLECTION_PRODUCERS = new Map<
     'inventory.sellpia',
     {
       title: 'Sellpia 재고 갱신',
-      href: '/inventory-hub?tab=sellpia-sync',
+      href: '/inventory-hub',
       appendCollectionRun: false,
     },
   ],
@@ -100,7 +96,7 @@ const SELLPIA_QUALITY_OPERATION_KEY =
   /^sellpia-inventory-quality:[a-f0-9]{64}:[a-z0-9_.-]{1,100}$/;
 const SELLPIA_QUALITY_PRODUCER: BrowserOperationProducerDefinition = {
   title: 'Sellpia 재고 품질 확인 필요',
-  href: '/stock-ops?tab=freshness',
+  href: '/inventory-hub',
 };
 
 export function isBrowserOperationProducer(

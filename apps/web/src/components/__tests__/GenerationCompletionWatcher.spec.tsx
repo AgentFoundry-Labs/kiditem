@@ -76,7 +76,7 @@ describe('GenerationCompletionWatcher', () => {
     vi.mocked(toast.success).mockReset();
     vi.mocked(toast.info).mockReset();
     vi.mocked(toast.error).mockReset();
-    usePanelStore.setState({ byId: {}, lastSeq: 0, isOpen: false });
+    usePanelStore.setState({ byId: {}, lastSeq: 0 });
   });
 
   it('shows the detail-page completion toast as soon as the panel alert completes', async () => {

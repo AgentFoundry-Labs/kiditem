@@ -1,8 +1,8 @@
-import { BadRequestException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LiveCommerceService } from '../live-commerce.service';
 import type { TaobaoLivePort } from '../../port/out/provider/taobao-live.port';
 import type { LiveCommerceRepositoryPort } from '../../port/out/repository/live-commerce.repository.port';
+import type { SourcingCollectionCoordinator } from '../sourcing-collection-coordinator.service';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -12,12 +12,55 @@ function buildService() {
     collect: vi.fn(async () => ({ rooms: [], products: [], warnings: [] })),
   };
   const repository: LiveCommerceRepositoryPort = {
-    upsertBroadcastSnapshots: vi.fn(async (rows) => rows.length),
-    upsertProductSnapshots: vi.fn(async (rows) => rows.length),
     findBroadcastSnapshots: vi.fn(async () => []),
     findProductSnapshots: vi.fn(async () => []),
   };
-  return { service: new LiveCommerceService(taobao, repository), taobao, repository };
+  const collectionOutputs: Array<{ typedRecords: Array<{ kind: string; row: unknown }> }> = [];
+  const collectionCoordinator = {
+    execute: vi.fn(async (input: any, collector: any) => {
+      const output = await collector({
+        permit: {
+          runId: '00000000-0000-4000-8000-000000000010',
+          organizationId: input.organizationId,
+          sourceKey: input.sourceKey,
+          scopeKey: input.scopeKey,
+          targetKey: input.targetKey,
+          leaseToken: '00000000-0000-4000-8000-000000000011',
+          generation: 1,
+          entitlementVersionId: '00000000-0000-4000-8000-000000000012',
+          entitlementVersionHash: 'a'.repeat(64),
+          leaseExpiresAt: new Date('2026-08-08T01:02:00.000Z'),
+        },
+        checkpoint: async () => undefined,
+      });
+      collectionOutputs.push(output);
+      return {
+        kind: 'committed' as const,
+        runId: input.idempotencyKey,
+        acceptedCount: output.discoveredCount,
+        duplicateCount: 0,
+        staleDiscardedCount: 0,
+      };
+    }),
+  } as unknown as SourcingCollectionCoordinator;
+  return {
+    service: new LiveCommerceService(taobao, repository, collectionCoordinator),
+    taobao,
+    repository,
+    collectionCoordinator,
+    collectionOutputs,
+  };
+}
+
+function typedRows(
+  ports: ReturnType<typeof buildService>,
+  kind: string,
+): Array<Record<string, unknown>> {
+  return ports.collectionOutputs.flatMap((output) =>
+    output.typedRecords
+      .filter((record) => record.kind === kind)
+      .map((record) => record.row as Record<string, unknown>),
+  );
 }
 
 describe('LiveCommerceService', () => {
@@ -25,65 +68,6 @@ describe('LiveCommerceService', () => {
 
   beforeEach(() => {
     ports = buildService();
-  });
-
-  it('persists a validated Douyin room and deduplicated exposed products', async () => {
-    const result = await ports.service.ingestExtension(ORGANIZATION_ID, {
-      source: 'douyin',
-      pageUrl: 'https://live.douyin.com/123456789',
-      broadcast: {
-        broadcastId: '123456789',
-        title: '문구 라이브',
-        broadcasterName: '문구상점',
-        viewerCount: 1234,
-      },
-      products: [
-        {
-          productId: 'item-1',
-          title: '스티커',
-          priceCny: 2.5,
-          sourceUrl: 'https://haohuo.jinritemai.com/views/product/item?id=item-1',
-        },
-        { productId: 'item-1', title: '중복' },
-      ],
-    });
-
-    expect(result).toEqual(expect.objectContaining({ source: 'douyin', broadcastCount: 1, productCount: 1 }));
-    expect(ports.repository.upsertBroadcastSnapshots).toHaveBeenCalledWith([
-      expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
-        source: 'douyin',
-        broadcastId: '123456789',
-        broadcasterName: '문구상점',
-      }),
-    ]);
-    expect(ports.repository.upsertProductSnapshots).toHaveBeenCalledWith([
-      expect.objectContaining({
-        source: 'douyin',
-        productId: 'item-1',
-        rank: 1,
-      }),
-    ]);
-  });
-
-  it('rejects a source label that does not match the collected page host', async () => {
-    await expect(ports.service.ingestExtension(ORGANIZATION_ID, {
-      source: 'douyin',
-      pageUrl: 'https://zb.1688.com/live/123',
-      broadcast: { broadcastId: '123' },
-      products: [],
-    })).rejects.toBeInstanceOf(BadRequestException);
-    expect(ports.repository.upsertBroadcastSnapshots).not.toHaveBeenCalled();
-  });
-
-  it('rejects an insecure live page URL before persistence', async () => {
-    await expect(ports.service.ingestExtension(ORGANIZATION_ID, {
-      source: '1688',
-      pageUrl: 'http://zb.1688.com/live/123',
-      broadcast: { broadcastId: '123' },
-      products: [],
-    })).rejects.toBeInstanceOf(BadRequestException);
-    expect(ports.repository.upsertBroadcastSnapshots).not.toHaveBeenCalled();
   });
 
   it('persists official Taobao rooms and products under the organization scope', async () => {
@@ -115,17 +99,46 @@ describe('LiveCommerceService', () => {
     }));
 
     const result = await ports.service.collectTaobao(ORGANIZATION_ID, {
-      queryDate: '20260714',
+      queryDate: '2026-07-14',
       liveIds: ['tb-live-1'],
     });
 
     expect(result).toEqual(expect.objectContaining({ broadcastCount: 1, productCount: 1 }));
-    expect(ports.repository.upsertBroadcastSnapshots).toHaveBeenCalledWith([
+    expect(ports.taobao.collect).toHaveBeenCalledWith(expect.objectContaining({
+      queryDate: '20260714',
+    }));
+    expect(typedRows(ports, 'live_commerce_broadcast')).toEqual([
       expect.objectContaining({ organizationId: ORGANIZATION_ID, source: 'taobao', broadcastId: 'tb-live-1' }),
     ]);
-    expect(ports.repository.upsertProductSnapshots).toHaveBeenCalledWith([
+    expect(typedRows(ports, 'live_commerce_product')).toEqual([
       expect.objectContaining({ organizationId: ORGANIZATION_ID, source: 'taobao', productId: 'tb-item-1' }),
     ]);
+  });
+
+  it('does not publish Taobao snapshots when an operation aborts after the provider resolves', async () => {
+    const controller = new AbortController();
+    const checkpoint = vi.fn(async () => undefined);
+    ports.taobao.collect = vi.fn(async () => {
+      controller.abort(new Error('operation_cancelled'));
+      return {
+        rooms: [],
+        products: [],
+        warnings: [],
+      };
+    });
+
+    await expect((ports.service.collectTaobao as never)(
+      ORGANIZATION_ID,
+      { queryDate: '2026-08-14' },
+      'operation:run-a',
+      { signal: controller.signal, checkpoint },
+    )).rejects.toThrow('operation_cancelled');
+
+    expect(ports.taobao.collect).toHaveBeenCalledWith(expect.objectContaining({
+      queryDate: '20260814',
+      signal: controller.signal,
+    }));
+    expect(ports.collectionOutputs).toEqual([]);
   });
 
   it('derives stationery/toy trend keywords from live product titles across sources', async () => {
@@ -146,5 +159,18 @@ describe('LiveCommerceService', () => {
     expect(toy!.sources).toEqual(['1688', 'douyin']);
     expect(toy!.totalSales).toBe(400);
     expect(result.keywords.some((k) => k.sampleTitles.includes('不锈钢保温杯'))).toBe(false);
+  });
+
+  it('keeps distinct source/broadcast/product composite identities separate', async () => {
+    const capturedAt = new Date('2026-07-13T05:00:00.000Z');
+    ports.repository.findProductSnapshots = vi.fn(async () => [
+      { source: 'douyin', broadcastId: 'a', productId: 'bc', businessDate: capturedAt, capturedAt, rank: 1, title: '儿童玩具', priceCny: 12, salesCount: 10, imageUrl: null, sourceUrl: null },
+      { source: 'douyin', broadcastId: 'ab', productId: 'c', businessDate: capturedAt, capturedAt, rank: 1, title: '儿童玩具', priceCny: 12, salesCount: 10, imageUrl: null, sourceUrl: null },
+    ] as never);
+
+    const result = await ports.service.keywordDigest(ORGANIZATION_ID, { days: 7 });
+    const toy = result.keywords.find((keyword) => keyword.keyword === '완구');
+
+    expect(toy).toEqual(expect.objectContaining({ productCount: 2, broadcastCount: 2 }));
   });
 });

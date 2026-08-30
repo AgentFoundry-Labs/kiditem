@@ -10,7 +10,7 @@ describe('ReadinessService rebuild status', () => {
         findUnique: vi.fn(async () => ({
           value: {
             state: 'snapshot_required',
-            target: 'staging',
+            target: 'office',
             originRunId: '12345',
             deployedSha: 'secret-sha-binding',
             channelAccountFingerprint: 'secret-account-fingerprint',
@@ -22,7 +22,7 @@ describe('ReadinessService rebuild status', () => {
 
     await expect(service.getRebuildStatus(organizationId)).resolves.toEqual({
       state: 'snapshot_required',
-      target: 'staging',
+      target: 'office',
       requiredImports: ['sellpia', 'wing'],
     });
     expect(JSON.stringify(await service.getRebuildStatus(organizationId)))

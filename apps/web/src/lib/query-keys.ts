@@ -1,4 +1,28 @@
+export type ConversationIdentity = Readonly<{
+  userId: string;
+  organizationId: string;
+}>;
+
+export function conversationIdentityKey(identity: ConversationIdentity): string {
+  return JSON.stringify([identity.userId, identity.organizationId]);
+}
+
 export const queryKeys = {
+  conversations: {
+    all: (identity: ConversationIdentity) => [
+      'agent-os', 'conversations', 'identity', identity.userId, identity.organizationId,
+    ] as const,
+    list: (identity: ConversationIdentity) => [...queryKeys.conversations.all(identity), 'list'] as const,
+    readiness: (identity: ConversationIdentity) => [
+      ...queryKeys.conversations.all(identity), 'readiness',
+    ] as const,
+    preferences: (identity: ConversationIdentity) => [
+      ...queryKeys.conversations.all(identity), 'preferences',
+    ] as const,
+    invocation: (identity: ConversationIdentity, invocationId: string) => [
+      ...queryKeys.conversations.all(identity), 'invocation', invocationId,
+    ] as const,
+  },
   agents: {
     all: ['agents'] as const,
     list: () => [...queryKeys.agents.all, 'list'] as const,
@@ -24,6 +48,8 @@ export const queryKeys = {
     catalog: () => [...queryKeys.operations.all, 'catalog'] as const,
     runs: () => [...queryKeys.operations.all, 'runs'] as const,
     run: (runId: string) => [...queryKeys.operations.runs(), runId] as const,
+    reconnect: (operationKey: string, input?: Record<string, unknown>) =>
+      [...queryKeys.operations.all, 'reconnect', operationKey, input] as const,
     schedules: () => [...queryKeys.operations.all, 'schedules'] as const,
   },
   marketplace: {
@@ -85,7 +111,6 @@ export const queryKeys = {
     history: () => [...queryKeys.inventory.all, 'sellpia-history'] as const,
     historyList: (params: Record<string, string>) =>
       [...queryKeys.inventory.history(), params] as const,
-    receiptBatches: () => [...queryKeys.inventory.all, 'sellpia-receipt-batches'] as const,
     // Sellpia 상품별 소진(재고 분석)
     productSalesAll: () => [...queryKeys.inventory.all, 'sellpia-product-sales'] as const,
     productSales: (months?: number) =>
@@ -249,6 +274,40 @@ export const queryKeys = {
   },
   sourcing: {
     all: ['sourcing'] as const,
+    workspace: {
+      root: (organizationId: string) =>
+        [...queryKeys.sourcing.all, 'workspace', organizationId] as const,
+      recommendations: (organizationId: string, surface: 'home' | 'today' | 'entry' | 'final') =>
+        [...queryKeys.sourcing.workspace.root(organizationId), 'recommendations', surface] as const,
+      validation: (organizationId: string) =>
+        [...queryKeys.sourcing.workspace.root(organizationId), 'validation'] as const,
+      reviewSelections: (
+        organizationId: string,
+        workspaceKey: 'entry' | 'final',
+        recommendationRunId: string,
+      ) =>
+        [
+          ...queryKeys.sourcing.workspace.root(organizationId),
+          'review-selections',
+          workspaceKey,
+          recommendationRunId,
+        ] as const,
+      keywordPreferences: (organizationId: string) =>
+        [...queryKeys.sourcing.workspace.root(organizationId), 'keyword-preferences'] as const,
+      interests: (organizationId: string) =>
+        [...queryKeys.sourcing.workspace.root(organizationId), 'interests'] as const,
+    },
+    intelligence: () => [...queryKeys.sourcing.all, 'intelligence'] as const,
+    intelligenceSources: () =>
+      [...queryKeys.sourcing.intelligence(), 'sources'] as const,
+    intelligenceLaunchCandidates: () =>
+      [...queryKeys.sourcing.intelligence(), 'launch-candidates'] as const,
+    intelligenceLatestDecision: () =>
+      [...queryKeys.sourcing.intelligence(), 'decision-batches', 'latest'] as const,
+    intelligenceSupplierOffers: () =>
+      [...queryKeys.sourcing.intelligence(), 'supplier-offers'] as const,
+    intelligenceProcurementIntents: () =>
+      [...queryKeys.sourcing.intelligence(), 'procurement-intents'] as const,
     list: (params: Record<string, string>) => [...queryKeys.sourcing.all, 'list', params] as const,
     detail: (id: string) => [...queryKeys.sourcing.all, 'detail', id] as const,
     preview: (id: string) => [...queryKeys.sourcing.all, 'preview', id] as const,
@@ -257,6 +316,8 @@ export const queryKeys = {
     trend: () => [...queryKeys.sourcing.all, 'trend'] as const,
     trendSeeds: () => [...queryKeys.sourcing.all, 'trend', 'seeds'] as const,
     trendNaverKeywords: (days: number) => [...queryKeys.sourcing.all, 'trend', 'naver-keywords', days] as const,
+    entryRecommendations: (limit: number) =>
+      [...queryKeys.sourcing.all, 'entry-recommendations', limit] as const,
     trendPopularKeywords: (days: number) => [...queryKeys.sourcing.all, 'trend', 'popular-keywords', days] as const,
     trend1688Hot: (days: number) => [...queryKeys.sourcing.all, 'trend', '1688-hot', days] as const,
     trendShorts: (days: number) => [...queryKeys.sourcing.all, 'trend', 'shorts', days] as const,
@@ -266,6 +327,26 @@ export const queryKeys = {
     liveCommerceSnapshots: (days: number) => [...queryKeys.sourcing.all, 'live-commerce', 'snapshots', days] as const,
     liveCommerceKeywords: (days: number) => [...queryKeys.sourcing.all, 'live-commerce', 'keywords', days] as const,
     competitors: (days: number) => [...queryKeys.sourcing.all, 'competitors', days] as const,
+    risingProducts: () => [...queryKeys.sourcing.all, 'rising-products'] as const,
+    wingTrackedProducts: () =>
+      [...queryKeys.sourcing.all, 'wing-tracked-products'] as const,
+    wingTrackedHistories: (days: number) =>
+      [...queryKeys.sourcing.all, 'wing-tracked-products', 'history', days] as const,
+    wingCatalog: (keyword: string) =>
+      [...queryKeys.sourcing.all, 'wing-catalog', keyword.trim()] as const,
+    keywordSuggestions: (keyword: string) =>
+      [...queryKeys.sourcing.all, 'keyword-suggestions', keyword.trim()] as const,
+    naverRelatedKeywords: (keyword: string) =>
+      [...queryKeys.sourcing.all, 'naver-related-keywords', keyword.trim()] as const,
+    wholesale1688Results: (
+      keywords: readonly string[],
+      targetIds: readonly string[],
+    ) => [
+      ...queryKeys.sourcing.all,
+      'wholesale-1688-results',
+      keywords,
+      targetIds,
+    ] as const,
     competitorCollectionStatus: (runId: string | null) =>
       [...queryKeys.sourcing.all, 'competitors', 'collection-status', runId] as const,
   },

@@ -25,6 +25,7 @@ export interface MarketShadowSignalItem {
 export interface FetchMarketShadowSignalsInput {
   seedKeywords?: readonly string[];
   limit?: number;
+  signal?: AbortSignal;
 }
 
 export interface FetchMarketShadowSignalsResult {
@@ -64,6 +65,7 @@ export interface FetchLinkfoxEchotikNewProductRankInput {
   date: string;
   region: string;
   pageSize?: number;
+  signal?: AbortSignal;
 }
 
 export interface LinkfoxEchotikShadowProduct {

@@ -74,15 +74,15 @@ session.
 
 | Operation | Route | Current success response |
 |---|---|---|
-| List | `GET /api/warehouses` | `200` with all organization Warehouse rows, each including a shipment-only `shipmentCount` |
+| List | `GET /api/warehouses` | `200` with all organization Warehouse rows ordered by name |
 | Create | `POST /api/warehouses` | `201` with the created Warehouse row |
 | Update | `PATCH /api/warehouses/:id` | `200` with the updated Warehouse row |
 | Delete | `DELETE /api/warehouses/:id` | `200` with `{ "ok": true }` |
 
 There is no single-resource `GET /api/warehouses/:id`; use the list and match
 the exact returned `id`. Missing or cross-organization update/delete targets
-currently return `400`, not `404`. `shipmentCount` counts shipment references
-only; it does not include either side of a stock transfer.
+currently return `400`, not `404`. Warehouse rows do not include relationship
+counts, so use the stock-transfer precheck before deletion.
 
 The safe create body requires a non-empty `name`. Optional fields are `code`,
 `address`, `manager`, `phone`, `isDefault`, and `status`. Do not invent a status
@@ -107,7 +107,7 @@ retry an ambiguous create blindly.
        | if ($body | type) == "array" then
            {httpStatus: $httpStatus,
             warehouseCount: ($body | length),
-            warehouses: ($body | map({id, name, shipmentCount}))}
+            warehouses: ($body | map({id, name}))}
          else
            {httpStatus: $httpStatus,
             error: ($body | {statusCode, error, message})}
@@ -195,12 +195,9 @@ Deletion is destructive and Warehouse foreign keys use restrictive reference
 behavior.
 
 1. List Warehouses and match the exact target ID in the active organization.
-   Require its shipment-only `shipmentCount` to be zero, but do not treat that
-   as proof that the row is otherwise unreferenced.
 2. Read the organization stock-transfer records through the minimized check
    below and stop if the target ID appears as either `fromWarehouse.id` or
-   `toWarehouse.id`. Stop as well when shipment ownership or any other
-   reference cannot be established safely.
+   `toWarehouse.id`. Stop as well when the precheck cannot be completed safely.
 
    ```bash
    : "${WAREHOUSE_ID:?set the exact approved Warehouse ID}"
@@ -269,8 +266,8 @@ Stop and report the exact blocker when:
 - an API response is non-successful, ambiguous, or inconsistent with the
   follow-up list;
 - a create may already have succeeded but its response was lost;
-- a delete target has shipment or stock-transfer references, or the deletion
-  fails because of a reference;
+- a delete target has stock-transfer references, or the deletion fails because
+  of a reference;
 - production ownership or authorization for the intended Warehouse row is
   uncertain.
 
@@ -279,13 +276,13 @@ Stop and report the exact blocker when:
 Do not include cookies, authorization headers, or full API payload dumps.
 
 ```text
-Environment: <local|staging|production API origin>
+Environment: <local|office API origin>
 Verified organization: approved <uuid>; observed <uuid>; exact match yes
 Operation: <read|create|update|delete>
 Before: Warehouse rows <count>; target <present|absent>
 Request: <method and path>; organizationId sent by client <no>
 Response: HTTP <status>; Warehouse ID <id or none>
-Reference precheck: shipments <count|not applicable>; stock-transfer refs <count|not applicable>
+Reference precheck: stock-transfer refs <count|not applicable>
 After: Warehouse rows <count>; target <present|absent>
 Inventory hub: <zero-row blocked|provisioned and enabled|not checked>
 Raw SQL/stored-row bypass: not used

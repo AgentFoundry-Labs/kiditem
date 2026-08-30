@@ -1,7 +1,6 @@
 export const SALES_ANALYSIS_TAB_IDS = [
   'overview',
   'wing-daily',
-  'rocket-daily',
   'statistics',
   'reports',
   'plans',

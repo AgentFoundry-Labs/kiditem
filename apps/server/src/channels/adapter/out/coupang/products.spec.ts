@@ -189,4 +189,59 @@ describe('Coupang product API helpers', () => {
       status: 400,
     });
   });
+
+  it('never includes a provider response body in a request error', async () => {
+    const providerDiagnostic = 'provider echo: accessKey=secret-access-key';
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => providerDiagnostic,
+    }));
+
+    await expect(createSellerProduct(
+      {
+        vendorId: 'A00012345',
+        accessKey: 'access-key',
+        secretKey: 'secret-key',
+      },
+      {
+        sellerProductName: '쿠팡 판매명',
+        items: [{ itemName: '단품' }],
+      },
+    )).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(CoupangProviderRequestError);
+      expect(error).toMatchObject({
+        message: 'Coupang API request failed with HTTP 400.',
+      });
+      expect((error as Error).message).not.toContain(providerDiagnostic);
+      return true;
+    });
+  });
+
+  it('never includes a non-JSON provider response body in an error', async () => {
+    const providerDiagnostic = 'upstream HTML: secretKey=secret-key';
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => 'text/html' },
+      text: async () => providerDiagnostic,
+    }));
+
+    await expect(createSellerProduct(
+      {
+        vendorId: 'A00012345',
+        accessKey: 'access-key',
+        secretKey: 'secret-key',
+      },
+      {
+        sellerProductName: '쿠팡 판매명',
+        items: [{ itemName: '단품' }],
+      },
+    )).rejects.toSatisfy((error: unknown) => {
+      expect(error).toMatchObject({
+        message: 'Coupang API returned a non-JSON response.',
+      });
+      expect((error as Error).message).not.toContain(providerDiagnostic);
+      return true;
+    });
+  });
 });

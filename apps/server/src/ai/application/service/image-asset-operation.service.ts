@@ -14,7 +14,7 @@ import {
 } from '../../domain/thumbnail-image-source';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const sharp: typeof import('sharp') = require('sharp');
+const sharp: typeof import('sharp')['default'] = require('sharp');
 
 export interface PercentCropRect {
   x: number;

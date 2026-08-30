@@ -63,6 +63,7 @@ export class NaverSearchAdKeywordAdapter implements NaverKeywordResearchPort {
     const signature = createNaverSearchAdSignature(timestamp, 'GET', KEYWORD_TOOL_URI, config.secretKey);
     const response = await fetch(`${config.baseUrl}${KEYWORD_TOOL_URI}?${params.toString()}`, {
       method: 'GET',
+      signal: input.signal,
       headers: {
         'Content-Type': 'application/json; charset=UTF-8',
         'X-Timestamp': timestamp,

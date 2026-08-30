@@ -16,6 +16,28 @@ describe('ProductRowCard', () => {
     expect(screen.queryByRole('img', { name: '테스트 상품 상품 이미지' })).not.toBeInTheDocument();
   });
 
+  it('keeps an operator product code visible in the catalog row', () => {
+    render(<ProductRowCard product={product()} />);
+
+    expect(screen.getByText(/상품코드 MASTER-1/)).toBeInTheDocument();
+  });
+
+  it('hides a system-owned Sellpia code while retaining product context', () => {
+    render(<ProductRowCard product={{
+      ...product(),
+      code: 'INV-SELLPIA-100',
+      displayReference: {
+        type: 'product_code',
+        label: '상품 코드',
+        value: 'INV-SELLPIA-100',
+      },
+    }} />);
+
+    expect(screen.getByText('테스트 상품')).toBeInTheDocument();
+    expect(screen.getByText('KidItem')).toBeInTheDocument();
+    expect(screen.queryByText(/INV-SELLPIA-/)).not.toBeInTheDocument();
+  });
+
   it('opens the already-loaded ABC evidence through an accessible badge button', () => {
     const onOpenAbcDetail = vi.fn();
     render(<ProductRowCard product={product()} onOpenAbcDetail={onOpenAbcDetail} />);
@@ -36,6 +58,22 @@ describe('ProductRowCard', () => {
     expect(screen.getByText('35,000원')).toBeInTheDocument();
     expect(screen.getByText('10%')).toBeInTheDocument();
     expect(screen.queryByText('미수집')).not.toBeInTheDocument();
+  });
+
+  it('renders weighted ABC contribution profit as the profitability metric', () => {
+    render(<ProductRowCard product={product()} />);
+
+    expect(screen.getByText('기여이익 120,000원')).toBeInTheDocument();
+    expect(screen.queryByText(/^이익 /)).not.toBeInTheDocument();
+  });
+
+  it('renders a dash when ABC contribution profit is absent', () => {
+    render(<ProductRowCard product={{
+      ...product(),
+      abcEvaluation: productAbcEvaluation({ weightedContributionProfit: null }),
+    }} />);
+
+    expect(screen.getByText('기여이익 —')).toBeInTheDocument();
   });
 
   it('hides opaque category references and stock-basis labels from the product list', () => {
@@ -143,7 +181,6 @@ function product(): MasterProductOperationsListItem {
         capturedAt: '2026-08-01T00:00:00.000Z',
       },
     },
-    profit: null,
     contributionProfitVelocity30: 120_000,
     contributionMargin: 0.32,
   };

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const repoRoot = process.cwd();
 const scriptPath = join(repoRoot, "scripts/manage-extension-release.mjs");
-const deploymentTag = "staging-v0.1.26-20260725-58dacdef";
+const deploymentTag = "office-v0.1.26-20260725-58dacdef";
 const bundleFileName = `kiditem-scrapers-${deploymentTag}.zip`;
 // 주문수집/쿠팡/소싱 세 확장을 kiditem-os 하나로 합쳤다.
 const supportedExtensions = ["kiditem-os"] as const;
@@ -69,7 +69,7 @@ describe("deployment-scoped extension release management", () => {
     expect(metadata).toMatchObject({
       deploymentTag,
       target: "universal",
-      environmentProfiles: ["local", "office", "staging"],
+      environmentProfiles: ["local", "office"],
     });
     expect(metadata.gitSha).toMatch(/^[0-9a-f]{40}$/);
     expect(metadata.archive.fileName).toBe(bundleFileName);

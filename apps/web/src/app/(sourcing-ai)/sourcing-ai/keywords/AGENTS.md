@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/sourcing-ai/keywords - Keyword Collection and Analysis
 
 `keywords/` owns sourcing keyword analysis UI, trend keyword agent helpers, and

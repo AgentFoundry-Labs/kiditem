@@ -1,7 +1,33 @@
-import { describe, expect, it } from 'vitest';
-import { toInventoryExportRows } from './inventory-export';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fetchAllSellpiaInventorySkus } from '../../_shared/inventory-api';
+import { fetchAllInventoryForExport, toInventoryExportRows } from './inventory-export';
+
+vi.mock('../../_shared/inventory-api', () => ({
+  fetchAllSellpiaInventorySkus: vi.fn(),
+}));
 
 describe('Sellpia inventory export', () => {
+  beforeEach(() => {
+    vi.mocked(fetchAllSellpiaInventorySkus).mockReset();
+    vi.mocked(fetchAllSellpiaInventorySkus).mockResolvedValue([]);
+  });
+
+  it('uses the visible search, stock, active, and link filters for every exported page', async () => {
+    await fetchAllInventoryForExport({
+      query: 'SP-1001',
+      stockStatus: 'all',
+      activeStatus: 'inactive',
+      linkStatus: 'unlinked',
+    });
+
+    expect(fetchAllSellpiaInventorySkus).toHaveBeenCalledWith({
+      query: 'SP-1001',
+      stockStatus: 'all',
+      activeStatus: 'inactive',
+      linkStatus: 'unlinked',
+    });
+  });
+
   it('exports only authoritative snapshot fields and preserves unpriced rows', () => {
     expect(toInventoryExportRows([{
       masterProductId: '00000000-0000-4000-8000-000000000001',

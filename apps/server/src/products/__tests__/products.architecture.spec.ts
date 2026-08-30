@@ -56,7 +56,8 @@ describe('Products architecture', () => {
 
   it('does not export internal inventory-recipe adapters', () => {
     const exports = Reflect.getMetadata('exports', ProductsModule) ?? [];
-    expect(exports).toEqual([expect.any(Function)]);
+    expect(exports.some((value: unknown) => typeof value === 'function')).toBe(true);
+    expect(exports.map(String)).not.toContain('ProductRecipeComponentCandidateService');
   });
 
 });

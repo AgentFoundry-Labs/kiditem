@@ -4,8 +4,6 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  type OnModuleDestroy,
-  type OnModuleInit,
 } from '@nestjs/common';
 import type {
   OperationSchedule,
@@ -25,16 +23,18 @@ import {
   resolveOperationSchedulerIntervalMs,
 } from './operation-runtime.config';
 import { nextOccurrence } from './operation-schedule-clock';
+import { OperationLifecycleGateService } from './operation-lifecycle-gate.service';
 
 const MISFIRE_SKIP_GRACE_MS = 60_000;
 
 @Injectable()
-export class OperationSchedulerService implements OnModuleInit, OnModuleDestroy {
+export class OperationSchedulerService {
   private readonly logger = new Logger(OperationSchedulerService.name);
   private readonly enabled = resolveOperationSchedulerEnabled();
   private readonly intervalMs = resolveOperationSchedulerIntervalMs();
   private intervalHandle: ReturnType<typeof setInterval> | null = null;
-  private busy = false;
+  private tickInFlight: Promise<void> | null = null;
+  private intakeStopped = false;
 
   constructor(
     @Inject(OPERATION_HANDLER_REGISTRY_PORT)
@@ -43,9 +43,11 @@ export class OperationSchedulerService implements OnModuleInit, OnModuleDestroy 
     private readonly runner: OperationRunnerPort,
     @Inject(OPERATION_REPOSITORY_PORT)
     private readonly repository: OperationRunRepositoryPort,
+    private readonly lifecycleGate: OperationLifecycleGateService,
   ) {}
 
-  onModuleInit(): void {
+  start(): void {
+    if (this.intervalHandle || this.intakeStopped) return;
     if (!this.enabled) {
       this.logger.log('Operation scheduler disabled (set OPERATION_SCHEDULER_ENABLED=1 to enable).');
       return;
@@ -54,9 +56,16 @@ export class OperationSchedulerService implements OnModuleInit, OnModuleDestroy 
     this.intervalHandle.unref?.();
   }
 
-  onModuleDestroy(): void {
+  stopIntake(_reason?: unknown): void {
+    this.intakeStopped = true;
     if (this.intervalHandle) clearInterval(this.intervalHandle);
     this.intervalHandle = null;
+  }
+
+  async drainUntil(deadline: number): Promise<void> {
+    const pending = this.tickInFlight;
+    if (!pending) return;
+    await settleUntil(pending, deadline);
   }
 
   async list(organizationId: string): Promise<OperationSchedule[]> {
@@ -124,20 +133,33 @@ export class OperationSchedulerService implements OnModuleInit, OnModuleDestroy 
   }
 
   async tick(): Promise<void> {
-    if (this.busy) return;
-    this.busy = true;
+    if (this.intakeStopped) return;
     try {
-      const now = new Date();
-      const schedules = await this.repository.findDueSchedules({ now, limit: 20 });
-      for (const schedule of schedules) {
-        await this.dispatchSchedule(schedule, now);
-      }
+      this.lifecycleGate.assertAccepting();
+    } catch {
+      return;
+    }
+    if (this.tickInFlight) return this.tickInFlight;
+    const tick = this.performTick();
+    this.tickInFlight = tick;
+    try {
+      await tick;
     } catch (error) {
       this.logger.warn(
         `Operation scheduler tick failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     } finally {
-      this.busy = false;
+      if (this.tickInFlight === tick) this.tickInFlight = null;
+    }
+  }
+
+  private async performTick(): Promise<void> {
+    this.lifecycleGate.assertAccepting();
+    const now = new Date();
+    const schedules = await this.repository.findDueSchedules({ now, limit: 20 });
+    for (const schedule of schedules) {
+      this.lifecycleGate.assertAccepting();
+      await this.dispatchSchedule(schedule, now);
     }
   }
 
@@ -162,6 +184,7 @@ export class OperationSchedulerService implements OnModuleInit, OnModuleDestroy 
       });
     }
 
+    this.lifecycleGate.assertAccepting();
     await this.repository.advanceDueSchedule({
       organizationId: schedule.organizationId,
       scheduleId: schedule.id,
@@ -184,5 +207,19 @@ export class OperationSchedulerService implements OnModuleInit, OnModuleDestroy 
       createdAt: schedule.createdAt,
       updatedAt: schedule.updatedAt,
     } satisfies OperationSchedule;
+  }
+}
+
+async function settleUntil(promise: Promise<unknown>, deadline: number): Promise<void> {
+  const remaining = Math.max(0, deadline - Date.now());
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<void>((resolve) => {
+    timeoutHandle = setTimeout(resolve, remaining);
+    timeoutHandle.unref?.();
+  });
+  try {
+    await Promise.race([promise.then(() => undefined, () => undefined), timeout]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
   }
 }

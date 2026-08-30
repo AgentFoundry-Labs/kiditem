@@ -3,6 +3,7 @@ import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { OrganizationScopeGuard } from '../guards/organization-scope.guard';
 import { SKIP_AUTH_KEY } from '../decorators/skip-auth.decorator';
+import { SERVICE_AUTH_KEY } from '../decorators/service-auth.decorator';
 
 function createCtx(
   authUser: unknown,
@@ -37,6 +38,13 @@ describe('OrganizationScopeGuard', () => {
     const guard = new OrganizationScopeGuard(makeReflector((k) => (k === SKIP_AUTH_KEY ? true : undefined)));
     const ctx = createCtx(undefined);
     expect(guard.canActivate(ctx)).toBe(true);
+  });
+
+  it('defers session auth to a dedicated service credential guard when marked', () => {
+    const guard = new OrganizationScopeGuard(
+      makeReflector((key) => (key === SERVICE_AUTH_KEY ? true : undefined)),
+    );
+    expect(guard.canActivate(createCtx(undefined))).toBe(true);
   });
 
   it('throws auth_required when req.authUser missing', () => {

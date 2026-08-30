@@ -1,7 +1,7 @@
 # System ERD
 
 > Generated from `prisma/models/*.prisma`. Do not edit by hand.
-> Regenerate with `npm run db:erd` or `npm run graphify:schema`.
+> Regenerate with `npm run db:erd` after Prisma schema changes.
 
 [Back to full ERD](../ERD.md)
 
@@ -16,9 +16,10 @@
 | DataMigrationRun | `data_migration_runs` | 운영 data migration ledger. Schema-only db push와 별도로 영속 데이터 보정 실행 여부를 기록한다. |
 | FeatureGate | `feature_gates` | 피처 플래그. allowedOrganizations: string[] 로 회사별 enable. |
 | Marketplace | `marketplace` | type 으로 agent/workflow 카탈로그 통합. |
-| MigrationCheckpoint | `migration_checkpoints` | 이관 스크립트 체크포인트 (Plan C 용). 이관 완료 후 drop 가능. |
 | OperationRun | `operation_runs` | Organization-scoped top-level execution ledger for dashboard, domain, Agent OS, and scheduled work. |
+| OperationRunCheckpoint | `operation_run_checkpoints` | Immutable monotonic recovery checkpoint owned by an organization-scoped Operation run. |
 | OperationSchedule | `operation_schedules` | Organization-managed cron schedule for a code-owned operation definition. All schedules start disabled. |
+| RulesEvaluationApplication | `rules_evaluation_applications` | Exactly-once Rules result-application receipt for one organization-scoped Operation run. |
 | SystemSetting | `system_settings` | - |
 
 ## Mermaid ER Diagram
@@ -152,17 +153,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  MigrationCheckpoint {
-    String id PK
-    String scriptName
-    String stepName
-    String entityKey
-    String status
-    String error
-    Json payload
-    DateTime createdAt
-    DateTime updatedAt
-  }
   OperationRun {
     String id PK
     String organizationId FK
@@ -171,6 +161,8 @@ erDiagram
     String ownerDomain
     String title
     String engineType
+    String resourceClass
+    Int executionTimeoutMs
     String status
     String triggerSource
     String requestedByUserId FK
@@ -180,6 +172,11 @@ erDiagram
     Json input
     Json result
     Float progress
+    String stage
+    DateTime stageUpdatedAt
+    Int progressCurrent
+    Int progressTotal
+    DateTime deadlineAt
     String nativeRunType
     String nativeRunId
     Int attempts
@@ -196,6 +193,15 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  OperationRunCheckpoint {
+    String id PK
+    String organizationId FK
+    String operationRunId FK
+    BigInt sequence
+    String kind
+    Json state
+    DateTime createdAt
+  }
   OperationSchedule {
     String id PK
     String organizationId FK
@@ -211,6 +217,15 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  RulesEvaluationApplication {
+    String id PK
+    String organizationId FK
+    String operationRunId FK
+    Int productCount
+    Int violationCount
+    Int criticalCount
+    DateTime appliedAt
+  }
   SystemSetting {
     String id PK
     String organizationId FK
@@ -221,6 +236,8 @@ erDiagram
   }
   ActionTask o|--o{ Alert : "actionTask"
   OperationRun o|--o{ OperationRun : "parentRun"
+  OperationRun ||--o{ OperationRunCheckpoint : "operationRun"
+  OperationRun ||--|| RulesEvaluationApplication : "operationRun"
   OperationSchedule o|--o{ OperationRun : "schedule"
 ```
 
@@ -234,9 +251,11 @@ erDiagram
 | Alert | actorUser | references external | Core | User |
 | Alert | organization | references external | Core | Organization |
 | BusinessRule | organization | references external | Core | Organization |
-| Marketplace | marketplace | referenced by external | AgentOS | WorkflowTemplate |
+| Marketplace | marketplace | referenced by external | Automation | WorkflowTemplate |
 | OperationRun | organization | references external | Core | Organization |
 | OperationRun | requestedBy | references external | Core | User |
+| OperationRunCheckpoint | organization | references external | Core | Organization |
 | OperationSchedule | createdBy | references external | Core | User |
 | OperationSchedule | organization | references external | Core | Organization |
+| RulesEvaluationApplication | organization | references external | Core | Organization |
 | SystemSetting | organization | references external | Core | Organization |

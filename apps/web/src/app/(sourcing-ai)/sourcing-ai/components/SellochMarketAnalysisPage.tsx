@@ -1,184 +1,105 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { AlertCircle, BarChart3, CheckCircle2, Clock3, Loader2, PackageSearch, PlayCircle, TrendingUp } from 'lucide-react';
+import { BarChart3, CheckCircle2, Clock3, Loader2, PackageSearch, PlayCircle, TrendingUp } from 'lucide-react';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
+import { queryKeys } from '@/lib/query-keys';
 import {
   formatWingCatalogRate,
   resolveCoupangCatalogImageUrl,
-  searchWingCatalogProducts,
-} from '../wing-catalog/lib/wing-catalog-extension';
-import { readRankedKeywordPool } from '../lib/ranked-keyword-pool';
-import { useTodayRecommendationRows, useTodayRecommendationSnapshots } from '../lib/use-today-recommendation-rows';
+} from '../wing-catalog/lib/wing-catalog-presenter';
+import { fetchPopularKeywordBoards } from '../market/lib/trend-collection-api';
+import { popularKeywordSuggestions } from '../lib/popular-keyword-suggestions';
+import { toTodayRecommendationRows } from '../lib/sourcing-recommendation-presenter';
 import {
-  createManualSourcingWorkspaceSnapshotMeta,
-  saveTodaySourcingWorkspaceSnapshot,
-  type SourcingWorkspaceSnapshotMeta,
-} from '../lib/sourcing-workspace-snapshot-api';
-import {
-  appendProductSnapshots,
-  buildProductTrackingSummary,
   buildRecommendationSummary,
   buildRisingKeywordOpportunities,
-  buildTodayRecommendationRows,
-  mergeTodayRecommendationRows,
-  readTodayRecommendationSnapshots,
-  snapshotsToMap,
-  snapshotsToLatestMap,
-  THREE_DAY_TRACKING_MS,
-  writeTodayRecommendationRows,
-  writeTodayRecommendationSnapshots,
-  type ProductSnapshot,
   type RecommendationGrade,
   type TodayRecommendationRow,
 } from '../recommendations/lib/today-recommendations';
+import { useSourcingRecommendations } from '../hooks/use-sourcing-workspace';
+import { useSourcingOperationAction } from '../hooks/use-sourcing-operation-action';
+import { SourcingOperationRunPanel } from './SourcingOperationRunPanel';
+import { normalizeWingOperationKeywords } from '../lib/wing-operation-input';
 
 const MARKET_ANALYSIS_KEYWORD_LIMIT = 12;
 const MARKET_ANALYSIS_MAX_PAGES = 1;
-const MARKET_ANALYSIS_RESULT_LIMIT = 80;
 
 interface SellochMarketAnalysisPageProps {
   compact?: boolean;
 }
 
-type MarketAnalysisProgress = {
-  current: number;
-  total: number;
-  keyword: string;
-};
-
-type TodayRecommendationsSnapshotPayload = {
-  version: 1;
-  input: {
-    keywordText: string;
-    keywordLimit: number;
-    maxPages: number;
-  };
-  result: {
-    rows: TodayRecommendationRow[];
-    productSnapshots: ProductSnapshot[];
-  };
-  meta: SourcingWorkspaceSnapshotMeta;
-};
-
 export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnalysisPageProps) {
-  const rows = useTodayRecommendationRows();
-  const snapshots = useTodayRecommendationSnapshots();
-  const [isRunning, setIsRunning] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [errors, setErrors] = useState<string[]>([]);
-  const [progress, setProgress] = useState<MarketAnalysisProgress>({ current: 0, total: 0, keyword: '' });
-  const cancelRef = useRef(false);
-  const snapshotMap = useMemo(() => snapshotsToLatestMap(snapshots), [snapshots]);
+  const recommendationsQuery = useSourcingRecommendations('today');
+  const rows = useMemo(
+    () => toTodayRecommendationRows(recommendationsQuery.data?.data?.items ?? []),
+    [recommendationsQuery.data],
+  );
+  const popularKeywordsQuery = useQuery({
+    queryKey: queryKeys.sourcing.trendPopularKeywords(7),
+    queryFn: () => fetchPopularKeywordBoards(7),
+  });
+  const popularKeywords = useMemo(
+    () => popularKeywordSuggestions(
+      popularKeywordsQuery.data?.boards ?? [],
+      MARKET_ANALYSIS_KEYWORD_LIMIT,
+    ),
+    [popularKeywordsQuery.data],
+  );
+  const [inputError, setInputError] = useState<string | null>(null);
+  const operationKeywords = useMemo(
+    () => normalizeWingOperationKeywords(popularKeywords, MARKET_ANALYSIS_KEYWORD_LIMIT),
+    [popularKeywords],
+  );
+  const operationInput = useMemo(() => ({
+    keywords: operationKeywords,
+    maxPages: MARKET_ANALYSIS_MAX_PAGES,
+    purpose: 'market_analysis' as const,
+  }), [operationKeywords]);
+  const operation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_wing_catalog_batch',
+    input: operationInput,
+    snapshotQueryKey: queryKeys.sourcing.all,
+  });
+  const isRunning = operation.isStarting || isActiveOperation(operation.run?.status);
   const summary = buildRecommendationSummary(rows);
-  const trackingSummary = buildProductTrackingSummary(rows, snapshotMap);
-  const opportunities = buildRisingKeywordOpportunities(rows, { snapshots: snapshotMap }).slice(0, compact ? 4 : 8);
+  const opportunities = buildRisingKeywordOpportunities(rows).slice(0, compact ? 4 : 8);
   const topProducts = sortMarketProducts(rows).slice(0, compact ? 8 : 24);
   const totals = buildMarketTotals(rows);
+  const trackingSummary = {
+    recentNewProductCount: rows.filter((row) => row.newEntrySignal > 0).length,
+    trackedProductCount: rows.filter((row) => row.threeDaySalesTracked).length,
+  };
   const priceBuckets = buildPriceBuckets(rows);
   const reviewBuckets = buildReviewBuckets(rows);
 
-  const runMarketAnalysis = useCallback(async () => {
-    const rankedKeywordPool = readRankedKeywordPool();
-    const keywords = Array.from(new Set(
-      (rankedKeywordPool?.entries ?? [])
-        .map((entry) => entry.keyword.trim())
-        .filter(Boolean),
-    )).slice(0, MARKET_ANALYSIS_KEYWORD_LIMIT);
-
-    if (keywords.length === 0) {
-      setNotice(null);
-      setErrors(['키워드 분석에서 순위 갱신을 먼저 실행해야 시장분석 후보를 만들 수 있습니다.']);
+  const runMarketAnalysis = useCallback(() => {
+    if (popularKeywordsQuery.isLoading) {
+      setInputError('키워드 분석에서 순위 갱신을 먼저 실행해야 시장분석 후보를 만들 수 있습니다.');
       return;
     }
-
-    cancelRef.current = false;
-    setIsRunning(true);
-    setNotice(null);
-    setErrors([]);
-    setProgress({ current: 0, total: keywords.length, keyword: '' });
-
-    let productSnapshots = readTodayRecommendationSnapshots();
-    const previousSnapshots = snapshotsToMap(productSnapshots);
-    let accumulated: TodayRecommendationRow[] = [];
-    const nextErrors: string[] = [];
-
-    for (let index = 0; index < keywords.length; index += 1) {
-      if (cancelRef.current) break;
-      const keyword = keywords[index];
-      setProgress({ current: index + 1, total: keywords.length, keyword });
-
-      try {
-        const response = await searchWingCatalogProducts({
-          keyword,
-          maxPages: MARKET_ANALYSIS_MAX_PAGES,
-        });
-        const scored = buildTodayRecommendationRows({
-          keyword,
-          products: response.rows ?? [],
-          previousSnapshots,
-        });
-        productSnapshots = appendProductSnapshots(scored, productSnapshots);
-        accumulated = mergeTodayRecommendationRows([...accumulated, ...scored]);
-        const nextRows = accumulated.slice(0, MARKET_ANALYSIS_RESULT_LIMIT);
-        writeTodayRecommendationRows(nextRows);
-        writeTodayRecommendationSnapshots(productSnapshots);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        nextErrors.push(`${keyword}: ${message}`);
-        setErrors([...nextErrors]);
-        if (message.includes('확장프로그램') || message.includes('Wing 로그인')) break;
-      }
-
-      await sleep(700);
+    if (popularKeywordsQuery.error) {
+      setInputError('키워드 분석에서 순위 갱신을 먼저 실행해야 시장분석 후보를 만들 수 있습니다.');
+      return;
     }
-
-    const finalRows = accumulated.slice(0, MARKET_ANALYSIS_RESULT_LIMIT);
-    writeTodayRecommendationRows(finalRows);
-    writeTodayRecommendationSnapshots(productSnapshots);
-
-    if (finalRows.length > 0) {
-      const payload: TodayRecommendationsSnapshotPayload = {
-        version: 1,
-        input: {
-          keywordText: keywords.join('\n'),
-          keywordLimit: keywords.length,
-          maxPages: MARKET_ANALYSIS_MAX_PAGES,
-        },
-        result: {
-          rows: finalRows.slice(0, 100),
-          productSnapshots: productSnapshots.slice(0, 2000),
-        },
-        meta: createManualSourcingWorkspaceSnapshotMeta(),
-      };
-      void saveTodaySourcingWorkspaceSnapshot('today_recommendations', payload).catch(() => {
-        // Local storage still carries the page-to-page handoff when the API is unavailable.
-      });
-      setNotice(`시장분석 후보 ${formatNumber(finalRows.length)}개를 오늘의 추천으로 보냈습니다.`);
-    } else if (!cancelRef.current && nextErrors.length === 0) {
-      setNotice('Wing 검증 결과로 추천할 상품이 아직 없습니다.');
+    if (operationKeywords.length === 0) {
+      setInputError('키워드 분석에서 순위 갱신을 먼저 실행해야 시장분석 후보를 만들 수 있습니다.');
+      return;
     }
-
-    setIsRunning(false);
-    setProgress((current) => ({ ...current, keyword: cancelRef.current ? '중단됨' : '완료' }));
-  }, []);
-
-  const cancelMarketAnalysis = useCallback(() => {
-    cancelRef.current = true;
-    setIsRunning(false);
-  }, []);
+    setInputError(null);
+    void operation.start();
+  }, [operation, operationKeywords.length, popularKeywordsQuery.error, popularKeywordsQuery.isLoading]);
 
   if (rows.length === 0) {
     return (
       <EmptyMarketState
         compact={compact}
-        errors={errors}
+        inputError={inputError}
         isRunning={isRunning}
-        notice={notice}
-        onCancel={cancelMarketAnalysis}
+        operation={operation}
         onRun={runMarketAnalysis}
-        progress={progress}
       />
     );
   }
@@ -217,7 +138,15 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
             </Link>
           </div>
         </div>
-        <MarketRunFeedback errors={errors} isRunning={isRunning} notice={notice} progress={progress} />
+        {inputError ? <p className="mt-4 text-sm font-bold text-red-700">{inputError}</p> : null}
+        <SourcingOperationRunPanel
+          className="mt-4"
+          run={operation.run}
+          onCancel={() => { void operation.cancel(); }}
+          onRetryAttention={() => { void operation.retryAttention(); }}
+          isCancelling={operation.isCancelling}
+          isRetrying={operation.isRetrying}
+        />
 
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <SummaryMetric icon={PackageSearch} label="분석 상품" value={`${formatNumber(summary.totalCandidates)}개`} caption="중복 제거 후" />
@@ -250,7 +179,7 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           {topProducts.map((row) => (
-            <MarketProductCard key={marketProductKey(row)} row={row} snapshot={snapshotMap.get(marketProductKey(row))} />
+            <MarketProductCard key={marketProductKey(row)} row={row} />
           ))}
         </div>
       </section>
@@ -260,20 +189,16 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
 
 function EmptyMarketState({
   compact,
-  errors,
+  inputError,
   isRunning,
-  notice,
-  onCancel,
+  operation,
   onRun,
-  progress,
 }: {
   compact: boolean;
-  errors: string[];
+  inputError: string | null;
   isRunning: boolean;
-  notice: string | null;
-  onCancel: () => void;
+  operation: ReturnType<typeof useSourcingOperationAction>;
   onRun: () => void;
-  progress: MarketAnalysisProgress;
 }) {
   return (
     <section className="rounded-lg border border-[var(--border,#e2e8f0)] bg-[var(--surface,white)] p-8 text-center shadow-sm">
@@ -295,70 +220,26 @@ function EmptyMarketState({
             {isRunning ? <Loader2 size={16} className="animate-spin" /> : <PlayCircle size={16} />}
             시장분석 시작
           </button>
-          {isRunning ? (
-            <button
-              type="button"
-              onClick={onCancel}
-              className="inline-flex h-11 items-center justify-center rounded-lg border border-[var(--border,#e2e8f0)] bg-white px-5 text-sm font-black text-[var(--text-secondary,#475569)]"
-            >
-              중단
-            </button>
-          ) : (
+          {!isRunning ? (
             <Link
               href="/sourcing-ai/keywords"
               className="inline-flex h-11 items-center justify-center rounded-lg border border-[var(--border,#e2e8f0)] bg-white px-5 text-sm font-black text-[var(--text-secondary,#475569)] transition hover:border-[#ffb89f] hover:text-[#d94112]"
             >
               키워드 분석 확인
             </Link>
-          )}
+          ) : null}
         </div>
       )}
-      <MarketRunFeedback errors={errors} isRunning={isRunning} notice={notice} progress={progress} centered />
+      {inputError ? <p className="mt-4 text-sm font-bold text-red-700">{inputError}</p> : null}
+      <SourcingOperationRunPanel
+        className="mt-4 text-left"
+        run={operation.run}
+        onCancel={() => { void operation.cancel(); }}
+        onRetryAttention={() => { void operation.retryAttention(); }}
+        isCancelling={operation.isCancelling}
+        isRetrying={operation.isRetrying}
+      />
     </section>
-  );
-}
-
-function MarketRunFeedback({
-  centered = false,
-  errors,
-  isRunning,
-  notice,
-  progress,
-}: {
-  centered?: boolean;
-  errors: string[];
-  isRunning: boolean;
-  notice: string | null;
-  progress: MarketAnalysisProgress;
-}) {
-  if (!isRunning && !notice && errors.length === 0) return null;
-
-  return (
-    <div className={cn('mt-4 space-y-2 text-sm font-bold', centered && 'mx-auto max-w-xl text-left')}>
-      {isRunning && (
-        <div className="rounded-lg bg-[var(--surface-sunken,#f8fafc)] px-4 py-3 text-[var(--text-secondary,#475569)]">
-          <div className="flex items-center justify-between gap-3">
-            <span>{progress.keyword ? `${progress.keyword} 검증 중` : '시장분석 준비 중'}</span>
-            <span>{formatNumber(progress.current)} / {formatNumber(progress.total)}</span>
-          </div>
-          <div className="mt-2 h-2 overflow-hidden rounded-full bg-white">
-            <div
-              className="h-full rounded-full bg-[#ff5a1f]"
-              style={{ width: `${progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 8}%` }}
-            />
-          </div>
-        </div>
-      )}
-      {notice && (
-        <p className="rounded-lg bg-green-50 px-4 py-3 text-green-700">{notice}</p>
-      )}
-      {errors.slice(0, 3).map((error) => (
-        <p key={error} className="flex items-start gap-2 rounded-lg bg-red-50 px-4 py-3 text-red-700">
-          <AlertCircle size={16} className="mt-0.5 shrink-0" />
-          <span>{error}</span>
-        </p>
-      ))}
-    </div>
   );
 }
 
@@ -457,9 +338,9 @@ function DistributionCard({ title, rows }: { title: string; rows: DistributionRo
   );
 }
 
-function MarketProductCard({ row, snapshot }: { row: TodayRecommendationRow; snapshot?: ProductSnapshot }) {
+function MarketProductCard({ row }: { row: TodayRecommendationRow }) {
   const imageUrl = resolveCoupangCatalogImageUrl(row.imagePath);
-  const isRecentNewProduct = isRecentlyFirstSeen(snapshot);
+  const isRecentNewProduct = row.newEntrySignal > 0;
 
   return (
     <article className="overflow-hidden rounded-lg border border-[var(--border-subtle,#eef1f5)] bg-[var(--surface-sunken,#f8fafc)]">
@@ -488,10 +369,13 @@ function MarketProductCard({ row, snapshot }: { row: TodayRecommendationRow; sna
         <div className="mt-3 grid grid-cols-2 gap-1.5">
           <SmallMetric label="점수" value={`${formatNumber(row.score)}점`} strong />
           <SmallMetric label="판매가" value={formatPrice(row.salePrice)} />
-          <SmallMetric label="3일 판매" value={`${formatNumber(resolveSalesLast3d(row))}개`} />
+          <SmallMetric
+            label="3일 판매"
+            value={resolveSalesLast3d(row) == null ? '-' : `${formatNumber(resolveSalesLast3d(row))}개`}
+          />
           <SmallMetric label="전환율" value={formatWingCatalogRate(row.conversionRate28d)} />
           <SmallMetric label="리뷰" value={`${formatNumber(row.ratingCount)}개`} />
-          <SmallMetric label="첫관측" value={formatFirstSeen(snapshot)} />
+          <SmallMetric label="첫관측" value="-" />
         </div>
         {(row.reasons.length > 0 || row.risks.length > 0) && (
           <div className="mt-3 space-y-1">
@@ -539,19 +423,18 @@ function sortMarketProducts(rows: TodayRecommendationRow[]): TodayRecommendation
     B: 4,
     C: 3,
     WATCH: 2,
-    EXCLUDE: 1,
   };
 
   return [...rows].sort((a, b) => (
     gradeWeight[b.grade] - gradeWeight[a.grade] ||
     b.score - a.score ||
-    resolveSalesLast3d(b) - resolveSalesLast3d(a) ||
+    (resolveSalesLast3d(b) ?? -1) - (resolveSalesLast3d(a) ?? -1) ||
     (b.marketReactionSignal ?? 0) - (a.marketReactionSignal ?? 0)
   ));
 }
 
 function buildMarketTotals(rows: TodayRecommendationRow[]) {
-  const sales = rows.reduce((sum, row) => sum + resolveSalesLast3d(row), 0);
+  const sales = rows.reduce((sum, row) => sum + (resolveSalesLast3d(row) ?? 0), 0);
   const trackedSalesCount = rows.filter((row) => row.threeDaySalesTracked).length;
   const conversions = rows
     .map((row) => row.conversionRate28d)
@@ -610,27 +493,14 @@ function marketProductKey(row: Pick<TodayRecommendationRow, 'productId' | 'itemI
   return `${row.productId}:${row.itemId ?? ''}:${row.vendorItemId ?? ''}`;
 }
 
-function resolveSalesLast3d(row: TodayRecommendationRow): number {
-  return row.salesLast3d ?? Math.max(0, Math.round(((row.salesLast28d ?? 0) / 28) * 3));
+function resolveSalesLast3d(row: TodayRecommendationRow): number | null {
+  return row.salesLast3d;
 }
 
-function isRecentlyFirstSeen(snapshot: ProductSnapshot | undefined): boolean {
-  if (!snapshot) return false;
-  const firstSeenAt = snapshot.firstSeenAt ?? snapshot.capturedAt;
-  const now = Date.now();
-  return firstSeenAt >= now - THREE_DAY_TRACKING_MS && firstSeenAt <= now;
-}
-
-function formatFirstSeen(snapshot: ProductSnapshot | undefined): string {
-  if (!snapshot) return '추적 전';
-  const firstSeenAt = snapshot.firstSeenAt ?? snapshot.capturedAt;
-  const elapsedDays = Math.max(0, Math.floor((Date.now() - firstSeenAt) / (24 * 60 * 60 * 1000)));
-  if (elapsedDays === 0) return '오늘';
-  return `${formatNumber(elapsedDays)}일 전`;
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
+function isActiveOperation(status: string | undefined): boolean {
+  return status === 'queued'
+    || status === 'waiting_runtime'
+    || status === 'waiting_dependency'
+    || status === 'running'
+    || status === 'attention_required';
 }

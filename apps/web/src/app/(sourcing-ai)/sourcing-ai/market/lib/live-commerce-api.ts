@@ -42,22 +42,8 @@ export interface LiveCommerceProductView {
   capturedAt: string;
 }
 
-export interface LiveCommerceCollectionResult {
-  businessDate: string;
-  broadcastCount: number;
-  productCount: number;
-  warnings: string[];
-}
-
 export function fetchLiveCommerceStatus(): Promise<{ sources: LiveCommerceSourceStatus[] }> {
   return apiClient.get('/api/sourcing/live-commerce/status');
-}
-
-export function collectTaobaoLive(input: {
-  liveIds?: string[];
-  queryDate?: string;
-}): Promise<LiveCommerceCollectionResult> {
-  return apiClient.post('/api/sourcing/live-commerce/taobao/collect', input);
 }
 
 export function fetchLiveCommerceSnapshots(days: number): Promise<{

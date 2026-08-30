@@ -1,19 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo } from 'react';
+import type { Sourcing1688SearchObservation } from '@kiditem/shared/sourcing';
 import {
-  AlertCircle,
   ExternalLink,
   ImageIcon,
-  KeyRound,
   Loader2,
   PackageSearch,
   RefreshCw,
   type LucideIcon,
 } from 'lucide-react';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
-import { resolveCoupangCatalogImageUrl } from '../wing-catalog/lib/wing-catalog-extension';
-import { useTodayRecommendationRows } from '../lib/use-today-recommendation-rows';
+import { resolveCoupangCatalogImageUrl } from '../wing-catalog/lib/wing-catalog-presenter';
+import { useSourcingRecommendations } from '../hooks/use-sourcing-workspace';
+import { toTodayRecommendationRows } from '../lib/sourcing-recommendation-presenter';
 import {
   buildCoupangImageSearchRows,
   buildImageSearchOffer,
@@ -22,221 +22,59 @@ import {
   type CoupangImageSearchRow,
   type ImageSearchOffer,
 } from '../lib/coupang-1688-matching';
-import {
-  get1688ImageSearchStatus,
-  search1688ByImage,
-  type Search1688ImageResponse,
-} from '../lib/1688-image-search-api';
-import { append1688NewProductSnapshot } from '../lib/1688-new-product-snapshot';
-import {
-  clearDailyImageSearchCache,
-  loadDailyImageSearchCache,
-  saveDailyImageSearchState,
-  type CachedImageSearchState,
-} from '../lib/daily-image-search-cache';
-import { getTodaySourcingWorkspaceSnapshot } from '../lib/sourcing-workspace-snapshot-api';
+import { useSourcingOperationAction } from '../hooks/use-sourcing-operation-action';
+import { useWholesale1688Results } from '../hooks/use-wholesale-1688-results';
+import { wholesale1688ResultsQueryKey } from '../lib/wholesale-1688-results-api';
+import { SourcingOperationRunPanel } from './SourcingOperationRunPanel';
 import { SellochWholesaleOfferGrid } from './SellochWholesaleOfferGrid';
-import type { TodayRecommendationRow } from '../recommendations/lib/today-recommendations';
 
-const IMAGE_SEARCH_LAUNCH_INTERVAL_MS = 500;
-const IMAGE_SEARCH_RESULT_LIMIT = 18;
-
-type TodayRecommendationSnapshotPayload = Record<string, unknown> & {
-  result?: {
-    rows?: TodayRecommendationRow[];
-  };
-};
-
-type ImageSearchState =
-  | { status: 'loading' }
-  | { status: 'success'; result: Search1688ImageResponse }
-  | { status: 'error'; message: string };
-
-type ImageSearchAvailability =
-  | { status: 'checking' }
-  | { status: 'ready'; configured: boolean }
-  | { status: 'error'; message: string };
+const IMAGE_SEARCH_BATCH_LIMIT = 24;
 
 export function SellochWholesaleCoupangMatches() {
-  const localRows = useTodayRecommendationRows();
-  const [snapshotRows, setSnapshotRows] = useState<TodayRecommendationRow[]>([]);
-  const [imageSearches, setImageSearches] = useState<Record<string, ImageSearchState>>({});
-  const [imageSearchAvailability, setImageSearchAvailability] = useState<ImageSearchAvailability>({ status: 'checking' });
-  const autoRequestedIds = useRef<Set<string>>(new Set());
-  const autoSearchTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+  const recommendationsQuery = useSourcingRecommendations('today');
+  const coupangRows = useMemo(
+    () => toTodayRecommendationRows(recommendationsQuery.data?.data?.items ?? []),
+    [recommendationsQuery.data],
+  );
 
-  const coupangRows = localRows.length > 0 ? localRows : snapshotRows;
   const matches = useMemo(
-    () => buildCoupangImageSearchRows({ coupangRows, limit: 24 }),
+    () => buildCoupangImageSearchRows({
+      coupangRows,
+      limit: IMAGE_SEARCH_BATCH_LIMIT,
+    }),
     [coupangRows],
   );
-  const canRunImageSearch = imageSearchAvailability.status === 'ready' && imageSearchAvailability.configured;
+  const targetIds = useMemo(
+    () => matches.map((match) => match.id).slice(0, IMAGE_SEARCH_BATCH_LIMIT),
+    [matches],
+  );
+  const resultQuery = useWholesale1688Results({ targetIds });
+  const snapshotQueryKey = wholesale1688ResultsQueryKey({ targetIds });
+  const operationInput = useMemo(() => ({ targetIds }), [targetIds]);
+  const operation = useSourcingOperationAction({
+    operationKey: 'sourcing.match_wholesale_images',
+    input: operationInput,
+    snapshotQueryKey,
+    wakeBrowserRuntime: false,
+  });
+  const collecting = operation.isStarting || isActiveOperation(operation.run?.status);
+  const observationsByTargetId = useMemo(
+    () => new Map(
+      (resultQuery.data?.observations ?? [])
+        .filter((observation) => observation.targetId !== null)
+        .map((observation) => [observation.targetId as string, observation]),
+    ),
+    [resultQuery.data?.observations],
+  );
 
-  const runImageSearch = useCallback(async (match: CoupangImageSearchRow) => {
-    if (!canRunImageSearch) {
-      setImageSearches((prev) => ({
-        ...prev,
-        [match.id]: {
-          status: 'error',
-          message: imageSearchUnavailableMessage(imageSearchAvailability),
-        },
-      }));
-      return;
-    }
-
-    const imageUrl = resolveCoupangCatalogImageUrl(match.coupangProduct.imagePath);
-    if (!imageUrl) {
-      setImageSearches((prev) => ({
-        ...prev,
-        [match.id]: { status: 'error', message: '쿠팡 상품 이미지가 없어 1688 매칭을 실행할 수 없습니다.' },
-      }));
-      return;
-    }
-
-    setImageSearches((prev) => ({ ...prev, [match.id]: { status: 'loading' } }));
-    try {
-      const result = await search1688ByImage({
-        imageUrl,
-        keyword: match.searchQuery,
-        maxResults: IMAGE_SEARCH_RESULT_LIMIT,
-      });
-      void append1688NewProductSnapshot({
-        source: '1688_image_match',
-        keyword: match.searchQuery,
-        items: result.items.map((item) => {
-          const offer = buildImageSearchOffer(item, match.targetSalePriceKrw);
-          return {
-            ...item,
-            keyword: match.searchQuery,
-            imageMatchScore: item.score,
-            targetSalePriceKrw: match.targetSalePriceKrw,
-            landedCostKrw: offer.landedCostKrw,
-            estimatedProfitKrw: offer.estimatedProfitKrw,
-            estimatedMarginRate: offer.estimatedMarginRate,
-            matchedCoupang: {
-              productId: match.coupangProduct.productId,
-              productName: match.coupangProduct.productName,
-              primaryKeyword: match.coupangProduct.primaryKeyword,
-              keywords: match.coupangProduct.keywords,
-              score: match.coupangProduct.score,
-              grade: match.coupangProduct.grade,
-              salePrice: match.coupangProduct.salePrice ?? match.targetSalePriceKrw,
-              salesLast3d: match.coupangProduct.salesLast3d,
-              salesLast28d: match.coupangProduct.salesLast28d ?? 0,
-              reviews: match.coupangProduct.ratingCount ?? 0,
-              marketReaction: match.coupangProduct.marketReactionSignal,
-              threeDayValidation: match.coupangProduct.newEntrySignal,
-              matchScore: item.score,
-            },
-          };
-        }),
-      }).catch(() => undefined);
-      const nextState: CachedImageSearchState = { status: 'success', result };
-      saveDailyImageSearchState(match.id, nextState);
-      setImageSearches((prev) => ({ ...prev, [match.id]: nextState }));
-    } catch (error) {
-      const nextState: CachedImageSearchState = {
-        status: 'error',
-        message: formatImageSearchError(error),
-      };
-      saveDailyImageSearchState(match.id, nextState);
-      setImageSearches((prev) => ({
-        ...prev,
-        [match.id]: nextState,
-      }));
-    }
-  }, [canRunImageSearch, imageSearchAvailability]);
-
-  const clearAutoSearchTimers = useCallback(() => {
-    for (const timer of autoSearchTimers.current) clearTimeout(timer);
-    autoSearchTimers.current = [];
-  }, []);
-
-  const scheduleImageSearches = useCallback((targetMatches: CoupangImageSearchRow[]) => {
-    if (!canRunImageSearch) return;
-    targetMatches.forEach((match, index) => {
-      autoRequestedIds.current.add(match.id);
-      const timer = setTimeout(() => {
-        void runImageSearch(match);
-      }, index * IMAGE_SEARCH_LAUNCH_INTERVAL_MS);
-      autoSearchTimers.current.push(timer);
-    });
-  }, [canRunImageSearch, runImageSearch]);
+  const runImageSearch = useCallback((match: CoupangImageSearchRow) => {
+    void operation.start({ targetIds: [match.id] }, [snapshotQueryKey]);
+  }, [operation, snapshotQueryKey]);
 
   const rerunAllSearches = useCallback(() => {
-    if (!canRunImageSearch) return;
-    clearAutoSearchTimers();
-    autoRequestedIds.current.clear();
-    clearDailyImageSearchCache();
-    setImageSearches({});
-    scheduleImageSearches(matches);
-  }, [canRunImageSearch, clearAutoSearchTimers, matches, scheduleImageSearches]);
-
-  useEffect(() => {
-    if (matches.length === 0) return;
-    const cached = loadDailyImageSearchCache();
-    const cachedStates = Object.fromEntries(
-      matches
-        .map((match) => [match.id, cached.states[match.id]] as const)
-        .filter((entry): entry is [string, CachedImageSearchState] => Boolean(entry[1])),
-    );
-    if (Object.keys(cachedStates).length === 0) return;
-
-    Object.keys(cachedStates).forEach((matchId) => autoRequestedIds.current.add(matchId));
-    setImageSearches((prev) => ({ ...cachedStates, ...prev }));
-  }, [matches]);
-
-  useEffect(() => {
-    if (!canRunImageSearch) return;
-    const pendingMatches = matches.filter((match) => !autoRequestedIds.current.has(match.id));
-    scheduleImageSearches(pendingMatches);
-  }, [canRunImageSearch, matches, scheduleImageSearches]);
-
-  useEffect(() => () => {
-    clearAutoSearchTimers();
-  }, [clearAutoSearchTimers]);
-
-  useEffect(() => {
-    let active = true;
-    void get1688ImageSearchStatus()
-      .then((status) => {
-        if (active) setImageSearchAvailability({ status: 'ready', configured: status.configured });
-      })
-      .catch((error) => {
-        if (active) setImageSearchAvailability({ status: 'error', message: formatImageSearchError(error) });
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    if (localRows.length > 0) return () => {
-      active = false;
-    };
-
-    void getTodaySourcingWorkspaceSnapshot<TodayRecommendationSnapshotPayload>('today_recommendations')
-      .then(({ snapshot }) => {
-        const rows = snapshot?.payload?.result?.rows;
-        if (active && Array.isArray(rows)) setSnapshotRows(rows);
-      })
-      .catch(() => {
-        if (active) setSnapshotRows([]);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [localRows.length]);
-
-  const finishedSearchCount = matches.filter((match) => {
-    const state = imageSearches[match.id];
-    return state?.status === 'success' || state?.status === 'error';
-  }).length;
-  const loadingSearchCount = matches.filter((match) => imageSearches[match.id]?.status === 'loading').length;
-  const collecting = canRunImageSearch && matches.length > 0 && finishedSearchCount < matches.length;
+    if (targetIds.length === 0) return;
+    void operation.start();
+  }, [operation, targetIds.length]);
 
   return (
     <section className="overflow-hidden rounded-[18px] border border-[#eef1f5] bg-white shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
@@ -255,29 +93,22 @@ export function SellochWholesaleCoupangMatches() {
           <button
             type="button"
             onClick={rerunAllSearches}
-            disabled={!canRunImageSearch || matches.length === 0 || collecting}
+            disabled={targetIds.length === 0 || collecting}
             className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-[#dbe2ea] bg-[#fbfbfc] px-4 text-xs font-black text-[#4b5563] transition hover:border-[#b5482b] hover:text-[#b5482b] disabled:opacity-60"
           >
-            {loadingSearchCount > 0 ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
-            전체 다시 수집
+            {collecting ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+            전체 수집
           </button>
         </div>
 
-        {canRunImageSearch && matches.length > 0 && (
-          <div className={cn(
-            'mt-4 inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-black',
-            collecting ? 'bg-[#eef2ff] text-[#5b50d6]' : 'bg-green-100 text-green-700',
-          )}>
-            {collecting ? <Loader2 size={14} className="animate-spin" /> : <ImageIcon size={14} />}
-            {collecting
-              ? `수집중 ${formatNumber(finishedSearchCount)}/${formatNumber(matches.length)}`
-              : `수집 완료 ${formatNumber(matches.length)}개`}
-          </div>
-        )}
-
-        {!canRunImageSearch && (
-          <ImageSearchSetupNotice availability={imageSearchAvailability} />
-        )}
+        <SourcingOperationRunPanel
+          run={operation.run}
+          onCancel={() => { void operation.cancel(); }}
+          onRetryAttention={() => { void operation.retryAttention(); }}
+          isCancelling={operation.isCancelling}
+          isRetrying={operation.isRetrying}
+          className="mt-5"
+        />
       </div>
 
       {matches.length === 0 ? (
@@ -288,40 +119,14 @@ export function SellochWholesaleCoupangMatches() {
             <MatchCard
               key={match.id}
               match={match}
-              searchState={imageSearches[match.id]}
+              observation={observationsByTargetId.get(match.id)}
               onSearch={runImageSearch}
-              availability={imageSearchAvailability}
+              busy={collecting}
             />
           ))}
         </div>
       )}
     </section>
-  );
-}
-
-function ImageSearchSetupNotice({ availability }: { availability: ImageSearchAvailability }) {
-  const checking = availability.status === 'checking';
-  return (
-    <div className={cn(
-      'mt-5 rounded-xl border p-4',
-      checking ? 'border-[#eef1f5] bg-[#f8fafc]' : 'border-red-200 bg-red-50',
-    )}>
-      <div className="flex items-start gap-3">
-        {checking ? (
-          <Loader2 size={18} className="mt-0.5 shrink-0 animate-spin text-[#667085]" />
-        ) : (
-          <KeyRound size={18} className="mt-0.5 shrink-0 text-red-700" />
-        )}
-        <div>
-          <h3 className="text-sm font-black text-[#111827]">
-            {checking ? '1688 매칭 연결 확인 중' : '1688 매칭 연결 전입니다'}
-          </h3>
-          <p className={cn('mt-1 text-xs font-bold leading-5', checking ? 'text-[#667085]' : 'text-red-800')}>
-            {imageSearchUnavailableMessage(availability)}
-          </p>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -341,19 +146,19 @@ function EmptyMatches() {
 
 function MatchCard({
   match,
-  searchState,
+  observation,
   onSearch,
-  availability,
+  busy,
 }: {
   match: CoupangImageSearchRow;
-  searchState?: ImageSearchState;
+  observation?: Sourcing1688SearchObservation;
   onSearch: (match: CoupangImageSearchRow) => void;
-  availability: ImageSearchAvailability;
+  busy: boolean;
 }) {
   const row = match.coupangProduct;
   const coupangImageUrl = resolveCoupangCatalogImageUrl(row.imagePath);
-  const offers = searchState?.status === 'success'
-    ? searchState.result.items.map((item) => buildImageSearchOffer(item, match.targetSalePriceKrw))
+  const offers = observation
+    ? observation.items.map((item) => buildImageSearchOffer(item, match.targetSalePriceKrw))
     : [];
 
   return (
@@ -387,10 +192,10 @@ function MatchCard({
 
         <ImageSearchPanel
           match={match}
-          searchState={searchState}
+          observation={observation}
           offers={offers}
           onSearch={onSearch}
-          availability={availability}
+          busy={busy}
         />
       </div>
       {offers.length > 0 && (
@@ -424,18 +229,17 @@ function MatchCard({
 
 function ImageSearchPanel({
   match,
-  searchState,
+  observation,
   offers,
   onSearch,
-  availability,
+  busy,
 }: {
   match: CoupangImageSearchRow;
-  searchState?: ImageSearchState;
+  observation?: Sourcing1688SearchObservation;
   offers: ImageSearchOffer[];
   onSearch: (match: CoupangImageSearchRow) => void;
-  availability: ImageSearchAvailability;
+  busy: boolean;
 }) {
-  const canSearch = availability.status === 'ready' && availability.configured;
   const bestOffer = selectBestImageSearchOffer(offers);
   const bestScore = bestOffer ? scoreImageSearchOffer(bestOffer) : null;
 
@@ -446,34 +250,25 @@ function ImageSearchPanel({
           <button
             type="button"
             onClick={() => onSearch(match)}
-            disabled={!canSearch || searchState?.status === 'loading'}
+            disabled={busy}
             className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dbe2ea] bg-[#fbfbfc] px-3 text-xs font-black text-[#4b5563] transition hover:border-[#2f80ed] hover:text-[#2f80ed] disabled:opacity-60"
           >
-            {searchState?.status === 'loading' ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
             매칭 다시
           </button>
         </div>
       )}
 
-      {!canSearch && (
-        <StatePanel
-          icon={availability.status === 'checking' ? Loader2 : KeyRound}
-          title={availability.status === 'checking' ? '1688 매칭 설정 확인 중' : '1688 매칭 연결 필요'}
-          body={imageSearchUnavailableMessage(availability)}
-          tone={availability.status === 'checking' ? 'muted' : 'danger'}
-          spin={availability.status === 'checking'}
-        />
-      )}
-
-      {canSearch && !searchState && (
+      {!busy && !observation && (
         <StatePanel
           icon={ImageIcon}
-          title="자동 수집 대기"
-          body="전체 상품을 시간 간격을 두고 자동 수집합니다. 곧 1688 상품을 불러옵니다."
+          title="저장된 매칭 결과 없음"
+          body="전체 수집 또는 이 상품의 매칭 다시 버튼으로 새 Operation을 시작할 수 있습니다."
+          tone="muted"
         />
       )}
 
-      {searchState?.status === 'loading' && (
+      {busy && !observation && (
         <StatePanel
           icon={Loader2}
           title="1688 매칭 중"
@@ -482,16 +277,7 @@ function ImageSearchPanel({
         />
       )}
 
-      {searchState?.status === 'error' && (
-        <StatePanel
-          icon={AlertCircle}
-          title="1688 매칭 실패"
-          body={searchState.message}
-          tone="danger"
-        />
-      )}
-
-      {searchState?.status === 'success' && offers.length === 0 && (
+      {observation && offers.length === 0 && (
         <StatePanel
           icon={PackageSearch}
           title="1688 매칭 결과 없음"
@@ -505,8 +291,8 @@ function ImageSearchPanel({
           offer={bestOffer}
           score={bestScore}
           onRetry={() => onSearch(match)}
-          retryDisabled={!canSearch || searchState?.status === 'loading'}
-          retryLoading={searchState?.status === 'loading'}
+          retryDisabled={busy}
+          retryLoading={busy}
         />
       )}
     </section>
@@ -636,23 +422,6 @@ function MiniMetric({ label, value, strong = false }: { label: string; value: st
   );
 }
 
-function imageSearchUnavailableMessage(availability: ImageSearchAvailability): string {
-  if (availability.status === 'checking') {
-    return '백엔드에서 1688 직접 매칭 설정을 확인하고 있습니다.';
-  }
-  if (availability.status === 'error') {
-    return availability.message;
-  }
-  if (!availability.configured) {
-    return '1688 직접 검색 연결을 확인한 뒤 다시 시도해 주세요.';
-  }
-  return '1688 직접 매칭을 실행할 수 있습니다.';
-}
-
-function formatImageSearchError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  if (message.includes('keyword helper')) {
-    return '1688 매칭에 사용할 검색어가 없어 실행할 수 없습니다.';
-  }
-  return message;
+function isActiveOperation(status: string | undefined): boolean {
+  return status === 'queued' || status === 'running' || status === 'attention_required';
 }

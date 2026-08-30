@@ -87,6 +87,7 @@ export function buildMockOperationAlertRepo(): MockOperationAlertRepo {
     transition: vi.fn(),
     findLatestBySource: vi.fn(),
     findByOperationKey: vi.fn(),
+    listOpenBySourceType: vi.fn().mockResolvedValue([]),
     closeStaleOperations: vi.fn(),
     dismissExtensionMissingBrowserCollections: vi.fn(),
   };
@@ -127,5 +128,6 @@ export function buildMockOperationAlertPort(): MockOperationAlertPort {
     cancel: vi.fn(),
     closeBySource: vi.fn(),
     closeStaleOperations: vi.fn(),
+    dismissExtensionMissingBrowserCollections: vi.fn(),
   };
 }

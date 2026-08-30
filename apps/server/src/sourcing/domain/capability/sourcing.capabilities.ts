@@ -1,239 +1,136 @@
+import { z } from 'zod';
+import type { CapabilityDefinition } from '../../../common/capability-definition';
 import {
-  defineCapabilities,
-  type CapabilityManifest,
-} from '../../../common/capability-manifest';
+  parseAllowedSupplierUrl,
+  SUPPLIER_URL_CATALOG_REGEXP,
+  SUPPLIER_URL_MAX_LENGTH,
+} from '../supplier-source-url-policy';
 
-export const SOURCING_CAPABILITIES = defineCapabilities([
+const Uuid = z.string().uuid();
+const Identifier = z.string().trim().min(1).max(200);
+const OperationStatus = z.enum(['queued', 'waiting_runtime', 'waiting_dependency', 'running', 'attention_required', 'succeeded', 'failed', 'cancelled', 'skipped']);
+const OperationOutput = z.object({ operationRunId: Uuid, status: OperationStatus }).strict();
+const SupplierUrl = z.string()
+  .trim()
+  .max(SUPPLIER_URL_MAX_LENGTH)
+  .url()
+  .regex(SUPPLIER_URL_CATALOG_REGEXP)
+  .transform((value, context) => {
+  try {
+    return parseAllowedSupplierUrl(value).normalizedUrl;
+  } catch {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'supplier_url_invalid' });
+    return z.NEVER;
+  }
+});
+const SourceSnapshot = z.object({
+  sourceUrl: SupplierUrl,
+  platform: z.enum(['1688', 'alibaba']),
+  title: z.string().trim().min(1).max(1_000).nullable(),
+  price: z.number().nonnegative().nullable(),
+  currency: z.string().trim().min(1).max(12).nullable(),
+  variantKeyNormalized: z.string().trim().max(200),
+  images: z.array(z.string().url().max(2_000)).max(40),
+  contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict();
+
+/** Sourcing owns all ten final Agent-facing definitions and their strict business schemas. */
+export const SOURCING_CAPABILITIES = [
   {
-    key: 'sourcing.duplicateCheck',
-    ownerDomain: 'sourcing',
-    kind: 'resource',
-    description: 'Check whether a source product URL already has a sourcing candidate.',
-    inputSchema: { sourceUrl: 'string' },
-    outputSchema: { duplicate: 'boolean', candidateId: 'string|null' },
-    effects: ['read'],
-    approval: 'none',
-    idempotency: 'required',
-    visibility: 'both',
-    entrypoint: {
-      type: 'incoming_port',
-      token: 'SOURCING_DUPLICATE_CHECK_PORT',
-    },
+    key: 'sourcing.duplicateCheck', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.duplicateCheck',
+    description: 'Check whether an approved supplier URL already has a sourcing candidate.',
+    resultSummary: '중복 상품 여부를 확인했습니다.',
+    inputSchema: z.object({ sourceUrl: SupplierUrl }).strict(),
+    outputSchema: z.object({ duplicate: z.boolean(), candidateId: Uuid.nullable() }).strict(),
+    effects: ['read'], approvalRisk: 'none', idempotency: 'recommended',
   },
   {
-    key: 'sourcing.scrapeProductUrl',
-    ownerDomain: 'sourcing',
-    kind: 'tool',
-    description: 'Scrape a product URL with the sourcing browser runtime.',
-    inputSchema: { sourceUrl: 'string', platform: 'string|undefined' },
-    outputSchema: { snapshot: 'SourcingProductSnapshot' },
-    effects: ['browser', 'external_io'],
-    approval: 'none',
-    idempotency: 'recommended',
-    visibility: 'both',
-    entrypoint: {
-      type: 'incoming_port',
-      token: 'SOURCING_SCRAPE_PRODUCT_URL_PORT',
-    },
+    key: 'sourcing.scrapeProductUrl', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.scrapeProductUrl',
+    description: 'Read a bounded normalized source snapshot through the approved supplier browser boundary.',
+    resultSummary: '상품 소스 정보를 확인했습니다.',
+    inputSchema: z.object({ sourceUrl: SupplierUrl }).strict(),
+    outputSchema: z.object({ snapshot: SourceSnapshot }).strict(),
+    effects: ['browser', 'external_io'], approvalRisk: 'none', idempotency: 'recommended',
   },
   {
-    key: 'sourcing.ingestCandidate',
-    ownerDomain: 'sourcing',
-    kind: 'sink',
-    description: 'Persist a validated scraped product snapshot as a sourcing candidate.',
-    inputSchema: { snapshot: 'SourcingProductSnapshot' },
-    outputSchema: { candidateId: 'string' },
-    effects: ['db_write'],
-    approval: 'on_write',
-    idempotency: 'required',
-    visibility: 'both',
-    entrypoint: {
-      type: 'incoming_port',
-      token: 'SOURCING_INGEST_CANDIDATE_PORT',
-    },
+    key: 'sourcing.ingestCandidate', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.ingestCandidate',
+    description: 'Persist the exact server-scraped source snapshot bound to the same live provider turn.',
+    resultSummary: '상품 후보를 등록했습니다.',
+    inputSchema: z.object({ snapshot: SourceSnapshot }).strict(),
+    outputSchema: z.object({ candidateId: Uuid }).strict(),
+    effects: ['db_write'], approvalRisk: 'medium', idempotency: 'required',
   },
   {
-    key: 'sourcing.scrapeUrlWorkflow',
-    ownerDomain: 'sourcing',
-    kind: 'workflow',
-    description: 'Duplicate-check, scrape, ingest, and return the candidate detail link.',
-    inputSchema: { sourceUrl: 'string' },
-    outputSchema: { skipped: 'boolean', candidateId: 'string', href: 'string' },
-    effects: ['read', 'browser', 'external_io', 'db_write', 'job_enqueue'],
-    approval: 'none',
-    idempotency: 'required',
-    visibility: 'both',
-    entrypoint: {
-      type: 'incoming_port',
-      token: 'SOURCING_SCRAPE_URL_WORKFLOW_PORT',
-    },
+    key: 'sourcing.scrapeUrlWorkflow', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.scrapeUrlWorkflow',
+    description: 'Run the durable sourcing URL scrape and candidate-ingest workflow.',
+    resultSummary: '상품 수집 작업을 처리했습니다.',
+    inputSchema: z.object({ sourceUrl: SupplierUrl }).strict(),
+    outputSchema: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('existing'), candidateId: Uuid }).strict(),
+      z.object({ kind: z.literal('enqueued'), operationRunId: Uuid, status: OperationStatus }).strict(),
+    ]),
+    effects: ['read', 'browser', 'external_io', 'db_write', 'job_enqueue'], approvalRisk: 'low', idempotency: 'required',
   },
   {
-    key: 'market.collect_keyword_category_rankings',
-    ownerDomain: 'sourcing',
-    kind: 'tool',
-    description: 'Replay persisted keyword/category market ranking signals from the latest 30 days.',
-    inputSchema: { keyword: 'string', category: 'string|null', mode: 'replay' },
-    outputSchema: { snapshots: 'MarketSignalSnapshot[]', confidence: 'number', dataGaps: 'string[]' },
-    effects: ['read'],
-    approval: 'none',
-    idempotency: 'required',
-    visibility: 'agent',
-    entrypoint: {
-      type: 'incoming_port',
-      token: 'SOURCING_DISCOVERY_CAPABILITY_PORT',
-    },
+    key: 'sourcing.retrieveWorkspaceEvidence', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.retrieveWorkspaceEvidence',
+    description: 'Retrieve bounded, cited sourcing workspace evidence for a query.',
+    resultSummary: '소싱 근거를 확인했습니다.',
+    inputSchema: z.object({ query: z.string().trim().min(1).max(2_000), topK: z.number().int().min(1).max(12).optional(), days: z.number().int().min(1).max(30).optional() }).strict(),
+    outputSchema: z.object({
+      inputHash: z.string().regex(/^[a-f0-9]{64}$/), documentCount: z.number().int().nonnegative(),
+      documents: z.array(z.object({
+        documentId: Identifier,
+        title: z.string().trim().min(1).max(500),
+        text: z.string().trim().min(1).max(8_000),
+        sourceScope: z.enum(['recommendation_run', 'interest_targets', 'validation']),
+        sourceDate: z.union([
+          z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          z.string().datetime(),
+        ]),
+        sourceSnapshotId: Identifier,
+      }).strict()).max(12),
+      dataGaps: z.array(z.string().min(1).max(200)).max(20),
+    }).strict(),
+    effects: ['read'], approvalRisk: 'none', idempotency: 'recommended',
   },
   {
-    key: 'market.collect_shadow_signals',
-    ownerDomain: 'sourcing',
-    kind: 'workflow',
-    description:
-      'Collect a daily Google Trends control and optional pilot-gated LinkFox EchoTik treatment without affecting sourcing scores or recommendations.',
-    inputSchema: {},
-    outputSchema: {
-      claimed: 'boolean',
-      snapshotId: 'string',
-      businessDate: 'string',
-      status: 'string',
-      decisionImpact: 'disabled',
-    },
-    effects: ['read', 'external_io', 'db_write'],
-    approval: 'on_write',
-    idempotency: 'required',
-    visibility: 'agent',
-    entrypoint: {
-      type: 'incoming_port',
-      token: 'MARKET_SHADOW_COLLECTION_CAPABILITY_PORT',
-    },
+    key: 'sourcing.inspectRecommendationRun', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.inspectRecommendationRun',
+    description: 'Read the exact requested run, or the latest eligible run when omitted, with its validation summary.',
+    resultSummary: '추천 실행 결과를 확인했습니다.',
+    inputSchema: z.object({ recommendationRunId: Uuid.optional() }).strict(),
+    outputSchema: z.object({ runId: Identifier, status: z.enum(['complete', 'partial', 'failed']), businessDate: z.string().min(1), itemCount: z.number().int().nonnegative(), warningCodes: z.array(Identifier).max(20), validation: z.object({ itemCount: z.number().int().nonnegative(), missingCount: z.number().int().nonnegative() }).strict() }).strict(),
+    effects: ['read'], approvalRisk: 'none', idempotency: 'recommended',
   },
   {
-    key: 'coupang.match_products',
-    ownerDomain: 'sourcing',
-    kind: 'tool',
-    description: 'Match market opportunities to Coupang listings and seller evidence.',
-    inputSchema: { keyword: 'string', category: 'string|null', mode: 'replay' },
-    outputSchema: { matches: 'CoupangProductMatch[]', confidence: 'number', dataGaps: 'string[]' },
-    effects: ['read'],
-    approval: 'none',
-    idempotency: 'required',
-    visibility: 'agent',
-    entrypoint: {
-      type: 'incoming_port',
-      token: 'SOURCING_DISCOVERY_CAPABILITY_PORT',
-    },
+    key: 'sourcing.refreshCollection', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.refreshCollection',
+    description: 'Enqueue durable source collection for selected approved market sources.',
+    resultSummary: '시장 소스 수집을 시작했습니다.',
+    inputSchema: z.object({ sources: z.array(z.enum(['naver', '1688', 'shorts'])).min(1).max(3) }).strict(), outputSchema: OperationOutput,
+    effects: ['external_io', 'job_enqueue'], approvalRisk: 'low', idempotency: 'required',
   },
   {
-    key: 'coupang.collect_tracking_snapshot',
-    ownerDomain: 'sourcing',
-    kind: 'tool',
-    description: 'Capture rank, review, price, seller-count, and recency signals.',
-    inputSchema: { keyword: 'string', category: 'string|null', mode: 'replay' },
-    outputSchema: { snapshots: 'CoupangTrackingSnapshot[]', confidence: 'number', dataGaps: 'string[]' },
-    effects: ['read'],
-    approval: 'none',
-    idempotency: 'required',
-    visibility: 'agent',
-    entrypoint: {
-      type: 'incoming_port',
-      token: 'SOURCING_DISCOVERY_CAPABILITY_PORT',
-    },
+    key: 'sourcing.refreshValidation', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.refreshValidation',
+    description: 'Refresh bounded validation evidence for one recommendation run.',
+    resultSummary: '추천 근거 검증을 갱신했습니다.',
+    inputSchema: z.object({ recommendationRunId: Uuid }).strict(),
+    outputSchema: z.object({ recommendationRunId: Uuid, validationEpisodeIds: z.array(Identifier), missingEvidence: z.array(z.string().min(1).max(500)) }).strict(),
+    effects: ['db_write'], approvalRisk: 'low', idempotency: 'required',
   },
   {
-    key: 'supplier1688.match_products',
-    ownerDomain: 'sourcing',
-    kind: 'workflow',
-    description:
-      'Match candidate products to 1688 supplier/product/option candidates and enqueue scrape intake when supplier URLs are present.',
-    inputSchema: {
-      keyword: 'string',
-      category: 'string|null',
-      mode: 'replay',
-      supplierUrl: 'string?',
-      supplierUrls: 'string[]?',
-    },
-    outputSchema: {
-      matches: 'SupplierMatch[]',
-      scrapeWorkflowRequests: 'number?',
-      confidence: 'number',
-      dataGaps: 'string[]',
-    },
-    effects: ['read', 'browser', 'external_io', 'db_write', 'job_enqueue'],
-    approval: 'none',
-    idempotency: 'required',
-    visibility: 'agent',
-    entrypoint: {
-      type: 'incoming_port',
-      token: 'SOURCING_DISCOVERY_CAPABILITY_PORT',
-    },
+    key: 'sourcing.createReviewBatch', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.createReviewBatch',
+    description: 'Create a review batch from exact recommendation workspace item versions.',
+    resultSummary: '검토 묶음을 만들었습니다.',
+    inputSchema: z.object({ recommendationRunId: Uuid, workspaceKey: z.enum(['entry', 'final']), items: z.array(z.object({ itemKey: Identifier, expectedVersion: z.number().int().nonnegative() }).strict()).min(1).max(100) }).strict(),
+    outputSchema: z.object({ reviewBatchId: Identifier, itemCount: z.number().int().nonnegative(), status: Identifier }).strict(),
+    effects: ['db_write'], approvalRisk: 'low', idempotency: 'required',
   },
   {
-    key: 'sourcing.score_opportunities',
-    ownerDomain: 'sourcing',
-    kind: 'tool',
-    description:
-      'Produce explainable demand, novelty, competition, supply-fit, margin, and risk scores.',
-    inputSchema: { keyword: 'string', category: 'string|null', mode: 'replay' },
-    outputSchema: { scores: 'SourcingOpportunityScore[]', confidence: 'number', dataGaps: 'string[]' },
-    effects: ['read'],
-    approval: 'none',
-    idempotency: 'required',
-    visibility: 'agent',
-    entrypoint: {
-      type: 'incoming_port',
-      token: 'SOURCING_DISCOVERY_CAPABILITY_PORT',
-    },
+    key: 'sourcing.collect_shadow_signals', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.collectShadowSignals',
+    description: 'Enqueue durable collection of external market-shadow signals.',
+    resultSummary: '시장 신호 수집을 시작했습니다.',
+    inputSchema: z.object({}).strict(), outputSchema: OperationOutput,
+    effects: ['external_io', 'job_enqueue'], approvalRisk: 'low', idempotency: 'required',
   },
-  {
-    key: 'sourcing.create_recommendation_packet',
-    ownerDomain: 'sourcing',
-    kind: 'workflow',
-    description:
-      'Create final sourcing recommendation artifacts from market, Coupang, 1688, and score evidence.',
-    inputSchema: { keyword: 'string', category: 'string|null', mode: 'replay' },
-    outputSchema: {
-      recommendations: 'SourcingRecommendation[]',
-      topScore: 'number|null',
-      confidence: 'number',
-      dataGaps: 'string[]',
-    },
-    effects: ['read'],
-    approval: 'none',
-    idempotency: 'required',
-    visibility: 'agent',
-    entrypoint: {
-      type: 'incoming_port',
-      token: 'SOURCING_DISCOVERY_CAPABILITY_PORT',
-    },
-  },
-  {
-    key: 'product_listing.create_generation_package',
-    ownerDomain: 'sourcing',
-    kind: 'workflow',
-    description:
-      'Create a product-generation package for listing prep: sourcing candidate, detail-page job, and thumbnail job.',
-    inputSchema: {
-      productName: 'string',
-      imageUrls: 'string[]',
-      category: 'string|null',
-      description: 'string|null',
-    },
-    outputSchema: {
-      candidateId: 'string',
-      detailGenerationId: 'string|null',
-      thumbnailGenerationId: 'string|null',
-      contentWorkspaceId: 'string|null',
-      href: 'string',
-    },
-    effects: ['db_write', 'job_enqueue'],
-    approval: 'none',
-    idempotency: 'required',
-    visibility: 'agent',
-    entrypoint: {
-      type: 'incoming_port',
-      token: 'SOURCING_LISTING_PREP_CAPABILITY_PORT',
-    },
-  },
-] as const satisfies readonly CapabilityManifest[]);
+] as const satisfies readonly CapabilityDefinition[];
 
 export type SourcingCapabilityKey = (typeof SOURCING_CAPABILITIES)[number]['key'];

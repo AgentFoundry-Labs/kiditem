@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/finance - P&L, Sales Analysis, and Reports
 
 `app/(finance)/` owns the active `/profit-loss`, `/reports`, and
@@ -10,7 +8,8 @@ accounting logic in the browser.
 ## Owned Surfaces
 
 - Profit/loss period views
-- Sales analysis, statistics, sales-plan, and channel daily-sales tabs
+- Sales analysis, overview/product/category/grade/Pareto/repurchase statistics,
+  sales-plan, Sellpia-backed channel analysis, and Wing daily-sales tabs
 - Settlement list, reconciliation, and confirmation inside `/sales-analysis`
 - Downloadable product, P&L, inventory, and advertising reports
 
@@ -20,9 +19,13 @@ accounting logic in the browser.
 React Query + apiClient
   -> /api/profit-loss, /api/sales-analysis, /api/statistics
   -> /api/sales-plans, /api/settlements
-  -> /api/dashboard/rocket-sales, /api/traffic/monthly, /api/readiness
+  -> /api/sellpia-sales, /api/traffic/monthly, /api/readiness
   -> active product, inventory, and advertising report adapters
 ```
+
+Rocket channel analysis uses Sellpia sales daily snapshots. `/rocket-orders`
+is a separate Orders operator workspace for Rocket catalog snapshots and PO
+confirmation; it is not a Finance revenue endpoint.
 
 ## State Rules
 

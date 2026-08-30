@@ -235,6 +235,12 @@ model ThumbnailRegistrationAttempt {
   generationId   String @map("generation_id") @db.Uuid
 
   status        String  @default("uploaded")
+  // Nullable for pre-Agent browser attempts. New Agent-owner submissions bind
+  // one durable receipt before provider IO.
+  ownerIdempotencyKey String? @map("owner_idempotency_key")
+  requestHash         String? @map("request_hash")
+  providerOutcome     String? @map("provider_outcome")
+  resultJson          Json?   @map("result_json") @db.JsonB
   errorMessage  String? @map("error_message")
   screenshotUrl String? @map("screenshot_url")
   externalId    String? @map("external_id")
@@ -250,6 +256,7 @@ model ThumbnailRegistrationAttempt {
   @@index([organizationId])
   @@index([generationId])
   @@index([organizationId, generationId])
+  @@unique([organizationId, ownerIdempotencyKey], map: "thumbnail_registration_attempts_org_owner_key", where: raw("owner_idempotency_key IS NOT NULL"))
   @@index([status])
   @@map("thumbnail_registration_attempts")
 }

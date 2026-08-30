@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/automation - Workflows, Agents, Marketplace, Action Board
 
 `app/(automation)/` owns workflow management UI, agent runtime lists, workflow

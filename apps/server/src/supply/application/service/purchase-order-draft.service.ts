@@ -52,6 +52,8 @@ export class PurchaseOrderDraftService implements PurchaseOrderDraftPort {
           unitPriceCny: input.recommendation.unitPriceCny,
         },
       ],
+      idempotencyKey: input.idempotencyKey,
+      requestHash: input.requestHash,
     });
     const orderId = orderIdFromUnknown(order);
     return {

@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ReadinessController } from './readiness.controller';
-import { ReadinessService } from './readiness.service';
+import { ReadinessStateModule } from './readiness-state.module';
 
 @Module({
+  imports: [ReadinessStateModule],
   controllers: [ReadinessController],
-  providers: [ReadinessService],
-  exports: [ReadinessService],
+  exports: [ReadinessStateModule],
 })
 export class ReadinessModule {}

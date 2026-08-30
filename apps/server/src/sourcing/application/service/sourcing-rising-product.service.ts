@@ -44,6 +44,15 @@ export interface SourcingRisingProductDetectionResult {
   model: SourcingRisingProductModelResult;
 }
 
+export interface SourcingRisingProductDetectionControls {
+  signal?: AbortSignal;
+  checkpoint?: (update?: {
+    stage?: string;
+    progressCurrent?: number;
+    progressTotal?: number;
+  }) => Promise<void>;
+}
+
 /**
  * Deterministic replay-scorer: reads persisted Coupang SERP + Wing sales facts
  * (advertising) and Naver trend snapshots (sourcing), scores rising products,
@@ -64,11 +73,19 @@ export class SourcingRisingProductService {
 
   async detect(
     input: SourcingRisingProductDetectionInput,
+    controls: SourcingRisingProductDetectionControls = {},
   ): Promise<SourcingRisingProductDetectionResult> {
+    controls.signal?.throwIfAborted();
     const windowDays = normalizeWindow(input.windowDays);
     const businessDateValue = kstBusinessDate(new Date());
     const todayBusinessDate = dateString(businessDateValue);
 
+    await controls.checkpoint?.({
+      stage: 'reading_snapshots',
+      progressCurrent: 0,
+      progressTotal: 3,
+    });
+    controls.signal?.throwIfAborted();
     const [serp, wing, naver] = await Promise.all([
       this.momentum.readSerpMomentum(input.organizationId, windowDays),
       this.momentum.readWingSalesMomentum(input.organizationId, windowDays),
@@ -77,6 +94,13 @@ export class SourcingRisingProductService {
         days: windowDays,
       }),
     ]);
+    controls.signal?.throwIfAborted();
+    await controls.checkpoint?.({
+      stage: 'building_snapshot',
+      progressCurrent: 3,
+      progressTotal: 3,
+    });
+    controls.signal?.throwIfAborted();
 
     const model = buildSourcingRisingProductModel({
       serpSnapshots: serp.map(toSerpInput),
@@ -95,6 +119,12 @@ export class SourcingRisingProductService {
     };
 
     if (input.persist !== false) {
+      await controls.checkpoint?.({
+        stage: 'persisting',
+        progressCurrent: 0,
+        progressTotal: 1,
+      });
+      controls.signal?.throwIfAborted();
       await this.snapshots.upsert({
         organizationId: input.organizationId,
         scope: RISING_SCOPE,
@@ -102,9 +132,22 @@ export class SourcingRisingProductService {
         payload: {
           version: SOURCING_RISING_PRODUCT_MODEL_VERSION,
           result: model as unknown as Record<string, unknown>,
-          meta: { generatedAt, windowDays },
+          meta: {
+            generatedAt,
+            windowDays,
+            coverage,
+            confidence: confidenceFromCoverage(coverage),
+            dataGaps: dataGaps(coverage),
+          },
         },
       });
+      controls.signal?.throwIfAborted();
+      await controls.checkpoint?.({
+        stage: 'persisting',
+        progressCurrent: 1,
+        progressTotal: 1,
+      });
+      controls.signal?.throwIfAborted();
     }
 
     return {
@@ -115,15 +158,6 @@ export class SourcingRisingProductService {
       dataGaps: dataGaps(coverage),
       model,
     };
-  }
-
-  /** Return today's/most-recent persisted result, or compute one if none exists. */
-  async latestOrDetect(
-    input: SourcingRisingProductDetectionInput,
-  ): Promise<SourcingRisingProductDetectionResult> {
-    const latest = await this.getLatest(input.organizationId);
-    if (latest) return latest;
-    return this.detect(input);
   }
 
   /** Read the most recent persisted rising-product snapshot without recomputing. */
@@ -151,13 +185,18 @@ export class SourcingRisingProductService {
       businessDate: dateString(latest.businessDate),
       windowDays: metaNumber(meta, 'windowDays') ?? DEFAULT_WINDOW_DAYS,
       generatedAt: metaString(meta, 'generatedAt') ?? latest.updatedAt.toISOString(),
-      confidence: confidenceFromCoverage({
+      confidence: metaNumber(meta, 'confidence') ?? confidenceFromCoverage({
         serpSnapshotCount: model.stats.serpSnapshotCount,
         wingRowCount: model.stats.withWingSalesCount,
         trendCount: model.stats.keywordCount,
         candidateCount: model.stats.candidateCount,
       }),
-      dataGaps: [],
+      dataGaps: metaStringArray(meta, 'dataGaps') ?? dataGaps({
+        serpSnapshotCount: model.stats.serpSnapshotCount,
+        wingRowCount: model.stats.withWingSalesCount,
+        trendCount: model.stats.keywordCount,
+        candidateCount: model.stats.candidateCount,
+      }),
       model,
     };
   }
@@ -251,6 +290,14 @@ function metaString(meta: unknown, key: string): string | null {
   if (meta == null || typeof meta !== 'object') return null;
   const value = (meta as Record<string, unknown>)[key];
   return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function metaStringArray(meta: unknown, key: string): string[] | null {
+  if (meta == null || typeof meta !== 'object') return null;
+  const value = (meta as Record<string, unknown>)[key];
+  return Array.isArray(value) && value.every((item) => typeof item === 'string')
+    ? value
+    : null;
 }
 
 function normalizeWindow(windowDays: number | undefined): number {

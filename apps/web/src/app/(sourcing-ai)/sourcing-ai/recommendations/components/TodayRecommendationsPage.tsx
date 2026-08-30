@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   AlertCircle,
   Loader2,
@@ -11,231 +12,127 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
+import { queryKeys } from '@/lib/query-keys';
 import {
   formatWingCatalogRate,
   resolveCoupangCatalogImageUrl,
-  searchWingCatalogProducts,
-} from '../../wing-catalog/lib/wing-catalog-extension';
-import {
-  rankedKeywordPoolToText,
-  readRankedKeywordPool,
-} from '../../lib/ranked-keyword-pool';
+} from '../../wing-catalog/lib/wing-catalog-presenter';
+import { fetchPopularKeywordBoards } from '../../market/lib/trend-collection-api';
+import { popularKeywordSuggestions } from '../../lib/popular-keyword-suggestions';
 import {
   DEFAULT_TODAY_RECOMMENDATION_KEYWORDS,
-  appendProductSnapshots,
   buildRecommendationSummary,
   buildRisingKeywordOpportunities,
-  buildTodayRecommendationRows,
-  mergeTodayRecommendationRows,
-  readTodayRecommendationRows,
-  readTodayRecommendationSnapshots,
-  snapshotsToMap,
-  writeTodayRecommendationRows,
-  writeTodayRecommendationSnapshots,
-  type ProductSnapshot,
   type RecommendationGrade,
   type TodayRecommendationRow,
 } from '../lib/today-recommendations';
+import { createProductInterestTarget } from '../../lib/sourcing-interest-target';
 import {
-  createManualSourcingWorkspaceSnapshotMeta,
-  getTodaySourcingWorkspaceSnapshot,
-  saveTodaySourcingWorkspaceSnapshot,
-  type SourcingWorkspaceSnapshotMeta,
-} from '../../lib/sourcing-workspace-snapshot-api';
-import {
-  addSourcingInterestTarget,
-  createProductInterestTarget,
-} from '../../lib/sourcing-interest-tracking';
+  useSaveSourcingInterestTarget,
+  useSourcingInterestTargets,
+  useSourcingRecommendations,
+} from '../../hooks/use-sourcing-workspace';
+import { toTodayRecommendationRows } from '../../lib/sourcing-recommendation-presenter';
+import { SourcingReadState } from '../../components/SourcingReadState';
+import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
+import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
+import { normalizeWingOperationKeywords } from '../../lib/wing-operation-input';
 
 const keywordLimitOptions = [10, 20, 50];
 const pageOptions = [1, 2];
-
-type TodayRecommendationsSnapshotPayload = {
-  version: 1;
-  input: {
-    keywordText: string;
-    keywordLimit: number;
-    maxPages: number;
-  };
-  result: {
-    rows: TodayRecommendationRow[];
-    productSnapshots: ProductSnapshot[];
-  };
-  meta: SourcingWorkspaceSnapshotMeta;
-};
 
 export function TodayRecommendationsPage() {
   const [keywordText, setKeywordText] = useState(DEFAULT_TODAY_RECOMMENDATION_KEYWORDS.join('\n'));
   const [keywordPoolNotice, setKeywordPoolNotice] = useState<string | null>(null);
   const [keywordLimit, setKeywordLimit] = useState(10);
   const [maxPages, setMaxPages] = useState(1);
-  const [rows, setRows] = useState<TodayRecommendationRow[]>(() => readTodayRecommendationRows());
   const [errors, setErrors] = useState<string[]>([]);
   const [interestNotice, setInterestNotice] = useState<string | null>(null);
-  const [isRunning, setIsRunning] = useState(false);
-  const [progress, setProgress] = useState({ current: 0, total: 0, keyword: '' });
   const [editingKeywords, setEditingKeywords] = useState(false);
-  const cancelRef = useRef(false);
+  const recommendationsQuery = useSourcingRecommendations('today');
+  const popularKeywordsQuery = useQuery({
+    queryKey: queryKeys.sourcing.trendPopularKeywords(7),
+    queryFn: () => fetchPopularKeywordBoards(7),
+  });
+  const interestTargetsQuery = useSourcingInterestTargets();
+  const saveInterestTarget = useSaveSourcingInterestTarget();
+  const rows = useMemo(
+    () => toTodayRecommendationRows(recommendationsQuery.data?.data?.items ?? []),
+    [recommendationsQuery.data],
+  );
 
   const summary = useMemo(() => buildRecommendationSummary(rows), [rows]);
   const aRows = rows.filter((row) => row.grade === 'A');
   const keywordOpportunities = useMemo(() => buildRisingKeywordOpportunities(rows).slice(0, 5), [rows]);
 
-  const keywords = useMemo(() => (
-    Array.from(new Set(
-      keywordText
-        .split(/\n|,/)
-        .map((keyword) => keyword.trim())
-        .filter(Boolean),
-    )).slice(0, keywordLimit)
-  ), [keywordLimit, keywordText]);
+  const keywords = useMemo(
+    () => normalizeWingOperationKeywords(
+      keywordText.split(/\n|,/),
+      Math.min(keywordLimit, 12),
+    ),
+    [keywordLimit, keywordText],
+  );
+  const operationInput = useMemo(() => ({
+    keywords,
+    maxPages,
+    purpose: 'recommendation_validation' as const,
+  }), [keywords, maxPages]);
+  const operation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_wing_catalog_batch',
+    input: operationInput,
+    snapshotQueryKey: queryKeys.sourcing.all,
+  });
+  const isRunning = operation.isStarting || isActiveOperation(operation.run?.status);
 
   const applyKeywordAnalysisPool = useCallback(() => {
-    const snapshot = readRankedKeywordPool();
-    if (!snapshot || snapshot.entries.length === 0) {
+    if (popularKeywordsQuery.isLoading) {
+      setKeywordPoolNotice('키워드 분석에서 순위 갱신을 한 뒤 돌아오면 TOP 키워드가 자동으로 들어옵니다.');
+      return;
+    }
+    if (popularKeywordsQuery.error) {
       setKeywordPoolNotice('키워드 분석에서 순위 갱신을 한 뒤 돌아오면 TOP 키워드가 자동으로 들어옵니다.');
       return;
     }
 
     const limit = Math.max(...keywordLimitOptions);
-    setKeywordText(rankedKeywordPoolToText(snapshot, limit));
-    setKeywordPoolNotice(`키워드 분석 순위권 ${formatNumber(snapshot.entries.length)}개를 후보 풀로 가져왔습니다.`);
-  }, []);
+    const keywords = popularKeywordSuggestions(
+      popularKeywordsQuery.data?.boards ?? [],
+      limit,
+    );
+    if (keywords.length === 0) {
+      setKeywordPoolNotice('키워드 분석에서 순위 갱신을 한 뒤 돌아오면 TOP 키워드가 자동으로 들어옵니다.');
+      return;
+    }
 
-  const persistTodaySnapshot = useCallback((
-    nextRows: TodayRecommendationRow[],
-    nextProductSnapshots: ProductSnapshot[] = readTodayRecommendationSnapshots(),
-  ) => {
-    const payload: TodayRecommendationsSnapshotPayload = {
-      version: 1,
-      input: {
-        keywordText,
-        keywordLimit,
-        maxPages,
-      },
-      result: {
-        rows: nextRows.slice(0, 100),
-        productSnapshots: nextProductSnapshots.slice(0, 2000),
-      },
-      meta: createManualSourcingWorkspaceSnapshotMeta(),
-    };
-    void saveTodaySourcingWorkspaceSnapshot('today_recommendations', payload).catch(() => {
-      // Local storage remains the offline fallback when the API is unavailable.
-    });
-  }, [keywordLimit, keywordText, maxPages]);
+    setKeywordText(keywords.join('\n'));
+    setKeywordPoolNotice(`키워드 분석 순위권 ${formatNumber(keywords.length)}개를 후보 풀로 가져왔습니다.`);
+  }, [popularKeywordsQuery.data, popularKeywordsQuery.error, popularKeywordsQuery.isLoading]);
 
-  useEffect(() => {
-    let active = true;
-    void getTodaySourcingWorkspaceSnapshot<TodayRecommendationsSnapshotPayload>('today_recommendations')
-      .then(({ snapshot }) => {
-        if (!active || !isTodayRecommendationsSnapshotPayload(snapshot?.payload)) return;
-        const payload = snapshot.payload;
-        setKeywordText(payload.input.keywordText);
-        setKeywordLimit(payload.input.keywordLimit);
-        setMaxPages(payload.input.maxPages);
-        setRows(payload.result.rows);
-        writeTodayRecommendationRows(payload.result.rows);
-        writeTodayRecommendationSnapshots(payload.result.productSnapshots);
-        setKeywordPoolNotice(`오늘 ${snapshot.businessDate} 저장된 추천 후보 ${formatNumber(payload.result.rows.length)}개를 불러왔습니다.`);
-      })
-      .catch(() => {
-        // Keep localStorage fallback and manual execution available.
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    applyKeywordAnalysisPool();
-  }, [applyKeywordAnalysisPool]);
-
-  const runRecommendations = async () => {
+  const runRecommendations = () => {
     if (keywords.length === 0) {
       setErrors(['키워드를 1개 이상 입력하세요.']);
       return;
     }
 
-    cancelRef.current = false;
-    setIsRunning(true);
-    setRows([]);
     setErrors([]);
-    setProgress({ current: 0, total: keywords.length, keyword: '' });
-
-    let snapshots = readTodayRecommendationSnapshots();
-    const previousSnapshots = snapshotsToMap(snapshots);
-    let accumulated: TodayRecommendationRow[] = [];
-    const nextErrors: string[] = [];
-
-    for (let index = 0; index < keywords.length; index += 1) {
-      if (cancelRef.current) break;
-      const keyword = keywords[index];
-      setProgress({ current: index + 1, total: keywords.length, keyword });
-
-      try {
-        const response = await searchWingCatalogProducts({ keyword, maxPages });
-        const scored = buildTodayRecommendationRows({
-          keyword,
-          products: response.rows ?? [],
-          previousSnapshots,
-        });
-        snapshots = appendProductSnapshots(scored, snapshots);
-        writeTodayRecommendationSnapshots(snapshots);
-        accumulated = mergeTodayRecommendationRows([...accumulated, ...scored]);
-        const nextRows = accumulated.slice(0, 80);
-        setRows(nextRows);
-        writeTodayRecommendationRows(nextRows);
-        persistTodaySnapshot(nextRows, snapshots);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        nextErrors.push(`${keyword}: ${message}`);
-        setErrors([...nextErrors]);
-        if (message.includes('확장프로그램') || message.includes('Wing 로그인')) break;
-      }
-
-      await sleep(700);
-    }
-
-    const finalRows = accumulated.slice(0, 80);
-    writeTodayRecommendationRows(finalRows);
-    if (finalRows.length > 0) persistTodaySnapshot(finalRows, snapshots);
-    setRows(finalRows);
-    setIsRunning(false);
-    setProgress((current) => ({ ...current, keyword: cancelRef.current ? '중단됨' : '완료' }));
-  };
-
-  const cancelRun = () => {
-    cancelRef.current = true;
-    setIsRunning(false);
+    void operation.start();
   };
 
   const trackProductInterest = async (row: TodayRecommendationRow) => {
     setInterestNotice(null);
     try {
-      const payload = await addSourcingInterestTarget({
-        target: createProductInterestTarget({
+      await saveInterestTarget.mutateAsync(
+        createProductInterestTarget({
           productId: row.productId,
           productName: row.productName,
           itemId: row.itemId,
           vendorItemId: row.vendorItemId,
         }),
-        observation: {
-          source: 'today_recommendation',
-          metrics: {
-            score: row.score,
-            grade: row.grade,
-            salesLast28d: row.salesLast28d,
-            salesLast3d: row.salesLast3d,
-            pvLast28Day: row.pvLast28Day,
-            ratingCount: row.ratingCount,
-            salePrice: row.salePrice,
-          },
-          note: '오늘 추천 페이지에서 관심 상품으로 저장',
-        },
-        trackingWindowDays: 3,
-      });
+      );
+      const refreshed = await interestTargetsQuery.refetch();
+      const targetCount = (refreshed.data ?? interestTargetsQuery.data ?? []).length;
       setInterestNotice(
-        `${row.productName} 관심 상품 저장 완료 · 3일 추적 대상 ${formatNumber(payload.result.targets.length)}개`,
+        `${row.productName} 관심 상품 저장 완료 · 3일 추적 대상 ${formatNumber(targetCount)}개`,
       );
     } catch (error) {
       setInterestNotice(error instanceof Error ? error.message : String(error));
@@ -358,17 +255,24 @@ export function TodayRecommendationsPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={cancelRun}
+                  onClick={() => void operation.cancel()}
                   disabled={!isRunning}
                   className="h-11 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-sm font-black text-[var(--text-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   중단
                 </button>
               </div>
-              <ProgressBar current={progress.current} total={progress.total} label={progress.keyword} />
             </div>
           </div>
         </section>
+
+        <SourcingOperationRunPanel
+          run={operation.run}
+          onCancel={() => { void operation.cancel(); }}
+          onRetryAttention={() => { void operation.retryAttention(); }}
+          isCancelling={operation.isCancelling}
+          isRetrying={operation.isRetrying}
+        />
 
         <section className="space-y-4">
             <section className="grid gap-3 md:grid-cols-3">
@@ -399,7 +303,14 @@ export function TodayRecommendationsPage() {
               </div>
             )}
 
-            <RecommendationsTable rows={rows} onTrackProduct={trackProductInterest} />
+            <SourcingReadState
+              envelope={recommendationsQuery.data}
+              isLoading={recommendationsQuery.isLoading}
+              error={recommendationsQuery.error}
+              emptyLabel="`키워드 검증 시작`을 누르면 Wing 데이터를 분석해서 추천 후보가 표시됩니다."
+            >
+              <RecommendationsTable rows={rows} onTrackProduct={trackProductInterest} />
+            </SourcingReadState>
         </section>
       </div>
     </main>
@@ -589,7 +500,9 @@ function RecommendationRow({
       <td className="px-4 py-4 font-bold">{formatKRW(row.salePrice)}원</td>
       <td className="px-4 py-4 font-bold">{formatNumber(row.ratingCount)}개</td>
       <td className="px-4 py-4">
-        <p className="font-black">{formatNumber(resolveSalesLast3d(row))}개</p>
+        <p className="font-black">
+          {resolveSalesLast3d(row) == null ? '-' : `${formatNumber(resolveSalesLast3d(row))}개`}
+        </p>
         <p className="mt-1 text-[11px] font-bold text-[var(--text-tertiary)]">
           {row.threeDaySalesTracked ? `${formatNumber(row.threeDayTrackingDays ?? 3)}일 추적` : '추적 대기'}
         </p>
@@ -639,31 +552,18 @@ function deltaText(row: TodayRecommendationRow): string {
   return parts.length > 0 ? parts.join(' / ') : '첫 스냅샷';
 }
 
-function isTodayRecommendationsSnapshotPayload(value: unknown): value is TodayRecommendationsSnapshotPayload {
-  if (!value || typeof value !== 'object') return false;
-  const payload = value as Partial<TodayRecommendationsSnapshotPayload>;
-  const input = payload.input as Partial<TodayRecommendationsSnapshotPayload['input']> | undefined;
-  const result = payload.result as Partial<TodayRecommendationsSnapshotPayload['result']> | undefined;
-  const meta = payload.meta as Partial<SourcingWorkspaceSnapshotMeta> | undefined;
-  return payload.version === 1 &&
-    typeof input?.keywordText === 'string' &&
-    typeof input?.keywordLimit === 'number' &&
-    typeof input?.maxPages === 'number' &&
-    Array.isArray(result?.rows) &&
-    Array.isArray(result?.productSnapshots) &&
-    typeof meta?.generatedAt === 'string' &&
-    typeof meta?.generationSource === 'string' &&
-    typeof meta?.generatorVersion === 'string';
-}
-
 function rowKey(row: Pick<TodayRecommendationRow, 'productId' | 'itemId' | 'vendorItemId'>): string {
   return `${row.productId}:${row.itemId ?? ''}:${row.vendorItemId ?? ''}`;
 }
 
-function resolveSalesLast3d(row: TodayRecommendationRow): number {
-  return row.salesLast3d ?? Math.max(0, Math.round(((row.salesLast28d ?? 0) / 28) * 3));
+function resolveSalesLast3d(row: TodayRecommendationRow): number | null {
+  return row.salesLast3d;
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
+function isActiveOperation(status: string | undefined): boolean {
+  return status === 'queued'
+    || status === 'waiting_runtime'
+    || status === 'waiting_dependency'
+    || status === 'running'
+    || status === 'attention_required';
 }

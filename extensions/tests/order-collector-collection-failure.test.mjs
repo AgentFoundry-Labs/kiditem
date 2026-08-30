@@ -35,6 +35,23 @@ test('normalizes provider failures into stable operator evidence', () => {
       expected: ['login_required', true, 'complete_login'],
     },
     {
+      // 인증은 gs-shop 전용이 아니다. 다른 몰의 인증 화면도 로그인이 아니라 인증으로 떠야 한다.
+      provider: 'kakao',
+      value: { success: false, pendingLogin: true, error: '카카오 로그인 후 인증번호를 입력해 주세요.' },
+      expected: ['operator_action_required', true, 'complete_auth'],
+    },
+    {
+      // 메시지가 없어도 수집기가 `pendingAuth` 를 주면 인증으로 본다.
+      provider: 'boribori',
+      value: { success: false, pendingAuth: true, error: '추가 확인이 필요합니다.' },
+      expected: ['operator_action_required', true, 'complete_auth'],
+    },
+    {
+      provider: 'lotteon',
+      value: { success: false, pendingLogin: true, error: '롯데ON 2단계 인증을 완료해 주세요.' },
+      expected: ['operator_action_required', true, 'complete_auth'],
+    },
+    {
       provider: 'always',
       value: { success: false, error: '배송관리 화면을 불러오지 못했습니다. 로그인을 확인하세요.' },
       expected: ['login_required', true, 'complete_login'],

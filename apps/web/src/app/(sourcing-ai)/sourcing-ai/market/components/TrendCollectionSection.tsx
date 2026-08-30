@@ -1,19 +1,20 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import {
+  SourcingOperationResultSchema,
+  type SourcingOperationResult,
+} from '@kiditem/shared/sourcing';
 import { CheckCircle2, Loader2, RefreshCw, XCircle } from 'lucide-react';
-import { toast } from 'sonner';
-import { isTerminalOperationStatus, useOperationRun } from '@/hooks/useOperationRun';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
+import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
+import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
 import {
   TREND_SOURCE_META,
   TREND_SOURCE_ORDER,
-  collectTrend,
   fetchTrendSeeds,
-  type TrendCollectResult,
-  type TrendSourceCollectResult,
   type TrendSource,
 } from '../lib/trend-collection-api';
 import { TrendSeedManager } from './TrendSeedManager';
@@ -21,17 +22,33 @@ import { TrendCollectionViews } from './TrendCollectionViews';
 
 const pressable =
   'transition-[transform,background-color,border-color,color] duration-150 ease-out active:scale-[0.97] motion-reduce:transform-none';
+const DEFAULT_TREND_OPERATION_INPUT = {
+  sources: [...TREND_SOURCE_ORDER],
+} as const;
+const ACTIVE_OPERATION_STATUSES = new Set([
+  'queued',
+  'waiting_runtime',
+  'waiting_dependency',
+  'running',
+  'attention_required',
+]);
+const TREND_SOURCE_SET: ReadonlySet<string> = new Set(TREND_SOURCE_ORDER);
+
+type TrendOperationSourceResult = SourcingOperationResult['sources'][number] & {
+  source: TrendSource;
+};
 
 /** 기존 수집 화면의 버튼으로 공통 실행 경로를 요청한다. */
 export function TrendCollectionSection() {
-  const queryClient = useQueryClient();
   const [collectSources, setCollectSources] = useState<Set<TrendSource>>(
     new Set(TREND_SOURCE_ORDER),
   );
-  const [operationRunId, setOperationRunId] = useState<string | null>(null);
-  const [lastResult, setLastResult] = useState<TrendCollectResult | null>(null);
-  const terminalNotificationRunId = useRef<string | null>(null);
-  const operationRun = useOperationRun(operationRunId);
+  const trendOperation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_daily_trends',
+    input: DEFAULT_TREND_OPERATION_INPUT,
+    snapshotQueryKey: queryKeys.sourcing.trend(),
+    wakeBrowserRuntime: true,
+  });
 
   const seedsQuery = useQuery({
     queryKey: queryKeys.sourcing.trendSeeds(),
@@ -39,42 +56,11 @@ export function TrendCollectionSection() {
     staleTime: 60 * 1000,
   });
   const enabledSeedCount = (seedsQuery.data ?? []).filter((seed) => seed.enabled).length;
-
-  const collectMutation = useMutation({
-    mutationFn: () => collectTrend(
-      TREND_SOURCE_ORDER.filter((source) => collectSources.has(source)),
-    ),
-    onSuccess: (run) => {
-      setOperationRunId(run.id);
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : '트렌드 수집을 시작하지 못했습니다.'),
-  });
-
-  useEffect(() => {
-    const run = operationRun.data;
-    if (!run || !isTerminalOperationStatus(run.status) || terminalNotificationRunId.current === run.id) {
-      return;
-    }
-    terminalNotificationRunId.current = run.id;
-    if (run.status === 'succeeded') {
-      const result = toTrendCollectResult(run.result);
-      if (result) {
-        setLastResult(result);
-        const total = result.results.reduce((sum, item) => sum + item.collected, 0);
-        const failed = result.results.filter((item) => !item.ok);
-        if (failed.length === 0) {
-          toast.success(`트렌드 수집 완료 · ${formatNumber(total)}건 저장`);
-        } else {
-          toast.warning(`수집 완료 · ${failed.length}개 소스 실패 (${formatNumber(total)}건 저장)`);
-        }
-      } else {
-        toast.success('트렌드 수집이 완료되었습니다. 최신 데이터를 불러옵니다.');
-      }
-    } else {
-      toast.error(run.error?.message ?? '트렌드 수집이 완료되지 않았습니다.');
-    }
-    void queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-  }, [operationRun.data, queryClient]);
+  const parsedResult = trendOperation.run?.status === 'succeeded'
+    ? SourcingOperationResultSchema.safeParse(trendOperation.run.result)
+    : null;
+  const lastResult = parsedResult?.success ? parsedResult.data : null;
+  const lastSourceResults = lastResult?.sources.filter(isTrendSourceResult) ?? [];
 
   const toggleCollectSource = (source: TrendSource) => {
     setCollectSources((previous) => {
@@ -85,8 +71,9 @@ export function TrendCollectionSection() {
     });
   };
 
-  const running = collectMutation.isPending
-    || (operationRun.data !== undefined && !isTerminalOperationStatus(operationRun.data.status));
+  const running = trendOperation.isStarting
+    || (trendOperation.run !== null
+      && ACTIVE_OPERATION_STATUSES.has(trendOperation.run.status));
   const canCollect = collectSources.size > 0 && !running;
 
   return (
@@ -124,7 +111,9 @@ export function TrendCollectionSection() {
             </div>
             <button
               type="button"
-              onClick={() => collectMutation.mutate()}
+              onClick={() => void trendOperation.start({
+                sources: TREND_SOURCE_ORDER.filter((source) => collectSources.has(source)),
+              })}
               disabled={!canCollect}
               className={cn(
                 'inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-purple-600 px-5 text-sm font-semibold text-white hover:bg-purple-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
@@ -137,6 +126,20 @@ export function TrendCollectionSection() {
           </div>
         </div>
 
+        <div className="mt-4">
+          <SourcingOperationRunPanel
+            run={trendOperation.run}
+            onCancel={async () => {
+              await trendOperation.cancel();
+            }}
+            onRetryAttention={async () => {
+              await trendOperation.retryAttention();
+            }}
+            isCancelling={trendOperation.isCancelling}
+            isRetrying={trendOperation.isRetrying}
+          />
+        </div>
+
         {enabledSeedCount === 0 && !seedsQuery.isLoading && (
           <div className="mt-4 flex items-start gap-2 rounded-lg border border-purple-200 bg-purple-50 px-4 py-3 text-xs leading-5 text-purple-900">
             <CheckCircle2 size={15} className="mt-0.5 shrink-0" />
@@ -144,21 +147,21 @@ export function TrendCollectionSection() {
           </div>
         )}
 
-        {lastResult && (
+        {lastResult && lastSourceResults.length > 0 ? (
           <div className="mt-4 border-t border-[var(--border-subtle)] pt-4">
             <div className="flex items-center justify-between">
               <p className="text-xs font-semibold text-[var(--text-secondary)]">최근 수집 결과</p>
               <span className="text-[11px] font-semibold tabular-nums text-[var(--text-tertiary)]">
-                {lastResult.businessDate}
+                반영 {formatNumber(lastResult.summary.accepted)}건
               </span>
             </div>
             <div className="mt-2 grid gap-2 sm:grid-cols-3">
-              {lastResult.results.map((result) => (
+              {lastSourceResults.map((result) => (
                 <CollectResultCard key={result.source} result={result} />
               ))}
             </div>
           </div>
-        )}
+        ) : null}
       </section>
 
       <TrendSeedManager seeds={seedsQuery.data ?? []} isLoading={seedsQuery.isLoading} />
@@ -167,47 +170,38 @@ export function TrendCollectionSection() {
   );
 }
 
-function toTrendCollectResult(value: unknown): TrendCollectResult | null {
-  if (!value || typeof value !== 'object') return null;
-  const candidate = value as { businessDate?: unknown; results?: unknown };
-  if (typeof candidate.businessDate !== 'string' || !Array.isArray(candidate.results)) return null;
-  const results: TrendSourceCollectResult[] = [];
-  for (const item of candidate.results) {
-    if (!item || typeof item !== 'object') return null;
-    const result = item as Record<string, unknown>;
-    if (
-      (result.source !== 'naver' && result.source !== '1688' && result.source !== 'shorts')
-      || typeof result.ok !== 'boolean'
-      || typeof result.collected !== 'number'
-      || (result.error !== undefined && typeof result.error !== 'string')
-    ) return null;
-    results.push({
-      source: result.source,
-      ok: result.ok,
-      collected: result.collected,
-      ...(typeof result.error === 'string' ? { error: result.error } : {}),
-    });
-  }
-  return { businessDate: candidate.businessDate, results };
+function isTrendSourceResult(
+  result: SourcingOperationResult['sources'][number],
+): result is TrendOperationSourceResult {
+  return TREND_SOURCE_SET.has(result.source);
 }
 
-function CollectResultCard({ result }: { result: TrendSourceCollectResult }) {
+function CollectResultCard({ result }: { result: TrendOperationSourceResult }) {
   const meta = TREND_SOURCE_META[result.source];
+  const successful = result.outcome === 'complete' || result.outcome === 'no_change';
   return (
     <article
       className={cn(
         'rounded-lg border px-3 py-2.5',
-        result.ok ? 'border-[var(--border)] bg-[var(--surface-sunken)]' : 'border-rose-200 bg-rose-50',
+        successful
+          ? 'border-[var(--border)] bg-[var(--surface-sunken)]'
+          : 'border-rose-200 bg-rose-50',
       )}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-bold text-[var(--text-primary)]">{meta.label}</span>
-        {result.ok ? <CheckCircle2 size={15} className="text-emerald-600" /> : <XCircle size={15} className="text-rose-600" />}
+        {successful
+          ? <CheckCircle2 size={15} className="text-emerald-600" />
+          : <XCircle size={15} className="text-rose-600" />}
       </div>
       <p className="mt-1 text-lg font-bold tabular-nums text-[var(--text-primary)]">
-        {formatNumber(result.collected)}<span className="ml-1 text-xs font-medium text-[var(--text-tertiary)]">건</span>
+        {formatNumber(result.accepted)}건
       </p>
-      {result.error ? <p className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-rose-700" title={result.error}>{result.error}</p> : null}
+      {result.failed > 0 ? (
+        <p className="mt-0.5 text-[11px] leading-4 text-rose-700">
+          일부 항목 수집에 실패했습니다.
+        </p>
+      ) : null}
     </article>
   );
 }

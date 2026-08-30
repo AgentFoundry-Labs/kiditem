@@ -86,6 +86,8 @@ describe('<ProductInventoryMatchingTable />', () => {
     );
 
     expect(screen.getByText('매칭 완료')).toBeInTheDocument();
+    expect(screen.getAllByText('동물 친구들 블록')).toHaveLength(2);
+    expect(screen.queryByText(/INV-SELLPIA-/)).not.toBeInTheDocument();
     expect(screen.queryByText('SP-100')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '확인' }));
     expect(screen.getByText('SP-100').closest('p')).toHaveTextContent('차감 10');

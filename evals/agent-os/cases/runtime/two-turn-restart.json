@@ -1,0 +1,53 @@
+{
+  "id": "runtime.two-turn-restart.v1",
+  "suite": "regression",
+  "fixtureId": "runtime.two-turn-restart.v1",
+  "messages": [
+    {
+      "id": "initial",
+      "promptTemplate": "현재 소싱 추천 결과에서 가장 유망한 기회를 하나 골라 근거와 함께 알려 주세요."
+    },
+    {
+      "id": "follow-up",
+      "promptTemplate": "방금 확인한 기회를 더 판단하려면 어떤 데이터가 부족한지 이어서 정리해 주세요."
+    }
+  ],
+  "target": {
+    "agentKey": "sourcing",
+    "provider": "codex",
+    "model": "gpt-5.6-terra",
+    "effort": "max"
+  },
+  "trials": 3,
+  "userBehavior": {
+    "approval": "none"
+  },
+  "harness": {
+    "restartAfterMessageIds": ["initial"]
+  },
+  "grading": {
+    "minimumNormalCompletions": 2,
+    "hardInvariants": [
+      "organization_isolation",
+      "same_conversation",
+      "no_automatic_reasoning",
+      "no_duplicate_write"
+    ],
+    "capabilityAlternatives": [
+      [
+        "sourcing.retrieveWorkspaceEvidence",
+        "sourcing.inspectRecommendationRun"
+      ]
+    ],
+    "requiredMilestones": [
+      "first_turn_completed",
+      "explicit_followup_completed"
+    ],
+    "statePolicy": {
+      "expectedChanges": {},
+      "allowedChanges": []
+    },
+    "delegationAlternatives": [[]],
+    "responseCriteria": ["grounded_in_domain_snapshot"]
+  }
+}

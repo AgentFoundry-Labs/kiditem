@@ -13,7 +13,13 @@ const generatedPaths = [
   'extensions/kiditem-os/background/environment-context.js',
 ];
 
-function createHarness({ initialStorage = {}, responses = [200], requiresAuth = true } = {}) {
+function createHarness({
+  initialStorage = {},
+  responses = [200],
+  requiresAuth = true,
+  fetchImpl,
+  requestTimeoutMs = 15_000,
+} = {}) {
   const storage = structuredClone(initialStorage);
   const storageListeners = [];
   const fetchCalls = [];
@@ -72,6 +78,7 @@ function createHarness({ initialStorage = {}, responses = [200], requiresAuth = 
   };
   const fetchFn = async (url, init) => {
     fetchCalls.push({ url, init });
+    if (fetchImpl) return fetchImpl(url, init);
     const status = responseQueue.shift() ?? 200;
     return { ok: status >= 200 && status < 300, status };
   };
@@ -92,6 +99,7 @@ function createHarness({ initialStorage = {}, responses = [200], requiresAuth = 
     fetchFn,
     requiresAuth,
     authResyncTimeoutMs: 30,
+    requestTimeoutMs,
     now: () => 1234,
     legacyStorageKeys: ['kiditem_auth_token', 'apiBase'],
   });
@@ -131,8 +139,8 @@ test('resolves only the closed KidItem sender origins', () => {
     'office',
   );
   assert.equal(
-    environmentContext.resolveSender({ url: 'https://staging.merchon.org/dashboard' }).environmentId,
-    'staging',
+    environmentContext.resolveSender({ url: 'https://retired.example.com/dashboard' }),
+    null,
   );
   assert.equal(environmentContext.resolveSender({ url: 'https://merchon.org/' }), null);
   assert.equal(environmentContext.resolveSender({ url: 'not-a-url' }), null);
@@ -142,51 +150,130 @@ test('stores and clears authenticated profiles independently', async () => {
   const { environmentContext, storage } = createHarness();
   await environmentContext.setAccessToken('local', 'local-token');
   await environmentContext.setAccessToken('office', 'office-token');
-  await environmentContext.setAccessToken('staging', 'staging-token');
 
   assert.equal(await environmentContext.getAccessToken('local'), 'local-token');
   assert.equal(await environmentContext.getAccessToken('office'), 'office-token');
-  assert.equal(await environmentContext.getAccessToken('staging'), 'staging-token');
   assert.deepEqual(
     Array.from(await environmentContext.connectedEnvironmentIds()),
-    ['local', 'office', 'staging'],
+    ['local', 'office'],
   );
 
   await environmentContext.clearAccessToken('local');
   assert.equal(await environmentContext.getAccessToken('local'), null);
-  assert.equal(await environmentContext.getAccessToken('staging'), 'staging-token');
-  assert.deepEqual(Object.keys(storage.kiditem_environment_profiles_v1), [
-    'office',
-    'staging',
-  ]);
+  assert.equal(await environmentContext.getAccessToken('office'), 'office-token');
+  assert.deepEqual(Object.keys(storage.kiditem_environment_profiles_v1), ['office']);
 });
 
 test('routes concurrent requests to fixed environment API origins', async () => {
   const { environmentContext, fetchCalls } = createHarness();
   await environmentContext.setAccessToken('local', 'local-token');
   await environmentContext.setAccessToken('office', 'office-token');
-  await environmentContext.setAccessToken('staging', 'staging-token');
 
   await Promise.all([
     environmentContext.authedFetch('local', '/api/health'),
     environmentContext.authedFetch('office', '/api/health'),
-    environmentContext.authedFetch('staging', '/api/health'),
   ]);
 
   assert.deepEqual(fetchCalls.map((call) => call.url), [
     'http://localhost:4000/api/health',
     'http://kiditem-office/api/health',
-    'https://staging.merchon.org/api/health',
   ]);
   assert.equal(new Headers(fetchCalls[0].init.headers).get('authorization'), 'Bearer local-token');
   assert.equal(new Headers(fetchCalls[1].init.headers).get('authorization'), 'Bearer office-token');
-  assert.equal(new Headers(fetchCalls[2].init.headers).get('authorization'), 'Bearer staging-token');
+});
+
+test('composes a caller abort with the request timeout and removes its listener after rejection', async () => {
+  const caller = new AbortController();
+  const callerReason = new Error('operation_runtime_fence_lost');
+  const originalAdd = caller.signal.addEventListener.bind(caller.signal);
+  const originalRemove = caller.signal.removeEventListener.bind(caller.signal);
+  let added = 0;
+  let removed = 0;
+  caller.signal.addEventListener = (...args) => {
+    added += 1;
+    return originalAdd(...args);
+  };
+  caller.signal.removeEventListener = (...args) => {
+    removed += 1;
+    return originalRemove(...args);
+  };
+  const harness = createHarness({
+    requestTimeoutMs: 1_000,
+    fetchImpl: (_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(init.signal.reason), {
+        once: true,
+      });
+    }),
+  });
+  await harness.environmentContext.setAccessToken('local', 'local-token');
+
+  const pending = harness.environmentContext.authedFetch(
+    'local',
+    '/api/heartbeat',
+    { signal: caller.signal },
+  );
+  await waitForCount(harness.fetchCalls, 1);
+  caller.abort(callerReason);
+
+  await assert.rejects(pending, (error) => error === callerReason);
+  assert.equal(added, 1);
+  assert.equal(removed, 1);
+});
+
+test('rejects an already-aborted caller before starting a network request', async () => {
+  const caller = new AbortController();
+  const callerReason = new Error('operation_deadline_exceeded');
+  caller.abort(callerReason);
+  const harness = createHarness();
+  await harness.environmentContext.setAccessToken('office', 'office-token');
+
+  await assert.rejects(
+    harness.environmentContext.authedFetch('office', '/api/heartbeat', {
+      signal: caller.signal,
+    }),
+    (error) => error === callerReason,
+  );
+  assert.equal(harness.fetchCalls.length, 0);
+});
+
+test('caller abort interrupts a 401 token-resync wait with the original reason', async () => {
+  const caller = new AbortController();
+  const callerReason = new Error('operation_deadline_exceeded');
+  const harness = createHarness({ responses: [401], requestTimeoutMs: 1_000 });
+  await harness.environmentContext.setAccessToken('local', 'local-token');
+
+  const pending = harness.environmentContext.authedFetch(
+    'local',
+    '/api/heartbeat',
+    { signal: caller.signal },
+  );
+  await waitForCount(harness.fetchCalls, 1);
+  caller.abort(callerReason);
+
+  await assert.rejects(pending, (error) => error === callerReason);
+});
+
+test('caller abort interrupts an initial missing-token resync wait', async () => {
+  const caller = new AbortController();
+  const callerReason = new Error('operation_deadline_exceeded');
+  const harness = createHarness();
+
+  const pending = harness.environmentContext.authedFetch(
+    'office',
+    '/api/heartbeat',
+    { signal: caller.signal },
+  );
+  await waitForCount(harness.scriptCalls, 1);
+  caller.abort(callerReason);
+
+  await assert.rejects(pending, (error) => error === callerReason);
+  assert.equal(harness.fetchCalls.length, 0);
 });
 
 test('resyncs a 401 through only the owning environment and retries once when the token changed', async () => {
   const harness = createHarness({ responses: [401, 200] });
   await harness.environmentContext.setAccessToken('local', 'local-token');
-  await harness.environmentContext.setAccessToken('staging', 'staging-token');
+  await harness.environmentContext.setAccessToken('office', 'office-token');
 
   const pending = harness.environmentContext.authedFetch('local', '/api/orders');
   await waitForCount(harness.fetchCalls, 1);
@@ -200,7 +287,7 @@ test('resyncs a 401 through only the owning environment and retries once when th
     new Headers(harness.fetchCalls[1].init.headers).get('authorization'),
     'Bearer rotated-local-token',
   );
-  assert.equal(await harness.environmentContext.getAccessToken('staging'), 'staging-token');
+  assert.equal(await harness.environmentContext.getAccessToken('office'), 'office-token');
 });
 
 test('recovers a missing local token through only the local environment', async () => {
@@ -226,17 +313,17 @@ test('recovers a missing local token through only the local environment', async 
     new Headers(harness.fetchCalls[0].init.headers).get('authorization'),
     'Bearer recovered-local-token',
   );
-  assert.equal(await harness.environmentContext.getAccessToken('staging'), null);
+  assert.equal(await harness.environmentContext.getAccessToken('office'), null);
 });
 
 test('keeps the exact environment auth error when missing-profile recovery times out', async () => {
   const harness = createHarness();
 
   await assert.rejects(
-    harness.environmentContext.authedFetch('staging', '/api/orders'),
+    harness.environmentContext.authedFetch('office', '/api/orders'),
     (error) => {
       assert.equal(error.code, 'environment_auth_required');
-      assert.equal(error.environmentId, 'staging');
+      assert.equal(error.environmentId, 'office');
       assert.equal(error.message, 'KidItem login is required for this environment');
       return true;
     },
@@ -244,7 +331,7 @@ test('keeps the exact environment auth error when missing-profile recovery times
 
   assert.equal(harness.fetchCalls.length, 0);
   assert.deepEqual(harness.tabQueries, [
-    { url: 'https://staging.merchon.org/*' },
+    { url: 'http://kiditem-office/*' },
   ]);
   assert.deepEqual(
     harness.scriptCalls.map((call) => Number(call.target.tabId)),
@@ -267,13 +354,13 @@ test('removes ambiguous legacy auth and API values without migration', async () 
 
 test('tracks connected environments without tokens for order collector', async () => {
   const { environmentContext } = createHarness({ requiresAuth: false });
-  await environmentContext.connect('staging');
+  await environmentContext.connect('office');
   assert.deepEqual(
     Array.from(await environmentContext.connectedEnvironmentIds()),
-    ['staging'],
+    ['office'],
   );
   await assert.rejects(
-    environmentContext.authedFetch('staging', '/api/orders'),
+    environmentContext.authedFetch('office', '/api/orders'),
     /Authenticated fetch is unavailable/,
   );
 });
@@ -281,10 +368,10 @@ test('tracks connected environments without tokens for order collector', async (
 test('namespaces storage and alarms by an explicit environment', () => {
   const { environmentContext } = createHarness();
   assert.equal(environmentContext.storageKey('status', 'local'), 'status:local');
-  assert.equal(environmentContext.alarmName('auto-scrape', 'staging'), 'auto-scrape:staging');
+  assert.equal(environmentContext.alarmName('auto-scrape', 'office'), 'auto-scrape:office');
   assert.equal(
-    environmentContext.parseAlarmName('auto-scrape', 'auto-scrape:staging'),
-    'staging',
+    environmentContext.parseAlarmName('auto-scrape', 'auto-scrape:office'),
+    'office',
   );
   assert.equal(environmentContext.parseAlarmName('auto-scrape', 'auto-scrape'), null);
 });

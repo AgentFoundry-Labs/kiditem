@@ -13,6 +13,8 @@
 #   - Explicitly reviewed organization-scoped advisory locks with the exact
 #     `queryraw-tenancy-exempt: organization-scoped advisory lock` marker. These
 #     serialize by a key containing organizationId and do not read tenant rows.
+#   - Exact database-clock reads with the
+#     `queryraw-tenancy-exempt: database clock only` marker and no table access.
 #
 # Exits 1 if any non-exempt site is missing the binding.
 # Uses ripgrep (rg) — BSD grep lacks reliable multi-line context.
@@ -98,6 +100,13 @@ for file in "${FILES[@]}"; do
     # marker narrow so unrelated raw SQL cannot bypass the tenant-row binding.
     if echo "$window" | rg -q 'queryraw-tenancy-exempt: organization-scoped advisory lock' \
       && echo "$window" | rg -q 'pg_advisory_xact_lock'; then
+      continue
+    fi
+
+    # Exempt: one authoritative transaction timestamp with no table or
+    # tenant-row access. The exact marker and clock function are both required.
+    if echo "$window" | rg -q 'queryraw-tenancy-exempt: database clock only' \
+      && echo "$window" | rg -q 'SELECT clock_timestamp\(\)'; then
       continue
     fi
 

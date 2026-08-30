@@ -1,22 +1,17 @@
 import {
   InventorySkuSnapshotListResponseSchema,
-  SellpiaReceiptBatchCreateInputSchema,
-  SellpiaReceiptBatchMarkUploadedInputSchema,
-  SellpiaReceiptUploadBatchSchema,
   type InventorySkuSnapshotItem,
   type InventorySkuSnapshotListResponse,
   type InventorySkuStockStatus,
+  type SellpiaInventorySkuActiveStatus,
+  type SellpiaInventorySkuLinkStatus,
   type SellpiaImportRunListResponse,
-  type SellpiaReceiptBatchCreateInput,
-  type SellpiaReceiptBatchMarkUploadedInput,
-  type SellpiaReceiptUploadBatch,
 } from '@kiditem/shared/inventory';
 import {
   ChannelSkuAvailabilityListResponseSchema,
   type ChannelSkuAvailabilityListResponse,
   type ChannelSkuAvailabilityStatus,
 } from '@kiditem/shared/channel-sku-availability';
-import { z } from 'zod';
 import { apiClient } from '@/lib/api-client';
 import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
 
@@ -25,6 +20,8 @@ export interface SellpiaInventorySkuListParams {
   limit?: number;
   query?: string;
   stockStatus?: InventorySkuStockStatus;
+  activeStatus?: SellpiaInventorySkuActiveStatus;
+  linkStatus?: SellpiaInventorySkuLinkStatus;
 }
 
 export interface SellpiaImportRunListParams {
@@ -126,33 +123,4 @@ export async function listChannelSkuAvailability(
     withSearchParams('/api/channels/sku-availability', params),
     ChannelSkuAvailabilityListResponseSchema,
   );
-}
-
-const SellpiaReceiptUploadBatchListSchema = z.array(SellpiaReceiptUploadBatchSchema);
-
-export async function listSellpiaReceiptBatches(): Promise<SellpiaReceiptUploadBatch[]> {
-  return apiClient.getParsed(
-    '/api/inventory/sellpia-receipt-batches',
-    SellpiaReceiptUploadBatchListSchema,
-  );
-}
-
-export async function createSellpiaReceiptBatch(
-  input: SellpiaReceiptBatchCreateInput,
-): Promise<SellpiaReceiptUploadBatch> {
-  const body = SellpiaReceiptBatchCreateInputSchema.parse(input);
-  const raw = await apiClient.post<unknown>('/api/inventory/sellpia-receipt-batches', body);
-  return SellpiaReceiptUploadBatchSchema.parse(raw);
-}
-
-export async function markSellpiaReceiptBatchUploaded(
-  batchId: string,
-  input: SellpiaReceiptBatchMarkUploadedInput,
-): Promise<SellpiaReceiptUploadBatch> {
-  const body = SellpiaReceiptBatchMarkUploadedInputSchema.parse(input);
-  const raw = await apiClient.post<unknown>(
-    `/api/inventory/sellpia-receipt-batches/${batchId}/mark-uploaded`,
-    body,
-  );
-  return SellpiaReceiptUploadBatchSchema.parse(raw);
 }

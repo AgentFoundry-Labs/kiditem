@@ -62,6 +62,7 @@ function makeWorker(claimed: ReturnType<typeof job> | null = job()) {
     repository as never,
     processor as never,
     {
+      workerEnabled: true,
       workerIntervalMs: 1_000,
       workerMaxIntervalMs: 10_000,
       workerErrorMaxIntervalMs: 30_000,
@@ -92,6 +93,18 @@ describe('AiDirectJobWorkerService', () => {
     });
     expect(processor.project).toHaveBeenCalled();
     expect(repository.markSucceeded).toHaveBeenCalled();
+  });
+
+  it('does not schedule from an Agent OS MCP child context', async () => {
+    vi.useFakeTimers();
+    const { worker, repository } = makeWorker(null);
+    (worker as unknown as { config: { workerEnabled: boolean } }).config.workerEnabled = false;
+
+    worker.onModuleInit();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(repository.claimNext).not.toHaveBeenCalled();
+    worker.onModuleDestroy();
   });
 
   it('reuses a checkpoint without calling the provider again', async () => {

@@ -28,11 +28,6 @@ export class CancelOperationDto {
   @IsOptional()
   @IsString()
   @MinLength(1)
-  requestId?: string;
-
-  @IsOptional()
-  @IsString()
-  @MinLength(1)
   generationId?: string;
 
   @IsOptional()
@@ -52,12 +47,6 @@ export function toCancelOperationTarget(
     case 'workflow_run':
       if (!dto.runId) throw new Error('runId is required');
       return { targetType: 'workflow_run', runId: dto.runId, reason };
-    case 'agent_run_request':
-      if (!dto.requestId) throw new Error('requestId is required');
-      return { targetType: 'agent_run_request', requestId: dto.requestId, reason };
-    case 'agent_run':
-      if (!dto.runId) throw new Error('runId is required');
-      return { targetType: 'agent_run', runId: dto.runId, reason };
     case 'content_generation':
       if (!dto.generationId) throw new Error('generationId is required');
       return { targetType: 'content_generation', generationId: dto.generationId, reason };

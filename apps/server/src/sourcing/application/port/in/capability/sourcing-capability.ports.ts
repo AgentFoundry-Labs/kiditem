@@ -1,3 +1,5 @@
+import type { OperationRunName } from '@kiditem/shared/identifiers';
+
 export const SOURCING_DUPLICATE_CHECK_PORT = Symbol(
   'SOURCING_DUPLICATE_CHECK_PORT',
 );
@@ -9,9 +11,6 @@ export const SOURCING_INGEST_CANDIDATE_PORT = Symbol(
 );
 export const SOURCING_SCRAPE_URL_WORKFLOW_PORT = Symbol(
   'SOURCING_SCRAPE_URL_WORKFLOW_PORT',
-);
-export const SOURCING_DISCOVERY_CAPABILITY_PORT = Symbol(
-  'SOURCING_DISCOVERY_CAPABILITY_PORT',
 );
 export const SOURCING_LISTING_PREP_CAPABILITY_PORT = Symbol(
   'SOURCING_LISTING_PREP_CAPABILITY_PORT',
@@ -83,17 +82,15 @@ export interface SourcingScrapeUrlWorkflowInput {
   organizationId: string;
   sourceUrl: string;
   triggeredByUserId?: string | null;
-  conversationId?: string | null;
-  parentRequestId?: string | null;
-  delegatedByRunId?: string | null;
+  /** Owner-supplied exact key; URL-derived fallbacks are forbidden. */
+  idempotencyKey: string;
 }
 
 export interface SourcingScrapeUrlWorkflowResult {
   skipped: boolean;
   candidateId: string | null;
   href: string | null;
-  operationKey: string | null;
-  taskId?: string | null;
+  operation: OperationRunName | null;
 }
 
 export interface SourcingScrapeUrlWorkflowPort {
@@ -102,29 +99,9 @@ export interface SourcingScrapeUrlWorkflowPort {
   ): Promise<SourcingScrapeUrlWorkflowResult>;
 }
 
-export interface SourcingDiscoveryCapabilityInput {
-  organizationId: string;
-  keyword: string;
-  category?: string | null;
-  mode?: 'replay';
-}
-
-export interface SourcingDiscoveryCapabilityResult {
-  artifacts: Array<{
-    artifactType: string;
-    title: string;
-    summary: Record<string, unknown>;
-  }>;
-}
-
-export interface SourcingDiscoveryCapabilityPort {
-  executeDiscoveryCapability(
-    input: SourcingDiscoveryCapabilityInput,
-  ): Promise<SourcingDiscoveryCapabilityResult>;
-}
-
 export interface SourcingListingPrepCapabilityInput {
   organizationId: string;
+  idempotencyKey: string;
   triggeredByUserId?: string | null;
   productName: string;
   category?: string | null;

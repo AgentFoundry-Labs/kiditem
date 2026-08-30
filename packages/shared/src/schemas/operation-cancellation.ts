@@ -7,8 +7,6 @@ const TargetIdSchema = z.string().min(1);
 export const CANCEL_OPERATION_TARGET_TYPES = [
   'operation_key',
   'workflow_run',
-  'agent_run_request',
-  'agent_run',
   'content_generation',
   'thumbnail_generation',
 ] as const;
@@ -21,16 +19,6 @@ export const CancelOperationTargetSchema = z.discriminatedUnion('targetType', [
   }).strict(),
   z.object({
     targetType: z.literal('workflow_run'),
-    runId: TargetIdSchema,
-    reason: ReasonSchema,
-  }).strict(),
-  z.object({
-    targetType: z.literal('agent_run_request'),
-    requestId: TargetIdSchema,
-    reason: ReasonSchema,
-  }).strict(),
-  z.object({
-    targetType: z.literal('agent_run'),
     runId: TargetIdSchema,
     reason: ReasonSchema,
   }).strict(),
@@ -54,8 +42,6 @@ export const CancelOperationStatusSchema = z.enum([
 
 export const CancelOperationAffectedSchema = z.object({
   workflowRunIds: z.array(z.string()),
-  agentRunRequestIds: z.array(z.string()),
-  agentRunIds: z.array(z.string()),
   contentGenerationIds: z.array(z.string()),
   thumbnailGenerationIds: z.array(z.string()),
   directAiJobIds: z.array(z.string()),
@@ -85,8 +71,6 @@ export type CancelOperationResponse = z.infer<typeof CancelOperationResponseSche
 export function emptyCancelOperationAffected(): CancelOperationAffected {
   return {
     workflowRunIds: [],
-    agentRunRequestIds: [],
-    agentRunIds: [],
     contentGenerationIds: [],
     thumbnailGenerationIds: [],
     directAiJobIds: [],

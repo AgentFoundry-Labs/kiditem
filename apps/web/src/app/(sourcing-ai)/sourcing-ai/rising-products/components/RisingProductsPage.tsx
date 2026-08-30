@@ -2,22 +2,23 @@
 
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ExternalLink, Flame, Loader2, Sparkles } from 'lucide-react';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
-import { isApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
 import {
-  detectRisingProducts,
   fetchKeywordTrackers,
   fetchLatestRisingProducts,
   type RisingProductCandidate,
   type RisingProductGrade,
 } from '../lib/rising-products-api';
 import { normalizeKeyword } from '../lib/rising-keywords';
+import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
+import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
 import { RisingKeywordsPanel } from './RisingKeywordsPanel';
 
-const RISING_QUERY_KEY = ['sourcing', 'rising-products'];
+const RISING_QUERY_KEY = queryKeys.sourcing.risingProducts();
+const RISING_OPERATION_INPUT = { windowDays: 14 } as const;
 
 const GRADE_TONE: Record<RisingProductGrade, string> = {
   A: 'bg-emerald-500/15 text-emerald-600',
@@ -28,25 +29,16 @@ const GRADE_TONE: Record<RisingProductGrade, string> = {
 };
 
 export function RisingProductsPage() {
-  const queryClient = useQueryClient();
-
   const { data, isLoading } = useQuery({
     queryKey: RISING_QUERY_KEY,
     queryFn: fetchLatestRisingProducts,
   });
 
-  const detectMutation = useMutation({
-    mutationFn: () => detectRisingProducts({ windowDays: 14 }),
-    onSuccess: (result) => {
-      queryClient.setQueryData(RISING_QUERY_KEY, result);
-      toast.success(
-        result.model.candidates.length > 0
-          ? `급상승 후보 ${formatNumber(result.model.candidates.length)}개`
-          : '급상승 후보를 찾지 못했습니다(수집 데이터 부족)',
-      );
-    },
-    onError: (error) =>
-      toast.error(isApiError(error) ? error.message : '급상승 감지에 실패했습니다'),
+  const risingOperation = useSourcingOperationAction({
+    operationKey: 'sourcing.detect_rising_products',
+    input: RISING_OPERATION_INPUT,
+    snapshotQueryKey: RISING_QUERY_KEY,
+    wakeBrowserRuntime: false,
   });
 
   // 추적 키워드 목록 — 우측 패널과 같은 queryKey 라 캐시 공유(추가 요청 없음).
@@ -55,8 +47,7 @@ export function RisingProductsPage() {
     queryFn: fetchKeywordTrackers,
   });
 
-  // apiClient는 빈 응답을 `{}`로 반환하므로 model 없는 응답은 "데이터 없음"으로 처리.
-  const result = data?.model ? data : null;
+  const result = data ?? null;
   // 점수순 flat — 키워드 무관. 제외 등급은 숨겨 상위 후보만 노출.
   const candidates = useMemo(
     () => (result?.model.candidates ?? []).filter((c) => c.grade !== 'EXCLUDE'),
@@ -97,11 +88,11 @@ export function RisingProductsPage() {
           </div>
           <button
             type="button"
-            onClick={() => detectMutation.mutate()}
-            disabled={detectMutation.isPending}
+            onClick={() => void risingOperation.start()}
+            disabled={risingOperation.isStarting}
             className="inline-flex h-11 items-center gap-2 rounded-lg bg-[#ff5a1f] px-4 text-sm font-black text-white transition hover:bg-[#ef4f18] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {detectMutation.isPending ? (
+            {risingOperation.isStarting ? (
               <Loader2 size={16} className="animate-spin" />
             ) : (
               <Sparkles size={16} />
@@ -109,6 +100,18 @@ export function RisingProductsPage() {
             감지 실행
           </button>
         </header>
+
+        <SourcingOperationRunPanel
+          run={risingOperation.run}
+          onCancel={async () => {
+            await risingOperation.cancel();
+          }}
+          onRetryAttention={async () => {
+            await risingOperation.retryAttention();
+          }}
+          isCancelling={risingOperation.isCancelling}
+          isRetrying={risingOperation.isRetrying}
+        />
 
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_320px]">
           <section className="min-w-0">

@@ -1,5 +1,5 @@
-import { projectChannelOptionCapacity } from '../domain/channel-option-capacity';
-import type { InventorySkuAvailability } from '@kiditem/shared/inventory-commitment';
+import { projectChannelOptionCapacity } from '@kiditem/shared/channel-option-capacity';
+import type { InventorySkuAvailability } from '@kiditem/shared/inventory-availability';
 import type {
   MasterProductOperationsDetail,
   MasterProductOperationsListItem,
@@ -29,8 +29,6 @@ function hydrateOption(
   const capacity = projectChannelOptionCapacity(inventoryComponents.map((component) => ({
     sellpiaInventorySkuId: component.sellpiaInventorySkuId,
     currentStock: component.currentStock,
-    activeCommitmentQuantity: inventoryBySkuId.get(component.sellpiaInventorySkuId)
-      ?.activeCommitmentQuantity ?? 0,
     availableStock: component.availableStock,
     quantity: component.quantity,
     isActive: component.isActive,
@@ -70,11 +68,7 @@ export function mapProductOperationsListItem(
   } = product;
   const options = rawOptions.map((option) => hydrateOption(option, inventoryBySkuId));
   const projections = options.map((option) => projectChannelOptionCapacity(
-    option.inventoryComponents.map((component) => ({
-      ...component,
-      activeCommitmentQuantity: inventoryBySkuId.get(component.sellpiaInventorySkuId)
-        ?.activeCommitmentQuantity ?? 0,
-    })),
+    option.inventoryComponents,
   ));
   const inventory = projectCanonicalInventory(inventorySkuIds, inventoryBySkuId);
   return {

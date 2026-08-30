@@ -1,11 +1,9 @@
-Consult this document first instead of relying on memorized knowledge.
+# sourcing
 
-# sourcing — Product Discovery + Account Registration
-
-`src/sourcing/` owns Chinese new-product discovery: scraper ingest from
-Alibaba/1688, `SourcingCandidate` workspaces, manual product registration
-candidates, and the account-scoped product-registration state machine. Supplier registry and
-procurement live in `src/supply/`; supplier payments live in `src/finance/`.
+`src/sourcing/` owns Chinese-product discovery, `SourcingCandidate`,
+source/evidence governance, launch decisions, and account-scoped registration
+preparation. Suppliers, offers, procurement intents, and purchase orders belong
+to `src/supply/`; supplier payments belong to `src/finance/`.
 
 ## Folder Map
 
@@ -16,15 +14,16 @@ sourcing/
 ├── adapter/out/
 │   ├── agent/              # sourcing Agent OS gateway adapter
 │   ├── ai/                 # AI archive/workspace and registration-content adapters
-│   ├── automation/         # operation-alert adapter
 │   ├── channels/           # account-scoped marketplace registration bridge
-│   ├── products/           # legacy products compatibility bridge
-│   └── repository/         # candidate + product-preparation repositories
+│   ├── products/           # Products boundary adapter
+│   ├── supply/             # Supply incoming-port bridge; never direct model writes
+│   └── repository/         # candidate, evidence, launch, decision repositories
 ├── application/
+│   ├── port/in/            # Sourcing-owned Agent capability/use-case contracts
 │   ├── port/out/           # local outbound ports + transaction handle
 │   └── service/            # use-case orchestration
 ├── domain/
-│   └── capability/         # sourcing resource/tool/workflow/sink manifest
+│   └── capability/         # strict Sourcing-owned CapabilityDefinitions
 └── __tests__/              # architecture and behavior specs
 ```
 
@@ -38,14 +37,27 @@ sourcing/
   `DELETE /api/sourcing/candidates/:id`
 - Product preparation: `POST /api/sourcing/candidates/:id/preparations`,
   `PATCH /api/sourcing/preparations/:id`, and preparation submit/cancel routes
-- Candidate rejection and quick AI processing: `/api/sourcing/candidates/:id/*`
+- Decision intelligence: `/api/sourcing/intelligence/sources`,
+  `/evidence-runs`, `/launch-candidates`, `/decision-batches`, and
+  `/decision-items/:id/procurement-intents` beneath that prefix
+- Entry recommendation + assistant: `/api/sourcing/entry/*`
 
-Route shape is frozen.
+Route shape is frozen. New routes need 2+ segments: `GET /api/sourcing/:id`
+catches single-segment paths and fails as a bad candidate UUID.
 
 ## Main Data Models
 
 - `SourcingCandidate` is the raw opportunity workspace.
-- `CandidateImage` stores source images attached to a candidate.
+- `SourcingCollectionSourceControl` is an optional organization-level pause
+  for a server-allowlisted collector. Absence means enabled; it has no review,
+  lifecycle, expiry, or decision-impact state.
+- `SourcingEvidenceIngestionRun` and `SourcingEvidenceObservation` form the
+  append-only collection/evidence ledger.
+- `SourcingLaunchCandidate` freezes exact supplier variant, target account,
+  bundle/plan/compliance/IP/QC versions, economics, and launch quantity.
+- `SourcingDecisionBatch`, items, and evidence freeze server-derived baseline
+  shadow decisions. Coverage confidence is never a calibrated probability and
+  `policyProbability` remains null until a real assignment ledger exists.
 - `ProductPreparation` owns the operator-reviewed input, selected content, and
   legacy lifecycle compatibility columns for one candidate/account attempt.
   It is not authoritative for provider side effects.
@@ -57,36 +69,13 @@ Route shape is frozen.
 - `ChannelListing` registration is owned by Channels and reached only through
   a sourcing outgoing registration port. Registration never creates or returns
   a `MasterProduct`.
-- AI-generated detail pages, thumbnails, and content assets remain owned by the
-  AI domain.
-
-## Registration Flow
-
-```text
-candidate command
-  -> ProductRegistrationService.createDraft/updateDraft
-  -> ProductPreparation repository + candidate/preparation row locks
-  -> claim creates/loads ProductRegistrationExecution with frozen
-     canonical payload/hash/idempotency key and actor
-  -> persist executing/uncertain before provider IO, or start external WING
-  -> reconcile the same execution; uncertain outcomes never regain create eligibility
-  -> final sourcing transaction resolves the account listing and succeeds the execution
-  -> REGISTRATION_CONTENT_WORKSPACE_PORT branches selected AI content
-  -> ProductPreparation compatibility status becomes registered
-```
-
-Provider calls occur outside database transactions and only after the execution
-ledger records the intent. Retries reuse the frozen submission key and
-reconcile recorded provider identity before create. Listing resolution,
-content branching, execution success, and the compatibility registered
-transition commit in one sourcing-owned finalization transaction. A legacy
-submitting/failed row without an execution is imported as failed or
-reconciling; it is never reborn as a fresh prepared/create execution.
+- Registration ledger, provider-call, uncertain-outcome, and retry invariants
+  are defined in [Account-Scoped Registration And Content Ownership](../../../../docs/ARCHITECTURE.md#account-scoped-registration-and-content-ownership-0180125).
 
 ## Cross-Domain Ports
 
-- Sourcing delegates scrape/product-generation work through
-  `SOURCING_AGENT_GATEWAY_PORT`.
+- Sourcing starts URL scraping through `SOURCING_SCRAPE_OPERATION_PORT` and
+  delegates deterministic AI product generation through `SOURCING_AGENT_GATEWAY_PORT`.
 - Product registration calls Channels through
   `CHANNEL_PRODUCT_REGISTRATION_PORT` and branches AI content through
   `REGISTRATION_CONTENT_WORKSPACE_PORT`.
@@ -94,68 +83,116 @@ reconciling; it is never reborn as a fresh prepared/create execution.
   registration flows must not call it.
 - Generated-content archive/delete calls AI through
   `SOURCING_AI_WORKSPACE_ARCHIVE_PORT`.
-- Operation-alert lifecycle writes go through
-  `SOURCING_OPERATION_ALERT_PORT`.
-- Supply attach flows must use a supply-owned port such as
-  `SUPPLY_ATTACH_PORT`; sourcing must not mutate supply models directly.
+- Supplier-offer reads and RFQ/sample/test-order intent creation use
+  `SOURCING_SUPPLY_INTELLIGENCE_PORT`, backed only by Supply's exported
+  `SUPPLY_SOURCING_PROCUREMENT_PORT`; sourcing must not mutate supply models
+  directly.
+
+## Operation-Backed Collection
+
+Explicit screen -> Operations -> owner handler; mount/read/navigation starts no
+work. Browser requires fenced owner ingest; Operations owns no canonical rows.
+No direct/1688/status/read-or-compute paths. Cancellation never reactivates.
 
 ## Scrape Runtime
 
-`/api/sourcing/scrape-url` enqueues a `sourcing` Agent OS request. The active
-runtime handler is `SourcingPlaywrightRuntimeHandler`: it opens Playwright
-Chromium with a persistent profile and runs approved deterministic extractor
-code. It reuses `extensions/kiditem-os/content/sourcing/extractors/*` as
-reviewed reference page scripts; retired pre-merge extension paths are not
-runtime fallbacks. New scraper development should happen through the Codex-global
-`$magic-scraper` skill (`~/.codex/skills/magic-scraper/SKILL.md`) and then be
-promoted into reviewed sourcing extractor/runtime code with fixtures and tests.
+`/api/sourcing/scrape-url` starts the Sourcing-owned `sourcing.scrape_url`
+Operation. Agent-facing capabilities enqueue the same owner Operation with the
+exact admitted idempotency key; they never manufacture provider runtime work or
+fall back to a generic runner. The Operation handler calls
+`SourcingPlaywrightRuntimeHandler`, which opens Playwright Chromium with a persistent
+profile and runs approved deterministic extractors, reusing
+`extensions/kiditem-os/content/sourcing/extractors/*` as reviewed reference
+scripts; retired extension paths are not fallbacks.
 
-For 1688/Alibaba sessions that need real user browser state, configure
-`SOURCING_PLAYWRIGHT_CDP_ENDPOINT` or `runtimeConfig.playwrightCdpEndpoint` to
-attach to a dedicated managed CDP browser/profile where the user has completed
-login or verification. This is preferred over launching a fresh anonymous
-browser when CAPTCHA/verification risk is high.
+The version-2 1688 keyword Operation is server-domain owned and attaches only
+through `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` to authenticated Office Chrome. It
+has no extension, anonymous-browser, or fresh-profile fallback. The adapter
+closes only its page; host Chrome, login, and unrelated tabs survive. Login or
+security challenges are truthful attention states, never bypassed.
 
-The `magic-scraper` skill is a development workflow, not a production runtime:
-do not expose arbitrary browser JS, local file scripts, CDN scripts, or raw CDP
-execution as Agent OS/MCP tools. If extraction fails, the runtime returns
-`recommendedSkillKey: "sourcing.magic_scraper"` so the Sourcing Agent can repair
-or harden the extractor from authorized browser evidence instead of bypassing
-login or captcha controls. The runtime does not write sourcing rows directly;
-candidate creation still happens through `SourcingScrapeFinalizedBridge` after
-Agent OS finalization.
+Never expose arbitrary browser JS, CDN scripts, or raw CDP as Agent OS/MCP tools. For the direct `scrape_url` action,
+`SourcingScrapeResultService` validates and upserts the canonical candidate
+synchronously before the Operation completes. Agent OS projections are
+non-authoritative and never write canonical sourcing rows.
+
+Supplier URLs are an SSRF boundary. `supplier-source-url-policy.ts` is the
+single parser for extension ingest, scrape DTO validation, and Playwright
+navigation: only HTTPS 1688/Alibaba hosts without credentials or non-default
+ports are accepted. Playwright must keep that allowlist on navigation and
+redirect hops; do not add a second permissive URL parser.
+
+## Extension Ingest Contract
+
+`POST /api/sourcing/extension/product-data` is the deployed KidItem OS v1
+snake_case wire and must remain compatible. `SourcingExtensionIngestService`
+parses it through `@kiditem/shared/sourcing`, records only the normalized
+commercial summary, and claims a controlled collection run before it projects a
+candidate. Do not restore controller-side `{ ...body, ...extra }` merging:
+global `ValidationPipe` must retain known commercial fields explicitly rather
+than accepting arbitrary page-world data.
+
+New extension writers first obtain a permit from
+`POST /api/sourcing/extension/v2/sessions`, then post to
+`/api/sourcing/extension/v2/product-data` with the strict v2 contract, an
+external offer identity, collection session UUID, captured timestamp, extractor
+version, and payload hash. V1 and v2 both use the collection coordinator;
+an unknown or disabled source must leave zero candidate and evidence rows.
+Identity includes variant. Alibaba uses canonical URL (aliases/tracking/fragments
+removed); 1688 uses validated offer ID, then URL. All ingress uses it, never
+title/extractor ID.
+
+Entry assistant: server-only runtime/model; client never selects. Claude:
+`--tools ""` (not `--allowed-tools`). Codex: ephemeral read-only/no tools.
+Failure: retrieval-only.
 
 ## Capability Surface
 
-Sourcing is the first domain adopting the shared capability manifest model. The
-initial manifest lives in `domain/capability/sourcing.capabilities.ts`:
+Strict Agent-facing definitions live in
+`domain/capability/sourcing.capabilities.ts` and execute through Sourcing-owned
+incoming ports. The exact ten are:
 
-- `sourcing.duplicateCheck` (`resource`) reads existing candidates by URL.
-- `sourcing.scrapeProductUrl` (`tool`) runs the browser/runtime scraper and
-  returns a product snapshot without canonical DB writes.
-- `sourcing.ingestCandidate` (`sink`) validates and persists a candidate.
-- `sourcing.scrapeUrlWorkflow` (`workflow`) composes duplicate-check, scrape,
-  sink, alerting, and candidate-detail routing deterministically.
+- reads: `sourcing.duplicateCheck`, `sourcing.retrieveWorkspaceEvidence`,
+  `sourcing.inspectRecommendationRun`;
+- split scrape/ingest: `sourcing.scrapeProductUrl` returns a bounded snapshot
+  without writing a candidate, and `sourcing.ingestCandidate` admits only that
+  same attempt's exact snapshot/hash;
+- mutations: `sourcing.refreshValidation`, `sourcing.createReviewBatch`;
+- Operation-backed: `sourcing.scrapeUrlWorkflow`,
+  `sourcing.refreshCollection`, `sourcing.collect_shadow_signals`.
 
-Capability manifests describe the platform-facing surface only. Agent OS and
-automation must reach sourcing through incoming ports/capability dispatch, not
-by importing sourcing application services directly.
+All ten are discoverable through the code-owned registry and private MCP
+catalog. Required-idempotency mutations pass the exact owner key to the final
+Sourcing DB or Operation boundary. Agent OS only aggregates, admits, and routes
+them.
+
+The dashboard opens the shared conversation workspace with the fixed Sourcing
+Agent; Sourcing owns no local assistant endpoint, transcript, or CLI subprocess
+path.
+
+Agent OS and automation reach sourcing through incoming capability ports, not
+by importing sourcing application services.
 
 ## Boundary Rules
 
-- Application services must not import `PrismaService`, `@prisma/client`, HTTP
-  DTOs, concrete `adapter/out/**` implementations, AI services, products
-  services, or automation services.
-- Extension ingest writes only `SourcingCandidate` and `CandidateImage`;
-  registration state belongs to `ProductPreparation` and account-scoped
-  `ChannelListing` rows, never candidate status.
+- Application services must not import Prisma, HTTP DTOs, concrete outbound
+  adapters, or AI/products/automation services.
+- Collection claim and commit require an allowlisted source and non-disabled
+  organization control; no review, expiry, lifecycle, or policy history.
+- Canonical recommendation actions are exactly `test_order|hold|reject`.
+  Current heuristic `order|observe_3d|exclude` is baseline model output only.
+  Coverage confidence cannot create an execution-eligible test order.
+- Every supplier-offer snapshot, LaunchCandidate, decision, and procurement
+  intent is immutable/idempotent provenance. Do not add direct intent→PO or
+  provider-execution paths.
+- Extension ingest records controlled immutable evidence before projecting a
+  candidate/image; registration belongs to `ProductPreparation` and
+  account-scoped `ChannelListing`, never candidate status.
 - Product-less detail generation uses direct AI content workspaces and must not
   create collected-product `SourcingCandidate` rows.
-- Candidate delete archives the active source-candidate workspace and related
-  AI rows; it must not delete promoted masters, product images, channel
-  listings, orders, inventory, or finance data.
-- Physical storage deletion is a retention/GC concern and must re-check active
-  references before deleting objects.
+- Candidate delete archives its workspace/AI rows, never promoted masters,
+  product images, channel listings, orders, inventory, or finance data.
+- Storage deletion is retention/GC only and rechecks active references.
 - Candidate status is only `sourced|rejected`. Registration state is derived
   from preparations/listings; concurrent active-draft losers surface as
   conflict.

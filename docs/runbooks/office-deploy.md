@@ -6,6 +6,13 @@ them to GHCR, and publishes a manifest containing immutable digest references.
 The office PC only pulls and recreates containers; it never builds product
 images during deployment.
 
+GitHub Actions is the immutable release-artifact publisher, not the Office
+host deployer: it never receives the Task Scheduler credential and never
+invokes task registration. After the approved artifact is downloaded, a human
+operator runs its bundled PowerShell entrypoint on the Windows host and supplies
+the dedicated Agent Gateway account only to explicit task registration as an in-memory
+`PSCredential`.
+
 ## Human Prerequisites
 
 - `release/office` exists permanently on GitHub, is protected against deletion
@@ -14,13 +21,23 @@ images during deployment.
 - The live checkout is exactly `C:\workspace\kiditem`, on `release/office`,
   tracking `origin/release/office`, and has no tracked changes.
 - Docker Desktop, Git, GitHub CLI, and PowerShell 5.1 or later are installed.
+- Node 22 is installed at `C:\Program Files\nodejs\node.exe` for the native
+  Agent Gateway scheduled task.
+- The dedicated local `KidItemAgentGateway` service account exists and the
+  operator has completed Codex/Claude login under that account. The deployment
+  script verifies and uses the account; it does not create it or read login
+  material. The operator can obtain its Windows account credential with a local
+  PowerShell `Get-Credential` prompt when a task-registering operation runs.
 - The operator can read the private GHCR packages
   `kiditem-api` and `kiditem-web`.
 - `C:\ProgramData\Kiditem\.env.office` and the API env file referenced by
   `OFFICE_API_ENV_FILE` exist locally and remain outside Git.
-- External Docker volumes `kiditem_pgdata` and `kiditem_minio-data` exist and
-  have a recent backup on the NAS. The NAS is a backup target, not a live
-  Docker data root.
+- External Docker volumes `kiditem_pgdata`, `kiditem_minio-data`, and
+  `kiditem_copilotkit-event-history` exist and have a recent backup on the NAS.
+  The last volume is mounted only by the API at `/var/lib/kiditem/agent-os` for
+  completed CopilotKit AG-UI event history; it is not mounted by the worker and
+  is not live-turn authority. The NAS is a backup target, not a live Docker
+  data root.
 - The GitHub `office` Environment exists and restricts deployments to protected
   branches. Add required reviewers there when the office approval roster is
   defined.
@@ -39,7 +56,8 @@ protected release/office SHA
         -> Windows operator guard
           -> pull + OCI revision verification
               -> optional approved Prisma schema push
-                -> Compose recreate + health/smoke checks
+                -> Compose recreate + matching native Agent Gateway restart
+                  -> API/Gateway readiness + health/smoke checks
 ```
 
 GitHub owns image building and release identity. `C:\ProgramData\Kiditem` owns
@@ -50,10 +68,13 @@ Terraform only after moving the office runtime to a long-lived remote host
 whose provisioning must be reproducible.
 
 The office lane is deliberately not blue-green because the host has tight disk
-capacity and retains local state. It uses a controlled recreate with automatic
-runtime-file restoration on a failed health check. An approved schema change is
-applied explicitly with `-ApplySchema`; database changes remain outside runtime
-rollback and must be assessed separately for every release.
+capacity and retains local state. A compatible release uses controlled recreate
+with automatic runtime-file restoration on a failed health check. An approved
+compatible schema change is applied explicitly with `-ApplySchema`; database
+changes remain outside runtime rollback and must be assessed separately for
+every release. An incompatible schema contraction instead follows the
+full-stop cutover procedure below and starts its candidate only with
+`CutoverDeploy -ConfirmCutoverDeploy` after the schema is accepted.
 
 ## Promote The Office Branch
 
@@ -96,10 +117,13 @@ named `office-deployment-<full SHA>` and contains:
 - `compose.office.yml`
 - `nginx.conf`
 - `apply-deployment.ps1`
+- `gateway-launcher.cjs`
+- `kiditem-agent-gateway-windows-x64.zip`
+- `gateway-runtime-contract.json`
 
-The manifest records the workflow URL, root app version, Git SHA, and exact API
-and web digest refs. Convenience tags such as `office-candidate` are never used
-by Compose.
+The manifest records the workflow URL, root app version, Git SHA, exact API/web
+digest refs, and the SHA-256/runtime contract of the matching Windows Gateway
+archive. Convenience tags such as `office-candidate` are never used by Compose.
 
 ## Download And Deploy
 
@@ -119,6 +143,28 @@ gh run download <run-id> `
   -ApplySchema
 ```
 
+On a new machine, after a deliberate Task Scheduler definition change, or
+after changing the dedicated Windows account password, run the one explicit
+task operation before the normal deployment:
+
+```powershell
+$gatewayTaskCredential = Get-Credential -UserName "$env:COMPUTERNAME\KidItemAgentGateway" `
+  -Message 'Credential for the dedicated KidItem Agent Gateway Task Scheduler account'
+& "C:\ProgramData\Kiditem\incoming\<full-sha>\apply-deployment.ps1" `
+  -Operation InstallOrUpdateGatewayTask `
+  -GatewayTaskCredential $gatewayTaskCredential
+```
+
+Only `InstallOrUpdateGatewayTask` requires `-GatewayTaskCredential`. `Deploy`,
+`CutoverDeploy`, `Rollback`, and `RotateGatewayToken` do not re-register the
+native task: each replaces the protected Gateway runtime/current pointer and
+restarts the existing task before readiness. Create the credential with
+`Get-Credential` in the current elevated PowerShell process; never put the
+password in an argument string, environment variable, `.env` file, Docker
+secret, transcript, or log. `Status` is read-only and needs no credential. The
+task operation checks that the credential resolves to the same SID as the
+configured dedicated Gateway account before registration.
+
 Use `-ApplySchema` only when the reviewed release contains a Prisma schema
 change. It is required for the Office local-auth release because that release
 adds `auth_sessions`. The operator stops API/worker/web/nginx, starts and waits
@@ -132,11 +178,63 @@ reason in the PR body and final report. This only appends
 `--accept-data-loss` to `npx prisma db push`; it never performs
 `--force-reset`.
 
+### Destructive Maintenance Window
+
+An incompatible schema contraction is a planned full-stop maintenance action,
+not a normal runtime rollout. The approved Agent OS clean cutover has an
+executable Windows sequence in [Agent OS Clean Cutover](agent-os-clean-cutover.md):
+it blocks mutation writers, makes and lists a custom dump, records a SHA-256
+plus app version/Git SHA and unrelated row counts, then verifies exactly one
+`capability_invocations` relation after `db push --accept-data-loss`. There is
+no Agent seed or backfill. Before taking the final row counts or dump, stop
+API, worker, web, and nginx with the current Office Compose configuration. Keep
+PostgreSQL and MinIO running, and do not restart any application container until
+the schema operation and post-push relation checks are complete.
+
+While application writers remain stopped:
+
+1. Record the reviewed release SHA, image manifest, accepted-data-loss approval,
+   and pre-drop row counts.
+2. Create a fresh custom-format PostgreSQL dump, verify `pg_restore --list`,
+   record its SHA-256, confirm the NAS copy has the same hash, and name the
+   restore owner.
+3. Stage the exact reviewed API/web digest refs and Compose/nginx files from the
+   downloaded bundle. Validate the Compose configuration, but do not start the
+   application services.
+4. Run `npx prisma db push --accept-data-loss` once from the candidate API image
+   with `docker compose run --rm --no-deps api`.
+5. Verify the retired and retained relations, then start and smoke-test the new
+   runtime with the reviewed fail-closed cutover operation:
+
+   ```powershell
+   & "C:\ProgramData\Kiditem\incoming\<full-sha>\apply-deployment.ps1" `
+     -Operation CutoverDeploy `
+     -ConfirmCutoverDeploy `
+     -ManifestPath "C:\ProgramData\Kiditem\incoming\<full-sha>\office-deployment.json"
+   ```
+
+   `CutoverDeploy` rejects `-ApplySchema`: the destructive schema step has
+   already completed. If candidate startup fails, it stops the Gateway and every
+   application surface; restore the recorded database dump manually before
+   starting a previous runtime.
+
+Do not use the normal `apply-deployment.ps1 -Operation Deploy` operation for
+this incompatible cutover. Its runtime-file rollback is designed for
+application failures and is not a database rollback. The operator owns the
+full-stop sequence above and starts an application runtime only after the
+database shape has been accepted through `CutoverDeploy -ConfirmCutoverDeploy`.
+
+If schema application or the new runtime fails, keep every application service
+stopped. Runtime-only `-Operation Rollback` is incompatible with the contracted
+database. Restore the verified pre-push database dump first, then start the
+previous manifest so the database and runtime are rolled back as one pair.
+Record the dump SHA, previous image digests, restore result, and smoke evidence.
+
 If the release includes durable data migrations, run the approved phase order
 against the Office database with a fresh backup in place:
 
 ```powershell
-npm run data:migrate -- up --phase pre-schema --release-version <VERSION> --target local `
+npm run data:migrate -- up --phase pre-schema --release-version <VERSION> --target office `
   --confirm APPLY_DATA_MIGRATIONS
 
 & "C:\ProgramData\Kiditem\incoming\<full-sha>\apply-deployment.ps1" `
@@ -145,7 +243,7 @@ npm run data:migrate -- up --phase pre-schema --release-version <VERSION> --targ
   -ApplySchema `
   -AcceptDataLoss
 
-npm run data:migrate -- up --phase post-schema --release-version <VERSION> --target local `
+npm run data:migrate -- up --phase post-schema --release-version <VERSION> --target office `
   --confirm APPLY_DATA_MIGRATIONS
 ```
 
@@ -226,6 +324,65 @@ the `Secure` flag and bearer tokens are not encrypted in transit. Do not expose
 port 80 outside the trusted office network. Moving Office to HTTPS is required
 before any untrusted-network or remote access.
 
+## Native Agent Gateway Boundary
+
+The API image contains no provider binary, provider login home, or local turn
+process control. It exposes the internal Agent runtime only on host loopback and
+accepts the Agent Gateway installation bearer from its mounted Docker secret
+file. Provider installation, interactive login, provider conversations/history,
+the fixed workspace, and process cleanup are native Gateway responsibilities;
+they are never Compose profile operations or API environment values.
+
+Do not place provider credentials, provider tokens, the raw Gateway bearer, or
+the dedicated Task Scheduler account password in the Office env file or command
+line. The deployment package provisions the native Gateway under a dedicated
+non-administrator account with `TASK_LOGON_PASSWORD`/PowerShell `Password`
+logon. Codex and Claude run non-interactively with trusted full access within
+that account's OS permissions; this is not hostile same-account containment.
+The account must therefore hold only the provider login and Gateway control
+material, never DB, Nest, business-provider, or unrelated credentials. The
+Gateway bearer still protects the loopback control surface from LAN, other-user,
+and accidental callers. S4U is prohibited because Windows denies it network
+and encrypted-file access; the Gateway needs provider HTTPS and its dedicated
+account's login store. This follows Microsoft's
+[`TASK_LOGON_TYPE` contract](https://learn.microsoft.com/windows/win32/api/taskschd/ne-taskschd-task_logon_type).
+The operator supplies the account credential only to explicit
+`InstallOrUpdateGatewayTask` as an in-memory `PSCredential`, and Task
+Scheduler—not KidItem—keeps the protected registration secret. The task action
+is a stable protected launcher that reads the validated current-release pointer;
+ordinary deployment and token rotation never re-register it. The package
+verifies the archive SHA and runtime contract, protects the config/token with
+Windows ACLs, starts the task only after the matching API is healthy, and
+requires full Windows/runtime/model/direct-MCP readiness before a user can start
+a provider turn.
+
+The Gateway installation bearer authenticates only outbound control requests.
+One non-persistent process-scoped MCP transport token authenticates provider
+MCP traffic across ordinary turns; it grants no Agent, capability, or
+delegation authority. Nest resolves business authority from the current
+active-turn record.
+Rotation uses the guarded deployment entrypoint and restarts the matching
+API/Gateway set before readiness is accepted:
+
+```powershell
+& C:\workspace\kiditem\deploy\office\apply-deployment.ps1 `
+  -Operation RotateGatewayToken
+```
+
+If the dedicated Windows account password is rotated, update that account using
+the approved Windows administration procedure, obtain a fresh `PSCredential`,
+then run `InstallOrUpdateGatewayTask` as above to update the protected Scheduler
+registration. Run `RotateGatewayToken` afterwards to restart the matching
+API/Gateway set and prove full readiness. Token rotation remains
+independent of the Windows account credential and never re-registers the task.
+KidItem never stores the account password.
+
+The Gateway makes outbound long-poll/event requests to
+`http://127.0.0.1:4000/internal/agent-runtime/*`; provider MCP calls use the
+same loopback API port with protocol `2026-07-28`. Neither route is exposed by
+nginx, and the Gateway has no inbound listener. The worker receives neither the
+Gateway token nor any provider host path.
+
 ## Disk Pressure
 
 Do not move the live repository or Docker volumes to the shared NAS. Network
@@ -276,10 +433,12 @@ guards, and swaps the current/previous manifest records:
 & C:\workspace\kiditem\deploy\office\apply-deployment.ps1 -Operation Rollback
 ```
 
-Rollback is valid for application regressions only. It does not undo Prisma schema changes,
-data migrations, marketplace writes, object-storage changes,
-or queued jobs. If a release changes the database incompatibly, block rollout
-until a separate data recovery or forward-fix plan is approved.
+Rollback is valid for application regressions only.
+Runtime-only rollback does not undo Prisma schema changes. It also does not
+undo data migrations, marketplace writes, object-storage changes, or queued
+jobs. After an incompatible schema change, never start the previous runtime
+against the changed database. Keep application services stopped and restore the
+verified database dump before starting the previous manifest.
 
 ## Blockers
 

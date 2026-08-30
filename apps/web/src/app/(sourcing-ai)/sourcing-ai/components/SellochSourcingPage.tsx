@@ -281,7 +281,9 @@ function DataTable({ title, right, children }: { title: string; right?: React.Re
         {right}
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[980px] text-left">{children}</table>
+        <table className="w-full min-w-[980px] text-left">
+          <tbody>{children}</tbody>
+        </table>
       </div>
     </section>
   );

@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # auth — Authentication + Organization Context
 
 `src/auth/` owns global HTTP authentication, organization context, role checks,
@@ -44,20 +42,18 @@ before throttling counters.
 
 ## Local Session Flow
 
-Token priority:
+Browser requests authenticate only with the HttpOnly `kiditem_session` cookie.
+`POST /api/auth/login` verifies the normalized email and scrypt hash, creates
+an independent 30-day session, sets the raw opaque token only in that cookie,
+and returns the public user projection. The middleware hashes the presented
+credential, loads an unrevoked/unexpired session, verifies the user is active,
+and selects one active membership ordered by `lastSelectedAt desc, joinedAt
+asc`.
 
-1. `Authorization: Bearer <token>`
-2. HttpOnly `kiditem_session` cookie
-
-`POST /api/auth/login` verifies the normalized email and scrypt hash, creates an
-independent 30-day session, returns the raw opaque token once, and sets the
-same token in the HttpOnly cookie. The middleware hashes the presented token,
-loads an unrevoked/unexpired session, verifies the user is active, and selects
-one active membership ordered by `lastSelectedAt desc, joinedAt asc`.
-
-Chrome extensions receive the current opaque session token from the logged-in
-KidItem web tab. Extension API calls use the same hashed local-session lookup
-and organization context as browser API calls.
+`GET /api/auth/me` is the UI authentication-state check. Chrome extensions
+receive the current token only from the explicit authenticated
+`POST /api/auth/extension-handoff` boundary. Extension API calls then use the
+same hashed local-session lookup and organization context.
 
 ## Boundary Rules
 

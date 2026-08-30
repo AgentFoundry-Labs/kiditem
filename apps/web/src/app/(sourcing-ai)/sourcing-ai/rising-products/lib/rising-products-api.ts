@@ -85,21 +85,12 @@ export interface RisingProductsResult {
   model: RisingProductModel;
 }
 
-export interface DetectRisingProductsInput {
-  windowDays?: number;
-  limit?: number;
-}
-
 const BASE = '/api/sourcing/rising-products';
 
 export function fetchLatestRisingProducts(): Promise<RisingProductsResult | null> {
-  return apiClient.get<RisingProductsResult | null>(BASE);
-}
-
-export function detectRisingProducts(
-  input: DetectRisingProductsInput = {},
-): Promise<RisingProductsResult> {
-  return apiClient.post<RisingProductsResult>(`${BASE}/detect`, input);
+  // 저장된 스냅샷이 없으면 Nest 가 본문 없는 200 을 보낸다. `getNullable` 이 이를
+  // `null` 로 정규화하므로 소비자의 null 가드가 그대로 동작한다.
+  return apiClient.getNullable<RisingProductsResult>(BASE);
 }
 
 // 급상승 키워드를 쿠팡 순위추적에 추가 → 확장이 그 키워드 SERP를 수집 → 탐지기 후보에 반영.

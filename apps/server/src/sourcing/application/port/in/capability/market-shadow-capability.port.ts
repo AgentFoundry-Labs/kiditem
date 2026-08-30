@@ -4,14 +4,13 @@ export const MARKET_SHADOW_COLLECTION_CAPABILITY_PORT = Symbol(
 
 export interface MarketShadowCollectionCapabilityInput {
   organizationId: string;
+  requestedByUserId?: string | null;
+  idempotencyKey: string;
 }
 
 export interface MarketShadowCollectionCapabilityResult {
-  claimed: boolean;
-  snapshotId: string;
-  businessDate: string;
+  operationRunId: string;
   status: string;
-  decisionImpact: 'disabled';
 }
 
 export interface MarketShadowCollectionCapabilityPort {

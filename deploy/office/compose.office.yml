@@ -1,6 +1,6 @@
 name: kiditem-office
 
-x-api-environment: &api-environment
+x-server-environment: &server-environment
   NODE_ENV: production
   PORT: "4000"
   DATABASE_URL: postgresql://kiditem:${POSTGRES_PASSWORD}@postgres:5432/kiditem
@@ -15,6 +15,11 @@ x-api-environment: &api-environment
   S3_ACCESS_KEY: ${MINIO_ROOT_USER}
   S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
   CHANNEL_CREDENTIALS_ENCRYPTION_KEY: ${CHANNEL_CREDENTIALS_ENCRYPTION_KEY}
+  SOURCING_PLAYWRIGHT_CDP_ENDPOINT: ${SOURCING_PLAYWRIGHT_CDP_ENDPOINT}
+  # API admission and worker-owned durable mutation recovery fence work to the
+  # immutable bundle identity. Provider credentials stay with the native Gateway.
+  KIDITEM_APPLICATION_VERSION: ${KIDITEM_APPLICATION_VERSION:?KIDITEM_APPLICATION_VERSION must come from the immutable deployment manifest}
+  KIDITEM_GIT_SHA: ${KIDITEM_GIT_SHA:?KIDITEM_GIT_SHA must come from the immutable deployment manifest}
 
 services:
   postgres:
@@ -76,9 +81,23 @@ services:
       - ${OFFICE_API_ENV_FILE:-C:/workspace/kiditem/apps/server/.env}
     image: ${KIDITEM_API_IMAGE:?KIDITEM_API_IMAGE must be an immutable GHCR digest reference}
     container_name: kiditem-api
+    deploy:
+      replicas: 1
     environment:
-      <<: *api-environment
-      AGENT_RUNTIME_WORKER_ENABLED: "0"
+      <<: *server-environment
+      KIDITEM_AGENT_GATEWAY_TOKEN_FILE: /run/secrets/agent_gateway_token
+      # Completed AG-UI history only. The API owns this local runner; the worker
+      # neither mounts it nor treats it as active-turn authority.
+      KIDITEM_COPILOTKIT_SQLITE_PATH: /var/lib/kiditem/agent-os/copilotkit-events.sqlite
+      MCP_SDK_GENERATION: v2
+      MCP_PROTOCOL_NEGOTIATION: auto
+      AGENT_CLI_MAX_CONCURRENCY: ${AGENT_CLI_MAX_CONCURRENCY:-4}
+      AGENT_OPERATOR_MODEL: ${AGENT_OPERATOR_MODEL:?AGENT_OPERATOR_MODEL is required}
+      AGENT_SOURCING_MODEL: ${AGENT_SOURCING_MODEL:?AGENT_SOURCING_MODEL is required}
+      AGENT_MERCHANDISING_MODEL: ${AGENT_MERCHANDISING_MODEL:?AGENT_MERCHANDISING_MODEL is required}
+      AGENT_SUPPLY_MODEL: ${AGENT_SUPPLY_MODEL:?AGENT_SUPPLY_MODEL is required}
+      AGENT_CHANNEL_OPERATIONS_MODEL: ${AGENT_CHANNEL_OPERATIONS_MODEL:?AGENT_CHANNEL_OPERATIONS_MODEL is required}
+      AGENT_ADVERTISING_MODEL: ${AGENT_ADVERTISING_MODEL:?AGENT_ADVERTISING_MODEL is required}
     extra_hosts:
       - "${OFFICE_HOST}:host-gateway"
     depends_on:
@@ -88,13 +107,20 @@ services:
         condition: service_completed_successfully
     expose:
       - "4000"
+    ports:
+      - "127.0.0.1:4000:4000"
+    secrets:
+      - agent_gateway_token
+    volumes:
+      - copilotkit-event-history:/var/lib/kiditem/agent-os
+    stop_grace_period: 10s
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4000/api/auth/me').then((r)=>process.exit(r.status===401||r.status===403?0:1)).catch(()=>process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 30s
+      start_period: 60s
 
   worker:
     env_file:
@@ -103,8 +129,7 @@ services:
     container_name: kiditem-worker
     command: ["node", "dist/worker.js"]
     environment:
-      <<: *api-environment
-      AGENT_RUNTIME_WORKER_ENABLED: "1"
+      <<: *server-environment
     extra_hosts:
       - "${OFFICE_HOST}:host-gateway"
     depends_on:
@@ -143,7 +168,7 @@ services:
     ports:
       - "0.0.0.0:80:80"
     volumes:
-      - C:/ProgramData/Kiditem/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - C:/ProgramData/KidItem/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/login >/dev/null"]
@@ -159,3 +184,10 @@ volumes:
   minio-data:
     external: true
     name: kiditem_minio-data
+  copilotkit-event-history:
+    external: true
+    name: kiditem_copilotkit-event-history
+
+secrets:
+  agent_gateway_token:
+    file: ${KIDITEM_AGENT_GATEWAY_TOKEN_FILE:?protected Gateway token file required}

@@ -61,11 +61,7 @@
     const now = options.now || Date.now;
 
     function requireEnvironmentId(environmentId) {
-      if (
-        environmentId !== 'local' &&
-        environmentId !== 'office' &&
-        environmentId !== 'staging'
-      ) {
+      if (environmentId !== 'local' && environmentId !== 'office') {
         throw new Error('Collection environment is required');
       }
       environmentContext?.requireEnvironment(environmentId);

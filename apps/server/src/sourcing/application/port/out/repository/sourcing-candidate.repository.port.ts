@@ -15,6 +15,9 @@ export interface CandidateRow {
   organizationId: string;
   sourceUrl: string;
   sourcePlatform: string;
+  externalOfferId: string | null;
+  variantKeyNormalized: string;
+  sourceIdentityHash: string | null;
   rawData: JsonValue;
   name: string;
   description: string;
@@ -69,8 +72,13 @@ export interface ProductPreparationRow {
 
 export interface UpsertCandidateInput {
   organizationId: string;
+  /** Optional for legacy owner paths; Agent capability writes pass an exact owner key. */
+  idempotencyKey?: string;
   sourceUrl: string;
   sourcePlatform: string;
+  externalOfferId?: string | null;
+  variantKeyNormalized?: string;
+  sourceIdentityHash?: string | null;
   rawData: object;
   name: string;
   description: string;
@@ -90,6 +98,14 @@ export interface UpsertCandidateInput {
   }>;
 }
 
+/** Immutable Sourcing-owned outcome for a final capability owner call. */
+export interface UpsertCandidateWithIdempotencyReceiptInput
+  extends Omit<UpsertCandidateInput, 'idempotencyKey'> {
+  capabilityKey: string;
+  idempotencyKey: string;
+  requestHash: string;
+}
+
 export interface SourcingCandidateStateRow {
   id: string;
   status: string;
@@ -105,6 +121,9 @@ export interface SourcingCandidateRepositoryPort {
     sourceUrl: string;
   }): Promise<CandidateRow | null>;
   upsertSourced(input: UpsertCandidateInput): Promise<CandidateRow>;
+  upsertSourcedWithIdempotencyReceipt(
+    input: UpsertCandidateWithIdempotencyReceiptInput,
+  ): Promise<{ candidateId: string }>;
   mergeDescription(input: {
     organizationId: string;
     sourceUrl: string;

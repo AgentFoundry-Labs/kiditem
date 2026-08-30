@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # prisma — Shared Schema
 
 `prisma/` is the database schema source of truth. KidItem uses Prisma v7
@@ -61,15 +59,18 @@ directory; do not move datasource URL back into `schema.prisma`.
 
 ## Integrated Model Contracts
 
-- Agent OS uses code-owned definitions plus `AgentInstance`,
-  `AgentRunRequest`, `AgentRun`, runtime state, tool policy, authorization, and
-  cost ledgers.
-- Queue/dedupe/audit state belongs to `AgentRunRequest`; `AgentRun` is the
-  accepted attempt.
-- Legacy `AgentDefinition`, `AgentTask`, `HeartbeatRun`,
-  `AgentWakeupRequest`, `AgentEvent`, and `AgentLog` models must not return.
-- `Marketplace.type` distinguishes `agent` and `workflow`; agent install goes
-  through the Agent OS catalog/bootstrap path.
+- Agent OS uses one code-owned persistence model only:
+  `CapabilityInvocation`. It stores exact request-driven mutation admission,
+  approval fields, idempotent result/error, and no provider conversation state.
+- Agent definitions and capability manifests are code-owned registries, not
+  database versions. Provider runtime/model/effort/history, live execution
+  bindings, Gateway commands, active turns, credentials, and secrets never
+  enter Prisma.
+- The retired version/session/task/process-attempt graph, separate approval
+  rows, database-owned Agent definitions/runs, runtime state, cost ledgers,
+  event/replay rows, and handle/session keys must not return.
+- `Marketplace.type` distinguishes `agent` and `workflow`; Agent definitions
+  themselves are not Marketplace rows.
 
 ## Partial Unique Indexes
 
@@ -120,7 +121,6 @@ npm install --legacy-peer-deps
 npm run db:push -- --accept-data-loss   # only when drops are expected
 npx prisma generate
 npm run data:migrate                    # when release data migrations exist
-npm run graphify:schema
 ```
 
 Compatible schema changes share the open root release-train `VERSION`; they do
@@ -159,8 +159,6 @@ npm run db:push
 npx prisma generate
 npm run build --workspace=packages/shared
 npm run db:erd
-npm run graphify:schema
 ```
 
-`docs/ERD.md`, `docs/erd/**`, and `graphify-out/**` are navigation aids only;
-verify important claims against Prisma and source code.
+`docs/ERD.md` and `docs/erd/**` are navigation aids only; verify important claims against Prisma and source code.

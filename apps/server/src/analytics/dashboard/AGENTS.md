@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # analytics/dashboard — Reporting Read Model
 
 `src/analytics/dashboard/` owns `/api/dashboard/*` read endpoints for the
@@ -57,17 +55,9 @@ dashboard/
   recalculates contribution profit or owns ABC policy mutations.
 - Thumbnail analysis quality grades remain AI-owned product-registration
   evidence and are not a fallback or input for inventory ABC.
-
-## Boundary Rules
-
-- `PrismaService` imports stay under `adapter/out/repository/**`.
-- Application services are Prisma-free and depend on repository ports.
-- HTTP adapters do not import outgoing ports or repository adapters directly.
-- `domain/` is pure and does not depend on NestJS, Prisma, DTOs, incoming
-  adapters, or application contracts.
-- Raw SQL uses Prisma tagged templates and binds `${organizationId}::uuid` on
-  every tenant-owned table in join paths.
-- `@Body()` / `@Query()` organizationId is forbidden.
+- Rocket sales splits use Sellpia daily sales facts. `/rocket-orders` uses the
+  current Rocket PO catalog; there is no `dashboard.rocket_sales` source.
+- Delivery Statistics is retired and has no Order-backed replacement.
 
 ## Transitional Exceptions
 

@@ -26,6 +26,13 @@ vi.mock('sonner', () => ({
   },
 }));
 
+vi.mock('@/hooks/useAuth', () => ({
+  useAuth: () => ({
+    status: 'ready',
+    user: { organizationId: '22222222-2222-4222-8222-222222222222' },
+  }),
+}));
+
 vi.mock('@/hooks/useSellpiaChannelSales', () => ({
   sellpiaPeriodRange: () => ({ from: '2026-07-01', to: '2026-07-27' }),
   useSellpiaChannelSales: () => ({
@@ -152,8 +159,8 @@ describe('Dashboard page (RTL)', () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText('Kiditem Foundry')).toBeTruthy();
-      expect(screen.getByText(/카탈로그 전체 5/)).toBeTruthy();
-      expect(screen.getByText(/채널 연결 3/)).toBeTruthy();
+      expect(screen.getByText(/운영 상품 5/)).toBeTruthy();
+      expect(screen.getByText(/판매중 채널 연결 재고상품 3/)).toBeTruthy();
     });
   });
 

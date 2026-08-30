@@ -301,9 +301,8 @@ export class AdStrategyService {
    *
    * Write use case kept inside the service because it carries the
    * IDOR / duplicate / task creation invariants. Agent execution for the
-   * resulting tasks is handled out-of-band by `AdStrategyAgentService`
-   * through the automation `AGENT_RUNNER_PORT`; this service no longer
-   * touches the Agent OS facade directly.
+   * resulting judgment is submitted through Advertising's local port by
+   * `AdStrategyAgentService`; this service has no runtime coupling.
    */
   async registerCampaign(
     dto: RegisterCampaignDto,

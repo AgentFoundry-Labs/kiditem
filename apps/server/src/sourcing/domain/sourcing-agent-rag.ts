@@ -1,10 +1,10 @@
-export const SOURCING_AGENT_RAG_GENERATOR_VERSION = 'sourcing-agent-rag.v1';
-export const SOURCING_AGENT_RAG_INDEX_VERSION = 1;
+export const SOURCING_AGENT_RAG_GENERATOR_VERSION = 'sourcing-agent-rag.v3';
+export const SOURCING_AGENT_RAG_INDEX_VERSION = 3;
 
 export const SOURCING_AGENT_RAG_SOURCE_SCOPES = [
-  'keyword_analysis',
-  'today_recommendations',
-  'interest_tracking',
+  'recommendation_run',
+  'interest_targets',
+  'validation',
 ] as const;
 
 export type SourcingAgentRagSourceScope = (typeof SOURCING_AGENT_RAG_SOURCE_SCOPES)[number];
@@ -55,6 +55,7 @@ const MAX_DOCUMENTS = 800;
 const MAX_RECOMMENDATION_DOCUMENTS = 160;
 const MAX_KEYWORD_DOCUMENTS = 260;
 const MAX_INTEREST_DOCUMENTS = 540;
+const MAX_VALIDATION_DOCUMENTS = 160;
 
 const FILTER_RULES: Array<{ filter: SourcingAgentRagSuggestedFilter; tokens: string[] }> = [
   { filter: 'selected', tokens: ['선택', '고른', '골라둔'] },
@@ -69,9 +70,9 @@ export function buildSourcingAgentRagIndex(input: {
   snapshots: SourcingAgentRagSourceSnapshot[];
 }): SourcingAgentRagIndex {
   const documents = input.snapshots.flatMap((snapshot) => {
-    if (snapshot.scope === 'interest_tracking') return buildInterestDocuments(snapshot);
-    if (snapshot.scope === 'today_recommendations') return buildRecommendationDocuments(snapshot);
-    return buildKeywordAnalysisDocuments(snapshot);
+    if (snapshot.scope === 'interest_targets') return buildInterestDocuments(snapshot);
+    if (snapshot.scope === 'recommendation_run') return buildRecommendationDocuments(snapshot);
+    return buildValidationDocuments(snapshot);
   });
   const deduped = dedupeDocuments(documents).slice(0, MAX_DOCUMENTS);
   const sourceScopes = Array.from(new Set(input.snapshots.map((snapshot) => snapshot.scope)));
@@ -109,6 +110,16 @@ export function retrieveSourcingAgentRag(input: {
     .slice(0, topK);
 }
 
+export function matchedSourcingAgentRagTerms(
+  document: SourcingAgentRagDocument,
+  query: string,
+): string[] {
+  const haystack = `${document.title} ${document.tags.join(' ')} ${document.text}`
+    .normalize('NFKC')
+    .toLowerCase();
+  return tokenize(query).filter((term) => haystack.includes(term));
+}
+
 export function buildSourcingAgentRagAnswer(input: {
   query: string;
   contexts: SourcingAgentRagMatch[];
@@ -117,7 +128,7 @@ export function buildSourcingAgentRagAnswer(input: {
   const suggestedFilter = resolveSuggestedFilter(input.query);
   if (input.contexts.length === 0) {
     return {
-      answer: `아직 "${input.query}"와 직접 맞는 근거가 RAG에 적게 잡혔어요. 현재 인덱스에는 ${input.index.stats.documentCount}개 문서가 있고, 소싱 설정/추천 상품/키워드 분석을 먼저 저장하면 답이 더 좋아집니다.`,
+      answer: `아직 "${input.query}"와 직접 맞는 근거가 RAG에 적게 잡혔어요. 현재 인덱스에는 ${input.index.stats.documentCount}개 문서가 있고, 관심 대상/추천 상품/검증 근거가 쌓이면 답이 더 좋아집니다.`,
       contexts: [],
       suggestedFilter,
     };
@@ -141,7 +152,7 @@ export function buildSourcingAgentRagAnswer(input: {
 }
 
 export function isSourcingAgentRagIndexPayload(value: unknown): value is {
-  version: 1;
+  version: typeof SOURCING_AGENT_RAG_INDEX_VERSION;
   result: SourcingAgentRagIndex;
   meta: { generatedAt: string };
 } {
@@ -259,6 +270,54 @@ function buildRecommendationDocuments(snapshot: SourcingAgentRagSourceSnapshot):
         salesLast28d: numberValue(row.salesLast28d),
         ratingCount: numberValue(row.ratingCount),
         salePrice: numberValue(row.salePrice),
+      },
+    };
+  });
+}
+
+function buildValidationDocuments(snapshot: SourcingAgentRagSourceSnapshot): SourcingAgentRagDocument[] {
+  const result = recordValue(snapshot.payload.result);
+  const rows = recordsValue(result?.items).slice(0, MAX_VALIDATION_DOCUMENTS);
+  return rows.map((row, index) => {
+    const displayName = firstString(row, ['displayName', 'productName', 'name', 'title'])
+      ?? `검증 후보 ${index + 1}`;
+    const status = stringValue(row.status) ?? 'pending';
+    const checks = recordsValue(row.checks);
+    const missing = checks
+      .filter((check) => stringValue(check.status) === 'missing')
+      .map((check) => stringValue(check.checkKey))
+      .filter((value): value is string => Boolean(value));
+    const failed = checks
+      .filter((check) => stringValue(check.status) === 'fail')
+      .map((check) => stringValue(check.checkKey))
+      .filter((value): value is string => Boolean(value));
+    const itemKey = stringValue(row.itemKey) ?? `${index}`;
+    const score = numberValue(row.score);
+    const landedCostKrw = numberValue(row.landedCostKrw);
+    const expectedMarginBps = numberValue(row.expectedMarginBps);
+
+    return {
+      id: `${snapshot.scope}:${snapshot.id}:item:${stableId(itemKey)}`,
+      sourceScope: snapshot.scope,
+      sourceSnapshotId: snapshot.id,
+      sourceDate: snapshot.businessDate,
+      kind: 'recommendation' as const,
+      title: `검증 ${status}: ${displayName}`,
+      text: compactSentences([
+        `${displayName} 검증 상태 ${status}.`,
+        score != null ? `추천 점수 ${score}점.` : null,
+        landedCostKrw != null ? `계산 원가 ${landedCostKrw}원.` : null,
+        expectedMarginBps != null ? `예상 마진 ${expectedMarginBps}bp.` : null,
+        missing.length > 0 ? `누락 검증: ${missing.join(', ')}.` : null,
+        failed.length > 0 ? `실패 검증: ${failed.join(', ')}.` : null,
+      ]),
+      tags: compactStrings([displayName, status, ...missing, ...failed]),
+      metadata: {
+        itemKey,
+        status,
+        score,
+        landedCostKrw,
+        expectedMarginBps,
       },
     };
   });

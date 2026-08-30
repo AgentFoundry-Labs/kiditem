@@ -50,10 +50,12 @@ describe('MarketShadowSnapshotRepositoryAdapter', () => {
     ]);
     expect(findUnique).toHaveBeenCalledWith({
       where: {
-        organizationId_scope_businessDate: {
+        organizationId_scope_businessDate_projectionVersion_inputHash: {
           organizationId: ORGANIZATION_ID,
           scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
           businessDate: BUSINESS_DATE,
+          projectionVersion: 'legacy',
+          inputHash: '',
         },
       },
     });
@@ -62,6 +64,8 @@ describe('MarketShadowSnapshotRepositoryAdapter', () => {
         organizationId: ORGANIZATION_ID,
         scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
         businessDate: BUSINESS_DATE,
+        projectionVersion: 'legacy',
+        inputHash: '',
         payload: { status: 'collecting' },
       },
     });
@@ -139,10 +143,12 @@ describe('MarketShadowSnapshotRepositoryAdapter', () => {
     expect(finalized.payload).toEqual({ status: 'complete' });
     expect(update).toHaveBeenCalledWith({
       where: {
-        organizationId_scope_businessDate: {
+        organizationId_scope_businessDate_projectionVersion_inputHash: {
           organizationId: ORGANIZATION_ID,
           scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
           businessDate: BUSINESS_DATE,
+          projectionVersion: 'legacy',
+          inputHash: '',
         },
       },
       data: { payload: { status: 'complete' } },
@@ -157,10 +163,102 @@ describe('MarketShadowSnapshotRepositoryAdapter', () => {
     ).rejects.toThrow('Market shadow snapshot was not claimed for 2026-07-15');
   });
 
-  it('lists only the organization shadow scope within the requested date range', async () => {
+  it('abandons only the exact still-collecting claimed marker', async () => {
+    let markerStatus = 'collecting';
+    const deleteMany = vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
+      const payload = where.payload as {
+        path?: unknown;
+        equals?: unknown;
+      } | undefined;
+      const businessDate = where.businessDate;
+      const matchesExactCollectingMarker = (
+        where.id === 'claimed-marker'
+        && where.organizationId === ORGANIZATION_ID
+        && where.scope === MARKET_SHADOW_SNAPSHOT_SCOPE
+        && businessDate instanceof Date
+        && businessDate.getTime() === BUSINESS_DATE.getTime()
+        && where.projectionVersion === 'legacy'
+        && where.inputHash === ''
+        && JSON.stringify(payload?.path) === JSON.stringify(['result', 'status'])
+        && payload?.equals === 'collecting'
+        && markerStatus === 'collecting'
+      );
+      return { count: matchesExactCollectingMarker ? 1 : 0 };
+    });
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ lock: '' }]),
+      sourcingWorkspaceSnapshot: { deleteMany },
+    };
+    const prisma = {
+      $transaction: (operation: (client: typeof tx) => Promise<unknown>) => operation(tx),
+    } as unknown as PrismaService;
+    const adapter = new MarketShadowSnapshotRepositoryAdapter(prisma);
+    const abandonDailyClaim = (
+      adapter as unknown as {
+        abandonDailyClaim(input: {
+          organizationId: string;
+          businessDate: Date;
+          snapshotId: string;
+        }): Promise<number>;
+      }
+    ).abandonDailyClaim.bind(adapter);
+
+    await expect(abandonDailyClaim({
+      organizationId: ORGANIZATION_ID,
+      businessDate: BUSINESS_DATE,
+      snapshotId: 'claimed-marker',
+    })).resolves.toBe(1);
+    await expect(abandonDailyClaim({
+      organizationId: ORGANIZATION_ID,
+      businessDate: BUSINESS_DATE,
+      snapshotId: 'wrong-marker',
+    })).resolves.toBe(0);
+    await expect(abandonDailyClaim({
+      organizationId: OTHER_ORGANIZATION_ID,
+      businessDate: BUSINESS_DATE,
+      snapshotId: 'claimed-marker',
+    })).resolves.toBe(0);
+    markerStatus = 'complete';
+    await expect(abandonDailyClaim({
+      organizationId: ORGANIZATION_ID,
+      businessDate: BUSINESS_DATE,
+      snapshotId: 'claimed-marker',
+    })).resolves.toBe(0);
+
+    const exactWhere = {
+      id: 'claimed-marker',
+      organizationId: ORGANIZATION_ID,
+      scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
+      businessDate: BUSINESS_DATE,
+      projectionVersion: 'legacy',
+      inputHash: '',
+      payload: {
+        path: ['result', 'status'],
+        equals: 'collecting',
+      },
+    };
+    expect(deleteMany).toHaveBeenNthCalledWith(1, { where: exactWhere });
+    expect(deleteMany).toHaveBeenNthCalledWith(2, {
+      where: { ...exactWhere, id: 'wrong-marker' },
+    });
+    expect(deleteMany).toHaveBeenNthCalledWith(3, {
+      where: { ...exactWhere, organizationId: OTHER_ORGANIZATION_ID },
+    });
+    expect(deleteMany).toHaveBeenNthCalledWith(4, { where: exactWhere });
+  });
+
+  it('lists only terminal organization shadow snapshots within the requested date range', async () => {
     const findMany = vi.fn().mockResolvedValue([
-      row({ businessDate: new Date('2026-07-15T00:00:00.000Z') }),
-      row({ businessDate: new Date('2026-07-14T00:00:00.000Z') }),
+      row({
+        id: 'collecting-marker',
+        businessDate: new Date('2026-07-15T00:00:00.000Z'),
+        payload: { result: { status: 'collecting' } },
+      }),
+      row({
+        id: 'complete-snapshot',
+        businessDate: new Date('2026-07-14T00:00:00.000Z'),
+        payload: { result: { status: 'complete' } },
+      }),
     ]);
     const prisma = {
       sourcingWorkspaceSnapshot: { findMany },
@@ -176,20 +274,21 @@ describe('MarketShadowSnapshotRepositoryAdapter', () => {
     });
 
     expect(rows.map((item) => item.businessDate.toISOString().slice(0, 10))).toEqual([
-      '2026-07-15',
       '2026-07-14',
     ]);
     expect(findMany).toHaveBeenCalledWith({
       where: {
         organizationId: ORGANIZATION_ID,
         scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
+        projectionVersion: 'legacy',
+        inputHash: '',
         businessDate: {
           gte: fromBusinessDate,
           lte: BUSINESS_DATE,
         },
       },
       orderBy: { businessDate: 'desc' },
-      take: 30,
+      take: 31,
     });
   });
 });

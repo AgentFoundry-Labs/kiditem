@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { FileText, Image as ImageIcon, Package, Sparkles, X } from 'lucide-react';
+import { FileText, Image as ImageIcon, MessageSquareText, Package, Sparkles, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface QuickAction {
@@ -30,7 +30,13 @@ const ACTIONS: QuickAction[] = [
   },
 ];
 
-export default function QuickActionFab() {
+export default function QuickActionFab({
+  onOpenConversation,
+  isAuxiliarySurfaceOpen = false,
+}: {
+  onOpenConversation?: (launcher: HTMLElement) => void;
+  isAuxiliarySurfaceOpen?: boolean;
+}) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -41,6 +47,8 @@ export default function QuickActionFab() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
+
+  if (isAuxiliarySurfaceOpen) return null;
 
   return (
     <>
@@ -81,9 +89,29 @@ export default function QuickActionFab() {
             </Link>
           );
         }) : null}
+        {open && onOpenConversation ? (
+          <button
+            type="button"
+            aria-label="AI 챗 열기"
+            title="AI 챗"
+            data-right-surface-launcher="quick-action-ai-chat"
+            onClick={(event) => {
+              onOpenConversation(event.currentTarget);
+              setOpen(false);
+            }}
+            style={{ transform: 'translate(calc(-50% - 92px), -50%)' }}
+            className={cn(
+              'absolute left-1/2 top-1/2 inline-flex h-12 w-12 items-center justify-center',
+              'rounded-full bg-gradient-to-br from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/30',
+            )}
+          >
+            <MessageSquareText size={20} />
+          </button>
+        ) : null}
 
         <button
           type="button"
+          data-right-surface-launcher="quick-action-ai-chat"
           aria-label={open ? '퀵 메뉴 닫기' : '퀵 메뉴 열기'}
           aria-expanded={open}
           onClick={() => setOpen((prev) => !prev)}

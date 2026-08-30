@@ -1,7 +1,7 @@
 # AI ERD
 
 > Generated from `prisma/models/*.prisma`. Do not edit by hand.
-> Regenerate with `npm run db:erd` or `npm run graphify:schema`.
+> Regenerate with `npm run db:erd` after Prisma schema changes.
 
 [Back to full ERD](../ERD.md)
 
@@ -384,6 +384,10 @@ erDiagram
     String organizationId FK
     String generationId FK
     String status
+    String ownerIdempotencyKey
+    String requestHash
+    String providerOutcome
+    Json resultJson
     String errorMessage
     String screenshotUrl
     String externalId

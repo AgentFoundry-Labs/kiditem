@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # automation — Workflows, Alerts, Action Board, Panel
 
 `src/automation/` owns workflow templates/runs, alert lifecycle, action-board
@@ -36,9 +34,9 @@ automation/
 - Marketplace installs: `/api/marketplace/*`
 - Live Ops panel stream/snapshot/backfill: `/api/panel/*`
 
-Browser operation producer policy registers `inventory.sellpia` at
-`/inventory-hub?tab=sellpia-sync` and stable Sellpia quality-warning operation
-keys at `/stock-ops?tab=freshness`. Mall collection alerts return to
+Browser operation producer policy registers `inventory.sellpia` and stable
+Sellpia quality-warning operation keys at the canonical `/inventory-hub`
+workspace. Mall collection alerts return to
 `/order-collection`; Coupang shipment-summary and Rocket PO alerts use distinct
 producers returning to `/coupang-shipments` and `/rocket-orders`. The authenticated web freshness coordinator is
 the owner of live browser alert lifecycle transitions. When an Inventory-owned

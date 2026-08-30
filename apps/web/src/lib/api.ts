@@ -3,13 +3,12 @@
 // strings — that path is untrusted and the backend will ignore it. See
 // `apps/web/AGENTS.md` (API Calls) for the full rule and rationale.
 
-// Local dev sets NEXT_PUBLIC_API_URL=http://localhost:4000. Staging/prod leave
-// it empty so nginx/ALB routes same-origin `/api/*` directly to NestJS.
+// Local dev sets NEXT_PUBLIC_API_URL=http://localhost:4000. Office leaves it
+// empty so nginx routes same-origin `/api/*` directly to NestJS.
 //
 // When API_BASE points at Nest directly (dev), fetch bypasses Next.js
-// `proxy.ts`. In that mode `apiClient`'s 401 interceptor is still the only
-// absolute-session expiry handling, owned by `lib/auth/session.ts`. See
-// `docs/runbooks/auth-office-local.md` for the verification flow.
+// `proxy.ts`. The API and web origins must therefore share the same loopback
+// hostname so the HttpOnly session cookie remains the sole browser credential.
 const CONFIGURED_API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 
 export const API_BASE = getApiBase();

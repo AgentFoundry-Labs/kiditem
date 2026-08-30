@@ -27,27 +27,6 @@ interface ExtensionPingResponse {
   };
 }
 
-export interface CompetitorCollectionRun {
-  success?: boolean;
-  started?: boolean;
-  total?: number;
-  runId?: string | null;
-  error?: string;
-}
-
-export interface CompetitorCollectionRunStatus {
-  status: "idle" | "starting" | "running" | "done" | "error" | string;
-  runId?: string | null;
-  total?: number;
-  completed?: number;
-  failed?: number;
-  current?: string | null;
-  sellerId?: string | null;
-  sellerName?: string | null;
-  catalogProductCount?: number;
-  error?: string;
-}
-
 export async function detectCompetitorExtensionGate(): Promise<CompetitorExtensionGate> {
   if (!isChromeExtensionRuntimeAvailable())
     return { status: "chrome_required" };
@@ -85,69 +64,6 @@ export function competitorExtensionGateMessage(
     return `chrome://extensions 에서 KIDITEM 쿠팡 확장프로그램을 새로고침해 주세요. (필요 버전 ${COMPETITOR_EXTENSION_MIN_VERSION}+)`;
   }
   return null;
-}
-
-export async function runCompetitorCollection(
-  extensionId: string,
-  runId?: string,
-): Promise<CompetitorCollectionRun> {
-  const response = await sendToExtension<CompetitorCollectionRun>(extensionId, {
-    action: "runCoupangKeywordRankCheck",
-    ...(runId ? { runId } : {}),
-  });
-  if (!response?.success) {
-    throw new Error(
-      response?.error ?? "쿠팡 경쟁 판매자 수집을 시작하지 못했습니다.",
-    );
-  }
-  return response;
-}
-
-export async function getCompetitorCollectionStatus(
-  extensionId: string,
-  runId: string,
-): Promise<CompetitorCollectionRunStatus> {
-  const response = await sendToExtension<CompetitorCollectionRunStatus>(
-    extensionId,
-    { action: "getCoupangRankCheckStatus", runId },
-  );
-  return response ?? { status: "idle", runId };
-}
-
-export async function runCompetitorSellerCollection(
-  extensionId: string,
-  sellerId: string,
-  runId?: string,
-): Promise<CompetitorCollectionRun> {
-  const response = await sendToExtension<CompetitorCollectionRun>(
-    extensionId,
-    {
-      action: "runCoupangCompetitorSellerCatalog",
-      sellerId,
-      ...(runId ? { runId } : {}),
-    },
-    30_000,
-  );
-  if (!response?.success) {
-    throw new Error(
-      response?.error ?? "선택한 판매자의 상품 수집을 시작하지 못했습니다.",
-    );
-  }
-  return response;
-}
-
-export async function getCompetitorSellerCollectionStatus(
-  extensionId: string,
-  runId: string,
-): Promise<CompetitorCollectionRunStatus> {
-  const response = await sendToExtension<CompetitorCollectionRunStatus>(
-    extensionId,
-    {
-      action: "getCoupangCompetitorSellerCatalogStatus",
-      runId,
-    },
-  );
-  return response ?? { status: "idle", runId };
 }
 
 export function isVersionAtLeast(current: string, minimum: string): boolean {

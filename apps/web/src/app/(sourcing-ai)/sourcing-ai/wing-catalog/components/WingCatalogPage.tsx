@@ -1,6 +1,6 @@
 'use client';
 
-import { BrowserCollectionRunIdSchema } from '@kiditem/shared/browser-collection-session';
+import { useQuery } from '@tanstack/react-query';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -17,10 +17,9 @@ import {
   Check,
   type LucideIcon,
 } from 'lucide-react';
-import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
-import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import { isChromeExtensionRuntimeAvailable } from '@/lib/extension-bridge';
 import { isApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
 import {
   addWingTrackedProduct,
@@ -30,12 +29,15 @@ import {
   buildWingCatalogSummary,
   formatWingCatalogRate,
   resolveCoupangCatalogImageUrl,
-  searchWingCatalogProducts,
   sortWingCatalogRows,
   type WingCatalogProduct,
-  type WingCatalogSearchResponse,
+  type WingCatalogSnapshotView,
   type WingCatalogSortKey,
-} from '../lib/wing-catalog-extension';
+} from '../lib/wing-catalog-presenter';
+import {
+  fetchWingCatalogSnapshot,
+  wingCatalogSnapshotQueryKey,
+} from '../lib/wing-catalog-api';
 import {
   buildAutocompleteKeywordCandidates,
   buildProductNameKeywordFrequencies,
@@ -45,9 +47,13 @@ import {
 import { buildCoupangProductUrl } from '../lib/wing-catalog-delivery';
 import { WingReviewAnalysisModal } from './WingReviewAnalysisModal';
 import {
-  searchNaverRelatedKeywords,
+  fetchKeywordAnalysisSnapshot,
+  keywordAnalysisInput,
+  keywordAnalysisSnapshotQueryKey,
   type NaverRelatedKeyword,
-} from '../../recommendations/lib/naver-keyword-api';
+} from '../../lib/keyword-analysis-snapshot-api';
+import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
+import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
 
 const sortOptions: Array<{ value: WingCatalogSortKey; label: string }> = [
   { value: 'sales', label: '판매량순' },
@@ -59,39 +65,107 @@ const sortOptions: Array<{ value: WingCatalogSortKey; label: string }> = [
 
 const pageOptions = [1, 2, 3, 5];
 const analysisTabs = ['쿠팡 분석', '네이버 분석', '연관 키워드'];
+const EMPTY_NAVER_RELATED_KEYWORDS: NaverRelatedKeyword[] = [];
 
 export function WingCatalogPage() {
-  const [keyword, setKeyword] = useState('슬라임');
+  const [initialRouteState] = useState(readWingCatalogRouteState);
+  const [keyword, setKeyword] = useState(initialRouteState.keyword);
+  const [snapshotKeyword, setSnapshotKeyword] = useState(
+    initialRouteState.keyword,
+  );
   const [maxPages, setMaxPages] = useState(2);
   const [sortKey, setSortKey] = useState<WingCatalogSortKey>('sales');
-  const [result, setResult] = useState<WingCatalogSearchResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isSearching, setIsSearching] = useState(false);
   const [extensionRuntimeAvailable, setExtensionRuntimeAvailable] = useState<boolean | null>(null);
-  const [naverRelatedKeywords, setNaverRelatedKeywords] = useState<NaverRelatedKeyword[]>([]);
-  const [relatedKeywordNotice, setRelatedKeywordNotice] = useState<string | null>(null);
-  const [loadingRelatedKeywords, setLoadingRelatedKeywords] = useState(false);
   const [reviewProduct, setReviewProduct] = useState<WingCatalogProduct | null>(null);
-  const [trackedProductIds, setTrackedProductIds] = useState<Set<string>>(new Set());
+  const [trackedProductOverrides, setTrackedProductOverrides] = useState<Set<string>>(new Set());
   const [trackingProductId, setTrackingProductId] = useState<string | null>(null);
-  const [activeCollectionRunId, setActiveCollectionRunId] = useState(readCollectionRunId);
-  const collectionSessionQuery = useBrowserCollectionSession(activeCollectionRunId);
-  const collectionSession =
-    collectionSessionQuery.data?.producer === 'sourcing.wing_catalog'
-      ? collectionSessionQuery.data
-      : null;
-  const visibleCollectionSession =
-    collectionSession?.status === 'running' ||
-    collectionSession?.status === 'attention_required'
-      ? collectionSession
-      : null;
+  const operationKeyword = keyword.trim();
+  const snapshotQueryKey = useMemo(
+    () => wingCatalogSnapshotQueryKey(operationKeyword || snapshotKeyword),
+    [operationKeyword, snapshotKeyword],
+  );
+  const operationInput = useMemo(
+    () => ({
+      keywords: [operationKeyword],
+      maxPages,
+      purpose: 'catalog_search' as const,
+    }),
+    [maxPages, operationKeyword],
+  );
+  const operation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_wing_catalog_batch',
+    input: operationInput,
+    snapshotQueryKey,
+    initialRunId: initialRouteState.operationRunId,
+  });
+  const snapshotQuery = useQuery({
+    queryKey: wingCatalogSnapshotQueryKey(snapshotKeyword),
+    queryFn: () => fetchWingCatalogSnapshot(snapshotKeyword),
+    placeholderData: (previous) => previous,
+  });
+  const result = useMemo<WingCatalogSnapshotView | null>(() => {
+    const snapshot = snapshotQuery.data;
+    if (!snapshot) return null;
+    return {
+      keyword: snapshot.keyword,
+      rows: snapshot.items.map(toWingCatalogProduct),
+      collectedCount: snapshot.items.length,
+      endedAt: snapshot.generatedAt ? Date.parse(snapshot.generatedAt) : undefined,
+      stopReason: snapshot.rejectedCount > 0 ? 'partial_snapshot' : 'persisted_snapshot',
+    };
+  }, [snapshotQuery.data]);
+  const analyzedKeyword = result?.keyword ?? keyword;
+  const relatedKeywordSeed = result?.keyword?.trim() ?? '';
+  const relatedKeywordInput = useMemo(
+    () => keywordAnalysisInput('related', { keyword: relatedKeywordSeed || '상품' }),
+    [relatedKeywordSeed],
+  );
+  const relatedKeywordSnapshotKey = useMemo(
+    () => keywordAnalysisSnapshotQueryKey(relatedKeywordInput),
+    [relatedKeywordInput],
+  );
+  const relatedKeywordOperation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_keyword_analysis',
+    input: relatedKeywordInput,
+    snapshotQueryKey: relatedKeywordSnapshotKey,
+    reconnectInput: relatedKeywordInput,
+  });
+  const relatedKeywordSnapshotQuery = useQuery({
+    queryKey: relatedKeywordSnapshotKey,
+    queryFn: () => fetchKeywordAnalysisSnapshot(relatedKeywordInput),
+    enabled: relatedKeywordSeed.length > 0,
+    placeholderData: (previous) => previous,
+  });
+  const trackedProductsQuery = useQuery({
+    queryKey: queryKeys.sourcing.wingTrackedProducts(),
+    queryFn: listWingTrackedProducts,
+  });
+  const trackedProductIds = useMemo(() => {
+    const ids = new Set(
+      (trackedProductsQuery.data ?? []).map((item) => item.productId),
+    );
+    for (const productId of trackedProductOverrides) ids.add(productId);
+    return ids;
+  }, [trackedProductOverrides, trackedProductsQuery.data]);
+  const naverRelatedKeywords =
+    relatedKeywordSnapshotQuery.data?.result.related?.items ?? EMPTY_NAVER_RELATED_KEYWORDS;
+  const relatedKeywordNotice = !relatedKeywordSeed
+    ? null
+    : relatedKeywordSnapshotQuery.error
+      ? relatedKeywordSnapshotQuery.error instanceof Error
+        ? relatedKeywordSnapshotQuery.error.message
+        : String(relatedKeywordSnapshotQuery.error)
+      : relatedKeywordSnapshotQuery.data && naverRelatedKeywords.length === 0
+        ? '네이버 연관 키워드가 비어 있어 상품명 기반 후보를 보여줍니다.'
+        : null;
+  const loadingRelatedKeywords = relatedKeywordSnapshotQuery.isFetching;
 
   const rows = useMemo(() => sortWingCatalogRows(result?.rows ?? [], sortKey), [result?.rows, sortKey]);
   const summary = useMemo(() => buildWingCatalogSummary(result?.rows ?? []), [result?.rows]);
   const topProduct = rows[0] ?? null;
   const priceBuckets = useMemo(() => buildPriceBuckets(rows), [rows]);
   const stripMetrics = useMemo(() => buildStripMetrics(rows, summary), [rows, summary]);
-  const analyzedKeyword = result?.keyword ?? keyword;
   const productNameKeywords = useMemo(
     () => buildProductNameKeywordFrequencies(rows, analyzedKeyword, 10),
     [analyzedKeyword, rows],
@@ -122,20 +196,6 @@ export function WingCatalogPage() {
     setExtensionRuntimeAvailable(isChromeExtensionRuntimeAvailable());
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    listWingTrackedProducts()
-      .then((items) => {
-        if (!cancelled) setTrackedProductIds(new Set(items.map((item) => item.productId)));
-      })
-      .catch(() => {
-        // 추적 목록 로드 실패는 무시(추적 버튼은 여전히 동작).
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const handleTrack = async (row: WingCatalogProduct) => {
     if (trackedProductIds.has(row.productId)) return;
     setTrackingProductId(row.productId);
@@ -157,7 +217,7 @@ export function WingCatalogPage() {
         estimatedRevenue28d: row.estimatedRevenue28d,
         conversionRate28d: row.conversionRate28d,
       });
-      setTrackedProductIds((prev) => new Set(prev).add(row.productId));
+      setTrackedProductOverrides((previous) => new Set(previous).add(row.productId));
       toast.success('추적 상품에 추가했습니다', {
         description: '상품 추적 페이지에서 지표 추이를 확인하세요.',
       });
@@ -170,58 +230,45 @@ export function WingCatalogPage() {
     }
   };
 
-  useEffect(() => {
-    const seedKeyword = result?.keyword?.trim();
-    if (!seedKeyword) {
-      setNaverRelatedKeywords([]);
-      setRelatedKeywordNotice(null);
+  const runCatalogSearch = async () => {
+    const normalizedKeyword = keyword.trim();
+    if (!normalizedKeyword) {
+      setError('검색 키워드를 입력하세요.');
       return;
     }
-
-    let cancelled = false;
-    setLoadingRelatedKeywords(true);
-    setRelatedKeywordNotice(null);
-    searchNaverRelatedKeywords({ seedKeywords: [seedKeyword], maxResults: 30 })
-      .then((response) => {
-        if (cancelled) return;
-        setNaverRelatedKeywords(response.items);
-        setRelatedKeywordNotice(response.items.length > 0 ? null : '네이버 연관 키워드가 비어 있어 상품명 기반 후보를 보여줍니다.');
-      })
-      .catch((relatedError) => {
-        if (cancelled) return;
-        setNaverRelatedKeywords([]);
-        setRelatedKeywordNotice(relatedError instanceof Error ? relatedError.message : String(relatedError));
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingRelatedKeywords(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [result?.keyword]);
-
-  const runCatalogSearch = async (runId?: string) => {
     setError(null);
-    setIsSearching(true);
     try {
-      const response = await searchWingCatalogProducts({ keyword, maxPages, runId });
-      if (response.attentionRequired && response.runId) {
-        setActiveCollectionRunId(response.runId);
-        return;
-      }
-      setActiveCollectionRunId(null);
-      setResult(response);
+      setSnapshotKeyword(normalizedKeyword);
+      const run = await operation.start();
+      const params = new URLSearchParams(window.location.search);
+      params.set('keyword', normalizedKeyword);
+      params.set('operationRun', run.id);
+      window.history.replaceState(
+        {},
+        '',
+        `${window.location.pathname}?${params.toString()}`,
+      );
     } catch (searchError) {
       setError(searchError instanceof Error ? searchError.message : String(searchError));
-    } finally {
-      setIsSearching(false);
     }
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     await runCatalogSearch();
+  };
+
+  const handleCancel = async () => {
+    await operation.cancel();
+  };
+
+  const handleRetryAttention = async () => {
+    await operation.retryAttention();
+  };
+
+  const handleLoadRelatedKeywords = async () => {
+    if (!relatedKeywordSeed) return;
+    await relatedKeywordOperation.start();
   };
 
   const handleDownload = () => {
@@ -274,10 +321,10 @@ export function WingCatalogPage() {
             </select>
             <button
               type="submit"
-              disabled={isSearching || extensionRuntimeAvailable === false}
+              disabled={operation.isStarting}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#ff5a1f] px-4 text-sm font-black text-white transition hover:bg-[#ef4f18] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSearching ? <Loader2 size={17} className="animate-spin" /> : <PackageSearch size={17} />}
+              {operation.isStarting ? <Loader2 size={17} className="animate-spin" /> : <PackageSearch size={17} />}
               분석
             </button>
           </form>
@@ -327,35 +374,20 @@ export function WingCatalogPage() {
           </div>
         )}
 
-        {visibleCollectionSession && (
-          <section
-            className={cn(
-              'rounded-lg border p-4',
-              visibleCollectionSession.status === 'attention_required'
-                ? 'border-amber-200 bg-amber-50'
-                : 'border-[var(--border)] bg-[var(--surface)]',
-            )}
-          >
-            <p className="font-black text-[var(--text-primary)]">
-              {visibleCollectionSession.status === 'attention_required'
-                ? '쿠팡 로그인 필요'
-                : '쿠팡 상품 분석 진행 중'}
-            </p>
-            {visibleCollectionSession.status === 'attention_required' && (
-              <p className="mt-1 text-sm font-semibold text-amber-800">
-                확인 탭을 열어 쿠팡에 로그인한 뒤 처음부터 재실행을 눌러주세요.
-              </p>
-            )}
-            <BrowserCollectionRunControls
-              session={visibleCollectionSession}
-              onWebRestart={async (session) => {
-                await runCatalogSearch(session.runId);
-                await collectionSessionQuery.refetch();
-              }}
-              className="mt-3"
-            />
-          </section>
-        )}
+        <SourcingOperationRunPanel
+          run={operation.run}
+          onCancel={handleCancel}
+          onRetryAttention={handleRetryAttention}
+          isCancelling={operation.isCancelling}
+          isRetrying={operation.isRetrying}
+        />
+        <SourcingOperationRunPanel
+          run={relatedKeywordOperation.run}
+          onCancel={() => void relatedKeywordOperation.cancel()}
+          onRetryAttention={() => void relatedKeywordOperation.retryAttention()}
+          isCancelling={relatedKeywordOperation.isCancelling}
+          isRetrying={relatedKeywordOperation.isRetrying}
+        />
 
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px] 2xl:grid-cols-[minmax(0,1fr)_340px]">
           <HeroAnalysisCard product={topProduct} rows={rows} summary={summary} keyword={result?.keyword ?? keyword} />
@@ -372,6 +404,9 @@ export function WingCatalogPage() {
           relatedKeywords={relatedKeywordRows}
           autocompleteKeywords={autocompleteKeywords}
           notice={relatedKeywordNotice}
+          canLoadProviderKeywords={relatedKeywordSeed.length > 0}
+          loadingProviderKeywords={loadingRelatedKeywords}
+          onLoadProviderKeywords={handleLoadRelatedKeywords}
         />
 
         <section className="grid overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-sm md:grid-cols-2 xl:grid-cols-6">
@@ -524,6 +559,9 @@ function RelatedKeywordsSection({
   relatedKeywords,
   autocompleteKeywords,
   notice,
+  canLoadProviderKeywords,
+  loadingProviderKeywords,
+  onLoadProviderKeywords,
 }: {
   productNameKeywords: KeywordFrequency[];
   popularKeywordRows: PopularKeywordRow[];
@@ -532,18 +570,32 @@ function RelatedKeywordsSection({
   relatedKeywords: string[];
   autocompleteKeywords: string[];
   notice: string | null;
+  canLoadProviderKeywords: boolean;
+  loadingProviderKeywords: boolean;
+  onLoadProviderKeywords: () => void;
 }) {
   return (
     <section>
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-2xl font-black tracking-normal">연관키워드</h2>
-        <button
-          type="button"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)]"
-          aria-label="연관키워드 접기"
-        >
-          <ChevronUp size={16} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onLoadProviderKeywords}
+            disabled={!canLoadProviderKeywords || loadingProviderKeywords}
+            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-black text-[var(--text-secondary)] transition hover:bg-[var(--surface-sunken)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loadingProviderKeywords && <Loader2 size={13} className="animate-spin" />}
+            네이버 연관 키워드 조회
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)]"
+            aria-label="연관키워드 접기"
+          >
+            <ChevronUp size={16} />
+          </button>
+        </div>
       </div>
       {notice && (
         <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold leading-5 text-amber-800">
@@ -973,10 +1025,46 @@ function downloadCsv(fileName: string, rows: WingCatalogProduct[]) {
   URL.revokeObjectURL(url);
 }
 
-function readCollectionRunId(): string | null {
-  if (typeof window === 'undefined') return null;
-  const parsed = BrowserCollectionRunIdSchema.safeParse(
-    new URLSearchParams(window.location.search).get('collectionRun'),
-  );
-  return parsed.success ? parsed.data : null;
+function toWingCatalogProduct(
+  item: NonNullable<Awaited<ReturnType<typeof fetchWingCatalogSnapshot>>>['items'][number],
+): WingCatalogProduct {
+  return {
+    productId: item.productId,
+    itemId: item.itemId,
+    vendorItemId: item.vendorItemId,
+    productName: item.productName,
+    itemName: item.itemName,
+    brandName: item.brandName,
+    manufacture: item.manufacture,
+    categoryHierarchy: item.categoryHierarchy,
+    imagePath: item.imagePath,
+    salePrice: item.salePriceKrw,
+    rating: item.ratingAverage,
+    ratingCount: item.ratingCount,
+    pvLast28Day: item.viewsLast28d,
+    salesLast28d: item.salesLast28d,
+    estimatedRevenue28d: item.estimatedRevenue28d,
+    conversionRate28d: item.conversionRate28d,
+    deliveryInfo: item.deliveryInfo,
+  };
 }
+
+function readWingCatalogRouteState(): {
+  keyword: string;
+  operationRunId: string | null;
+} {
+  if (typeof window === 'undefined') {
+    return { keyword: '슬라임', operationRunId: null };
+  }
+  const params = new URLSearchParams(window.location.search);
+  const keyword = params.get('keyword')?.normalize('NFKC').trim() || '슬라임';
+  const runId = params.get('operationRun');
+  return {
+    keyword: keyword.slice(0, 100),
+    operationRunId:
+      runId !== null && OPERATION_RUN_ID_PATTERN.test(runId) ? runId : null,
+  };
+}
+
+const OPERATION_RUN_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

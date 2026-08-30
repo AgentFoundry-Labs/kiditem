@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/store - Shared Client UI State
 
 `src/store/` owns small global client-only UI state. It is currently a Zustand
@@ -9,6 +7,7 @@ It must not become a server-state cache.
 ## Owned State
 
 - Sidebar open/closed state
+- Active right auxiliary surface (`notifications | ai_chat | null`)
 - Editor dirty flag
 - Global confirm dialog state and callbacks
 

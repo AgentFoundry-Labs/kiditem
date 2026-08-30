@@ -28,4 +28,29 @@ describe('MasterProductAbcRepositoryAdapter', () => {
     expect(calls).toEqual(['lock', 'formula-state']);
     expect(tx.masterProduct.findMany).not.toHaveBeenCalled();
   });
+
+  it('publishes with the Operations-owned transaction instead of opening a nested transaction', async () => {
+    const tx = {
+      $queryRaw: vi.fn(),
+      masterProductAbcFormulaState: {
+        findUnique: vi.fn().mockResolvedValue({
+          revision: 2,
+          activeFormulaVersionId: 'formula-2',
+        }),
+      },
+    };
+    const prisma = { $transaction: vi.fn() };
+    const repository = new MasterProductAbcRepositoryAdapter(prisma as never);
+
+    await expect(repository.publishEvaluationsInAttempt(tx, {
+      organizationId: 'org-1',
+      expectedFormulaStateRevision: 1,
+      formulaVersionId: 'formula-1',
+      evaluations: new Map(),
+      reason: 'AUTOMATIC_PROFITABILITY_RECALCULATION',
+    })).resolves.toEqual({ changedProductCount: 0, stale: true });
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+  });
 });

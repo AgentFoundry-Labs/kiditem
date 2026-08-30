@@ -56,8 +56,8 @@ describe('Orders stock boundary', () => {
       .map((file) => readFileSync(file, 'utf8'))
       .join('\n');
 
-    // Rocket confirmation/commitment is Supply + Inventory owned. Orders must
-    // not create an accountless parallel reservation or mutate physical stock.
+    // Rocket confirmation is Supply owned. Orders must not create an
+    // accountless reservation or mutate physical stock.
     for (const forbidden of [
       'InventoryModule',
       'INVENTORY_PORT',
@@ -68,19 +68,5 @@ describe('Orders stock boundary', () => {
     ]) {
       expect(source, `orders production code still contains ${forbidden}`).not.toContain(forbidden);
     }
-  });
-});
-
-describe('Rocket reservation schema boundary', () => {
-  it('keeps InventoryCommitment as the only active Rocket stock hold ledger', () => {
-    const prismaModels = path.resolve(ORDERS_ROOT, '../../../../prisma/models');
-    const schema = readdirSync(prismaModels)
-      .filter((entry) => entry.endsWith('.prisma'))
-      .map((entry) => readFileSync(path.join(prismaModels, entry), 'utf8'))
-      .join('\n');
-
-    expect(schema).not.toContain('model RocketPoReservation');
-    expect(schema).not.toContain('rocketPoReservations');
-    expect(schema).toContain('model InventoryCommitment');
   });
 });

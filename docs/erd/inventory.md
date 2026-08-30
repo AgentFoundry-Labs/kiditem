@@ -1,7 +1,7 @@
 # Inventory ERD
 
 > Generated from `prisma/models/*.prisma`. Do not edit by hand.
-> Regenerate with `npm run db:erd` or `npm run graphify:schema`.
+> Regenerate with `npm run db:erd` after Prisma schema changes.
 
 [Back to full ERD](../ERD.md)
 
@@ -10,15 +10,9 @@
 | Model | Table | Description |
 |---|---|---|
 | CoupangShipmentDateSummary | `coupang_shipment_date_summaries` | Persisted Coupang shipment 발송일별 건수/박스 요약 snapshot so the calendar survives reload and only new dates are collected. |
-| InventoryCommitment | `inventory_commitments` | Physical-stock-independent commitment that reduces common available Sellpia capacity. |
-| InventoryCommitmentAllocation | `inventory_commitment_allocations` | Component-level Sellpia SKU quantity held by one inventory commitment. |
-| PickingItem | `picking_items` | - |
-| PickingList | `picking_lists` | - |
 | ReturnTransfer | `return_transfers` | - |
-| SellpiaInventorySku | `sellpia_inventory_skus` | One physical Sellpia product-code row and its latest imported current stock. |
+| SellpiaInventorySku | `sellpia_inventory_skus` | One physical Sellpia source SKU owned by at most one canonical MasterProduct, with its latest imported current stock. |
 | SellpiaInventoryState | `sellpia_inventory_states` | Organization-scoped Sellpia inventory trust state, source binding, generation fence, and active collection lease. |
-| SellpiaReceiptUploadBatch | `sellpia_receipt_upload_batches` | Record of an operator-confirmed receipt file upload to Sellpia. |
-| StockAudit | `stock_audits` | - |
 | StockTransfer | `stock_transfers` | Warehouse-to-warehouse movement record. It never mutates SellpiaInventorySku.currentStock. |
 | Warehouse | `warehouses` | - |
 
@@ -33,64 +27,6 @@ erDiagram
     Int count
     Int boxes
     DateTime capturedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  InventoryCommitment {
-    String id PK
-    String organizationId FK
-    String kind
-    String sourceId
-    String businessKey
-    Int unitQuantity
-    String status
-    BigInt inventoryGeneration
-    String predecessorCommitmentId FK
-    String createdBy FK
-    String releasedBy FK
-    DateTime releasedAt
-    String releaseReason
-    String settledBy FK
-    DateTime settledAt
-    String settlementReason
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  InventoryCommitmentAllocation {
-    String id PK
-    String organizationId FK
-    String commitmentId FK
-    String sellpiaInventorySkuId FK
-    Int unitsPerItem
-    Int quantity
-    DateTime createdAt
-  }
-  PickingItem {
-    String id PK
-    String organizationId FK
-    String pickingListId FK
-    String orderId
-    String sellpiaInventorySkuId FK
-    String productName
-    String sku
-    Int quantity
-    String location
-    Boolean isPicked
-    Boolean isVerified
-    DateTime pickedAt
-    DateTime verifiedAt
-    DateTime createdAt
-  }
-  PickingList {
-    String id PK
-    String organizationId FK
-    String listNumber
-    String status
-    Int totalItems
-    Int pickedItems
-    String assignedTo
-    DateTime startedAt
-    DateTime completedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -115,6 +51,7 @@ erDiagram
   SellpiaInventorySku {
     String id PK
     String organizationId FK
+    String masterProductId FK
     String code
     String name
     String optionName
@@ -156,35 +93,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  SellpiaReceiptUploadBatch {
-    String id PK
-    String organizationId FK
-    String status
-    String sourceType
-    String sourceRef
-    String templateVersion
-    String uploadedBy
-    DateTime uploadedAt
-    String note
-    Json metaJson
-    String createdBy
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  StockAudit {
-    String id PK
-    String organizationId FK
-    String auditNumber
-    String status
-    Int totalProducts
-    Int matchedCount
-    Int diffCount
-    String auditedBy
-    DateTime completedAt
-    String notes
-    Json items
-    DateTime createdAt
-  }
   StockTransfer {
     String id PK
     String organizationId FK
@@ -213,11 +121,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  InventoryCommitment o|--o{ InventoryCommitment : "predecessor"
-  InventoryCommitment ||--o{ InventoryCommitmentAllocation : "commitment"
-  PickingList ||--o{ PickingItem : "pickingList"
-  SellpiaInventorySku ||--o{ InventoryCommitmentAllocation : "sellpiaInventorySku"
-  SellpiaInventorySku ||--o{ PickingItem : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ ReturnTransfer : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ StockTransfer : "sellpiaInventorySku"
   Warehouse ||--o{ StockTransfer : "fromWarehouse"
@@ -229,15 +132,9 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | CoupangShipmentDateSummary | organization | references external | Core | Organization |
-| InventoryCommitment | creator | references external | Core | User |
-| InventoryCommitment | organization | references external | Core | Organization |
-| InventoryCommitment | releaser | references external | Core | User |
-| InventoryCommitment | settler | references external | Core | User |
-| InventoryCommitmentAllocation | organization | references external | Core | Organization |
-| PickingItem | organization | references external | Core | Organization |
-| PickingList | organization | references external | Core | Organization |
 | ReturnTransfer | organization | references external | Core | Organization |
 | SellpiaInventorySku | lastImportRun | references external | Core | SourceImportRun |
+| SellpiaInventorySku | masterProduct | references external | Core | MasterProduct |
 | SellpiaInventorySku | organization | references external | Core | Organization |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Channels | SellpiaManualMatchAlias |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Core | ChannelListingOptionInventoryComponent |
@@ -247,8 +144,5 @@ erDiagram
 | SellpiaInventoryState | activeSyncOwner | references external | Core | User |
 | SellpiaInventoryState | lastCompletedImportRun | references external | Core | SourceImportRun |
 | SellpiaInventoryState | organization | references external | Core | Organization |
-| SellpiaReceiptUploadBatch | organization | references external | Core | Organization |
-| StockAudit | organization | references external | Core | Organization |
 | StockTransfer | organization | references external | Core | Organization |
 | Warehouse | organization | references external | Core | Organization |
-| Warehouse | warehouse | referenced by external | Orders | Shipment |

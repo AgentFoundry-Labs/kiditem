@@ -4,7 +4,6 @@ import { useState } from 'react';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { useAuthSession } from '@/components/providers/AuthProvider';
 import { runReadinessExtensionCollection } from '@/components/readiness/readiness-extension-collection';
 import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import {
@@ -49,7 +48,6 @@ export function useAdKeywordCollect({
   const [loading, setLoading] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
   const queryClient = useQueryClient();
-  const { session: authSession } = useAuthSession();
   const collectionSession = useBrowserCollectionSession(runId);
 
   const run = async (requestedRunId?: string) => {
@@ -75,7 +73,6 @@ export function useAdKeywordCollect({
         producer: 'advertising.ad_keyword',
         extensionId,
         runId: nextRunId,
-        accessToken: authSession?.token,
         onStarted: () => {
           toast.info('상품별 광고 키워드 수집을 백그라운드에서 시작합니다.');
         },

@@ -1,175 +1,117 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { SourcingAgentRagService } from '../sourcing-agent-rag.service';
-import type {
-  SourcingWorkspaceSnapshotRepositoryPort,
-  SourcingWorkspaceSnapshotRow,
-  SourcingWorkspaceSnapshotScope,
-} from '../../port/out/repository/sourcing-workspace-snapshot.repository.port';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
-const BUSINESS_DATE = new Date('2026-05-28T00:00:00.000Z');
 
 describe('SourcingAgentRagService', () => {
-  let repository: SourcingWorkspaceSnapshotRepositoryPort;
-  let service: SourcingAgentRagService;
-
-  beforeEach(() => {
-    repository = {
+  it('changes cache input hash for a different recommendation run or interest version on one business date', async () => {
+    const snapshots = {
       find: vi.fn(async () => null),
-      listRecent: vi.fn(async (input) => sourceRows(input.scope)),
-      upsert: vi.fn(async (input) => ({
-        id: 'rag-snapshot',
-        organizationId: input.organizationId,
-        scope: input.scope,
-        businessDate: input.businessDate,
-        payload: input.payload,
-        createdAt: BUSINESS_DATE,
-        updatedAt: BUSINESS_DATE,
-      })),
+      upsert: vi.fn(async (input) => input),
     };
-    service = new SourcingAgentRagService(repository);
-  });
+    const interests = {
+      list: vi.fn()
+        .mockResolvedValueOnce([interest('interest-1', 1)])
+        .mockResolvedValueOnce([interest('interest-1', 2)]),
+    };
+    const recommendations = {
+      findLatest: vi.fn()
+        .mockResolvedValueOnce(run('run-1'))
+        .mockResolvedValueOnce(run('run-2')),
+    };
+    const validations = {
+      listForRun: vi.fn(async () => ({ items: [validation('episode-1')], nextCursor: null })),
+    };
+    const service = new SourcingAgentRagService(
+      snapshots as never,
+      interests as never,
+      recommendations as never,
+      validations as never,
+    );
 
-  it('rebuilds a retrieval index from sourcing workspace snapshots', async () => {
-    const result = await service.rebuild(ORGANIZATION_ID, 7);
+    await service.query({ organizationId: ORGANIZATION_ID, message: '우산', days: 7 });
+    await service.query({ organizationId: ORGANIZATION_ID, message: '우산', days: 7 });
 
-    expect(result.documentCount).toBeGreaterThanOrEqual(3);
-    expect(result.sourceSnapshotCount).toBe(3);
-    expect(repository.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      organizationId: ORGANIZATION_ID,
+    const inputHashes = snapshots.find.mock.calls.map((call) => call[0].inputHash);
+    expect(inputHashes).toHaveLength(2);
+    expect(inputHashes[0]).not.toBe(inputHashes[1]);
+    expect(snapshots.upsert).toHaveBeenCalledTimes(2);
+    expect(snapshots.upsert).toHaveBeenCalledWith(expect.objectContaining({
       scope: 'sourcing_agent_rag',
-      payload: expect.objectContaining({
-        version: 1,
-        result: expect.objectContaining({
-          documents: expect.arrayContaining([
-            expect.objectContaining({ title: expect.stringContaining('슬라임') }),
-          ]),
-        }),
-      }),
+      projectionVersion: 'sourcing-rag.v3',
+      expiresAt: expect.any(Date),
     }));
-  });
-
-  it('answers with contexts and a filter hint from the rebuilt index', async () => {
-    const result = await service.query({
-      organizationId: ORGANIZATION_ID,
-      message: '잘 팔리는 슬라임 후보만 보여줘',
-      topK: 4,
-      days: 7,
-    });
-
-    expect(result.suggestedFilter).toBe('selling');
-    expect(result.contexts.length).toBeGreaterThan(0);
-    expect(result.answer).toContain('판매 반응');
-    expect(result.contexts[0].document.title).toContain('슬라임');
   });
 });
 
-function sourceRows(scope: SourcingWorkspaceSnapshotScope): SourcingWorkspaceSnapshotRow[] {
-  if (scope === 'today_recommendations') {
-    return [row(scope, {
-      version: 1,
-      input: { keywordText: '슬라임', keywordLimit: 10, maxPages: 1 },
-      result: {
-        rows: [{
-          productId: 'product-1',
-          itemId: 'item-1',
-          vendorItemId: 'vendor-1',
-          productName: '대왕 치즈 슬라임 말랑이',
-          primaryKeyword: '슬라임',
-          keywords: ['슬라임', '말랑이'],
-          grade: 'A',
-          score: 88,
-          salesLast3d: 284,
-          salesLast28d: 900,
-          ratingCount: 52,
-          salePrice: 11900,
-          reasons: ['3일 판매 반응 좋음'],
-          risks: [],
-        }],
-        productSnapshots: [],
-      },
-      meta: meta(),
-    })];
-  }
-
-  if (scope === 'interest_tracking') {
-    return [row(scope, {
-      version: 1,
-      input: { trackingWindowDays: 3 },
-      result: {
-        targets: [{
-          id: 'keyword:슬라임',
-          type: 'keyword',
-          label: '슬라임',
-          source: 'manual',
-          keyword: '슬라임',
-          createdAt: '2026-05-28T01:00:00.000Z',
-          updatedAt: '2026-05-28T01:00:00.000Z',
-        }],
-        observations: [{
-          targetId: 'keyword:슬라임',
-          observedAt: '2026-05-28T01:00:00.000Z',
-          source: 'manual',
-          metrics: { monthlySearchCount: 12000 },
-        }],
-      },
-      meta: meta(),
-    })];
-  }
-
-  if (scope === 'keyword_analysis') {
-    return [row(scope, {
-      version: 1,
-      input: {
-        filters: {
-          timeUnit: 'date',
-          gender: 'all',
-          age: 'all',
-          device: 'all',
-          selectedBoardKey: 'birth_kids',
-          rankLimit: '20',
-          focusMode: 'kids',
-        },
-        keywordQuery: '슬라임',
-        trendText: '슬라임',
-      },
-      result: {
-        boards: [{
-          title: '완구',
-          ranks: [{ keyword: '슬라임', rank: 1, score: 95 }],
-        }],
-        trendItems: [{ keyword: '슬라임', latestRatio: 87, trendDelta: 12 }],
-        searchAdRelatedItems: [],
-        relatedSearchItems: [],
-        autocompleteItems: [],
-        coupangKeywordItems: [],
-        coupangProductNameTokens: [],
-        relatedSearchSeed: null,
-        trendAgentResult: null,
-      },
-      meta: meta(),
-    })];
-  }
-
-  return [];
-}
-
-function row(scope: SourcingWorkspaceSnapshotScope, payload: Record<string, unknown>): SourcingWorkspaceSnapshotRow {
+function run(id: string) {
+  const now = new Date('2026-08-10T00:00:00.000Z');
   return {
-    id: `${scope}-snapshot`,
+    id,
     organizationId: ORGANIZATION_ID,
-    scope,
-    businessDate: BUSINESS_DATE,
-    payload,
-    createdAt: BUSINESS_DATE,
-    updatedAt: BUSINESS_DATE,
+    inputManifestHash: 'a'.repeat(64),
+    status: 'complete' as const,
+    businessDate: now,
+    generatedAt: now,
+    completedAt: now,
+    expiresAt: null,
+    warningCodes: [],
+    items: [{
+      id: '00000000-0000-4000-8000-000000000010',
+      itemKey: 'b'.repeat(64),
+      sourcePlatform: '1688' as const,
+      externalOfferId: '607635921546',
+      variantKeyNormalized: '',
+      matchedCoupangProductId: null,
+      displayName: '유아 우산',
+      rank: 1,
+      score: 80,
+      grade: 'A' as const,
+      baselineAction: 'order' as const,
+      reasonCodes: [],
+      riskCodes: [],
+      scoreComponents: {},
+      sourceSnapshot: { keyword: '우산', sourceKeywords: ['우산'] },
+      evidenceObservationIds: [],
+    }],
   };
 }
 
-function meta() {
+function interest(id: string, version: number) {
+  const now = new Date('2026-08-10T00:00:00.000Z');
   return {
-    generatedAt: '2026-05-28T01:00:00.000Z',
-    generationSource: 'manual',
-    generatorVersion: 'sourcing-workspace-snapshot.v1',
+    id,
+    organizationId: ORGANIZATION_ID,
+    targetKey: 'keyword:우산',
+    targetType: 'keyword',
+    label: '우산',
+    sourceKeys: ['manual'],
+    keyword: '우산',
+    category: null,
+    productId: null,
+    itemId: null,
+    vendorItemId: null,
+    productName: null,
+    enabled: true,
+    version,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function validation(episodeId: string) {
+  return {
+    episodeId,
+    recommendationRunId: 'run-1',
+    itemKey: 'b'.repeat(64),
+    displayName: '유아 우산',
+    imageUrl: null,
+    status: 'blocked' as const,
+    score: 80,
+    landedCostKrw: null,
+    expectedMarginBps: null,
+    validUntil: null,
+    checks: [],
+    updatedAt: new Date('2026-08-10T00:00:00.000Z'),
   };
 }

@@ -43,6 +43,7 @@ function makePrisma(input: {
         id: 'attempt-1',
         status: 'prepared',
         idempotencyKey: 'submit-1',
+        requestHash: 'a'.repeat(64),
         createdAt: new Date('2026-07-16T00:05:00.000Z'),
       }),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -114,6 +115,7 @@ function prepareInput(requiresProvider = true) {
     purchaseOrderId: ORDER_ID,
     sellpiaInventorySkuIds: [SELLPIA_SKU_ID],
     idempotencyKey: 'submit-1',
+    requestHash: 'a'.repeat(64),
     userId: 'user-1',
     freshnessFence: FENCE,
     freshnessLastVerifiedAt: '2026-07-16T00:00:00.000Z',
@@ -266,11 +268,25 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
         organizationId: 'org-1',
         purchaseOrderId: ORDER_ID,
         idempotencyKey: 'submit-1',
+        requestHash: 'a'.repeat(64),
         freshnessGeneration: 7n,
         status: 'prepared',
       },
     });
     expect(result).toMatchObject({ kind: 'created', attempt: { status: 'prepared' } });
+  });
+
+  it('rejects a missing owner request hash before locking persistent state', async () => {
+    const { prisma, tx } = makePrisma();
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+
+    await expect(adapter.prepare({
+      ...prepareInput(),
+      requestHash: undefined as never,
+    })).rejects.toThrow('request hash');
+
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    expect(tx.purchaseOrderSubmissionAttempt.create).not.toHaveBeenCalled();
   });
 
   it('rejects an opaque fence mismatch as freshness-required', async () => {
@@ -319,6 +335,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
       id: 'attempt-existing',
       status: 'prepared',
       idempotencyKey: 'submit-1',
+      requestHash: 'a'.repeat(64),
       createdAt: new Date('2026-07-16T00:04:00.000Z'),
     } });
     const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
@@ -337,6 +354,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
       id: 'attempt-existing',
       status: 'prepared',
       idempotencyKey: 'submit-1',
+      requestHash: 'a'.repeat(64),
       createdAt: new Date('2026-07-15T23:49:59.000Z'),
     } });
     const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
@@ -368,6 +386,23 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
     const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
 
     await expect(adapter.prepare(prepareInput())).rejects.toBeInstanceOf(AppException);
+    expect(tx.purchaseOrderSubmissionAttempt.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a reused owner key with a different canonical input hash before a provider call', async () => {
+    const { prisma, tx } = makePrisma({ latestAttempt: {
+      id: 'attempt-existing',
+      status: 'prepared',
+      idempotencyKey: 'submit-1',
+      requestHash: 'a'.repeat(64),
+      createdAt: new Date('2026-07-16T00:04:00.000Z'),
+    } });
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+
+    await expect(adapter.prepare({
+      ...prepareInput(),
+      requestHash: 'b'.repeat(64),
+    })).rejects.toThrow('different canonical input');
     expect(tx.purchaseOrderSubmissionAttempt.create).not.toHaveBeenCalled();
   });
 });

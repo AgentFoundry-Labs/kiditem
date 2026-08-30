@@ -530,3 +530,19 @@ export async function detectBrowserCollectionExtensionIds(): Promise<string[]> {
   ]);
   return [...new Set(ids.filter((id): id is string => id !== null))];
 }
+
+type BrowserOperationWakeResponse = {
+  success?: boolean;
+  accepted?: boolean;
+};
+
+export async function wakeBrowserOperationRuntime(): Promise<boolean> {
+  const extensionId = await detectExtensionId();
+  if (!extensionId) return false;
+  const response = await sendToExtension<BrowserOperationWakeResponse>(
+    extensionId,
+    { action: 'wakeOperationRuntime' },
+    3_000,
+  );
+  return response?.success === true && response.accepted === true;
+}

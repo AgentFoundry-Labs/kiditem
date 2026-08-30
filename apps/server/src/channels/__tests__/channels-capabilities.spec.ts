@@ -1,69 +1,85 @@
-import { describe, expect, it } from 'vitest';
-import { CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT } from '../application/port/in/capability/marketplace-registration.port';
-import { CHANNELS_CAPABILITIES } from '../domain/capability/channels.capabilities';
+import { describe, expect, it } from "vitest";
+import { CHANNELS_CAPABILITIES } from "../domain/capability/channels.capabilities";
 
-describe('channels capability manifest', () => {
-  it('publishes the Agent OS confirmed listing registration workflow', () => {
+describe("Channels final capability definitions", () => {
+  it("owns all three marketplace mutations with real strict schemas", () => {
     expect(CHANNELS_CAPABILITIES.map((capability) => capability.key)).toEqual([
-      'channels.register_confirmed_listing',
-      'channels.submit_coupang_listing',
+      "channels.register_confirmed_listing",
+      "channels.submit_coupang_listing",
+      "channels.submit_wing_thumbnail",
     ]);
-    expect(CHANNELS_CAPABILITIES[0]).toMatchObject({
-      key: 'channels.register_confirmed_listing',
-      ownerDomain: 'channels',
-      kind: 'workflow',
-      inputSchema: {
-        masterId: 'string',
-        channelAccountId: 'string',
-        externalId: 'string',
-        productBarcode: 'string|null',
-        channelName: 'string|null',
-        channelPrice: 'number|null',
-      },
-      outputSchema: {
-        listingId: 'string',
-        masterId: 'string',
-        channel: 'string',
-        channelAccountId: 'string',
-        externalId: 'string',
-        status: 'string|null',
-      },
-      effects: ['db_write'],
-      approval: 'always',
-      idempotency: 'required',
-      visibility: 'agent',
-      entrypoint: {
-        type: 'incoming_port',
-        token: CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT.description,
-      },
-    });
-    expect(CHANNELS_CAPABILITIES[1]).toMatchObject({
-      key: 'channels.submit_coupang_listing',
-      ownerDomain: 'channels',
-      kind: 'workflow',
-      inputSchema: {
-        masterId: 'string',
-        channelAccountId: 'string',
-        productBarcode: 'string|null',
-        listingPayload: 'object',
-      },
-      outputSchema: {
-        listingId: 'string',
-        sellerProductId: 'string',
-        masterId: 'string',
-        channel: 'string',
-        channelAccountId: 'string',
-        externalId: 'string',
-        status: 'string|null',
-      },
-      effects: ['external_write', 'db_write'],
-      approval: 'always',
-      idempotency: 'required',
-      visibility: 'agent',
-      entrypoint: {
-        type: 'incoming_port',
-        token: CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT.description,
-      },
-    });
+    for (const capability of CHANNELS_CAPABILITIES) {
+      expect(capability.ownerDomain).toBe("channels");
+      expect(
+        capability.inputSchema.safeParse({ organizationId: "forged" }).success,
+      ).toBe(false);
+      expect(capability.outputSchema.safeParse({}).success).toBe(false);
+      expect(capability.idempotency).toBe("required");
+    }
+  });
+
+  it("accepts only the minimal registration reference and user confirmation evidence", () => {
+    const submission = CHANNELS_CAPABILITIES.find(
+      (item) => item.key === "channels.submit_coupang_listing",
+    )!;
+    const confirmation = CHANNELS_CAPABILITIES.find(
+      (item) => item.key === "channels.register_confirmed_listing",
+    )!;
+    const reference = {
+      registrationExecutionId: "00000000-0000-4000-8000-000000000011",
+      preparationId: "00000000-0000-4000-8000-000000000012",
+    };
+
+    expect(
+      submission.inputSchema.safeParse({
+        masterId: "master-1",
+        channelAccountId: "account-1",
+      }).success,
+    ).toBe(false);
+    expect(submission.inputSchema.safeParse(reference).success).toBe(true);
+    expect(
+      submission.inputSchema.safeParse({
+        ...reference,
+        executionId: "00000000-0000-4000-8000-000000000013",
+      }).success,
+    ).toBe(false);
+    expect(
+      confirmation.inputSchema.safeParse({
+        ...reference,
+        externalListingId: "external-listing-1",
+        confirmationEvidence: {
+          wingVendorId: "vendor-1",
+          wingIdentitySource: "dom:data-vendor-id",
+        },
+      }).success,
+    ).toBe(true);
+
+    for (const [field, value] of Object.entries({
+      sourceCandidateId: "00000000-0000-4000-8000-000000000013",
+      channelAccountId: "00000000-0000-4000-8000-000000000014",
+      submissionKey: "submission-key",
+      submissionPayloadHash: "b".repeat(64),
+      submissionPayloadJson: { sellerProductName: "Toy" },
+      providerSubmissionId: "provider-submission",
+      registrationResult: { externalListingId: "provider-listing" },
+      isRetry: true,
+      providerOutcome: "succeeded",
+      providerCreateAllowed: true,
+      masterProductId: "00000000-0000-4000-8000-000000000015",
+      optionLinks: [],
+      displayName: "Toy",
+    })) {
+      expect(
+        confirmation.inputSchema.safeParse({
+          ...reference,
+          externalListingId: "external-listing-1",
+          confirmationEvidence: {
+            wingVendorId: "vendor-1",
+            wingIdentitySource: "dom:data-vendor-id",
+          },
+          [field]: value,
+        }).success,
+      ).toBe(false);
+    }
   });
 });

@@ -9,17 +9,18 @@
     const getBackendRequestConfig = options.getBackendRequestConfig;
     const ensureContentScripts = options.ensureContentScripts;
     const sessions = options.sessions;
-    const createRunId = options.createRunId || (() => {
-      if (global.crypto && typeof global.crypto.randomUUID === "function") {
-        return global.crypto.randomUUID();
-      }
-      return `live-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    });
     const activeRuns = new Map();
 
-    async function collect(urlValue, requestedRunId, environmentId) {
+    async function collect(urlValue, requestedRunId, environmentId, operationContext) {
       const validated = validateLiveUrl(urlValue);
       if (!validated.ok) return { success: false, error: validated.error };
+      const operationAttemptToken = operationContext?.attemptToken;
+      if (typeof operationAttemptToken !== "string" || !operationAttemptToken) {
+        return { success: false, error: "operation_attempt_token_required" };
+      }
+      if (typeof requestedRunId !== "string" || !requestedRunId) {
+        return { success: false, error: "operation_run_id_required" };
+      }
       const backendConfig = await getBackendRequestConfig(environmentId);
       if (!backendConfig.ok) return { success: false, error: backendConfig.error };
 
@@ -27,6 +28,8 @@
       const run = {
         environmentId,
         runId,
+        operationAttemptToken,
+        backendConfig,
         tabId: null,
         keepTabOpen: false,
         cancelRequested: false,
@@ -98,18 +101,31 @@
         if (run.cancelRequested) throw new Error("Collection cancelled");
 
         const request = backendConfig.request || fetch;
-        const response = await request(`${backendConfig.base}/trend/live-commerce-results`, {
-          method: "POST",
-          headers: backendConfig.headers,
-          body: JSON.stringify({
-            source: extracted.source,
-            pageUrl: extracted.pageUrl,
-            broadcast: extracted.broadcast,
-            products: extracted.products,
-          }),
-        });
+        const response = await request(
+          `${backendConfig.apiBase}/sourcing/operations/live-commerce/${encodeURIComponent(runId)}/results`,
+          {
+            method: "POST",
+            headers: {
+              ...backendConfig.headers,
+              "x-operation-attempt-token": run.operationAttemptToken,
+            },
+            body: JSON.stringify({
+              source: extracted.source,
+              pageUrl: extracted.pageUrl,
+              broadcast: extracted.broadcast,
+              products: extracted.products,
+            }),
+          },
+        );
         const body = await readResponse(response);
-        if (!response.ok) throw new Error(body?.message || `KidItem API HTTP ${response.status}`);
+        if (!response.ok) {
+          const error = new Error(body?.message || `KidItem API HTTP ${response.status}`);
+          if (response.status === 409) {
+            error.code = "operation_runtime_fence_lost";
+            error.status = 409;
+          }
+          throw error;
+        }
         if (run.cancelRequested) throw new Error("Collection cancelled");
         await sessions.progress(runId, {
           current: 1,
@@ -148,6 +164,7 @@
           success: false,
           runId,
           error: error instanceof Error ? error.message : String(error),
+          errorCode: error?.code || null,
         };
       } finally {
         if (!run.keepTabOpen && tabId && run.tabId === tabId) {
@@ -159,46 +176,23 @@
 
     async function prepareRun(requestedRunId, validated, environmentId) {
       if (typeof requestedRunId !== "string" || !requestedRunId) {
-        const runId = createRunId();
-        await sessions.start({
-          environmentId,
-          runId,
-          producer: "sourcing.live_commerce",
-          classification: "background_preferred",
-          restartStrategy: "web",
-          inputIdentity: {
-            source: validated.source,
-            pageUrl: toSafePageUrl(validated.url),
-          },
-        });
-        return runId;
+        throw new Error("operation_run_id_required");
       }
-
       const session = await sessions.get(requestedRunId);
-      if (
-        !session ||
-        session.environmentId !== environmentId ||
-        session.producer !== "sourcing.live_commerce" ||
-        session.restartStrategy !== "web"
-      ) {
-        throw new Error("Collection session not found");
+      if (session) {
+        throw new Error("operation_collection_session_already_exists");
       }
-      if (
-        session.inputIdentity?.source !== validated.source ||
-        session.inputIdentity?.pageUrl !== toSafePageUrl(validated.url)
-      ) {
-        throw new Error("Live-commerce page owner does not match this run");
-      }
-      if (session.status === "pending" || session.status === "running") {
-        throw new Error("Live-commerce collection session is already active");
-      }
-      const previousRun = activeRuns.get(requestedRunId);
-      if (previousRun) {
-        previousRun.cancelRequested = true;
-        previousRun.keepTabOpen = false;
-        activeRuns.delete(requestedRunId);
-      }
-      await sessions.restart(requestedRunId, { closeManagedTab: true });
+      await sessions.start({
+        environmentId,
+        runId: requestedRunId,
+        producer: "sourcing.live_commerce",
+        classification: "background_preferred",
+        restartStrategy: "extension",
+        inputIdentity: {
+          source: validated.source,
+          pageUrl: toSafePageUrl(validated.url),
+        },
+      });
       return requestedRunId;
     }
 
@@ -248,9 +242,9 @@
       const url = new URL(urlValue.trim());
       if (url.protocol !== "https:") return { ok: false, error: "HTTPS 방송 URL만 수집할 수 있습니다." };
       const host = url.hostname.toLowerCase();
-      const source = host === "1688.com" || host.endsWith(".1688.com")
+      const source = host === "zb.1688.com" || host.endsWith(".zb.1688.com")
         ? "1688"
-        : host === "douyin.com" || host.endsWith(".douyin.com")
+        : host === "live.douyin.com" || host.endsWith(".live.douyin.com")
           ? "douyin"
           : null;
       if (!source) return { ok: false, error: "1688 또는 도우인 방송 URL만 수집할 수 있습니다." };

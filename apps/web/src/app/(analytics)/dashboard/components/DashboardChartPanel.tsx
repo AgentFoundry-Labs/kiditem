@@ -3,11 +3,9 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
-import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, Loader2, Play, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import AgentFace from '@/components/AgentFace';
-import { apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import {
   useDepartmentQuickActions,
@@ -107,19 +105,6 @@ export function DashboardChartPanel({
   const hasBenchmark = !!industryBenchmark;
   const isAgentOs = chartTab === 'agents';
 
-  const { data: instances = [] } = useQuery({
-    queryKey: ['agent-os', 'instances'],
-    queryFn: () => apiClient.get<Array<{
-      id: string;
-      role: string;
-      name: string;
-      lifecycleStatus: string;
-    }>>('/api/agent-os/instances'),
-    refetchInterval: 30_000,
-    enabled: isAgentOs,
-  });
-  const ceo = instances.find((instance) => instance.role === 'ceo');
-
   const quickActions = useDepartmentQuickActions();
   const [runningAction, setRunningAction] = useState<string | null>(null);
 
@@ -188,7 +173,7 @@ export function DashboardChartPanel({
                 <div className="w-6 h-6 rounded-full flex items-center justify-center overflow-hidden shrink-0" style={{ background: 'rgba(255,255,255,0.85)' }}>
                   <AgentFace color="violet" role="ceo" size={24} />
                 </div>
-                <span className="text-xs font-semibold text-white">{ceo?.name || 'CEO'}</span>
+                <span className="text-xs font-semibold text-white">CEO</span>
                 <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-white/40" />
               </div>
             </div>

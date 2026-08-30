@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { sourcingCandidateIdentityLockKey } from '../../../domain/sourcing-candidate-identity';
 import type {
   CandidateImageRow,
   CandidateRow,
@@ -8,6 +9,7 @@ import type {
   SourcingCandidateRepositoryPort,
   SourcingCandidateStateRow,
   UpsertCandidateInput,
+  UpsertCandidateWithIdempotencyReceiptInput,
 } from '../../../application/port/out/repository/sourcing-candidate.repository.port';
 import type { SourcingRepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
 
@@ -48,6 +50,53 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       if (!isUniqueConstraintError(error)) throw error;
       return this.upsertSourcedInTransaction(input);
     }
+  }
+
+  async upsertSourcedWithIdempotencyReceipt(
+    input: UpsertCandidateWithIdempotencyReceiptInput,
+  ): Promise<{ candidateId: string }> {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          await advisoryLock(
+            tx,
+            `sourcing-owner-receipt:${input.organizationId}:${input.capabilityKey}:${input.idempotencyKey}`,
+          );
+          const receipt = await tx.sourcingOwnerIdempotencyReceipt.findFirst({
+            where: {
+              organizationId: input.organizationId,
+              capabilityKey: input.capabilityKey,
+              idempotencyKey: input.idempotencyKey,
+            },
+            select: { requestHash: true, result: true },
+          });
+          if (receipt) {
+            if (receipt.requestHash !== input.requestHash) {
+              throw new Error('owner_idempotency_input_conflict');
+            }
+            return receiptCandidateResult(receipt.result);
+          }
+
+          await advisoryLock(tx, `sourcing-candidate:${input.organizationId}:${input.idempotencyKey}`);
+          await sourceIdentityLock(tx, input);
+          const candidate = await this.upsertSourcedIn(tx, input);
+          const result = { candidateId: candidate.id };
+          await tx.sourcingOwnerIdempotencyReceipt.create({
+            data: {
+              organizationId: input.organizationId,
+              capabilityKey: input.capabilityKey,
+              idempotencyKey: input.idempotencyKey,
+              requestHash: input.requestHash,
+              result,
+            },
+          });
+          return result;
+        });
+      } catch (error) {
+        if (!isUniqueConstraintError(error) || attempt === 1) throw error;
+      }
+    }
+    throw new Error('sourcing_owner_idempotency_receipt_retry_exhausted');
   }
 
   async mergeDescription(input: {
@@ -278,17 +327,37 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
 
   private upsertSourcedInTransaction(input: UpsertCandidateInput): Promise<CandidateRow> {
     return this.prisma.$transaction(async (tx) => {
-      const existing = await tx.sourcingCandidate.findFirst({
+      if (input.idempotencyKey?.trim()) {
+        await advisoryLock(tx, `sourcing-candidate:${input.organizationId}:${input.idempotencyKey}`);
+      }
+      await sourceIdentityLock(tx, input);
+      return this.upsertSourcedIn(tx, input);
+    });
+  }
+
+  private async upsertSourcedIn(
+    tx: Prisma.TransactionClient,
+    input: UpsertCandidateInput,
+  ): Promise<CandidateRow> {
+    const existing = await tx.sourcingCandidate.findFirst({
         where: {
           organizationId: input.organizationId,
-          sourceUrl: input.sourceUrl,
+          ...(input.sourceIdentityHash
+            ? {
+                sourcePlatform: input.sourcePlatform,
+                sourceIdentityHash: input.sourceIdentityHash,
+              }
+            : { sourceUrl: input.sourceUrl }),
           isDeleted: false,
           status: 'sourced',
         },
         select: { id: true, rawData: true },
       });
-      const data = {
+    const data = {
         sourcePlatform: input.sourcePlatform,
+        externalOfferId: input.externalOfferId ?? null,
+        variantKeyNormalized: input.variantKeyNormalized ?? '',
+        sourceIdentityHash: input.sourceIdentityHash ?? null,
         rawData: mergeJson(existing?.rawData, input.rawData) as Prisma.InputJsonValue,
         name: input.name,
         description: input.description,
@@ -298,20 +367,19 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
         imageUrl: input.imageUrl,
         costCny: input.costCny ?? undefined,
       };
-      const candidate = existing
-        ? await tx.sourcingCandidate.update({ where: { id: existing.id }, data })
-        : await tx.sourcingCandidate.create({
-            data: {
-              organizationId: input.organizationId,
-              sourceUrl: input.sourceUrl,
-              triggeredByUserId: input.triggeredByUserId,
-              status: 'sourced',
-              ...data,
-            },
-          });
-      await this.ensureImages(tx, candidate.id, input.organizationId, input.images);
-      return toRow(candidate);
-    });
+    const candidate = existing
+      ? await tx.sourcingCandidate.update({ where: { id: existing.id }, data })
+      : await tx.sourcingCandidate.create({
+          data: {
+            organizationId: input.organizationId,
+            sourceUrl: input.sourceUrl,
+            triggeredByUserId: input.triggeredByUserId,
+            status: 'sourced',
+            ...data,
+          },
+        });
+    await this.ensureImages(tx, candidate.id, input.organizationId, input.images);
+    return toRow(candidate);
   }
 
   private async ensureImages(
@@ -340,6 +408,32 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
   }
 }
 
+async function advisoryLock(tx: Prisma.TransactionClient, key: string): Promise<void> {
+  await tx.$queryRaw(
+    // queryraw-tenancy-exempt: exact owner key contains the organization boundary; reads no tenant data.
+    Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))::text AS "lock"`,
+  );
+}
+
+async function sourceIdentityLock(
+  tx: Prisma.TransactionClient,
+  input: Pick<UpsertCandidateInput, 'organizationId' | 'sourcePlatform' | 'sourceIdentityHash' | 'sourceUrl'>,
+): Promise<void> {
+  await advisoryLock(tx, sourcingCandidateIdentityLockKey(input));
+}
+
+function receiptCandidateResult(value: Prisma.JsonValue): { candidateId: string } {
+  if (
+    value
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && typeof (value as Record<string, unknown>).candidateId === 'string'
+  ) {
+    return { candidateId: (value as Record<string, string>).candidateId };
+  }
+  throw new Error('sourcing_owner_idempotency_receipt_invalid');
+}
+
 function hydrateCandidate(row: any) {
   const productPreparations = row.productPreparations.map(toProductPreparationRow);
   return {
@@ -356,6 +450,9 @@ function toRow(row: any): CandidateRow {
     organizationId: row.organizationId,
     sourceUrl: row.sourceUrl,
     sourcePlatform: row.sourcePlatform,
+    externalOfferId: row.externalOfferId,
+    variantKeyNormalized: row.variantKeyNormalized,
+    sourceIdentityHash: row.sourceIdentityHash,
     rawData: row.rawData,
     name: row.name,
     description: row.description,

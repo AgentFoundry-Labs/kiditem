@@ -79,7 +79,7 @@ describe('detail page shared AI contracts', () => {
       revisionId,
       variant: 'wing-client-jpeg-v1',
       outputWidth: 780,
-      renderDocumentUrl: `https://staging.merchon.org/detail-page-client-render?intentId=${intentId}`,
+      renderDocumentUrl: `http://kiditem-office/detail-page-client-render?intentId=${intentId}`,
       upload: {
         url: 'https://storage.example.com/signed-object?signature=secret',
         headers: { 'Content-Type': 'image/jpeg' },

@@ -1,13 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api-error';
+import {
+  dismissExtensionMissingBrowserCollectionAlerts,
+  updateOperationAlert,
+} from '../operation-alerts';
 
 const mockPatch = vi.hoisted(() => vi.fn());
+const mockPost = vi.hoisted(() => vi.fn());
 
 vi.mock('../api-client', () => ({
-  apiClient: { patch: mockPatch },
+  apiClient: { patch: mockPatch, post: mockPost },
 }));
-
-import { updateOperationAlert } from '../operation-alerts';
 
 describe('updateOperationAlert', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -46,5 +49,24 @@ describe('updateOperationAlert', () => {
         status: 'failed',
       }),
     ).rejects.toBe(error);
+  });
+});
+
+describe('dismissExtensionMissingBrowserCollectionAlerts', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('keeps startup network gaps best-effort without requesting an error overlay log', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mockPost.mockRejectedValueOnce(new ApiError(0, 'network_error', 'API unavailable'));
+
+    await expect(
+      dismissExtensionMissingBrowserCollectionAlerts(),
+    ).resolves.toEqual({ dismissed: 0 });
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/operation-alerts/reconcile-extension-missing',
+      undefined,
+      { suppressNetworkErrorLog: true },
+    );
+    warn.mockRestore();
   });
 });

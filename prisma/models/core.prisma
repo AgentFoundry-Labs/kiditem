@@ -21,7 +21,6 @@ model Organization {
   orders                          Order[]
   purchaseOrders                  PurchaseOrder[]
   purchaseOrderSubmissionAttempts PurchaseOrderSubmissionAttempt[]
-  profitLoss                      ProfitLoss[]
   thumbnails                      Thumbnail[]
   thumbnailAnalyses               ThumbnailAnalysis[]
   thumbnailGenerations            ThumbnailGeneration[]
@@ -34,7 +33,9 @@ model Organization {
   reviews                         Review[]
   alerts                          Alert[]
   operationRuns                   OperationRun[]
+  operationRunCheckpoints         OperationRunCheckpoint[]
   operationSchedules              OperationSchedule[]
+  rulesEvaluationApplications     RulesEvaluationApplication[]
 
   // Sourcing & Content
   contentGenerations                  ContentGeneration[]
@@ -56,21 +57,8 @@ model Organization {
   workflowTemplates WorkflowTemplate[]
   activityEvents    ActivityEvent[]
 
-  // Agent OS
-  agentInstances            AgentInstance[]
-  agentRuntimeStates        AgentRuntimeState[]
-  agentTaskSessions         AgentTaskSession[]
-  agentRunRequests          AgentRunRequest[]
-  agentRuns                 AgentRun[]
-  agentRunEvents            AgentRunEvent[]
-  agentInstanceToolPolicies AgentInstanceToolPolicy[]
-  agentAuthorizationEvents  AgentAuthorizationEvent[]
-  agentApprovalRequests     AgentApprovalRequest[]
-  agentCostEvents           AgentCostEvent[]
-  agentConversations        AgentConversation[]
-  agentMessages             AgentMessage[]
-  agentToolInvocations      AgentToolInvocation[]
-  agentArtifacts            AgentArtifact[]
+  // Agent OS — exact capability mutation admission and replay receipts.
+  capabilityInvocations CapabilityInvocation[]
 
   // Order domain (Plan A.5)
   orderLineItems       OrderLineItem[]
@@ -81,48 +69,35 @@ model Organization {
   suppliers                               Supplier[]
   supplierPayments                        SupplierPayment[]
   supplierProducts                        SupplierProduct[]
+  supplierOfferSkuSnapshots               SupplierOfferSkuSnapshot[]
+  supplierOfferPriceTiers                 SupplierOfferPriceTier[]
+  procurementTestIntents                  ProcurementTestIntent[]
   purchaseOrderItems                      PurchaseOrderItem[]
   rocketPurchaseConfirmations             RocketPurchaseConfirmation[]
   rocketPurchaseConfirmationLines         RocketPurchaseConfirmationLine[]
   rocketPurchaseConfirmationAllocations   RocketPurchaseConfirmationAllocation[]
   rocketPurchaseConfirmationTransmissions RocketPurchaseConfirmationTransmission[]
-  inventoryCommitments                    InventoryCommitment[]
-  inventoryCommitmentAllocations          InventoryCommitmentAllocation[]
 
   // Warehouse & record-only inventory operations
   warehouses                                    Warehouse[]
   stockTransfers                                StockTransfer[]
-  stockAudits                                   StockAudit[]
-  sellpiaReceiptUploadBatches                   SellpiaReceiptUploadBatch[]
   coupangShipmentDateSummaries                  CoupangShipmentDateSummary[]
   sellpiaInventoryState                         SellpiaInventoryState?
   sellpiaOrderTransmissionIntents               SellpiaOrderTransmissionIntent[]
   sellpiaOrderTransmissionIntentReconciliations SellpiaOrderTransmissionIntentReconciliation[]
   coupangDirectPoSnapshots                      CoupangDirectPoSnapshot[]
 
-  // Logistics
-  shipments       Shipment[]
-  shipmentItems   ShipmentItem[]
-  unshippedItems  UnshippedItem[]
-  pickingLists    PickingList[]
-  pickingItems    PickingItem[]
+  // Record-only returns
   returnTransfers ReturnTransfer[]
 
-  // Product Extensions
-  processingCosts ProcessingCost[]
-
   // Finance
-  settlements   Settlement[]
-  manualLedgers ManualLedger[]
+  settlements Settlement[]
 
   // Operations & Config
-  csRecords        CSRecord[]
   categoryMappings CategoryMapping[]
 
   // Analytics
   salesPlans                 SalesPlan[]
-  rocketSupplyDailySnapshots RocketSupplyDailySnapshot[]
-  rocketPurchaseOrders       RocketPurchaseOrder[]
   sellpiaSalesDailySnapshots SellpiaSalesDailySnapshot[]
   sellpiaProductMonthlySales SellpiaProductMonthlySales[]
 
@@ -150,6 +125,7 @@ model Organization {
   channelListings                         ChannelListing[]
   channelListingOptions                   ChannelListingOption[]
   channelListingOptionInventoryComponents ChannelListingOptionInventoryComponent[]
+  channelRegistrationOwnerIdempotencyReceipts ChannelRegistrationOwnerIdempotencyReceipt[] @relation("ChannelRegistrationOwnerIdempotencyReceiptOrganization")
   channelListingDeletionOperations        ChannelListingDeletionOperation[]        @relation("ChannelListingDeletionOperationOrganization")
 
   // Channels — market-data snapshots (Wave C0)
@@ -172,29 +148,45 @@ model Organization {
   coupangWingTrackedProducts              CoupangWingTrackedProduct[]
   coupangWingTrackedProductDailySnapshots CoupangWingTrackedProductDailySnapshot[]
 
-  // Additional back-relations for FK rename additions
-  gradeHistory GradeHistory[] // Task 8 Step 2 adds organizationId to GradeHistory
-
   // Sourcing (issue #192)
-  sourcingCandidates         SourcingCandidate[]
-  candidateImages            CandidateImage[]
-  sourcingWorkspaceSnapshots SourcingWorkspaceSnapshot[]
+  sourcingCandidates                   SourcingCandidate[]
+  sourcingOwnerIdempotencyReceipts     SourcingOwnerIdempotencyReceipt[]
+  candidateImages                      CandidateImage[]
+  sourcingWorkspaceSnapshots           SourcingWorkspaceSnapshot[]
+  sourcingInterestTargets              SourcingInterestTarget[]
+  sourcingKeywordPreferences           SourcingKeywordPreference[]
+  sourcing1688OfferKeywordObservations Sourcing1688OfferKeywordObservation[]
+  sourcingRecommendationRuns           SourcingRecommendationRun[]
+  sourcingRecommendationItems          SourcingRecommendationItem[]
+  sourcingRecommendationItemEvidence   SourcingRecommendationItemEvidence[]
+  sourcingValidationEpisodes           SourcingValidationEpisode[]
+  sourcingValidationChecks             SourcingValidationCheck[]
+  sourcingValidationCheckEvidence      SourcingValidationCheckEvidence[]
+  sourcingReviewSelections             SourcingReviewSelection[]
+  sourcingReviewBatches                SourcingReviewBatch[]
+  sourcingReviewBatchItems             SourcingReviewBatchItem[]
 
   // Sourcing — market trend and live-commerce snapshots
-  trendSeedKeywords                    TrendSeedKeyword[]
-  naverKeywordDailySnapshots           NaverKeywordDailySnapshot[]
-  naverPopularKeywordDailySnapshots    NaverPopularKeywordDailySnapshot[]
-  sourcing1688HotProductDailySnapshots Sourcing1688HotProductDailySnapshot[]
-  shortsTrendDailySnapshots            ShortsTrendDailySnapshot[]
-  liveCommerceBroadcastDailySnapshots  LiveCommerceBroadcastDailySnapshot[]
-  liveCommerceProductDailySnapshots    LiveCommerceProductDailySnapshot[]
-  tiktokCreativeTrendDailySnapshots    TiktokCreativeTrendDailySnapshot[]
+  trendSeedKeywords                   TrendSeedKeyword[]
+  naverKeywordDailySnapshots          NaverKeywordDailySnapshot[]
+  naverPopularKeywordDailySnapshots   NaverPopularKeywordDailySnapshot[]
+  shortsTrendDailySnapshots           ShortsTrendDailySnapshot[]
+  liveCommerceBroadcastDailySnapshots LiveCommerceBroadcastDailySnapshot[]
+  liveCommerceProductDailySnapshots   LiveCommerceProductDailySnapshot[]
+  tiktokCreativeTrendDailySnapshots   TiktokCreativeTrendDailySnapshot[]
+  sourcingCollectionSourceControls    SourcingCollectionSourceControl[]
+  sourcingEvidenceIngestionRuns       SourcingEvidenceIngestionRun[]
+  sourcingEvidenceObservations        SourcingEvidenceObservation[]
+  sourcingLaunchCandidates            SourcingLaunchCandidate[]
+  sourcingDecisionBatches             SourcingDecisionBatch[]
+  sourcingDecisionBatchItems          SourcingDecisionBatchItem[]
+  sourcingDecisionEvidence            SourcingDecisionEvidence[]
 
   @@map("organizations")
 }
 
 /// @namespace Core
-/// @describe human(직원) / agent(AI, agentInstanceId 연결) / system(챗봇). 조직 소속은 OrganizationMembership 이 source of truth.
+/// @describe Human or system account. Organization membership is the source of truth.
 model User {
   id              String    @id @default(uuid()) @db.Uuid
   email           String    @unique
@@ -204,13 +196,11 @@ model User {
   type            String    @default("human")
   team            String?
   avatarUrl       String?   @map("avatar_url")
-  agentInstanceId String?   @map("agent_instance_id") @db.Uuid
   isActive        Boolean   @default(true) @map("is_active")
   lastLoginAt     DateTime? @map("last_login_at") @db.Timestamptz
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  agentInstance                              AgentInstance?                                 @relation(fields: [agentInstanceId], references: [id], onDelete: SetNull)
   memberships                                OrganizationMembership[]
   authSessions                               AuthSession[]
   invitedOrganizationMemberships             OrganizationMembership[]                       @relation("OrganizationMembershipInviter")
@@ -225,6 +215,12 @@ model User {
   approvedProductPreparations                ProductPreparation[]                           @relation("ProductPreparationApprovedBy")
   requestedProductRegistrationExecutions     ProductRegistrationExecution[]                 @relation("ProductRegistrationExecutionRequestedBy")
   requestedChannelListingDeletionOperations  ChannelListingDeletionOperation[]              @relation("ChannelListingDeletionOperationRequestedBy")
+  triggeredSourcingEvidenceIngestionRuns     SourcingEvidenceIngestionRun[]                 @relation("SourcingEvidenceIngestionRunTriggeredBy")
+  requestedSourcingDecisionBatches           SourcingDecisionBatch[]                        @relation("SourcingDecisionBatchRequestedBy")
+  requestedSourcingReviewBatches             SourcingReviewBatch[]                          @relation("SourcingReviewBatchRequestedBy")
+  createdSourcingLaunchCandidates            SourcingLaunchCandidate[]                      @relation("SourcingLaunchCandidateCreatedBy")
+  requestedProcurementTestIntents            ProcurementTestIntent[]                        @relation("ProcurementTestIntentRequestedBy")
+  reviewedProcurementTestIntents             ProcurementTestIntent[]                        @relation("ProcurementTestIntentReviewedBy")
   createdDetailPageArtifacts                 DetailPageArtifact[]                           @relation("DetailPageArtifactCreatedBy")
   createdDetailPageRevisions                 DetailPageRevision[]                           @relation("DetailPageRevisionCreatedBy")
   createdDetailPageImageArtifacts            DetailPageImageArtifact[]                      @relation("DetailPageImageArtifactCreatedBy")
@@ -241,24 +237,15 @@ model User {
   reconciledPurchaseOrderSubmissionAttempts  PurchaseOrderSubmissionAttempt[]               @relation("PurchaseOrderSubmissionAttemptReconciler")
   confirmedRocketPurchaseConfirmations       RocketPurchaseConfirmation[]                   @relation("RocketPurchaseConfirmationConfirmer")
   releasedRocketPurchaseConfirmations        RocketPurchaseConfirmation[]                   @relation("RocketPurchaseConfirmationReleaser")
-  createdInventoryCommitments                InventoryCommitment[]                          @relation("InventoryCommitmentCreator")
-  releasedInventoryCommitments               InventoryCommitment[]                          @relation("InventoryCommitmentReleaser")
-  settledInventoryCommitments                InventoryCommitment[]                          @relation("InventoryCommitmentSettler")
 
-  // Agent OS — actor relations
-  requestedAgentRunRequests         AgentRunRequest[]         @relation("AgentRunRequestRequestedBy")
-  requestedAgentAuthorizationEvents AgentAuthorizationEvent[] @relation("AgentAuthorizationRequestedBy")
-  decidedAgentAuthorizationEvents   AgentAuthorizationEvent[] @relation("AgentAuthorizationDecidedBy")
-  requestedAgentApprovalRequests    AgentApprovalRequest[]    @relation("AgentApprovalRequestedBy")
-  approverAgentApprovalRequests     AgentApprovalRequest[]    @relation("AgentApprovalApprover")
-  decidedAgentApprovalRequests      AgentApprovalRequest[]    @relation("AgentApprovalDecidedBy")
-  createdAgentConversations         AgentConversation[]       @relation("AgentConversationCreatedBy")
+  // Agent OS — capability invocation actor relations
+  initiatedCapabilityInvocations CapabilityInvocation[] @relation("CapabilityInvocationInitiator")
+  approvedCapabilityInvocations  CapabilityInvocation[] @relation("CapabilityInvocationApprover")
 
   // Sourcing (issue #192)
   rejectedSourcingCandidates  SourcingCandidate[] @relation("SourcingCandidateRejectedBy")
   triggeredSourcingCandidates SourcingCandidate[] @relation("SourcingCandidateTriggeredBy")
 
-  @@index([agentInstanceId])
   @@map("users")
 }
 
@@ -355,6 +342,7 @@ model ChannelAccount {
   channelAccountDailyKpiSnapshots  ChannelAccountDailyKpiSnapshot[]
   rocketPurchaseConfirmations      RocketPurchaseConfirmation[]
   rocketPoCatalogSnapshots         RocketPoCatalogSnapshot[]
+  sourcingLaunchCandidates         SourcingLaunchCandidate[]
 
   @@unique([organizationId, channel, externalAccountId])
   @@unique([id, organizationId], map: "channel_accounts_id_org_key")
@@ -463,7 +451,6 @@ model MasterProduct {
   provenanceCandidate  SourcingCandidate?             @relation("SourcingCandidateProvenance")
   channelListings      ChannelListing[]               @relation("ChannelListingOperationalProduct")
   originChannelListing ChannelListing?                @relation("ChannelListingOriginProduct", fields: [originChannelListingId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  processingCosts      ProcessingCost[]
   inventorySkus        SellpiaInventorySku[]          @relation("MasterProductInventorySkus")
   abcEvaluation        MasterProductAbcEvaluation?
   abcGradeHistories    MasterProductAbcGradeHistory[]
@@ -657,9 +644,6 @@ model ChannelListing {
   thumbnails         Thumbnail[]
   thumbnailTrackings ThumbnailTracking[]
   adActions          AdAction[]
-  csRecords          CSRecord[]
-  profitLoss         ProfitLoss[]
-  gradeHistory       GradeHistory[]
 
   // Channels — market-data snapshots (Wave C0)
   channelScrapeSnapshots             ChannelScrapeSnapshot[]

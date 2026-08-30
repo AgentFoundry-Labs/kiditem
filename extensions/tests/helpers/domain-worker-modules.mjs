@@ -31,6 +31,7 @@ export const ORDERS_WORKER_MODULES = [
 
 export const SOURCING_WORKER_MODULES = [
   ...SHARED_MODULES,
+  'url-policy.js',
   '1688-trend-collector.js',
   'live-commerce-collector.js',
   'tiktok-cc-collector.js',
@@ -78,4 +79,4 @@ export function dispatchExternalMessage(listeners, message, sender) {
 
 // 세 확장을 합친 kiditem-os 의 manifest 버전. 개별 확장 버전(0.1.95 / 1.2.x /
 // 2.3.x)을 잇는 값이 아니라 새 확장의 첫 릴리스다.
-export const MERGED_EXTENSION_VERSION = '1.0.22';
+export const MERGED_EXTENSION_VERSION = '1.0.23';

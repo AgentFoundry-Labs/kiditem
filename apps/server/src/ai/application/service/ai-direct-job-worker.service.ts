@@ -44,6 +44,7 @@ export class AiDirectJobWorkerService
   ) {}
 
   onModuleInit(): void {
+    if (!this.config.workerEnabled) return;
     this.stopped = false;
     this.resetBackoff();
     this.schedule(0);

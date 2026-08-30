@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/product-pipeline - Sourcing Content Pipeline
 
 `app/(product-pipeline)/` owns the product content pipeline UI: collected

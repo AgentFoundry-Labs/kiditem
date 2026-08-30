@@ -1,10 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { kstBusinessDate } from '../../../common/kst';
 import {
-  SOURCING_1688_KEYWORD_SEARCH_PORT,
-  type Sourcing1688KeywordSearchPort,
-} from '../port/out/provider/1688-keyword-search.port';
-import {
   SOURCING_NAVER_DATALAB_POPULAR_KEYWORD_PORT,
   SOURCING_NAVER_DATALAB_TREND_PORT,
   SOURCING_NAVER_KEYWORD_RESEARCH_PORT,
@@ -22,7 +18,7 @@ import {
   TREND_COLLECTION_REPOSITORY_PORT,
   type NaverKeywordSnapshotUpsert,
   type NaverPopularKeywordSnapshotUpsert,
-  type Sourcing1688HotProductSnapshotUpsert,
+  type Sourcing1688OfferKeywordObservationInput,
   type ShortsSnapshotUpsert,
   type TiktokCcSnapshotUpsert,
   type TrendCollectionRepositoryPort,
@@ -34,7 +30,17 @@ import {
   DEFAULT_STATIONERY_TOY_TREND_SEEDS,
   DOUYIN_TREND_TOY_STATIONERY_SEEDS,
 } from '../../domain/stationery-toy-trend';
-import type { TrendCollectionPort } from '../port/in/trend-collection.port';
+import {
+  hashCollectionRequest,
+  map1688HotProductsToAuthorizedOutput,
+  mapTrendTypedRecordsToAuthorizedOutput,
+  normalizeCollectionTarget,
+} from './sourcing-collection-mappers';
+import { SourcingCollectionCoordinator } from './sourcing-collection-coordinator.service';
+import type {
+  TrendCollectionControls,
+  TrendCollectionPort,
+} from '../port/in/trend-collection.port';
 
 const TREND_SOURCE_ORDER = ['naver', '1688', 'shorts'] as const;
 export type TrendCollectSource = (typeof TREND_SOURCE_ORDER)[number];
@@ -49,8 +55,6 @@ const NAVER_SEARCHAD_BATCH_SIZE = 5;
 const NAVER_DATALAB_BATCH_SIZE = 50;
 // 검색광고 월검색량을 조회할 키워드 상한(시드 + 인기보드 상위 키워드). 배치 5개 기준 콜 수 제어용.
 const NAVER_KEYWORD_VOLUME_LIMIT = 60;
-const ONE_1688_MAX_RESULTS_PER_SEED = 20;
-const MAX_1688_OFFERS_PER_RUN = 200;
 const MAX_EXTENSION_1688_TARGETS = 20;
 const MAX_TIKTOK_CC_TARGETS = 20;
 const SHORTS_LIMIT = 50;
@@ -138,12 +142,11 @@ export class TrendCollectService implements TrendCollectionPort {
     private readonly datalabTrend: NaverDatalabTrendPort,
     @Inject(SOURCING_NAVER_DATALAB_POPULAR_KEYWORD_PORT)
     private readonly popularKeywords: NaverDatalabPopularKeywordPort,
-    @Inject(SOURCING_1688_KEYWORD_SEARCH_PORT)
-    private readonly keywordSearch1688: Sourcing1688KeywordSearchPort,
     @Inject(SHORTSTREND_TREND_PORT)
     private readonly shortstrend: ShortstrendTrendPort,
     @Inject(TREND_COLLECTION_REPOSITORY_PORT)
     private readonly repository: TrendCollectionRepositoryPort,
+    private readonly collectionCoordinator: SourcingCollectionCoordinator,
   ) {}
 
   listSeeds(organizationId: string): Promise<TrendSeedRow[]> {
@@ -181,15 +184,17 @@ export class TrendCollectService implements TrendCollectionPort {
   ): Promise<Extension1688TrendBatchResult> {
     const capturedAt = new Date();
     const businessDate = kstBusinessDate(capturedAt);
-    const seenOfferIds = new Set<string>();
-    const rows: Sourcing1688HotProductSnapshotUpsert[] = [];
+    const seenKeywordOffers = new Set<string>();
+    const rows: Sourcing1688OfferKeywordObservationInput[] = [];
 
     for (const keywordResult of input.keywords) {
       const sourceKeyword = keywordResult.keyword.trim();
       keywordResult.items.forEach((item, index) => {
         const offerId = item.offerId.trim();
-        if (!offerId || seenOfferIds.has(offerId)) return;
-        seenOfferIds.add(offerId);
+        if (!sourceKeyword || !offerId) return;
+        const identity = `${normalizeCollectionTarget(sourceKeyword)}\u001f${offerId}`;
+        if (seenKeywordOffers.has(identity)) return;
+        seenKeywordOffers.add(identity);
         rows.push({
           organizationId,
           businessDate,
@@ -209,10 +214,24 @@ export class TrendCollectService implements TrendCollectionPort {
       });
     }
 
-    const collected = await this.repository.upsert1688HotProductSnapshots(rows);
+    const execution = await this.collectionCoordinator.execute(
+      collectionRequest({
+        organizationId,
+        sourceKey: '1688.hot_product',
+        targetKey: `extension:${input.runId.trim()}`,
+        idempotencyKey: `extension-1688:${input.runId.trim()}`,
+        requestHash: hashCollectionRequest(input),
+        collectorKey: 'extension-1688-trend',
+        triggerKind: 'extension',
+      }),
+      async ({ permit, checkpoint }) => {
+        await checkpoint();
+        return map1688HotProductsToAuthorizedOutput({ permit, rows });
+      },
+    );
     return {
       businessDate: toDateString(businessDate),
-      collected,
+      collected: collectedFromExecution(execution),
       errors: (input.errors ?? []).map((error) => ({
         keyword: error.keyword.trim(),
         message: error.message.trim(),
@@ -266,10 +285,28 @@ export class TrendCollectService implements TrendCollectionPort {
       });
     });
 
-    const collected = await this.repository.upsertTiktokCcSnapshots(rows);
+    const execution = await this.collectionCoordinator.execute(
+      collectionRequest({
+        organizationId,
+        sourceKey: 'tiktok.creative',
+        targetKey: `${region}:${input.runId.trim()}`,
+        idempotencyKey: `extension-tiktok:${input.runId.trim()}`,
+        requestHash: hashCollectionRequest(input),
+        collectorKey: 'extension-tiktok-creative',
+        triggerKind: 'extension',
+      }),
+      async ({ permit, checkpoint }) => {
+        await checkpoint();
+        return mapTrendTypedRecordsToAuthorizedOutput({
+          permit,
+          typedRecords: rows.map((row) => ({ kind: 'tiktok_creative' as const, row })),
+          qualityReport: { source: 'extension', region },
+        });
+      },
+    );
     return {
       businessDate: toDateString(businessDate),
-      collected,
+      collected: collectedFromExecution(execution),
       errors: (input.errors ?? []).map((error) => ({
         target: error.target.trim(),
         message: error.message.trim(),
@@ -277,7 +314,14 @@ export class TrendCollectService implements TrendCollectionPort {
     };
   }
 
-  async collect(organizationId: string, sources?: TrendCollectSource[]): Promise<TrendCollectResult> {
+  async collect(
+    organizationId: string,
+    sources?: TrendCollectSource[],
+    triggeredByUserId?: string | null,
+    collectionRunKey?: string,
+    signal?: AbortSignal,
+  ): Promise<TrendCollectResult> {
+    signal?.throwIfAborted();
     const capturedAt = new Date();
     const businessDate = kstBusinessDate(capturedAt);
     const requested = normalizeSources(sources);
@@ -287,37 +331,113 @@ export class TrendCollectService implements TrendCollectionPort {
 
     const results: TrendSourceCollectResult[] = [];
     for (const source of requested) {
+      signal?.throwIfAborted();
       if (source === 'naver') {
         results.push(
           await this.safe('naver', () =>
-            this.collectNaver(organizationId, enabledSeeds, businessDate, capturedAt),
+            this.collectNaver(
+              organizationId,
+              enabledSeeds,
+              businessDate,
+              capturedAt,
+              triggeredByUserId ?? null,
+              collectionRunKey,
+              signal,
+              undefined,
+            ),
+            signal,
           ),
         );
       } else if (source === '1688') {
-        results.push(
-          await this.safe('1688', () =>
-            this.collect1688(organizationId, enabledSeeds, businessDate, capturedAt),
-          ),
-        );
+        results.push(browserOwned1688Result());
       } else if (source === 'shorts') {
         results.push(
           await this.safe('shorts', () =>
-            this.collectShorts(organizationId, enabledSeeds, businessDate, capturedAt),
+            this.collectShorts(
+              organizationId,
+              enabledSeeds,
+              businessDate,
+              capturedAt,
+              triggeredByUserId ?? null,
+              collectionRunKey,
+              signal,
+              undefined,
+            ),
+            signal,
           ),
         );
       }
     }
 
-    return { businessDate: toDateString(businessDate), results };
+    const businessDateString = toDateString(businessDate);
+    return { businessDate: businessDateString, results };
+  }
+
+  async collectSource(
+    organizationId: string,
+    source: TrendCollectSource,
+    triggeredByUserId?: string | null,
+    collectionRunKey?: string,
+    controls: TrendCollectionControls = {},
+  ): Promise<TrendSourceCollectResult & { businessDate: string }> {
+    controls.signal?.throwIfAborted();
+    const capturedAt = new Date();
+    const businessDate = kstBusinessDate(capturedAt);
+    await controls.checkpoint?.({
+      stage: 'collecting_source',
+      progressCurrent: 0,
+      progressTotal: 1,
+    });
+    controls.signal?.throwIfAborted();
+    const seeds = await this.repository.listSeeds(organizationId);
+    controls.signal?.throwIfAborted();
+    const enabledSeeds = seeds.filter((seed) => seed.enabled);
+    const result = await this.safe(
+      source,
+      () => source === 'naver'
+        ? this.collectNaver(
+            organizationId,
+            enabledSeeds,
+            businessDate,
+            capturedAt,
+            triggeredByUserId ?? null,
+            collectionRunKey,
+            controls.signal,
+            controls.checkpoint,
+          )
+        : source === '1688'
+          ? Promise.resolve(browserOwned1688Result())
+          : this.collectShorts(
+              organizationId,
+              enabledSeeds,
+              businessDate,
+              capturedAt,
+              triggeredByUserId ?? null,
+              collectionRunKey,
+              controls.signal,
+              controls.checkpoint,
+            ),
+      controls.signal,
+    );
+    controls.signal?.throwIfAborted();
+    await controls.checkpoint?.({
+      stage: 'finalizing_source',
+      progressCurrent: 1,
+      progressTotal: 1,
+    });
+    controls.signal?.throwIfAborted();
+    return { businessDate: toDateString(businessDate), ...result };
   }
 
   private async safe(
     source: TrendCollectSource,
     fn: () => Promise<TrendSourceCollectResult>,
+    signal?: AbortSignal,
   ): Promise<TrendSourceCollectResult> {
     try {
       return await fn();
     } catch (error) {
+      signal?.throwIfAborted();
       return { source, ok: false, collected: 0, error: errorMessage(error) };
     }
   }
@@ -327,42 +447,104 @@ export class TrendCollectService implements TrendCollectionPort {
     enabledSeeds: TrendSeedRow[],
     businessDate: Date,
     capturedAt: Date,
+    triggeredByUserId: string | null,
+    collectionRunKey?: string,
+    signal?: AbortSignal,
+    operationCheckpoint?: TrendCollectionControls['checkpoint'],
   ): Promise<TrendSourceCollectResult> {
     const errors: string[] = [];
-    let collected = 0;
+    const execution = await this.collectionCoordinator.execute(
+      collectionRequest({
+        organizationId,
+        sourceKey: 'naver.trend',
+        targetKey: toDateString(businessDate),
+        idempotencyKey: collectionIdempotencyKey(
+          collectionRunKey,
+          'naver',
+          businessDate,
+          triggeredByUserId,
+        ),
+        requestHash: hashCollectionRequest({
+          source: 'naver',
+          seeds: enabledSeeds.map((seed) => seed.keyword),
+          businessDate: toDateString(businessDate),
+        }),
+        collectorKey: 'trend-naver',
+        triggerKind: triggeredByUserId ? 'manual' : 'schedule',
+        triggeredByUserId,
+      }),
+      async ({ permit, checkpoint }) => {
+        let popularRows: NaverPopularKeywordSnapshotUpsert[] = [];
+        let keywordRows: NaverKeywordSnapshotUpsert[] = [];
+        await checkpoint();
+        signal?.throwIfAborted();
+        try {
+          await operationCheckpoint?.({
+            stage: 'collecting_naver_popular',
+            progressCurrent: 0,
+            progressTotal: 1,
+          });
+          signal?.throwIfAborted();
+          popularRows = await this.buildPopularBoardRows(
+            organizationId,
+            businessDate,
+            capturedAt,
+            signal,
+          );
+          signal?.throwIfAborted();
+          await operationCheckpoint?.({
+            stage: 'collecting_naver_popular',
+            progressCurrent: 1,
+            progressTotal: 1,
+          });
+        } catch (error) {
+          signal?.throwIfAborted();
+          errors.push(`naver-popular: ${errorMessage(error)}`);
+        }
 
-    // 1) DataLab 인기보드(신규 키워드 원천)를 먼저 수집한다.
-    let popularRows: NaverPopularKeywordSnapshotUpsert[] = [];
-    try {
-      popularRows = await this.buildPopularBoardRows(organizationId, businessDate, capturedAt);
-      collected += await this.repository.replaceNaverPopularKeywordSnapshots(popularRows);
-    } catch (error) {
-      errors.push(`naver-popular: ${errorMessage(error)}`);
-    }
-
-    // 2) 검색광고 월검색량 — 설정 시드 + 인기보드 상위 키워드(신규 키워드 카테고리)를 함께
-    //    조회해 신규 키워드도 검색량순 정렬이 가능하도록 볼륨을 적재한다.
-    try {
-      const seedKeywords = enabledSeeds
-        .filter((seed) => seed.sources.includes('naver'))
-        .map((seed) => seed.keyword);
-      const popularKeywords = [...popularRows]
-        .sort((a, b) => a.rank - b.rank)
-        .map((row) => row.keyword);
-      const keywords = dedupeKeywords([...seedKeywords, ...popularKeywords]).slice(
-        0,
-        NAVER_KEYWORD_VOLUME_LIMIT,
-      );
-      const rows = await this.buildNaverKeywordRows(organizationId, keywords, businessDate, capturedAt);
-      collected += await this.repository.upsertNaverKeywordSnapshots(rows);
-    } catch (error) {
-      errors.push(`naver-keywords: ${errorMessage(error)}`);
-    }
+        await checkpoint();
+        signal?.throwIfAborted();
+        try {
+          const seedKeywords = enabledSeeds
+            .filter((seed) => seed.sources.includes('naver'))
+            .map((seed) => seed.keyword);
+          const popularKeywords = [...popularRows]
+            .sort((a, b) => a.rank - b.rank)
+            .map((row) => row.keyword);
+          const keywords = dedupeKeywords([...seedKeywords, ...popularKeywords]).slice(
+            0,
+            NAVER_KEYWORD_VOLUME_LIMIT,
+          );
+          keywordRows = await this.buildNaverKeywordRows(
+            organizationId,
+            keywords,
+            businessDate,
+            capturedAt,
+            signal,
+            operationCheckpoint,
+          );
+        } catch (error) {
+          signal?.throwIfAborted();
+          errors.push(`naver-keywords: ${errorMessage(error)}`);
+        }
+        await checkpoint();
+        signal?.throwIfAborted();
+        return mapTrendTypedRecordsToAuthorizedOutput({
+          permit,
+          typedRecords: [
+            ...popularRows.map((row) => ({ kind: 'naver_popular_keyword' as const, row })),
+            ...keywordRows.map((row) => ({ kind: 'naver_keyword' as const, row })),
+          ],
+          rejectedCount: errors.length,
+          qualityReport: { source: 'naver', partialErrors: errors.length },
+        });
+      },
+    );
 
     return {
       source: 'naver',
       ok: errors.length === 0,
-      collected,
+      collected: collectedFromExecution(execution),
       error: errors.length ? errors.join('; ') : undefined,
     };
   }
@@ -372,6 +554,8 @@ export class TrendCollectService implements TrendCollectionPort {
     keywords: string[],
     businessDate: Date,
     capturedAt: Date,
+    signal?: AbortSignal,
+    operationCheckpoint?: TrendCollectionControls['checkpoint'],
   ): Promise<NaverKeywordSnapshotUpsert[]> {
     if (keywords.length === 0) return [];
 
@@ -394,11 +578,29 @@ export class TrendCollectService implements TrendCollectionPort {
       byNormalizedKeyword.set(normalizeMatch(keyword), rows[index]);
     });
 
-    for (const chunk of chunkArray(keywords, NAVER_SEARCHAD_BATCH_SIZE)) {
-      const result = await this.keywordResearch.searchRelatedKeywords({
-        seedKeywords: chunk,
-        maxResults: 100,
-      });
+    const searchAdChunks = chunkArray(keywords, NAVER_SEARCHAD_BATCH_SIZE);
+    const searchAdResults = await mapWithConcurrency(
+      searchAdChunks,
+      2,
+      async (chunk, index) => {
+        signal?.throwIfAborted();
+        await operationCheckpoint?.({
+          stage: 'collecting_naver_searchad',
+          progressCurrent: index,
+          progressTotal: searchAdChunks.length,
+        });
+        signal?.throwIfAborted();
+        const result = await this.keywordResearch.searchRelatedKeywords({
+          seedKeywords: chunk,
+          maxResults: 100,
+          signal,
+        });
+        signal?.throwIfAborted();
+        return result;
+      },
+      signal,
+    );
+    for (const result of searchAdResults) {
       for (const item of result.items ?? []) {
         const row = byNormalizedKeyword.get(normalizeMatch(item.keyword));
         if (!row) continue;
@@ -409,12 +611,38 @@ export class TrendCollectService implements TrendCollectionPort {
         row.averageAdRank = toInt(item.averageAdRank);
       }
     }
+    await operationCheckpoint?.({
+      stage: 'collecting_naver_searchad',
+      progressCurrent: searchAdChunks.length,
+      progressTotal: searchAdChunks.length,
+    });
+    signal?.throwIfAborted();
 
     // 데이터랩 트렌드는 검색광고 월검색량을 보강(enrich)하는 best-effort 단계다.
     // 데이터랩이 실패해도 이미 채워진 SearchAd 데이터는 버리지 않고 저장한다.
     try {
-      for (const chunk of chunkArray(keywords, NAVER_DATALAB_BATCH_SIZE)) {
-        const result = await this.datalabTrend.compareSearchTrends({ keywords: chunk });
+      const datalabChunks = chunkArray(keywords, NAVER_DATALAB_BATCH_SIZE);
+      const datalabResults = await mapWithConcurrency(
+        datalabChunks,
+        2,
+        async (chunk, index) => {
+          signal?.throwIfAborted();
+          await operationCheckpoint?.({
+            stage: 'collecting_naver_datalab',
+            progressCurrent: index,
+            progressTotal: datalabChunks.length,
+          });
+          signal?.throwIfAborted();
+          const result = await this.datalabTrend.compareSearchTrends({
+            keywords: chunk,
+            signal,
+          });
+          signal?.throwIfAborted();
+          return result;
+        },
+        signal,
+      );
+      for (const result of datalabResults) {
         for (const item of result.items ?? []) {
           const row = byNormalizedKeyword.get(normalizeMatch(item.keyword));
           if (!row) continue;
@@ -422,7 +650,14 @@ export class TrendCollectService implements TrendCollectionPort {
           row.trendDelta = roundOrNull(item.trendDelta);
         }
       }
+      await operationCheckpoint?.({
+        stage: 'collecting_naver_datalab',
+        progressCurrent: datalabChunks.length,
+        progressTotal: datalabChunks.length,
+      });
+      signal?.throwIfAborted();
     } catch {
+      signal?.throwIfAborted();
       // 트렌드 보강 실패는 무시(검색량 스냅샷은 유지). 소스별 결과는 상위에서 집계.
     }
 
@@ -433,10 +668,14 @@ export class TrendCollectService implements TrendCollectionPort {
     organizationId: string,
     businessDate: Date,
     capturedAt: Date,
+    signal?: AbortSignal,
   ): Promise<NaverPopularKeywordSnapshotUpsert[]> {
+    signal?.throwIfAborted();
     const result = await this.popularKeywords.searchPopularKeywords({
       boardKeys: DEFAULT_POPULAR_BOARD_KEYS,
+      signal,
     });
+    signal?.throwIfAborted();
 
     const rows: NaverPopularKeywordSnapshotUpsert[] = [];
     const seen = new Set<string>();
@@ -464,95 +703,80 @@ export class TrendCollectService implements TrendCollectionPort {
     return rows;
   }
 
-  private async collect1688(
-    organizationId: string,
-    enabledSeeds: TrendSeedRow[],
-    businessDate: Date,
-    capturedAt: Date,
-  ): Promise<TrendSourceCollectResult> {
-    const seeds = collectionSeedsFor(enabledSeeds, '1688');
-    const rows: Sourcing1688HotProductSnapshotUpsert[] = [];
-    const seenOfferIds = new Set<string>();
-    const errors: string[] = [];
-
-    for (const seed of seeds) {
-      if (rows.length >= MAX_1688_OFFERS_PER_RUN) break;
-      const keyword = seed.keywordCn?.trim() || seed.keyword;
-
-      let items;
-      try {
-        const result = await this.keywordSearch1688.searchByKeyword({
-          keyword,
-          maxResults: ONE_1688_MAX_RESULTS_PER_SEED,
-        });
-        items = [...(result.items ?? [])]
-          .filter((item) => item && item.offerId)
-          .sort((a, b) => (b.monthlySales ?? 0) - (a.monthlySales ?? 0));
-      } catch (error) {
-        const message = errorMessage(error);
-        errors.push(`${seed.keyword}: ${message}`);
-        if (isBlocking1688CollectionError(message)) break;
-        continue;
-      }
-
-      if (items.length === 0) {
-        errors.push(`${seed.keyword}: 1688 검색 결과 0건`);
-        continue;
-      }
-
-      items.forEach((item, index) => {
-        if (rows.length >= MAX_1688_OFFERS_PER_RUN) return;
-        const offerId = item.offerId as string;
-        if (seenOfferIds.has(offerId)) return;
-        seenOfferIds.add(offerId);
-        rows.push({
-          organizationId,
-          businessDate,
-          offerId,
-          sourceKeyword: seed.keyword,
-          rank: index + 1,
-          title: item.title ?? null,
-          priceCny: item.priceCny ?? null,
-          monthlySales: toInt(item.monthlySales),
-          repurchaseRate: item.repurchaseRate ?? null,
-          tradeScore: item.tradeScore == null ? null : String(item.tradeScore),
-          supplierName: item.supplierName ?? null,
-          imageUrl: item.imageUrl ?? null,
-          sourceUrl: item.sourceUrl ?? null,
-          capturedAt,
-        });
-      });
-    }
-
-    const collected = await this.repository.upsert1688HotProductSnapshots(rows);
-    return {
-      source: '1688',
-      ok: errors.length === 0,
-      collected,
-      error: errors.length ? errors.join('; ') : undefined,
-    };
-  }
-
   private async collectShorts(
     organizationId: string,
     enabledSeeds: TrendSeedRow[],
     businessDate: Date,
     capturedAt: Date,
+    triggeredByUserId: string | null,
+    collectionRunKey?: string,
+    signal?: AbortSignal,
+    operationCheckpoint?: TrendCollectionControls['checkpoint'],
   ): Promise<TrendSourceCollectResult> {
     const seeds = collectionSeedsFor(enabledSeeds, 'shorts');
-    const result = await this.shortstrend.fetchTrending({
-      keywords: seeds.map((seed) => seed.keyword),
-      limit: SHORTS_LIMIT,
-      publishedWithinDays: SHORTS_COLLECTION_WINDOW_DAYS,
-    });
-
-    if (result.error) {
-      return { source: 'shorts', ok: false, collected: 0, error: result.error };
-    }
-
-    const rows = buildShortsRows(organizationId, result.items ?? [], businessDate, capturedAt);
-    const collected = await this.repository.upsertShortsSnapshots(rows);
-    return { source: 'shorts', ok: true, collected };
+    let sourceError: string | undefined;
+    const execution = await this.collectionCoordinator.execute(
+      collectionRequest({
+        organizationId,
+        sourceKey: 'shortstrend.trend',
+        targetKey: toDateString(businessDate),
+        idempotencyKey: collectionIdempotencyKey(
+          collectionRunKey,
+          'shorts',
+          businessDate,
+          triggeredByUserId,
+        ),
+        requestHash: hashCollectionRequest({
+          source: 'shorts',
+          keywords: seeds.map((seed) => seed.keyword),
+          businessDate: toDateString(businessDate),
+        }),
+        collectorKey: 'trend-shortstrend',
+        triggerKind: triggeredByUserId ? 'manual' : 'schedule',
+        triggeredByUserId,
+      }),
+      async ({ permit, checkpoint }) => {
+        await checkpoint();
+        signal?.throwIfAborted();
+        await operationCheckpoint?.({
+          stage: 'collecting_shorts',
+          progressCurrent: 0,
+          progressTotal: 1,
+        });
+        signal?.throwIfAborted();
+        const result = await this.shortstrend.fetchTrending({
+          keywords: seeds.map((seed) => seed.keyword),
+          limit: SHORTS_LIMIT,
+          publishedWithinDays: SHORTS_COLLECTION_WINDOW_DAYS,
+          signal,
+        });
+        signal?.throwIfAborted();
+        await operationCheckpoint?.({
+          stage: 'collecting_shorts',
+          progressCurrent: 1,
+          progressTotal: 1,
+        });
+        if (result.error) {
+          sourceError = result.error;
+          return mapTrendTypedRecordsToAuthorizedOutput({
+            permit,
+            typedRecords: [],
+            rejectedCount: 1,
+            qualityReport: { source: 'shorts', error: sourceError },
+          });
+        }
+        await checkpoint();
+        signal?.throwIfAborted();
+        const rows = buildShortsRows(organizationId, result.items ?? [], businessDate, capturedAt);
+        return mapTrendTypedRecordsToAuthorizedOutput({
+          permit,
+          typedRecords: rows.map((row) => ({ kind: 'shorts' as const, row })),
+          qualityReport: { source: 'shorts' },
+        });
+      },
+    );
+    if (sourceError) return { source: 'shorts', ok: false, collected: 0, error: sourceError };
+    return { source: 'shorts', ok: true, collected: collectedFromExecution(execution) };
   }
 }
 
@@ -586,10 +810,6 @@ function collectionSeedsFor(
     result.push(seed);
   }
   return result;
-}
-
-function isBlocking1688CollectionError(message: string): boolean {
-  return /로그인|슬라이더|검증|USER_VALIDATE|verification|검색 결과가 0건/i.test(message);
 }
 
 function buildShortsRows(
@@ -639,6 +859,34 @@ function chunkArray<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+  signal?: AbortSignal,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (true) {
+      signal?.throwIfAborted();
+      const index = nextIndex;
+      if (index >= items.length) return;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+      signal?.throwIfAborted();
+    }
+  };
+  await Promise.all(
+    Array.from(
+      { length: Math.min(Math.max(1, Math.floor(concurrency)), items.length) },
+      () => worker(),
+    ),
+  );
+  return results;
+}
+
 function normalizeMatch(value: string): string {
   return value.replace(/\s+/g, '').toUpperCase();
 }
@@ -685,6 +933,57 @@ function optionalText(value: string | null | undefined): string | null {
 
 function toDateString(date: Date): string {
   return date.toISOString().slice(0, 10);
+}
+
+function collectionRequest(input: {
+  organizationId: string;
+  sourceKey: string;
+  targetKey: string;
+  idempotencyKey: string;
+  requestHash: string;
+  collectorKey: string;
+  triggerKind: 'manual' | 'schedule' | 'extension' | 'bootstrap' | 'retry';
+  triggeredByUserId?: string | null;
+}) {
+  return {
+    organizationId: input.organizationId,
+    sourceKey: input.sourceKey,
+    scopeKey: 'default',
+    targetKey: normalizeCollectionTarget(input.targetKey),
+    idempotencyKey: input.idempotencyKey,
+    requestHash: input.requestHash,
+    collectorKey: input.collectorKey,
+    collectorVersion: '2026-08-08',
+    triggerKind: input.triggerKind,
+    triggeredByUserId: input.triggeredByUserId ?? null,
+    leaseDurationMs: 120_000,
+  };
+}
+
+function collectionIdempotencyKey(
+  collectionRunKey: string | undefined,
+  source: TrendCollectSource,
+  businessDate: Date,
+  triggeredByUserId: string | null,
+): string {
+  const prefix = collectionRunKey?.trim() || `trend:${triggeredByUserId ?? 'schedule'}:${toDateString(businessDate)}`;
+  return `${prefix}:${source}`;
+}
+
+function collectedFromExecution(execution: {
+  kind: 'existing' | 'committed';
+  acceptedCount?: number;
+}): number {
+  return execution.kind === 'committed' ? execution.acceptedCount ?? 0 : 0;
+}
+
+function browserOwned1688Result(): TrendSourceCollectResult {
+  return {
+    source: '1688',
+    ok: false,
+    collected: 0,
+    error: '1688_browser_operation_required',
+  };
 }
 
 function errorMessage(error: unknown): string {

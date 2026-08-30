@@ -1,12 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  SourcingWorkspaceSnapshotRepositoryPort,
-  SourcingWorkspaceSnapshotRow,
-  SourcingWorkspaceSnapshotScope,
-} from '../../port/out/repository/sourcing-workspace-snapshot.repository.port';
-import type {
-  TrendCollectionRepositoryPort,
-} from '../../port/out/repository/trend-collection.repository.port';
+import type { TrendCollectionRepositoryPort } from '../../port/out/repository/trend-collection.repository.port';
 import { SourcingMarketDiscoveryService } from '../sourcing-market-discovery.service';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
@@ -15,16 +8,16 @@ const CAPTURED_AT = new Date('2026-07-15T01:00:00.000Z');
 
 describe('SourcingMarketDiscoveryService', () => {
   let trends: TrendCollectionRepositoryPort;
-  let snapshots: SourcingWorkspaceSnapshotRepositoryPort;
+  let recommendations: ReturnType<typeof recommendationService>;
   let service: SourcingMarketDiscoveryService;
 
   beforeEach(() => {
     trends = trendRepository();
-    snapshots = snapshotRepository();
-    service = new SourcingMarketDiscoveryService(trends, snapshots);
+    recommendations = recommendationService();
+    service = new SourcingMarketDiscoveryService(trends, recommendations as never);
   });
 
-  it('replays persisted 30-day evidence through the existing market models', async () => {
+  it('replays typed trend facts and the canonical recommendation run without workspace JSON', async () => {
     const result = await service.discover({
       organizationId: ORGANIZATION_ID,
       keyword: '실리콘 식판',
@@ -35,18 +28,11 @@ describe('SourcingMarketDiscoveryService', () => {
       organizationId: ORGANIZATION_ID,
       days: 30,
     });
-    expect(snapshots.listRecent).toHaveBeenCalledTimes(2);
-    expect(snapshots.listRecent).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recommendations.latest).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
-      scope: 'today_recommendations',
-      limit: 30,
-    }));
-    expect(snapshots.listRecent).toHaveBeenCalledWith(expect.objectContaining({
-      organizationId: ORGANIZATION_ID,
-      scope: '1688_new_products',
-      limit: 30,
-    }));
-
+      surface: 'home',
+      limit: 100,
+    });
     expect(result.mode).toBe('replay');
     expect(result.windowDays).toBe(30);
     expect(result.confidence).toBe(1);
@@ -60,36 +46,24 @@ describe('SourcingMarketDiscoveryService', () => {
     expect(result.coupangMatches[0]).toEqual(expect.objectContaining({
       productId: 'coupang-product-1',
       productName: '실리콘 식판 흡착 세트',
-      score: expect.any(Number),
-      components: expect.objectContaining({ marketReaction: expect.any(Number) }),
     }));
     expect(result.supplierMatches[0]).toEqual(expect.objectContaining({
       offerId: 'workspace-offer-1',
       sourceUrl: 'https://detail.1688.com/offer/1688001.html',
       matchedCoupang: expect.objectContaining({ productId: 'coupang-product-1' }),
     }));
-    expect(result.scoredOpportunities[0]).toEqual(expect.objectContaining({
-      pipeline: '1688_first_new_product_validation',
-      score: result.supplierMatches[0].score,
-      components: result.supplierMatches[0].components,
-    }));
     expect(result.recommendations).toHaveLength(1);
     expect(result.recommendations[0]).toEqual(expect.objectContaining({
-      id: 'sourcing-recommendation:workspace-offer-1:coupang-product-1',
       productName: '儿童硅胶吸盘餐盘 실리콘 식판',
-      score: expect.objectContaining({
-        score: result.supplierMatches[0].score,
-        components: result.supplierMatches[0].components,
-      }),
       coupangEvidence: expect.objectContaining({ productId: 'coupang-product-1' }),
       supplierEvidence: expect.objectContaining({ supplierName: '이우 유아식기 공장' }),
     }));
   });
 
-  it('returns empty arrays and explicit gaps instead of synthetic fallback data', async () => {
+  it('returns explicit gaps instead of creating a synthetic fallback when the run is unavailable', async () => {
     trends = trendRepository({ empty: true });
-    snapshots = snapshotRepository({ empty: true });
-    service = new SourcingMarketDiscoveryService(trends, snapshots);
+    recommendations = recommendationService({ unavailable: true });
+    service = new SourcingMarketDiscoveryService(trends, recommendations as never);
 
     const result = await service.discover({
       organizationId: ORGANIZATION_ID,
@@ -116,8 +90,8 @@ describe('SourcingMarketDiscoveryService', () => {
 
   it('does not create a recommendation from supplier evidence without Coupang evidence', async () => {
     trends = trendRepository({ empty: true });
-    snapshots = snapshotRepository({ supplierOnly: true });
-    service = new SourcingMarketDiscoveryService(trends, snapshots);
+    recommendations = recommendationService({ supplierOnly: true });
+    service = new SourcingMarketDiscoveryService(trends, recommendations as never);
 
     const result = await service.discover({
       organizationId: ORGANIZATION_ID,
@@ -139,10 +113,6 @@ function trendRepository(input: { empty?: boolean } = {}): TrendCollectionReposi
     upsertSeedByKeyword: vi.fn(),
     updateSeed: vi.fn(),
     deleteSeed: vi.fn(),
-    upsertNaverKeywordSnapshots: vi.fn(async () => 0),
-    replaceNaverPopularKeywordSnapshots: vi.fn(async () => 0),
-    upsert1688HotProductSnapshots: vi.fn(async () => 0),
-    upsertShortsSnapshots: vi.fn(async () => 0),
     findNaverKeywordHistory: vi.fn(async () => empty ? [] : [{
       keyword: '실리콘 식판',
       businessDate: BUSINESS_DATE,
@@ -197,108 +167,123 @@ function trendRepository(input: { empty?: boolean } = {}): TrendCollectionReposi
   };
 }
 
-function snapshotRepository(input: { empty?: boolean; supplierOnly?: boolean } = {}): SourcingWorkspaceSnapshotRepositoryPort {
+function recommendationService(input: { unavailable?: boolean; supplierOnly?: boolean } = {}) {
+  const items = input.unavailable
+    ? []
+    : [supplierItem(), ...(input.supplierOnly ? [] : [coupangItem()])];
   return {
-    find: vi.fn(async () => null),
-    listRecent: vi.fn(async ({ scope }) => {
-      if (input.empty) return [];
-      if (scope === 'today_recommendations') {
-        return input.supplierOnly ? [] : [todayRecommendationSnapshot()];
-      }
-      if (scope === '1688_new_products') return [supplierSnapshot(input.supplierOnly === true)];
-      return [];
-    }),
-    upsert: vi.fn(),
+    latest: vi.fn(async () => input.unavailable
+      ? {
+          status: 'unavailable',
+          generatedAt: CAPTURED_AT.toISOString(),
+          lastSuccessfulAt: null,
+          freshUntil: null,
+          operationId: null,
+          warnings: [],
+          error: { code: 'RECOMMENDATION_RUN_MISSING', retryable: true, message: 'missing' },
+          data: null,
+        }
+      : {
+          status: 'ready',
+          generatedAt: CAPTURED_AT.toISOString(),
+          lastSuccessfulAt: CAPTURED_AT.toISOString(),
+          freshUntil: null,
+          operationId: null,
+          warnings: [],
+          error: null,
+          data: {
+            runId: '00000000-0000-4000-8000-000000000090',
+            items,
+            nextCursor: null,
+          },
+        }),
   };
 }
 
-function todayRecommendationSnapshot(): SourcingWorkspaceSnapshotRow {
-  return row('today_recommendations', {
-    version: 1,
-    result: {
-      rows: [{
-        productId: 'coupang-product-1',
-        itemId: 'item-1',
-        vendorItemId: 'vendor-1',
-        productName: '실리콘 식판 흡착 세트',
-        primaryKeyword: '실리콘 식판',
-        keywords: ['실리콘 식판', '유아식기'],
-        score: 88,
-        salesLast3d: 284,
-        salesLast28d: 900,
-        pvLast3d: 2400,
-        ratingCount: 52,
-        salePrice: 15900,
-        marketReactionSignal: 72,
-        newEntrySignal: 16,
-        salesDelta: 18,
-        reviewDelta: 2,
-        wholesaleOfferCount: 4,
-        wholesaleMatchScore: 82,
-        supplierScore: 77,
-        risks: [],
-      }],
-      productSnapshots: [],
-    },
-  });
-}
-
-function supplierSnapshot(supplierOnly: boolean): SourcingWorkspaceSnapshotRow {
-  return row('1688_new_products', {
-    version: 1,
-    input: { keyword: '실리콘 식판' },
-    result: {
-      keyword: '실리콘 식판',
-      items: [{
-        offerId: 'workspace-offer-1',
-        title: supplierOnly ? '실리콘 식판 공급 상품' : '儿童硅胶吸盘餐盘 실리콘 식판',
-        sourceUrl: 'https://detail.1688.com/offer/1688001.html',
-        imageUrl: 'https://example.test/1688.png',
-        keyword: '실리콘 식판',
-        priceCny: 16,
-        monthlySales: 920,
-        tradeScore: 86,
-        repurchaseRate: '39%',
-        supplierName: '이우 유아식기 공장',
-        shippingFulfillmentRate: '99%',
-        shippingPickupRate: '98%',
-        landedCostKrw: 6200,
-        estimatedProfitKrw: 6100,
-        estimatedMarginRate: 38,
-        newProductSignal: 92,
-        ...(supplierOnly ? {} : {
-          imageMatchScore: 93,
-          matchedCoupang: {
-            productId: 'coupang-product-1',
-            productName: '실리콘 식판 흡착 세트',
-            primaryKeyword: '실리콘 식판',
-            keywords: ['실리콘 식판', '유아식기'],
-            score: 88,
-            grade: 'A',
-            salePrice: 15900,
-            salesLast3d: 284,
-            salesLast28d: 900,
-            reviews: 52,
-            marketReaction: 96,
-            threeDayValidation: 100,
-          },
-        }),
-      }],
-    },
-  });
-}
-
-function row(
-  scope: SourcingWorkspaceSnapshotScope,
-  payload: Record<string, unknown>,
-): SourcingWorkspaceSnapshotRow {
+function supplierItem() {
   return {
-    id: `${scope}-snapshot`,
-    organizationId: ORGANIZATION_ID,
-    scope,
-    businessDate: BUSINESS_DATE,
-    payload,
-    createdAt: BUSINESS_DATE,
-    updatedAt: CAPTURED_AT,
+    itemKey: 'a'.repeat(64),
+    sourcePlatform: '1688' as const,
+    externalOfferId: 'workspace-offer-1',
+    variantKey: '',
+    rank: 1,
+    score: 86,
+    grade: 'A' as const,
+    baselineAction: 'order' as const,
+    reasonCodes: ['margin_positive'],
+    riskCodes: [],
+    displayName: '儿童硅胶吸盘餐盘 실리콘 식판',
+    keyword: '실리콘 식판',
+    isNewKeyword: false,
+    imageUrl: 'https://example.test/1688.png',
+    sourceUrl: 'https://detail.1688.com/offer/1688001.html',
+    overseasPriceCny: 16,
+    overseasPriceKrw: null,
+    salePriceKrw: null,
+    supplierName: '이우 유아식기 공장',
+    monthlySales: null,
+    repurchaseRate: null,
+    tradeScore: null,
+    minOrderQuantity: null,
+    estimatedMarginRate: 38,
+    estimatedProfitKrw: null,
+    shippingLabel: null,
+    rating: null,
+    tags: [],
+    sourceKeywords: ['실리콘 식판'],
+    offerObservationIds: ['00000000-0000-4000-8000-000000000011'],
+    scoreComponents: { margin: 80, demand: 80, competition: 50, momentum: 0, supplier: 80 },
+    evidenceObservationIds: ['00000000-0000-4000-8000-000000000012'],
+    coupang: null,
+    interest: null,
+    contributingSources: ['supply_1688_new'],
+  };
+}
+
+function coupangItem() {
+  return {
+    itemKey: 'b'.repeat(64),
+    sourcePlatform: 'coupang' as const,
+    externalOfferId: 'coupang-product-1',
+    variantKey: 'item-1',
+    rank: 2,
+    score: 88,
+    grade: 'A' as const,
+    baselineAction: 'order' as const,
+    reasonCodes: ['coupang_sales_observed'],
+    riskCodes: [],
+    displayName: '실리콘 식판 흡착 세트',
+    keyword: '실리콘 식판',
+    isNewKeyword: false,
+    imageUrl: null,
+    sourceUrl: null,
+    overseasPriceCny: null,
+    overseasPriceKrw: null,
+    salePriceKrw: 15900,
+    supplierName: null,
+    monthlySales: null,
+    repurchaseRate: null,
+    tradeScore: null,
+    minOrderQuantity: null,
+    estimatedMarginRate: null,
+    estimatedProfitKrw: null,
+    shippingLabel: null,
+    rating: null,
+    tags: [],
+    sourceKeywords: ['실리콘 식판'],
+    offerObservationIds: [],
+    scoreComponents: { sales: 90, views: 80, rating: 94, reviews: 40 },
+    evidenceObservationIds: ['00000000-0000-4000-8000-000000000013'],
+    coupang: {
+      productId: 'coupang-product-1',
+      productName: '실리콘 식판 흡착 세트',
+      salePriceKrw: 15900,
+      ratingCount: 52,
+      ratingAverage: 4.7,
+      viewsLast28d: 2400,
+      salesLast28d: 900,
+    },
+    interest: null,
+    contributingSources: ['coupang_competitor'],
   };
 }

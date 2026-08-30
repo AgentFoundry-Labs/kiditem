@@ -1,6 +1,7 @@
 import { AppException } from '@kiditem/shared/server-errors';
 import { ErrorCodes } from '@kiditem/shared/errors';
 import { BadRequestException, Inject, Injectable, Optional } from '@nestjs/common';
+import { canonicalOwnerInputHash } from '../../../common/owner-idempotency-key';
 import {
   SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
   type SellpiaInventoryFreshnessGatePort,
@@ -42,6 +43,7 @@ implements PurchaseOrderSubmissionPort {
     input: SubmitPurchaseOrderInput,
   ): Promise<SubmitPurchaseOrderResult> {
     const idempotencyKey = cleanKey(input.idempotencyKey);
+    const requestHash = requiredCanonicalRequestHash(input);
     await this.transaction.prepareDraft({
       organizationId: input.organizationId,
       purchaseOrderId: input.purchaseOrderId,
@@ -74,6 +76,7 @@ implements PurchaseOrderSubmissionPort {
       purchaseOrderId: input.purchaseOrderId,
       sellpiaInventorySkuIds,
       idempotencyKey,
+      requestHash,
       userId: input.userId,
       freshnessFence: gate.fence,
       freshnessLastVerifiedAt: gate.lastVerifiedAt,
@@ -167,6 +170,30 @@ function cleanKey(value: string): string {
     );
   }
   return key;
+}
+
+function requiredCanonicalRequestHash(input: SubmitPurchaseOrderInput): string {
+  const businessInput = {
+    purchaseOrderId: input.purchaseOrderId,
+    ...(input.externalOrderPlatform !== undefined && {
+      externalOrderPlatform: input.externalOrderPlatform,
+    }),
+    ...(input.externalOrderId !== undefined && {
+      externalOrderId: input.externalOrderId,
+    }),
+    ...(input.externalOrderUrl !== undefined && {
+      externalOrderUrl: input.externalOrderUrl,
+    }),
+  };
+  if (
+    !/^[a-f0-9]{64}$/.test(input.requestHash)
+    || input.requestHash !== canonicalOwnerInputHash(businessInput)
+  ) {
+    throw new BadRequestException(
+      'Purchase submission request hash must match canonical input.',
+    );
+  }
+  return input.requestHash;
 }
 
 function errorMessage(error: unknown): string {

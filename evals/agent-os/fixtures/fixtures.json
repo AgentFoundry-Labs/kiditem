@@ -1,0 +1,67 @@
+[
+  {
+    "id": "sourcing.recommendation.v1",
+    "resetProfile": "sourcing.recommendation.v1",
+    "disposable": true,
+    "variables": []
+  },
+  {
+    "id": "sourcing.candidate-ingest.v1",
+    "resetProfile": "sourcing.candidate-ingest.v1",
+    "disposable": true,
+    "variables": ["supplierUrl"]
+  },
+  {
+    "id": "products.listing-generation.v1",
+    "resetProfile": "products.listing-generation.v1",
+    "disposable": true,
+    "variables": ["candidateRef"]
+  },
+  {
+    "id": "runtime.two-turn-restart.v1",
+    "resetProfile": "runtime.two-turn-restart.v1",
+    "disposable": true,
+    "variables": []
+  },
+  {
+    "id": "runtime.general-chat.v1",
+    "resetProfile": "runtime.general-chat.v1",
+    "disposable": true,
+    "variables": []
+  },
+  {
+    "id": "sourcing.existing-candidate.v1",
+    "resetProfile": "sourcing.existing-candidate.v1",
+    "disposable": true,
+    "variables": ["supplierUrl"]
+  },
+  {
+    "id": "sourcing.candidate-denial.v1",
+    "resetProfile": "sourcing.candidate-denial.v1",
+    "disposable": true,
+    "variables": ["supplierUrl"]
+  },
+  {
+    "id": "sourcing.scrape-failure.v1",
+    "resetProfile": "sourcing.scrape-failure.v1",
+    "disposable": true,
+    "variables": ["supplierUrl"]
+  },
+  {
+    "id": "supply.purchase-order-submit.v1",
+    "resetProfile": "supply.purchase-order-submit.v1",
+    "disposable": true,
+    "variables": ["purchaseOrderRef", "externalOrderId"]
+  },
+  {
+    "id": "channels.confirmed-listing.v1",
+    "resetProfile": "channels.confirmed-listing.v1",
+    "disposable": true,
+    "variables": [
+      "registrationExecutionRef",
+      "preparationRef",
+      "externalListingRef",
+      "wingVendorRef"
+    ]
+  }
+]

@@ -23,7 +23,7 @@ const models = [
   // Legacy `product` kept for any test harness references; real Prisma schema no longer has it.
   'product', 'masterProduct',
   'order', 'coupangOrderItem', 'inventory', 'review',
-  'organization', 'supplier', 'warehouse', 'ad', 'profitLoss',
+  'organization', 'supplier', 'warehouse', 'ad',
   'workflowTemplate', 'workflowRun', 'activityEvent', 'alert',
   // Agent OS
   'agentInstance', 'agentRuntimeState',
@@ -33,11 +33,10 @@ const models = [
   'marketplace', 'businessRule', 'featureGate', 'thumbnailAnalysis',
   'thumbnailGeneration', 'thumbnail', 'category', 'optionMaster',
   'purchaseOrder', 'purchaseOrderItem', 'stockTransfer', 'stockTransaction',
-  'stockAudit', 'shipment', 'coupangReturn', 'unshippedItem',
-  'pickingList', 'pickingItem', 'returnTransfer', 'bundleProduct',
-  'productMemo', 'processingCost', 'settlement', 'manualLedger',
+  'coupangReturn', 'returnTransfer', 'bundleProduct',
+  'productMemo', 'settlement',
   'supplierProduct', 'supplierPayment', 'salesPlan', 'trafficStats',
-  'gradeHistory', 'actionTask', 'systemSetting', 'csRecord',
+  'actionTask', 'systemSetting',
   'adSnapshot', 'adCampaignSnapshot', 'scrapeTarget', 'contentGeneration',
   'itemWinner',
 ] as const;
@@ -86,7 +85,16 @@ export function createMockPrisma() {
     $disconnect: vi.fn(),
     $executeRaw: vi.fn().mockResolvedValue(0),
     $executeRawUnsafe: vi.fn().mockResolvedValue(0),
-    $queryRaw: vi.fn().mockResolvedValue([]),
+    $queryRaw: vi.fn().mockImplementation(async (strings: TemplateStringsArray) => {
+      const sql = Array.isArray(strings) ? strings.join(' ') : '';
+      if (sql.includes('clock_timestamp() AS database_time')) {
+        return [{ database_time: new Date() }];
+      }
+      if (sql.includes('SELECT EXISTS')) {
+        return [{ remaining: false }];
+      }
+      return [];
+    }),
     $queryRawUnsafe: vi.fn().mockResolvedValue([]),
     $transaction: vi.fn().mockImplementation((fn) =>
       typeof fn === 'function' ? fn(mock) : Promise.all(fn),

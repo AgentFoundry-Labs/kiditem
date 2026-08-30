@@ -18,7 +18,9 @@
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@copilotkit/runtime/v2": ["../../node_modules/@copilotkit/runtime/dist/v2/index.d.cts"],
+      "@copilotkit/runtime/v2/express": ["../../node_modules/@copilotkit/runtime/dist/v2/express.d.cts"]
     }
   },
   "include": ["src/**/*"],

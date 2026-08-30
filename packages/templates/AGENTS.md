@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # packages/templates — Detail Page Templates
 
 `packages/templates/` owns React template components and Zod schemas for Coupang

@@ -53,6 +53,7 @@ export type PreparePurchaseOrderSubmissionInput = {
   purchaseOrderId: string;
   sellpiaInventorySkuIds: string[];
   idempotencyKey: string;
+  requestHash: string;
   userId: string;
   freshnessFence: string;
   freshnessLastVerifiedAt: string;

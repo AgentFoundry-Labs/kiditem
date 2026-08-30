@@ -72,10 +72,6 @@ function productInclude(organizationId: string, periodStart?: Date) {
             lastObservedAt: true,
           },
         },
-        profitLoss: {
-          where: { organizationId },
-          select: { year: true, month: true, netProfit: true },
-        },
         options: {
           where: { organizationId },
           orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
@@ -495,9 +491,6 @@ function toListItem(
   const salesQuantity = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficSalesQty);
   const salesAmount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficRevenue);
   const adSpend = nullableSum(advertisingFacts, (fact) => fact.adSpend);
-  const profits = row.channelListings.flatMap((listing) =>
-    listing.profitLoss.filter((fact) => monthEndUtc(fact.year, fact.month) >= periodStart),
-  );
   return {
     ...metadata(row),
     isSelling,
@@ -531,7 +524,6 @@ function toListItem(
       traffic: dailyMetricFreshness(trafficFacts, 'traffic'),
       advertising: dailyMetricFreshness(advertisingFacts, 'advertising'),
     },
-    profit: nullableSum(profits, (fact) => fact.netProfit),
     contributionProfitVelocity30: decimalToFinite(row.abcEvaluation?.profitVelocity30 ?? null),
     contributionMargin: decimalToFinite(row.abcEvaluation?.weightedContributionMargin ?? null),
   };
@@ -759,10 +751,6 @@ function nullableTrafficMetricSum<T extends { trafficCoverageStatus: string | nu
 
 function startOfUtcDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-}
-
-function monthEndUtc(year: number, month: number): Date {
-  return new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
 }
 
 function translateMutationError(error: unknown): unknown {

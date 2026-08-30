@@ -168,6 +168,7 @@ export class ProductGenerationAlertService {
     href: string;
     includeDetailPage?: boolean;
     includeThumbnail?: boolean;
+    requestHash?: string;
   }) {
     const operationKey = productGenerationOperationKey(input.batchId);
     const included = {
@@ -199,8 +200,13 @@ export class ProductGenerationAlertService {
           detailPageGenerationId: null,
           thumbnailGenerationId: null,
         } satisfies ProductGenerationChildIds,
+        ...(input.requestHash ? { requestHash: input.requestHash } : {}),
       },
     });
+  }
+
+  find(organizationId: string, operationKey: string) {
+    return this.operationAlerts.findByOperationKey(organizationId, operationKey);
   }
 
   async recordChildStarted(input: {

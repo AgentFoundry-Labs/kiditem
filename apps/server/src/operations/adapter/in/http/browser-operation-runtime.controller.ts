@@ -14,6 +14,8 @@ import {
   BrowserOperationReportRequestSchema,
 } from '@kiditem/shared/operations';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../../../auth/auth.types';
 import { BrowserOperationRuntimeService } from '../../../application/service/browser-operation-runtime.service';
 
 @Controller('operation-runtime/browser')
@@ -56,11 +58,16 @@ export class BrowserOperationRuntimeController {
   }
 
   @Post('runs/:runId/retry')
-  @HttpCode(HttpStatus.NO_CONTENT)
+  @HttpCode(HttpStatus.OK)
   async retry(
     @Param('runId', new ParseUUIDPipe()) runId: string,
     @CurrentOrganization() organizationId: string,
-  ): Promise<void> {
-    await this.runtime.retry({ organizationId, runId });
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.runtime.retry({
+      organizationId,
+      runId,
+      requestedByUserId: user.id,
+    });
   }
 }

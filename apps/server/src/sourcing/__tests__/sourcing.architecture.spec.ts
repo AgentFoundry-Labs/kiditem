@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { describe, it, expect } from 'vitest';
 
 // Architecture guard tests freeze the sourcing port/adapter contract:
 //
@@ -94,8 +94,12 @@ describe('sourcing architecture contract', () => {
     );
     expect(
       hits,
-      `application services must reach other owner domains through application/port/out/cross-domain/* ports:\n${hits.join('\n')}`,
+      `application services must reach other owner domains through ports, not services:\n${hits.join('\n')}`,
     ).toEqual([]);
+    expect(existsSync(path.join(
+      SOURCING_ROOT,
+      'application/service/sourcing-assistant.service.ts',
+    ))).toBe(false);
   });
 
   it('incoming HTTP adapters do not import outgoing ports or repository adapters', () => {
@@ -138,5 +142,16 @@ describe('sourcing architecture contract', () => {
     expect(runtimeSource).not.toContain(
       'extensions/product-scraper/extractors',
     );
+  });
+
+  it('keeps local CLI subprocess execution out of the Sourcing owner domain', () => {
+    const sourcing = sourcingRel();
+    const hits = rg(
+      `--type ts --files-with-matches 'node:child_process' ${sourcing} --glob '!**/__tests__/**'`,
+    );
+    expect(
+      hits,
+      `Sourcing must use Agent OS for local CLI execution:\n${hits.join('\n')}`,
+    ).toEqual([]);
   });
 });

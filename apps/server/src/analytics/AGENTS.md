@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # analytics — Reporting + Read Models
 
 `src/analytics/` owns dashboard, statistics, traffic, and supplier-stats read
@@ -20,12 +18,13 @@ import owner-domain services or take mutation authority from them.
   `GET /api/sellpia-product-sales`
   (확장이 Sellpia stat_prd_profit 을 상품×월별로 수집해 적재하는 monthly-fact
   ingest 레인 + Inventory가 소유하는 공통 가용재고 read + 상품별
-  1/2개월 평균 소진량·악성재고·시즌·현재고·약정·가용재고·발주 read)
+  1/2개월 평균 소진량·악성재고·시즌·현재고·가용재고
+  (`availableStock === currentStock`)·발주 read)
 
 ## Main Data Models
 
 Analytics reads, but does not own, order, channel, product, inventory, alert,
-thumbnail, supplier, purchase, payment, and shipment tables for reporting.
+thumbnail, supplier, purchase, and payment tables for reporting.
 Dashboard is the strictest surface because it owns raw SQL and report
 hydration.
 
@@ -59,18 +58,16 @@ Analytics may directly read:
 - Orders and line items for revenue and repurchase.
 - Channel listings/options/daily snapshots/account KPI/scrape audit rows.
 - Products/options for metadata, grade, category, and pricing inputs.
-- Inventory, alerts, grade history, and thumbnails for dashboard snapshots.
-- Supplier, supplier product, purchase order, supplier payment, and shipment
-  tables for supplier and delivery reports.
+- Inventory, alerts, current Products-owned ABC grade history, and thumbnails
+  for dashboard snapshots.
+- Supplier, supplier product, purchase order, and supplier payment tables for
+  supplier reports.
 
 ## Boundary Rules
 
-- Controllers use `@CurrentOrganization()`.
-- ORM reads include `organizationId` on every tenant-owned table.
-- Raw SQL uses Prisma tagged templates and binds organization predicates on
-  every tenant-owned hop.
-- `@Body()` / `@Query()` organizationId is forbidden.
-- New raw SQL/report hydration belongs behind dashboard repository adapters.
+- Every tenant-owned table in an ORM or raw-SQL join remains
+  organization-fenced. New report hydration belongs behind dashboard
+  repository adapters.
 - Traffic upload operation alerts go through the traffic operation-alert port,
   not direct `OperationAlertService` injection.
 

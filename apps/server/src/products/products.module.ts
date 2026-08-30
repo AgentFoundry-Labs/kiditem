@@ -3,6 +3,7 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { FinanceModule } from '../finance/finance.module';
 import { AiModule } from '../ai/ai.module';
+import { OperationsModule } from '../operations/operations.module';
 import { ProductOperationsController } from './adapter/in/http/product-operations.controller';
 import { ProductOperationsRepositoryAdapter } from './adapter/out/repository/product-operations.repository.adapter';
 import { PRODUCT_OPERATIONS_REPOSITORY_PORT } from './application/port/out/repository/product-operations.repository.port';
@@ -12,7 +13,6 @@ import { CategoriesModule } from './categories/categories.module';
 import { MasterProductAbcService } from './application/service/master-product-abc.service';
 import { MasterProductAbcRepositoryAdapter } from './adapter/out/repository/master-product-abc.repository.adapter';
 import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from './application/port/out/repository/master-product-abc.repository.port';
-import { OperationsModule } from '../operations/operations.module';
 import { ProductOperationsDataStatusService } from './application/service/product-operations-data-status.service';
 import { ProductOperationsDataStatusRepositoryAdapter } from './adapter/out/repository/product-operations-data-status.repository.adapter';
 import { PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT } from './application/port/out/repository/product-operations-data-status.repository.port';
@@ -21,6 +21,11 @@ import {
   ProductProfitabilityRefreshOperationHandler,
 } from './adapter/in/operation/product-profitability.operation-handler';
 import { MasterProductInventoryActivityListener } from './adapter/in/event/master-product-inventory-activity.listener';
+import { ProductsListingGenerationCapabilityAdapter } from './adapter/in/agent/products-listing-generation-capability.adapter';
+import { ProductsCapabilityCompositionAdapter } from './adapter/in/agent/products-capability-composition.adapter';
+import { PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT } from './application/port/in/capability/listing-generation.port';
+import { PRODUCTS_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capability/products-capability-composition.port';
+import { ProductsListingGenerationOperationHandler } from './adapter/in/operation/listing-generation.operation-handler';
 
 @Module({
   imports: [CategoriesModule, InventoryModule, AnalyticsModule, FinanceModule, AiModule, OperationsModule],
@@ -34,6 +39,9 @@ import { MasterProductInventoryActivityListener } from './adapter/in/event/maste
     ProductRecipeComponentCandidateService,
     MasterProductAbcService,
     MasterProductInventoryActivityListener,
+    ProductsListingGenerationCapabilityAdapter,
+    ProductsCapabilityCompositionAdapter,
+    ProductsListingGenerationOperationHandler,
     MasterProductAbcRepositoryAdapter,
     ProductOperationsRepositoryAdapter,
     {
@@ -48,9 +56,13 @@ import { MasterProductInventoryActivityListener } from './adapter/in/event/maste
       provide: MASTER_PRODUCT_ABC_REPOSITORY_PORT,
       useExisting: MasterProductAbcRepositoryAdapter,
     },
+    { provide: PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT, useExisting: ProductsListingGenerationCapabilityAdapter },
+    { provide: PRODUCTS_CAPABILITY_COMPOSITION_PORT, useExisting: ProductsCapabilityCompositionAdapter },
   ],
   exports: [
     ProductOperationsService,
+    PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT,
+    PRODUCTS_CAPABILITY_COMPOSITION_PORT,
   ],
 })
 export class ProductsModule {}

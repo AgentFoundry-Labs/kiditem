@@ -5,14 +5,22 @@ import type {
   NaverDatalabTrendPort,
   NaverKeywordResearchPort,
 } from '../../port/out/provider/naver-keyword-research.port';
-import type { Sourcing1688KeywordSearchPort } from '../../port/out/provider/1688-keyword-search.port';
 import type { ShortstrendTrendPort } from '../../port/out/provider/shortstrend-trend.port';
 import type {
   TrendCollectionRepositoryPort,
   TrendSeedRow,
 } from '../../port/out/repository/trend-collection.repository.port';
+import type { SourcingCollectionCoordinator } from '../sourcing-collection-coordinator.service';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 function seed(partial: Partial<TrendSeedRow> & { keyword: string }): TrendSeedRow {
   return {
@@ -62,10 +70,6 @@ function buildPorts() {
       boards: [],
     })),
   };
-  const keywordSearch1688: Sourcing1688KeywordSearchPort = {
-    getStatus: vi.fn(() => ({ configured: true, baseUrl: 'https://h5api.m.1688.com' })),
-    searchByKeyword: vi.fn(async (input) => ({ keyword: input.keyword, page: 1, items: [] })),
-  };
   const shortstrend: ShortstrendTrendPort = {
     fetchTrending: vi.fn(async () => ({
       source: 'shortstrend' as const,
@@ -78,28 +82,71 @@ function buildPorts() {
     upsertSeedByKeyword: vi.fn(),
     updateSeed: vi.fn(),
     deleteSeed: vi.fn(),
-    upsertNaverKeywordSnapshots: vi.fn(async (rows) => rows.length),
-    replaceNaverPopularKeywordSnapshots: vi.fn(async (rows) => rows.length),
-    upsert1688HotProductSnapshots: vi.fn(async (rows) => rows.length),
-    upsertShortsSnapshots: vi.fn(async (rows) => rows.length),
-    upsertTiktokCcSnapshots: vi.fn(async (rows) => rows.length),
     findNaverKeywordHistory: vi.fn(async () => []),
     findPopularKeywordHistory: vi.fn(async () => []),
     find1688HotHistory: vi.fn(async () => []),
     findShortsHistory: vi.fn(async () => []),
     findTiktokCcHistory: vi.fn(async () => []),
   };
+  const collectionOutputs: Array<{ typedRecords: Array<{ kind: string; row: unknown }> }> = [];
+  const collectionCoordinator = {
+    execute: vi.fn(async (input: any, collector: any) => {
+      const output = await collector({
+        permit: {
+          runId: '00000000-0000-4000-8000-000000000010',
+          organizationId: input.organizationId,
+          sourceKey: input.sourceKey,
+          scopeKey: input.scopeKey,
+          targetKey: input.targetKey,
+          leaseToken: '00000000-0000-4000-8000-000000000011',
+          generation: 1,
+          entitlementVersionId: '00000000-0000-4000-8000-000000000012',
+          entitlementVersionHash: 'a'.repeat(64),
+          leaseExpiresAt: new Date('2026-07-13T01:00:00.000Z'),
+        },
+        checkpoint: async () => undefined,
+      });
+      collectionOutputs.push(output);
+      return {
+        kind: 'committed' as const,
+        runId: input.idempotencyKey,
+        acceptedCount: Math.max(0, output.discoveredCount - output.rejectedCount),
+        duplicateCount: 0,
+        staleDiscardedCount: 0,
+      };
+    }),
+  } as unknown as SourcingCollectionCoordinator;
 
   const service = new TrendCollectService(
     keywordResearch,
     datalabTrend,
     popularKeywords,
-    keywordSearch1688,
     shortstrend,
     repository,
+    collectionCoordinator,
   );
 
-  return { service, keywordResearch, datalabTrend, popularKeywords, keywordSearch1688, shortstrend, repository };
+  return {
+    service,
+    keywordResearch,
+    datalabTrend,
+    popularKeywords,
+    shortstrend,
+    repository,
+    collectionCoordinator,
+    collectionOutputs,
+  };
+}
+
+function typedRows(
+  ports: ReturnType<typeof buildPorts>,
+  kind: string,
+): Array<Record<string, unknown>> {
+  return ports.collectionOutputs.flatMap((output) =>
+    output.typedRecords
+      .filter((record) => record.kind === kind)
+      .map((record) => record.row as Record<string, unknown>),
+  );
 }
 
 describe('TrendCollectService', () => {
@@ -107,6 +154,229 @@ describe('TrendCollectService', () => {
 
   beforeEach(() => {
     ports = buildPorts();
+  });
+
+  it('stops before loading seeds when the operation signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort(new Error('operation_attempt_fence_lost'));
+
+    await expect(ports.service.collect(
+      ORGANIZATION_ID,
+      ['naver'],
+      null,
+      'operation-run-1',
+      controller.signal,
+    )).rejects.toThrow('operation_attempt_fence_lost');
+    expect(ports.repository.listSeeds).not.toHaveBeenCalled();
+  });
+
+  it('passes the signal to a Naver batch and stops before the next chunk after abort', async () => {
+    const controller = new AbortController();
+    ports.repository.listSeeds = vi.fn(async () =>
+      Array.from({ length: 6 }, (_, index) =>
+        seed({ keyword: `키워드-${index}`, sources: ['naver'] }),
+      ),
+    );
+    ports.keywordResearch.searchRelatedKeywords = vi.fn(async () => {
+      controller.abort(new Error('operation_attempt_fence_lost'));
+      return {
+        source: 'naver-searchad-keywordstool' as const,
+        seedKeywords: [],
+        generatedAt: '2026-07-13T00:00:00.000Z',
+        items: [],
+      };
+    });
+
+    await expect(ports.service.collect(
+      ORGANIZATION_ID,
+      ['naver'],
+      null,
+      'operation-run-1',
+      controller.signal,
+    )).rejects.toThrow('operation_attempt_fence_lost');
+
+    expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenCalledTimes(1);
+    expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
+  it('maps Naver chunks with concurrency exactly two while preserving keyword order and checkpoints', async () => {
+    const keywords = Array.from({ length: 11 }, (_, index) => `키워드-${index}`);
+    ports.repository.listSeeds = vi.fn(async () => keywords.map((keyword) =>
+      seed({ keyword, sources: ['naver'] })));
+    const gates = [deferred(), deferred(), deferred()];
+    let active = 0;
+    let maxActive = 0;
+    ports.keywordResearch.searchRelatedKeywords = vi.fn(async (input) => {
+      const callIndex = vi.mocked(ports.keywordResearch.searchRelatedKeywords).mock.calls.length - 1;
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await gates[callIndex].promise;
+      active -= 1;
+      return {
+        source: 'naver-searchad-keywordstool' as const,
+        seedKeywords: input.seedKeywords,
+        generatedAt: '2026-07-13T00:00:00.000Z',
+        items: input.seedKeywords.map((keyword, index) => ({
+          keyword,
+          monthlyPcSearchCount: index,
+          monthlyMobileSearchCount: 100 + index,
+          monthlyTotalSearchCount: 100 + index * 2,
+          monthlyPcClickCount: null,
+          monthlyMobileClickCount: null,
+          monthlyTotalClickCount: null,
+          monthlyPcClickRate: null,
+          monthlyMobileClickRate: null,
+          averageAdRank: null,
+          competitionIndex: null,
+          raw: {},
+        })),
+      };
+    });
+    const checkpoint = vi.fn().mockResolvedValue(undefined);
+
+    const collection = ports.service.collectSource(
+      ORGANIZATION_ID,
+      'naver',
+      null,
+      'operation-run-1',
+      { signal: new AbortController().signal, checkpoint },
+    );
+    await vi.waitFor(() => {
+      expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenCalledTimes(2);
+    });
+    expect(maxActive).toBe(2);
+    expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ seedKeywords: keywords.slice(0, 5) }),
+    );
+    expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ seedKeywords: keywords.slice(5, 10) }),
+    );
+
+    gates[0].resolve();
+    await vi.waitFor(() => {
+      expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenCalledTimes(3);
+    });
+    expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ seedKeywords: keywords.slice(10) }),
+    );
+    gates[1].resolve();
+    gates[2].resolve();
+
+    await expect(collection).resolves.toMatchObject({
+      businessDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      source: 'naver',
+      ok: true,
+      collected: 11,
+    });
+    expect(maxActive).toBe(2);
+    expect(typedRows(ports, 'naver_keyword').map((row) => row.keyword)).toEqual(keywords);
+    expect(checkpoint).toHaveBeenCalledWith({
+      stage: 'collecting_naver_searchad',
+      progressCurrent: 0,
+      progressTotal: 3,
+    });
+    expect(checkpoint).toHaveBeenCalledWith({
+      stage: 'collecting_naver_searchad',
+      progressCurrent: 2,
+      progressTotal: 3,
+    });
+  });
+
+  it('does not start a third Naver chunk after either concurrent unit loses its signal', async () => {
+    const controller = new AbortController();
+    ports.repository.listSeeds = vi.fn(async () =>
+      Array.from({ length: 11 }, (_, index) =>
+        seed({ keyword: `키워드-${index}`, sources: ['naver'] }),
+      ),
+    );
+    const gates = [deferred(), deferred()];
+    ports.keywordResearch.searchRelatedKeywords = vi.fn(async (input) => {
+      const callIndex = vi.mocked(ports.keywordResearch.searchRelatedKeywords).mock.calls.length - 1;
+      await gates[callIndex].promise;
+      if (callIndex === 0) {
+        controller.abort(new Error('operation_attempt_fence_lost'));
+      }
+      return {
+        source: 'naver-searchad-keywordstool' as const,
+        seedKeywords: input.seedKeywords,
+        generatedAt: '2026-07-13T00:00:00.000Z',
+        items: [],
+      };
+    });
+
+    const collection = ports.service.collectSource(
+      ORGANIZATION_ID,
+      'naver',
+      null,
+      'operation-run-1',
+      { signal: controller.signal, checkpoint: vi.fn().mockResolvedValue(undefined) },
+    );
+    const rejected = expect(collection).rejects.toThrow('operation_attempt_fence_lost');
+    await vi.waitFor(() => {
+      expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenCalledTimes(2);
+    });
+    gates[0].resolve();
+    await vi.waitFor(() => expect(controller.signal.aborted).toBe(true));
+    gates[1].resolve();
+
+    await rejected;
+    expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not swallow an abort at the DataLab enrichment boundary', async () => {
+    const controller = new AbortController();
+    ports.repository.listSeeds = vi.fn(async () => [
+      seed({ keyword: '슬라임', sources: ['naver'] }),
+    ]);
+    ports.datalabTrend.compareSearchTrends = vi.fn(async () => {
+      controller.abort(new Error('operation_attempt_fence_lost'));
+      return {
+        source: 'naver-datalab-search-trend' as const,
+        keywords: ['슬라임'],
+        startDate: '2026-06-13',
+        endDate: '2026-07-13',
+        timeUnit: 'date' as const,
+        generatedAt: '2026-07-13T00:00:00.000Z',
+        items: [],
+      };
+    });
+
+    await expect(ports.service.collect(
+      ORGANIZATION_ID,
+      ['naver'],
+      null,
+      'operation-run-1',
+      controller.signal,
+    )).rejects.toThrow('operation_attempt_fence_lost');
+  });
+
+  it('passes the signal to the Shorts batch and stops after provider abort', async () => {
+    const controller = new AbortController();
+    ports.shortstrend.fetchTrending = vi.fn(async () => {
+      controller.abort(new Error('operation_attempt_fence_lost'));
+      return {
+        source: 'shortstrend' as const,
+        generatedAt: '2026-07-13T00:00:00.000Z',
+        items: [],
+      };
+    });
+
+    await expect(ports.service.collect(
+      ORGANIZATION_ID,
+      ['shorts'],
+      null,
+      'operation-run-1',
+      controller.signal,
+    )).rejects.toThrow('operation_attempt_fence_lost');
+
+    expect(ports.shortstrend.fetchTrending).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
   });
 
   it('returns default and enabled custom 1688 targets with Chinese query keywords', async () => {
@@ -177,12 +447,12 @@ describe('TrendCollectService', () => {
 
       expect(result).toEqual({
         businessDate: '2026-07-14',
-        collected: 2,
+        collected: 3,
         errors: [{ keyword: '儿童贴纸', message: 'slider required' }],
       });
-      const rows = (ports.repository.upsert1688HotProductSnapshots as any).mock.calls[0][0];
-      expect(rows).toHaveLength(2);
-      expect(rows[0]).toEqual(expect.objectContaining({
+      const rows = typedRows(ports, 'offer_1688_keyword_observation');
+      expect(rows).toHaveLength(3);
+      expect(rows.find((row) => row.offerId === 'offer-a' && row.sourceKeyword === '文具')).toEqual(expect.objectContaining({
         organizationId: ORGANIZATION_ID,
         businessDate: new Date('2026-07-14T00:00:00.000Z'),
         offerId: 'offer-a',
@@ -191,7 +461,13 @@ describe('TrendCollectService', () => {
         title: '젤펜',
         tradeScore: '88',
       }));
-      expect(rows[1]).toEqual(expect.objectContaining({
+      expect(rows.find((row) => row.offerId === 'offer-a' && row.sourceKeyword === '儿童笔袋')).toEqual(expect.objectContaining({
+        offerId: 'offer-a',
+        sourceKeyword: '儿童笔袋',
+        rank: 1,
+        title: 'duplicate',
+      }));
+      expect(rows.find((row) => row.offerId === 'offer-b')).toEqual(expect.objectContaining({
         offerId: 'offer-b',
         sourceKeyword: '儿童笔袋',
         rank: 2,
@@ -244,7 +520,7 @@ describe('TrendCollectService', () => {
         collected: 2,
         errors: [{ target: 'KR/top-products', message: 'region blocked' }],
       });
-      const rows = (ports.repository.upsertTiktokCcSnapshots as any).mock.calls[0][0];
+    const rows = typedRows(ports, 'tiktok_creative');
       expect(rows).toHaveLength(2);
       expect(rows[0]).toEqual(expect.objectContaining({
         organizationId: ORGANIZATION_ID,
@@ -317,7 +593,7 @@ describe('TrendCollectService', () => {
     const result = await ports.service.collect(ORGANIZATION_ID, ['naver']);
 
     expect(result.results).toEqual([{ source: 'naver', ok: true, collected: 2 }]);
-    const rows = (ports.repository.upsertNaverKeywordSnapshots as any).mock.calls[0][0];
+    const rows = typedRows(ports, 'naver_keyword');
     const slime = rows.find((row: any) => row.keyword === '슬라임');
     expect(slime).toEqual(
       expect.objectContaining({
@@ -370,10 +646,10 @@ describe('TrendCollectService', () => {
 
     // 인기보드 2행 저장 + 그 키워드(레고·블록)의 검색광고 볼륨 스냅샷 2행 = 4.
     expect(result.results).toEqual([{ source: 'naver', ok: true, collected: 4 }]);
-    const rows = (ports.repository.replaceNaverPopularKeywordSnapshots as any).mock.calls[0][0];
+    const rows = typedRows(ports, 'naver_popular_keyword');
     expect(rows).toHaveLength(2);
     // 인기보드 키워드도 검색광고 월검색량 조회 대상에 포함된다(신규 키워드 검색량 조인용).
-    const volumeRows = (ports.repository.upsertNaverKeywordSnapshots as any).mock.calls[0][0];
+    const volumeRows = typedRows(ports, 'naver_keyword');
     expect(volumeRows.map((row: any) => row.keyword)).toEqual(['레고', '블록']);
     expect(rows[0]).toEqual(
       expect.objectContaining({
@@ -387,110 +663,21 @@ describe('TrendCollectService', () => {
     );
   });
 
-  it('ranks 1688 offers by monthly sales descending within a seed result set', async () => {
-    ports.repository.listSeeds = vi.fn(async () => [
-      seed({ keyword: '슬라임', keywordCn: '史莱姆', sources: ['1688'] }),
-    ]);
-    ports.keywordSearch1688.searchByKeyword = vi.fn(async (input) => ({
-      keyword: input.keyword,
-      page: 1,
-      items: [
-        { offerId: 'A', title: 'a', priceCny: 10, sourceUrl: 'u', imageUrl: null, monthlySales: 100, tradeScore: null, repurchaseRate: null, supplierName: null, score: 40 },
-        { offerId: 'B', title: 'b', priceCny: 12, sourceUrl: 'u', imageUrl: null, monthlySales: 900, tradeScore: null, repurchaseRate: null, supplierName: null, score: 40 },
-        { offerId: 'C', title: 'c', priceCny: 11, sourceUrl: 'u', imageUrl: null, monthlySales: 500, tradeScore: null, repurchaseRate: null, supplierName: null, score: 40 },
-      ],
-    }));
-
+  it('refuses the retired direct 1688 provider path', async () => {
     const result = await ports.service.collect(ORGANIZATION_ID, ['1688']);
 
-    expect(result.results).toEqual([{ source: '1688', ok: true, collected: 3 }]);
-    expect(ports.keywordSearch1688.searchByKeyword).toHaveBeenCalledWith(
-      expect.objectContaining({ keyword: '史莱姆', maxResults: 20 }),
-    );
-    const rows = (ports.repository.upsert1688HotProductSnapshots as any).mock.calls[0][0];
-    expect(rows.find((row: any) => row.offerId === 'B')).toEqual(
-      expect.objectContaining({ rank: 1, sourceKeyword: '슬라임' }),
-    );
-    expect(rows.find((row: any) => row.offerId === 'C').rank).toBe(2);
-    expect(rows.find((row: any) => row.offerId === 'A').rank).toBe(3);
-  });
-
-  it('uses stationery/toy baseline seeds for 1688 and Shorts when no user seed exists', async () => {
-    ports.repository.listSeeds = vi.fn(async () => []);
-    ports.keywordSearch1688.searchByKeyword = vi.fn(async (input) => ({
-      keyword: input.keyword,
-      page: 1,
-      items: [
-        {
-          offerId: `offer-${input.keyword}`,
-          title: `${input.keyword} 신상품`,
-          priceCny: 8,
-          sourceUrl: 'https://detail.1688.com/offer/1.html',
-          imageUrl: null,
-          monthlySales: 100,
-          tradeScore: null,
-          repurchaseRate: null,
-          supplierName: null,
-          score: 50,
-        },
-      ],
-    }));
-
-    const result = await ports.service.collect(ORGANIZATION_ID, ['1688', 'shorts']);
-
-    // 기본 완구·문구 시드 10 + 도우인 트렌드 큐레이션 시드 8 = 1688 은 18개 키워드 수집.
-    expect(result.results).toEqual([
-      { source: '1688', ok: true, collected: 18 },
-      { source: 'shorts', ok: true, collected: 0 },
-    ]);
-    expect(ports.keywordSearch1688.searchByKeyword).toHaveBeenCalledWith(
-      expect.objectContaining({ keyword: '文具' }),
-    );
-    // 도우인 트렌드 키워드(谷子=굿즈)는 1688 수집에만 추가로 태워진다.
-    expect(ports.keywordSearch1688.searchByKeyword).toHaveBeenCalledWith(
-      expect.objectContaining({ keyword: '谷子' }),
-    );
-    // shorts 는 도우인 시드의 영향을 받지 않는다(1688 전용 baseline).
-    expect(ports.shortstrend.fetchTrending).toHaveBeenCalledWith(
-      expect.objectContaining({
-        keywords: expect.arrayContaining(['문구', '완구', '슬라임']),
-        limit: 50,
-        publishedWithinDays: 30,
-      }),
-    );
-    expect(ports.shortstrend.fetchTrending).not.toHaveBeenCalledWith(
-      expect.objectContaining({ keywords: expect.arrayContaining(['굿즈']) }),
-    );
-  });
-
-  it('stops the 1688 baseline batch after a login or verification blocker', async () => {
-    ports.repository.listSeeds = vi.fn(async () => []);
-    ports.keywordSearch1688.searchByKeyword = vi.fn(async () => {
-      throw new Error('1688 로그인/슬라이더 검증이 필요합니다.');
-    });
-
-    const result = await ports.service.collect(ORGANIZATION_ID, ['1688']);
-
-    expect(ports.keywordSearch1688.searchByKeyword).toHaveBeenCalledTimes(1);
     expect(result.results[0]).toEqual(expect.objectContaining({
       source: '1688',
       ok: false,
       collected: 0,
-      error: expect.stringContaining('로그인/슬라이더'),
+      error: expect.stringContaining('1688_browser_operation_required'),
     }));
   });
 
   it('degrades gracefully when shorts port returns an error, without aborting other sources', async () => {
     ports.repository.listSeeds = vi.fn(async () => [
-      seed({ keyword: '슬라임', keywordCn: '史莱姆', sources: ['naver', '1688', 'shorts'] }),
+      seed({ keyword: '슬라임', sources: ['naver', 'shorts'] }),
     ]);
-    ports.keywordSearch1688.searchByKeyword = vi.fn(async (input) => ({
-      keyword: input.keyword,
-      page: 1,
-      items: [
-        { offerId: 'B', title: 'b', priceCny: 12, sourceUrl: 'u', imageUrl: null, monthlySales: 900, tradeScore: null, repurchaseRate: null, supplierName: null, score: 40 },
-      ],
-    }));
     ports.shortstrend.fetchTrending = vi.fn(async () => ({
       source: 'shortstrend',
       generatedAt: '2026-07-13T00:00:00.000Z',
@@ -498,20 +685,18 @@ describe('TrendCollectService', () => {
       error: 'shortstrend unreachable',
     }));
 
-    const result = await ports.service.collect(ORGANIZATION_ID);
+    const result = await ports.service.collect(ORGANIZATION_ID, ['naver', 'shorts']);
 
     expect(result.results).toEqual([
-      { source: 'naver', ok: true, collected: 1 },
-      { source: '1688', ok: true, collected: 1 },
+      expect.objectContaining({ source: 'naver', ok: true, collected: 1 }),
       { source: 'shorts', ok: false, collected: 0, error: 'shortstrend unreachable' },
     ]);
-    expect(ports.repository.upsertShortsSnapshots).not.toHaveBeenCalled();
-    expect(ports.repository.upsert1688HotProductSnapshots).toHaveBeenCalled();
+    expect(typedRows(ports, 'shorts')).toEqual([]);
   });
 
   it('isolates a failing source so the others still collect', async () => {
     ports.repository.listSeeds = vi.fn(async () => [
-      seed({ keyword: '슬라임', keywordCn: '史莱姆', sources: ['naver', '1688', 'shorts'] }),
+      seed({ keyword: '슬라임', sources: ['naver', 'shorts'] }),
     ]);
     ports.keywordResearch.searchRelatedKeywords = vi.fn(async () => {
       throw new Error('SearchAd 401');
@@ -519,13 +704,6 @@ describe('TrendCollectService', () => {
     ports.popularKeywords.searchPopularKeywords = vi.fn(async () => {
       throw new Error('DataLab down');
     });
-    ports.keywordSearch1688.searchByKeyword = vi.fn(async (input) => ({
-      keyword: input.keyword,
-      page: 1,
-      items: [
-        { offerId: 'B', title: 'b', priceCny: 12, sourceUrl: 'u', imageUrl: null, monthlySales: 900, tradeScore: null, repurchaseRate: null, supplierName: null, score: 40 },
-      ],
-    }));
     ports.shortstrend.fetchTrending = vi.fn(async () => ({
       source: 'shortstrend',
       generatedAt: '2026-07-13T00:00:00.000Z',
@@ -546,14 +724,12 @@ describe('TrendCollectService', () => {
       ],
     }));
 
-    const result = await ports.service.collect(ORGANIZATION_ID);
+    const result = await ports.service.collect(ORGANIZATION_ID, ['naver', 'shorts']);
 
     const naver = result.results.find((r) => r.source === 'naver');
-    const one688 = result.results.find((r) => r.source === '1688');
     const shorts = result.results.find((r) => r.source === 'shorts');
     expect(naver).toEqual(expect.objectContaining({ source: 'naver', ok: false, collected: 0 }));
-    expect(one688).toEqual({ source: '1688', ok: true, collected: 1 });
     expect(shorts).toEqual({ source: 'shorts', ok: true, collected: 1 });
-    expect(ports.repository.upsertShortsSnapshots).toHaveBeenCalled();
+    expect(typedRows(ports, 'shorts')).toHaveLength(1);
   });
 });

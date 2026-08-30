@@ -1,3 +1,7 @@
+import type {
+  ActiveOperationAttemptTransaction,
+} from '../../../../../operations/application/port/active-browser-attempt-transaction';
+
 export const MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT = Symbol(
   'MarketShadowSnapshotRepositoryPort',
 );
@@ -19,11 +23,39 @@ export interface MarketShadowSnapshotClaimResult {
 }
 
 export interface MarketShadowSnapshotRepositoryPort {
+  claimDailyInAttempt(
+    transaction: ActiveOperationAttemptTransaction,
+    input: {
+      organizationId: string;
+      businessDate: Date;
+      payload: Record<string, unknown>;
+    },
+  ): Promise<MarketShadowSnapshotClaimResult>;
+
   claimDaily(input: {
     organizationId: string;
     businessDate: Date;
     payload: Record<string, unknown>;
   }): Promise<MarketShadowSnapshotClaimResult>;
+
+  /**
+   * Releases only the exact collecting marker claimed by a fenced operation
+   * that lost its attempt before it could publish a terminal snapshot.
+   */
+  abandonDailyClaim(input: {
+    organizationId: string;
+    businessDate: Date;
+    snapshotId: string;
+  }): Promise<0 | 1>;
+
+  finalizeDailyInAttempt(
+    transaction: ActiveOperationAttemptTransaction,
+    input: {
+      organizationId: string;
+      businessDate: Date;
+      payload: Record<string, unknown>;
+    },
+  ): Promise<MarketShadowSnapshotRow>;
 
   finalizeDaily(input: {
     organizationId: string;

@@ -1,5 +1,6 @@
 import {
   Bot,
+  BrainCircuit,
   Boxes,
   Building2,
   ClipboardList,
@@ -65,6 +66,7 @@ export const menuSections: MenuSection[] = [
       { href: '/sourcing-ai/rising-products', label: '급상승 탐지', icon: Flame },
       { href: '/sourcing-ai/recommendations', label: '오늘의 추천', icon: Sparkles },
       { href: '/sourcing-ai/wholesale-search', label: '도매 상품 검색', icon: ShoppingCart, groupLabel: '소싱' },
+      { href: '/sourcing-ai/decision-center', label: '의사결정 센터', icon: BrainCircuit },
       { href: '/sourcing-ai/validation', label: '상품 검증', icon: ClipboardList },
       { href: '/sourcing-ai/final-selection', label: '최종 선택', icon: PackageCheck },
       { href: '/sourcing-ai/settings', label: '소싱 설정', icon: Settings, groupLabel: '설정' },
@@ -97,7 +99,6 @@ export const menuSections: MenuSection[] = [
       { href: '/product-hub', label: '상품 관리', icon: Package },
       { href: '/product-hub/matching', label: '상품 매칭', icon: Link2 },
       { href: '/reviews', label: '리뷰 관리', icon: MessageSquare },
-      { href: '/product-hub/options', label: '셀피아 재고', icon: Layers },
     ],
   },
   {

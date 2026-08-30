@@ -21,7 +21,6 @@
         "**/dist/**",
         "**/.next/**",
         "**/coverage/**",
-        "graphify-out/**",
         "**/generated/**",
         "**/*.generated.*",
         ".claude/worktrees/**",

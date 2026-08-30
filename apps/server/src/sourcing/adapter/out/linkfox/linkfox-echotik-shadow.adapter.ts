@@ -41,6 +41,9 @@ export class LinkfoxEchotikShadowAdapter implements LinkfoxEchotikShadowPort {
     const pageSize = resolvePageSize(input.pageSize);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const signal = input.signal
+      ? AbortSignal.any([input.signal, controller.signal])
+      : controller.signal;
 
     try {
       const response = await fetch(LINKFOX_ECHOTIK_ENDPOINT, {
@@ -50,7 +53,7 @@ export class LinkfoxEchotikShadowAdapter implements LinkfoxEchotikShadowPort {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ date, region, pageNum: 1, pageSize }),
-        signal: controller.signal,
+        signal,
       });
 
       if (!response.ok) {
@@ -83,7 +86,7 @@ export class LinkfoxEchotikShadowAdapter implements LinkfoxEchotikShadowPort {
         products,
       };
     } catch (error) {
-      if (controller.signal.aborted || isAbortError(error)) {
+      if (signal.aborted || isAbortError(error)) {
         throw new GatewayTimeoutException(
           `LinkFox EchoTik 요청 시간이 ${REQUEST_TIMEOUT_MS}ms를 초과했습니다.`,
         );

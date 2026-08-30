@@ -48,6 +48,7 @@ export interface FetchYoutubeShortsTrendingInput {
   keywords: string[];
   publishedWithinDays: number;
   limit: number;
+  signal?: AbortSignal;
 }
 
 export async function fetchYoutubeShortsTrending(
@@ -62,7 +63,13 @@ export async function fetchYoutubeShortsTrending(
   const candidates = new Map<string, SearchCandidate>();
 
   for (const keyword of keywords) {
-    const items = await searchYoutube({ apiKey: input.apiKey, keyword, cutoff });
+    input.signal?.throwIfAborted();
+    const items = await searchYoutube({
+      apiKey: input.apiKey,
+      keyword,
+      cutoff,
+      signal: input.signal,
+    });
     for (const item of items) {
       const candidate = toSearchCandidate(item, keyword);
       if (!candidate || candidates.has(candidate.videoId)) continue;
@@ -73,8 +80,9 @@ export async function fetchYoutubeShortsTrending(
   const statistics = new Map<string, YoutubeVideoItem>();
   const ids = Array.from(candidates.keys());
   for (let index = 0; index < ids.length; index += VIDEO_BATCH_SIZE) {
+    input.signal?.throwIfAborted();
     const batch = ids.slice(index, index + VIDEO_BATCH_SIZE);
-    const items = await fetchVideoStatistics(input.apiKey, batch);
+    const items = await fetchVideoStatistics(input.apiKey, batch, input.signal);
     for (const item of items) {
       const videoId = stringValue(item.id);
       if (videoId) statistics.set(videoId, item);
@@ -106,6 +114,7 @@ async function searchYoutube(input: {
   apiKey: string;
   keyword: string;
   cutoff: string;
+  signal?: AbortSignal;
 }): Promise<YoutubeSearchItem[]> {
   const url = new URL(`${YOUTUBE_API_BASE}/search`);
   url.searchParams.set('part', 'snippet');
@@ -119,27 +128,36 @@ async function searchYoutube(input: {
   url.searchParams.set('safeSearch', 'moderate');
   url.searchParams.set('maxResults', String(SEARCH_RESULTS_PER_KEYWORD));
   url.searchParams.set('key', input.apiKey);
-  const payload = await fetchYoutubeJson(url);
+  const payload = await fetchYoutubeJson(url, input.signal);
   return Array.isArray(payload.items) ? payload.items as YoutubeSearchItem[] : [];
 }
 
-async function fetchVideoStatistics(apiKey: string, videoIds: string[]): Promise<YoutubeVideoItem[]> {
+async function fetchVideoStatistics(
+  apiKey: string,
+  videoIds: string[],
+  signal?: AbortSignal,
+): Promise<YoutubeVideoItem[]> {
   if (videoIds.length === 0) return [];
   const url = new URL(`${YOUTUBE_API_BASE}/videos`);
   url.searchParams.set('part', 'statistics,contentDetails');
   url.searchParams.set('id', videoIds.join(','));
   url.searchParams.set('maxResults', String(videoIds.length));
   url.searchParams.set('key', apiKey);
-  const payload = await fetchYoutubeJson(url);
+  const payload = await fetchYoutubeJson(url, signal);
   return Array.isArray(payload.items) ? payload.items as YoutubeVideoItem[] : [];
 }
 
-async function fetchYoutubeJson(url: URL): Promise<Record<string, unknown>> {
+async function fetchYoutubeJson(
+  url: URL,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>> {
   let response: Response;
   try {
     response = await fetch(url, {
       headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
+        : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
     throw new Error(`YouTube API 요청 실패: ${errorMessage(error)}`);

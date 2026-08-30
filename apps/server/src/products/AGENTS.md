@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # products — Product Operations + Categories Compatibility
 
 `src/products/` owns canonical inventory-product (`MasterProduct`) operations,
@@ -43,8 +41,8 @@ owns physical stock quantities.
   organization-owned Sellpia SKU IDs with positive integer quantities. An empty
   replacement explicitly clears the composition. Physical stock is never
   mutated by this endpoint.
-- Capacity is derived from the option's direct components using common
-  `availableStock`; physical stock and commitments remain Inventory-owned.
+- Capacity is derived from the option's direct components using Inventory's
+  physical `availableStock === currentStock` projection.
 - Product-level inventory is the owned source SKU of the canonical
   MasterProduct. Channel options are consumers of that inventory product;
   Products never creates a second ledger.
@@ -79,6 +77,3 @@ owns physical stock quantities.
   overwrite a newer completed publication.
 - Thumbnail analysis quality grades remain AI registration evidence and are
   independent from automatic product ABC.
-- Category controllers receive `organizationId` from
-  `@CurrentOrganization()` and never accept tenant identity from clients.
-- Product and category mutations scope each resource by `{ id, organizationId }`.

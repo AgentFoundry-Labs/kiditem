@@ -6,10 +6,16 @@ import {
 } from '@/lib/extension-bridge';
 import { startCoupangCatalogBrowser } from './coupang-catalog-import';
 
+const transferExtensionAuthToMock = vi.hoisted(() => vi.fn());
+
 vi.mock('@/lib/extension-bridge', () => ({
   detectExtensionId: vi.fn(),
   isChromeExtensionRuntimeAvailable: vi.fn(),
   sendToExtension: vi.fn(),
+}));
+
+vi.mock('@/lib/extension-auth', () => ({
+  transferExtensionAuthTo: (...args: unknown[]) => transferExtensionAuthToMock(...args),
 }));
 
 const ACCOUNT_ID = '00000000-0000-4000-8000-000000000001';
@@ -20,6 +26,8 @@ describe('startCoupangCatalogBrowser', () => {
     vi.clearAllMocks();
     vi.mocked(isChromeExtensionRuntimeAvailable).mockReturnValue(true);
     vi.mocked(detectExtensionId).mockResolvedValue('extension-id');
+    transferExtensionAuthToMock.mockReset();
+    transferExtensionAuthToMock.mockResolvedValue(undefined);
     vi.mocked(sendToExtension)
       .mockResolvedValueOnce({
         success: true,
@@ -29,24 +37,18 @@ describe('startCoupangCatalogBrowser', () => {
           browserCollectionSessions: true,
         },
       })
-      .mockResolvedValueOnce({ success: true })
       .mockResolvedValueOnce({ success: true, started: true });
   });
 
-  it('syncs the current session token before starting the durable server run', async () => {
+  it('uses the explicit extension auth handoff before starting the durable server run', async () => {
     await expect(startCoupangCatalogBrowser({
       channelAccountId: ACCOUNT_ID,
       runId: RUN_ID,
-      accessToken: 'session-token',
     })).resolves.toBe('extension-id');
 
+    expect(transferExtensionAuthToMock).toHaveBeenCalledWith('extension-id');
     expect(sendToExtension).toHaveBeenNthCalledWith(
       2,
-      'extension-id',
-      { action: 'setAuthToken', token: 'session-token' },
-    );
-    expect(sendToExtension).toHaveBeenNthCalledWith(
-      3,
       'extension-id',
       {
         action: 'startCoupangCatalogImport',
@@ -65,7 +67,6 @@ describe('startCoupangCatalogBrowser', () => {
     await expect(startCoupangCatalogBrowser({
       channelAccountId: ACCOUNT_ID,
       runId: RUN_ID,
-      accessToken: 'session-token',
     })).rejects.toThrow('새로고침');
   });
 });

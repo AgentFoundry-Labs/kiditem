@@ -1,5 +1,13 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import {
+  SourcingKeywordAnalysisInputSchema,
+  SourcingKeywordAnalysisSnapshotSchema,
+  type SourcingKeywordAnalysisInput,
+  type SourcingKeywordAnalysisSnapshot,
+} from '@kiditem/shared/sourcing';
+import { randomUUID } from 'node:crypto';
 import { kstBusinessDate } from '../../../common/kst';
+import type { ActiveOperationAttemptTransaction } from '../../../operations/application/port/active-browser-attempt-transaction';
 import {
   TREND_COLLECTION_REPOSITORY_PORT,
   type NaverPopularKeywordSnapshotRow,
@@ -27,13 +35,37 @@ import {
   type SearchNaverRelatedKeywordsInput,
   type SearchNaverRelatedKeywordsResult,
 } from '../port/out/provider/naver-keyword-research.port';
+import {
+  SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT,
+  type SourcingWorkspaceSnapshotRepositoryPort,
+  type SourcingWorkspaceSnapshotRow,
+} from '../port/out/repository/sourcing-workspace-snapshot.repository.port';
+import {
+  hashCollectionRequest,
+  mapTrendTypedRecordsToAuthorizedOutput,
+} from './sourcing-collection-mappers';
+import { SourcingCollectionCoordinator } from './sourcing-collection-coordinator.service';
 
 const POPULAR_HISTORY_LOOKBACK_DAYS = 30;
+const KEYWORD_ANALYSIS_PROJECTION_VERSION = 'naver-keyword-analysis/v1';
+const KEYWORD_ANALYSIS_SNAPSHOT_LOOKBACK_DAYS = 30;
+const MAX_ANALYSIS_SEEDS = 12;
+const MAX_ANALYSIS_AUTOCOMPLETE_SEEDS = 5;
+const MAX_ANALYSIS_TREND_KEYWORDS = 40;
+
+type KeywordAnalysisInput = SourcingKeywordAnalysisInput;
+export type NaverKeywordAnalysisSnapshotPayload = SourcingKeywordAnalysisSnapshot;
+
+export interface NaverKeywordAnalysisCollectionControls {
+  signal: AbortSignal;
+  checkpoint: () => Promise<void>;
+  withinActiveOperationAttemptFence: <T>(
+    callback: (transaction: ActiveOperationAttemptTransaction) => Promise<T>,
+  ) => Promise<T>;
+}
 
 @Injectable()
 export class NaverKeywordResearchService {
-  private readonly logger = new Logger(NaverKeywordResearchService.name);
-
   constructor(
     @Inject(SOURCING_NAVER_KEYWORD_RESEARCH_PORT)
     private readonly keywordResearch: NaverKeywordResearchPort,
@@ -45,7 +77,71 @@ export class NaverKeywordResearchService {
     private readonly autocompleteKeywords: NaverAutocompleteKeywordPort,
     @Inject(TREND_COLLECTION_REPOSITORY_PORT)
     private readonly trendRepo: TrendCollectionRepositoryPort,
+    private readonly collectionCoordinator: SourcingCollectionCoordinator,
+    @Inject(SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT)
+    private readonly snapshots: SourcingWorkspaceSnapshotRepositoryPort,
   ) {}
+
+  /**
+   * The exact owner operation for Naver keyword analysis. Provider work is
+   * cancel-aware and its sole persisted projection is committed under the
+   * active OperationRun attempt transaction supplied by the handler.
+   */
+  async collectAnalysis(input: {
+    organizationId: string;
+    input: Record<string, unknown>;
+  } & NaverKeywordAnalysisCollectionControls): Promise<{
+    snapshot: SourcingWorkspaceSnapshotRow;
+    payload: NaverKeywordAnalysisSnapshotPayload;
+  }> {
+    const normalized = SourcingKeywordAnalysisInputSchema.parse(input.input);
+    await checkpointKeywordAnalysis(input);
+
+    const result = await this.collectAnalysisProviders(normalized, input);
+
+    await checkpointKeywordAnalysis(input);
+    const capturedAt = new Date();
+    const payload = SourcingKeywordAnalysisSnapshotSchema.parse({
+      version: KEYWORD_ANALYSIS_PROJECTION_VERSION,
+      generatedAt: capturedAt.toISOString(),
+      input: normalized,
+      result,
+    });
+    const snapshot = await input.withinActiveOperationAttemptFence((transaction) =>
+      this.snapshots.upsertInAttempt(transaction, {
+        organizationId: input.organizationId,
+        scope: 'keyword_analysis',
+        businessDate: kstBusinessDate(capturedAt),
+        projectionVersion: KEYWORD_ANALYSIS_PROJECTION_VERSION,
+        inputHash: hashCollectionRequest(normalized),
+        payload,
+      }),
+    );
+    return { snapshot, payload };
+  }
+
+  /** Read-only lookup of the last exact, owner-persisted operation result. */
+  async getAnalysisSnapshot(
+    organizationId: string,
+    rawInput: Record<string, unknown>,
+    now = new Date(),
+  ): Promise<NaverKeywordAnalysisSnapshotPayload | null> {
+    const input = SourcingKeywordAnalysisInputSchema.parse(rawInput);
+    const toBusinessDate = kstBusinessDate(now);
+    const fromBusinessDate = new Date(
+      toBusinessDate.getTime() - (KEYWORD_ANALYSIS_SNAPSHOT_LOOKBACK_DAYS - 1) * 86_400_000,
+    );
+    const [snapshot] = await this.snapshots.listRecent({
+      organizationId,
+      scope: 'keyword_analysis',
+      fromBusinessDate,
+      toBusinessDate,
+      limit: 1,
+      projectionVersion: KEYWORD_ANALYSIS_PROJECTION_VERSION,
+      inputHash: hashCollectionRequest(input),
+    });
+    return snapshot ? SourcingKeywordAnalysisSnapshotSchema.parse(snapshot.payload) : null;
+  }
 
   getStatus(): NaverKeywordResearchStatus {
     return this.keywordResearch.getStatus();
@@ -55,14 +151,34 @@ export class NaverKeywordResearchService {
     return this.datalabTrend.getStatus();
   }
 
-  searchRelatedKeywords(input: SearchNaverRelatedKeywordsInput): Promise<SearchNaverRelatedKeywordsResult> {
-    return this.keywordResearch.searchRelatedKeywords(input);
+  searchRelatedKeywords(
+    organizationId: string,
+    input: SearchNaverRelatedKeywordsInput,
+    idempotencyKey?: string,
+  ): Promise<SearchNaverRelatedKeywordsResult> {
+    return this.readThroughAuthorizedRun({
+      organizationId,
+      sourceKey: 'naver.searchad_keyword',
+      request: input,
+      idempotencyKey,
+      collectorKey: 'direct-naver-related-keywords',
+      provider: () => this.keywordResearch.searchRelatedKeywords(input),
+    });
   }
 
   compareSearchTrends(
+    organizationId: string,
     input: CompareNaverDatalabSearchTrendsInput,
+    idempotencyKey?: string,
   ): Promise<CompareNaverDatalabSearchTrendsResult> {
-    return this.datalabTrend.compareSearchTrends(input);
+    return this.readThroughAuthorizedRun({
+      organizationId,
+      sourceKey: 'naver.datalab_trend',
+      request: input,
+      idempotencyKey,
+      collectorKey: 'direct-naver-search-trends',
+      provider: () => this.datalabTrend.compareSearchTrends(input),
+    });
   }
 
   /**
@@ -74,36 +190,198 @@ export class NaverKeywordResearchService {
   async searchPopularKeywords(
     input: SearchNaverDatalabPopularKeywordsInput,
     organizationId: string,
+    idempotencyKey?: string,
   ): Promise<SearchNaverDatalabPopularKeywordsResult> {
-    const result = await this.popularKeywords.searchPopularKeywords(input);
-
-    try {
-      const capturedAt = new Date();
-      const businessDate = kstBusinessDate(capturedAt);
-      const history = await this.trendRepo.findPopularKeywordHistory({
+    let result: SearchNaverDatalabPopularKeywordsResult | null = null;
+    await this.collectionCoordinator.execute(
+      collectionRequest({
         organizationId,
-        days: POPULAR_HISTORY_LOOKBACK_DAYS,
-      });
-      annotatePopularKeywordChange(result.boards, history, businessDate);
-
-      const rows = buildPopularSnapshotRows(result.boards, organizationId, businessDate, capturedAt);
-      if (rows.length > 0) {
-        await this.trendRepo.replaceNaverPopularKeywordSnapshots(rows);
-      }
-    } catch (error) {
-      this.logger.warn(
-        `인기키워드 NEW 표시/일별 저장 실패: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-
+        sourceKey: 'naver.datalab_popular',
+        request: input,
+        idempotencyKey,
+        collectorKey: 'direct-naver-popular-keywords',
+      }),
+      async ({ permit, checkpoint }) => {
+        await checkpoint();
+        const providerResult = await this.popularKeywords.searchPopularKeywords(input);
+        result = providerResult;
+        const capturedAt = new Date();
+        const businessDate = kstBusinessDate(capturedAt);
+        let typedRecords: ReturnType<typeof buildPopularSnapshotRows> = [];
+        let projectionError: string | null = null;
+        try {
+          const history = await this.trendRepo.findPopularKeywordHistory({
+            organizationId,
+            days: POPULAR_HISTORY_LOOKBACK_DAYS,
+          });
+          annotatePopularKeywordChange(providerResult.boards, history, businessDate);
+          typedRecords = buildPopularSnapshotRows(
+            providerResult.boards,
+            organizationId,
+            businessDate,
+            capturedAt,
+          );
+        } catch (error) {
+          projectionError = error instanceof Error ? error.message : String(error);
+        }
+        await checkpoint();
+        return mapTrendTypedRecordsToAuthorizedOutput({
+          permit,
+          typedRecords: typedRecords.map((row) => ({ kind: 'naver_popular_keyword' as const, row })),
+          qualityReport: {
+            source: 'naver-popular',
+            boardCount: providerResult.boards.length,
+            projectionError,
+          },
+        });
+      },
+    );
+    if (!result) throw new BadRequestException('An idempotent popular-keyword query is already in progress.');
     return result;
   }
 
   searchAutocompleteKeywords(
+    organizationId: string,
     input: SearchNaverAutocompleteKeywordsInput,
+    idempotencyKey?: string,
   ): Promise<SearchNaverAutocompleteKeywordsResult> {
-    return this.autocompleteKeywords.searchAutocompleteKeywords(input);
+    return this.readThroughAuthorizedRun({
+      organizationId,
+      sourceKey: 'naver.autocomplete',
+      request: input,
+      idempotencyKey,
+      collectorKey: 'direct-naver-autocomplete',
+      provider: () => this.autocompleteKeywords.searchAutocompleteKeywords(input),
+    });
   }
+
+  private async collectAnalysisProviders(
+    input: KeywordAnalysisInput,
+    controls: Pick<NaverKeywordAnalysisCollectionControls, 'signal' | 'checkpoint'>,
+  ): Promise<NaverKeywordAnalysisSnapshotPayload['result']> {
+    let popular: SearchNaverDatalabPopularKeywordsResult | null = null;
+    let related: NaverKeywordAnalysisSnapshotPayload['result']['related'] = null;
+    let autocomplete: SearchNaverAutocompleteKeywordsResult[] = [];
+    let trends: CompareNaverDatalabSearchTrendsResult | null = null;
+
+    if (input.action === 'popular' || input.action === 'trend_agent') {
+      popular = await this.popularKeywords.searchPopularKeywords({
+        timeUnit: input.timeUnit,
+        gender: input.gender === 'all' ? undefined : input.gender,
+        device: input.device === 'all' ? undefined : input.device,
+        ages: input.age === 'all' ? undefined : [input.age],
+        limit: input.rankLimit,
+        signal: controls.signal,
+      });
+      await checkpointKeywordAnalysis(controls);
+    }
+
+    const relatedSeed = input.action === 'related'
+      ? [input.keyword as string]
+      : input.action === 'trend_agent'
+        ? collectAnalysisSeeds(popular?.boards ?? [], input)
+        : [];
+    if (relatedSeed.length > 0) {
+      const providerRelated = await this.keywordResearch.searchRelatedKeywords({
+        seedKeywords: relatedSeed,
+        maxResults: 100,
+        signal: controls.signal,
+      });
+      related = {
+        ...providerRelated,
+        items: providerRelated.items.map(({ raw: _providerRaw, ...item }) => item),
+      };
+      await checkpointKeywordAnalysis(controls);
+      autocomplete = await Promise.all(
+        relatedSeed.slice(0, MAX_ANALYSIS_AUTOCOMPLETE_SEEDS).map((keyword) =>
+          this.autocompleteKeywords.searchAutocompleteKeywords({
+            keyword,
+            maxResults: 30,
+            signal: controls.signal,
+          }),
+        ),
+      );
+      await checkpointKeywordAnalysis(controls);
+    }
+
+    const trendKeywords = input.action === 'compare'
+      ? input.keywords ?? []
+      : input.action === 'related'
+        ? (related?.items ?? []).map((item) => item.keyword).slice(0, MAX_ANALYSIS_TREND_KEYWORDS)
+        : input.action === 'trend_agent'
+          ? uniqueKeywords([
+            ...relatedSeed,
+            ...(related?.items ?? []).map((item) => item.keyword),
+            ...autocomplete.flatMap((item) => item.items.map((candidate) => candidate.keyword)),
+          ]).slice(0, MAX_ANALYSIS_TREND_KEYWORDS)
+          : [];
+    if (trendKeywords.length > 0) {
+      trends = await this.datalabTrend.compareSearchTrends({
+        keywords: trendKeywords,
+        timeUnit: input.timeUnit,
+        gender: input.gender === 'all' ? undefined : input.gender,
+        device: input.device === 'all' ? undefined : input.device,
+        ages: toSearchTrendAges(input.age),
+        signal: controls.signal,
+      });
+      await checkpointKeywordAnalysis(controls);
+    }
+
+    return { popular, related, autocomplete, trends };
+  }
+
+  private async readThroughAuthorizedRun<T>(input: {
+    organizationId: string;
+    sourceKey: string;
+    request: unknown;
+    idempotencyKey?: string;
+    collectorKey: string;
+    provider: () => Promise<T>;
+  }): Promise<T> {
+    let result: T | null = null;
+    await this.collectionCoordinator.execute(
+      collectionRequest(input),
+      async ({ checkpoint }) => {
+        await checkpoint();
+        result = await input.provider();
+        await checkpoint();
+        return {
+          observations: [],
+          typedRecords: [],
+          discoveredCount: 0,
+          rejectedCount: 0,
+          qualityReport: { source: input.sourceKey, mode: 'read' },
+        };
+      },
+    );
+    if (result === null) {
+      throw new BadRequestException('An idempotent research query is already in progress.');
+    }
+    return result;
+  }
+}
+
+function collectionRequest(input: {
+  organizationId: string;
+  sourceKey: string;
+  request: unknown;
+  idempotencyKey?: string;
+  collectorKey: string;
+}) {
+  const requestHash = hashCollectionRequest(input.request);
+  return {
+    organizationId: input.organizationId,
+    sourceKey: input.sourceKey,
+    scopeKey: 'default',
+    targetKey: `request:${requestHash}`,
+    idempotencyKey: input.idempotencyKey?.trim() || `${input.collectorKey}:${randomUUID()}`,
+    requestHash,
+    collectorKey: input.collectorKey,
+    collectorVersion: '2026-08-08',
+    triggerKind: 'manual' as const,
+    triggeredByUserId: null,
+    leaseDurationMs: 120_000,
+  };
 }
 
 function normalizePopularKeyword(value: string): string {
@@ -193,4 +471,61 @@ function buildPopularSnapshotRows(
     }
   }
   return rows;
+}
+
+async function checkpointKeywordAnalysis(
+  controls: Pick<NaverKeywordAnalysisCollectionControls, 'signal' | 'checkpoint'>,
+): Promise<void> {
+  controls.signal.throwIfAborted();
+  await controls.checkpoint();
+  controls.signal.throwIfAborted();
+}
+
+function collectAnalysisSeeds(
+  boards: NaverDatalabPopularKeywordBoard[],
+  input: KeywordAnalysisInput,
+): string[] {
+  const candidates = boards
+    .filter((board) => input.selectedBoardKey === 'all' || board.key === input.selectedBoardKey)
+    .filter((board) => matchesKeywordAnalysisFocus(board.key, input.focusMode))
+    .flatMap((board) => board.ranks
+      .filter((rank) => rank.rank <= input.rankLimit)
+      .map((rank) => rank.keyword));
+  return uniqueKeywords(candidates).slice(0, MAX_ANALYSIS_SEEDS);
+}
+
+function matchesKeywordAnalysisFocus(
+  boardKey: string,
+  focusMode: KeywordAnalysisInput['focusMode'],
+): boolean {
+  if (focusMode === 'all') return true;
+  if (focusMode === 'toy_stationery') {
+    return /toy|fancy|stationery/.test(boardKey);
+  }
+  return /birth|kids|toy|fancy|stationery/.test(boardKey);
+}
+
+function uniqueKeywords(keywords: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of keywords) {
+    const keyword = value.trim();
+    const key = keyword.replace(/\s+/g, '').toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(keyword);
+  }
+  return result;
+}
+
+function toSearchTrendAges(age: string): string[] | undefined {
+  const mapped: Record<string, string[]> = {
+    '10': ['2'],
+    '20': ['3', '4'],
+    '30': ['5', '6'],
+    '40': ['7', '8'],
+    '50': ['9', '10'],
+    '60': ['11'],
+  };
+  return mapped[age];
 }

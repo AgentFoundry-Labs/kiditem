@@ -11,6 +11,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../../../prisma/prisma.service";
 import { currentBusinessDate } from "../../../domain/business-date";
+import { withAdIngestRepositoryTransaction } from "./ad-ingest-transaction-context";
 import type {
   KeywordRankRepositoryPort,
   KeywordTrackerRow,
@@ -375,7 +376,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
   async mutateLatestSerpSnapshot(
     input: MutateLatestSerpSnapshotInput,
   ): Promise<{ id: string } | null> {
-    return this.prisma.$transaction(async (tx) => {
+    return withAdIngestRepositoryTransaction(this.prisma, async (tx) => {
       await this.acquireSnapshotLock(
         tx,
         input.organizationId,

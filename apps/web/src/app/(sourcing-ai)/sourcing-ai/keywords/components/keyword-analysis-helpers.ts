@@ -5,10 +5,19 @@ import type {
   NaverDatalabPopularKeywordBoardKey,
   NaverDatalabPopularKeywordRank,
   NaverDatalabTimeUnit,
-} from '../../recommendations/lib/naver-keyword-api';
-import { rankedKeywordPoolBoardKeys } from '../../lib/ranked-keyword-pool';
-
-export const boardKeys: NaverDatalabPopularKeywordBoardKey[] = [...rankedKeywordPoolBoardKeys];
+} from '../../lib/keyword-analysis-snapshot-api';
+export const boardKeys: NaverDatalabPopularKeywordBoardKey[] = [
+  'toys_dolls',
+  'toys_block',
+  'toys_action',
+  'toys_roleplay',
+  'toys_puzzle',
+  'fancy_sticker',
+  'fancy_goods',
+  'fancy_diary',
+  'stationery_writing',
+  'stationery_note',
+];
 
 // 제외/표시 개수 필터를 적용한 화면용 보드. sourceExhausted 는 제외 후 남은 후보가
 // 요청한 표시 개수(requestedLimit)보다 적어서 다 채우지 못한 상태를 뜻한다.

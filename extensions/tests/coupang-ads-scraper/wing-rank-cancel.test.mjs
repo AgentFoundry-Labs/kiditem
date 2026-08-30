@@ -86,7 +86,11 @@ test("Wing catalog rate limiting uses paced searches and bounded asymmetric retr
   assert.equal(keywordSearchDelay?.[1], '1500');
   assert.match(
     wingCatalogSearch,
-    /response = await executeWingCatalogSearchWithRetry\(tabId, payload\);[\s\S]*?searchPage = body\.nextSearchPage;[\s\S]*?if \(index < maxPages - 1\) await sleep\(WING_CATALOG_PAGE_DELAY_MS\);/,
+    /response = await raceWingCatalogOperationAbort\([\s\S]*?executeWingCatalogSearchWithRetry\(tabId, payload\),[\s\S]*?operationSignal,[\s\S]*?\);/,
+  );
+  assert.match(
+    wingCatalogSearch,
+    /searchPage = body\.nextSearchPage;[\s\S]*?if \(index < maxPages - 1\) \{[\s\S]*?sleep\(WING_CATALOG_PAGE_DELAY_MS\),[\s\S]*?operationSignal,[\s\S]*?\}/,
   );
   assert.match(
     keywordSearch,

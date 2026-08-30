@@ -55,7 +55,7 @@ function dependencies() {
       sku: { id: channelSkuId, externalSkuId: 'P-1', sellerSku: 'P-1', optionName: 'Rocket item', barcode: '8801234567890', modelNumber: null, salePrice: null, status: 'observed', mappingStatus: 'matched', sellableStock: 5, updatedAt: '2026-07-16T00:00:00.000Z' },
       masterProductId,
       recipeStatus: 'matched',
-      components: [{ sellpiaInventorySkuId, code: 'SP-1', name: 'Sellpia', optionName: null, barcode: '8801234567890', currentStock: 5, activeCommitmentQuantity: 0, availableStock: 5, purchasePrice: null, isActive: true, quantity: 1, source: 'manual', componentCapacity: 5, isBottleneck: true }],
+      components: [{ sellpiaInventorySkuId, code: 'SP-1', name: 'Sellpia', optionName: null, barcode: '8801234567890', currentStock: 5, availableStock: 5, purchasePrice: null, isActive: true, quantity: 1, source: 'manual', componentCapacity: 5, isBottleneck: true }],
       warnings: [],
     }]),
   } as unknown as ChannelSkuAvailabilityPort;
@@ -70,7 +70,7 @@ function dependencies() {
       generation: '1',
       lastVerifiedAt: '2026-07-16T00:00:00.000Z',
       expiresAt: '2026-07-16T00:10:00.000Z',
-      inventorySkus: [{ sellpiaInventorySkuId, currentStock: 5, activeCommitmentQuantity: 0, availableStock: 5, isActive: true }],
+      inventorySkus: [{ sellpiaInventorySkuId, currentStock: 5, availableStock: 5, isActive: true }],
     }),
     readFreshCapacityOrRequest: vi.fn().mockResolvedValue({
       status: 'fresh',
@@ -78,7 +78,7 @@ function dependencies() {
       generation: '1',
       lastVerifiedAt: '2026-07-16T00:00:00.000Z',
       expiresAt: '2026-07-16T00:10:00.000Z',
-      inventorySkus: [{ sellpiaInventorySkuId, currentStock: 5, activeCommitmentQuantity: 0, availableStock: 5, isActive: true }],
+      inventorySkus: [{ sellpiaInventorySkuId, currentStock: 5, availableStock: 5, isActive: true }],
     }),
   } as unknown as SellpiaInventoryFreshnessGatePort;
   return { catalog, availability, freshness };
@@ -371,7 +371,7 @@ describe('RocketPurchasePreviewService', () => {
       generation: '2',
       lastVerifiedAt: '2026-07-16T00:01:00.000Z',
       expiresAt: '2026-07-16T00:11:00.000Z',
-      inventorySkus: [{ sellpiaInventorySkuId, currentStock: 0, activeCommitmentQuantity: 0, availableStock: 0, isActive: true }],
+      inventorySkus: [{ sellpiaInventorySkuId, currentStock: 0, availableStock: 0, isActive: true }],
     });
     const service = previewService(deps);
 
@@ -458,7 +458,7 @@ describe('RocketPurchasePreviewService', () => {
     });
   });
 
-  it('uses the gated current stock while ignoring common active commitments', async () => {
+  it('uses the gated physical current stock', async () => {
     const deps = dependencies();
     vi.mocked((deps.freshness as unknown as {
       readFreshCapacityOrRequest: ReturnType<typeof vi.fn>;
@@ -471,8 +471,7 @@ describe('RocketPurchasePreviewService', () => {
       inventorySkus: [{
         sellpiaInventorySkuId,
         currentStock: 100,
-        activeCommitmentQuantity: 20,
-        availableStock: 80,
+        availableStock: 100,
         isActive: true,
       }],
     });

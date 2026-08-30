@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { AutomationModule } from '../automation.module';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { OperationAlertRuntimeModule } from '../operation-alert-runtime.module';
 
 // adapter/in/http
 import { ActionTaskController } from '../adapter/in/http/action-task.controller';
@@ -24,6 +25,7 @@ import { AlertsRepositoryAdapter } from '../adapter/out/repository/alerts.reposi
 import { MarketplaceCatalogRepositoryAdapter } from '../adapter/out/repository/marketplace-catalog.repository.adapter';
 import { MarketplaceInstallStoreRepositoryAdapter } from '../adapter/out/repository/marketplace-install-store.repository.adapter';
 import { OperationAlertRepositoryAdapter } from '../adapter/out/repository/operation-alert.repository.adapter';
+import { OperationRunAlertSourceStateAdapter } from '../adapter/out/operations/operation-run-alert-source-state.adapter';
 import { WorkflowOrchestrationRepositoryAdapter } from '../adapter/out/repository/workflow-orchestration.repository.adapter';
 
 // adapter/out/panel-event
@@ -49,6 +51,7 @@ import { ALERTS_REPOSITORY_PORT } from '../application/port/out/repository/alert
 import { MARKETPLACE_CATALOG_REPOSITORY_PORT } from '../application/port/out/repository/marketplace-catalog.repository.port';
 import { MARKETPLACE_INSTALL_STORE_PORT } from '../application/port/out/repository/marketplace-install-store.port';
 import { OPERATION_ALERT_REPOSITORY_PORT } from '../application/port/out/repository/operation-alert.repository.port';
+import { OPERATION_ALERT_SOURCE_STATE_PORT } from '../application/port/out/operations/operation-alert-source-state.port';
 import { WORKFLOW_ORCHESTRATION_REPOSITORY_PORT } from '../application/port/out/repository/workflow-orchestration.repository.port';
 
 const IMPORTS_KEY = 'imports';
@@ -62,12 +65,10 @@ const EXPECTED_OUT_PORT_BINDINGS = [
   [ALERTS_REPOSITORY_PORT, AlertsRepositoryAdapter],
   [MARKETPLACE_CATALOG_REPOSITORY_PORT, MarketplaceCatalogRepositoryAdapter],
   [MARKETPLACE_INSTALL_STORE_PORT, MarketplaceInstallStoreRepositoryAdapter],
-  [OPERATION_ALERT_REPOSITORY_PORT, OperationAlertRepositoryAdapter],
   [WORKFLOW_ORCHESTRATION_REPOSITORY_PORT, WorkflowOrchestrationRepositoryAdapter],
 ] as const;
 
 const EXPECTED_IN_PORT_BINDINGS = [
-  [OPERATION_ALERT_PORT, OperationAlertService],
   [DETERMINISTIC_WORKFLOW_EXECUTION_PORT, WorkflowOrchestrationService],
   [WORKFLOW_RUN_CANCELLATION_PORT, WorkflowRunnerService],
 ] as const;
@@ -77,9 +78,9 @@ const EXPECTED_IN_PORT_BINDINGS = [
 // route prefix, or unbound port fails at vitest time before reaching
 // dev:server boot.
 describe('AutomationModule capability wiring', () => {
-  it('imports only Prisma; Agent OS must call automation, not the reverse', () => {
+  it('imports Prisma and the controller-free alert runtime', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, AutomationModule) ?? [];
-    expect(imports).toEqual([PrismaModule]);
+    expect(imports).toEqual([PrismaModule, OperationAlertRuntimeModule]);
   });
 
   it('mounts every controller from adapter/in/http', () => {
@@ -110,7 +111,6 @@ describe('AutomationModule capability wiring', () => {
       AlertsRepositoryAdapter,
       MarketplaceCatalogRepositoryAdapter,
       MarketplaceInstallStoreRepositoryAdapter,
-      OperationAlertRepositoryAdapter,
       WorkflowOrchestrationRepositoryAdapter,
       PanelService,
       PanelSseService,
@@ -126,7 +126,6 @@ describe('AutomationModule capability wiring', () => {
       ActionBoardService,
       AlertsService,
       BrowserCollectionRunIdService,
-      OperationAlertService,
       MarketplaceCatalogService,
       MarketplaceInstallService,
       WorkflowOrchestrationService,
@@ -159,10 +158,34 @@ describe('AutomationModule capability wiring', () => {
   it('exports owner-side ports for cross-domain consumers', () => {
     const exported: unknown[] =
       Reflect.getMetadata(EXPORTS_KEY, AutomationModule) ?? [];
-    expect(exported).toContain(OPERATION_ALERT_PORT);
+    expect(exported).toContain(OperationAlertRuntimeModule);
     expect(exported).toContain(DETERMINISTIC_WORKFLOW_EXECUTION_PORT);
     expect(exported).toContain(WORKFLOW_RUN_CANCELLATION_PORT);
     expect(exported).not.toContain(OperationAlertService);
+  });
+
+  it('owns the alert repository, service, and bindings exactly once in the runtime module', () => {
+    const runtimeProviders: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, OperationAlertRuntimeModule) ?? [];
+    expect(runtimeProviders).toEqual([
+      OperationAlertRepositoryAdapter,
+      OperationAlertService,
+      OperationRunAlertSourceStateAdapter,
+      {
+        provide: OPERATION_ALERT_REPOSITORY_PORT,
+        useExisting: OperationAlertRepositoryAdapter,
+      },
+      { provide: OPERATION_ALERT_PORT, useExisting: OperationAlertService },
+      {
+        provide: OPERATION_ALERT_SOURCE_STATE_PORT,
+        useExisting: OperationRunAlertSourceStateAdapter,
+      },
+    ]);
+    expect(Reflect.getMetadata(EXPORTS_KEY, OperationAlertRuntimeModule)).toEqual([
+      OPERATION_ALERT_PORT,
+      OPERATION_ALERT_REPOSITORY_PORT,
+      OperationAlertService,
+    ]);
   });
 
   it('keeps the public /api route prefixes', () => {

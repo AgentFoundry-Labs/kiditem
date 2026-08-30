@@ -5,6 +5,7 @@ import {
   sendToExtension,
 } from '@/lib/extension-bridge';
 import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
+import { transferExtensionAuthTo } from '@/lib/extension-auth';
 
 type ExtensionResponse = {
   success?: boolean;
@@ -26,12 +27,10 @@ export const COUPANG_CATALOG_EXTENSION_RELOAD_REQUIRED =
 export async function startCoupangCatalogBrowser(input: {
   channelAccountId: string;
   runId: string;
-  accessToken: string | null | undefined;
 }): Promise<string> {
   if (!isChromeExtensionRuntimeAvailable()) {
     throw new Error('쿠팡 상품 수집은 Chrome에서 실행해주세요.');
   }
-  if (!input.accessToken) throw new Error('로그인 세션을 확인할 수 없습니다.');
   const extensionId = await detectExtensionId();
   if (!extensionId) throw new Error(COUPANG_CATALOG_EXTENSION_REQUIRED);
 
@@ -45,13 +44,7 @@ export async function startCoupangCatalogBrowser(input: {
   ) {
     throw new Error(COUPANG_CATALOG_EXTENSION_RELOAD_REQUIRED);
   }
-  const auth = await sendToExtension<ExtensionResponse>(extensionId, {
-    action: 'setAuthToken',
-    token: input.accessToken,
-  });
-  if (auth?.success === false) {
-    throw new Error(auth.error || '확장프로그램 로그인 연동에 실패했습니다.');
-  }
+  await transferExtensionAuthTo(extensionId);
   const started = await sendToExtension<ExtensionResponse>(extensionId, {
     action: 'startCoupangCatalogImport',
     channelAccountId: input.channelAccountId,

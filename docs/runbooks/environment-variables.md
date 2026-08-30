@@ -3,7 +3,7 @@
 This runbook is the inventory for KidItem environment variables. It separates
 the current minimum runtime env from feature-specific optional env, describes
 where each variable is injected, which runtime consumes it, and how to verify
-that staging received it without printing secret values.
+that Office received it without printing secret values.
 
 Do not record real secrets in git, pull requests, issue comments, or chat.
 
@@ -11,15 +11,98 @@ Do not copy every variable in this runbook into every environment. Keep env
 files minimal, then add feature-specific variables only when that feature is
 actually enabled in that environment.
 
+## Environment Profiles At A Glance
+
+### macOS core
+
+Run `npm run setup:macos` before dependency installation. It creates missing
+files from committed examples and never overwrites existing files.
+
+| File | Owner | Minimum local values | Secret boundary |
+|---|---|---|---|
+| `.env` | Prisma CLI and root dev-data scripts | `DATABASE_URL`; dev-data values only when syncing | Keep app/provider secrets out. |
+| `apps/server/.env` | NestJS API and Operation worker | `NODE_ENV`, `PORT`, `DATABASE_URL`, `WEB_ORIGIN`, `CORS_ORIGINS`, `S3_*`, `API_SELF_URL` | Server/provider/channel values may be secret; never expose them as `NEXT_PUBLIC_*`. |
+| `apps/web/.env.local` | Next.js | `NEXT_PUBLIC_API_URL`; optional query-devtools flag | Every `NEXT_PUBLIC_*` value is browser-visible and must not be a secret. |
+
+The checked-in local database value is exactly:
+
+```text
+postgresql://kiditem:kiditem@localhost:5433/kiditem
+```
+
+It matches `docker-compose.yml` and is development-only. The root file must
+exist before npm postinstall invokes Prisma generate; the setup command enforces
+that order.
+
+Local Sourcing does not inherit the Office Chrome hostname. Keep
+`SOURCING_PLAYWRIGHT_CDP_ENDPOINT` blank and use the dedicated
+`SOURCING_PLAYWRIGHT_USER_DATA_DIR=.kiditem/playwright/sourcing` when local URL
+scrape needs a persistent browser login. Set `SOURCING_PLAYWRIGHT_HEADLESS=false`
+only while preparing/debugging that local profile.
+
+### macOS Agent OS
+
+Agent OS adds one server env path and a protected native configuration; it does
+not add provider credentials to `.env`.
+
+| Location | Owner | Required content | Persistence |
+|---|---|---|---|
+| `apps/server/.env` | Nest Gateway ingress | `KIDITEM_AGENT_GATEWAY_TOKEN_FILE`, `MCP_SDK_GENERATION=v2`, `MCP_PROTOCOL_NEGOTIATION=auto`; optional `AGENT_CLI_MAX_CONCURRENCY` | Token **path** only. |
+| `~/Library/Application Support/KidItem/AgentGateway/gateway-config.json` | native Gateway | strict absolute `controlOrigin`, `tokenFile`, `stateRoot`, `runtimeRoot`, `workspace`, `loginRoot` | 0600 local control config; not an env file. |
+| `.../secrets/installation-token` | Gateway + Nest | random 43-character installation bearer | 0600 secret; never print/copy to env or DB. |
+| `.../provider-home` | bundled Codex/Claude CLI | provider login and provider-local conversation/session history | 0700 host-local provider state; never PostgreSQL. |
+| `.../state` | native Gateway | conversation descriptors, preferences, bounded control files | 0700 host-local state; no business authority. |
+
+`npm run setup:macos` creates these paths and writes the token file path into
+the server env. `npm run gateway:auth:codex` checks the isolated Codex login,
+opens the interactive login only when needed, and verifies it again. Optional
+Claude authentication uses `npm run gateway:login:claude`.
+`npm run gateway:login:codex` remains available only for forced recovery.
+Reusing the developer's normal `~/.codex` or default home is not supported
+because it mixes KidItem conversations with personal Desktop/CLI history.
+
+The process-scoped MCP transport token is generated in memory by the Gateway;
+it is not this installation bearer, not an env variable, and not a capability
+grant. Nest's active-turn record remains the only business authority.
+
+### Optional Python agents
+
+The Python FastAPI helper is outside the default `dev:all` path. Create
+`agents/.env` only with `npm run setup:macos -- --with-python-agents` and run it
+with a Python 3.11+ venv.
+
+| File | Owner | Required when enabled | Secret boundary |
+|---|---|---|---|
+| `agents/.env` | optional Python Agent server | `DATABASE_URL`, `AI_MODE`, chosen model names, and the key required by that mode | Provider/Langfuse keys stay here; blank examples are intentional. |
+
+The default Nest TypeScript Sourcing URL scrape does not require Python. Do not
+populate all OpenAI/Gemini/VectorEngine keys at once; provide only the selected
+mode's key.
+
+### Windows Office
+
+Office is deployed through GitHub Actions and protected host files, not the
+macOS setup command.
+
+| Location | Owner | Content |
+|---|---|---|
+| `C:\ProgramData\Kiditem\.env.office` | Office Compose | non-secret deployment/runtime paths and host values |
+| protected file referenced by `OFFICE_API_ENV_FILE` | API container | DB, S3, AI, marketplace, and feature-specific runtime secrets |
+| protected file referenced by `KIDITEM_AGENT_GATEWAY_TOKEN_FILE` | Windows Gateway/Nest | installation bearer only |
+| Windows service-account profile | bundled Codex/Claude CLI | provider login state and provider-local conversation history |
+
+Office keeps `SOURCING_PLAYWRIGHT_CDP_ENDPOINT=http://kiditem-office:9444` in
+`deploy/office/office.env.example`. Never copy that value into the macOS server
+env. See [Office Deploy](office-deploy.md) and
+[Deployment Architecture](deployment-architecture.md).
+
 ## Human Prerequisites
 
-- Access to the GitHub repository and the target GitHub Environment.
-- SSH access to the target host when changing runtime secrets.
-- Access to any Supabase database/storage project used by the target
-  environment. Application authentication is local and needs no Supabase Auth
-  project or API keys.
-- Access to provider consoles for AI keys, storage S3 keys, and marketplace
-  credentials.
+- For macOS, Docker Desktop plus a supported Node 22 release; `.nvmrc` is the
+  recommended reproducible baseline.
+- Access to the GitHub repository and the `office` GitHub Environment.
+- Local operator access to the Office host when changing runtime secrets.
+- Access to provider consoles for AI keys and marketplace credentials.
 
 ## Injection Paths
 
@@ -30,33 +113,23 @@ Local development:
 apps/server/.env        NestJS local runtime env
 apps/web/.env.local     Next.js local env
 agents/.env             Python agent runtime env
+~/Library/Application Support/KidItem/AgentGateway/gateway-config.json
+                        native Gateway config (not dotenv)
+~/Library/Application Support/KidItem/AgentGateway/secrets/installation-token
+                        native Gateway bearer (not dotenv)
 ```
 
-Staging:
+Office:
 
 ```text
-GitHub Environment `staging` variables
-  -> build-time public web values and EC2 connection metadata
+C:\ProgramData\Kiditem\.env.office
+  -> non-secret Compose/runtime settings
 
-GitHub Environment `staging` secrets
-  -> SSH key and known_hosts for deployment only
-  -> staging DB URL for deploy-time Prisma schema/data migrations
-  -> organization-scoped order-collection mall dotenv payload for the normal
-     deploy seed only; it is never rendered into the API runtime env
-  -> private DB baseline S3 credentials for manual staging DB baseline workflow
-     only
+OFFICE_API_ENV_FILE
+  -> path to the protected API runtime env file outside Git
 
-/opt/kiditem/.env.staging.api
-  -> runtime env_file for the API container
-
-/opt/kiditem/.env.staging.web
-  -> runtime env_file for the web container
-
-/opt/kiditem/.env.staging.deploy
-  -> generated image refs for docker compose
-
-/opt/kiditem/deployments/current-db.json
-  -> generated DB baseline manifest pointer, not a secret env file
+C:\ProgramData\Kiditem\deployments\current.json
+  -> immutable Office bundle manifest, not an env or secret file
 ```
 
 `NEXT_PUBLIC_*` values are public client build values. Treat them as
@@ -74,49 +147,34 @@ Local development:
   shared local tooling values.
 - The API runtime sections of `apps/server/.env` and
   `apps/server/.env.example` intentionally mirror
-  `deploy/staging/env/api.env.example`. The marked order-collection credential
-  seed block is the only deploy-input exception and is never rendered into the
-  API runtime env.
-- Root `.env` should stay narrow: Prisma CLI, optional Supabase storage/data
-  tooling, shared dev-data paths, and the Agent OS seed model used by
-  `npm run seed:agent-os`.
+  `deploy/office/office.env.example` where the same runtime concern exists.
+- Root `.env` should stay narrow: Prisma CLI and shared dev-data paths. Agent
+  profiles and capability catalogs are code-owned, not seeded or configured by env.
 - Product-bound detail page, thumbnail, and image-edit generation are direct AI
   jobs, not Agent OS runs. For local preview, keep `AI_TEXT_MODEL`,
   `AI_IMAGE_MODEL`, and `AI_IMAGE_ANALYSIS_MODEL` set in `apps/server/.env`.
-- Local app env may include different values for local DB URLs and provider
-  keys, but its API runtime format should stay aligned with the staging API env
-  contract.
-- Local env must not be copied to staging or production as-is.
+- Local env must not be copied to Office as-is.
+- `KIDITEM_BROWSER_QA_EMAIL` is an optional, non-secret test-only login email
+  for `qa:agent-os:clean-cutover -- --serve-browser-qa`; `--email <email>`
+  takes precedence. It is never an Office runtime variable. The browser-QA
+  password is requested only from interactive stdin and must never be placed in
+  an environment variable, command argument, source, or log.
 
-Staging:
+Office:
 
-- Source of truth example is `deploy/staging/env/api.env.example` for the API
-  container and `deploy/staging/env/web.env.example` for the web container.
-- If staging is reactivated, it should use a dedicated database, storage
-  bucket, and provider keys once real QA begins. Reusing dev is allowed only as
-  a short first-rollout bridge. Authentication remains in the application DB.
-- The current staging compose runtime runs API, web, and nginx. It does not run
-  `agents/` as a separate Python runtime.
-- Keep staging to the current minimum runtime env below. Add AI, Agent OS, or
-  channel credential env only when that staging feature is intentionally
-  enabled and verified.
-
-Production:
-
-- Production must have a separate database, storage bucket, DNS/origin list,
-  and provider keys from local and staging. Authentication remains in the
-  application DB.
-- Source of truth examples are `deploy/production/env/api.env.example` for the
-  API container and `deploy/production/env/web.env.example` for the web
-  container. Values and access keys must be created independently.
-- Feature-specific secrets should remain absent until the production feature is
-  launched. Do not promote unused staging secrets to production.
+- Source of truth examples are `deploy/office/office.env.example` and the
+  application-local `.env.example` files.
+- PostgreSQL and MinIO run locally on the Office host through external Docker
+  volumes. Application authentication is stored in PostgreSQL.
+- The protected API env file remains outside Git and is referenced by
+  `OFFICE_API_ENV_FILE`; do not copy it into an Actions artifact.
+- Add AI, Agent OS, or channel credentials only when that Office feature is
+  intentionally enabled and verified.
 
 ## Current Minimum Runtime Env
 
-API container, current staging shape. In shared staging, these values are
-managed from GitHub Environment `staging`; the deploy workflow renders
-`.env.staging.api` before syncing assets to EC2.
+API container, current Office shape. These values are stored in the protected
+Office API env file outside Git.
 
 ```text
 NODE_ENV
@@ -132,7 +190,7 @@ S3_ACCESS_KEY
 S3_SECRET_KEY
 ```
 
-API feature env currently enabled for staging:
+API feature env currently enabled for Office:
 
 ```text
 CHANNEL_CREDENTIALS_ENCRYPTION_KEY
@@ -141,8 +199,11 @@ AI_TEXT_MODEL
 AI_IMAGE_MODEL
 AI_IMAGE_ANALYSIS_MODEL
 AI_IMAGE_ANALYSIS_VERIFY_MODEL
-AGENT_RUNTIME_WORKER_ENABLED
-AGENT_DEFAULT_MODEL
+KIDITEM_APPLICATION_VERSION
+KIDITEM_GIT_SHA
+KIDITEM_AGENT_GATEWAY_TOKEN_FILE
+MCP_SDK_GENERATION
+MCP_PROTOCOL_NEGOTIATION
 ```
 
 ## Operations Control Plane
@@ -160,6 +221,7 @@ these variables only enable the server processes that honor it.
 | `OPERATION_SCHEDULER_ENABLED` | Enabled cron schedules should create OperationRuns | Operation scheduler | Set `1` only with the runtime worker enabled and browser runtime connected. Default is disabled. |
 | `OPERATION_SCHEDULER_INTERVAL_MS` | Scheduler polling cadence needs tuning | Operation scheduler | Optional positive integer; defaults to `30000`. |
 | `OPERATION_RUN_LEASE_MS` | Operation worker/browser lease duration needs tuning | Operation worker and browser runtime API | Optional positive integer; defaults to `60000`. Extension heartbeats at no slower than one-third of the browser lease. |
+| `OPERATION_RESOURCE_CLASS_LIMITS` | API needs a non-default per-class capacity | API Operations worker | Optional complete JSON object. When absent, defaults are `default:2`, `naver_api:2`, `playwright_1688:1`, `snapshot_compute:2`, and `extension_coupang:4`. Every class must be present with a positive integer; unknown classes, zero/negative values, or malformed JSON fail API startup with `operation_resource_class_limits_invalid`. |
 
 Cron expressions use the standard five fields (`minute hour day-of-month month
 day-of-week`) and are evaluated in the schedule's explicit IANA timezone. The
@@ -167,43 +229,51 @@ dashboard stores the cron, timezone, misfire policy, and enabled state per
 operation; disabling a schedule preserves its expression but sets its next run
 to `null`.
 
-Web container, current staging shape:
+Validate this value before an Office deployment without printing any protected
+environment file: compare the intended complete key set to the table above,
+then boot the isolated API. Do not use a partial JSON override: the parser does
+not merge omitted keys with defaults. A failed validation is fail-closed; keep
+the old runtime running and correct the configuration before attempting another
+API boot. Resource limits belong only to the API Operations owner, never the
+Agent worker or an MCP child.
+
+Web container, current Office shape:
 
 ```text
 NEXT_PUBLIC_API_URL
 ```
 
-`NEXT_PUBLIC_API_URL` stays empty in staging/production when nginx handles
+`NEXT_PUBLIC_API_URL` stays empty in Office when nginx handles
 same-origin `/api/*` routing.
 
 ## Core API Runtime
 
 | Variable | Owner | Required | Consumed by | Notes |
 |---|---|---:|---|---|
-| `NODE_ENV` | API runtime | Yes | NestJS, storage, prod guards | `production` in staging/prod. |
+| `NODE_ENV` | API runtime | Yes | NestJS, storage, runtime guards | `production` in Office. |
 | `PORT` | API runtime | Yes | NestJS | `4000` for the API container. |
 | `DATABASE_URL` | API runtime | Yes | Prisma adapter | Main application database URL. |
 | `WEB_ORIGIN` | API runtime | Yes | API bootstrap, detail page client renderer | Single canonical browser origin used to construct extension render document URLs. There is no localhost fallback; never derive it from `CORS_ORIGINS`. |
-| `CORS_ORIGINS` | API runtime | Yes in production | Nest CORS | Comma-separated public origins. Same-origin `/api/*` still works through nginx. |
-| `API_SELF_URL` | API runtime | Optional | Action board service | Defaults to `http://localhost:4000`. Set if self-calls need the public or container URL. |
+| `CORS_ORIGINS` | API runtime | Yes in Office | Nest CORS | Comma-separated trusted Office origins. Same-origin `/api/*` still works through nginx. |
+| `API_SELF_URL` | API runtime | Required for Action Board actions | Action Board | Use the container-local API base (`http://api:4000` in Office). It is not a browser secret. |
 
 ## Web Runtime And Build
 
 | Variable | Owner | Required | Consumed by | Notes |
 |---|---|---:|---|---|
-| `NEXT_PUBLIC_API_URL` | Web build/runtime | Local only | API client, Next rewrite destination | Local dev uses `http://localhost:4000`. Staging/prod leave empty so browser requests stay same-origin and nginx routes `/api/*`. |
+| `NEXT_PUBLIC_API_URL` | Web build/runtime | Local only | API client, Next rewrite destination | Local dev uses `http://localhost:4000`. Office leaves it empty so browser requests stay same-origin and nginx routes `/api/*`. |
 | `NEXT_PUBLIC_ENABLE_QUERY_DEVTOOLS` | Web runtime | Optional | Query devtools provider | Effective only when `NODE_ENV=development`. |
 
 ## Storage
 
 | Variable | Owner | Required | Consumed by | Notes |
 |---|---|---:|---|---|
-| `S3_ENDPOINT` | API runtime | Yes in production | Storage service | Supabase Storage S3 endpoint or other S3-compatible endpoint. |
-| `S3_ACCESS_KEY` | API runtime | Yes in production | Storage service | Server-only access key. |
-| `S3_SECRET_KEY` | API runtime | Yes in production | Storage service | Server-only secret key. |
-| `S3_BUCKET` | API runtime | Yes in production | Storage service | Bucket name. |
+| `S3_ENDPOINT` | API runtime | Yes in Office | Storage service | Office MinIO S3-compatible endpoint. |
+| `S3_ACCESS_KEY` | API runtime | Yes in Office | Storage service | Server-only MinIO access key. |
+| `S3_SECRET_KEY` | API runtime | Yes in Office | Storage service | Server-only MinIO secret key. |
+| `S3_BUCKET` | API runtime | Yes in Office | Storage service | Office bucket name. |
 | `S3_PUBLIC_URL` | API runtime | Recommended | Storage service | Public object URL base. If missing, service derives it from endpoint and bucket. |
-| `S3_REGION` | API runtime | Optional | Storage service | Defaults to `us-east-1`; staging uses `ap-northeast-2`. |
+| `S3_REGION` | API runtime | Optional | Storage service | Defaults to `us-east-1`, which is suitable for the Office MinIO runtime. |
 
 ## Sourcing Trend Providers
 
@@ -214,7 +284,7 @@ same-origin `/api/*` routing.
 | `TAOBAO_TOP_APP_SECRET` | Taobao Live official collection is enabled | Sourcing Taobao Live adapter | Server-only TOP signing secret. Never expose it to the web app, extension, logs, or Agent OS prompts. |
 | `TAOBAO_TOP_BASE_URL` | A non-production TOP gateway is needed | Sourcing Taobao Live adapter | Optional; defaults to `https://eco.taobao.com/router/rest`. |
 | `TAOBAO_TOP_TIMEOUT_MS` | Custom Taobao TOP timeout is needed | Sourcing Taobao Live adapter | Optional positive integer; defaults to 15000ms. |
-| `SOURCING_LINKFOX_SHADOW_ENABLED` | A paid EchoTik shadow pilot is approved | Market shadow signal service | Must be exactly `1` to arm the treatment. The service still requires an explicit pilot organization allowlist and region. Leave unset or `0` in production. |
+| `SOURCING_LINKFOX_SHADOW_ENABLED` | A paid EchoTik shadow pilot is approved | Market shadow signal service | Must be exactly `1` to arm the treatment. The service still requires an explicit pilot organization allowlist and region. Leave unset or `0` in Office unless explicitly approved. |
 | `SOURCING_LINKFOX_ECHOTIK_REGION` | LinkFox shadow is armed | Market shadow signal service | Required EchoTik region. Supported values: `US`, `GB`, `ID`, `TH`, `PH`, `MY`, `VN`, `MX`, `SG`, `SA`, `BR`, `ES`, `JP`, `DE`, `IT`, `FR`. There is no `KR` fallback. |
 | `SOURCING_LINKFOX_PILOT_ORGANIZATION_IDS` | LinkFox shadow is armed | Market shadow signal service | Comma-separated organization UUID allowlist. An empty list disables all paid calls even when the feature flag is `1`. |
 | `LINKFOX_AGENT_API_KEY` | An allowlisted organization runs the LinkFox treatment | LinkFox EchoTik adapter | Server-only paid API key sent as the raw `Authorization` header. Never expose it to the web, logs, snapshot payloads, or Agent OS prompts. |
@@ -224,38 +294,6 @@ no credential. Both Google and LinkFox results are stored under
 `market_shadow_signals` with `decisionImpact=disabled`; promotion into sourcing
 scores requires a separate reviewed code change after at least 30 observation
 days.
-
-## Staging DB Baseline Operations
-
-These variables are not API/web runtime env. `STAGING_DATABASE_URL` is also
-used by `.github/workflows/staging-deploy.yml` for deploy-time Prisma
-schema/data migrations. The other baseline variables are used only by
-`.github/workflows/staging-db.yml` or an operator shell running
-`npm run staging:db`. The bucket should be private and separate from
-`S3_BUCKET`.
-
-| Variable | Owner | Required when | Notes |
-|---|---|---|---|
-| `STAGING_DATABASE_URL` | GitHub Environment secret | GitHub Actions `staging-deploy` and `staging-db` workflows | Staging Supabase session pooler URL. Deploy uses it for `prisma db push` and `npm run data:migrate`; DB baseline receives it as `DATABASE_URL`. |
-| `STAGING_DATABASE_URL_SHA256` | GitHub Environment secret | Every staging deploy/finalize DB operation | Lowercase SHA-256 of the exact `STAGING_DATABASE_URL`; compared without printing the URL. |
-| `STAGING_DATABASE_NAME` | GitHub Environment variable | Every staging deploy/finalize DB operation | Expected URL pathname and live `current_database()` value. |
-| `DATABASE_URL` | Operator shell | Local DB baseline operation | Staging DB URL only. The CLI refuses mutating operations unless target is explicitly staging. |
-| `STAGING_DB_BASELINE_TARGET` | Operator/workflow guard | Export or restore | Must be `staging`; prevents accidental generic DB mutation. |
-| `STAGING_DB_BASELINE_SANITIZED` | Operator/workflow guard | Export | Must be `true`; operator assertion that the dump contains no production/customer raw data. |
-| `STAGING_DB_BASELINE_BUCKET` | DB baseline storage | Export, verify, restore | Private bucket for DB dump artifacts. Do not use the public app asset bucket. |
-| `STAGING_DB_BASELINE_S3_ENDPOINT` | DB baseline storage | Export, verify, restore | Supabase Storage S3-compatible endpoint. |
-| `STAGING_DB_BASELINE_S3_REGION` | DB baseline storage | Export, verify, restore | Staging uses `ap-northeast-2`; falls back to `S3_REGION` for operator convenience. |
-| `STAGING_DB_BASELINE_S3_ACCESS_KEY` | DB baseline storage secret | Export, verify, restore | Server/operator-only S3 access key. |
-| `STAGING_DB_BASELINE_S3_SECRET_KEY` | DB baseline storage secret | Export, verify, restore | Server/operator-only S3 secret. |
-| `STAGING_DB_BASELINE_PREFIX` | DB baseline storage | Optional | Defaults to `staging-db-baselines`. |
-| `STAGING_DB_BASELINE_PROFILE_ID` | Operator shell | Optional local convenience | Pinned immutable profile id, never `latest`. |
-| `STAGING_DB_BASELINE_RECORD_DIR` | Operator shell | Optional local/EC2 record write | Writes `current-db.json` and `db-history/` after export/restore. |
-
-Production uses parallel protected values `PRODUCTION_DATABASE_URL_SHA256` and
-`PRODUCTION_DATABASE_NAME`. Both deploy workflows also require the non-secret
-dispatch inputs `expected_git_sha` (full 40-hex SHA) and
-`dispatch_correlation_id` (UUID); these are inputs rather than stored runtime
-configuration.
 
 ## Order-Collection Mall Credential Seed
 
@@ -274,19 +312,15 @@ provide it.
 |---|---|---|---|
 | `ORDER_COLLECTION_MALL_ORGANIZATION_ID` | Seed operator | Every seed | Exact active organization UUID. Local execution may use root `KIDITEM_DEV_ORGANIZATION_ID`. |
 | `ORDER_COLLECTION_MALL_SEED_CONFIRM` | Seed guard | Every seed | Must be exactly `APPLY_ORDER_COLLECTION_MALL_ACCOUNTS`. |
-| `ORDER_COLLECTION_MALL_ACCOUNTS_ENV` | Seed workflow | Staging seed | Multiline dotenv payload containing only supported mall credential triples. |
-| `STAGING_ORDER_COLLECTION_MALL_ORGANIZATION_ID` | GitHub Environment variable | Normal staging deploy | Maps to the explicit target organization. |
-| `STAGING_ORDER_COLLECTION_MALL_ACCOUNTS` | GitHub Environment secret | Normal staging deploy | Consumed on the GitHub runner and never copied to EC2. |
+| `ORDER_COLLECTION_MALL_ACCOUNTS_ENV` | Seed operator | Optional Office/local seed | Multiline dotenv payload containing only supported mall credential triples. Keep it outside Git and workflow artifacts. |
 
-The seed runs after normal post-schema migrations and leaves matching accounts
-unchanged. It is skipped for `destructive_reset`, preserving the rebuild
-contract that `ChannelAccount` remains empty. Restore the accounts with a later
-normal deploy or an explicitly confirmed manual seed.
+The confirmation-gated seed leaves matching accounts unchanged. Run it only
+from an approved Office/local operator shell after schema/data work is complete.
 
 ## Server AI And Models
 
-These variables are feature-specific. They are part of staging when current API
-text/detail/thumbnail/image-edit AI features are enabled.
+These variables are feature-specific. Add them to Office only when the current
+API text/detail/thumbnail/image-edit AI features are enabled.
 
 | Variable | Required when | Consumed by | Notes |
 |---|---|---|---|
@@ -301,20 +335,6 @@ text/detail/thumbnail/image-edit AI features are enabled.
 | `AI_DIRECT_JOB_HEARTBEAT_MS` | Running-job lease heartbeats need a non-default interval | AI direct-job worker | Optional; defaults to `5000`. Must be shorter than the lease; runtime also caps it at one third of the lease. |
 | `AI_DIRECT_JOB_LEASE_MS` | Direct AI claim leases need a non-default duration | AI direct-job worker | Optional; defaults to `60000`. Must be a positive integer. |
 | `AI_PROVIDER_TIMEOUT_MS` | A direct AI job needs a non-default total execution budget | AI direct-job worker | Optional; defaults to `1200000` (20 minutes) so multi-image detail-page jobs can finish within their 15-minute generated-image budget. Must be a positive integer. Timeout aborts the whole job and is retryable. Each Gemini SDK call still carries its own 120-second HTTP timeout. |
-| `AGENT_OS_OPERATOR_RUNTIME` | Agent OS Operator should use a non-deterministic provider runtime | Nest Agent OS Operator runtime handler | Set `hermes_tool_loop` for the current Hermes tool-loop runtime. `hermes` remains a legacy/dev final-decision fallback. `openai_responses` remains a hosted API fallback/eval path. Missing value keeps the deterministic local path. |
-| `AGENT_OS_HERMES_PATH` | Agent OS `hermes_tool_loop` or legacy `hermes` runtime is enabled and Hermes is not on `PATH` | Nest Agent OS Hermes runtime | Optional Hermes CLI binary path. Defaults to `hermes`; missing binaries fail closed with `operator_runtime_unavailable`. |
-| `AGENT_OS_HERMES_MODEL` | Agent OS `hermes_tool_loop` or legacy `hermes` runtime is enabled | Nest Agent OS Hermes runtime and Hermes CLI harness | Explicit Hermes model selection is required; no silent default. |
-| `AGENT_OS_HERMES_HOME` | Agent OS `hermes_tool_loop` or legacy `hermes` runtime is enabled | Nest Agent OS Hermes runtime profile service | Optional base directory for isolated Hermes profiles. Defaults to `/tmp/kiditem-agent-os-hermes`; per-run profiles are nested by organization and task session. |
-| `AGENT_OS_HERMES_AUTH_HOME` | Hermes auth material should be copied from an existing Hermes profile | Nest Agent OS Hermes runtime profile service | Optional source directory containing `auth.json`. KidItem copies auth into the isolated `HERMES_HOME`; the original source path is not forwarded to Hermes or MCP env. Nested Leaf Hermes sessions receive the isolated profile path as their auth source. |
-| `AGENT_OS_HERMES_LEAF_AGENT_TYPES` | Agent OS should run configured Leaf Agents through Hermes instead of deterministic local runtime handlers | Nest Agent OS Operator and Leaf runtime handlers | Comma-separated agent types, for example `sourcing,listing`. When set, `AGENT_OS_OPERATOR_RUNTIME` must also be explicit. |
-| `AGENT_OS_HERMES_TIMEOUT_MS` | Custom Hermes Operator timeout is needed | Nest Agent OS Hermes runtime | Optional; defaults to 60000 ms. |
-| `AGENT_OS_HERMES_MAX_OUTPUT_BYTES` | Hermes stdout/stderr capture should be capped differently | Nest Agent OS Hermes runtime | Optional; defaults to 262144 bytes. Output is truncated before diagnostics. |
-| `AGENT_OS_HERMES_MAX_CONCURRENT_RUNS` | Hermes subprocess concurrency should be capped differently | Nest Agent OS Hermes runtime | Optional; defaults to 1. Extra concurrent turns fail closed with `operator_runtime_busy`. |
-| `AGENT_OS_HERMES_ENABLE_KIDITEM_MCP` | Legacy `hermes` final-decision fallback needs manual MCP experimentation | Nest Agent OS Hermes runtime profile service | `hermes_tool_loop` force-enables the KidItem MCP toolset itself. This flag is only for legacy/dev fallback sessions. |
-| `OPENAI_API_KEY` | Agent OS `openai_responses` Operator runtime or Python direct OpenAI mode is enabled | Nest Agent OS OpenAI Responses runtime; Python agents direct provider path | Required for paid OpenAI Operator verification. Server code fails closed when this runtime is selected without a key. |
-| `AGENT_OS_OPENAI_RESPONSES_MODEL` | Agent OS `openai_responses` Operator runtime is enabled | Nest Agent OS OpenAI Responses runtime | Explicit model selection is required; no silent default. |
-| `AGENT_OS_OPENAI_RESPONSES_TIMEOUT_MS` | Custom OpenAI Operator timeout is needed | Nest Agent OS OpenAI Responses runtime | Optional; defaults in code. |
-| `AGENT_OS_OPENAI_RESPONSES_BASE_URL` | Custom OpenAI-compatible Responses endpoint is needed | Nest Agent OS OpenAI Responses runtime | Optional; defaults to OpenAI's v1 API base URL. |
 | `AGENT_OS_1688_CHECKOUT_RUNTIME` | Agent OS should execute live 1688 checkout/payment | Agent OS live readiness preflight; Supply 1688 checkout runtime | Set to `provider` for the current provider-backed runtime. Missing or unsupported values block `supply.submit_purchase_order` live checkout readiness. |
 | `AGENT_OS_1688_CHECKOUT_PROVIDER_URL` | `AGENT_OS_1688_CHECKOUT_RUNTIME=provider` | Supply `Alibaba1688CheckoutRuntimeAdapter` | Provider endpoint that accepts `{ organizationId, purchaseOrderId }` and returns `externalOrderId` plus optional `externalOrderUrl`. Required before readiness reports the 1688 checkout runtime as ready. |
 | `AGENT_OS_1688_CHECKOUT_TIMEOUT_MS` | Custom 1688 provider checkout timeout is needed | Supply `Alibaba1688CheckoutRuntimeAdapter` | Optional; defaults in code. |
@@ -334,28 +354,54 @@ keyword research is intentionally enabled.
 | `NAVER_SEARCHAD_CUSTOMER_ID` | Naver SearchAd keyword research is enabled | Sourcing Naver keyword adapter | SearchAd advertiser customer id used in `X-Customer`. |
 | `NAVER_SEARCHAD_BASE_URL` | Non-production SearchAd endpoint override is needed | Sourcing Naver keyword adapter | Optional. Defaults to `https://api.searchad.naver.com`. |
 
-## Agent OS And Claude CLI
+## Agent OS native Gateway
 
-These variables are feature-specific. They should not be present in shared
-staging/production unless Agent OS execution or Claude CLI chat is intentionally
-enabled and covered by an operator runbook.
+The home server has one API process that owns durable capability admission and
+stateless private MCP HTTP. A native Agent Gateway, not any container, owns
+Codex/Claude processes, provider conversations, and provider history. The API,
+worker, and web containers never receive provider binaries or a provider login
+path. The Gateway service account keeps the existing CLI login outside
+KidItem. No provider credential/history, transcript, durable control queue, or
+model default is an Office environment contract.
 
 | Variable | Required when | Consumed by | Notes |
 |---|---|---|---|
-| `AGENT_RUNTIME_WORKER_ENABLED` | Background Agent OS execution should run | Agent run worker | Default is disabled. Use `1` or `true` only after handlers and model env are ready. |
-| `AGENT_RUNTIME_WORKER_INTERVAL_MS` | Worker enabled and custom tick interval needed | Agent run worker | Defaults to `2000`. |
-| `AGENT_RUNTIME_ALLOW_NOOP` | Isolated dev/test only | Routing runtime adapter | Never set in shared staging/prod. |
-| `AGENT_DEFAULT_MODEL` | Any Agent OS definition should share one default model | Agent definition registry and Agent OS seed | Used only when a per-agent model env is empty. Local `npm run seed:agent-os` reads this from root `.env`; API runtime reads it from `apps/server/.env`. |
-| `AGENT_MANAGER_MODEL` | Manager agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_RULES_EVALUATION_MODEL` | Rules evaluation agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_RULES_SUGGEST_MODEL` | Rules suggestion agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_AD_STRATEGY_MODEL` | Ad strategy agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_SOURCING_MODEL` | Sourcing agent enabled | Agent definition registry | Per-agent override. |
-| `AD_KEYWORD_RELEVANCE_MODEL` | 광고 키워드 연관성 판정 사용 | `advertising` keyword relevance judge adapter | Text model id. No fallback — unset throws, because a silently different model still returns confident verdicts that propose pausing live ads. |
-| `AGENT_THUMBNAIL_ANALYST_MODEL` | Thumbnail analyst agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_CHAT_MODEL` | Chatbot agent enabled | Agent definition registry | Required unless `AGENT_DEFAULT_MODEL` is set. |
-| `ANTHROPIC_API_KEY` | Claude CLI uses Anthropic API key auth | Claude CLI env allowlist | Passed only to the Claude child process. |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Claude CLI uses OAuth token auth | Claude CLI env allowlist | Passed only to the Claude child process. |
+| `KIDITEM_APPLICATION_VERSION` | Every API/worker deployment | Deployment identity | Written from the immutable Office manifest. |
+| `KIDITEM_GIT_SHA` | Every API/worker deployment | Deployment identity | Full immutable deployment SHA, written from the manifest. |
+| `KIDITEM_AGENT_GATEWAY_TOKEN_FILE` | Every API deployment | Gateway installation-token reader | Container path to the mounted Docker secret file; the raw 43-character bearer is never an environment value. The worker does not receive it. |
+| `KIDITEM_COPILOTKIT_SQLITE_PATH` | Every production API deployment using CopilotKit interaction history | API-local CopilotKit SQLite event runner | Explicit persistent SQLite file for completed canonical AG-UI event history only. Office fixes it to `/var/lib/kiditem/agent-os/copilotkit-events.sqlite` on the API-only `kiditem_copilotkit-event-history` volume; the worker never mounts or opens it. Tests use `:memory:` and development defaults below `.kiditem/agent-os/`. It is never a live-turn/stop authority or a provider transcript store. |
+| `KIDITEM_AGENT_GATEWAY_INSTALLATION_ID` | Multiple distinguishable installations are operated | Gateway control session | Optional bounded operational label; defaults to `gateway-installation` and is not an authority credential. |
+| `MCP_SDK_GENERATION` | Every API deployment | MCP readiness canary | Fixed non-secret value `v2`; another or missing value fails Gateway readiness. |
+| `MCP_PROTOCOL_NEGOTIATION` | Every API deployment | MCP readiness canary | Fixed non-secret value `auto`; there is no legacy fallback. |
+
+The Windows Agent Gateway installer creates the protected Task Scheduler service
+account boundary. It uses Task Scheduler `Password` logon, not S4U: the native
+Gateway needs provider HTTPS and the dedicated account's encrypted login store,
+which S4U cannot access. Only explicit `InstallOrUpdateGatewayTask` (initial
+installation, task definition update, or Windows account password change)
+receives that account's password as an in-memory PowerShell `PSCredential`; it
+is not an Office environment variable, Docker secret, or KidItem persistence
+value. `Deploy`, `CutoverDeploy`, `Rollback`, and `RotateGatewayToken` restart
+the existing task without re-registering it. Task Scheduler owns its protected
+registration secret. An operator performs provider login under that account
+before the Gateway reports readiness. KidItem neither stores, copies, nor
+forwards Anthropic/OpenAI credentials. The browser reaches same-origin `/api/copilotkit`;
+it has no gateway secret or browser-provided identity.
+
+The native Gateway receives one protected absolute-path JSON config, not a set
+of browser or model env values. Its strict fields are `controlOrigin`
+(`http://127.0.0.1:4000`), `tokenFile`, `stateRoot`, bundled `runtimeRoot`, fixed
+`workspace`, and optional host-account `loginRoot`. Platform is derived as
+`macos | windows`; active-turn capacity is the code-owned value `4`. A user
+chooses runtime, model, and reasoning effort for each conversation/turn. The
+Gateway creates one process-scoped MCP transport token at startup and reuses it
+across ordinary turns. The token is not a persistent conversation session or
+Agent/capability/delegation grant; business authority comes only from Nest's
+current active-turn record.
+
+The browser sees only same-origin `/api/copilotkit`; the Next rewrite points
+directly at the ordinary Nest API origin and is not a CopilotKit public key or
+Enterprise endpoint.
 
 ## Channel Credentials
 
@@ -365,21 +411,17 @@ enabled and covered by an operator runbook.
 
 ## Local And Dev Tooling
 
-These variables are for local scripts, data sync, or compatibility paths. Do
-not add them to shared staging/prod unless the runbook for that operation asks
-for them.
+These variables are for local scripts and data sync. Do not add them to Office
+unless the runbook for that operation asks for them.
 
 | Variable | Required when | Consumed by | Notes |
 |---|---|---|---|
-| `SUPABASE_URL` | Supabase Storage cache operations are used | Storage tooling | Project URL. This is not an application auth variable. |
-| `SUPABASE_SECRET_KEY` | Supabase Storage cache operations are used | Storage tooling | Secret key. Never expose to frontend or git. This is not an application auth credential. |
 | `KIDITEM_DEV_DATA_DRIVE_DIR` | Google Drive dev data sync | Dev data scripts | Local Google Drive Desktop path. |
 | `KIDITEM_DEV_ORGANIZATION_ID` | Dev data sync/import needs target org | Dev data scripts | Local/dev org scope. |
 | `KIDITEM_DEV_USER_ID` | Dev data API replay needs an actor | Dev data scripts | Optional explicit user id for replay. Prefer organization-scoped imports where possible. |
 | `KIDITEM_API_URL` | Dev data API replay targets a non-default API origin | Dev data scripts | Defaults to `http://localhost:4000`. |
 | `KIDITEM_DEV_DATA_CLOUD_STORAGE_ROOT` | Dev data cloud-storage bundle root is used | Dev data scripts | Optional alternative to local Drive path. |
 | `DEV_DEFAULT_USER_ID` | Dev data replay compatibility | Dev data scripts | Optional fallback local user id. Prefer explicit organization scope for imports. |
-| `AGENT_SEED_ORG_IDS` | Seeding Agent OS for only specific organizations | `scripts/seed-agent-os.ts` | Empty means seed every active local organization. |
 
 ## Browser Automation
 
@@ -392,14 +434,14 @@ The deployed API blocks current Coupang Wing scraping paths when
 | `PLAYWRITER_BROWSER_PATH` | Managed Chrome path cannot be auto-detected | Coupang inventory scrape adapter | Local/operator use. |
 | `PLAYWRITER_BROWSER_PROFILE_DIR` | Custom Chrome profile needed | Coupang inventory scrape adapter | Local/operator use. |
 | `PLAYWRITER_DIRECT_PORT` | Custom Chrome CDP port needed | Coupang inventory scrape adapter | Defaults to `9222`. |
-| `PUPPETEER_EXECUTABLE_PATH` | Puppeteer render path uses a non-default browser | Render image controller | Docker server image sets `/usr/bin/chromium`; staging API builds install Chromium and smoke-check Puppeteer launch after deploy. |
-| `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` | Sourcing URL scrape or the 1688 keyword browser fallback should reuse a managed browser session | Sourcing Playwright runtime; direct 1688 keyword search adapter | Optional loopback CDP endpoint such as `http://127.0.0.1:9222`. Use a dedicated managed automation profile; never point it at a personal default Chrome profile. A saved login and a request-level CAPTCHA/user-validation challenge are separate states, so complete any challenge in this managed browser. |
+| `PUPPETEER_EXECUTABLE_PATH` | Puppeteer render path uses a non-default browser | Render image controller | The Office API image sets `/usr/bin/chromium`; image verification smoke-checks Puppeteer launch. |
+| `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` | The Office version-2 1688 keyword domain Operation or generic sourcing URL-scrape runtime needs its managed Chrome session | Sourcing Playwright runtime | Office example: `http://kiditem-office:9444`. Accepts `http`, `https`, `ws`, or `wss` CDP endpoints. Keyword batches are CDP-only: no extension, anonymous-browser, or fresh-profile fallback. Initial same-PC Office HTTP needs no TLS/mTLS/auth proxy. A later HTTPS/WSS endpoint needs container reachability, a trusted certificate, and WebSocket proxying, but no Sourcing code change. Chrome runs manually or from an Office startup task using a persistent Office profile, which may be a full clone of an authenticated operator profile. |
 | `SOURCING_PLAYWRIGHT_USER_DATA_DIR` | Sourcing URL scrape needs a prepared browser login session | Sourcing Playwright runtime | Defaults to `.kiditem/playwright/sourcing`. Use a dedicated automation profile, not a personal default Chrome profile. |
 | `SOURCING_PLAYWRIGHT_HEADLESS` | Local sourcing scrape login/profile debugging | Sourcing Playwright runtime | Defaults to `true`; set `false` while preparing or debugging the 1688/Alibaba profile. |
 
 ## Python Agents Runtime
 
-The Python agent server is not part of the current staging compose file. These
+The Python agent server is not part of the current Office compose file. These
 variables apply when running `agents/` as a separate runtime.
 
 | Variable | Required when | Consumed by | Notes |
@@ -413,7 +455,6 @@ variables apply when running `agents/` as a separate runtime.
 | `AI_TEXT_MODEL` | Text generation agents | Python content agents | No silent fallback. |
 | `AI_IMAGE_ANALYSIS_MODEL` | Vision analysis agents | Python content agents | No silent fallback. |
 | `DETAIL_PAGE_TEMPLATE` | Default template selection needed | Python config | Defaults to `bold_vertical`. |
-| `DIRECT_1688_MTOP_BASE_URL` | Custom 1688 public mtop host needed | Nest sourcing 1688 keyword/matching APIs | Defaults to `https://h5api.m.1688.com`; wholesale keyword/matching search does not require TMAPI. |
 | `TMAPI_TOKEN` | Legacy 1688/TMAPI sourcing matcher enabled | Python sourcing matcher | Optional unless the legacy matcher is used. |
 | `TMAPI_BASE_URL` | Custom TMAPI endpoint needed | Python sourcing matcher | Defaults in code. |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | LLM tracing enabled | Python config/Langfuse | Both keys required to enable. |
@@ -421,172 +462,57 @@ variables apply when running `agents/` as a separate runtime.
 | `LANGFUSE_HOST` | Migrating an old local agents env | Python config | Legacy alias mapped to `LANGFUSE_BASE_URL` when set and `LANGFUSE_BASE_URL` is empty. Prefer `LANGFUSE_BASE_URL`; it is intentionally omitted from new `.env.example` files. |
 | `LOG_LEVEL` | Custom logging verbosity needed | Python config | Defaults to `INFO`. |
 
-## GitHub Actions Staging Environment
+## Office Release Environment
 
-Variables:
-
-```text
-STAGING_AGENT_DEFAULT_MODEL
-STAGING_AGENT_RUNTIME_WORKER_ENABLED
-STAGING_AI_IMAGE_ANALYSIS_MODEL
-STAGING_AI_IMAGE_ANALYSIS_VERIFY_MODEL
-STAGING_AI_IMAGE_MODEL
-STAGING_AI_TEXT_MODEL
-STAGING_CORS_ORIGINS
-STAGING_DB_BASELINE_BUCKET
-STAGING_DB_BASELINE_PREFIX
-STAGING_DB_BASELINE_S3_ENDPOINT
-STAGING_DB_BASELINE_S3_REGION
-STAGING_DATABASE_NAME
-STAGING_DIRECT_1688_MTOP_BASE_URL
-STAGING_HOST
-STAGING_NAVER_API_HUB_BASE_URL
-STAGING_NAVER_SEARCHAD_BASE_URL
-STAGING_REMOTE_DIR
-STAGING_S3_BUCKET
-STAGING_S3_ENDPOINT
-STAGING_S3_PUBLIC_URL
-STAGING_S3_REGION
-STAGING_TMAPI_BASE_URL
-STAGING_URL
-STAGING_USER
-```
-
-Secrets:
+The GitHub `office` Environment is a release-identity and approval boundary for
+the Office image bundle. Runtime secrets remain on the Office host and are not
+stored in that Environment. The workflow inputs are:
 
 ```text
-STAGING_CHANNEL_CREDENTIALS_ENCRYPTION_KEY
-STAGING_DATABASE_URL
-STAGING_DATABASE_URL_SHA256
-STAGING_DB_BASELINE_S3_ACCESS_KEY
-STAGING_DB_BASELINE_S3_SECRET_KEY
-STAGING_DIRECT_URL
-STAGING_GEMINI_API_KEY
-STAGING_NAVER_API_HUB_CLIENT_ID
-STAGING_NAVER_API_HUB_CLIENT_SECRET
-STAGING_NAVER_SEARCHAD_API_KEY
-STAGING_NAVER_SEARCHAD_CUSTOMER_ID
-STAGING_NAVER_SEARCHAD_SECRET_KEY
-STAGING_S3_ACCESS_KEY
-STAGING_S3_SECRET_KEY
-STAGING_SSH_KEY
-STAGING_SSH_KNOWN_HOSTS
-STAGING_TMAPI_TOKEN
+expected_git_sha
+dispatch_correlation_id
 ```
 
-The workflow uses the short-lived `GITHUB_TOKEN` for GHCR push/pull. Do not add
-a long-lived GHCR token unless organization policy blocks `GITHUB_TOKEN`.
+The workflow uses the short-lived `GITHUB_TOKEN` for GHCR publication. Do not
+add a long-lived GHCR token unless organization policy blocks
+`GITHUB_TOKEN`. If the workflow moves to an isolated self-hosted runner, keep
+the protected branch and reviewer boundary and never run untrusted pull-request
+code with release credentials.
 
-### Authoritative rebuild configuration
+## Current Office Verification
 
-Staging fresh reset does not use any `STAGING_REBUILD_*` values. It requires
-only `STAGING_DATABASE_URL`, its exact `STAGING_DATABASE_URL_SHA256`,
-`STAGING_DATABASE_NAME`, the protected GitHub Environment, immutable dispatch
-SHA/correlation, and the `RESET_STAGING_DATA` input. Organization, human User,
-and OrganizationMembership rows are discovered from the live staging database
-after traffic is quiesced. Channel accounts and source files are configured
-after deploy.
+Print required env presence from inside the API container without values:
 
-Production retains the stricter selective replay flow. The following
-`PRODUCTION_REBUILD_*` values remain mandatory in GitHub Environment
-`production`:
-
-| Purpose | Production | Kind |
-|---|---|---|
-| Database host fingerprint | `PRODUCTION_REBUILD_EXPECTED_DATABASE_HOST` | Secret |
-| Supabase project fingerprint and credential destination | `PRODUCTION_REBUILD_EXPECTED_SUPABASE_PROJECT_REF` | Secret |
-| Database-resident organization ID | `PRODUCTION_REBUILD_ORGANIZATION_ID` | Variable |
-| Database-resident organization slug | `PRODUCTION_REBUILD_ORGANIZATION_SLUG` | Variable |
-| Database-resident Coupang account ID | `PRODUCTION_REBUILD_COUPANG_ACCOUNT_ID` | Variable |
-| Database-resident Coupang external account identity | `PRODUCTION_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID` | Secret |
-| Exact HTTPS API origin used for replay | `PRODUCTION_REBUILD_EXPECTED_API_ORIGIN` | Variable |
-| Approved Sellpia workbook SHA-256 | `PRODUCTION_REBUILD_SELLPIA_FILE_SHA256` | Variable |
-| Approved Sellpia workbook imported row count | `PRODUCTION_REBUILD_SELLPIA_ROW_COUNT` | Variable |
-| Approved Wing workbook SHA-256 | `PRODUCTION_REBUILD_WING_FILE_SHA256` | Variable |
-| Approved Wing workbook imported row count | `PRODUCTION_REBUILD_WING_ROW_COUNT` | Variable |
-
-Production also requires its database URL, baseline organization/user/account
-values, protected user email, Supabase secret, expected fact counts, and the
-optional all-or-none Rocket account trio.
-
-`*_REBUILD_EXPECTED_ACTIVE_MASTERS`, `*_REBUILD_EXPECTED_LISTINGS`, and
-`*_REBUILD_EXPECTED_CHANNEL_SKUS` have no defaults. Set them from the approved
-Sellpia/Wing import manifest immediately before the operation. Missing,
-non-positive, or mismatched values prevent ready state. Optional Rocket account
-ID/name/external-ID values must be provided as a complete trio or all omitted.
-The two `*_FILE_SHA256` values and their row counts also have no defaults. The
-pre-reset account preflight binds them to the originating run. Replay accepts
-only one completed Sellpia run followed by one completed Wing run with those
-exact hashes and row counts, stores their run IDs once, and finalization must
-observe the same binding.
-
-The workflow artifact contains only sanitized Coupang replay payloads and
-manifest-derived replay counts. These Environment values, Supabase secrets,
-source workbooks, channel credentials/config, PII, and legacy mapping tables
-must never be written to that artifact.
-
-## Current Staging Verification
-
-Print current minimum env presence without values:
-
-```bash
-set -a
-source .secrets/staging/deploy.env
-set +a
-
-ssh -i "$STAGING_SSH_KEY" "$STAGING_USER@$STAGING_HOST" '
-  docker exec kiditem-staging-api sh -lc '"'"'
-    for k in NODE_ENV PORT DATABASE_URL WEB_ORIGIN CORS_ORIGINS \
-      S3_ENDPOINT S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_PUBLIC_URL S3_REGION \
-      PUPPETEER_EXECUTABLE_PATH; do
-        eval v=\${$k-}
-        if [ -n "$v" ]; then
-          printf "%s=SET len=%s\n" "$k" "${#v}"
-        else
-          printf "%s=UNSET\n" "$k"
-        fi
-      done
-  '"'"'
-'
+```powershell
+$keys = @(
+  'NODE_ENV', 'PORT', 'DATABASE_URL', 'WEB_ORIGIN', 'CORS_ORIGINS',
+  'S3_ENDPOINT', 'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'S3_BUCKET',
+  'S3_PUBLIC_URL', 'S3_REGION', 'PUPPETEER_EXECUTABLE_PATH'
+)
+docker exec kiditem-api node -e @'
+const keys = process.argv.slice(1);
+for (const key of keys) {
+  const value = process.env[key] ?? '';
+  console.log(`${key}=${value ? `SET len=${value.length}` : 'UNSET'}`);
+}
+'@ $keys
 ```
 
-Probe optional feature env only when that feature is being enabled:
+Probe optional feature variables only when that Office feature is being enabled.
+Use the same presence/length pattern and never print values.
 
-```bash
-ssh -i "$STAGING_SSH_KEY" "$STAGING_USER@$STAGING_HOST" '
-  docker exec kiditem-staging-api sh -lc '"'"'
-    for k in OPENAI_API_KEY GEMINI_API_KEY AI_TEXT_MODEL AI_IMAGE_MODEL \
-      AI_IMAGE_ANALYSIS_MODEL AI_IMAGE_ANALYSIS_VERIFY_MODEL \
-      NAVER_API_HUB_CLIENT_ID NAVER_API_HUB_CLIENT_SECRET NAVER_API_HUB_BASE_URL \
-      NAVER_SEARCHAD_API_KEY NAVER_SEARCHAD_SECRET_KEY NAVER_SEARCHAD_CUSTOMER_ID \
-      CHANNEL_CREDENTIALS_ENCRYPTION_KEY \
-      AGENT_RUNTIME_WORKER_ENABLED AGENT_DEFAULT_MODEL \
-      ANTHROPIC_API_KEY \
-      CLAUDE_CODE_OAUTH_TOKEN; do
-        eval v=\${$k-}
-        if [ -n "$v" ]; then
-          printf "%s=SET len=%s\n" "$k" "${#v}"
-        else
-          printf "%s=UNSET\n" "$k"
-        fi
-      done
-  '"'"'
-'
-```
+Print the deployed immutable manifest and status:
 
-Print the deployed image refs and git SHA:
-
-```bash
-ssh -i "$STAGING_SSH_KEY" "$STAGING_USER@$STAGING_HOST" \
-  'cd /opt/kiditem && cat deployments/current.json'
+```powershell
+Get-Content C:\ProgramData\Kiditem\deployments\current.json
+& C:\workspace\kiditem\deploy\office\apply-deployment.ps1 -Operation Status
 ```
 
 ## Success Criteria
 
-- Required env for the target runtime is present.
-- `docker compose --env-file .env.staging.web -f docker-compose.staging.yml config`
-  succeeds on the staging host.
-- `./deploy/staging/remote-deploy.sh status` reports healthy containers.
+- Required env for the Office runtime is present.
+- Office Compose configuration succeeds with the protected env files.
+- `apply-deployment.ps1 -Operation Status` reports healthy containers.
 - `/login` returns `200`.
 - `/api/auth/me` returns `401` or `403` when unauthenticated.
 
@@ -594,11 +520,8 @@ ssh -i "$STAGING_SSH_KEY" "$STAGING_USER@$STAGING_HOST" \
 
 - Any required secret is missing for a feature being enabled.
 - A `NEXT_PUBLIC_*` value was changed without rebuilding the web image.
-- `AGENT_RUNTIME_WORKER_ENABLED=1` is set without model env and runtime handlers
-  ready for the enabled agent types.
-- Staging deploy is attempted without Agent OS seed/runtime env after async
-  detail page or thumbnail generation has been enabled.
-- `AGENT_RUNTIME_ALLOW_NOOP=1` is present in shared staging/prod.
+- The protected `KIDITEM_AGENT_GATEWAY_TOKEN_FILE` or immutable deployment
+  identity values are missing from the API runtime.
 - `CHANNEL_CREDENTIALS_ENCRYPTION_KEY` is missing while channel credentials are
   being stored or decrypted.
 

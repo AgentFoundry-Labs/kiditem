@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   CreateWarehouseData,
-  WarehouseListItem,
   WarehouseRow,
   WarehouseUpdateData,
   WarehousesRepositoryPort,
@@ -12,21 +11,11 @@ import type {
 export class WarehousesRepositoryAdapter implements WarehousesRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listWarehouses(organizationId: string): Promise<WarehouseListItem[]> {
-    const rows = await this.prisma.warehouse.findMany({
+  listWarehouses(organizationId: string): Promise<WarehouseRow[]> {
+    return this.prisma.warehouse.findMany({
       where: { organizationId },
-      include: {
-        _count: {
-          select: { shipments: true },
-        },
-      },
       orderBy: { name: 'asc' },
     });
-
-    return rows.map(({ _count, ...rest }) => ({
-      ...rest,
-      shipmentCount: _count.shipments,
-    }));
   }
 
   findWarehouseById(id: string, organizationId: string): Promise<WarehouseRow | null> {

@@ -10,10 +10,17 @@ export interface CompositeOperationCoordinatorPort {
     parent: OperationRunRecord;
     child: StartChildOperation;
   }): Promise<void>;
+  waitForChildren(input: {
+    parent: OperationRunRecord;
+    children: StartChildOperation[];
+  }): Promise<void>;
   listChildren(input: {
     organizationId: string;
     parentRunId: string;
   }): Promise<OperationRunRecord[]>;
   resumeTerminalChildren(now: Date): Promise<void>;
-  cancelChildren(parent: OperationRunRecord, reason: string): Promise<void>;
+  cancelChildren(
+    parent: OperationRunRecord,
+    reason: string,
+  ): Promise<OperationRunRecord | null>;
 }

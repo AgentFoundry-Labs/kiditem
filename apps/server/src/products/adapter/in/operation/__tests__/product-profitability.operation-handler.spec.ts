@@ -18,6 +18,11 @@ const context = {
   scheduleId: null,
   parentRunId: null,
   attemptToken: '00000000-0000-4000-8000-000000000004',
+  signal: new AbortController().signal,
+  checkpoint: vi.fn().mockResolvedValue(undefined),
+  enterEphemeralFinalization: vi.fn(),
+  attempts: 1,
+  maxAttempts: 2,
 };
 
 describe('product profitability operation handlers', () => {
@@ -99,15 +104,24 @@ describe('product profitability operation handlers', () => {
 
   it('runs ABC once in the final Products child', async () => {
     const abc = {
-      recalculate: vi.fn().mockResolvedValue({
-        changedProductCount: 3,
-        classifiedProductCount: 7,
-        unclassifiedProductCount: 2,
+      recalculate: vi.fn().mockImplementation(async (_organizationId, controls) => {
+        await controls.checkpoint();
+        await controls.withinActiveOperationAttemptFence(async () => undefined);
+        return {
+          changedProductCount: 3,
+          classifiedProductCount: 7,
+          unclassifiedProductCount: 2,
+        };
       }),
+    };
+    const attemptVerifier = {
+      withActiveDomainAttemptFence: vi.fn(async (_input, operation) =>
+        operation({}, { transaction: true })),
     };
     const handler = new ProductProfitabilityAbcOperationHandler(
       { register: vi.fn() } as never,
       abc as never,
+      attemptVerifier as never,
     );
 
     await expect(handler.execute({
@@ -123,6 +137,18 @@ describe('product profitability operation handlers', () => {
       },
     });
     expect(abc.recalculate).toHaveBeenCalledTimes(1);
-    expect(abc.recalculate).toHaveBeenCalledWith(context.organizationId);
+    expect(abc.recalculate).toHaveBeenCalledWith(
+      context.organizationId,
+      expect.objectContaining({ signal: context.signal }),
+    );
+    expect(attemptVerifier.withActiveDomainAttemptFence).toHaveBeenCalledWith(
+      {
+        organizationId: context.organizationId,
+        runId: context.runId,
+        expectedOperationKey: 'products.recalculate_profitability_abc',
+        attemptToken: context.attemptToken,
+      },
+      expect.any(Function),
+    );
   });
 });

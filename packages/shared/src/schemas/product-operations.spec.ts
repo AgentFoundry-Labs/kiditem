@@ -22,6 +22,67 @@ const productId = '00000000-0000-4000-8000-000000000001';
 const optionId = '00000000-0000-4000-8000-000000000002';
 const skuId = '00000000-0000-4000-8000-000000000003';
 
+const createProductDetailFixture = (availableStock = 80) => ({
+  id: productId,
+  code: 'KI-001',
+  displayReference: {
+    type: 'channel_product',
+    label: 'Coupang Wing 상품번호',
+    value: '13712531060',
+  },
+  name: '키즈 식판',
+  description: null,
+  category: '주방',
+  brand: null,
+  tags: [],
+  imageUrls: [],
+  displayImageUrls: [],
+  abcGrade: null,
+  abcEvaluation: null,
+  profitTag: null,
+  adTier: null,
+  adBudgetLimit: null,
+  healthScore: null,
+  healthUpdatedAt: null,
+  isActive: true,
+  createdAt: '2026-07-16T00:00:00.000Z',
+  updatedAt: '2026-07-16T00:00:00.000Z',
+  inventoryStatus: 'sellable',
+  inventoryUnits: 80,
+  channelListings: [{
+    id: '00000000-0000-4000-8000-000000000004',
+    channelAccountId: '00000000-0000-4000-8000-000000000005',
+    channel: 'coupang',
+    channelAccountName: 'Wing',
+    externalId: 'P-001',
+    displayName: '키즈 식판',
+    status: 'approved',
+    isActive: true,
+    options: [{
+      id: optionId,
+      externalOptionId: 'P-001-DEFAULT',
+      itemName: '기본',
+      sellerSku: 'SP-001',
+      barcode: null,
+      status: 'approved',
+      isActive: true,
+      capacity: 8,
+      inventoryComponents: [{
+        id: '00000000-0000-4000-8000-000000000006',
+        sellpiaInventorySkuId: skuId,
+        code: 'SP-001',
+        name: '식판',
+        optionName: null,
+        barcode: null,
+        currentStock: 80,
+        availableStock,
+        isActive: true,
+        quantity: 8,
+      }],
+    }],
+  }],
+});
+
 const metadataFixture = {
   id: productId,
   code: 'KI-001',
@@ -111,6 +172,48 @@ describe('product operations contracts', () => {
     }).sources.advertising).toEqual({
       status: 'NOT_COLLECTED', coverageEndDate: null, capturedAt: null, lastErrorAt: null,
     });
+  });
+
+  it('rejects the retired legacy profit projection on strict list items', () => {
+    const legacy = {
+      ...MasterProductOperationsListItemSchema.parse({
+        ...metadataFixture,
+        imageUrls: [],
+        displayImageUrls: [],
+        isSelling: true,
+        updatedAt: '2026-07-16T00:00:00.000Z',
+        depletion: {
+          coverage: 'no_direct_sales',
+          needsReorder: false,
+          reorderSkuCount: 0,
+          minMonthsOfAvailableStockLeft: null,
+        },
+        channelOptionSummary: { total: 0, active: 0, configured: 0, warning: 0 },
+        inventoryUnits: 0,
+        inventoryStatus: 'configuration_required',
+        channelCount: 0,
+        channelStatus: 'unlisted',
+        activeChannels: [],
+        traffic: null,
+        visitorCount: null,
+        viewCount: null,
+        cartAddCount: null,
+        orderCount: null,
+        salesQuantity: null,
+        salesAmount: null,
+        adSpend: null,
+        adSpendRate: null,
+        metricsFreshness: {
+          traffic: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+          advertising: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+        },
+        contributionProfitVelocity30: null,
+        contributionMargin: null,
+      }),
+      profit: 12_000,
+    };
+
+    expect(MasterProductOperationsListItemSchema.safeParse(legacy).success).toBe(false);
   });
 
   it('requires raw and calculated display image URLs separately', () => {
@@ -279,7 +382,6 @@ describe('product operations contracts', () => {
         traffic: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
         advertising: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       },
-      profit: null,
       contributionProfitVelocity30: null,
       contributionMargin: null,
     });
@@ -358,69 +460,16 @@ describe('product operations contracts', () => {
   });
 
   it('parses direct channel option components and capacity in product detail', () => {
-    const detail = MasterProductOperationsDetailSchema.parse({
-      id: productId,
-      code: 'KI-001',
-      displayReference: {
-        type: 'channel_product',
-        label: 'Coupang Wing 상품번호',
-        value: '13712531060',
-      },
-      name: '키즈 식판',
-      description: null,
-      category: '주방',
-      brand: null,
-      tags: [],
-      imageUrls: [],
-      displayImageUrls: [],
-      abcGrade: null,
-      abcEvaluation: null,
-      profitTag: null,
-      adTier: null,
-      adBudgetLimit: null,
-      healthScore: null,
-      healthUpdatedAt: null,
-      isActive: true,
-      createdAt: '2026-07-16T00:00:00.000Z',
-      updatedAt: '2026-07-16T00:00:00.000Z',
-      inventoryStatus: 'sellable',
-      inventoryUnits: 80,
-      channelListings: [{
-        id: '00000000-0000-4000-8000-000000000004',
-        channelAccountId: '00000000-0000-4000-8000-000000000005',
-        channel: 'coupang',
-        channelAccountName: 'Wing',
-        externalId: 'P-001',
-        displayName: '키즈 식판',
-        status: 'approved',
-        isActive: true,
-        options: [{
-          id: optionId,
-          externalOptionId: 'P-001-DEFAULT',
-          itemName: '기본',
-          sellerSku: 'SP-001',
-          barcode: null,
-          status: 'approved',
-          isActive: true,
-          capacity: 8,
-          inventoryComponents: [{
-            id: '00000000-0000-4000-8000-000000000006',
-            sellpiaInventorySkuId: skuId,
-            code: 'SP-001',
-            name: '식판',
-            optionName: null,
-            barcode: null,
-            currentStock: 80,
-            availableStock: 64,
-            isActive: true,
-            quantity: 8,
-          }],
-        }],
-      }],
-    });
+    const detail = MasterProductOperationsDetailSchema.parse(createProductDetailFixture());
     expect(detail.channelListings[0]?.options[0]?.capacity).toBe(8);
     expect(detail.channelListings[0]?.options[0]?.inventoryComponents[0]?.sellpiaInventorySkuId).toBe(skuId);
     expect(detail.displayReference.value).toBe('13712531060');
+  });
+
+  it('requires component availability to equal physical current stock in product detail', () => {
+    expect(() => MasterProductOperationsDetailSchema.parse(
+      createProductDetailFixture(64),
+    )).toThrow(/availableStock/i);
   });
 
   it('rejects negative component availability in product detail', () => {

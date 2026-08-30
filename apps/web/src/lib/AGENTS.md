@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/lib - Shared Frontend Utilities
 
 `src/lib/` owns shared frontend utilities: `apiClient`, API base resolution,
@@ -14,8 +12,14 @@ multiple route groups.
   `fetchRaw()` and the caller checks `res.ok` or `res.status`.
 - `getParsed`, `patchParsed`, and `uploadParsed` surface Zod schema drift at
   the client boundary.
-- `apiClient` attaches the current opaque bearer token and owns local-session
-  clearing for `auth_required`; it never refreshes or retries a 401.
+- A Nest handler returning `null` sends a body-less 200. `get` turns that into
+  `{}`, which is truthy and slips past a caller's `if (!x)` guard until a
+  required field reads back `undefined`. A GET whose handler can return `null`
+  uses `getNullable`, which normalizes the empty body to `null`. Do not flip
+  the `get` default or re-implement the check at the call site.
+- `apiClient` sends the HttpOnly cookie with `credentials: 'include'` and never
+  reads or attaches a browser bearer token. It emits `auth_required` and never
+  refreshes or retries a 401.
 
 ## Query Key Rules
 
@@ -30,8 +34,10 @@ multiple route groups.
   runtime messaging helpers.
 - Extension IDs may be cached in `localStorage`; extension data itself should
   remain route/domain-owned.
-- `auth/session.ts` owns validated local storage, same-tab/cross-tab change
-  events, and absolute-expiry rejection for the opaque session.
+- `auth/browser-auth.ts` owns credential-free same-tab/cross-tab revalidation
+  events and one-time removal of the retired localStorage bearer record.
+- `extension-auth.ts` owns the explicit, just-in-time extension token handoff;
+  no general browser API caller may consume that token.
 - `sellpia-inventory-extension.ts` is the only Sellpia inventory command
   adapter. React code passes the claimed token as the extension `runId` and
   never sends extension messages directly.
@@ -54,13 +60,5 @@ multiple route groups.
 ## Boundary Rules
 
 - Do not import route-local files into `src/lib`.
-- Do not add Prisma, `pg`, Supabase DB, or backend adapters.
-- Do not add silent model defaults or tenant identifiers.
 - Keep generic utilities small; domain helpers belong in route-local `lib/`
   until at least two route groups need them.
-
-## Verification
-
-```bash
-npm exec --workspace=apps/web vitest -- run src/lib
-```

@@ -103,7 +103,6 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
         matchedLineCount: 1,
       }),
     ]);
-    expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
 
   it('reports an unmatched line with a stable file intent instead of throwing 409', async () => {
@@ -121,7 +120,6 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
       reconciledRows: 0,
       unmatchedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
     });
-    expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
 
   it('reconciles matched lines and skips unmatched ones in the same batch', async () => {
@@ -161,7 +159,6 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
       reconciledRows: 1,
       unmatchedLines: [{ poNumber: 'PO-2', productNo: 'P-2' }],
     });
-    expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
 
   it('rejects barcode mismatch without changing the request commitment', async () => {
@@ -186,7 +183,6 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
       ...reconciliationInput(randomUUID(), 3, '8801234567890'),
       transaction: tx,
     }))).rejects.toMatchObject({ code: 'ROCKET_FINAL_ORDER_AMBIGUOUS' });
-    expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
 
   it('does not re-check stock or create a commitment while linking a collected order', async () => {
@@ -199,7 +195,6 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
       exportId,
       reconciledRows: 1,
     });
-    expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
 
   it('records a no-match transport probe on the active export without creating an intent key', async () => {

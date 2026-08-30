@@ -7,12 +7,15 @@ import {
 } from '@nestjs/common';
 import {
   LinkChannelListingProductInputSchema,
+  type ChannelOptionMatchingQueueRow,
   type ChannelProductCandidateListResponse,
 } from '@kiditem/shared/channel-product-matching';
+import type { InventorySkuAvailability } from '@kiditem/shared/inventory-availability';
 import { z } from 'zod';
 import { rankChannelProductCandidates } from '../../domain/channel-product-candidate-ranking';
 import {
   CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT,
+  type ChannelOptionMatchingRepositoryRow,
   type ChannelProductMatchingQuery,
   type ChannelProductMatchingRepositoryPort,
 } from '../port/out/repository/channel-product-matching.repository.port';
@@ -20,6 +23,11 @@ import {
   CATALOG_DISPLAY_MEDIA_PORT,
   type CatalogDisplayMediaPort,
 } from '../../../ai/application/port/in/workspace/catalog-display-media.port';
+import {
+  INVENTORY_AVAILABILITY_PORT,
+  type InventoryAvailabilityPort,
+} from '../../../inventory/application/port/in/stock/inventory-availability.port';
+import { projectChannelInventoryComponents } from './channel-inventory-availability.projection';
 
 @Injectable()
 export class ChannelProductMatchingService {
@@ -30,6 +38,8 @@ export class ChannelProductMatchingService {
     private readonly repository: ChannelProductMatchingRepositoryPort,
     @Inject(CATALOG_DISPLAY_MEDIA_PORT)
     private readonly catalogDisplayMedia: CatalogDisplayMediaPort,
+    @Inject(INVENTORY_AVAILABILITY_PORT)
+    private readonly inventory: InventoryAvailabilityPort,
   ) {}
 
   async list(organizationId: string, query: ChannelProductMatchingQuery = {}) {
@@ -52,7 +62,7 @@ export class ChannelProductMatchingService {
         } : null,
       };
     });
-    const options = queue.options;
+    const options = await this.projectOptions(organizationId, queue.options);
     return {
       products,
       options,
@@ -73,6 +83,25 @@ export class ChannelProductMatchingService {
         },
       },
     };
+  }
+
+  private async projectOptions(
+    organizationId: string,
+    rows: ChannelOptionMatchingRepositoryRow[],
+  ): Promise<ChannelOptionMatchingQueueRow[]> {
+    const sellpiaInventorySkuIds = [...new Set(rows.flatMap((row) =>
+      row.option.inventoryComponents.map((component) =>
+        component.sellpiaInventorySkuId)))].sort((left, right) =>
+      left.localeCompare(right));
+    const availability = await this.inventory.findBySkuIds({
+      organizationId,
+      sellpiaInventorySkuIds,
+    });
+    const inventoryBySkuId = new Map(availability.items.map((item) => [
+      item.sellpiaInventorySkuId,
+      item,
+    ]));
+    return rows.map((row) => toOptionQueueRow(row, inventoryBySkuId));
   }
 
   private async loadChannelImages(organizationId: string, listingIds: string[]) {
@@ -154,4 +183,19 @@ export class ChannelProductMatchingService {
       channelAccountId: parsed.data.channelAccountId,
     });
   }
+}
+
+function toOptionQueueRow(
+  row: ChannelOptionMatchingRepositoryRow,
+  inventoryBySkuId: ReadonlyMap<string, InventorySkuAvailability>,
+): ChannelOptionMatchingQueueRow {
+  const { components, projection } = projectChannelInventoryComponents(
+    row.option.inventoryComponents,
+    inventoryBySkuId,
+  );
+  return {
+    ...row,
+    option: { ...row.option, inventoryComponents: components },
+    capacity: projection.warningState === 'none' ? projection.capacity : null,
+  };
 }

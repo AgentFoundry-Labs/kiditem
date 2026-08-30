@@ -28,6 +28,16 @@ agents/__pycache__/
 
 # Unnecessary for server build
 extensions/
+evals/
 *.md
+!agent-config/prompts/agents/operator.md
+!agent-config/prompts/agents/sourcing.md
+!agent-config/prompts/agents/merchandising.md
+!agent-config/prompts/agents/supply.md
+!agent-config/prompts/agents/channel_operations.md
+!agent-config/prompts/agents/advertising.md
+!agent-config/skills/sourcing/evidence-grounded-analysis/SKILL.md
+!agent-config/skills/sourcing/collection-planning/SKILL.md
+!agent-config/skills/sourcing/safe-review-handoff/SKILL.md
 .planning/
 .sisyphus/

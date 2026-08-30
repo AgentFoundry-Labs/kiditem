@@ -1,9 +1,8 @@
 # detail_page_generate — 상세페이지 1-call 생성 에이전트
 
-> **이 프롬프트는 placeholder 다.** Phase 1 PR 에서는 blueprint 와 output schema/bridge
-> 골격만 정리하고, 실제 production endpoint 는 아직 이 agent type 으로 라우팅하지 않는다.
-> 실제 라우팅은 Phase 2 PR 에서 `apps/server/src/ai/application/service/detail-page-ai.service.ts`
-> 의 sync path 를 Agent OS enqueue 로 바꿀 때 함께 마무리한다.
+> **이 프롬프트는 provider-facing placeholder 다.** 현재 상세페이지 생성은 AI 도메인의
+> `AiDirectJob`가 실행하며 Agent OS 작업 레코드를 만들지 않는다. 이 파일은
+> public Agent capability가 아니라, owner가 검증할 생성 입력과 결과 모양만 설명한다.
 
 ## 책임
 
@@ -11,7 +10,7 @@
 받아 한국 쿠팡 상세페이지 카피와 이미지 인덱스를 한 번의 호출로 생성한다.
 지원 템플릿: `kids-playful` (11 섹션) / `bold-vertical` (히어로 + POINT + DETAIL).
 
-## 입력 (`AgentRunRequest.payload`)
+## 입력 (`DetailPageGenerateDirectInputSchema`)
 
 ```jsonc
 {
@@ -29,10 +28,12 @@
 }
 ```
 
-## 출력 (`AgentRun.output`)
+## 출력 (검증된 direct-job 결과)
 
-ai 도메인의 `detail-page-generate.schema.ts` Zod 스키마가 enforce 한다.
-간략 형태:
+AI owner가 `DetailPageGenerateDirectOutputSchema`로 결과를 검증하고 direct-job
+checkpoint와 domain sink projection에 사용한다. Agent-facing capability가 이 작업을
+요청하는 경우 Agent OS는 capability `Invocation`과 결과/resource 또는 Operation
+참조만 기록하며, 별도의 범용 결과 행을 저장하지 않는다. 간략 형태:
 
 ```jsonc
 {

@@ -1,18 +1,17 @@
 # Sellpia Inventory Freshness Operations
 
-This is the authoritative operator runbook for Sellpia inventory freshness in
-release `0.1.21`. Sellpia is the stock source of truth. KidItem publishes only a
+This is the authoritative operator runbook for Sellpia inventory freshness.
+Sellpia is the stock source of truth. KidItem publishes only a
 validated full option-product export and never guesses, increments, or
 decrements `SellpiaInventorySku.currentStock` from an order or purchase action.
-Inventory may reserve derived component capacity in its common commitment
-ledger; that logical hold is not a physical stock write.
+Public availability is exactly the latest published physical stock.
 
 ## Prerequisites
 
-- Repository root `VERSION` is exactly `0.1.21`.
-- Prisma schema and durable data migration
-  `v0.1.19:001_sellpia_inventory_freshness` and the `v0.1.21` common
-  inventory-commitment migration are applied.
+- Prisma schema and the durable data migration
+  `v0.1.19:001_sellpia_inventory_freshness` are applied. The immutable
+  `v0.1.21` inventory-commitment implementation is historical evidence and is
+  not registered for execution.
 - NestJS and the web app are running, with exactly one backend listener on port
   4000 during local verification.
 - The operator is signed in to the intended KidItem organization and to
@@ -48,25 +47,17 @@ The previous completed snapshot remains the current stock basis during every
 refresh request, download, validation failure, quality block, lease loss, or
 provider ambiguity. A failed attempt does not publish partial rows.
 
-Availability uses three distinct values:
-
-- `currentStock`: the latest completed physical Sellpia full snapshot;
-- `activeCommitmentQuantity`: all active Inventory-owned logical holds;
-- `availableStock`: `max(currentStock - activeCommitmentQuantity, 0)`.
-
-A Rocket request confirmation creates `rocket_request`; PA order collection
-replaces it with `rocket_final_order` without double-counting. A final-order
-commitment may settle only after a strictly newer verified Sellpia generation
-contains the real movement. Settlement removes the hold while leaving the
-newer physical snapshot unchanged. Cancellation is an audited release. Never
-edit `currentStock` or release a final commitment merely to imitate shipment.
+`currentStock` is the latest completed physical Sellpia full snapshot, and
+`availableStock === currentStock`. Preview allocation is transient and never
+persists a hold. Never edit `currentStock` to imitate shipment.
 
 ## One-Time Source Binding
 
-1. Open an authenticated KidItem operations screen and use a compact Sellpia
-   freshness status to open the shared drawer. Matching views display the same
-   shared state without replacing the active matching-center UI. The
-   dedicated sync entry is `/inventory-hub?tab=sellpia-sync`.
+1. Open the authenticated `/inventory-hub` workspace and use its Sellpia sync
+   action. The same tabless workspace owns physical stock, the complete
+   read-only SKU collection, URL-authoritative filters, and confirmed
+   destinations. Matching views display the shared state without replacing the
+   active matching-center UI.
 2. Confirm that the drawer shows origin `https://kiditem.sellpia.com` and
    account `kiditem`.
 3. As an owner or admin, choose **출처 연결 확인**.
@@ -118,7 +109,7 @@ navigation contract keeps those four active URLs independently reachable and
 does not change the server-owned TTL, lease, fence, or single-writer rules.
 
 Historical warning links such as `/stock-ops?tab=freshness` are compatibility
-ingress: `/stock-ops` redirects them to the owning `/inventory-hub` view. The
+ingress: `/stock-ops` redirects them to the owning `/inventory-hub` workspace. The
 independent `/stock-ops` route remains analysis-only and owns
 `product-outflow` and `channel-zero`; compatibility ingress does not transfer
 freshness ownership back to it.
@@ -215,7 +206,6 @@ rtk npx prisma generate
 rtk npm exec --workspace=packages/shared vitest -- run
 rtk npm run build --workspace=packages/shared
 rtk npm run db:erd
-rtk npm run graphify:schema
 rtk npm run test:scripts
 rtk npm run data:migrate -- status
 rtk npm run data:migrate -- up --target local --confirm APPLY_DATA_MIGRATIONS
@@ -224,7 +214,7 @@ rtk npm run data:migrate -- status
 rtk npm run check:schema-artifact-sync
 
 rtk npm exec --workspace=apps/server vitest -- run src/inventory src/channels src/supply src/orders src/products src/analytics/sellpia-product-sales
-rtk npm run test:integration --workspace=apps/server -- src/inventory/__tests__/sellpia-inventory-freshness.repository.pg.integration.spec.ts src/inventory/__tests__/inventory-commitment.pg.integration.spec.ts src/supply/__tests__/rocket-purchase-commitment-query.pg.integration.spec.ts src/orders/__tests__/coupang-direct-order-collection.pg.integration.spec.ts
+rtk npm run test:integration --workspace=apps/server -- src/inventory/__tests__/sellpia-inventory-freshness.repository.pg.integration.spec.ts src/orders/__tests__/coupang-direct-order-collection.pg.integration.spec.ts
 rtk npm run check:idor
 rtk npm run check:tenant-scope
 rtk npm run build --workspace=apps/server
@@ -245,8 +235,7 @@ running.
 
 Stop and report the exact blocker when:
 
-- `VERSION` is not `0.1.21`, migration status is dirty, or generated schema
-  artifacts drift;
+- migration status is dirty or generated schema artifacts drift;
 - the source origin/account or active organization cannot be established;
 - extension/login recovery would require exposing credentials or session data;
 - an automatic or manual import cannot prove a complete current export;
@@ -263,7 +252,7 @@ Stop and report the exact blocker when:
 Report only observed identifiers/counts. Never paste raw workbook/provider data.
 
 ```text
-Release: 0.1.21
+Release: <root VERSION>
 Source binding: confirmed/unconfirmed (<fixed origin/account only>)
 Freshness: <fresh|refresh_required|syncing|failed>; requested <n>; verified <n>
 Collection: automatic/manual; <published|same_hash_verified|same_hash_confirmation_scheduled|failed>
