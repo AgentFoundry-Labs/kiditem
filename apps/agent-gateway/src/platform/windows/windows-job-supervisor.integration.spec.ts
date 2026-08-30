@@ -77,7 +77,10 @@ describe('WindowsJobSupervisor', () => {
       if (provider === 'codex') expect(command.args[0]).toMatch(/[\\/]codex\.js$/);
 
       const result = await runWithNativeJobHelper(helperPath!, command);
-      expect(result.exit).toEqual({ code: 0, signal: null });
+      expect(
+        result.exit,
+        `${provider} version probe failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+      ).toEqual({ code: 0, signal: null });
       expect(isExactBundledVersion(provider, result.stdout, expectedVersion)).toBe(true);
     }
   }, 30_000);
@@ -132,16 +135,19 @@ function gatewayProviderVersionCommand(
 async function runWithNativeJobHelper(helperPath: string, command: GatewayProviderCommand): Promise<{
   exit: { code: number | null; signal: NodeJS.Signals | null };
   stdout: string;
+  stderr: string;
 }> {
   let stdout = '';
+  let stderr = '';
   let resolveExit!: (exit: { code: number | null; signal: NodeJS.Signals | null }) => void;
   const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveExitValue) => { resolveExit = resolveExitValue; });
   const supervisor = new WindowsJobSupervisor({ helperPath });
   await supervisor.launch(command, {
     onStdout: (value) => { stdout += value; },
+    onStderr: (value) => { stderr += value; },
     onExit: resolveExit,
   });
-  return { exit: await exited, stdout };
+  return { exit: await exited, stdout, stderr };
 }
 
 function isExactBundledVersion(provider: 'codex' | 'claude', output: string, expectedVersion: string): boolean {
