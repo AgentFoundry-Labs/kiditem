@@ -45,9 +45,10 @@ describe('retired hosted deployment environments', () => {
   });
 
   it('keeps Office as the only deployable runtime surface', () => {
-    expect(existsSync(join(repoRoot, '.github/workflows/office-images.yml'))).toBe(true);
+    expect(existsSync(join(repoRoot, '.github/workflows/office-images.yml'))).toBe(false);
     expect(existsSync(join(repoRoot, 'deploy/office/compose.office.yml'))).toBe(true);
     expect(existsSync(join(repoRoot, 'deploy/office/apply-deployment.ps1'))).toBe(true);
+    expect(existsSync(join(repoRoot, 'scripts/office-deploy.mjs'))).toBe(true);
   });
 
   it('does not advertise the deleted hosted origins to the browser extension', () => {

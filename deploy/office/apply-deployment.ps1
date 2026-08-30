@@ -2,25 +2,21 @@
 
 [CmdletBinding()]
 param(
-  [ValidateSet('Deploy', 'CutoverDeploy', 'Status', 'Rollback', 'RotateGatewayToken', 'InstallOrUpdateGatewayTask')]
+  [ValidateSet('Deploy', 'Status', 'Rollback', 'RotateGatewayToken', 'InstallOrUpdateGatewayTask')]
   [string]$Operation = 'Status',
-  [string]$ManifestPath,
+  [string]$SourceRef,
+  [string]$InvokerRepoRoot = '',
   [string]$RepoRoot = 'C:\workspace\kiditem',
+  [string]$BuildRoot = '',
   [string]$DockerDataRoot = '',
   [ValidateRange(5, 500)]
   [int]$MinimumFreeGb = 10,
   [switch]$PruneBuildCache,
-  [switch]$ApplySchema,
-  [switch]$AcceptDataLoss,
-  [switch]$ConfirmCutoverDeploy,
+  [switch]$SchemaDataCutover,
+  [string]$CutoverConfirmation = '',
   [ValidateRange(30, 900)]
   [int]$HealthTimeoutSeconds = 300,
-  # Used only by -Operation InstallOrUpdateGatewayTask. The deployment never
-  # creates this local account or reads provider login material. Supply this
-  # object from an interactive Get-Credential prompt or approved in-memory
-  # secret provider, never from argv, an environment value, or an Office env.
-  [string]$GatewayServiceAccount = 'KidItemAgentGateway',
-  [pscredential]$GatewayTaskCredential
+  [string]$GatewayServiceAccount = ''
 )
 
 Set-StrictMode -Version Latest
@@ -36,9 +32,9 @@ $script:DeploymentsRoot = Join-Path $script:OfficeRoot 'deployments'
 $script:CurrentManifestPath = Join-Path $script:DeploymentsRoot 'current.json'
 $script:PreviousManifestPath = Join-Path $script:DeploymentsRoot 'previous.json'
 $script:ComposeArgs = @()
-# Keep a configured domain identity intact.  A bare name is explicitly local
-# and is resolved to its SID before it is ever granted ACLs or scheduled.
-$script:GatewayServiceAccount = if ($GatewayServiceAccount -match '[\\@]') { $GatewayServiceAccount } else { "$env:COMPUTERNAME\$GatewayServiceAccount" }
+# Office Gateway deliberately uses the invoking operator's existing Windows
+# profile so the bundled CLIs see that profile's approved Codex/Claude login.
+$script:GatewayServiceAccount = if ($GatewayServiceAccount) { $GatewayServiceAccount } else { [System.Security.Principal.WindowsIdentity]::GetCurrent().Name }
 $script:GatewayServicePrincipal = $null
 $script:GatewayTaskName = 'KidItem Agent Gateway'
 $script:GatewayRoot = Join-Path $script:OfficeRoot 'agent-gateway'
@@ -48,6 +44,9 @@ $script:GatewayStateRoot = Join-Path $script:GatewayRoot 'state'
 $script:GatewayTokenPath = Join-Path $script:OfficeRoot 'secrets\agent-gateway-token'
 $script:GatewayConfigName = 'gateway-config.json'
 $script:GatewayLauncherPath = Join-Path $script:GatewayRoot 'gateway-launcher.cjs'
+$script:GatewayLauncherSourcePath = Join-Path $PSScriptRoot 'gateway-launcher.cjs'
+$script:SchemaDataConfirmation = 'APPLY_SCHEMA_DATA'
+$script:ApiRuntimeBaseImage = 'ghcr.io/agentfoundry-labs/kiditem-api-base:node22-chromium-b6503cb2512e'
 
 function Assert-OfficeRootAnchor {
   # Do not accept a redirected ProgramData, UNC/device spelling, a different
@@ -131,17 +130,185 @@ function Assert-LiveCheckout {
     throw 'Office checkout has tracked changes; deployment is blocked.'
   }
 
-  $head = Get-CheckedOutput git -C $RepoRoot rev-parse HEAD
-  $remoteLine = Get-CheckedOutput git -C $RepoRoot ls-remote --heads origin refs/heads/release/office
-  $remoteParts = $remoteLine -split '\s+'
-  if ($remoteParts.Count -lt 2 -or $remoteParts[1] -ne 'refs/heads/release/office') {
-    throw 'Remote release/office does not exist; deployment is blocked.'
-  }
-  if ($head -ne $remoteParts[0]) {
-    throw "Office checkout HEAD $head does not match remote release/office $($remoteParts[0])."
-  }
+  return (Get-CheckedOutput git -C $RepoRoot rev-parse HEAD)
+}
 
-  return $head
+function Resolve-InvokerRepoRoot {
+  if (-not $InvokerRepoRoot) {
+    $script:InvokerRepoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+  }
+  else {
+    $script:InvokerRepoRoot = [System.IO.Path]::GetFullPath($InvokerRepoRoot)
+  }
+  if (-not (Test-Path -LiteralPath $script:InvokerRepoRoot -PathType Container)) {
+    throw "Invoking KidItem checkout does not exist: $script:InvokerRepoRoot"
+  }
+  $reportedRoot = [System.IO.Path]::GetFullPath((Get-CheckedOutput git -C $script:InvokerRepoRoot rev-parse --show-toplevel))
+  if (-not [string]::Equals($reportedRoot, $script:InvokerRepoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'InvokerRepoRoot must be the exact root of a KidItem checkout.'
+  }
+  return $script:InvokerRepoRoot
+}
+
+function Assert-CleanInvokerCheckout {
+  $root = Resolve-InvokerRepoRoot
+  $dirty = Get-CheckedOutput git -C $root status --porcelain --untracked-files=all
+  if ($dirty) {
+    throw 'Office deploy refuses a dirty invoking checkout, including untracked files.'
+  }
+  return $root
+}
+
+function Resolve-RemoteSourceCommit {
+  param([Parameter(Mandatory = $true)][string]$CheckoutRoot)
+
+  if (
+    $SourceRef -notmatch '^origin/[A-Za-z0-9][A-Za-z0-9._/-]*$' -or
+    $SourceRef.Contains('..') -or
+    $SourceRef.EndsWith('/')
+  ) {
+    throw 'Office SourceRef must be a safe origin/<branch> remote ref.'
+  }
+  $branch = $SourceRef.Substring('origin/'.Length)
+  $remoteBranchRef = "refs/heads/$branch"
+  $remoteTrackingRef = "refs/remotes/origin/$branch"
+  Invoke-Checked git -C $CheckoutRoot fetch --no-tags origin "+${remoteBranchRef}:${remoteTrackingRef}"
+  $remoteLine = Get-CheckedOutput git -C $CheckoutRoot ls-remote --heads origin $remoteBranchRef
+  $parts = @($remoteLine -split '\s+')
+  if ($parts.Count -ne 2 -or $parts[1] -ne $remoteBranchRef -or $parts[0] -notmatch '^[0-9a-f]{40}$') {
+    throw "Remote source ref does not resolve to one branch SHA: $SourceRef"
+  }
+  $resolved = Get-CheckedOutput git -C $CheckoutRoot rev-parse "${remoteTrackingRef}^{commit}"
+  if ($resolved -ne $parts[0]) {
+    throw 'Fetched remote-tracking SHA does not match the authoritative remote branch SHA.'
+  }
+  return [pscustomobject]@{ SourceRef = $SourceRef; Branch = $branch; GitSha = $resolved }
+}
+
+function Get-LocalBuildRoot {
+  $candidate = $BuildRoot
+  if (-not $candidate) {
+    $candidate = if (Test-Path -LiteralPath 'D:\' -PathType Container) {
+      'D:\KiditemTemp\office-local-builds'
+    }
+    else {
+      Join-Path $script:OfficeRoot 'local-builds'
+    }
+  }
+  $full = [System.IO.Path]::GetFullPath($candidate)
+  $driveRoot = [System.IO.Path]::GetPathRoot($full)
+  if ([string]::Equals($full.TrimEnd('\'), $driveRoot.TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Office build root cannot be a drive root.'
+  }
+  New-Item -ItemType Directory -Path $full -Force | Out-Null
+  $item = Get-Item -LiteralPath $full -Force
+  if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw 'Office build root cannot be a reparse point.'
+  }
+  return $full
+}
+
+function Assert-PathWithinRoot {
+  param(
+    [Parameter(Mandatory = $true)][string]$Root,
+    [Parameter(Mandatory = $true)][string]$Candidate
+  )
+  $normalizedRoot = [System.IO.Path]::GetFullPath($Root).TrimEnd('\')
+  $normalizedCandidate = [System.IO.Path]::GetFullPath($Candidate).TrimEnd('\')
+  $prefix = $normalizedRoot + [System.IO.Path]::DirectorySeparatorChar
+  if (
+    $normalizedCandidate -eq $normalizedRoot -or
+    -not $normalizedCandidate.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)
+  ) {
+    throw 'Office temporary path escapes or equals the validated build root.'
+  }
+}
+
+function New-CleanSourceWorktree {
+  param(
+    [Parameter(Mandatory = $true)][string]$CheckoutRoot,
+    [Parameter(Mandatory = $true)][string]$GitSha,
+    [Parameter(Mandatory = $true)][string]$LocalBuildRoot
+  )
+  $path = Join-Path $LocalBuildRoot ("worktree-{0}-{1}" -f $GitSha.Substring(0, 12), [guid]::NewGuid().ToString('N'))
+  Assert-PathWithinRoot -Root $LocalBuildRoot -Candidate $path
+  Invoke-Checked git -C $CheckoutRoot worktree add --detach $path $GitSha
+  $head = Get-CheckedOutput git -C $path rev-parse HEAD
+  $dirty = Get-CheckedOutput git -C $path status --porcelain --untracked-files=all
+  if ($head -ne $GitSha -or $dirty) {
+    throw 'Temporary Office source worktree is not the exact clean fetched SHA.'
+  }
+  return $path
+}
+
+function Remove-CleanSourceWorktree {
+  param(
+    [Parameter(Mandatory = $true)][string]$CheckoutRoot,
+    [Parameter(Mandatory = $true)][string]$LocalBuildRoot,
+    [Parameter(Mandatory = $true)][string]$WorktreePath
+  )
+  Assert-PathWithinRoot -Root $LocalBuildRoot -Candidate $WorktreePath
+  & git -C $CheckoutRoot worktree remove --force $WorktreePath
+  if ($LASTEXITCODE -ne 0) {
+    Write-Warning "Exact-SHA temporary worktree was retained for manual inspection: $WorktreePath"
+  }
+}
+
+function Remove-LocalBuildBundle {
+  param(
+    [Parameter(Mandatory = $true)][string]$LocalBuildRoot,
+    [Parameter(Mandatory = $true)][string]$BundlePath
+  )
+  Assert-PathWithinRoot -Root $LocalBuildRoot -Candidate $BundlePath
+  if (Test-Path -LiteralPath $BundlePath -PathType Container) {
+    Remove-Item -LiteralPath $BundlePath -Recurse -Force
+  }
+}
+
+function Get-CurrentDeployedSha {
+  if (-not (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf)) {
+    return $null
+  }
+  $current = Get-Content -LiteralPath $script:CurrentManifestPath -Raw | ConvertFrom-Json
+  if ($current.gitSha -notmatch '^[0-9a-f]{40}$') {
+    throw 'Current Office runtime manifest does not contain a valid Git SHA.'
+  }
+  return [string]$current.gitSha
+}
+
+function Get-SchemaDataChanges {
+  param(
+    [Parameter(Mandatory = $true)][string]$CheckoutRoot,
+    [Parameter(Mandatory = $true)][string]$TargetSha
+  )
+  $currentSha = Get-CurrentDeployedSha
+  if (-not $currentSha) {
+    return ,@('__missing_current_runtime_manifest__')
+  }
+  & git -C $CheckoutRoot cat-file -e "${currentSha}^{commit}" 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    throw "Current deployed SHA $currentSha is unavailable locally; schema/data safety cannot be proven."
+  }
+  $changed = @(& git -C $CheckoutRoot diff --name-only --diff-filter=ACDMRT $currentSha $TargetSha -- prisma prisma.config.ts scripts/data-migrations scripts/run-data-migrations.ts)
+  if ($LASTEXITCODE -ne 0) {
+    throw 'Schema/data diff detection failed.'
+  }
+  return ,@($changed | Where-Object { $_ } | Sort-Object -Unique)
+}
+
+function Assert-SchemaDataCutoverContract {
+  param([Parameter(Mandatory = $true)][string[]]$ChangedPaths)
+
+  if ($ChangedPaths.Count -gt 0) {
+    if (-not $SchemaDataCutover -or $CutoverConfirmation -ne $script:SchemaDataConfirmation) {
+      $summary = ($ChangedPaths | Select-Object -First 12) -join ', '
+      throw "Schema/data changes detected ($summary). Retry only with --cutover --confirm $($script:SchemaDataConfirmation)."
+    }
+    return
+  }
+  if ($SchemaDataCutover -or $CutoverConfirmation) {
+    throw 'Schema/data cutover approval was supplied, but the exact deployed-to-target diff has no schema/data changes.'
+  }
 }
 
 function Get-FreeSpaceGb {
@@ -189,6 +356,239 @@ function Assert-DiskCapacity {
   }
 }
 
+function Assert-LocalImageIdentity {
+  param(
+    [Parameter(Mandatory = $true)][string]$Image,
+    [Parameter(Mandatory = $true)][string]$ExpectedImageId,
+    [Parameter(Mandatory = $true)][string]$ExpectedRevision,
+    [Parameter(Mandatory = $true)][string]$ExpectedVersion
+  )
+  $imageJson = Get-CheckedOutput docker image inspect $Image
+  $metadata = @(ConvertFrom-Json -InputObject $imageJson)
+  if ($metadata.Count -ne 1) {
+    throw "Expected one local image inspection result for $Image; found $($metadata.Count)."
+  }
+  if ($metadata[0].Id -ne $ExpectedImageId) {
+    throw "Local image ID mismatch for $Image."
+  }
+  $labels = $metadata[0].Config.Labels
+  if ($labels.'org.opencontainers.image.revision' -ne $ExpectedRevision) {
+    throw "Local image Git SHA label mismatch for $Image."
+  }
+  if ($labels.'org.opencontainers.image.version' -ne $ExpectedVersion) {
+    throw "Local image VERSION label mismatch for $Image."
+  }
+}
+
+function Build-LocalOfficeImages {
+  param(
+    [Parameter(Mandatory = $true)][string]$WorktreePath,
+    [Parameter(Mandatory = $true)][string]$GitSha,
+    [Parameter(Mandatory = $true)][string]$AppVersion
+  )
+  $apiImage = "kiditem-api:office-$GitSha"
+  $webImage = "kiditem-web:office-$GitSha"
+  Invoke-Checked docker build `
+    --file (Join-Path $WorktreePath 'apps\server\Dockerfile') `
+    --tag $apiImage `
+    --label "org.opencontainers.image.revision=$GitSha" `
+    --label "org.opencontainers.image.version=$AppVersion" `
+    --build-arg "API_RUNTIME_BASE_IMAGE=$($script:ApiRuntimeBaseImage)" `
+    $WorktreePath
+  Invoke-Checked docker build `
+    --file (Join-Path $WorktreePath 'apps\web\Dockerfile') `
+    --tag $webImage `
+    --label "org.opencontainers.image.revision=$GitSha" `
+    --label "org.opencontainers.image.version=$AppVersion" `
+    --build-arg 'NEXT_PUBLIC_API_URL=' `
+    $WorktreePath
+  $apiId = Get-CheckedOutput docker image inspect --format '{{.Id}}' $apiImage
+  $webId = Get-CheckedOutput docker image inspect --format '{{.Id}}' $webImage
+  Assert-LocalImageIdentity $apiImage $apiId $GitSha $AppVersion
+  Assert-LocalImageIdentity $webImage $webId $GitSha $AppVersion
+  return [pscustomobject]@{
+    ApiImage = $apiImage
+    ApiImageId = $apiId
+    WebImage = $webImage
+    WebImageId = $webId
+  }
+}
+
+function Resolve-DotNetExecutable {
+  $command = Get-Command dotnet.exe -ErrorAction SilentlyContinue
+  if ($null -eq $command) {
+    $fallback = Join-Path $script:OfficeRoot 'tools\dotnet\dotnet.exe'
+    if (Test-Path -LiteralPath $fallback -PathType Leaf) {
+      return $fallback
+    }
+    throw 'The local Office Gateway build requires a .NET 8 SDK (dotnet.exe).'
+  }
+  return [System.IO.Path]::GetFullPath($command.Source)
+}
+
+function Invoke-BundledCliVersionCheck {
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][string]$Executable,
+    [Parameter(Mandatory = $true)][string[]]$Arguments,
+    [Parameter(Mandatory = $true)][string]$ExpectedVersion
+  )
+  $output = & $Executable @Arguments 2>&1 | Out-String
+  $exitCode = $LASTEXITCODE
+  $bounded = $output.Trim()
+  if ($bounded.Length -gt 256) { $bounded = $bounded.Substring(0, 256) }
+  if ($exitCode -ne 0) { throw "$Name bundled version command failed." }
+  $accepted = if ($Name -eq 'Codex') {
+    @($ExpectedVersion, "codex $ExpectedVersion", "codex-cli $ExpectedVersion")
+  }
+  else {
+    @($ExpectedVersion, "claude $ExpectedVersion", "$ExpectedVersion (Claude Code)", "Claude Code $ExpectedVersion")
+  }
+  if ($accepted -notcontains $bounded) {
+    throw "$Name bundled version does not match the Gateway runtime contract."
+  }
+}
+
+function Build-LocalGatewayArtifact {
+  param(
+    [Parameter(Mandatory = $true)][string]$WorktreePath,
+    [Parameter(Mandatory = $true)][string]$BundleRoot,
+    [Parameter(Mandatory = $true)][string]$GitSha,
+    [Parameter(Mandatory = $true)][string]$AppVersion
+  )
+  $dotnet = Resolve-DotNetExecutable
+  $nativeRoot = Join-Path $BundleRoot 'native'
+  $archiveRoot = Join-Path $BundleRoot 'gateway-archive'
+  $verifyRoot = Join-Path $BundleRoot 'gateway-verify'
+  foreach ($path in @($nativeRoot, $archiveRoot)) {
+    New-Item -ItemType Directory -Path $path -Force | Out-Null
+  }
+  $zipPath = Join-Path $BundleRoot 'kiditem-agent-gateway-windows-x64.zip'
+  $priorLocation = Get-Location
+  $priorNodeOptions = $env:NODE_OPTIONS
+  $priorDatabaseUrl = $env:DATABASE_URL
+  $priorPuppeteerSkip = $env:PUPPETEER_SKIP_DOWNLOAD
+  $priorRunner = $env:KIDITEM_WINDOWS_JOB_RUNNER_PATH
+  $staged = $false
+  try {
+    Set-Location -LiteralPath $WorktreePath
+    $env:NODE_OPTIONS = '--max-old-space-size=4096'
+    $env:DATABASE_URL = 'postgresql://kiditem:kiditem@127.0.0.1:5433/kiditem'
+    $env:PUPPETEER_SKIP_DOWNLOAD = 'true'
+    Invoke-Checked npm.cmd ci --no-audit --no-fund
+    Invoke-Checked npm.cmd run build --workspace=packages/shared
+    Invoke-Checked npm.cmd run build --workspace=apps/agent-gateway
+    Invoke-Checked npm.cmd run prepack --workspace=apps/agent-gateway
+    $staged = $true
+    Invoke-Checked $dotnet publish apps/agent-gateway/windows/KidItem.JobRunner/KidItem.JobRunner.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o $nativeRoot
+    $nativeExe = Join-Path $nativeRoot 'KidItem.JobRunner.exe'
+    $env:KIDITEM_WINDOWS_JOB_RUNNER_PATH = $nativeExe
+    Invoke-Checked npm.cmd exec --workspace=apps/agent-gateway vitest -- run
+    '{"unexpected":true}' | & $nativeExe *> $null
+    if ($LASTEXITCODE -ne 64) {
+      throw 'Windows Gateway native helper admitted malformed structured input.'
+    }
+    $global:LASTEXITCODE = 0
+
+    Invoke-Checked npm.cmd pack --workspace=apps/agent-gateway --ignore-scripts
+    $tgz = Get-ChildItem -LiteralPath $WorktreePath -Filter 'kiditem-agent-gateway-*.tgz' | Select-Object -First 1
+    if ($null -eq $tgz) { throw 'Gateway npm package was not produced.' }
+    $gatewayTgz = Join-Path $archiveRoot 'agent-gateway.tgz'
+    Move-Item -LiteralPath $tgz.FullName -Destination $gatewayTgz
+    Copy-Item -LiteralPath $nativeExe -Destination (Join-Path $archiveRoot 'KidItem.AgentGateway.exe')
+    $runtimePath = Join-Path $archiveRoot 'gateway-runtime-contract.json'
+    $runtimeCode = "import { writeFileSync } from 'node:fs'; import { GATEWAY_RUNTIME_TRAIN } from './packages/shared/dist/agent-runtime/index.js'; writeFileSync(process.argv[1], JSON.stringify({ schemaVersion: 1, platform: 'windows', ...GATEWAY_RUNTIME_TRAIN }, null, 2) + '\n');"
+    Invoke-Checked node.exe --input-type=module -e $runtimeCode $runtimePath
+    $runtime = Get-Content -LiteralPath $runtimePath -Raw | ConvertFrom-Json
+    Assert-GatewayRuntimeContract $runtime
+
+    $identity = [ordered]@{
+      schemaVersion = 1
+      appVersion = $AppVersion
+      gitSha = $GitSha
+    } | ConvertTo-Json
+    [System.IO.File]::WriteAllText(
+      (Join-Path $archiveRoot 'release-identity.json'),
+      "$identity`n",
+      [System.Text.UTF8Encoding]::new($false)
+    )
+
+    New-Item -ItemType Directory -Path $verifyRoot -Force | Out-Null
+    Invoke-Checked tar.exe -xf $gatewayTgz -C $verifyRoot
+    $packageRoot = Join-Path $verifyRoot 'package'
+    Invoke-BundledCliVersionCheck -Name Codex -Executable (Resolve-GatewayNodeExecutable) -Arguments @((Join-Path $packageRoot 'node_modules\@openai\codex\bin\codex.js'), '--version') -ExpectedVersion $runtime.codexVersion
+    Invoke-BundledCliVersionCheck -Name Claude -Executable (Join-Path $packageRoot 'node_modules\@anthropic-ai\claude-code\bin\claude.exe') -Arguments @('--version') -ExpectedVersion $runtime.claudeVersion
+    Compress-Archive -Path (Join-Path $archiveRoot '*') -DestinationPath $zipPath -CompressionLevel Optimal
+    Assert-GatewayOuterArchiveEntries $zipPath
+    $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    return [pscustomobject]@{
+      ArtifactPath = $zipPath
+      ArtifactSha256 = $hash
+      Runtime = $runtime
+    }
+  }
+  finally {
+    if ($staged) {
+      & npm.cmd run postpack --workspace=apps/agent-gateway *> $null
+    }
+    Set-Location -LiteralPath $priorLocation
+    if ($null -eq $priorNodeOptions) { Remove-Item Env:NODE_OPTIONS -ErrorAction SilentlyContinue } else { $env:NODE_OPTIONS = $priorNodeOptions }
+    if ($null -eq $priorDatabaseUrl) { Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue } else { $env:DATABASE_URL = $priorDatabaseUrl }
+    if ($null -eq $priorPuppeteerSkip) { Remove-Item Env:PUPPETEER_SKIP_DOWNLOAD -ErrorAction SilentlyContinue } else { $env:PUPPETEER_SKIP_DOWNLOAD = $priorPuppeteerSkip }
+    if ($null -eq $priorRunner) { Remove-Item Env:KIDITEM_WINDOWS_JOB_RUNNER_PATH -ErrorAction SilentlyContinue } else { $env:KIDITEM_WINDOWS_JOB_RUNNER_PATH = $priorRunner }
+  }
+}
+
+function New-LocalDeploymentBundle {
+  param(
+    [Parameter(Mandatory = $true)][string]$WorktreePath,
+    [Parameter(Mandatory = $true)][object]$Source,
+    [Parameter(Mandatory = $true)][string]$LocalBuildRoot,
+    [Parameter(Mandatory = $true)][string[]]$SchemaDataPaths
+  )
+  $version = (Get-Content -LiteralPath (Join-Path $WorktreePath 'VERSION') -Raw).Trim()
+  if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
+    throw 'Exact-SHA VERSION is not valid SemVer.'
+  }
+  $bundleRoot = Join-Path $LocalBuildRoot ("bundle-{0}-{1}" -f $Source.GitSha.Substring(0, 12), [guid]::NewGuid().ToString('N'))
+  Assert-PathWithinRoot -Root $LocalBuildRoot -Candidate $bundleRoot
+  New-Item -ItemType Directory -Path $bundleRoot | Out-Null
+  $images = Build-LocalOfficeImages -WorktreePath $WorktreePath -GitSha $Source.GitSha -AppVersion $version
+  $gateway = Build-LocalGatewayArtifact -WorktreePath $WorktreePath -BundleRoot $bundleRoot -GitSha $Source.GitSha -AppVersion $version
+  foreach ($name in @('compose.office.yml', 'nginx.conf', 'gateway-launcher.cjs')) {
+    Copy-Item -LiteralPath (Join-Path $WorktreePath "deploy\office\$name") -Destination (Join-Path $bundleRoot $name)
+  }
+  $manifest = [ordered]@{
+    schemaVersion = 3
+    environment = 'office'
+    buildKind = 'local-exact-sha'
+    sourceRef = $Source.SourceRef
+    gitSha = $Source.GitSha
+    appVersion = $version
+    apiImage = $images.ApiImage
+    apiImageId = $images.ApiImageId
+    webImage = $images.WebImage
+    webImageId = $images.WebImageId
+    gatewayArtifact = 'kiditem-agent-gateway-windows-x64.zip'
+    gatewayArtifactSha256 = $gateway.ArtifactSha256
+    gatewayRuntime = $gateway.Runtime
+    schemaData = [ordered]@{
+      changed = ($SchemaDataPaths.Count -gt 0)
+      paths = @($SchemaDataPaths)
+      cutoverApproved = [bool]$SchemaDataCutover
+    }
+    createdAt = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+  }
+  $manifestPath = Join-Path $bundleRoot 'office-runtime.json'
+  [System.IO.File]::WriteAllText(
+    $manifestPath,
+    "$(ConvertTo-Json -InputObject $manifest -Depth 10)`n",
+    [System.Text.UTF8Encoding]::new($false)
+  )
+  Read-DeploymentManifest $manifestPath | Out-Null
+  return [pscustomobject]@{ Root = $bundleRoot; ManifestPath = $manifestPath; Manifest = [pscustomobject]$manifest }
+}
+
 function Read-DeploymentManifest {
   param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -198,25 +598,27 @@ function Read-DeploymentManifest {
   $raw = Get-Content -LiteralPath $Path -Raw
   $manifest = $raw | ConvertFrom-Json
   Assert-ManifestShape -Value $manifest -Expected @(
-    'schemaVersion', 'environment', 'sourceRef', 'gitSha', 'appVersion',
-    'apiImage', 'apiDigest', 'webImage', 'webDigest', 'gatewayArtifact',
-    'gatewayArtifactSha256', 'gatewayRuntime', 'createdAt', 'workflowRunUrl'
+    'schemaVersion', 'environment', 'buildKind', 'sourceRef', 'gitSha',
+    'appVersion', 'apiImage', 'apiImageId', 'webImage', 'webImageId',
+    'gatewayArtifact', 'gatewayArtifactSha256', 'gatewayRuntime', 'schemaData',
+    'createdAt'
   ) -Label 'deployment manifest'
   Assert-ManifestIntegerField -Value $manifest -Name 'schemaVersion'
   foreach ($name in @(
-    'environment', 'sourceRef', 'gitSha', 'appVersion', 'apiImage', 'apiDigest',
-    'webImage', 'webDigest', 'gatewayArtifact', 'gatewayArtifactSha256', 'createdAt',
-    'workflowRunUrl'
+    'environment', 'buildKind', 'sourceRef', 'gitSha', 'appVersion', 'apiImage',
+    'apiImageId', 'webImage', 'webImageId', 'gatewayArtifact',
+    'gatewayArtifactSha256', 'createdAt'
   )) {
     Assert-ManifestStringField -Value $manifest -Name $name
   }
   Assert-ManifestObjectField -Value $manifest -Name 'gatewayRuntime'
+  Assert-ManifestObjectField -Value $manifest -Name 'schemaData'
 
-  if ($manifest.schemaVersion -ne 2 -or $manifest.environment -ne 'office') {
-    throw 'Deployment manifest must use schemaVersion 2 and environment office.'
+  if ($manifest.schemaVersion -ne 3 -or $manifest.environment -ne 'office' -or $manifest.buildKind -ne 'local-exact-sha') {
+    throw 'Office runtime manifest must be schemaVersion 3 from a local exact-SHA build.'
   }
-  if ($manifest.sourceRef -ne 'refs/heads/release/office') {
-    throw "Deployment manifest sourceRef is not release/office: $($manifest.sourceRef)"
+  if ($manifest.sourceRef -notmatch '^origin/[A-Za-z0-9][A-Za-z0-9._/-]*$' -or $manifest.sourceRef.Contains('..')) {
+    throw 'Office runtime manifest sourceRef must be a safe origin/<branch> ref.'
   }
   if ($manifest.gitSha -notmatch '^[0-9a-f]{40}$') {
     throw 'Deployment manifest gitSha must be a full lowercase 40-hex SHA.'
@@ -224,23 +626,33 @@ function Read-DeploymentManifest {
   if ($manifest.appVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
     throw 'Deployment manifest appVersion must be a release version.'
   }
-  if ($manifest.createdAt -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$' -or $manifest.workflowRunUrl -notmatch '^https://.+/actions/runs/\d+$') {
-    throw 'Deployment manifest provenance is invalid.'
+  if ($manifest.createdAt -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$') {
+    throw 'Office runtime manifest creation time is invalid.'
   }
-
-  $apiPattern = '^ghcr\.io/agentfoundry-labs/kiditem-api@sha256:[0-9a-f]{64}$'
-  $webPattern = '^ghcr\.io/agentfoundry-labs/kiditem-web@sha256:[0-9a-f]{64}$'
-  if ($manifest.apiImage -notmatch $apiPattern) {
-    throw "API image is not an approved immutable GHCR digest ref: $($manifest.apiImage)"
+  if ($manifest.apiImage -ne "kiditem-api:office-$($manifest.gitSha)") {
+    throw 'API image tag does not bind the exact local Git SHA.'
   }
-  if ($manifest.webImage -notmatch $webPattern) {
-    throw "Web image is not an approved immutable GHCR digest ref: $($manifest.webImage)"
+  if ($manifest.webImage -ne "kiditem-web:office-$($manifest.gitSha)") {
+    throw 'Web image tag does not bind the exact local Git SHA.'
   }
-  if ($manifest.apiImage.Split('@')[1] -ne $manifest.apiDigest) {
-    throw 'API image digest does not match apiDigest.'
+  if ($manifest.apiImageId -notmatch '^sha256:[0-9a-f]{64}$' -or $manifest.webImageId -notmatch '^sha256:[0-9a-f]{64}$') {
+    throw 'Office runtime manifest image IDs must be local sha256 IDs.'
   }
-  if ($manifest.webImage.Split('@')[1] -ne $manifest.webDigest) {
-    throw 'Web image digest does not match webDigest.'
+  $schemaData = $manifest.schemaData
+  if (
+    $schemaData.PSObject.Properties.Name.Count -ne 3 -or
+    @($schemaData.PSObject.Properties.Name | Where-Object { $_ -notin @('changed', 'paths', 'cutoverApproved') }).Count -ne 0 -or
+    $schemaData.changed -isnot [bool] -or
+    $schemaData.cutoverApproved -isnot [bool]
+  ) {
+    throw 'Office runtime manifest schemaData contract is invalid.'
+  }
+  $schemaPaths = @($schemaData.paths)
+  if ([bool]$schemaData.changed -ne ($schemaPaths.Count -gt 0)) {
+    throw 'Office runtime manifest schemaData changed flag does not match its path set.'
+  }
+  if (@($schemaPaths | Where-Object { $_ -isnot [string] -or -not $_ }).Count -ne 0) {
+    throw 'Office runtime manifest schemaData paths must be non-empty strings.'
   }
   Assert-GatewayManifest $manifest
 
@@ -304,7 +716,7 @@ function Assert-GatewayManifest {
   param([Parameter(Mandatory = $true)][object]$Manifest)
 
   if ($Manifest.gatewayArtifact -ne 'kiditem-agent-gateway-windows-x64.zip') {
-    throw 'Gateway artifact filename is not the approved immutable Windows archive.'
+    throw 'Gateway artifact filename is not the approved locally built Windows archive.'
   }
   if ($Manifest.gatewayArtifactSha256 -notmatch '^[0-9a-f]{64}$') {
     throw 'Gateway artifact SHA-256 must be lowercase 64-hex.'
@@ -338,24 +750,6 @@ function Assert-GatewayRuntimeContract {
     $Runtime.claudeVersion -ne '2.1.245'
   ) {
     throw 'Gateway runtime contract does not match the approved KID-25 Windows train.'
-  }
-}
-
-function Assert-ImageRevision {
-  param(
-    [Parameter(Mandatory = $true)][string]$Image,
-    [Parameter(Mandatory = $true)][string]$ExpectedRevision
-  )
-
-  Invoke-Checked docker pull $Image
-  $imageJson = Get-CheckedOutput docker image inspect $Image
-  $imageMetadata = @(ConvertFrom-Json -InputObject $imageJson)
-  if ($imageMetadata.Count -ne 1) {
-    throw "Expected one image inspection result for $Image; found $($imageMetadata.Count)."
-  }
-  $revision = $imageMetadata[0].Config.Labels.'org.opencontainers.image.revision'
-  if ($revision -ne $ExpectedRevision) {
-    throw "Image revision mismatch for $Image. Expected $ExpectedRevision, found $revision."
   }
 }
 
@@ -472,39 +866,11 @@ function Assert-GatewayPrincipalProfileAndBatchLogon {
 
 function Assert-GatewayServiceAccount {
   $principal = Resolve-GatewayServicePrincipal
-  try {
-    $account = Get-CimInstance -ClassName Win32_UserAccount -Filter ("SID='{0}'" -f $principal.Sid.Value) -ErrorAction Stop
+  $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  if ($principal.Sid.Value -ne $currentSid) {
+    throw 'Office Gateway must run as the invoking Windows profile.'
   }
-  catch {
-    throw 'Pre-provisioned dedicated Host Gateway user cannot be verified.'
-  }
-  if ($null -eq $account -or $account.Disabled) {
-    throw 'Pre-provisioned dedicated Host Gateway user is missing or disabled.'
-  }
-  Assert-GatewayPrincipalIsLeastPrivilege $principal
-  Assert-GatewayPrincipalProfileAndBatchLogon $principal
   return $principal
-}
-
-function Assert-GatewayTaskCredential {
-  param([Parameter(Mandatory = $true)][object]$Principal)
-
-  if ($null -eq $GatewayTaskCredential -or [string]::IsNullOrWhiteSpace([string]$GatewayTaskCredential.UserName)) {
-    throw 'Host Gateway task requires -GatewayTaskCredential from Get-Credential; never provide the password through argv, an environment value, or an Office env file.'
-  }
-  try {
-    $credentialSid = ([System.Security.Principal.NTAccount]::new([string]$GatewayTaskCredential.UserName)).Translate([System.Security.Principal.SecurityIdentifier])
-  }
-  catch {
-    throw 'Host Gateway task credential username cannot be resolved to an exact SID.'
-  }
-  if ($credentialSid.Value -ne $Principal.Sid.Value) {
-    throw 'Host Gateway task credential username does not match the configured dedicated principal SID.'
-  }
-  if ([string]::IsNullOrWhiteSpace($GatewayTaskCredential.GetNetworkCredential().Password)) {
-    throw 'Host Gateway task credential password is empty.'
-  }
-  return $GatewayTaskCredential
 }
 
 function Invoke-GatewayProtectedOwnerTakeover {
@@ -565,10 +931,17 @@ function New-GatewayProtectionRule {
 function Assert-GatewayProtectedAcl {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)][object]$Principal,
+    [object]$Principal,
     [ValidateSet('Read', 'ReadExecute', 'Write')][string]$Mode = 'Read',
     [switch]$Anchor
   )
+
+  if (-not (Test-Path -LiteralPath $Path)) {
+    throw "Host Gateway path does not exist: $Path"
+  }
+  # The runtime lives under the invoking profile. Windows profile ACLs are the
+  # authority; deployment does not take ownership or rewrite machine ACLs.
+  return
 
   $directory = Test-Path -LiteralPath $Path -PathType Container
   if (-not $directory -and -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -623,6 +996,12 @@ function Set-GatewayProtectedAcl {
     [object]$Principal
   )
 
+  if (-not (Test-Path -LiteralPath $Path)) {
+    throw "Host Gateway path does not exist: $Path"
+  }
+  # Existing-profile mode intentionally keeps the profile's native ACLs.
+  return
+
   if ($null -eq $Principal) { $Principal = Assert-GatewayServiceAccount }
   $directory = Test-Path -LiteralPath $Path -PathType Container
   if (-not $directory -and -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -653,6 +1032,16 @@ function Set-GatewayProtectedAcl {
 }
 
 function Initialize-GatewayStorage {
+  Assert-OfficeRootAnchor
+  New-Item -ItemType Directory -Path $script:OfficeRoot -Force | Out-Null
+  foreach ($path in @($script:GatewayRoot, $script:GatewayReleasesRoot, $script:GatewayStateRoot, (Split-Path -Parent $script:GatewayTokenPath))) {
+    New-Item -ItemType Directory -Path $path -Force | Out-Null
+  }
+  if (-not (Test-Path -LiteralPath $script:GatewayTokenPath -PathType Leaf)) {
+    Replace-GatewayInstallationToken
+  }
+  return
+
   # C:\ProgramData itself normally grants Users container-create.  The fixed
   # KidItem anchor is the first deployment-owned boundary, so protect it before
   # any Gateway token/config/release descendant can inherit an unsafe writer.
@@ -820,16 +1209,15 @@ function Assert-GatewayArtifact {
   }
   $hash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($hash -ne $Manifest.gatewayArtifactSha256) {
-    throw 'Gateway artifact SHA-256 does not match the immutable deployment manifest.'
+    throw 'Gateway artifact SHA-256 does not match the local runtime manifest.'
   }
 }
 
 function Get-ArchivedGatewayArtifact {
   param([Parameter(Mandatory = $true)][object]$Manifest)
 
-  # Recovery never treats releases/<gitSha> as a source: that is a runnable
-  # cache, not immutable evidence. The deployment bundle is the independently
-  # hashed artifact retained for the release identity.
+  # Recovery uses the independently hashed local artifact retained alongside
+  # the runtime manifest, never the expanded runnable directory.
   $archiveRoot = Join-Path $script:DeploymentsRoot ("bundles\{0}" -f $Manifest.gitSha)
   $artifact = Join-Path $archiveRoot $Manifest.gatewayArtifact
   Assert-GatewayArtifact $artifact $Manifest
@@ -849,6 +1237,18 @@ function Assert-GatewayPackageContents {
     if ($runtime.$name -ne $Manifest.gatewayRuntime.$name) {
       throw "Gateway runtime contract field $name does not match the deployment manifest."
     }
+  }
+  $releaseIdentityPath = Join-Path $ReleaseRoot 'release-identity.json'
+  if (-not (Test-Path -LiteralPath $releaseIdentityPath -PathType Leaf)) {
+    throw 'Gateway release identity file is missing.'
+  }
+  $releaseIdentity = Get-Content -LiteralPath $releaseIdentityPath -Raw | ConvertFrom-Json
+  if (
+    $releaseIdentity.schemaVersion -ne 1 -or
+    $releaseIdentity.gitSha -ne $Manifest.gitSha -or
+    $releaseIdentity.appVersion -ne $Manifest.appVersion
+  ) {
+    throw 'Gateway release VERSION/Git SHA identity does not match the runtime manifest.'
   }
   foreach ($path in @(
     (Join-Path $ReleaseRoot 'agent-gateway.tgz'),
@@ -917,7 +1317,7 @@ function Assert-GatewayOuterArchiveEntries {
   Add-Type -AssemblyName System.IO.Compression.FileSystem
   $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
   try {
-    $expected = @('agent-gateway.tgz', 'KidItem.AgentGateway.exe', 'gateway-runtime-contract.json')
+    $expected = @('agent-gateway.tgz', 'KidItem.AgentGateway.exe', 'gateway-runtime-contract.json', 'release-identity.json')
     $entries = @()
     foreach ($entry in @($archive.Entries)) {
       $name = [string]$entry.FullName
@@ -1021,7 +1421,7 @@ function New-GatewayRelease {
     Assert-GatewayOuterArchiveEntries (Join-Path $candidateRoot $Manifest.gatewayArtifact)
     Expand-Archive -LiteralPath (Join-Path $candidateRoot $Manifest.gatewayArtifact) -DestinationPath $candidateRoot
     Assert-GatewayExtractionTree $candidateRoot
-    $expectedOuterFiles = @('agent-gateway.tgz', 'KidItem.AgentGateway.exe', 'gateway-runtime-contract.json')
+    $expectedOuterFiles = @('agent-gateway.tgz', 'KidItem.AgentGateway.exe', 'gateway-runtime-contract.json', 'release-identity.json')
     foreach ($name in $expectedOuterFiles) {
       if (-not (Test-Path -LiteralPath (Join-Path $candidateRoot $name) -PathType Leaf)) {
         throw "Gateway archive is missing required file: $name"
@@ -1132,7 +1532,7 @@ function Install-GatewayLauncher {
   # The scheduled task must remain stable across ordinary runtime releases.
   # The launcher resolves only the ACL-protected current pointer, then enters
   # the matching immutable Gateway release in the same Node process.
-  $source = Join-Path $PSScriptRoot 'gateway-launcher.cjs'
+  $source = $script:GatewayLauncherSourcePath
   if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
     throw "Office bundle is missing the stable Host Gateway launcher: $source"
   }
@@ -1149,36 +1549,30 @@ function Install-GatewayLauncher {
   }
 }
 
+function Resolve-GatewayNodeExecutable {
+  $command = Get-Command node.exe -ErrorAction Stop
+  $nodeExecutable = [System.IO.Path]::GetFullPath($command.Source)
+  $major = Get-CheckedOutput $nodeExecutable -p 'process.versions.node.split(".")[0]'
+  if ($major -ne '22') {
+    throw "Office Gateway requires Node 22 in the invoking profile; found major $major."
+  }
+  return $nodeExecutable
+}
+
 function Register-GatewayScheduledTask {
   param([Parameter(Mandatory = $true)][object]$Principal)
 
   if (-not (Test-Path -LiteralPath $script:GatewayLauncherPath -PathType Leaf)) {
     throw 'Host Gateway task cannot be registered without the stable launcher.'
   }
-  $nodeExecutable = Join-Path $env:ProgramFiles 'nodejs\\node.exe'
-  if (-not (Test-Path -LiteralPath $nodeExecutable -PathType Leaf)) {
-    throw "Host Node 22 executable is missing: $nodeExecutable"
-  }
+  $nodeExecutable = Resolve-GatewayNodeExecutable
   $arguments = '"{0}" --current "{1}"' -f $script:GatewayLauncherPath, $script:GatewayCurrentPointerPath
   $action = New-ScheduledTaskAction -Execute $nodeExecutable -Argument $arguments -WorkingDirectory $script:GatewayRoot
-  $taskCredential = Assert-GatewayTaskCredential -Principal $Principal
-  # Microsoft TASK_LOGON_S4U cannot access network resources or encrypted
-  # files. The Gateway needs provider HTTPS and its dedicated account's login
-  # store, so register the task with TASK_LOGON_PASSWORD instead. The password
-  # reaches the in-process ScheduledTasks cmdlet only and is never an external
-  # process argument or log value.
-  $taskPrincipal = New-ScheduledTaskPrincipal -UserId $Principal.AccountName -LogonType Password -RunLevel Limited
-  $trigger = New-ScheduledTaskTrigger -AtStartup
+  $taskPrincipal = New-ScheduledTaskPrincipal -UserId $Principal.AccountName -LogonType Interactive -RunLevel Limited
+  $trigger = New-ScheduledTaskTrigger -AtLogOn -User $Principal.AccountName
   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
   $task = New-ScheduledTask -Action $action -Principal $taskPrincipal -Trigger $trigger -Settings $settings
-  $taskPassword = $null
-  try {
-    $taskPassword = $taskCredential.GetNetworkCredential().Password
-    Register-ScheduledTask -TaskName $script:GatewayTaskName -InputObject $task -User $Principal.AccountName -Password $taskPassword -Force | Out-Null
-  }
-  finally {
-    $taskPassword = $null
-  }
+  Register-ScheduledTask -TaskName $script:GatewayTaskName -InputObject $task -Force | Out-Null
   $registered = Get-ScheduledTask -TaskName $script:GatewayTaskName
   Assert-GatewayScheduledTaskContract -Task $registered -Principal $Principal
 }
@@ -1189,7 +1583,7 @@ function Assert-GatewayScheduledTaskContract {
     [Parameter(Mandatory = $true)][object]$Principal
   )
 
-  $nodeExecutable = Join-Path $env:ProgramFiles 'nodejs\\node.exe'
+  $nodeExecutable = Resolve-GatewayNodeExecutable
   $expectedArguments = '"{0}" --current "{1}"' -f $script:GatewayLauncherPath, $script:GatewayCurrentPointerPath
   $actions = @($Task.Actions)
   if ($actions.Count -ne 1) {
@@ -1210,17 +1604,17 @@ function Assert-GatewayScheduledTaskContract {
     throw 'Host Gateway task principal cannot be resolved to an exact SID.'
   }
   if ($registeredSid.Value -ne $Principal.Sid.Value) {
-    throw 'Host Gateway task principal does not match the configured dedicated principal SID.'
+    throw 'Host Gateway task principal does not match the invoking Windows profile.'
   }
-  if ($Task.Principal.LogonType.ToString() -ne 'Password') {
-    throw 'Host Gateway task must use Password logon.'
+  if ($Task.Principal.LogonType.ToString() -notin @('Interactive', 'InteractiveToken')) {
+    throw 'Host Gateway task must use the invoking profile interactive token.'
   }
   if ($Task.Principal.RunLevel.ToString() -ne 'Limited') {
     throw 'Host Gateway task must run at limited privilege.'
   }
   $triggers = @($Task.Triggers)
-  if ($triggers.Count -ne 1 -or @($triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskBootTrigger' }).Count -ne 1) {
-    throw 'Host Gateway task must have exactly one boot trigger.'
+  if ($triggers.Count -ne 1 -or @($triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskLogonTrigger' }).Count -ne 1) {
+    throw 'Host Gateway task must have exactly one current-profile logon trigger.'
   }
   if (
     -not $Task.Settings.StartWhenAvailable -or
@@ -1258,21 +1652,18 @@ function Start-GatewayScheduledTask {
   $gatewayPrincipal = Assert-GatewayServiceAccount
   $task = Get-ScheduledTask -TaskName $script:GatewayTaskName -ErrorAction SilentlyContinue
   if ($null -eq $task) {
-    throw 'Host Gateway task is missing. Run -Operation InstallOrUpdateGatewayTask before a normal runtime operation.'
+    Register-GatewayScheduledTask -Principal $gatewayPrincipal
+    $task = Get-ScheduledTask -TaskName $script:GatewayTaskName -ErrorAction Stop
   }
   Assert-GatewayScheduledTaskContract -Task $task -Principal $gatewayPrincipal
   Start-ScheduledTask -TaskName $script:GatewayTaskName
 }
 
 function Install-OrUpdateGatewayTask {
-  # This is the only credentialed Task Scheduler operation. It is run during
-  # initial host provisioning, a deliberate task-definition update, or after
-  # the dedicated Windows account password changes. Normal release operations
-  # only replace the immutable runtime/current pointer and restart this task.
+  # The task uses the invoking profile's existing CLI login and Node 22.
   Assert-GatewayInstallationPrerequisites
   Install-GatewayLauncher
   $gatewayPrincipal = Assert-GatewayServiceAccount
-  Assert-GatewayTaskCredential -Principal $gatewayPrincipal | Out-Null
   Register-GatewayScheduledTask -Principal $gatewayPrincipal
   Write-Host 'Host Gateway Task Scheduler registration updated. Run the normal deployment or token rotation to restart and verify the runtime.'
 }
@@ -1352,16 +1743,11 @@ function Replace-GatewayInstallationToken {
 }
 
 function Rotate-GatewayToken {
-  param([Parameter(Mandatory = $true)][string]$ExpectedHead)
-
   if (-not (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf)) {
     throw "No current Office deployment manifest exists at $script:CurrentManifestPath"
   }
   $bundle = Read-DeploymentManifest $script:CurrentManifestPath
   $manifest = $bundle.Manifest
-  if ($manifest.gitSha -ne $ExpectedHead) {
-    throw 'Gateway token rotation is blocked because the current runtime does not match release/office HEAD.'
-  }
   Assert-RuntimePrerequisites
   $currentGateway = Get-GatewayCurrentRelease
   if ($null -eq $currentGateway -or $currentGateway.GitSha -ne $manifest.gitSha) {
@@ -1412,6 +1798,66 @@ function Rotate-GatewayToken {
   }
 }
 
+function Get-ProtectedServerEnvValue {
+  param([Parameter(Mandatory = $true)][string]$Name)
+
+  $path = Join-Path $RepoRoot 'apps\server\.env'
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+    throw "Protected Office server env file is missing: $path"
+  }
+  $pattern = '^\s*{0}=(.+?)\s*$' -f [regex]::Escape($Name)
+  foreach ($line in Get-Content -LiteralPath $path) {
+    $match = [regex]::Match($line, $pattern)
+    if ($match.Success) {
+      return $match.Groups[1].Value.Trim().Trim('"').Trim("'")
+    }
+  }
+  throw "Protected Office server env file is missing $Name."
+}
+
+function Invoke-ExactShaDataMigrations {
+  param(
+    [Parameter(Mandatory = $true)][string]$WorktreePath,
+    [Parameter(Mandatory = $true)][string]$Phase,
+    [Parameter(Mandatory = $true)][string]$ReleaseVersion
+  )
+  $priorLocation = Get-Location
+  $priorDatabaseUrl = $env:DATABASE_URL
+  try {
+    Set-Location -LiteralPath $WorktreePath
+    $env:DATABASE_URL = Get-ProtectedServerEnvValue 'DATABASE_URL'
+    Invoke-Checked npm.cmd run data:migrate -- up --phase $Phase --release-version $ReleaseVersion --target office --confirm APPLY_DATA_MIGRATIONS
+  }
+  finally {
+    Set-Location -LiteralPath $priorLocation
+    if ($null -eq $priorDatabaseUrl) { Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue } else { $env:DATABASE_URL = $priorDatabaseUrl }
+  }
+}
+
+function Write-PreDeployRuntimeSnapshot {
+  param([Parameter(Mandatory = $true)][string]$BackupRoot)
+
+  $containers = [ordered]@{}
+  foreach ($name in @('kiditem-api', 'kiditem-worker', 'kiditem-web', 'kiditem-nginx')) {
+    $imageId = & docker inspect --format '{{.Image}}' $name 2>$null
+    if ($LASTEXITCODE -eq 0) { $containers[$name] = ($imageId | Out-String).Trim() }
+  }
+  $snapshot = [ordered]@{
+    schemaVersion = 1
+    capturedAt = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+    containerImageIds = $containers
+  }
+  if (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf) {
+    Copy-Item -LiteralPath $script:CurrentManifestPath -Destination (Join-Path $BackupRoot 'runtime-before.json') -Force
+    $snapshot.currentManifestSha256 = (Get-FileHash -LiteralPath $script:CurrentManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  }
+  [System.IO.File]::WriteAllText(
+    (Join-Path $BackupRoot 'runtime-snapshot.json'),
+    "$(ConvertTo-Json -InputObject $snapshot -Depth 6)`n",
+    [System.Text.UTF8Encoding]::new($false)
+  )
+}
+
 function Restore-Transaction {
   param([Parameter(Mandatory = $true)][string]$BackupRoot)
 
@@ -1419,8 +1865,10 @@ function Restore-Transaction {
   if (-not (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf)) {
     throw 'No prior Office manifest exists for a coherent rollback.'
   }
-  $previousManifest = (Read-DeploymentManifest $script:CurrentManifestPath).Manifest
-  $previousArtifact = Get-ArchivedGatewayArtifact $previousManifest
+  $previousRaw = Get-Content -LiteralPath $script:CurrentManifestPath -Raw | ConvertFrom-Json
+  $isLocalRuntime = $previousRaw.schemaVersion -eq 3
+  $previousManifest = if ($isLocalRuntime) { (Read-DeploymentManifest $script:CurrentManifestPath).Manifest } else { $previousRaw }
+  $previousArtifact = if ($isLocalRuntime) { Get-ArchivedGatewayArtifact $previousManifest } else { $null }
   $restored = $false
   foreach ($name in @('compose.office.yml', 'nginx.conf', '.env.office.deploy')) {
     $backup = Join-Path $BackupRoot $name
@@ -1451,69 +1899,77 @@ function Restore-Transaction {
   if (-not $restored) {
     throw 'No prior Office deployment files exist for a coherent rollback.'
   }
-  $previousGatewayRelease = New-GatewayRelease -ArtifactPath $previousArtifact -Manifest $previousManifest
-  Switch-GatewayCurrentRelease $previousGatewayRelease $previousManifest
-  Install-GatewayLauncher
+  if ($isLocalRuntime) {
+    $previousBundleRoot = Join-Path $script:DeploymentsRoot ("bundles\{0}" -f $previousManifest.gitSha)
+    $script:GatewayLauncherSourcePath = Join-Path $previousBundleRoot 'gateway-launcher.cjs'
+    $previousGatewayRelease = New-GatewayRelease -ArtifactPath $previousArtifact -Manifest $previousManifest
+    Switch-GatewayCurrentRelease $previousGatewayRelease $previousManifest
+    Install-GatewayLauncher
+  }
   Set-ComposeArguments
-  Invoke-Checked docker @script:ComposeArgs up --detach --no-build api worker web nginx
+  Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api worker web nginx
   Wait-ForRuntime
-  Start-GatewayScheduledTask
-  Assert-CurrentOfficeReleaseIdentity
+  if ($isLocalRuntime) {
+    Start-GatewayScheduledTask
+    Assert-CurrentOfficeReleaseIdentity
+  }
+  else {
+    Assert-SmokeTests
+  }
   Write-Warning 'Previous office runtime files were restored after deployment failure.'
 }
 
 function Install-Deployment {
   param(
     [Parameter(Mandatory = $true)][string]$TargetManifestPath,
-    [Parameter(Mandatory = $true)][string]$ExpectedHead,
-    [switch]$AllowAncestor,
-    [switch]$ApplySchema,
-    [switch]$AcceptDataLoss,
-    [ValidateSet('Normal', 'Cutover')][string]$DeploymentMode = 'Normal'
+    [string]$SourceWorktree = '',
+    [ValidateSet('Normal', 'Cutover', 'Rollback')][string]$DeploymentMode = 'Normal'
   )
 
   $bundle = Read-DeploymentManifest $TargetManifestPath
   $manifest = $bundle.Manifest
-  if ($manifest.gitSha -ne $ExpectedHead) {
-    if (-not $AllowAncestor) {
-      throw "Manifest SHA $($manifest.gitSha) does not match checked-out release/office HEAD $ExpectedHead."
-    }
-    & git -C $RepoRoot merge-base --is-ancestor $manifest.gitSha $ExpectedHead
-    if ($LASTEXITCODE -ne 0) {
-      throw "Rollback manifest SHA $($manifest.gitSha) is not an ancestor of release/office HEAD $ExpectedHead."
-    }
+  if (
+    $DeploymentMode -ne 'Rollback' -and
+    [bool]$manifest.schemaData.changed -ne ($DeploymentMode -eq 'Cutover')
+  ) {
+    throw 'Runtime manifest schema/data state does not match the requested deployment mode.'
   }
 
   Assert-DiskCapacity
   Assert-RuntimePrerequisites
-  Assert-ImageRevision $manifest.apiImage $manifest.gitSha
-  Assert-ImageRevision $manifest.webImage $manifest.gitSha
+  Assert-LocalImageIdentity $manifest.apiImage $manifest.apiImageId $manifest.gitSha $manifest.appVersion
+  Assert-LocalImageIdentity $manifest.webImage $manifest.webImageId $manifest.gitSha $manifest.appVersion
 
   $sourceRoot = Split-Path -Parent (Resolve-Path -LiteralPath $TargetManifestPath)
   $sourceCompose = Join-Path $sourceRoot 'compose.office.yml'
   $sourceNginx = Join-Path $sourceRoot 'nginx.conf'
+  $sourceLauncher = Join-Path $sourceRoot 'gateway-launcher.cjs'
   $sourceGatewayArtifact = Join-Path $sourceRoot $manifest.gatewayArtifact
   if (
     -not (Test-Path -LiteralPath $sourceCompose -PathType Leaf) -or
     -not (Test-Path -LiteralPath $sourceNginx -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $sourceLauncher -PathType Leaf) -or
     -not (Test-Path -LiteralPath $sourceGatewayArtifact -PathType Leaf)
   ) {
     $sourceRoot = Join-Path $script:DeploymentsRoot ("bundles\{0}" -f $manifest.gitSha)
     $sourceCompose = Join-Path $sourceRoot 'compose.office.yml'
     $sourceNginx = Join-Path $sourceRoot 'nginx.conf'
+    $sourceLauncher = Join-Path $sourceRoot 'gateway-launcher.cjs'
     $sourceGatewayArtifact = Join-Path $sourceRoot $manifest.gatewayArtifact
   }
   if (
     -not (Test-Path -LiteralPath $sourceCompose -PathType Leaf) -or
     -not (Test-Path -LiteralPath $sourceNginx -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $sourceLauncher -PathType Leaf) -or
     -not (Test-Path -LiteralPath $sourceGatewayArtifact -PathType Leaf)
   ) {
     throw "No archived Compose/nginx/Gateway bundle exists for manifest SHA $($manifest.gitSha)."
   }
   if (Select-String -LiteralPath $sourceCompose -Pattern '^\s*build\s*:' -Quiet) {
-    throw 'Office Compose contains a local build section; only immutable pulled images are allowed.'
+    throw 'Office Compose contains a build section; controlled recreation accepts only the prebuilt exact-SHA local images.'
   }
   Assert-GatewayArtifact $sourceGatewayArtifact $manifest
+  $script:GatewayLauncherSourcePath = $sourceLauncher
   $gatewayReleaseRoot = $null
 
   New-Item -ItemType Directory -Path $script:OfficeRoot -Force | Out-Null
@@ -1535,6 +1991,7 @@ function Install-Deployment {
   if (Test-Path -LiteralPath $script:GatewayCurrentPointerPath -PathType Leaf) {
     Copy-Item -LiteralPath $script:GatewayCurrentPointerPath -Destination $gatewayPointerBackup -Force
   }
+  Write-PreDeployRuntimeSnapshot $backupRoot
 
   $candidateDeployEnv = Join-Path $script:OfficeRoot '.env.office.deploy.candidate'
   try {
@@ -1547,18 +2004,23 @@ function Install-Deployment {
     Assert-RenderedManifestDeployment $manifest
     $gatewayReleaseRoot = New-GatewayRelease -ArtifactPath $sourceGatewayArtifact -Manifest $manifest
     Install-GatewayLauncher
-    if ($ApplySchema) {
-      Write-Warning 'Stopping application containers before the approved Prisma schema push. Runtime rollback cannot undo schema changes.'
+    if ($DeploymentMode -eq 'Cutover') {
+      if (-not $SourceWorktree -or -not (Test-Path -LiteralPath $SourceWorktree -PathType Container)) {
+        throw 'Schema/data cutover requires the exact-SHA source worktree.'
+      }
+      if ((Get-CheckedOutput git -C $SourceWorktree rev-parse HEAD) -ne $manifest.gitSha) {
+        throw 'Schema/data cutover worktree does not match the runtime manifest SHA.'
+      }
+      Write-Warning 'Stopping application writers for the explicitly approved schema/data cutover. Runtime rollback cannot undo database changes.'
+      Stop-GatewayScheduledTask
       Invoke-Checked docker @script:ComposeArgs stop api worker web nginx
       Invoke-Checked docker @script:ComposeArgs up --detach --no-build postgres
       Wait-ForContainerHealthy 'kiditem-postgres'
-      $schemaCommand = 'cd /app && npx prisma db push'
-      if ($AcceptDataLoss) {
-        $schemaCommand = "$schemaCommand --accept-data-loss"
-      }
-      Invoke-Checked docker @script:ComposeArgs run --rm --no-deps api sh -lc $schemaCommand
+      Invoke-ExactShaDataMigrations -WorktreePath $SourceWorktree -Phase pre-schema -ReleaseVersion $manifest.appVersion
+      Invoke-Checked docker @script:ComposeArgs run --rm --no-deps api sh -lc 'cd /app && npx prisma db push --accept-data-loss'
+      Invoke-ExactShaDataMigrations -WorktreePath $SourceWorktree -Phase post-schema -ReleaseVersion $manifest.appVersion
     }
-    Invoke-Checked docker @script:ComposeArgs up --detach --no-build api worker web nginx
+    Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api worker web nginx
     Wait-ForRuntime
     Switch-GatewayCurrentRelease $gatewayReleaseRoot $manifest
     Start-GatewayScheduledTask
@@ -1567,8 +2029,8 @@ function Install-Deployment {
   catch {
     $deploymentError = $_
     if ($DeploymentMode -eq 'Cutover') {
-      Stop-OfficeRuntimeFailClosed 'CutoverDeploy candidate failed after contracted schema'
-      throw [System.InvalidOperationException]::new('CutoverDeploy failed after schema contraction; application surfaces are stopped. Restore the approved pre-cutover database backup manually and use the retained transaction backup before retrying.', $deploymentError.Exception)
+      Stop-OfficeRuntimeFailClosed 'schema/data cutover candidate failed'
+      throw [System.InvalidOperationException]::new('Schema/data cutover failed after database work began; application surfaces are stopped because runtime-only rollback is unsafe.', $deploymentError.Exception)
     }
     try {
       Restore-Transaction $backupRoot
@@ -1583,20 +2045,24 @@ function Install-Deployment {
   if (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf) {
     Copy-Item -LiteralPath $script:CurrentManifestPath -Destination $script:PreviousManifestPath -Force
   }
-  $bundle.Raw | Set-Content -LiteralPath $script:CurrentManifestPath -Encoding UTF8
+  [System.IO.File]::WriteAllText($script:CurrentManifestPath, $bundle.Raw, [System.Text.UTF8Encoding]::new($false))
   $historyName = '{0}-{1}.json' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), $manifest.gitSha.Substring(0, 12)
-  $bundle.Raw | Set-Content -LiteralPath (Join-Path $script:DeploymentsRoot $historyName) -Encoding UTF8
+  [System.IO.File]::WriteAllText((Join-Path $script:DeploymentsRoot $historyName), $bundle.Raw, [System.Text.UTF8Encoding]::new($false))
   $archiveRoot = Join-Path $script:DeploymentsRoot ("bundles\{0}" -f $manifest.gitSha)
   New-Item -ItemType Directory -Path $archiveRoot -Force | Out-Null
-  $bundle.Raw | Set-Content -LiteralPath (Join-Path $archiveRoot 'office-deployment.json') -Encoding UTF8
+  [System.IO.File]::WriteAllText((Join-Path $archiveRoot 'office-runtime.json'), $bundle.Raw, [System.Text.UTF8Encoding]::new($false))
   $archivedCompose = Join-Path $archiveRoot 'compose.office.yml'
   $archivedNginx = Join-Path $archiveRoot 'nginx.conf'
+  $archivedLauncher = Join-Path $archiveRoot 'gateway-launcher.cjs'
   $archivedGatewayArtifact = Join-Path $archiveRoot $manifest.gatewayArtifact
   if (([System.IO.Path]::GetFullPath($sourceCompose)) -ne ([System.IO.Path]::GetFullPath($archivedCompose))) {
     Copy-Item -LiteralPath $sourceCompose -Destination $archivedCompose -Force
   }
   if (([System.IO.Path]::GetFullPath($sourceNginx)) -ne ([System.IO.Path]::GetFullPath($archivedNginx))) {
     Copy-Item -LiteralPath $sourceNginx -Destination $archivedNginx -Force
+  }
+  if (([System.IO.Path]::GetFullPath($sourceLauncher)) -ne ([System.IO.Path]::GetFullPath($archivedLauncher))) {
+    Copy-Item -LiteralPath $sourceLauncher -Destination $archivedLauncher -Force
   }
   if (([System.IO.Path]::GetFullPath($sourceGatewayArtifact)) -ne ([System.IO.Path]::GetFullPath($archivedGatewayArtifact))) {
     Copy-Item -LiteralPath $sourceGatewayArtifact -Destination $archivedGatewayArtifact -Force
@@ -1610,7 +2076,7 @@ function Install-Deployment {
 function Show-OfficeStatus {
   param([Parameter(Mandatory = $true)][string]$Head)
 
-  Write-Host "release/office HEAD: $Head"
+  Write-Host "Protected live checkout release/office HEAD: $Head"
   Write-Host "Office root disk free: $(Get-FreeSpaceGb $script:OfficeRoot) GB"
   $dockerDataGuardPath = Get-DockerDataGuardPath
   Write-Host "Docker data disk free: $(Get-FreeSpaceGb $dockerDataGuardPath) GB ($dockerDataGuardPath)"
@@ -1618,14 +2084,36 @@ function Show-OfficeStatus {
     Write-Host "${name}: $(Get-ContainerState $name)"
   }
   if (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf) {
-    $current = Read-DeploymentManifest $script:CurrentManifestPath
-    Write-Host "Current manifest SHA: $($current.Manifest.gitSha)"
-    Write-Host "Current API image: $($current.Manifest.apiImage)"
-    Write-Host "Current web image: $($current.Manifest.webImage)"
+    $loose = Get-Content -LiteralPath $script:CurrentManifestPath -Raw | ConvertFrom-Json
+    if ($loose.schemaVersion -eq 3) {
+      $current = (Read-DeploymentManifest $script:CurrentManifestPath).Manifest
+      Assert-LocalImageIdentity $current.apiImage $current.apiImageId $current.gitSha $current.appVersion
+      Assert-LocalImageIdentity $current.webImage $current.webImageId $current.gitSha $current.appVersion
+      Set-ComposeArguments
+      Assert-RenderedManifestDeployment $current
+      $gateway = Get-GatewayCurrentRelease
+      if ($null -eq $gateway -or $gateway.GitSha -ne $current.gitSha) {
+        throw 'Current Gateway release does not match the local runtime manifest.'
+      }
+      Assert-GatewayPackageContents $gateway.ReleaseRoot $current
+      $task = Get-ScheduledTask -TaskName $script:GatewayTaskName -ErrorAction Stop
+      Assert-GatewayScheduledTaskContract -Task $task -Principal (Assert-GatewayServiceAccount)
+      Write-Host "Runtime SHA: $($current.gitSha)"
+      Write-Host "Runtime VERSION: $($current.appVersion)"
+      Write-Host "Source ref: $($current.sourceRef)"
+      Write-Host "API image ID: $($current.apiImageId)"
+      Write-Host "Web image ID: $($current.webImageId)"
+      Write-Host "Gateway task: $($task.State)"
+      Write-Host "Gateway profile: $($script:GatewayServiceAccount)"
+      Write-Host "Schema/data cutover applied: $($current.schemaData.cutoverApproved)"
+    }
+    else {
+      Write-Host "Legacy runtime SHA: $($loose.gitSha)"
+      Write-Host 'Runtime manifest predates local exact-SHA deployment.'
+    }
   }
-  $gateway = Get-GatewayCurrentRelease
-  if ($null -ne $gateway) {
-    Write-Host "Current Host Gateway SHA: $($gateway.GitSha)"
+  else {
+    Write-Host 'No current runtime manifest found.'
   }
   Invoke-Checked docker system df
 }
@@ -1634,17 +2122,8 @@ if ($MyInvocation.InvocationName -eq '.') {
   return
 }
 
-if ($ApplySchema -and $Operation -ne 'Deploy') {
-  throw '-ApplySchema is valid only with -Operation Deploy.'
-}
-if ($AcceptDataLoss -and (-not $ApplySchema -or $Operation -ne 'Deploy')) {
-  throw '-AcceptDataLoss is valid only with -Operation Deploy -ApplySchema.'
-}
-if ($Operation -eq 'CutoverDeploy' -and -not $ConfirmCutoverDeploy) {
-  throw '-Operation CutoverDeploy requires -ConfirmCutoverDeploy after the contracted schema has been applied.'
-}
-if ($ConfirmCutoverDeploy -and $Operation -ne 'CutoverDeploy') {
-  throw '-ConfirmCutoverDeploy is valid only with -Operation CutoverDeploy.'
+if ($Operation -ne 'Deploy' -and ($SourceRef -or $SchemaDataCutover -or $CutoverConfirmation -or $PruneBuildCache)) {
+  throw 'Source/build/cutover arguments are valid only for Deploy.'
 }
 
 Assert-OfficeRootAnchor
@@ -1655,25 +2134,47 @@ switch ($Operation) {
     Show-OfficeStatus $head
   }
   'Deploy' {
-    if (-not $ManifestPath) {
-      throw '-ManifestPath is required for Deploy.'
+    if (-not $SourceRef) { throw '-SourceRef origin/<branch> is required for Deploy.' }
+    $checkoutRoot = Assert-CleanInvokerCheckout
+    $source = Resolve-RemoteSourceCommit $checkoutRoot
+    $schemaDataPaths = @(Get-SchemaDataChanges -CheckoutRoot $checkoutRoot -TargetSha $source.GitSha)
+    Assert-SchemaDataCutoverContract $schemaDataPaths
+    $localBuildRoot = Get-LocalBuildRoot
+    $worktree = $null
+    $localBundle = $null
+    try {
+      $worktree = New-CleanSourceWorktree -CheckoutRoot $checkoutRoot -GitSha $source.GitSha -LocalBuildRoot $localBuildRoot
+      $localBundle = New-LocalDeploymentBundle -WorktreePath $worktree -Source $source -LocalBuildRoot $localBuildRoot -SchemaDataPaths $schemaDataPaths
+      $mode = if ($schemaDataPaths.Count -gt 0) { 'Cutover' } else { 'Normal' }
+      Install-Deployment -TargetManifestPath $localBundle.ManifestPath -SourceWorktree $worktree -DeploymentMode $mode
     }
-    Install-Deployment $ManifestPath $head -ApplySchema:$ApplySchema -AcceptDataLoss:$AcceptDataLoss
-  }
-  'CutoverDeploy' {
-    if (-not $ManifestPath) {
-      throw '-ManifestPath is required for CutoverDeploy.'
+    finally {
+      if ($null -ne $worktree) {
+        Remove-CleanSourceWorktree -CheckoutRoot $checkoutRoot -LocalBuildRoot $localBuildRoot -WorktreePath $worktree
+      }
+      if ($null -ne $localBundle) {
+        Remove-LocalBuildBundle -LocalBuildRoot $localBuildRoot -BundlePath $localBundle.Root
+      }
     }
-    Install-Deployment $ManifestPath $head -DeploymentMode Cutover
   }
   'Rollback' {
     if (-not (Test-Path -LiteralPath $script:PreviousManifestPath -PathType Leaf)) {
       throw "No previous deployment manifest exists at $script:PreviousManifestPath"
     }
-    Install-Deployment $script:PreviousManifestPath $head -AllowAncestor
+    if (-not (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf)) {
+      throw 'No current local runtime manifest exists to establish rollback compatibility.'
+    }
+    $current = Get-Content -LiteralPath $script:CurrentManifestPath -Raw | ConvertFrom-Json
+    if ($current.schemaVersion -ne 3) {
+      throw 'Legacy GHCR runtime rollback is not supported by the local exact-SHA deployer.'
+    }
+    if ([bool]$current.schemaData.cutoverApproved) {
+      throw 'Runtime-only rollback is blocked immediately after a schema/data cutover.'
+    }
+    Install-Deployment -TargetManifestPath $script:PreviousManifestPath -DeploymentMode Rollback
   }
   'RotateGatewayToken' {
-    Rotate-GatewayToken $head
+    Rotate-GatewayToken
     Write-Host 'Host Gateway installation bearer rotated and full readiness reverified.'
   }
   'InstallOrUpdateGatewayTask' {

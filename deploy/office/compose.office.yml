@@ -16,10 +16,10 @@ x-server-environment: &server-environment
   S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
   CHANNEL_CREDENTIALS_ENCRYPTION_KEY: ${CHANNEL_CREDENTIALS_ENCRYPTION_KEY}
   SOURCING_PLAYWRIGHT_CDP_ENDPOINT: ${SOURCING_PLAYWRIGHT_CDP_ENDPOINT}
-  # API admission and worker-owned durable mutation recovery fence work to the
-  # immutable bundle identity. Provider credentials stay with the native Gateway.
-  KIDITEM_APPLICATION_VERSION: ${KIDITEM_APPLICATION_VERSION:?KIDITEM_APPLICATION_VERSION must come from the immutable deployment manifest}
-  KIDITEM_GIT_SHA: ${KIDITEM_GIT_SHA:?KIDITEM_GIT_SHA must come from the immutable deployment manifest}
+  # API admission and worker-owned recovery bind to the locally built exact-SHA
+  # runtime identity. Provider credentials stay in the Windows user profile.
+  KIDITEM_APPLICATION_VERSION: ${KIDITEM_APPLICATION_VERSION:?KIDITEM_APPLICATION_VERSION must come from the local runtime manifest}
+  KIDITEM_GIT_SHA: ${KIDITEM_GIT_SHA:?KIDITEM_GIT_SHA must come from the local runtime manifest}
 
 services:
   postgres:
@@ -79,7 +79,7 @@ services:
   api:
     env_file:
       - ${OFFICE_API_ENV_FILE:-C:/workspace/kiditem/apps/server/.env}
-    image: ${KIDITEM_API_IMAGE:?KIDITEM_API_IMAGE must be an immutable GHCR digest reference}
+    image: ${KIDITEM_API_IMAGE:?KIDITEM_API_IMAGE must be the exact-SHA local API image}
     container_name: kiditem-api
     deploy:
       replicas: 1
@@ -125,7 +125,7 @@ services:
   worker:
     env_file:
       - ${OFFICE_API_ENV_FILE:-C:/workspace/kiditem/apps/server/.env}
-    image: ${KIDITEM_API_IMAGE:?KIDITEM_API_IMAGE must be an immutable GHCR digest reference}
+    image: ${KIDITEM_API_IMAGE:?KIDITEM_API_IMAGE must be the exact-SHA local API image}
     container_name: kiditem-worker
     command: ["node", "dist/worker.js"]
     environment:
@@ -138,7 +138,7 @@ services:
     restart: unless-stopped
 
   web:
-    image: ${KIDITEM_WEB_IMAGE:?KIDITEM_WEB_IMAGE must be an immutable GHCR digest reference}
+    image: ${KIDITEM_WEB_IMAGE:?KIDITEM_WEB_IMAGE must be the exact-SHA local web image}
     container_name: kiditem-web
     environment:
       NODE_ENV: production
