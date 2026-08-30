@@ -55,10 +55,13 @@ processing, listing, and operations.
 - Release and schema decisions follow
   [release-train-versioning.md](docs/runbooks/release-train-versioning.md) and
   [prisma/AGENTS.md](prisma/AGENTS.md#data--migration-flow).
-- GitHub Actions is the only Office release entrypoint. Deployment-surface
-  changes follow
-  [deployment-architecture.md](docs/runbooks/deployment-architecture.md) and
-  keep its regression gates aligned.
+- Office releases use `npm run deploy:office:local -- --ref origin/<branch>`
+  from the Windows host. The deployer fetches one named remote ref, builds API,
+  web, and Gateway from its clean exact-SHA worktree, and preserves the live
+  env/volumes while recreating application services. GitHub Office bundles,
+  GHCR release digests, and `release/office` promotion PRs are not deployment
+  inputs. Prisma/data diffs require the explicit cutover contract in
+  [deployment-architecture.md](docs/runbooks/deployment-architecture.md).
 
 ## Verification
 
@@ -81,7 +84,8 @@ contract.
   branches from and targets `develop`; promotions flow `develop` to
   `main`.
 - Never delete, prune, or classify `release/office` as stale. Every checkout
-  keeps a local branch tracking `origin/release/office`.
+  keeps a local branch tracking `origin/release/office`; the live checkout is
+  an operational anchor, not the source or admission gate for local deployment.
 - Use the repository branch/commit naming in the
   [AI collaboration runbook](docs/runbooks/ai-collaboration.md). Squash normal
   PRs; use merge commits for `develop`/`main` sync and promotion. Never

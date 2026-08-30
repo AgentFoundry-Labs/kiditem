@@ -414,7 +414,8 @@ duplicate persistent server.
 
 `develop`/`main`/`release/office` 대상 PR은 대기 시간을 줄이기 위해
 `.github/workflows/pr-checks.yml`에서 정적 계약과 Gateway 단위 검증만 수행한다.
-provider runtime staging과 self-contained .NET publish는 일반 PR에서 실행하지 않는다.
+provider runtime staging과 self-contained .NET publish는 정확한 원격 SHA를 선택한
+`npm run deploy:office:local`이 Windows Office 호스트에서 수행한다.
 PR 작성자는 `AGENTS.md`의 변경 유형별 검증과 PR body guard를 로컬에서 완료한 뒤
 공유한다. `Develop Validation` 전체 suite는 필요할 때 `develop`에서 수동 실행한다.
 
@@ -422,8 +423,6 @@ PR 작성자는 `AGENTS.md`의 변경 유형별 검증과 PR body guard를 로�
 | --- | --- | --- |
 | `PR Checks / PR hygiene` | `develop`, `main`, `release/office` 대상 PR | PR diff whitespace와 AGENTS hygiene 검증 |
 | `PR Checks / Gateway fast checks` | 동일 PR | lifecycle script 없는 install, Gateway가 소비하는 Shared 런타임 진입점과 Gateway build, Gateway unit tests |
-| `Develop Gateway Package / Develop Windows Gateway package` | `develop` push | exact SHA에서 Windows 전체 install/staging, .NET helper 2개, Gateway tests, archive/hash provenance를 1회 생성 |
-| `PR Checks / Develop artifact gate` | `release/office` 대상 PR | exact head SHA의 성공·미만료 develop Gateway artifact가 있을 때만 승격 허용 |
 | `Develop Validation / Develop full validation` | `develop`에서 수동 실행 | 한 번의 dependency install 뒤 deployable workspace 전체 build, web/extension tests, real PostgreSQL integration suite 실행 |
 
 `Develop Validation` 은 `develop` 누적 HEAD에 대해 필요할 때 수동으로 실행한다.
@@ -441,10 +440,9 @@ node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs
 npm run test:integration
 ```
 
-검증 실패는 Office 승격 또는 `main` promotion 전에 fix-forward 한다. Office workflow는
-API/web image를 clean build하고, promotion merge의 develop parent와 동일한 tree인지
-확인한 뒤 그 exact SHA에서 이미 검증된 Gateway archive를 hash/runtime-contract로
-재검증해 재사용한다.
+검증 실패는 Office 배포 또는 `main` promotion 전에 fix-forward 한다. Office 로컬
+배포기는 지정한 원격 ref의 clean exact-SHA worktree에서 API/web/Gateway를 함께 만들고
+VERSION, image ID, Git SHA, Gateway hash/runtime contract를 검증한다.
 
 ## FAQ
 

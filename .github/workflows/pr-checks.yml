@@ -51,7 +51,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Check deployment workflow contracts
+      - name: Check local Office deployment contracts
         run: |
           node --test scripts/__tests__/office-deployment-contract.test.mjs
           node --test scripts/__tests__/office-gateway-launcher.test.mjs
@@ -64,61 +64,3 @@ jobs:
           npm exec --workspace=packages/shared tsup -- src/agent-runtime/index.ts src/identifiers/index.ts --format esm,cjs --no-config --out-dir dist --clean
           npm run build --workspace=apps/agent-gateway
           npm exec --workspace=apps/agent-gateway vitest -- run
-
-  develop_artifact_gate:
-    name: Develop artifact gate
-    if: github.event.pull_request.base.ref == 'release/office'
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    permissions:
-      actions: read
-      contents: read
-    steps:
-      - name: Require exact successful develop Gateway artifact
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          test "$HEAD_REF" = develop
-          test "$HEAD_REPO" = "$GITHUB_REPOSITORY"
-
-          for attempt in $(seq 1 100); do
-            runs_json="$(gh api --method GET \
-              "repos/${GITHUB_REPOSITORY}/actions/workflows/develop-gateway-package.yml/runs" \
-              -f branch=develop \
-              -f event=push \
-              -f head_sha="$HEAD_SHA" \
-              -f per_page=10)"
-            run_json="$(jq -c --arg sha "$HEAD_SHA" \
-              '[.workflow_runs[] | select(.head_sha == $sha and .event == "push")] | sort_by(.created_at) | last // empty' \
-              <<<"$runs_json")"
-
-            if [ -z "$run_json" ]; then
-              sleep 15
-              continue
-            fi
-
-            status="$(jq -r '.status' <<<"$run_json")"
-            conclusion="$(jq -r '.conclusion // ""' <<<"$run_json")"
-            run_id="$(jq -r '.id' <<<"$run_json")"
-            if [ "$status" != completed ]; then
-              sleep 15
-              continue
-            fi
-            test "$conclusion" = success
-
-            artifacts_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts")"
-            artifact_name="develop-gateway-windows-${HEAD_SHA}"
-            artifact_count="$(jq --arg name "$artifact_name" \
-              '[.artifacts[] | select(.name == $name and .expired == false)] | length' \
-              <<<"$artifacts_json")"
-            test "$artifact_count" -eq 1
-            echo "Exact develop Gateway artifact is green: run=${run_id} sha=${HEAD_SHA}"
-            exit 0
-          done
-
-          echo "Timed out waiting for the exact develop Gateway artifact: ${HEAD_SHA}" >&2
-          exit 1

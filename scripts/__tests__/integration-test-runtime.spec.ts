@@ -49,16 +49,14 @@ describe('integration test runtime contract', () => {
     expect(packageJson.devDependencies).toHaveProperty('@testcontainers/postgresql');
   });
 
-  it('keeps PR checks fast and moves the native Windows package boundary to develop', () => {
+  it('keeps PR checks fast while native Windows packaging moves to the local deployer', () => {
     const prWorkflowSource = readRepoFile('.github/workflows/pr-checks.yml');
     const prJobSource = readWorkflowJobSource(prWorkflowSource, 'pr-hygiene');
     const gatewayFastJob = readWorkflowJobSource(prWorkflowSource, 'gateway_fast_checks');
-    const promotionGateJob = readWorkflowJobSource(prWorkflowSource, 'develop_artifact_gate');
 
     expect(readWorkflowJobNames(prWorkflowSource)).toEqual([
       'pr-hygiene',
       'gateway_fast_checks',
-      'develop_artifact_gate',
     ]);
     expect(prJobSource).toContain('runs-on: ubuntu-latest');
     expect(prJobSource).toContain('run: git diff --check "${BASE_SHA}...HEAD"');
@@ -77,33 +75,9 @@ describe('integration test runtime contract', () => {
     expect(gatewayFastJob).not.toContain('dotnet publish');
     expect(gatewayFastJob).not.toContain('npm run prepack');
     expect(gatewayFastJob).not.toContain('npm pack --workspace=apps/agent-gateway');
-    expect(promotionGateJob).toContain("github.event.pull_request.base.ref == 'release/office'");
-    expect(promotionGateJob).toContain('github.event.pull_request.head.sha');
-    expect(promotionGateJob).toContain('develop-gateway-package.yml/runs');
-    expect(promotionGateJob).toContain('develop-gateway-windows-${HEAD_SHA}');
-    expect(promotionGateJob).toContain('.expired == false');
+    expect(prWorkflowSource).not.toContain('develop_artifact_gate');
     expect(prWorkflowSource).not.toContain('test:integration');
-
-    const developGatewaySource = readRepoFile(
-      '.github/workflows/develop-gateway-package.yml',
-    );
-    const developGatewayJob = readWorkflowJobSource(
-      developGatewaySource,
-      'windows_gateway_package',
-    );
-
-    expect(readWorkflowJobNames(developGatewaySource)).toEqual([
-      'windows_gateway_package',
-    ]);
-    expect(developGatewaySource).toContain('push:');
-    expect(developGatewaySource).toContain('      - develop');
-    expect(developGatewaySource).toContain('cancel-in-progress: true');
-    expect(developGatewayJob).toContain('runs-on: windows-latest');
-    expect(developGatewayJob).toContain('npm ci');
-    expect(developGatewayJob).toContain('npm run prepack --workspace=apps/agent-gateway');
-    expect(developGatewayJob).toContain('dotnet publish apps/agent-gateway/windows/KidItem.JobRunner/KidItem.JobRunner.csproj');
-    expect(developGatewayJob).toContain('npm pack --workspace=apps/agent-gateway --ignore-scripts');
-    expect(developGatewayJob).toContain('develop-gateway-windows-${{ github.sha }}');
+    expect(existsSync(join(repoRoot, '.github/workflows/develop-gateway-package.yml'))).toBe(false);
 
     const developWorkflowSource = readRepoFile(
       '.github/workflows/develop-validation.yml',

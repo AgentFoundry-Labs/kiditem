@@ -27,6 +27,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'dev-data.ts',
   'generate-prisma-erd.mjs',
   'local-agent-gateway.mjs',
+  'office-deploy.mjs',
   'manage-extension-release.mjs',
   'qa-agent-os-clean-cutover.mjs',
   'run-data-migrations.ts',
@@ -124,6 +125,15 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   }
   if (!packageScripts['check:scripts-inventory']) {
     missingPackageHooks.push('check:scripts-inventory');
+  }
+  if (packageScripts['deploy:office:local'] !== 'node scripts/office-deploy.mjs deploy') {
+    missingPackageHooks.push('deploy:office:local');
+  }
+  if (packageScripts['deploy:office:status'] !== 'node scripts/office-deploy.mjs status') {
+    missingPackageHooks.push('deploy:office:status');
+  }
+  if (packageScripts['deploy:office:rollback'] !== 'node scripts/office-deploy.mjs rollback') {
+    missingPackageHooks.push('deploy:office:rollback');
   }
   if (!packageScripts['check:schema-artifact-sync']) {
     missingPackageHooks.push('check:schema-artifact-sync');
