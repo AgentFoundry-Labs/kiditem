@@ -91,7 +91,7 @@ function Invoke-Checked {
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments
   )
 
-  & $Program @Arguments
+  & $Program @Arguments | ForEach-Object { Write-Host $_ }
   if ($LASTEXITCODE -ne 0) {
     throw "$Program failed with exit code $LASTEXITCODE"
   }
