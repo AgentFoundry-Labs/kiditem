@@ -10,6 +10,10 @@ test('registers the built-in isolated Agent OS browser-QA seed command', () => {
   assert.ok(SCRIPT_INVENTORY.includes('seed-agent-os-browser-qa.ts'));
 });
 
+test('registers the local development orchestrator', () => {
+  assert.ok(SCRIPT_INVENTORY.includes('run-local-development.mjs'));
+});
+
 test('accepts complete script inventory metadata', () => {
   const result = analyzeInventory({
     actualFiles: SCRIPT_INVENTORY,
@@ -21,6 +25,7 @@ test('accepts complete script inventory metadata', () => {
       'qa:agent-os:clean-cutover': 'node scripts/qa-agent-os-clean-cutover.mjs',
       'setup:macos': 'node scripts/setup-macos-development.mjs',
       'dev:gateway': 'npm run build --workspace=apps/agent-gateway && node scripts/local-agent-gateway.mjs start',
+      'dev:all': 'node scripts/run-local-development.mjs',
       'gateway:auth:codex': 'node scripts/local-agent-gateway.mjs auth codex',
       'gateway:login:codex': 'node scripts/local-agent-gateway.mjs login codex',
       'dev:bootstrap-user': 'bash bin/bootstrap-local-auth-user.sh',
@@ -53,6 +58,7 @@ test('requires the built-in browser-QA seed package entrypoint', () => {
       'qa:agent-os:clean-cutover': 'node scripts/qa-agent-os-clean-cutover.mjs',
       'setup:macos': 'node scripts/setup-macos-development.mjs',
       'dev:gateway': 'npm run build --workspace=apps/agent-gateway && node scripts/local-agent-gateway.mjs start',
+      'dev:all': 'node scripts/run-local-development.mjs',
       'gateway:login:codex': 'node scripts/local-agent-gateway.mjs login codex',
       'dev:bootstrap-user': 'bash bin/bootstrap-local-auth-user.sh',
       'check:scripts-inventory': 'node scripts/check-script-inventory.mjs',
@@ -89,6 +95,7 @@ test('reports unregistered scripts and missing hooks', () => {
     'qa:agent-os:clean-cutover',
     'setup:macos',
     'dev:gateway',
+    'dev:all',
     'gateway:auth:codex',
     'gateway:login:codex',
     'dev:bootstrap-user',

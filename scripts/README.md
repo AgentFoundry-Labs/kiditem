@@ -50,6 +50,7 @@ npm run test:scripts
 | `scripts/seed-order-collection-mall-accounts.ts` | confirmation-gated, organization-scoped order-collection mall credential seed; encrypts complete `ID/PW/URL` triples into `ChannelAccount` and never creates a runtime env fallback | `npm run seed:order-collection-malls`, `docs/runbooks/environment-variables.md` |
 | `scripts/qa-agent-os-clean-cutover.mjs` | provisions a guarded isolated PostgreSQL cutover fixture, verifies the one-model schema, and can serve the macOS browser-QA stack with the built-in stdin-only auth/business seed without exposing database credentials | `npm run qa:agent-os:clean-cutover` |
 | `scripts/smoke-interaction-os.mjs` | exercises Gateway readiness, provider conversation/history, the five stateless MCP tools, one read, and one approval-pending mutation without executing it | `npm run smoke:interaction-os` |
+| `scripts/run-local-development.mjs` | macOS local runtime orchestrator; completes idempotent setup and isolated Codex authentication before starting Core and Gateway together, with sibling cleanup on exit | `npm run dev:all`, `docs/runbooks/local-development.md` |
 | `scripts/setup-macos-development.mjs` | idempotent fresh-clone setup for local env examples, protected Gateway config/token/home, Git hooks, and locked npm dependencies; never applies schema or stores provider credentials | `npm run setup:macos`, `docs/runbooks/local-development.md` |
 
 ## Support Files

@@ -51,8 +51,7 @@ test('root commands keep the optional Python runtime out of the default developm
   assert.match(scripts['dev:core'], /npm run dev:server/);
   assert.match(scripts['dev:core'], /OPERATION_RUNTIME_WORKER_ENABLED=1/);
   assert.doesNotMatch(scripts['dev:core'], /dev:agents/);
-  assert.match(scripts['dev:all'], /dev:core/);
-  assert.match(scripts['dev:all'], /dev:gateway/);
+  assert.equal(scripts['dev:all'], 'node scripts/run-local-development.mjs');
   assert.doesNotMatch(scripts['dev:all'], /dev:agents/);
   assert.equal(scripts['gateway:auth:codex'], 'node scripts/local-agent-gateway.mjs auth codex');
   assert.equal(scripts['gateway:login:codex'], 'node scripts/local-agent-gateway.mjs login codex');
