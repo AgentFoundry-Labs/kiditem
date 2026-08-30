@@ -159,4 +159,3 @@ The change is complete when:
   server, shared, and Gateway builds pass; and
 - the runbook documents a fresh-clone smoke sequence plus reset and blocker
   behavior without containing any real credentials.
-
