@@ -49,12 +49,13 @@ populated file in logs or chat.
 ## Architecture And Ownership
 
 ```text
-protected release/office SHA
-  -> GitHub Actions BuildKit cache
-    -> API + web images in GHCR
-      -> digest-only office-deployment.json artifact
-        -> Windows operator guard
-          -> pull + OCI revision verification
+develop SHA -> validated Windows Gateway archive + SHA-256 provenance
+  -> protected release/office merge with the identical develop tree
+    -> GitHub Actions BuildKit cache
+      -> API + web images in GHCR + reused Gateway archive
+        -> digest/hash-only office-deployment.json artifact
+          -> Windows operator guard
+            -> pull + OCI revision verification
               -> optional approved Prisma schema push
                 -> Compose recreate + matching native Agent Gateway restart
                   -> API/Gateway readiness + health/smoke checks
@@ -78,12 +79,17 @@ full-stop cutover procedure below and starts its candidate only with
 
 ## Promote The Office Branch
 
-Normal work still merges into `develop`. Promote an approved `develop` commit
-to `release/office` through a reviewed PR. Before merging, require both
-`PR Checks / PR hygiene` and the required local verification from `AGENTS.md`.
-Run `Develop Validation / Develop full validation` manually only when an
-independent cloud verification is needed. The office branch is a persistent
-environment branch, not a disposable feature branch. After the merge, verify:
+Normal work still merges into `develop`. Ordinary PRs require `PR Checks / PR
+hygiene` and `PR Checks / Gateway fast checks`; they do not build a Windows
+package. Each merged `develop` SHA then runs `Develop Gateway Package / Develop
+Windows Gateway package` once and publishes an immutable SHA-named archive.
+Promote an approved `develop` commit to `release/office` through a reviewed PR
+only when `PR Checks / Develop artifact gate` confirms that exact head SHA has
+a successful, unexpired artifact. Also require the local verification from
+`AGENTS.md`. Run `Develop Validation / Develop full validation` manually only
+when an independent broad cloud verification is needed. The office branch is a
+persistent environment branch, not a disposable feature branch. After the
+merge, verify:
 
 ```powershell
 git ls-remote --heads origin refs/heads/release/office
@@ -120,10 +126,16 @@ named `office-deployment-<full SHA>` and contains:
 - `gateway-launcher.cjs`
 - `kiditem-agent-gateway-windows-x64.zip`
 - `gateway-runtime-contract.json`
+- `gateway-validation.json`
 
-The manifest records the workflow URL, root app version, Git SHA, exact API/web
-digest refs, and the SHA-256/runtime contract of the matching Windows Gateway
-archive. Convenience tags such as `office-candidate` are never used by Compose.
+The workflow requires a two-parent Office promotion merge whose tree equals its
+`develop` second parent. It resolves the successful develop package run for
+that exact parent, downloads the SHA-named artifact, and verifies its provenance
+record, archive SHA-256, and runtime contract without rebuilding the Gateway.
+The manifest records the Office workflow URL, root app version, release Git SHA,
+exact API/web digest refs, and the SHA-256/runtime contract of that validated
+Windows Gateway archive. Convenience tags such as `office-candidate` are never
+used by Compose.
 
 ## Download And Deploy
 

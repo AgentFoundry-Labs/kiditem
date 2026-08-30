@@ -37,8 +37,8 @@ test('local service images are version-pinned instead of following floating tags
   assert.doesNotMatch(compose, /image:\s*\S+:latest/);
 });
 
-test('the Windows Gateway install gives Prisma postinstall a non-secret local URL', () => {
-  const workflow = read('.github/workflows/pr-checks.yml');
+test('the develop Windows Gateway package gives Prisma postinstall a non-secret local URL', () => {
+  const workflow = read('.github/workflows/develop-gateway-package.yml');
   const job = workflow.slice(workflow.indexOf('windows_gateway_package:'));
   assert.match(job, /DATABASE_URL:\s*postgresql:\/\/kiditem:kiditem@127\.0\.0\.1:5433\/kiditem/);
   assert.match(job, /npm ci/);
