@@ -119,13 +119,21 @@ function providerLoginEnvironment({ provider, loginRoot, platform, environment }
   });
 }
 
-function commandSucceeds(command) {
-  const result = spawnSync(command.executable, command.args, {
+export function commandSucceeds(command, {
+  spawnSyncImpl = spawnSync,
+  timeoutMs = 10_000,
+} = {}) {
+  const result = spawnSyncImpl(command.executable, command.args, {
     cwd: command.cwd,
     env: command.env,
     stdio: 'ignore',
+    timeout: timeoutMs,
+    // Bundled provider shims forward SIGTERM to their native child process.
+    killSignal: 'SIGTERM',
   });
-  if (result.error) throw result.error;
+  if (result.error || result.signal || typeof result.status !== 'number') {
+    throw new Error('gateway_provider_status_check_failed');
+  }
   return result.status === 0;
 }
 

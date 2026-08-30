@@ -54,10 +54,12 @@ not add provider credentials to `.env`.
 | `.../state` | native Gateway | conversation descriptors, preferences, bounded control files | 0700 host-local state; no business authority. |
 
 `npm run setup:macos` creates these paths and writes the token file path into
-the server env. `npm run gateway:login:codex` and optional
-`npm run gateway:login:claude` authenticate inside `provider-home`. Reusing the
-developer's normal `~/.codex` or default home is not supported because it mixes
-KidItem conversations with personal Desktop/CLI history.
+the server env. `npm run gateway:auth:codex` checks the isolated Codex login,
+opens the interactive login only when needed, and verifies it again. Optional
+Claude authentication uses `npm run gateway:login:claude`.
+`npm run gateway:login:codex` remains available only for forced recovery.
+Reusing the developer's normal `~/.codex` or default home is not supported
+because it mixes KidItem conversations with personal Desktop/CLI history.
 
 The process-scoped MCP transport token is generated in memory by the Gateway;
 it is not this installation bearer, not an env variable, and not a capability

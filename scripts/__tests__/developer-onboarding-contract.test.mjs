@@ -50,6 +50,7 @@ test('root commands keep the optional Python runtime out of the default developm
   assert.match(scripts['dev:core'], /npm run dev/);
   assert.match(scripts['dev:core'], /npm run dev:server/);
   assert.match(scripts['dev:core'], /OPERATION_RUNTIME_WORKER_ENABLED=1/);
+  assert.match(scripts['dev:core'], /--kill-others-on-fail/);
   assert.doesNotMatch(scripts['dev:core'], /dev:agents/);
   assert.equal(scripts['dev:all'], 'node scripts/run-local-development.mjs');
   assert.doesNotMatch(scripts['dev:all'], /dev:agents/);
@@ -89,4 +90,6 @@ test('runbooks describe the current browser-auth and environment ownership contr
   for (const heading of ['macOS core', 'macOS Agent OS', 'Optional Python agents', 'Windows Office']) {
     assert.match(env, new RegExp(heading, 'i'));
   }
+  assert.match(env, /gateway:auth:codex/);
+  assert.match(env, /gateway:login:codex.*forced recovery/is);
 });

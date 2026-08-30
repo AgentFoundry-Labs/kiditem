@@ -223,7 +223,9 @@ This single entrypoint runs these boundaries in order:
 3. `dev:core` plus `dev:gateway` only after both earlier stages succeed.
 
 An existing valid login skips the browser flow on repeat runs. Setup or
-authentication failure starts no long-running service. The running stack is:
+authentication failure starts no long-running service. If Web, API, or Gateway
+later exits with a failure, the local process owner terminates its remaining
+siblings instead of leaving a partial stack running. The running stack is:
 
 ```text
 Next.js Web
@@ -329,6 +331,7 @@ private reasoning in verification evidence.
 | `gateway_installation_token_invalid` | token file length/mode, never print value | move the malformed file aside manually, rerun setup, then restart API/Gateway |
 | `gateway_provider_package_missing` | locked npm install and Gateway build | rerun setup, then `npm run build --workspace=apps/agent-gateway` |
 | `gateway_provider_unauthenticated` | isolated provider login status | run `npm run gateway:auth:codex`, then restart Gateway |
+| `gateway_provider_status_check_failed` | provider status command exceeded 10 seconds or could not start cleanly | inspect the bundled provider process/state, then rerun `npm run gateway:auth:codex`; no login flow is opened automatically |
 | `gateway_provider_auth_failed` | browser/device login completion | rerun `npm run gateway:auth:codex`; use `gateway:login:codex` only for forced recovery |
 | `local_development_setup_failed` | preceding setup error | resolve the reported setup blocker, then rerun `npm run dev:all` |
 | `local_development_provider_auth_failed` | preceding provider-auth error | complete `npm run gateway:auth:codex`, then rerun `npm run dev:all` |

@@ -6,6 +6,7 @@ import {
   buildLocalGatewayStartCommand,
   buildProviderAuthStatusCommand,
   buildProviderLoginCommand,
+  commandSucceeds,
   defaultMacosGatewayConfigPath,
   ensureProviderAuthentication,
   loadLocalGatewayConfig,
@@ -81,6 +82,45 @@ describe('local Agent Gateway operator commands', () => {
       processExecPath: '/usr/local/bin/node', environment: { PATH: '/usr/bin', USER: 'developer' },
     });
     expect(claude.args).toEqual(['auth', 'status', '--json']);
+  });
+
+  it('bounds noninteractive provider status checks and suppresses their output', () => {
+    let received: unknown;
+    const result = commandSucceeds({
+      executable: '/usr/local/bin/node',
+      args: ['provider.js', 'login', 'status'],
+      cwd: '/runtime',
+      env: { HOME: '/provider-home' },
+    }, {
+      spawnSyncImpl: (_executable, _args, options) => {
+        received = options;
+        return { status: 0 } as never;
+      },
+    });
+
+    expect(result).toBe(true);
+    expect(received).toMatchObject({
+      cwd: '/runtime',
+      env: { HOME: '/provider-home' },
+      stdio: 'ignore',
+      timeout: 10_000,
+      killSignal: 'SIGTERM',
+    });
+  });
+
+  it.each([
+    { error: Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }), status: null },
+    { error: new Error('spawn failed'), status: null },
+    { status: null, signal: 'SIGTERM' },
+  ])('fails status checks closed on timeout, spawn failure, or signal exit', (spawnResult) => {
+    expect(() => commandSucceeds({
+      executable: '/usr/local/bin/node',
+      args: ['provider.js', 'login', 'status'],
+      cwd: '/runtime',
+      env: { HOME: '/provider-home' },
+    }, {
+      spawnSyncImpl: () => spawnResult as never,
+    })).toThrow('gateway_provider_status_check_failed');
   });
 
   it('skips interactive login when the isolated provider home is authenticated', () => {
