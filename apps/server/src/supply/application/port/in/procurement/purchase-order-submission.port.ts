@@ -6,6 +6,7 @@ export interface SubmitPurchaseOrderInput {
   organizationId: string;
   purchaseOrderId: string;
   idempotencyKey: string;
+  requestHash: string;
   userId: string;
   externalOrderPlatform?: string | null;
   externalOrderId?: string | null;

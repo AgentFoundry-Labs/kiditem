@@ -68,6 +68,8 @@ erDiagram
     String externalOrderPlatform
     String externalOrderId
     String externalOrderUrl
+    String idempotencyKey
+    String requestHash
     DateTime receivedAt
     Int receivedQty
     Int defectQty
@@ -94,6 +96,7 @@ erDiagram
     String organizationId FK
     String purchaseOrderId FK
     String idempotencyKey
+    String requestHash
     BigInt freshnessGeneration
     String status
     String providerReference

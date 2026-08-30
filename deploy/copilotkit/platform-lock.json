@@ -1,0 +1,7 @@
+{
+  "copilotKit": "1.69.0",
+  "agUi": "0.0.57",
+  "node": ">=22 <23",
+  "fork": "AgentFoundry-Labs/CopilotKit",
+  "upstream": "CopilotKit/CopilotKit"
+}

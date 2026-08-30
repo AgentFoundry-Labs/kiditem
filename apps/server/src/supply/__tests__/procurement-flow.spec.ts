@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 import { ROCKET_SAVED_PO_RESPONSE_PROFILE } from '@kiditem/shared/rocket-purchase-preview';
+import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
 import { ProcurementService } from '../application/service/procurement.service';
 import { ProcurementController } from '../adapter/in/http/procurement.controller';
 import type { ProcurementRepositoryPort } from '../application/port/out/repository/procurement.repository.port';
@@ -480,7 +481,7 @@ describe('ProcurementController purchase submission boundary', () => {
     }));
   });
 
-  it('passes the caller key and authenticated actor to the common submission port', async () => {
+  it('passes the caller key, canonical business-input hash, and authenticated actor to the common submission port', async () => {
     const procurement = {
       findAll: vi.fn(),
       create: vi.fn(),
@@ -511,6 +512,9 @@ describe('ProcurementController purchase submission boundary', () => {
       organizationId: 'organization-1',
       purchaseOrderId: '0187e942-9098-7382-9a22-c5b821f2f5d1',
       idempotencyKey: 'stable-submit-key',
+      requestHash: canonicalOwnerInputHash({
+        purchaseOrderId: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+      }),
       userId: '00000000-0000-4000-8000-000000000001',
     });
   });

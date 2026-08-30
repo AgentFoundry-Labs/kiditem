@@ -755,8 +755,8 @@ describe('WorkflowRunnerService', () => {
       });
 
       expect(result.status).toBe('cancelled');
-      expect(result.cancelledAgentRunRequests).toBe(0);
-      expect(result.cancelledAgentRuns).toBe(0);
+      expect(result).not.toHaveProperty('cancelledAgentRunRequests');
+      expect(result).not.toHaveProperty('cancelledAgentRuns');
       expect(prisma.workflowRun.updateMany).toHaveBeenCalledWith({
         where: {
           id: 'run-1',

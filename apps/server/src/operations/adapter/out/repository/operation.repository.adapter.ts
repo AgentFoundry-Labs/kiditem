@@ -16,6 +16,7 @@ import {
   cancelOperationRunsForLifecycle,
   claimNextServerRun,
   expireServerRunsPastDeadline,
+  readOperationLifecycleDatabaseCutoff,
   readOperationLifecycleDatabaseTime,
   transitionActiveServerAttempt,
 } from './operation-execution.repository';
@@ -30,6 +31,7 @@ import type {
   OperationActiveAttemptTransition,
   OperationCompositeCancellationResult,
   OperationLifecycleBatchResult,
+  OperationLifecycleCutoff,
   OperationRunRecord,
   OperationRunRepositoryPort,
   OperationRunTransition,
@@ -559,11 +561,15 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     organizationId: string;
     status?: OperationRunRecord['status'];
     limit: number;
+    excludedOperationKeys: string[];
   }): Promise<OperationRunRecord[]> {
     const rows = await this.prisma.operationRun.findMany({
       where: {
         organizationId: input.organizationId,
         ...(input.status ? { status: input.status } : {}),
+        ...(input.excludedOperationKeys.length > 0
+          ? { operationKey: { notIn: input.excludedOperationKeys } }
+          : {}),
       },
       include: runInclude,
       orderBy: { createdAt: 'desc' },
@@ -664,7 +670,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
         id: input.runId,
         organizationId: input.organizationId,
         status: { in: [...input.expectedStatuses] },
-        ...(input.expectedAttemptToken
+        ...(input.expectedAttemptToken !== undefined
           ? { attemptToken: input.expectedAttemptToken }
           : {}),
       },
@@ -723,6 +729,47 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     });
   }
 
+  async requeueActiveAttemptAfter(input: {
+    organizationId: string;
+    runId: string;
+    expectedAttemptToken: string;
+    delayMs: number;
+    errorCode: string;
+    errorMessage: string;
+  }): Promise<OperationRunRecord | null> {
+    if (
+      !Number.isInteger(input.delayMs) ||
+      input.delayMs < 0 ||
+      input.delayMs > MAX_OPERATION_PERSISTED_INT
+    ) {
+      throw new Error('operation_retry_delay_invalid');
+    }
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      UPDATE operation_runs
+      SET status = 'queued',
+          scheduled_for = clock_timestamp()
+            + (${input.delayMs}::bigint * interval '1 millisecond'),
+          error_code = ${input.errorCode},
+          error_message = ${input.errorMessage},
+          claimed_by = NULL,
+          attempt_token = NULL,
+          claimed_at = NULL,
+          lease_expires_at = NULL,
+          deadline_at = NULL,
+          updated_at = clock_timestamp()
+      WHERE id = ${input.runId}::uuid
+        AND organization_id = ${input.organizationId}::uuid
+        AND status = 'running'
+        AND attempt_token = ${input.expectedAttemptToken}::uuid
+      RETURNING id
+    `;
+    if (rows.length === 0) return null;
+    return this.findRunById({
+      organizationId: input.organizationId,
+      runId: input.runId,
+    });
+  }
+
   async claimNextRun(input: {
     resourceClass: OperationRunRecord['resourceClass'];
     workerId: string;
@@ -743,8 +790,12 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     return readOperationLifecycleDatabaseTime(this.prisma);
   }
 
+  readLifecycleDatabaseCutoff(): Promise<OperationLifecycleCutoff> {
+    return readOperationLifecycleDatabaseCutoff(this.prisma);
+  }
+
   cancelRunsForLifecycle(input: {
-    cutoff: Date | null;
+    cutoff: OperationLifecycleCutoff | null;
     errorCode:
       | 'operation_server_shutdown'
       | 'operation_server_lifecycle_expired';
@@ -757,7 +808,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
   }
 
   advanceSchedulesPastLifecycleCutoff(input: {
-    cutoff: Date;
+    cutoff: OperationLifecycleCutoff;
     limit: number;
     statementTimeoutMs: number;
   }): Promise<OperationLifecycleBatchResult> {

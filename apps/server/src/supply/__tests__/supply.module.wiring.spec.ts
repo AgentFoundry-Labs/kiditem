@@ -12,13 +12,14 @@ import { SupplySourcingProcurementService } from '../application/service/supply-
 import { PurchaseOrderDraftService } from '../application/service/purchase-order-draft.service';
 import { PurchaseOrderSubmissionService } from '../application/service/purchase-order-submission.service';
 import { SupplyAgentCapabilityAdapter } from '../adapter/in/agent/supply-agent-capability.adapter';
+import { SupplyCapabilityCompositionAdapter } from '../adapter/in/agent/supply-capability-composition.adapter';
 import { Alibaba1688CheckoutRuntimeAdapter } from '../adapter/out/runtime/alibaba-1688-checkout-runtime.adapter';
-import { OrderAgentRuntimeHandler } from '../adapter/out/runtime/order-agent-runtime.handler';
 import { SupplierRepositoryAdapter } from '../adapter/out/repository/supplier.repository.adapter';
 import { ProcurementRepositoryAdapter } from '../adapter/out/repository/procurement.repository.adapter';
 import { SupplySourcingProcurementRepositoryAdapter } from '../adapter/out/repository/supply-sourcing-procurement.repository.adapter';
 import { PURCHASE_ORDER_DRAFT_PORT } from '../application/port/in/procurement/purchase-order-draft.port';
 import { PURCHASE_ORDER_SUBMISSION_PORT } from '../application/port/in/procurement/purchase-order-submission.port';
+import { SUPPLY_CAPABILITY_COMPOSITION_PORT } from '../application/port/in/capability/supply-capability-composition.port';
 import { SUPPLIER_REPOSITORY_PORT } from '../application/port/out/repository/supplier.repository.port';
 import { PROCUREMENT_REPOSITORY_PORT } from '../application/port/out/repository/procurement.repository.port';
 import { SUPPLY_SOURCING_PROCUREMENT_REPOSITORY_PORT } from '../application/port/out/repository/supply-sourcing-procurement.repository.port';
@@ -107,13 +108,18 @@ describe('SupplyModule owner wiring', () => {
     expect(providers).toContain(ProcurementRepositoryAdapter);
     expect(providers).toContain(SupplySourcingProcurementRepositoryAdapter);
     expect(providers).toContain(SupplyAgentCapabilityAdapter);
+    expect(providers).toContain(SupplyCapabilityCompositionAdapter);
     expect(providers).toContain(Alibaba1688CheckoutRuntimeAdapter);
-    expect(providers).toContain(OrderAgentRuntimeHandler);
     expect(providers).toContain(PurchaseOrderSubmissionTransactionAdapter);
     expect(providers).toContain(RocketPurchaseConfirmationTransactionAdapter);
     expect(providers).toContain(RocketFinalOrderReconciliationTransactionAdapter);
     expectBinding(providers, PURCHASE_ORDER_DRAFT_PORT, PurchaseOrderDraftService);
     expectBinding(providers, PURCHASE_ORDER_SUBMISSION_PORT, PurchaseOrderSubmissionService);
+    expectBinding(
+      providers,
+      SUPPLY_CAPABILITY_COMPOSITION_PORT,
+      SupplyCapabilityCompositionAdapter,
+    );
     expectBinding(providers, SUPPLIER_REPOSITORY_PORT, SupplierRepositoryAdapter);
     expectBinding(providers, PROCUREMENT_REPOSITORY_PORT, ProcurementRepositoryAdapter);
     expectBinding(
@@ -175,13 +181,18 @@ describe('SupplyModule owner wiring', () => {
       .toEqual([]);
     for (const provider of [
       SupplyAgentCapabilityAdapter,
-      OrderAgentRuntimeHandler,
+      SupplyCapabilityCompositionAdapter,
       PurchaseOrderDraftService,
       PurchaseOrderSubmissionService,
     ]) {
       expect(runtimeProviders).toContain(provider);
       expect(ownerProviders).not.toContain(provider);
     }
+  });
+
+  it('does not retain generic-run wiring for the removed order runtime handler', () => {
+    const imports = Reflect.getMetadata('imports', SupplyAgentRuntimeModule) ?? [];
+    expect(imports.map((item: { name?: string }) => item.name)).not.toContain('AgentOsLegacyRunModule');
   });
 
   it('keeps public /api route prefixes', () => {

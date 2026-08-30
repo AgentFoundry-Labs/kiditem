@@ -60,6 +60,9 @@ export const SourcingTaobaoLiveInputSchema = z
   .strict();
 
 const SourcingShadowSignalInputSchema = z.object({}).strict();
+export const SourcingScrapeUrlInputSchema = z.object({
+  sourceUrl: z.string().trim().min(1).max(2_000),
+}).strict();
 
 export const SourcingRisingProductInputSchema = z
   .object({
@@ -194,6 +197,20 @@ export const SOURCING_RISING_PRODUCT_OPERATION = {
   inputSchema: SourcingRisingProductInputSchema,
 } as const satisfies OperationDefinition;
 
+export const SOURCING_SCRAPE_URL_OPERATION = {
+  key: 'sourcing.scrape_url',
+  version: 1,
+  title: '소싱 URL 스크래핑',
+  ownerDomain: 'sourcing',
+  engineType: 'browser',
+  allowedTriggers: ['domain_screen', 'agent'],
+  scheduleSupported: false,
+  maxAttempts: 3,
+  resourceClass: 'playwright_1688',
+  executionTimeoutMs: 15 * 60_000,
+  inputSchema: SourcingScrapeUrlInputSchema,
+} as const satisfies OperationDefinition;
+
 export const SOURCING_TREND_OPERATIONS = [
   SOURCING_DAILY_TREND_OPERATION,
   SOURCING_NAVER_TREND_OPERATION,
@@ -284,6 +301,7 @@ export const SOURCING_OPERATIONS = [
   SOURCING_TAOBAO_LIVE_OPERATION,
   SOURCING_SHADOW_SIGNAL_OPERATION,
   SOURCING_RISING_PRODUCT_OPERATION,
+  SOURCING_SCRAPE_URL_OPERATION,
   SOURCING_WING_CATALOG_OPERATION,
   SOURCING_KEYWORD_SUGGESTION_OPERATION,
   SOURCING_KEYWORD_ANALYSIS_OPERATION,

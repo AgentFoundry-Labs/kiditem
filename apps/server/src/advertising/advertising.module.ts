@@ -1,6 +1,5 @@
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
-import { AgentOsModule } from "../agent-os/agent-os.module";
 import { AiModule } from "../ai/ai.module";
 import { AutomationModule } from "../automation/automation.module";
 import { ChannelsModule } from "../channels/channels.module";
@@ -15,7 +14,6 @@ import { AdvertisingExecutionController } from "./adapter/in/http/advertising-ex
 import { AdvertisingIngestController } from "./adapter/in/http/advertising-ingest.controller";
 import { AdvertisingOverviewController } from "./adapter/in/http/advertising-overview.controller";
 import { AdvertisingStrategyController } from "./adapter/in/http/advertising-strategy.controller";
-import { AdStrategyAgentController } from "./adapter/in/http/ad-strategy-agent.controller";
 import { AdKeywordAgentController } from "./adapter/in/http/ad-keyword-agent.controller";
 import { KeywordRankController } from "./adapter/in/http/keyword-rank.controller";
 import { CompetitorTrackingController } from "./adapter/in/http/competitor-tracking.controller";
@@ -47,7 +45,6 @@ import { AdIngestTransactionAdapter } from "./adapter/out/repository/ad-ingest-t
 import { AdvertisingService } from "./application/service/advertising.service";
 import { AdCampaignsService } from "./application/service/ad-campaigns.service";
 import { AdStrategyService } from "./application/service/ad-strategy.service";
-import { AdStrategyAgentService } from "./application/service/ad-strategy-agent.service";
 import { AdKeywordAgentService } from "./application/service/ad-keyword-agent.service";
 import { AdGradeRulesService } from "./application/service/ad-grade-rules.service";
 import { AdBudgetAllocatorService } from "./application/service/ad-budget-allocator.service";
@@ -183,7 +180,6 @@ const REPOSITORY_PORT_BINDINGS = [
 @Module({
   imports: [
     PrismaModule,
-    AgentOsModule,
     AiModule,
     AutomationModule,
     ChannelsModule,
@@ -199,7 +195,6 @@ const REPOSITORY_PORT_BINDINGS = [
     AdvertisingIngestController,
     AdvertisingActionsController,
     AdvertisingExecutionController,
-    AdStrategyAgentController,
     AdKeywordAgentController,
     KeywordRankController,
     CompetitorTrackingController,
@@ -233,7 +228,6 @@ const REPOSITORY_PORT_BINDINGS = [
     AdvertisingService,
     AdCampaignsService,
     AdStrategyService,
-    AdStrategyAgentService,
     AdKeywordAgentService,
     AdGradeRulesService,
     AdBudgetAllocatorService,

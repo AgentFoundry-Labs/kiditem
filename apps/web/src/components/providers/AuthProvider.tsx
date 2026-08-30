@@ -1,162 +1,159 @@
 'use client';
 
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { createContext, useCallback, useContext, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
+import type { AuthUserPublic } from '@kiditem/shared/auth';
 import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 import {
-  clearAuthSession,
-  getAuthSession,
-  subscribeAuthSession,
-  type AuthSignOutReason,
-  type BrowserAuthSession,
-} from '@/lib/auth/session';
+  AUTH_ME_QUERY_KEY,
+  AUTH_REQUIRED_EVENT,
+  publishAuthChanged,
+  purgePersistedBrowserCredential,
+  subscribeAuthChanged,
+} from '@/lib/auth/browser-auth';
 import {
+  clearExtensionAuth,
   EXTENSION_AUTH_REQUIRED_EVENT,
   syncExtensionAuth,
 } from '@/lib/extension-auth';
 import { BrowserCollectionProvider } from './BrowserCollectionProvider';
 import { SellpiaInventorySyncProvider } from './SellpiaInventorySyncProvider';
 
-type AuthContextValue = {
-  session: BrowserAuthSession | null;
+export type AuthStatus =
+  | 'loading'
+  | 'anonymous'
+  | 'ready'
+  | 'no_organization'
+  | 'error';
+
+export type AuthContextValue = {
+  user: AuthUserPublic | null;
+  status: AuthStatus;
+  error: unknown;
   isLoading: boolean;
+  logout(): Promise<void>;
 };
 
-const AuthContext = createContext<AuthContextValue>({ session: null, isLoading: true });
-const MAX_TIMER_DELAY_MS = 2_147_000_000;
+const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function useAuthSession(): AuthContextValue {
-  return useContext(AuthContext);
+export function useAuthContext(): AuthContextValue {
+  const value = useContext(AuthContext);
+  if (!value) throw new Error('AuthProvider is missing');
+  return value;
 }
 
-/**
- * Single owner for local session lifecycle, cross-tab changes, expiry redirect,
- * query cache clearing, and Chrome extension token synchronization.
- */
+function statusFromQuery(input: {
+  user: AuthUserPublic | null;
+  isPending: boolean;
+  error: unknown;
+}): AuthStatus {
+  if (input.user) return input.user.organizationId ? 'ready' : 'no_organization';
+  if (input.isPending) return 'loading';
+  if (isApiError(input.error) && input.error.code === 'auth_required') return 'anonymous';
+  if (isApiError(input.error) && input.error.code === 'no_organization_context') {
+    return 'no_organization';
+  }
+  return input.error ? 'error' : 'anonymous';
+}
+
+/** Cookie-backed browser auth owner. `/auth/me` is the only UI auth probe. */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<AuthContextValue>({ session: null, isLoading: true });
   const queryClient = useQueryClient();
   const router = useRouter();
-  const extensionAuthSyncRef = useRef({ revision: 0, queue: Promise.resolve() });
+  const { data, error, isPending, refetch } = useQuery<AuthUserPublic>({
+    queryKey: AUTH_ME_QUERY_KEY,
+    queryFn: () => apiClient.get<AuthUserPublic>('/api/auth/me', {
+      suppressNetworkErrorLog: true,
+    }),
+    retry: false,
+    staleTime: 5 * 60_000,
+    meta: { suppressGlobalErrorToast: true },
+  });
+  const user = data ?? null;
+  const status = statusFromQuery({ user, isPending, error });
+
+  const redirectAfterExpiry = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const here = window.location.pathname + window.location.search;
+    if (here.startsWith('/login')) return;
+    router.replace(`/login?reason=session_expired&next=${encodeURIComponent(here)}`);
+  }, [router]);
+
+  const expireBrowserAuth = useCallback(() => {
+    queryClient.clear();
+    void clearExtensionAuth();
+    redirectAfterExpiry();
+  }, [queryClient, redirectAfterExpiry]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    const enqueueExtensionAuthSync = (session: BrowserAuthSession | null) => {
-      const syncState = extensionAuthSyncRef.current;
-      const revision = ++syncState.revision;
-      syncState.queue = syncState.queue
-        .then(async () => {
-          if (cancelled || revision !== syncState.revision) return;
-          await syncExtensionAuth(session);
-        })
-        .catch(() => undefined);
-      return syncState.queue;
+    purgePersistedBrowserCredential();
+    const recoverCookieState = () => { void refetch(); };
+    const handleVisibilityRecovery = () => {
+      if (document.visibilityState === 'visible') recoverCookieState();
     };
-
-    const redirectAfterSignOut = (reason: AuthSignOutReason) => {
-      if (typeof window === 'undefined') return;
-      const here = window.location.pathname + window.location.search;
-      if (here.startsWith('/login')) return;
-      if (reason === 'session_expired') {
-        router.replace(`/login?reason=session_expired&next=${encodeURIComponent(here)}`);
-      } else {
-        router.replace('/login');
-      }
-    };
-
-    const applySession = (
-      session: BrowserAuthSession | null,
-      reason: AuthSignOutReason | null,
-      shouldRedirect: boolean,
-    ) => {
-      if (cancelled) return;
-      setState({ session, isLoading: false });
-      void enqueueExtensionAuthSync(session);
-      if (!session && reason) {
-        queryClient.clear();
-        if (shouldRedirect) redirectAfterSignOut(reason);
-      }
-    };
-
-    applySession(getAuthSession(), null, false);
-    const unsubscribe = subscribeAuthSession((session, reason) => {
-      applySession(session, reason, true);
-    });
-
-    const recoverStoredSession = () => {
-      const session = getAuthSession();
-      setState((current) => {
-        if (current.session && !session) {
-          clearAuthSession('session_expired');
-          return current;
-        }
-        if (current.session?.token !== session?.token) {
-          void enqueueExtensionAuthSync(session);
-          return { session, isLoading: false };
-        }
-        return current;
+    const handleExtensionAuthRequired = () => {
+      void refetch().then((result) => {
+        if (result.data?.organizationId) return syncExtensionAuth();
+        return clearExtensionAuth();
       });
     };
-    const handleVisibilityRecovery = () => {
-      if (document.visibilityState === 'visible') recoverStoredSession();
-    };
-    const handleExtensionAuthRequired = async () => {
-      const session = getAuthSession();
-      if (!session) {
-        await enqueueExtensionAuthSync(null);
+    const unsubscribeAuthChanges = subscribeAuthChanged((reason) => {
+      if (reason === 'logout') {
+        queryClient.clear();
+        void clearExtensionAuth();
+        router.replace('/login');
         return;
       }
-      try {
-        await apiClient.get('/api/auth/me');
-        if (!cancelled) await enqueueExtensionAuthSync(getAuthSession());
-      } catch {
-        // apiClient owns auth_required clearing. Network errors preserve the token.
-      }
-    };
+      recoverCookieState();
+    });
 
-    window.addEventListener('online', recoverStoredSession);
-    window.addEventListener('focus', recoverStoredSession);
+    window.addEventListener(AUTH_REQUIRED_EVENT, expireBrowserAuth);
+    window.addEventListener('online', recoverCookieState);
+    window.addEventListener('focus', recoverCookieState);
     document.addEventListener('visibilitychange', handleVisibilityRecovery);
-    window.addEventListener(EXTENSION_AUTH_REQUIRED_EVENT, handleExtensionAuthRequired);
+    window.addEventListener(
+      EXTENSION_AUTH_REQUIRED_EVENT,
+      handleExtensionAuthRequired,
+    );
 
     return () => {
-      cancelled = true;
-      extensionAuthSyncRef.current.revision += 1;
-      unsubscribe();
-      window.removeEventListener('online', recoverStoredSession);
-      window.removeEventListener('focus', recoverStoredSession);
+      unsubscribeAuthChanges();
+      window.removeEventListener(AUTH_REQUIRED_EVENT, expireBrowserAuth);
+      window.removeEventListener('online', recoverCookieState);
+      window.removeEventListener('focus', recoverCookieState);
       document.removeEventListener('visibilitychange', handleVisibilityRecovery);
-      window.removeEventListener(EXTENSION_AUTH_REQUIRED_EVENT, handleExtensionAuthRequired);
+      window.removeEventListener(
+        EXTENSION_AUTH_REQUIRED_EVENT,
+        handleExtensionAuthRequired,
+      );
     };
-    // QueryClient and Next router are app-level singletons. Re-subscribing on
-    // render would duplicate storage and extension listeners.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [expireBrowserAuth, queryClient, refetch, router]);
 
-  useEffect(() => {
-    const expiresAt = state.session ? Date.parse(state.session.expiresAt) : Number.NaN;
-    if (!Number.isFinite(expiresAt)) return;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const schedule = () => {
-      const remaining = expiresAt - Date.now();
-      if (remaining <= 0) {
-        clearAuthSession('session_expired');
-        return;
-      }
-      timeoutId = setTimeout(schedule, Math.min(remaining, MAX_TIMER_DELAY_MS));
-    };
-    schedule();
-    return () => {
-      if (timeoutId !== null) clearTimeout(timeoutId);
-    };
-  }, [state.session]);
+  const logout = useCallback(async () => {
+    try {
+      await apiClient.post('/api/auth/logout');
+    } finally {
+      await clearExtensionAuth();
+      queryClient.clear();
+      publishAuthChanged('logout');
+      router.replace('/login');
+    }
+  }, [queryClient, router]);
+
+  const value: AuthContextValue = {
+    user,
+    status,
+    error: error ?? null,
+    isLoading: status === 'loading',
+    logout,
+  };
 
   return (
-    <AuthContext.Provider value={state}>
+    <AuthContext.Provider value={value}>
       <SellpiaInventorySyncProvider>
-        <BrowserCollectionProvider enabled={Boolean(state.session)}>
+        <BrowserCollectionProvider enabled={status === 'ready'}>
           {children}
         </BrowserCollectionProvider>
       </SellpiaInventorySyncProvider>

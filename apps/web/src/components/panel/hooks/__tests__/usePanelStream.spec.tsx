@@ -53,7 +53,6 @@ describe('usePanelStream fallback polling', () => {
     usePanelStore.setState({
       byId: {},
       lastSeq: 0,
-      isOpen: false,
       connectionStatus: 'disconnected',
     });
   });

@@ -27,8 +27,11 @@ function makeGateway() {
   };
 }
 
-function makeAlerts() {
-  return { start: vi.fn().mockResolvedValue({}) };
+function makeScrapes() {
+  return {
+    startDirect: vi.fn().mockResolvedValue({ operationRunId: 'operation-1', status: 'queued' }),
+    startOfficial: vi.fn(),
+  };
 }
 
 function makeSellpiaSalePrices() {
@@ -50,7 +53,7 @@ describe('SourcingService — candidate ingest', () => {
   let service: SourcingService;
   let repo: ReturnType<typeof makeCandidateRepo>;
   let gateway: ReturnType<typeof makeGateway>;
-  let alerts: ReturnType<typeof makeAlerts>;
+  let scrapes: ReturnType<typeof makeScrapes>;
   let sellpiaSalePrices: ReturnType<typeof makeSellpiaSalePrices>;
   let registrationContentWorkspaces: ReturnType<typeof makeRegistrationContentWorkspaces>;
   let candidateContentAssets: {
@@ -63,7 +66,7 @@ describe('SourcingService — candidate ingest', () => {
   beforeEach(() => {
     repo = makeCandidateRepo();
     gateway = makeGateway();
-    alerts = makeAlerts();
+    scrapes = makeScrapes();
     sellpiaSalePrices = makeSellpiaSalePrices();
     registrationContentWorkspaces = makeRegistrationContentWorkspaces();
     candidateContentAssets = {
@@ -78,7 +81,6 @@ describe('SourcingService — candidate ingest', () => {
     const agentCommands = new SourcingAgentCommandService(
       repo as any,
       gateway as any,
-      alerts as any,
     );
     service = new SourcingService(
       repo as any,
@@ -87,6 +89,7 @@ describe('SourcingService — candidate ingest', () => {
       sellpiaSalePrices as any,
       registrationContentWorkspaces as any,
       agentCommands,
+      scrapes as any,
     );
   });
 
@@ -413,11 +416,18 @@ describe('SourcingService — candidate ingest', () => {
     }));
   });
 
-  it('scrapeUrl delegates to gateway + raises alert', async () => {
+  it('scrapeUrl starts a sourcing-owned direct Operation', async () => {
     const result = await service.scrapeUrl('https://1688.com/item/1', 'org-1', 'user-1');
-    expect(gateway.scrapeUrl).toHaveBeenCalled();
-    expect(alerts.start).toHaveBeenCalled();
-    expect(result.taskId).toBe('task-1');
+    expect(scrapes.startDirect).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'org-1',
+      requestedByUserId: 'user-1',
+      sourceUrl: 'https://1688.com/item/1',
+    }));
+    expect(result).toMatchObject({
+      operation: 'organizations/org-1/operations/operation-1',
+    });
+    expect(result).not.toHaveProperty('taskId');
+    expect(result).not.toHaveProperty('operationKey');
   });
 
   it('scrapeUrl skips duplicate sourceUrl and returns the existing candidate link', async () => {
@@ -452,11 +462,11 @@ describe('SourcingService — candidate ingest', () => {
       organizationId: 'org-1',
       sourceUrl: 'https://1688.com/item/1',
     });
-    expect(gateway.scrapeUrl).not.toHaveBeenCalled();
-    expect(alerts.start).not.toHaveBeenCalled();
+    expect(scrapes.startDirect).not.toHaveBeenCalled();
     expect(result).toEqual(expect.objectContaining({
       ok: true,
       skipped: true,
+      operation: null,
       candidateId: 'candidate-1',
       product_id: 'candidate-1',
       href: '/product-pipeline/collected-products/candidate-1',

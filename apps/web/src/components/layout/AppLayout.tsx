@@ -1,12 +1,10 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import dynamic from 'next/dynamic';
+import { useEffect, useRef, type CSSProperties } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { PanelSheet } from '@/components/panel/PanelSheet';
 import { PanelErrorBoundary } from '@/components/panel/PanelErrorBoundary';
 import { usePanelStream } from '@/components/panel/hooks/usePanelStream';
 import ReadinessModal from '@/components/ReadinessModal';
@@ -15,59 +13,92 @@ import GenerationCompletionWatcher from '@/components/GenerationCompletionWatche
 import QuickActionFab from '@/components/QuickActionFab';
 import { useAuth } from '@/hooks/useAuth';
 import RebuildReadinessBanner from '@/components/RebuildReadinessBanner';
+import { ConversationProvider } from '@/components/agent-interaction/ConversationProvider';
+import { ConversationRuntimeHost } from '@/components/agent-interaction/ConversationRuntimeHost';
+import { conversationIdentityKey, type ConversationIdentity } from '@/lib/query-keys';
+import {
+  openConversation,
+  useConversationSurfaceState,
+} from '@/components/agent-interaction/conversation-surface-state';
+import { RightAuxiliaryPanel } from './RightAuxiliaryPanel';
+import { RightSurfaceLauncherProvider } from './right-surface-launcher-context';
 import Sidebar from './Sidebar';
+import { useDesktopAiChatWidth } from './useDesktopAiChatWidth';
 
-const CopilotChat = dynamic(() => import('./CopilotChat'), { ssr: false });
-
-function PanelMount() {
+function NotificationDataMount() {
   usePanelStream();
-  return <PanelSheet />;
+  return null;
+}
+
+function ConversationRuntimeShell({
+  children,
+  identity,
+}: {
+  children: React.ReactNode;
+  identity: ConversationIdentity;
+}) {
+  return (
+    <ConversationProvider>
+      <ConversationRuntimeHost identity={identity}>{children}</ConversationRuntimeHost>
+    </ConversationProvider>
+  );
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { sidebarOpen } = useStore();
+  const {
+    sidebarOpen,
+    activeRightSurface,
+    selectRightSurface,
+    closeRightSurface,
+    resetRightSurface,
+  } = useStore();
   const auth = useAuth();
   const pathname = usePathname();
   const router = useRouter();
-  const [chatMounted, setChatMounted] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
+  const desktopAiChatWidth = useDesktopAiChatWidth();
+  const launcherRef = useRef<HTMLElement | null>(null);
+  const authenticatedIdentityRef = useRef<string | null>(null);
+  const activeConversationId = useConversationSurfaceState((state) => state.activeConversationId);
+  const resetConversationSurface = useConversationSurfaceState((state) => state.reset);
+  const authenticatedIdentity = auth.status === 'ready' && auth.user?.organizationId
+    ? { userId: auth.user.id, organizationId: auth.user.organizationId }
+    : null;
+  const authenticatedIdentityKey = authenticatedIdentity
+    ? conversationIdentityKey(authenticatedIdentity)
+    : null;
 
-  const toggleChat = useCallback(() => {
-    if (!chatMounted) {
-      setChatMounted(true);
-      setChatOpen(true);
-      return;
-    }
-    const btn = document.querySelector('.copilotKitButton') as HTMLButtonElement | null;
-    if (btn) btn.click();
-  }, [chatMounted]);
-
-  // 풀스크린 surface — sidebar/panel/copilot 없이 children 만 렌더.
-  // - `/` (launcher) 와 `/agent-os` 는 자체 레이아웃 (main).
-  // - `/login` 은 인증 진입점.
-  // - `/detail-page-client-render` 는 Chrome 확장 프로그램이 캡처하는 격리 렌더 surface.
-  const isFullscreenSurface =
+  // Public/isolated surfaces render their own layout. `/agent-os` is fullscreen
+  // too, but remains a protected surface before its provider can mount.
+  const isPublicOrIsolatedSurface =
     pathname === '/' ||
-    pathname.startsWith('/agent-os') ||
     pathname.startsWith('/login') ||
     pathname.startsWith('/detail-page-client-render');
+  const isAgentWorkspace = pathname.startsWith('/agent-os');
 
   useEffect(() => {
-    if (isFullscreenSurface) return;
+    if (isPublicOrIsolatedSurface) return;
     if (auth.status !== 'anonymous') return;
     const nextPath = `${pathname}${window.location.search}`;
     router.replace(`/login?next=${encodeURIComponent(nextPath)}`);
-  }, [auth.status, isFullscreenSurface, pathname, router]);
+  }, [auth.status, isPublicOrIsolatedSurface, pathname, router]);
 
-  if (isFullscreenSurface) {
+  useEffect(() => {
+    // A refetch may briefly report loading while retaining the same session.
+    // Keep the last ready identity until auth resolves before deciding whether
+    // ephemeral cross-user UI state must be discarded.
+    if (auth.status === 'loading') return;
+
+    const previousIdentity = authenticatedIdentityRef.current;
+    if (previousIdentity && previousIdentity !== authenticatedIdentityKey) {
+      resetRightSurface();
+      resetConversationSurface();
+    }
+    authenticatedIdentityRef.current = authenticatedIdentityKey;
+  }, [auth.status, authenticatedIdentityKey, resetConversationSurface, resetRightSurface]);
+
+  if (isPublicOrIsolatedSurface) {
     return <>{children}</>;
   }
-
-  const isEditorRoute = pathname.includes('/editor');
-  const isFinalSelectionRoute = pathname === '/sourcing-ai/final-selection';
-  const isWingCatalogRoute = pathname === '/sourcing-ai/wing-catalog';
-  const collapsedForEditor = isEditorRoute || !sidebarOpen;
-  const showAutoReadinessModal = pathname === '/dashboard';
 
   if (auth.status === 'loading' || auth.status === 'anonymous') {
     return (
@@ -115,13 +146,62 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
+  const isEditorRoute = pathname.includes('/editor');
+  const isFinalSelectionRoute = pathname === '/sourcing-ai/final-selection';
+  const isWingCatalogRoute = pathname === '/sourcing-ai/wing-catalog';
+  const collapsedForEditor = isEditorRoute || !sidebarOpen;
+  const showAutoReadinessModal = pathname === '/dashboard';
+  const visibleRightSurface = isAgentWorkspace && activeRightSurface === 'ai_chat'
+    ? null
+    : activeRightSurface;
+  const auxiliaryVisible = !isAgentWorkspace && visibleRightSurface !== null;
+  const rightAuxiliaryWidth = visibleRightSurface === 'ai_chat'
+    ? desktopAiChatWidth.width
+    : 352;
+
+  const selectRightSurfaceFromLauncher = (
+    surface: Exclude<typeof activeRightSurface, null>,
+    launcher: HTMLElement,
+  ) => {
+    launcherRef.current = launcher;
+    selectRightSurface(surface);
+  };
+
+  const openGeneralConversation = (launcher: HTMLElement) => {
+    launcherRef.current = launcher;
+    if (activeRightSurface === 'ai_chat') {
+      selectRightSurface('ai_chat');
+      return;
+    }
+    if (activeConversationId) {
+      selectRightSurface('ai_chat');
+      return;
+    }
+    openConversation({ fixedAgentKey: null });
+  };
+
+  const openConversationFromLauncher = (
+    input: Parameters<typeof openConversation>[0],
+    launcher: HTMLElement,
+  ) => {
+    launcherRef.current = launcher;
+    openConversation(input);
+  };
+
   const content = (
     <div className="min-h-screen bg-[var(--background)]">
-      <Sidebar onChatToggle={toggleChat} chatOpen={chatOpen} lockCollapsed={isEditorRoute} />
+      <Sidebar
+        lockCollapsed={isEditorRoute}
+        onChatToggle={openGeneralConversation}
+        chatOpen={activeRightSurface === 'ai_chat'}
+        onNotificationToggle={(launcher) => selectRightSurfaceFromLauncher('notifications', launcher)}
+        notificationsOpen={activeRightSurface === 'notifications'}
+      />
       <div
+        data-testid="dashboard-content-offset"
         className={cn(
-          'transition-all duration-300',
-          collapsedForEditor ? 'md:ml-[68px]' : 'md:ml-60'
+          'transition-[margin] duration-150 motion-reduce:transition-none',
+          collapsedForEditor ? 'md:ml-[64px]' : 'md:ml-[256px]'
         )}
       >
         <RebuildReadinessBanner />
@@ -133,22 +213,43 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
-      <PanelErrorBoundary>
-        <PanelMount />
-      </PanelErrorBoundary>
       {showAutoReadinessModal && <ReadinessModal autoOpenWhen="collectionIssue" />}
       <GlobalConfirmDialog />
       <GenerationCompletionWatcher />
-      {isEditorRoute ? null : <QuickActionFab />}
+      {isEditorRoute ? null : (
+        <QuickActionFab
+          onOpenConversation={openGeneralConversation}
+          isAuxiliarySurfaceOpen={activeRightSurface !== null}
+        />
+      )}
     </div>
   );
 
-  if (isEditorRoute || !chatMounted) return content;
-
   return (
-    <>
-      {content}
-      <CopilotChat defaultOpen onChatOpenChange={setChatOpen} />
-    </>
+    <ConversationRuntimeShell key={authenticatedIdentityKey} identity={authenticatedIdentity!}>
+      <NotificationDataMount />
+      <RightSurfaceLauncherProvider openConversationFromLauncher={openConversationFromLauncher}>
+        <div
+          data-testid="authenticated-work-surface"
+          style={auxiliaryVisible
+            ? { '--right-auxiliary-width': `${rightAuxiliaryWidth}px` } as CSSProperties
+            : undefined}
+          className={cn(
+            'min-w-0 transition-[margin] duration-150 motion-reduce:transition-none',
+            auxiliaryVisible && '2xl:mr-[var(--right-auxiliary-width)]',
+          )}
+        >
+          {isAgentWorkspace ? children : content}
+        </div>
+      </RightSurfaceLauncherProvider>
+      <PanelErrorBoundary>
+        <RightAuxiliaryPanel
+          activeRightSurface={visibleRightSurface}
+          onClose={closeRightSurface}
+          launcherRef={launcherRef}
+          desktopAiChatWidth={desktopAiChatWidth}
+        />
+      </PanelErrorBoundary>
+    </ConversationRuntimeShell>
   );
 }

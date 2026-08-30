@@ -12,8 +12,6 @@ export interface CancelWorkflowRunInput {
 export interface CancelWorkflowRunResult {
   status: 'cancelled' | 'already_terminal' | 'not_found';
   workflowRunId: string;
-  cancelledAgentRunRequests: number;
-  cancelledAgentRuns: number;
 }
 
 export interface WorkflowRunCancellationPort {

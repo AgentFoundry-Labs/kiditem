@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import type { PanelItem, PanelEvent } from '@kiditem/shared/panel';
 
-const PANEL_OPEN_LS_KEY = 'kiditem.panel.open';
 const PANEL_HIDDEN_RUN_IDS_LS_KEY = 'kiditem.panel.hidden-run-ids.v1';
 
 export function isActivePanelItem(item: PanelItem): boolean {
@@ -21,10 +20,6 @@ export function isUnreadPanelItem(item: PanelItem): boolean {
   }
   return item.status === 'failed';
 }
-
-const readOpenFromStorage = (): boolean => {
-  return safeStorageGet('local', PANEL_OPEN_LS_KEY) === 'true';
-};
 
 type HiddenRunIds = Record<string, true>;
 
@@ -52,7 +47,6 @@ interface PanelStoreState {
   hiddenRunIds: HiddenRunIds;
   lastSeq: number;
   hasHydrated: boolean;
-  isOpen: boolean;
   connectionStatus: 'connecting' | 'connected' | 'disconnected' | 'polling_fallback';
 
   upsertItem: (item: PanelItem) => void;
@@ -61,7 +55,6 @@ interface PanelStoreState {
   restoreHiddenRunItems: () => void;
   handleSnapshot: (items: PanelItem[], resetClient: boolean) => void;
   applyEvent: (event: PanelEvent) => void;
-  setOpen: (open: boolean) => void;
   setConnectionStatus: (s: PanelStoreState['connectionStatus']) => void;
 
   // runningCount() 는 number 반환이라 selector에서 안전 (Object.is 비교).
@@ -77,7 +70,6 @@ export const createPanelStore = () => create<PanelStoreState>((set, get) => ({
   hiddenRunIds: readHiddenRunIds(),
   lastSeq: 0,
   hasHydrated: false,
-  isOpen: readOpenFromStorage(),
   connectionStatus: 'disconnected',
 
   upsertItem: (item) => set((state) => {
@@ -154,11 +146,6 @@ export const createPanelStore = () => create<PanelStoreState>((set, get) => ({
     if (event.seq > get().lastSeq) {
       set({ lastSeq: event.seq });
     }
-  },
-
-  setOpen: (open) => {
-    set({ isOpen: open });
-    safeStorageSet('local', PANEL_OPEN_LS_KEY, String(open));
   },
 
   setConnectionStatus: (connectionStatus) => set({ connectionStatus }),

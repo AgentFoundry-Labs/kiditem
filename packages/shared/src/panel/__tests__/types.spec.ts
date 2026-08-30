@@ -94,8 +94,8 @@ describe('PanelAlertItem', () => {
     const result = PanelAlertItemSchema.parse(makeAlert({
       alertKind: 'operation',
       status: 'running',
-      operationKey: 'agent-os.request:00000000-0000-0000-0000-000000000001',
-      sourceType: 'agent_run_request',
+      operationKey: 'agent-os.session-task:00000000-0000-0000-0000-000000000001',
+      sourceType: 'agent_session_task',
       sourceId: '00000000-0000-0000-0000-000000000001',
       href: '/agents',
       progress: 0.5,
@@ -107,7 +107,7 @@ describe('PanelAlertItem', () => {
     expect(result.kind).toBe('alert');
     expect(result.alertKind).toBe('operation');
     expect(result.status).toBe('running');
-    expect(result.operationKey).toBe('agent-os.request:00000000-0000-0000-0000-000000000001');
+    expect(result.operationKey).toBe('agent-os.session-task:00000000-0000-0000-0000-000000000001');
     expect(result.actorUserId).toBe('00000000-0000-0000-0000-000000000099');
     expect(result.metadata).toEqual({ agentType: 'sourcing' });
   });

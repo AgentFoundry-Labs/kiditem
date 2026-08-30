@@ -11,8 +11,92 @@ Do not copy every variable in this runbook into every environment. Keep env
 files minimal, then add feature-specific variables only when that feature is
 actually enabled in that environment.
 
+## Environment Profiles At A Glance
+
+### macOS core
+
+Run `npm run setup:macos` before dependency installation. It creates missing
+files from committed examples and never overwrites existing files.
+
+| File | Owner | Minimum local values | Secret boundary |
+|---|---|---|---|
+| `.env` | Prisma CLI and root dev-data scripts | `DATABASE_URL`; dev-data values only when syncing | Keep app/provider secrets out. |
+| `apps/server/.env` | NestJS API and Operation worker | `NODE_ENV`, `PORT`, `DATABASE_URL`, `WEB_ORIGIN`, `CORS_ORIGINS`, `S3_*`, `API_SELF_URL` | Server/provider/channel values may be secret; never expose them as `NEXT_PUBLIC_*`. |
+| `apps/web/.env.local` | Next.js | `NEXT_PUBLIC_API_URL`; optional query-devtools flag | Every `NEXT_PUBLIC_*` value is browser-visible and must not be a secret. |
+
+The checked-in local database value is exactly:
+
+```text
+postgresql://kiditem:kiditem@localhost:5433/kiditem
+```
+
+It matches `docker-compose.yml` and is development-only. The root file must
+exist before npm postinstall invokes Prisma generate; the setup command enforces
+that order.
+
+Local Sourcing does not inherit the Office Chrome hostname. Keep
+`SOURCING_PLAYWRIGHT_CDP_ENDPOINT` blank and use the dedicated
+`SOURCING_PLAYWRIGHT_USER_DATA_DIR=.kiditem/playwright/sourcing` when local URL
+scrape needs a persistent browser login. Set `SOURCING_PLAYWRIGHT_HEADLESS=false`
+only while preparing/debugging that local profile.
+
+### macOS Agent OS
+
+Agent OS adds one server env path and a protected native configuration; it does
+not add provider credentials to `.env`.
+
+| Location | Owner | Required content | Persistence |
+|---|---|---|---|
+| `apps/server/.env` | Nest Gateway ingress | `KIDITEM_AGENT_GATEWAY_TOKEN_FILE`, `MCP_SDK_GENERATION=v2`, `MCP_PROTOCOL_NEGOTIATION=auto`; optional `AGENT_CLI_MAX_CONCURRENCY` | Token **path** only. |
+| `~/Library/Application Support/KidItem/AgentGateway/gateway-config.json` | native Gateway | strict absolute `controlOrigin`, `tokenFile`, `stateRoot`, `runtimeRoot`, `workspace`, `loginRoot` | 0600 local control config; not an env file. |
+| `.../secrets/installation-token` | Gateway + Nest | random 43-character installation bearer | 0600 secret; never print/copy to env or DB. |
+| `.../provider-home` | bundled Codex/Claude CLI | provider login and provider-local conversation/session history | 0700 host-local provider state; never PostgreSQL. |
+| `.../state` | native Gateway | conversation descriptors, preferences, bounded control files | 0700 host-local state; no business authority. |
+
+`npm run setup:macos` creates these paths and writes the token file path into
+the server env. `npm run gateway:login:codex` and optional
+`npm run gateway:login:claude` authenticate inside `provider-home`. Reusing the
+developer's normal `~/.codex` or default home is not supported because it mixes
+KidItem conversations with personal Desktop/CLI history.
+
+The process-scoped MCP transport token is generated in memory by the Gateway;
+it is not this installation bearer, not an env variable, and not a capability
+grant. Nest's active-turn record remains the only business authority.
+
+### Optional Python agents
+
+The Python FastAPI helper is outside the default `dev:all` path. Create
+`agents/.env` only with `npm run setup:macos -- --with-python-agents` and run it
+with a Python 3.11+ venv.
+
+| File | Owner | Required when enabled | Secret boundary |
+|---|---|---|---|
+| `agents/.env` | optional Python Agent server | `DATABASE_URL`, `AI_MODE`, chosen model names, and the key required by that mode | Provider/Langfuse keys stay here; blank examples are intentional. |
+
+The default Nest TypeScript Sourcing URL scrape does not require Python. Do not
+populate all OpenAI/Gemini/VectorEngine keys at once; provide only the selected
+mode's key.
+
+### Windows Office
+
+Office is deployed through GitHub Actions and protected host files, not the
+macOS setup command.
+
+| Location | Owner | Content |
+|---|---|---|
+| `C:\ProgramData\Kiditem\.env.office` | Office Compose | non-secret deployment/runtime paths and host values |
+| protected file referenced by `OFFICE_API_ENV_FILE` | API container | DB, S3, AI, marketplace, and feature-specific runtime secrets |
+| protected file referenced by `KIDITEM_AGENT_GATEWAY_TOKEN_FILE` | Windows Gateway/Nest | installation bearer only |
+| Windows service-account profile | bundled Codex/Claude CLI | provider login state and provider-local conversation history |
+
+Office keeps `SOURCING_PLAYWRIGHT_CDP_ENDPOINT=http://kiditem-office:9444` in
+`deploy/office/office.env.example`. Never copy that value into the macOS server
+env. See [Office Deploy](office-deploy.md) and
+[Deployment Architecture](deployment-architecture.md).
+
 ## Human Prerequisites
 
+- For macOS, Docker Desktop plus the exact `.nvmrc` Node version.
 - Access to the GitHub repository and the `office` GitHub Environment.
 - Local operator access to the Office host when changing runtime secrets.
 - Access to provider consoles for AI keys and marketplace credentials.
@@ -26,6 +110,10 @@ Local development:
 apps/server/.env        NestJS local runtime env
 apps/web/.env.local     Next.js local env
 agents/.env             Python agent runtime env
+~/Library/Application Support/KidItem/AgentGateway/gateway-config.json
+                        native Gateway config (not dotenv)
+~/Library/Application Support/KidItem/AgentGateway/secrets/installation-token
+                        native Gateway bearer (not dotenv)
 ```
 
 Office:
@@ -57,12 +145,17 @@ Local development:
 - The API runtime sections of `apps/server/.env` and
   `apps/server/.env.example` intentionally mirror
   `deploy/office/office.env.example` where the same runtime concern exists.
-- Root `.env` should stay narrow: Prisma CLI, shared dev-data paths, and the Agent OS seed model used by
-  `npm run seed:agent-os`.
+- Root `.env` should stay narrow: Prisma CLI and shared dev-data paths. Agent
+  profiles and capability catalogs are code-owned, not seeded or configured by env.
 - Product-bound detail page, thumbnail, and image-edit generation are direct AI
   jobs, not Agent OS runs. For local preview, keep `AI_TEXT_MODEL`,
   `AI_IMAGE_MODEL`, and `AI_IMAGE_ANALYSIS_MODEL` set in `apps/server/.env`.
 - Local env must not be copied to Office as-is.
+- `KIDITEM_BROWSER_QA_EMAIL` is an optional, non-secret test-only login email
+  for `qa:agent-os:clean-cutover -- --serve-browser-qa`; `--email <email>`
+  takes precedence. It is never an Office runtime variable. The browser-QA
+  password is requested only from interactive stdin and must never be placed in
+  an environment variable, command argument, source, or log.
 
 Office:
 
@@ -103,9 +196,11 @@ AI_TEXT_MODEL
 AI_IMAGE_MODEL
 AI_IMAGE_ANALYSIS_MODEL
 AI_IMAGE_ANALYSIS_VERIFY_MODEL
-AGENT_RUNTIME_WORKER_ENABLED
-AGENT_API_CAPABILITY_GRANT_SECRET
-AGENT_DEFAULT_MODEL
+KIDITEM_APPLICATION_VERSION
+KIDITEM_GIT_SHA
+KIDITEM_AGENT_GATEWAY_TOKEN_FILE
+MCP_SDK_GENERATION
+MCP_PROTOCOL_NEGOTIATION
 ```
 
 ## Operations Control Plane
@@ -157,8 +252,7 @@ same-origin `/api/*` routing.
 | `DATABASE_URL` | API runtime | Yes | Prisma adapter | Main application database URL. |
 | `WEB_ORIGIN` | API runtime | Yes | API bootstrap, detail page client renderer | Single canonical browser origin used to construct extension render document URLs. There is no localhost fallback; never derive it from `CORS_ORIGINS`. |
 | `CORS_ORIGINS` | API runtime | Yes in Office | Nest CORS | Comma-separated trusted Office origins. Same-origin `/api/*` still works through nginx. |
-| `API_SELF_URL` | API and Agent worker runtime | Required for Agent sourcing collection commands | Action board and MCP HTTP command adapters | Use the container-local API base (`http://api:4000` in Office). It is passed to the bounded MCP descriptor; it is not a browser secret. |
-| `AGENT_API_CAPABILITY_GRANT_SECRET` | Protected API/worker env | Required for Agent sourcing collection commands | API verifier and trusted parent MCP-session adapter | At least 32 random UTF-8 bytes with no fallback key. Never expose it to web code, model CLI/MCP child env, descriptors, logs, or artifacts; the MCP entrypoint deletes any dotenv-loaded copy before Nest context creation. |
+| `API_SELF_URL` | API runtime | Required for Action Board actions | Action Board | Use the container-local API base (`http://api:4000` in Office). It is not a browser secret. |
 
 ## Web Runtime And Build
 
@@ -238,11 +332,6 @@ API text/detail/thumbnail/image-edit AI features are enabled.
 | `AI_DIRECT_JOB_HEARTBEAT_MS` | Running-job lease heartbeats need a non-default interval | AI direct-job worker | Optional; defaults to `5000`. Must be shorter than the lease; runtime also caps it at one third of the lease. |
 | `AI_DIRECT_JOB_LEASE_MS` | Direct AI claim leases need a non-default duration | AI direct-job worker | Optional; defaults to `60000`. Must be a positive integer. |
 | `AI_PROVIDER_TIMEOUT_MS` | A direct AI job needs a non-default total execution budget | AI direct-job worker | Optional; defaults to `1200000` (20 minutes) so multi-image detail-page jobs can finish within their 15-minute generated-image budget. Must be a positive integer. Timeout aborts the whole job and is retryable. Each Gemini SDK call still carries its own 120-second HTTP timeout. |
-| `AGENT_OS_OPERATOR_RUNTIME` | Agent OS Operator should use the optional hosted provider runtime | Nest Agent OS Operator runtime handler | Set `openai_responses` for the optional hosted Operator runtime. Missing value keeps the deterministic path. Any other value fails closed with `operator_runtime_unsupported`. |
-| `OPENAI_API_KEY` | Agent OS `openai_responses` Operator runtime or Python direct OpenAI mode is enabled | Nest Agent OS OpenAI Responses runtime; Python agents direct provider path | Required for paid OpenAI Operator verification. Server code fails closed when this runtime is selected without a key. |
-| `AGENT_OS_OPENAI_RESPONSES_MODEL` | Agent OS `openai_responses` Operator runtime is enabled | Nest Agent OS OpenAI Responses runtime | Explicit model selection is required; no silent default. |
-| `AGENT_OS_OPENAI_RESPONSES_TIMEOUT_MS` | Custom OpenAI Operator timeout is needed | Nest Agent OS OpenAI Responses runtime | Optional; defaults in code. |
-| `AGENT_OS_OPENAI_RESPONSES_BASE_URL` | Custom OpenAI-compatible Responses endpoint is needed | Nest Agent OS OpenAI Responses runtime | Optional; defaults to OpenAI's v1 API base URL. |
 | `AGENT_OS_1688_CHECKOUT_RUNTIME` | Agent OS should execute live 1688 checkout/payment | Agent OS live readiness preflight; Supply 1688 checkout runtime | Set to `provider` for the current provider-backed runtime. Missing or unsupported values block `supply.submit_purchase_order` live checkout readiness. |
 | `AGENT_OS_1688_CHECKOUT_PROVIDER_URL` | `AGENT_OS_1688_CHECKOUT_RUNTIME=provider` | Supply `Alibaba1688CheckoutRuntimeAdapter` | Provider endpoint that accepts `{ organizationId, purchaseOrderId }` and returns `externalOrderId` plus optional `externalOrderUrl`. Required before readiness reports the 1688 checkout runtime as ready. |
 | `AGENT_OS_1688_CHECKOUT_TIMEOUT_MS` | Custom 1688 provider checkout timeout is needed | Supply `Alibaba1688CheckoutRuntimeAdapter` | Optional; defaults in code. |
@@ -262,38 +351,54 @@ keyword research is intentionally enabled.
 | `NAVER_SEARCHAD_CUSTOMER_ID` | Naver SearchAd keyword research is enabled | Sourcing Naver keyword adapter | SearchAd advertiser customer id used in `X-Customer`. |
 | `NAVER_SEARCHAD_BASE_URL` | Non-production SearchAd endpoint override is needed | Sourcing Naver keyword adapter | Optional. Defaults to `https://api.searchad.naver.com`. |
 
-## Agent OS And Claude CLI
+## Agent OS native Gateway
 
-These variables are feature-specific. They should not be present in Office
-unless Agent OS execution or Claude CLI chat is intentionally enabled and
-covered by an operator runbook.
+The home server has one API process that owns durable capability admission and
+stateless private MCP HTTP. A native Agent Gateway, not any container, owns
+Codex/Claude processes, provider conversations, and provider history. The API,
+worker, and web containers never receive provider binaries or a provider login
+path. The Gateway service account keeps the existing CLI login outside
+KidItem. No provider credential/history, transcript, durable control queue, or
+model default is an Office environment contract.
 
 | Variable | Required when | Consumed by | Notes |
 |---|---|---|---|
-| `AGENT_RUNTIME_WORKER_ENABLED` | Background Agent OS execution should run | Agent run worker | Default is disabled. Use `1` or `true` only after handlers and model env are ready. |
-| `AGENT_RUNTIME_WORKER_INTERVAL_MS` | Worker enabled and custom tick interval needed | Agent run worker | Defaults to `2000`. |
-| `AGENT_RUNTIME_ALLOW_NOOP` | Isolated dev/test only | Routing runtime adapter | Never set in Office. |
-| `AGENT_DEFAULT_MODEL` | Any Agent OS definition should share one default model | Agent definition registry and Agent OS seed | Used only when a per-agent model env is empty. Local `npm run seed:agent-os` reads this from root `.env`; API runtime reads it from `apps/server/.env`. |
-| `AGENT_MANAGER_MODEL` | Manager agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_RULES_EVALUATION_MODEL` | Rules evaluation agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_RULES_SUGGEST_MODEL` | Rules suggestion agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_AD_STRATEGY_MODEL` | Ad strategy agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_SOURCING_ADAPTER_TYPE` | Sourcing dashboard assistant enabled | Agent OS seed | Optional server-only override: `codex_cli` or `claude_cli`. The code-owned default is `codex_cli`; an unknown value fails seed instead of falling back. The browser cannot select it. |
-| `AGENT_SOURCING_MODEL` | Sourcing agent enabled | Agent definition registry | Explicit local CLI model. This computer's Codex QA uses `gpt-5.6-terra`. |
-| `AGENT_RUNTIME_EXECUTION_TIMEOUT_MS` | Local Agent OS CLI runtime enabled | Agent OS local CLI runtime | Defaults to `45000`. Timeout terminates the process and records a failed run; it is never resumed after restart. |
-| `AGENT_RUNTIME_CONCURRENCY` | Local Agent OS CLI runtime enabled | Agent OS local process registry | Defaults to `2`. Bounds Claude/Codex child processes per Nest process. |
-| `AGENT_RUNTIME_CAPACITY_WAIT_MS` | Local Agent OS CLI runtime enabled | Agent OS local process registry | Defaults to `5000`. Capacity expiry fails the request without spawning another process. |
-| `AGENT_RUNTIME_CLAUDE_MAX_BUDGET_USD` | `claude_cli` is explicitly selected | Agent OS local CLI runtime | Defaults to `0.25` per invocation. It does not apply to Codex. |
-| `AD_KEYWORD_RELEVANCE_MODEL` | 광고 키워드 연관성 판정 사용 | `advertising` keyword relevance judge adapter | Text model id. No fallback — unset throws, because a silently different model still returns confident verdicts that propose pausing live ads. |
-| `AGENT_THUMBNAIL_ANALYST_MODEL` | Thumbnail analyst agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_CHAT_MODEL` | Chatbot agent enabled | Agent definition registry | Required unless `AGENT_DEFAULT_MODEL` is set. |
-| `ANTHROPIC_API_KEY` | Claude CLI uses Anthropic API key auth | Claude CLI env allowlist | Passed only to the Claude child process. |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Claude CLI uses OAuth token auth | Claude CLI env allowlist | Passed only to the Claude child process. |
+| `KIDITEM_APPLICATION_VERSION` | Every API/worker deployment | Deployment identity | Written from the immutable Office manifest. |
+| `KIDITEM_GIT_SHA` | Every API/worker deployment | Deployment identity | Full immutable deployment SHA, written from the manifest. |
+| `KIDITEM_AGENT_GATEWAY_TOKEN_FILE` | Every API deployment | Gateway installation-token reader | Container path to the mounted Docker secret file; the raw 43-character bearer is never an environment value. The worker does not receive it. |
+| `KIDITEM_COPILOTKIT_SQLITE_PATH` | Every production API deployment using CopilotKit interaction history | API-local CopilotKit SQLite event runner | Explicit persistent SQLite file for completed canonical AG-UI event history only. Office fixes it to `/var/lib/kiditem/agent-os/copilotkit-events.sqlite` on the API-only `kiditem_copilotkit-event-history` volume; the worker never mounts or opens it. Tests use `:memory:` and development defaults below `.kiditem/agent-os/`. It is never a live-turn/stop authority or a provider transcript store. |
+| `KIDITEM_AGENT_GATEWAY_INSTALLATION_ID` | Multiple distinguishable installations are operated | Gateway control session | Optional bounded operational label; defaults to `gateway-installation` and is not an authority credential. |
+| `MCP_SDK_GENERATION` | Every API deployment | MCP readiness canary | Fixed non-secret value `v2`; another or missing value fails Gateway readiness. |
+| `MCP_PROTOCOL_NEGOTIATION` | Every API deployment | MCP readiness canary | Fixed non-secret value `auto`; there is no legacy fallback. |
 
-The Nest service account owns the persistent local Claude/Codex login used by
-Agent OS. Existing CLI login files are discovered through that account's
-isolated child environment. Optional API-key variables remain restricted server
-secrets; they are never copied to the browser or KidItem MCP child process.
+The Windows Agent Gateway installer creates the protected Task Scheduler service
+account boundary. It uses Task Scheduler `Password` logon, not S4U: the native
+Gateway needs provider HTTPS and the dedicated account's encrypted login store,
+which S4U cannot access. Only explicit `InstallOrUpdateGatewayTask` (initial
+installation, task definition update, or Windows account password change)
+receives that account's password as an in-memory PowerShell `PSCredential`; it
+is not an Office environment variable, Docker secret, or KidItem persistence
+value. `Deploy`, `CutoverDeploy`, `Rollback`, and `RotateGatewayToken` restart
+the existing task without re-registering it. Task Scheduler owns its protected
+registration secret. An operator performs provider login under that account
+before the Gateway reports readiness. KidItem neither stores, copies, nor
+forwards Anthropic/OpenAI credentials. The browser reaches same-origin `/api/copilotkit`;
+it has no gateway secret or browser-provided identity.
+
+The native Gateway receives one protected absolute-path JSON config, not a set
+of browser or model env values. Its strict fields are `controlOrigin`
+(`http://127.0.0.1:4000`), `tokenFile`, `stateRoot`, bundled `runtimeRoot`, fixed
+`workspace`, and optional host-account `loginRoot`. Platform is derived as
+`macos | windows`; active-turn capacity is the code-owned value `4`. A user
+chooses runtime, model, and reasoning effort for each conversation/turn. The
+Gateway creates one process-scoped MCP transport token at startup and reuses it
+across ordinary turns. The token is not a persistent conversation session or
+Agent/capability/delegation grant; business authority comes only from Nest's
+current active-turn record.
+
+The browser sees only same-origin `/api/copilotkit`; the Next rewrite points
+directly at the ordinary Nest API origin and is not a CopilotKit public key or
+Enterprise endpoint.
 
 ## Channel Credentials
 
@@ -314,7 +419,6 @@ unless the runbook for that operation asks for them.
 | `KIDITEM_API_URL` | Dev data API replay targets a non-default API origin | Dev data scripts | Defaults to `http://localhost:4000`. |
 | `KIDITEM_DEV_DATA_CLOUD_STORAGE_ROOT` | Dev data cloud-storage bundle root is used | Dev data scripts | Optional alternative to local Drive path. |
 | `DEV_DEFAULT_USER_ID` | Dev data replay compatibility | Dev data scripts | Optional fallback local user id. Prefer explicit organization scope for imports. |
-| `AGENT_SEED_ORG_IDS` | Seeding Agent OS for only specific organizations | `scripts/seed-agent-os.ts` | Empty means seed every active local organization. |
 
 ## Browser Automation
 
@@ -413,9 +517,8 @@ Get-Content C:\ProgramData\Kiditem\deployments\current.json
 
 - Any required secret is missing for a feature being enabled.
 - A `NEXT_PUBLIC_*` value was changed without rebuilding the web image.
-- `AGENT_RUNTIME_WORKER_ENABLED=1` is set without model env and runtime handlers
-  ready for the enabled agent types.
-- `AGENT_RUNTIME_ALLOW_NOOP=1` is present in Office.
+- The protected `KIDITEM_AGENT_GATEWAY_TOKEN_FILE` or immutable deployment
+  identity values are missing from the API runtime.
 - `CHANNEL_CREDENTIALS_ENCRYPTION_KEY` is missing while channel credentials are
   being stored or decrypted.
 

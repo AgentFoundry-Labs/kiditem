@@ -176,6 +176,16 @@ export interface OperationLifecycleBatchResult {
   remaining: boolean;
 }
 
+/**
+ * One PostgreSQL clock observation used for the entire startup lifecycle
+ * sweep. `rawTimestamp` remains parameterized as timestamptz so the
+ * microseconds PostgreSQL observed are never truncated through JavaScript.
+ */
+export interface OperationLifecycleCutoff {
+  observedAt: Date;
+  rawTimestamp: string;
+}
+
 export interface OperationCompositeCancellationResult {
   parent: OperationRunRecord;
   children: OperationRunRecord[];
@@ -245,6 +255,8 @@ export interface OperationRunRepositoryPort {
     organizationId: string;
     status?: OperationStatus;
     limit: number;
+    /** Code-owned public-list exclusions, applied by persistence before limit. */
+    excludedOperationKeys: string[];
   }): Promise<OperationRunRecord[]>;
   listReconnectableRuns(input: {
     organizationId: string;
@@ -264,6 +276,14 @@ export interface OperationRunRepositoryPort {
   transitionActiveAttempt(
     input: OperationActiveAttemptTransition,
   ): Promise<OperationRunRecord | null>;
+  requeueActiveAttemptAfter(input: {
+    organizationId: string;
+    runId: string;
+    expectedAttemptToken: string;
+    delayMs: number;
+    errorCode: string;
+    errorMessage: string;
+  }): Promise<OperationRunRecord | null>;
   claimNextRun(input: {
     resourceClass: OperationResourceClass;
     workerId: string;
@@ -272,8 +292,9 @@ export interface OperationRunRepositoryPort {
     signal: AbortSignal;
   }): Promise<OperationRunRecord | null>;
   readLifecycleDatabaseTime(): Promise<Date>;
+  readLifecycleDatabaseCutoff(): Promise<OperationLifecycleCutoff>;
   cancelRunsForLifecycle(input: {
-    cutoff: Date | null;
+    cutoff: OperationLifecycleCutoff | null;
     errorCode:
       | 'operation_server_shutdown'
       | 'operation_server_lifecycle_expired';
@@ -283,7 +304,7 @@ export interface OperationRunRepositoryPort {
     statementTimeoutMs: number;
   }): Promise<OperationLifecycleBatchResult>;
   advanceSchedulesPastLifecycleCutoff(input: {
-    cutoff: Date;
+    cutoff: OperationLifecycleCutoff;
     limit: number;
     statementTimeoutMs: number;
   }): Promise<OperationLifecycleBatchResult>;

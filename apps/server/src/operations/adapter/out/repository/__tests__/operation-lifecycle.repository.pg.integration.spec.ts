@@ -20,6 +20,10 @@ function deferred() {
   return { promise, resolve };
 }
 
+function lifecycleCutoff(observedAt: Date, rawTimestamp = observedAt.toISOString()) {
+  return { observedAt, rawTimestamp };
+}
+
 describe('operation lifecycle repository PostgreSQL boundaries', () => {
   let locker: PrismaClient;
   let updater: PrismaClient;
@@ -41,6 +45,17 @@ describe('operation lifecycle repository PostgreSQL boundaries', () => {
   beforeEach(async () => {
     await resetDb(locker);
     await seedBaseFixture(locker);
+  });
+
+  it('reads one PostgreSQL lifecycle cutoff without losing its raw timestamp', async () => {
+    const cutoff = await repository.readLifecycleDatabaseCutoff();
+
+    expect(cutoff.observedAt).toBeInstanceOf(Date);
+    expect(Number.isFinite(cutoff.observedAt.getTime())).toBe(true);
+    expect(cutoff.rawTimestamp).toContain('.');
+    expect(new Date(cutoff.rawTimestamp).getTime()).toBe(
+      cutoff.observedAt.getTime(),
+    );
   });
 
   it('cancels every owner and active status through cutoff equality while preserving the execution ledger', async () => {
@@ -182,7 +197,7 @@ describe('operation lifecycle repository PostgreSQL boundaries', () => {
     });
 
     await expect(repository.cancelRunsForLifecycle({
-      cutoff,
+      cutoff: lifecycleCutoff(cutoff),
       errorCode: 'operation_server_lifecycle_expired',
       errorMessage: 'Operation belonged to an expired API lifecycle',
       finishedAt,
@@ -245,6 +260,94 @@ describe('operation lifecycle repository PostgreSQL boundaries', () => {
     });
   });
 
+  it('retains PostgreSQL microsecond cutoff precision when cancelling a run created in the same millisecond', async () => {
+    const run = await locker.operationRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        operationKey: 'test.lifecycle.microsecond-cutoff',
+        definitionVersion: 1,
+        ownerDomain: 'operations',
+        title: 'Microsecond cutoff run',
+        engineType: 'server',
+        resourceClass: 'default',
+        executionTimeoutMs: 60_000,
+        status: 'queued',
+        triggerSource: 'dashboard',
+        input: {},
+        attempts: 0,
+        maxAttempts: 3,
+      },
+    });
+    const [boundary] = await locker.$queryRaw<Array<{
+      raw_clock_timestamp: string;
+      raw_cutoff: string;
+      raw_created_at: string;
+    }>>`
+      -- queryraw-tenancy-exempt: deterministic lifecycle cutoff regression
+      WITH database_clock AS (
+        SELECT clock_timestamp() AS raw_clock_timestamp
+      ), boundary AS (
+        SELECT
+          raw_clock_timestamp::text AS raw_clock_timestamp,
+          (date_trunc('milliseconds', raw_clock_timestamp)
+            + interval '900 microseconds')::text AS raw_cutoff,
+          (date_trunc('milliseconds', raw_clock_timestamp)
+            + interval '500 microseconds')::text AS raw_created_at
+        FROM database_clock
+      )
+      SELECT raw_clock_timestamp, raw_cutoff, raw_created_at
+      FROM boundary
+    `;
+    if (!boundary) throw new Error('operation_lifecycle_boundary_missing');
+    await locker.$executeRaw`
+      -- queryraw-tenancy-exempt: deterministic lifecycle cutoff regression
+      UPDATE operation_runs
+      SET created_at = ${boundary.raw_created_at}::timestamptz
+      WHERE id = ${run.id}::uuid
+    `;
+
+    const returnedDate = new Date(boundary.raw_cutoff);
+    const [persisted] = await locker.$queryRaw<Array<{ created_at: string }>>`
+      -- queryraw-tenancy-exempt: deterministic lifecycle cutoff regression
+      SELECT created_at::text AS created_at
+      FROM operation_runs
+      WHERE id = ${run.id}::uuid
+    `;
+    const [bound] = await locker.$queryRaw<Array<{ bound_cutoff: string }>>`
+      -- queryraw-tenancy-exempt: deterministic lifecycle cutoff regression
+      SELECT ${returnedDate}::timestamptz::text AS bound_cutoff
+    `;
+
+    const result = await repository.cancelRunsForLifecycle({
+      cutoff: lifecycleCutoff(returnedDate, boundary.raw_cutoff),
+      errorCode: 'operation_server_lifecycle_expired',
+      errorMessage: 'Operation belonged to an expired API lifecycle',
+      finishedAt: returnedDate,
+      limit: 100,
+      statementTimeoutMs: 2_000,
+    });
+
+    expect({
+      rawClockTimestamp: boundary.raw_clock_timestamp,
+      rawCutoff: boundary.raw_cutoff,
+      createdAt: persisted?.created_at,
+      returnedDate: returnedDate.toISOString(),
+      boundCutoff: bound?.bound_cutoff,
+    }).toEqual({
+      rawClockTimestamp: expect.stringContaining('.'),
+      rawCutoff: expect.stringContaining('.'),
+      createdAt: expect.stringContaining('.'),
+      returnedDate: expect.stringMatching(/\.\d{3}Z$/),
+      boundCutoff: expect.stringContaining('.'),
+    });
+    expect(bound?.bound_cutoff).not.toBe(boundary.raw_cutoff);
+    expect(result).toEqual({ updated: 1, remaining: false });
+    await expect(locker.operationRun.findUniqueOrThrow({
+      where: { id: run.id },
+      select: { status: true },
+    })).resolves.toEqual({ status: 'cancelled' });
+  });
+
   it('advances skip and catch-up-once schedules to the first occurrence after the cutoff without creating runs', async () => {
     const cutoff = new Date('2026-08-13T01:30:00.000Z');
     const lastScheduledFor = new Date('2026-08-12T23:00:00.000Z');
@@ -278,7 +381,7 @@ describe('operation lifecycle repository PostgreSQL boundaries', () => {
     ]);
 
     await expect(repository.advanceSchedulesPastLifecycleCutoff({
-      cutoff,
+      cutoff: lifecycleCutoff(cutoff),
       limit: 100,
       statementTimeoutMs: 2_000,
     })).resolves.toEqual({ updated: 2, remaining: false });
@@ -332,7 +435,7 @@ describe('operation lifecycle repository PostgreSQL boundaries', () => {
     let lockedResult;
     try {
       lockedResult = await repository.cancelRunsForLifecycle({
-        cutoff,
+        cutoff: lifecycleCutoff(cutoff),
         errorCode: 'operation_server_lifecycle_expired',
         errorMessage: 'Expired lifecycle',
         finishedAt: cutoff,
@@ -345,7 +448,7 @@ describe('operation lifecycle repository PostgreSQL boundaries', () => {
     }
     expect(lockedResult).toEqual({ updated: 0, remaining: true });
     await expect(repository.cancelRunsForLifecycle({
-      cutoff,
+      cutoff: lifecycleCutoff(cutoff),
       errorCode: 'operation_server_lifecycle_expired',
       errorMessage: 'Expired lifecycle',
       finishedAt: cutoff,
@@ -382,7 +485,7 @@ describe('operation lifecycle repository PostgreSQL boundaries', () => {
     let lockedResult;
     try {
       lockedResult = await repository.advanceSchedulesPastLifecycleCutoff({
-        cutoff,
+        cutoff: lifecycleCutoff(cutoff),
         limit: 100,
         statementTimeoutMs: 1_000,
       });
@@ -392,7 +495,7 @@ describe('operation lifecycle repository PostgreSQL boundaries', () => {
     }
     expect(lockedResult).toEqual({ updated: 0, remaining: true });
     await expect(repository.advanceSchedulesPastLifecycleCutoff({
-      cutoff,
+      cutoff: lifecycleCutoff(cutoff),
       limit: 100,
       statementTimeoutMs: 1_000,
     })).resolves.toEqual({ updated: 1, remaining: false });

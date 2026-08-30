@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
 import { StorageService } from '../common/storage/storage.service';
 import { StorageModule } from '../common/storage/storage.module';
-import { AgentOsModule } from '../agent-os/agent-os.module';
+import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
 import { OperationAlertRuntimeModule } from '../automation/operation-alert-runtime.module';
+import { PrismaModule } from '../prisma/prisma.module';
 // adapter/in/http
 import { CATALOG_MEDIA_PUBLICATION_PORT } from '../channels/application/port/out/cross-domain/catalog-media-publication.port';
 import { ImageAiController } from './adapter/in/http/image-ai.controller';
@@ -85,6 +86,8 @@ import { DetailPageQueryService } from './application/service/detail-page-query.
 import { DetailPageResultRefinerService } from './application/service/detail-page-result-refiner.service';
 import { ImageAssetOperationService } from './application/service/image-asset-operation.service';
 import { ProductGenerationAiService } from './application/service/product-generation-ai.service';
+import { PrismaProductGenerationIdempotencyAdapter } from './adapter/out/transaction/prisma-product-generation-idempotency.adapter';
+import { PRODUCT_GENERATION_IDEMPOTENCY_PORT } from './application/port/out/transaction/product-generation-idempotency.port';
 import { ProductGenerationAlertService } from './application/service/product-generation-alert.service';
 import { BoldVerticalRefinerService } from './application/service/bold-vertical-refiner.service';
 import { KidsPlayfulRefinerService } from './application/service/kids-playful-refiner.service';
@@ -171,133 +174,44 @@ import {
   THUMBNAIL_DIRECT_OUTPUT_SINK_PORT,
 } from './application/port/out/sink';
 import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
+import { AiProductGenerationRuntimeModule } from './ai-product-generation-runtime.module';
 
 @Module({
-  imports: [OperationAlertRuntimeModule, AgentOsModule, StorageModule],
+  imports: [
+    PrismaModule,
+    OperationAlertRuntimeModule,
+    AgentOsCapabilityModule,
+    StorageModule,
+    AiProductGenerationRuntimeModule,
+  ],
   providers: [
-    DetailPageGenerationService,
-    ContentWorkspaceService,
-    DetailPageDirectGenerationJobService,
     DetailPageHeroImageService,
-    DetailPageQueryService,
     DetailPageResultRefinerService,
     BoldVerticalRefinerService,
     KidsPlayfulRefinerService,
-    ProductGenerationAiService,
-    ProductGenerationAlertService,
-    ThumbnailDirectGenerationJobService,
-    ThumbnailEditorAiService,
-    ThumbnailGenerationJobService,
-    ThumbnailGenerationLifecycleService,
     ThumbnailWingService,
     AiWingRegistrationCapabilityAdapter,
-    AiDirectJobRepositoryAdapter,
     DetailPageGeminiMediaAdapter,
-    ThumbnailImageGenerationAdapter,
-    ContentAssetLibraryRepositoryAdapter,
-    ContentWorkspaceLifecycleRepositoryAdapter,
-    DetailPageGenerationRepositoryAdapter,
-    DetailPageQueryRepositoryAdapter,
-    ProductGenerationContextRepositoryAdapter,
-    ProductGenerationChildLedgerRepositoryAdapter,
-    ThumbnailGenerationLedgerRepositoryAdapter,
     ThumbnailWingRepositoryAdapter,
-    ThumbnailGenerationEventAdapter,
-    ThumbnailImageFetcherService,
-    SharpGeneratedImageValidatorAdapter,
-    ThumbnailReferenceImagesService,
     WingAutomationRunner,
-    AiOperationAlertAdapter,
-    {
-      provide: AI_DIRECT_JOB_RUNTIME_CONFIG,
-      useFactory: resolveAiDirectJobRuntimeConfig,
-    },
-    {
-      provide: AI_DIRECT_JOB_REPOSITORY_PORT,
-      useExisting: AiDirectJobRepositoryAdapter,
-    },
     { provide: WING_AUTOMATION_PORT, useExisting: WingAutomationRunner },
-    { provide: IMAGE_FETCH_PORT, useExisting: ThumbnailImageFetcherService },
-    {
-      provide: GENERATED_IMAGE_VALIDATOR_PORT,
-      useExisting: SharpGeneratedImageValidatorAdapter,
-    },
-    { provide: IMAGE_STORAGE_PORT, useExisting: StorageService },
-    { provide: THUMBNAIL_IMAGE_GENERATION_PORT, useExisting: ThumbnailImageGenerationAdapter },
-    { provide: THUMBNAIL_REFERENCE_IMAGES_PORT, useExisting: ThumbnailReferenceImagesService },
     { provide: DETAIL_PAGE_MEDIA_PORT, useExisting: DetailPageGeminiMediaAdapter },
-    {
-      provide: CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
-      useExisting: ContentAssetLibraryRepositoryAdapter,
-    },
-    {
-      provide: CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
-      useExisting: ContentWorkspaceLifecycleRepositoryAdapter,
-    },
-    {
-      provide: DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
-      useExisting: DetailPageGenerationRepositoryAdapter,
-    },
-    {
-      provide: DETAIL_PAGE_QUERY_REPOSITORY_PORT,
-      useExisting: DetailPageQueryRepositoryAdapter,
-    },
-    {
-      provide: PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT,
-      useExisting: ProductGenerationChildLedgerRepositoryAdapter,
-    },
-    {
-      provide: PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
-      useExisting: ProductGenerationContextRepositoryAdapter,
-    },
-    {
-      provide: THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
-      useExisting: ThumbnailGenerationLedgerRepositoryAdapter,
-    },
     {
       provide: THUMBNAIL_WING_REPOSITORY_PORT,
       useExisting: ThumbnailWingRepositoryAdapter,
     },
-    { provide: THUMBNAIL_GENERATION_EVENT_PORT, useExisting: ThumbnailGenerationEventAdapter },
-    { provide: AI_OPERATION_ALERT_PORT, useExisting: AiOperationAlertAdapter },
     {
       provide: AI_WING_REGISTRATION_CAPABILITY_PORT,
       useExisting: AiWingRegistrationCapabilityAdapter,
     },
-    { provide: PRODUCT_GENERATION_AI_TRIGGER_PORT, useExisting: ProductGenerationAiService },
   ],
   exports: [
-    AI_DIRECT_JOB_REPOSITORY_PORT,
-    AI_DIRECT_JOB_RUNTIME_CONFIG,
-    ContentWorkspaceService,
-    DetailPageDirectGenerationJobService,
-    DetailPageGenerationService,
-    DetailPageQueryService,
-    DetailPageResultRefinerService,
-    ProductGenerationAlertService,
-    ThumbnailEditorAiService,
-    ThumbnailDirectGenerationJobService,
-    ThumbnailGenerationJobService,
-    ThumbnailGenerationLifecycleService,
+    AiProductGenerationRuntimeModule,
     ThumbnailWingService,
-    AI_OPERATION_ALERT_PORT,
-    CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
-    CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
-    DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
     DETAIL_PAGE_MEDIA_PORT,
-    DETAIL_PAGE_QUERY_REPOSITORY_PORT,
-    GENERATED_IMAGE_VALIDATOR_PORT,
-    IMAGE_FETCH_PORT,
-    IMAGE_STORAGE_PORT,
-    PRODUCT_GENERATION_AI_TRIGGER_PORT,
-    PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT,
-    PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
-    THUMBNAIL_GENERATION_EVENT_PORT,
-    THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
-    THUMBNAIL_IMAGE_GENERATION_PORT,
-    THUMBNAIL_REFERENCE_IMAGES_PORT,
     THUMBNAIL_WING_REPOSITORY_PORT,
     WING_AUTOMATION_PORT,
+    AI_WING_REGISTRATION_CAPABILITY_PORT,
   ],
 })
 export class AiAgentRuntimeModule {}

@@ -21,7 +21,7 @@ const AUTH_SESSION_COOKIE = 'kiditem_session';
 
 /**
  * Same-origin transport for the AI chat runtime. The browser hits
- * `/api/chat/copilot[...]`, Next rewrites it to Nest (see
+ * `/api/copilotkit[...]`, Next rewrites it to the authenticated Nest API (see
  * `apps/web/next.config.mjs`). The proxy must NOT redirect these to
  * `/login` because the caller is `fetch`/SSE, not a navigation — Nest
  * already returns JSON `401 auth_required` when the cookie is missing,
@@ -29,7 +29,7 @@ const AUTH_SESSION_COOKIE = 'kiditem_session';
  * here would corrupt the SSE stream and break the chat UI on first
  * unauthenticated load.
  */
-const TRANSPORT_BYPASS_PATHS = ['/api/chat/copilot'];
+const TRANSPORT_BYPASS_PATHS = ['/api/copilotkit'];
 
 function isApiFetchCaller(req: NextRequest, path: string): boolean {
   if (path.startsWith('/api/')) return true;
@@ -50,7 +50,9 @@ function authRequiredJsonResponse(path: string): NextResponse {
 
 export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
-  const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
+  const isPublic =
+    PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}/`)) ||
+    (req.method === 'POST' && path === '/api/auth/login');
   const isTransportBypass = TRANSPORT_BYPASS_PATHS.some(
     (p) => path === p || path.startsWith(`${p}/`),
   );

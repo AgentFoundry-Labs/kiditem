@@ -28,4 +28,23 @@ describe('supplier source URL policy', () => {
     const url = parseAllowedSupplierUrl('https://detail.1688.com/offer/607635921546.html');
     expect(extractSupplierOfferId(url)).toBe('607635921546');
   });
+
+  it('canonicalizes Alibaba host spelling and tracking query before source identity is derived', () => {
+    const tracking = parseAllowedSupplierUrl(
+      'https://ALIBABA.com/product-detail/kid-toy_123.html?spm=feed&utm_source=ad#fragment',
+    );
+    const direct = parseAllowedSupplierUrl(
+      'https://www.alibaba.com/product-detail/kid-toy_123.html',
+    );
+
+    expect(tracking.normalizedUrl).toBe(
+      'https://www.alibaba.com/product-detail/kid-toy_123.html',
+    );
+    expect(tracking.normalizedUrl).toBe(direct.normalizedUrl);
+  });
+
+  it('accepts and canonicalizes an uppercase HTTPS scheme and host', () => {
+    expect(parseAllowedSupplierUrl('HTTPS://DETAIL.1688.COM/offer/607635921546.html').normalizedUrl)
+      .toBe('https://detail.1688.com/offer/607635921546.html');
+  });
 });

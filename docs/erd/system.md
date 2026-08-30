@@ -17,7 +17,9 @@
 | FeatureGate | `feature_gates` | 피처 플래그. allowedOrganizations: string[] 로 회사별 enable. |
 | Marketplace | `marketplace` | type 으로 agent/workflow 카탈로그 통합. |
 | OperationRun | `operation_runs` | Organization-scoped top-level execution ledger for dashboard, domain, Agent OS, and scheduled work. |
+| OperationRunCheckpoint | `operation_run_checkpoints` | Immutable monotonic recovery checkpoint owned by an organization-scoped Operation run. |
 | OperationSchedule | `operation_schedules` | Organization-managed cron schedule for a code-owned operation definition. All schedules start disabled. |
+| RulesEvaluationApplication | `rules_evaluation_applications` | Exactly-once Rules result-application receipt for one organization-scoped Operation run. |
 | SystemSetting | `system_settings` | - |
 
 ## Mermaid ER Diagram
@@ -191,6 +193,15 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  OperationRunCheckpoint {
+    String id PK
+    String organizationId FK
+    String operationRunId FK
+    BigInt sequence
+    String kind
+    Json state
+    DateTime createdAt
+  }
   OperationSchedule {
     String id PK
     String organizationId FK
@@ -206,6 +217,15 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  RulesEvaluationApplication {
+    String id PK
+    String organizationId FK
+    String operationRunId FK
+    Int productCount
+    Int violationCount
+    Int criticalCount
+    DateTime appliedAt
+  }
   SystemSetting {
     String id PK
     String organizationId FK
@@ -216,6 +236,8 @@ erDiagram
   }
   ActionTask o|--o{ Alert : "actionTask"
   OperationRun o|--o{ OperationRun : "parentRun"
+  OperationRun ||--o{ OperationRunCheckpoint : "operationRun"
+  OperationRun ||--|| RulesEvaluationApplication : "operationRun"
   OperationSchedule o|--o{ OperationRun : "schedule"
 ```
 
@@ -229,9 +251,11 @@ erDiagram
 | Alert | actorUser | references external | Core | User |
 | Alert | organization | references external | Core | Organization |
 | BusinessRule | organization | references external | Core | Organization |
-| Marketplace | marketplace | referenced by external | AgentOS | WorkflowTemplate |
+| Marketplace | marketplace | referenced by external | Automation | WorkflowTemplate |
 | OperationRun | organization | references external | Core | Organization |
 | OperationRun | requestedBy | references external | Core | User |
+| OperationRunCheckpoint | organization | references external | Core | Organization |
 | OperationSchedule | createdBy | references external | Core | User |
 | OperationSchedule | organization | references external | Core | Organization |
+| RulesEvaluationApplication | organization | references external | Core | Organization |
 | SystemSetting | organization | references external | Core | Organization |

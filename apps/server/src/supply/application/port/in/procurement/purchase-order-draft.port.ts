@@ -12,6 +12,8 @@ export interface PurchaseOrderDraftRecommendation {
 
 export interface CreatePurchaseOrderDraftFromRecommendationInput {
   organizationId: string;
+  idempotencyKey: string;
+  requestHash: string;
   recommendation: PurchaseOrderDraftRecommendation;
 }
 

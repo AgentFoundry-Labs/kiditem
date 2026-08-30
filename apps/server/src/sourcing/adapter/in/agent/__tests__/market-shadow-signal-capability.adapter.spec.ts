@@ -1,16 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MarketShadowSignalCapabilityAdapter } from '../market-shadow-signal-capability.adapter';
-import type { AgentCapabilityHandler } from '../../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
-import type { AgentCapabilityRegistry } from '../../../../../agent-os/application/service/agent-capability-registry.service';
 
 describe('MarketShadowSignalCapabilityAdapter', () => {
-  it('registers a guarded deterministic shadow operation capability without provider access', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-07-15T16:30:00.000Z'));
-    const registered: AgentCapabilityHandler[] = [];
-    const registry = {
-      register: vi.fn((handler: AgentCapabilityHandler) => registered.push(handler)),
-    } as unknown as AgentCapabilityRegistry;
+  it('starts a durable shadow collection Operation through the Sourcing owner port', async () => {
     const operations = {
       startShadowCollection: vi.fn(async () => ({
         operationRunId: 'run-1',
@@ -18,50 +10,26 @@ describe('MarketShadowSignalCapabilityAdapter', () => {
       })),
     };
     const adapter = new MarketShadowSignalCapabilityAdapter(
-      registry,
       operations as never,
     );
-
-    adapter.onModuleInit();
-
-    const handler = registered[0];
-    expect(handler).toMatchObject({
-      key: 'market.collect_shadow_signals',
-      executionKind: 'job_trigger',
-      sideEffects: ['db_write', 'external_io', 'job_enqueue'],
-      approvalRisk: 'low',
-    });
-    expect(handler.idempotencyKey({
-      organizationId: 'org-1',
-      agentInstanceId: 'agent-1',
-      agentType: 'sourcing',
-      input: {},
-    })).toBe('org-1:market.collect_shadow_signals:2026-07-16');
-
-    const result = await handler.execute({
-      organizationId: 'org-1',
-      agentInstanceId: 'agent-1',
-      agentType: 'sourcing',
-      input: {},
-    });
+    const result = await adapter.collectShadowSignals({ organizationId: '00000000-0000-4000-8000-000000000001', idempotencyKey: 'owner-key' });
 
     expect(operations.startShadowCollection).toHaveBeenCalledWith({
-      organizationId: 'org-1',
+      organizationId: '00000000-0000-4000-8000-000000000001',
       requestedByUserId: null,
       triggerSource: 'agent',
-      idempotencyKey: 'org-1:market.collect_shadow_signals:2026-07-16',
+      idempotencyKey: 'owner-key',
     });
-    expect(result.outputSummary).toEqual({
+    expect(result).toEqual({
       operationRunId: 'run-1',
       status: 'queued',
     });
-    expect(result.artifacts?.[0]).toEqual(expect.objectContaining({
-      artifactType: 'operation_run',
-      targetDomain: 'operations',
-      targetModel: 'OperationRun',
-      targetId: 'run-1',
-      summary: { operationRunId: 'run-1', status: 'queued' },
-    }));
-    vi.useRealTimers();
+  });
+
+  it('rejects a missing owner idempotency key before enqueueing', async () => {
+    const operations = { startShadowCollection: vi.fn() };
+    const adapter = new MarketShadowSignalCapabilityAdapter(operations as never);
+    await expect(adapter.collectShadowSignals({ organizationId: '00000000-0000-4000-8000-000000000001' } as never)).rejects.toThrow('owner_idempotency_key_required');
+    expect(operations.startShadowCollection).not.toHaveBeenCalled();
   });
 });

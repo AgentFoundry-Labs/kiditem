@@ -51,6 +51,8 @@ export type PurchaseOrderCreateCommand = {
   supplierId?: string;
   items: PurchaseOrderItemCommand[];
   expectedDeliveryDate?: string;
+  idempotencyKey?: string;
+  requestHash?: string;
 };
 
 export type PurchaseOrderRecord = {

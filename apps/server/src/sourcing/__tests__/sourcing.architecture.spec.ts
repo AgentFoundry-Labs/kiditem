@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 
@@ -92,23 +92,14 @@ describe('sourcing architecture contract', () => {
     const hits = rg(
       `--type ts --files-with-matches '\\.\\./\\.\\./\\.\\./(automation|ai|channels|finance|inventory|orders|products|rules|agent-os|analytics|advertising)/application' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
     );
-    const assistantService = path.join(
-      sourcing,
-      'application/service/sourcing-assistant.service.ts',
-    );
-    const violators = hits.filter((file) => file !== assistantService);
     expect(
-      violators,
-      `application services must reach other owner domains through ports, not services:\n${violators.join('\n')}`,
+      hits,
+      `application services must reach other owner domains through ports, not services:\n${hits.join('\n')}`,
     ).toEqual([]);
-    const assistantSource = readFileSync(
-      path.join(SOURCING_ROOT, 'application/service/sourcing-assistant.service.ts'),
-      'utf8',
-    );
-    expect(assistantSource).toContain(
-      'agent-os/application/port/in/agent-interaction.port',
-    );
-    expect(assistantSource).not.toContain('agent-os/application/service/');
+    expect(existsSync(path.join(
+      SOURCING_ROOT,
+      'application/service/sourcing-assistant.service.ts',
+    ))).toBe(false);
   });
 
   it('incoming HTTP adapters do not import outgoing ports or repository adapters', () => {

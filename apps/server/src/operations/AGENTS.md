@@ -10,16 +10,24 @@ and browser-runtime leases.
   handlers that call their own incoming capabilities and persist their own
   results.
 - Screens, schedules, and Agent OS share the Operations incoming port.
-- Operations may invoke Automation workflow, Agent OS runner, or AI direct-job
-  ports. Automation must never create Agent OS runs.
+- Operations may invoke Automation workflow, owner handlers, or AI direct-job
+  ports. Deterministic automation must never create provider conversations.
 - `OperationAlert` is a notification projection, not the execution ledger.
 - Browser leases are fenced by `attemptToken`; stale heartbeat/report attempts
   are rejected.
 - Every mutation and every single-run read is organization-scoped.
 - Only the API application graph reaches OperationsModule. Production has
   exactly one API lifecycle; no API replica or rolling overlap is supported.
-  Agent worker and MCP roots never import Operations or query/mutate
-  OperationRun.
+  The private MCP adapter may read one organization-scoped `OperationRun`
+  through `OPERATION_RUNNER_PORT`; it never queries the repository directly or
+  turns a status read into polling/reasoning. Owner capabilities enqueue work
+  with their exact idempotency key.
+- Code-owned `ephemeral_on_success` definitions are excluded by the repository
+  query before a public-list `limit` is applied. The service's defensive filter
+  is not sufficient because newer hidden rows must not starve retained rows.
+- A retry requeue clears `deadline_at`; the next database claim establishes its
+  own attempt deadline from database time. Never carry a predecessor attempt's
+  deadline into the successor queue row.
 - The API gate progresses BOOTSTRAPPING -> ACCEPTING -> STOPPING -> STOPPED.
   Startup cleanup is fail-closed and bounded to 30s; graceful cancellation and
   handler cleanup are bounded to 5s. Startup uses

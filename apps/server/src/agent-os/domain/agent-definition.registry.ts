@@ -1,304 +1,46 @@
-import type {
-  AgentDefinitionRecord,
-  AgentDefinitionToolPolicyRecord,
-  AgentModelPlan,
-  AgentModelPlanRole,
-} from './agent-os.types';
+import type { DomainKey } from './catalog/domain-definition.registry';
 
-const PROMPT_BASE = 'agent-config/prompts/agents';
-
-type AgentDefinitionSeed = Omit<
-  AgentDefinitionRecord,
-  | 'id'
-  | 'catalogStatus'
-  | 'marketplaceId'
-  | 'defaultAuxiliaryModelEnvs'
-  | 'defaultToolPolicies'
-  | 'defaultSkillKeys'
-  | 'outputSchemaPath'
-  | 'delegationRole'
-> & {
-  catalogStatus?: string;
-  marketplaceId?: string | null;
-  defaultAuxiliaryModelEnvs?: AgentDefinitionRecord['defaultAuxiliaryModelEnvs'];
-  defaultToolPolicies?: AgentDefinitionToolPolicyRecord[];
-  defaultSkillKeys?: AgentDefinitionRecord['defaultSkillKeys'];
-  outputSchemaPath?: string | null;
-  delegationRole?: AgentDefinitionRecord['delegationRole'];
-};
-
-const SOURCING_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
-  ...[
-    'market.collect_shadow_signals',
-    'sourcing.retrieveWorkspaceEvidence',
-    'sourcing.inspectRecommendationRun',
-    'sourcing.refreshCollection',
-    'sourcing.refreshValidation',
-  ].map((toolKey) => ({
-    toolKey,
-    effect: 'allow' as const,
-    approvalMode: 'none' as const,
-    dryRunMode: 'optional' as const,
-    constraints: {},
-  })),
+/** Code-owned business responsibility and prompt assignments. */
+export const AGENT_DEFINITIONS: readonly {
+  key: string;
+  label: string;
+  responsibility: string;
+  assignedDomains: readonly DomainKey[];
+  instructionProfileRef: string;
+}[] = [
   {
-    toolKey: 'sourcing.scrapeUrlWorkflow',
-    effect: 'allow',
-    approvalMode: 'none',
-    dryRunMode: 'optional',
-    constraints: {},
-    modelExposure: {
-      playbookKeys: ['manual_product_intake_from_url_v2'],
-      planStepKeys: ['sourcing_agent'],
-    },
-  },
-];
-
-const LISTING_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
-  {
-    toolKey: 'product_listing.create_generation_package',
-    effect: 'allow',
-    approvalMode: 'none',
-    dryRunMode: 'optional',
-    constraints: {},
+    key: 'sourcing',
+    label: 'Sourcing',
+    responsibility: 'Supplier discovery, source evidence, candidate intake, and sourcing review.',
+    assignedDomains: ['sourcing'],
+    instructionProfileRef: 'agent-config/prompts/agents/sourcing.md',
   },
   {
-    toolKey: 'product_listing.submit_wing_thumbnail',
-    effect: 'approval_required',
-    approvalMode: 'admin',
-    dryRunMode: 'disabled',
-    constraints: {},
-  },
-];
-
-const ORDER_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
-  {
-    toolKey: 'supply.create_purchase_order_draft',
-    effect: 'allow',
-    approvalMode: 'none',
-    dryRunMode: 'optional',
-    constraints: {},
+    key: 'merchandising',
+    label: 'Merchandising',
+    responsibility: 'Canonical product and AI-backed merchandising preparation.',
+    assignedDomains: ['products', 'ai'],
+    instructionProfileRef: 'agent-config/prompts/agents/merchandising.md',
   },
   {
-    toolKey: 'supply.submit_purchase_order',
-    effect: 'approval_required',
-    approvalMode: 'admin',
-    dryRunMode: 'disabled',
-    constraints: {},
-  },
-];
-
-const CHANNEL_REGISTRATION_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
-  {
-    toolKey: 'channels.register_confirmed_listing',
-    effect: 'approval_required',
-    approvalMode: 'admin',
-    dryRunMode: 'disabled',
-    constraints: {},
+    key: 'supply',
+    label: 'Supply',
+    responsibility: 'Procurement planning, purchase-order drafting, and submission.',
+    assignedDomains: ['supply'],
+    instructionProfileRef: 'agent-config/prompts/agents/supply.md',
   },
   {
-    toolKey: 'channels.submit_coupang_listing',
-    effect: 'approval_required',
-    approvalMode: 'admin',
-    dryRunMode: 'disabled',
-    constraints: {},
-  },
-];
-
-const MANAGER_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [];
-
-const DEFINITIONS: readonly AgentDefinitionSeed[] = [
-  {
-    type: 'manager',
-    name: 'Operator',
-    description:
-      'User-facing coordinator agent for Agent OS conversations and cross-domain delegation.',
-    promptPath: `${PROMPT_BASE}/manager.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_MANAGER_MODEL',
-    defaultRuntimeConfig: {},
-    defaultCapabilities: {},
-    runtimeKind: 'coordinator',
-    delegationRole: 'orchestrator',
-    defaultToolPolicies: MANAGER_TOOL_POLICIES,
+    key: 'channel_operations',
+    label: 'Channel Operations',
+    responsibility: 'Marketplace listing, order, and channel inventory operations.',
+    assignedDomains: ['channels', 'orders', 'inventory'],
+    instructionProfileRef: 'agent-config/prompts/agents/channel_operations.md',
   },
   {
-    type: 'rules_evaluation',
-    name: 'Rules Evaluation',
-    description: '룰 평가 tool-wrapper. 비즈니스 규칙 평가는 고정 작업으로 분리 대상.',
-    promptPath: `${PROMPT_BASE}/rules-evaluation.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_RULES_EVALUATION_MODEL',
-    defaultRuntimeConfig: {},
-    defaultCapabilities: {},
-    runtimeKind: 'tool_wrapper',
-  },
-  {
-    type: 'rules_suggest',
-    name: 'Rules Threshold Suggester',
-    description: '룰 임계 제안 tool-wrapper. 데이터 분포 기반 고정 AI 작업.',
-    promptPath: `${PROMPT_BASE}/rules-suggest.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_RULES_SUGGEST_MODEL',
-    defaultRuntimeConfig: {},
-    defaultCapabilities: {},
-    runtimeKind: 'tool_wrapper',
-  },
-  {
-    type: 'ad_strategy',
-    name: 'Ad Strategy',
-    description: '광고 전략 분석 tool-wrapper. 동적 planning loop 도입 전까지 고정 AI 작업.',
-    promptPath: `${PROMPT_BASE}/ad-strategy.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_AD_STRATEGY_MODEL',
-    defaultRuntimeConfig: {},
-    defaultCapabilities: {},
-    runtimeKind: 'tool_wrapper',
-  },
-  {
-    type: 'sourcing',
-    name: 'Sourcing',
-    description:
-      'Evidence-grounded Sourcing Agent for analysis, collection planning, and explicit review handoff.',
-    promptPath: `${PROMPT_BASE}/sourcing.md`,
-    outputSchemaPath: 'agent-config/schemas/sourcing-agent-answer.schema.json',
-    defaultAdapterType: 'codex_cli',
-    defaultModelEnv: 'AGENT_SOURCING_MODEL',
-    defaultRuntimeConfig: {},
-    defaultCapabilities: {},
-    defaultSkillKeys: [
-      'sourcing.evidence-grounded-analysis',
-      'sourcing.collection-planning',
-      'sourcing.safe-review-handoff',
-    ],
-    runtimeKind: 'agent',
-    defaultToolPolicies: SOURCING_TOOL_POLICIES,
-  },
-  {
-    type: 'listing',
-    name: 'Listing Agent',
-    description:
-      'Prepares marketplace listing draft packages, detail-page drafts, and thumbnail draft jobs from sourced candidates.',
-    promptPath: `${PROMPT_BASE}/listing.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_LISTING_MODEL',
-    defaultRuntimeConfig: {},
-    defaultCapabilities: {},
-    runtimeKind: 'agent',
-    defaultToolPolicies: LISTING_TOOL_POLICIES,
-  },
-  {
-    type: 'order',
-    name: 'Order Agent',
-    description:
-      'Creates purchase order drafts from approved sourcing recommendations.',
-    promptPath: `${PROMPT_BASE}/order.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_ORDER_MODEL',
-    defaultRuntimeConfig: {},
-    defaultCapabilities: {},
-    runtimeKind: 'agent',
-    defaultToolPolicies: ORDER_TOOL_POLICIES,
-  },
-  {
-    type: 'channel_registration',
-    name: 'Channel Registration Agent',
-    description:
-      'Registers externally confirmed marketplace listing identities into KidItem ChannelListing records.',
-    promptPath: `${PROMPT_BASE}/channel-registration.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_CHANNEL_REGISTRATION_MODEL',
-    defaultRuntimeConfig: {},
-    defaultCapabilities: {},
-    runtimeKind: 'agent',
-    defaultToolPolicies: CHANNEL_REGISTRATION_TOOL_POLICIES,
-  },
-  {
-    type: 'thumbnail_analyst',
-    name: 'Thumbnail Analyst',
-    description: '썸네일 컴플라이언스 분석 tool-wrapper.',
-    promptPath: `${PROMPT_BASE}/thumbnail-analyst.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_THUMBNAIL_ANALYST_MODEL',
-    defaultRuntimeConfig: {},
-    defaultCapabilities: {},
-    runtimeKind: 'tool_wrapper',
-  },
-  {
-    type: 'chat',
-    name: 'Chatbot',
-    description: 'Operator chatbot — read-only backend-provided context.',
-    promptPath: `${PROMPT_BASE}/chat.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_CHAT_MODEL',
-    defaultRuntimeConfig: {},
-    defaultCapabilities: {},
-    runtimeKind: 'agent',
+    key: 'advertising',
+    label: 'Advertising',
+    responsibility: 'Advertising analysis and campaign operations.',
+    assignedDomains: ['advertising'],
+    instructionProfileRef: 'agent-config/prompts/agents/advertising.md',
   },
 ] as const;
-
-export function listAgentDefinitions(): AgentDefinitionRecord[] {
-  return DEFINITIONS.map(toRecord);
-}
-
-export function findAgentDefinitionByType(
-  type: string,
-): AgentDefinitionRecord | null {
-  const found = DEFINITIONS.find((definition) => definition.type === type);
-  return found ? toRecord(found) : null;
-}
-
-export function resolveDefinitionDefaultModel(
-  definition: Pick<AgentDefinitionRecord, 'defaultAdapterType' | 'defaultModelEnv'>,
-): string | null {
-  const specific = process.env[definition.defaultModelEnv];
-  if (specific && specific.length > 0) return specific;
-  if (definition.defaultModelEnv.startsWith('AI_')) return null;
-  if (definition.defaultAdapterType === 'gemini_image') return null;
-  const shared = process.env.AGENT_DEFAULT_MODEL;
-  return shared && shared.length > 0 ? shared : null;
-}
-
-export interface AgentModelPlanResolution {
-  modelPlan: AgentModelPlan | null;
-  missingRole?: Exclude<AgentModelPlanRole, 'primary'>;
-  missingEnv?: string;
-}
-
-export function resolveDefinitionModelPlan(
-  definition: Pick<AgentDefinitionRecord, 'defaultAuxiliaryModelEnvs'>,
-  primaryModel: string,
-): AgentModelPlanResolution {
-  const primary = primaryModel.trim();
-  if (!primary) return { modelPlan: null };
-
-  const modelPlan: AgentModelPlan = { primary };
-  for (const role of ['image', 'vision', 'verify'] as const) {
-    const envName = definition.defaultAuxiliaryModelEnvs[role];
-    if (!envName) continue;
-    const value = process.env[envName]?.trim();
-    if (!value) {
-      return {
-        modelPlan: null,
-        missingRole: role,
-        missingEnv: envName,
-      };
-    }
-    modelPlan[role] = value;
-  }
-  return { modelPlan };
-}
-
-function toRecord(definition: AgentDefinitionSeed): AgentDefinitionRecord {
-  return {
-    ...definition,
-    id: definition.type,
-    catalogStatus: definition.catalogStatus ?? 'active',
-    marketplaceId: definition.marketplaceId ?? null,
-    outputSchemaPath: definition.outputSchemaPath ?? null,
-    defaultAuxiliaryModelEnvs: definition.defaultAuxiliaryModelEnvs ?? {},
-    defaultToolPolicies: definition.defaultToolPolicies ?? [],
-    defaultSkillKeys: [...(definition.defaultSkillKeys ?? [])],
-    delegationRole: definition.delegationRole ?? 'leaf',
-  };
-}

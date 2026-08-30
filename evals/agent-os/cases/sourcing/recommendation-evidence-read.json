@@ -1,0 +1,49 @@
+{
+  "id": "sourcing.recommendation-evidence-read.v1",
+  "suite": "capability",
+  "fixtureId": "sourcing.recommendation.v1",
+  "messages": [
+    {
+      "id": "initial",
+      "promptTemplate": "현재 소싱 추천 결과와 근거 문서를 확인해 가장 유망한 기회와 부족한 데이터를 간단히 정리해 주세요."
+    }
+  ],
+  "target": {
+    "agentKey": "sourcing",
+    "provider": "codex",
+    "model": "gpt-5.6-terra",
+    "effort": "max"
+  },
+  "trials": 3,
+  "userBehavior": {
+    "approval": "none"
+  },
+  "harness": {
+    "restartAfterMessageIds": []
+  },
+  "grading": {
+    "minimumNormalCompletions": 2,
+    "hardInvariants": [
+      "organization_isolation",
+      "no_canonical_write",
+      "no_fabricated_canonical_input",
+      "no_duplicate_write"
+    ],
+    "capabilityAlternatives": [
+      [
+        "sourcing.retrieveWorkspaceEvidence",
+        "sourcing.inspectRecommendationRun"
+      ]
+    ],
+    "requiredMilestones": [
+      "recommendation_inspected",
+      "workspace_evidence_returned"
+    ],
+    "statePolicy": {
+      "expectedChanges": {},
+      "allowedChanges": []
+    },
+    "delegationAlternatives": [[]],
+    "responseCriteria": ["grounded_in_domain_snapshot"]
+  }
+}

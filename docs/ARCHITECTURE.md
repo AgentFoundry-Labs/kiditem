@@ -17,9 +17,14 @@ apps/server
   -> Coupang Wing / channel providers
   -> Gemini / image providers
   -> Chromium detail-page image rendering
-  -> Claude CLI Agent OS runtime
+  -> Agent OS CapabilityInvocation admission + CopilotKit + private MCP v2
   -> TS Playwright sourcing browser runtime
   -> Python worker/tools for analysis-heavy sourcing helpers
+
+Native host apps/agent-gateway (macOS development, Windows Office)
+  -> HTTP command long-poll + bounded event POST -> Nest private route
+  -> deep native provider runtime -> Codex/Claude login, readiness, conversations, process trees
+  -> Codex/Claude MCP v2 Streamable HTTP -> Nest loopback
 
 Company Chrome extension
   -> authenticated Coupang Wing form automation
@@ -29,21 +34,47 @@ The Nest backend has static process roots; an environment flag never decides
 whether a process owns Operations:
 
 ```text
-main.ts   -> ApiApplicationModule         -> HTTP + owner domains + Operations
-worker.ts -> AgentWorkerApplicationModule -> Agent OS queue/runtime only
-MCP/CLI   -> AgentMcpApplicationModule    -> scoped Agent capabilities only
+main.ts            -> ApiApplicationModule         -> HTTP + owner domains + Operations
+worker.ts          -> AgentWorkerApplicationModule -> Operations worker only
+apps/agent-gateway -> native host process           -> provider conversations/CLI only
 ```
 
-`AgentRuntimeApplicationModule` is the shared controller-free runtime beneath
-the worker and MCP roots. `AgentOsHttpModule` owns the seven Agent OS HTTP
-controllers, while `AgentOsWorkerModule` owns only `AgentRunWorker`. Sourcing,
-Supply, and AI publish controller-free Agent runtime modules; only the API-side
-Sourcing collection binding imports Operations. The MCP-side binding sends a
-strict bounded command back to the API with a two-minute HMAC grant.
+`AgentOsInteractionHttpModule` is the API-only Nest incoming adapter for
+CopilotKit and authenticated conversation APIs. A native Agent Gateway polls
+Nest for structured commands and posts bounded events; it exposes no inbound
+listener and never accepts a raw shell command. Gateway-spawned Codex/Claude
+processes call the private Nest MCP v2 Streamable HTTP adapter with one opaque
+transport token generated per Gateway process. The provider MCP configuration
+and token stay stable across ordinary turns. Each request authenticates that
+transport, while an actual business tool call lazily resolves its static
+`conversationId` locator against Nest's current active-turn record. The token
+and locator grant no business authority. The adapter exposes exactly five
+tools: `capability_catalog_search`, `capability_invoke`, `invocation_status`,
+`operation_status`, and `readiness_probe`. Those tools expose the 17 code-owned
+CapabilityDefinitions, including all ten Sourcing capabilities.
+
+A cross-domain read may be invoked directly; a mutation is owned by the
+explicitly selected domain Agent profile and retains the caller request key at
+the final owner boundary. `approvalRisk` determines whether exact input must be
+confirmed. Approval stores no separate role/grant model. Once an exact approval
+is durably recorded, the API-owned `CapabilityMutationDispatcher`
+deterministically executes the already-admitted receipt from its persisted
+canonical input/hash and stable owner key. It never resumes provider reasoning.
+On API bootstrap it performs one bounded sweep of at most 100
+`pending`/`approved` receipts. An ambiguous owner outcome remains `pending` and
+is reachable only through explicit same-request replay or the next
+API-bootstrap sweep. There is no Invocation worker queue, lease, timer, or
+retry loop. The MCP adapter never writes owner rows or creates Operations
+except through the selected owner capability.
 
 Production supports exactly one API instance. API replicas, rolling overlap,
-and overlapping lifecycle ownership are unsupported. The Agent worker is a
-separate process and cannot query or mutate `OperationRun` rows.
+and overlapping lifecycle ownership are unsupported. One native Gateway owns
+provider conversations and host CLI process trees; the worker owns durable
+Operations and never spawns a provider CLI. Gateway or API restart ends live
+turns and clears in-memory commands, process registration, and active-turn
+records without prompt replay, automatic Continue, or durable provider-session
+recovery. A later protected Gateway poll re-registers the current process
+transport; the user sends a normal new message to start reasoning again.
 
 Frontend code never talks to the database directly. All app data flows through
 NestJS APIs and shared Zod contracts from `@kiditem/shared`.
@@ -51,11 +82,12 @@ NestJS APIs and shared Zod contracts from `@kiditem/shared`.
 ### Operation Control Plane And Manual Action Parity
 
 `apps/server/src/operations` is the platform control plane for operational
-work that needs a durable server-side run envelope: schedules, Agent OS tools,
-and Operation-backed manual actions. Operations owns the code-owned catalog,
+work that needs a durable server-side run envelope: schedules, requests
+originating from Agent capabilities, and Operation-backed manual actions.
+Operations owns the code-owned catalog,
 organization-scoped schedules, top-level `OperationRun` ledger, engine
 dispatch, and browser-runtime leases; it does not write canonical business
-rows.
+rows and does not own or execute Agent capabilities.
 
 Manual browser work has a stricter UI parity rule. The dashboard Agent OS
 button and its individual domain-screen button call the same shared frontend
@@ -64,17 +96,25 @@ defaults, empty-vs-login classification, persistence, generated artifacts, and
 browser-session alerts do not. A dashboard button must not replace an existing
 screen action with a count-only Operation handler.
 
+The KID-25 target dependency direction is:
+
 ```text
 dashboard button ─┐
                   ├─> shared manual action -> extension + owner API/sink
 domain button ────┘
 
-schedule / agent-os -> operations
-                       -> owner incoming capability
-                       -> automation workflow port | agent-os runner port
-                          | ai direct-job port
+schedule / Operation-backed capability -> operations
+                                       -> owner operation adapter
+                                       -> owner input port
+                                          | automation workflow port
+                                          | owner capability port
+                                          | ai direct-job port
 
-automation -X-> agent-os
+approved non-Operation mutation -> CapabilityMutationDispatcher
+                                -> owner input port
+
+automation -X-> provider conversation
+operations -X-> agent capability registry
 ```
 
 Trend collection and Sellpia refresh are Operation-backed shared manual
@@ -165,6 +205,39 @@ rejects stale transitions and prevents a late running start from reopening a
 terminal alert. Only a verified HTTP 404 authorizes web start-then-update
 recovery.
 
+## Identifier And Resource-Name Architecture (KID-25 Target)
+
+KID-25 establishes this boundary before its public interaction/runtime
+contracts cut over. KidItem separates identity roles instead of exporting
+arbitrary UUID strings:
+
+- Prisma owner tables keep native UUID storage keys with
+  `@default(uuid()) @db.Uuid`; the UUID generation algorithm is private to
+  persistence and existing rows are not rekeyed.
+- Application/domain/repository code uses Zod-branded owner IDs from the
+  focused `@kiditem/shared/identifiers` contract. There is no generic `Id`
+  alias and adapters parse before use.
+- HTTP, AG-UI, event, and cross-domain references use typed hierarchical
+  resource names such as
+  `organizations/{organization}/agentSessions/{session}/tasks/{task}` and
+  `organizations/{organization}/operations/{operation}`. Resource names have
+  no `/api` prefix/version and are computed rather than persisted redundantly.
+- `copilotThreadId`, `aguiRunId`, provider IDs, browser collection run IDs,
+  runtime handles, and tool-call IDs are opaque external-protocol identities.
+  A UUID-shaped external value is not a KidItem database ID.
+- UUIDv4 request IDs correlate transport requests only. Scoped idempotency
+  keys identify commands. Bigint sequences order aggregate events. Opaque
+  tokens prove short-lived authority. SHA-256 digests identify canonical
+  content/policy. None is interchangeable with a resource name.
+- Parsing a resource name proves syntax and parent structure, not access.
+  Controllers still derive organization/actor from authentication and owner
+  services recheck the complete resource graph.
+
+AgentOS resource patterns and the Operation relationship are normative in the
+[Interaction OS design](docs/superpowers/specs/2026-08-13-ai-chat-interactive-response-design.md#71-identifier-and-resource-name-system).
+The scheme follows Google AIP-122/123/133/151/155 resource and request
+separation while retaining this repository's native Prisma UUID convention.
+
 ## Backend Directory Architecture
 
 Backend folders are owner domains, owner capabilities, platforms, or support
@@ -199,16 +272,27 @@ their implementation structures are listed in the Backend Implementation Map.
 
 | Path | Kind | Ownership / Surfaces |
 |---|---|---|
+| `apps/agent-gateway/src/__tests__` | Test Support | Cross-component native Gateway contracts. |
+| `apps/agent-gateway/src/config` | Platform Support | Strict absolute-path Gateway config and installation-token reader. |
+| `apps/agent-gateway/src/control` | Platform | Outbound long-poll, bounded event outbox, command dispatch, internal four-slot active-turn registry, and control-loss shutdown. |
+| `apps/agent-gateway/src/conversation` | Platform | Bounded conversation descriptors and provider conversation routing. |
+| `apps/agent-gateway/src/platform` | Platform Support | macOS and Windows process supervision. |
+| `apps/agent-gateway/src/profile` | Platform | Five Agent instruction profiles plus general chat. |
+| `apps/agent-gateway/src/provider` | Platform | One deep native-provider-runtime Interface owns exact train/login/startup/readiness/close assembly; the shared `ProviderConversationPort` seam and provider-command rules remain here while provider-specific Implementations stay local to `codex/` and `claude/`. |
+| `apps/agent-gateway/src/provider/codex` | Platform | Codex app-server Implementation and adjacent specs. |
+| `apps/agent-gateway/src/provider/claude` | Platform | Claude CLI Implementation and adjacent specs. |
+| `apps/agent-gateway/src/security` | Platform Support | Provider environment and local-path redaction/validation. |
 | `apps/server/src/__tests__` | Test Support | Cross-root static architecture and process-composition policy checks. |
 | `apps/server/src/activity-events` | Owner Capability | Activity event read endpoint. |
 | `apps/server/src/advertising` | Owner Domain | Coupang ad operations, scrape ingest, authoritative exact-day profitability spend refresh/read evidence, daily facts, and strategy/action generation. |
-| `apps/server/src/agent-os` | Platform | Agent catalog, queue, runtime, policy, cost, and observability. |
+| `apps/server/src/agent-os` | Platform | Agent/profile registry, transient Gateway control, conversation facade, stateless MCP, durable capability admission, and completed-event history composition. |
+| `apps/server/src/agent-os/application/port/out/history` | Platform | Completed-event history Interface at the outgoing history seam. |
+| `apps/server/src/agent-os/adapter/out/history/sqlite` | Platform | Outbound SQLite Adapter for the completed-event history Interface, with its Implementation and OSS characterization specs. |
 | `apps/server/src/ai` | Owner Domain | Image/text/detail-page/thumbnail AI providers, durable direct-job execution, content-workspace ownership/branching, and Agent OS output boundaries. |
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
 | `apps/server/src/automation` | Platform | Workflows, alerts, action board, marketplace install, and panel projection. |
 | `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-inventory matching, derived listing-product summaries, direct option-component diagnostics, and sellable-capacity projections. |
-| `apps/server/src/chat` | Platform Capability | CopilotKit bridge and Claude CLI adapter. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
 | `apps/server/src/finance` | Owner Domain | Live P&L, sales analysis, supplier payments, sales plans, settlements, and the read-only contribution-profit evidence port consumed by Products' automatic ABC evaluation. |
@@ -237,7 +321,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/activity-events` | Flat | module/controller/service/`dto/`. |
 | `apps/server/src/advertising` | Hexagonal | port/adapter lanes complete; new ingest, daily-fact, and ad-action behavior uses `adapter/out/repository/` + `application/port/out/*` ports; architecture spec freezes invariants. |
 | `apps/server/src/advertising/services` | Flat | compatibility facade lane only; no new business logic. |
-| `apps/server/src/agent-os` | Hexagonal | runtime, queue, repository, policy, and event boundaries behind ports/adapters. |
+| `apps/server/src/agent-os` | Hexagonal | Capability admission, transient Gateway control/conversation, MCP, repository, completed-event-history Interface at `application/port/out/history/`, outbound SQLite Adapter at `adapter/out/history/sqlite/`, and owner composition behind ports/adapters. The two cross-cutting contracts `application/port/out/capability-invocation.repository.port.ts` and `application/port/out/gateway-conversation.port.ts` are exact direct-port exceptions fixed by the approved KID-25 plan; every new outgoing port still requires an explicit lane directory. |
 | `apps/server/src/ai` | Hexagonal | provider, runtime handler, bridge, sink, media, fetch, and storage boundaries behind ports/adapters. |
 | `apps/server/src/analytics/dashboard` | Hexagonal | port/adapter lanes complete; 8 outgoing ports + repository adapters cover Prisma reads, application services are Prisma-free, architecture + module wiring specs freeze invariants. |
 | `apps/server/src/analytics/statistics` | Flat | Overview, product, category, grade, Pareto, and repurchase read service. |
@@ -248,7 +332,6 @@ folders are intentionally absent from this map.
 | `apps/server/src/operations` | Hexagonal | code-owned operation definitions, run/schedule repository ports, native-runtime ports, dispatcher, server queue worker, and browser lease APIs; canonical business writes remain in owner incoming capabilities. |
 | `apps/server/src/channels` | Hexagonal | Provider APIs use `application/port/out` plus `adapter/out/coupang`; catalog import and matching use repository ports plus an Inventory-owned read-port bridge. |
 | `apps/server/src/channels/adapters` | Flat | compatibility shims only; new provider work uses `adapter/out/coupang/`. |
-| `apps/server/src/chat` | Flat | controller/service/Claude CLI adapter. |
 | `apps/server/src/feature-gate` | Flat | endpoint/config capability. |
 | `apps/server/src/finance` | Flat | controllers/services/DTO plus folded finance capabilities. |
 | `apps/server/src/inventory` | Hexagonal | Sellpia freshness/publication single-writer, browser lease, snapshot-aware physical availability, narrow matching/purchase gates, and retained warehouse/transfer/return capabilities behind ports/adapters. |
@@ -273,7 +356,7 @@ apps/server/src/{owner}/
   adapter/out/{lane}/     DB/provider/runtime/storage/event adapters
   application/port/in/    incoming use-case ports, when other domains consume them
   application/port/out/   outgoing DB/cross-domain/provider/runtime contracts
-  domain/capability/      resource/tool/workflow/sink manifests, when platform-visible
+  domain/capability/      owner-defined Agent capability contracts, when platform-visible
   application/service/    orchestration, transactions, organization context
   domain/                 pure policy/model/service code
   mapper/                 row/DTO/domain/shared contract mapping
@@ -285,26 +368,22 @@ Optional: `adapter/in/http/` when no HTTP entrypoint exists, `application/port/i
 when no other owner consumes the use case, `domain/` when no pure policy/model
 exists yet, and `mapper/` when mapping is trivial.
 
-Domain capability manifests use the shared vocabulary in
-`apps/server/src/common/capability-manifest.ts`. They describe owner-exposed
-`resource`, `tool`, `workflow`, and `sink` surfaces for Agent OS and
-automation, but they do not execute work. Canonical DB writes stay behind
-owner-domain sinks/incoming ports.
+Agent-facing capabilities use the neutral contract in
+`apps/server/src/common/capability-definition.ts`. Each owner domain owns its
+`CapabilityDefinition`, strict business input/output schemas, incoming port,
+and production implementation. Agent OS only aggregates those definitions and
+binds each exact `ownerInputPort`; it never defines or performs another
+domain's canonical mutation.
 
-Initial domain capability targets:
-
-| Owner | Resources | Tools | Workflows | Sinks |
-|---|---|---|---|---|
-| `sourcing` | Duplicate URL, source control, evidence run, LaunchCandidate, decision batch, candidate/preparation lookup and read context. | Product URL scrape, search result scrape, and deterministic evidence/decision evaluation. | Duplicate-check → fenced collection → immutable evidence → shadow decision → reviewed procurement intent or preparation → account registration. | Evidence append/finalize, immutable recommendation decision, candidate ingest/rejection, and preparation lifecycle/finalization. |
-| `ai` | Workspace/generation/detail-page read context. | OCR, image classification, image/text/detail generation, vision analysis. | Media generation jobs and candidate-to-listing content branching. | Generation output, asset usage, current-thumbnail, and workspace archive projections. |
-| `finance` | Live P&L, margin, commission, settlement, supplier-payment, and plan lookups. | Margin/category profitability calculations, pandas-style research adapters when needed. | Reconciliation and profitability analysis runs. | Sales-plan, settlement, and supplier-payment projections. |
-| `products` | Canonical inventory-product operations, direct channel-option inventory components, ABC explanation, and category compatibility reads. | Product validation and direct component-capacity projections. | MasterProduct lifecycle, ABC publication, complete option-component replacement, and listing-summary derivation. | MasterProduct and ChannelListingOptionInventoryComponent writes; never channel identity metadata or physical stock publication. |
-| `channels` | Channel account/listing/order/status, Wing/Rocket catalog identity, derived nullable MasterProduct summaries, and nullable SKU-availability reads. | Marketplace provider calls, listing validation, typed exact-evidence extraction, Wing/Coupang browser runtime steps, and direct option-component capacity calculation. | Product registration/listing sync, non-destructive catalog publication, and option-to-inventory correction flows. | Listing registration/update, option recipe matching, derived MasterProduct summary projection, and channel order/status ingestion; never physical stock publication. |
-| `rules` | Rule set and evaluation context reads. | Rule evaluation/suggestion tools that may invoke Agent OS from rules entrypoints. | Scheduled policy sweeps when deterministic. | Rule/action recommendation projection. |
-| `advertising` | Ad account/campaign/daily fact reads. | Scrape ingest normalization, strategy metrics calculations. | Daily fact ingest and deterministic alert workflows. | Ad fact/action/strategy projections. |
-| `supply` | Supplier, supplier-offer snapshot, procurement test intent, supplier-product, purchase-order, and submission-attempt reads. | Supplier matching, exact variant/tier/MOQ validation, deterministic Rocket capacity preview, and procurement calculation helpers. | Reviewed pre-purchase intent handoff, freshness-fenced purchase submission, and explicit provider reconciliation. | Immutable offer snapshot and proposed intent creation, supplier attach, purchase-order creation/update, and attempt terminal state; never recommendation scoring, freshness, or stock. |
-| `inventory` | Sellpia freshness/source binding/current basis/history, physical SellpiaInventorySku availability, warehouse, transfer, and return reads. | Workbook parsing, bounded quality evaluation, freshness/lease policy, snapshot normalization, and physical-capacity projection for matching and preview consumers. | Browser claim/heartbeat/failure/cancel, atomic full-snapshot publication, and record-only retained transfer/return flows. | A completed valid Sellpia publication is the only physical `SellpiaInventorySku.currentStock` writer; public `availableStock` equals it. |
-| `orders` | Order, return, review, return-transfer, and Sellpia transmission-intent reads. | Return classification helpers, channel-agnostic order calculations, and deterministic submission-fence decisions. | Return and audited Sellpia workbook submission workflows. | Order/return status and Sellpia transmission-intent projections through Orders-owned commands; never freshness or stock. |
+A capability represents an independently useful business intent, not every
+domain service method. Definitions retain precise effects, approval risk, and
+idempotency metadata. Cross-domain routing is intentionally simple: the current
+conversation Agent may run reads directly, while `db_write`, `external_write`,
+and `job_enqueue` work is delegated through a provider-native explicitly
+selected Agent profile responsible for the owner domain. No separate grant
+record is created. Mutation capabilities require owner-enforced idempotency. Do not
+reintroduce legacy `kind`, `visibility`, monetary `cost`, or
+resource/tool/workflow/sink categories.
 
 Flat owner capabilities use this shape:
 
@@ -348,6 +427,14 @@ Incoming ports are never grouped by caller or entrypoint type. Folders such as
 `application/port/in/workflow/` are forbidden. HTTP, Agent, workflow, and CLI
 entrypoints live under `adapter/in/{http,agent,workflow,cli}/` and may call the
 same incoming capability Interface.
+
+An Agent capability is therefore an `adapter/in/agent` implementation that
+translates a policy-approved invocation into an owning-domain input port. It
+does not own the business use case or durable lifecycle. An Operation handler
+is another incoming adapter and calls the same owner input port when work needs
+lease/checkpoint/retry/cancel semantics. Operations handlers never call the
+Agent capability registry. Agent OS has no generic session-task Operation,
+Task/Attempt recovery loop, or durable provider transcript.
 
 Outgoing ports use these lane folders when the lane exists:
 
@@ -541,6 +628,32 @@ Frontend route code must not add `app/api/**/route.ts`, import Prisma/`pg`/DB
 clients, send `organizationId` in API payloads, or call backend APIs with raw
 `fetch`.
 
+### Global Conversation Workspace
+
+The authenticated app shell mounts one route-stable `ConversationProvider` and
+`RuntimeHost`. The global AI chat panel is one presentation of that runtime;
+Agent OS presents the same conversation history and workspace, suppressing
+only the duplicate chat body while preserving the live runtime.
+
+`RightAuxiliaryPanel` is the only right-side surface. Its mutually exclusive
+`notifications | ai_chat | null` state renders `NotificationPanelContent` or
+`ConversationPanel`; there is no `PanelSheet` shell or panel-open store. At
+1536 pixels and above (`2xl`) it is a 352-pixel push dock that reduces the
+work-surface width; from 768 through 1535 pixels it is the same 352-pixel
+overlay, and below 768 pixels it is a full-width modal drawer. Agent OS uses
+the same route-stable runtime plus shared conversation-flow, composer,
+empty-state, and business-evidence presentation primitives in its history
+workspace; it does not mount a second chat runtime. Dashboard and Agent OS use
+the same 256-pixel expanded / 64-pixel collapsed sidebar shell and desktop
+preference while retaining different navigation bodies.
+
+The native Gateway serializes conversation descriptors and preferences in its
+local state, owns provider-native session continuity, and deletes the exact
+provider conversation before removing its descriptor. The API-local CopilotKit
+OSS SQLite runner owns canonical completed AG-UI event history. Nest exposes
+the authenticated facade only; PostgreSQL has no conversation, preference,
+transcript, or provider-session model.
+
 ## Durable Direct AI Media Execution
 
 Thumbnail generation, detail-page generation, image edit, and thumbnail
@@ -693,11 +806,15 @@ training or automatic provider action is enabled by this foundation.
 
 ## Account-Scoped Registration And Content Ownership (`0.1.8`–`0.1.25`)
 
-Sourcing owns reviewed registration input in `ProductPreparation` and every
-registration side effect in `ProductRegistrationExecution`; Channels owns the
-selected marketplace account, provider capability, resulting `ChannelListing`,
-and `ChannelListingDeletionOperation`; AI owns candidate/listing content
-workspaces. Registration no longer promotes a candidate into `MasterProduct`.
+Sourcing owns reviewed registration input in `ProductPreparation` and the
+frozen provider-execution/provenance fence in
+`ProductRegistrationExecution`. The Agent-facing mutation terminates at a
+Channels-owned incoming port: it loads that frozen state only through the
+Sourcing read boundary, then Channels owns provider submission, the resulting
+`ChannelListing`, its minimal owner-idempotency receipt, and
+`ChannelListingDeletionOperation`. Provider state is never accepted as Agent
+business input. AI owns candidate/listing content workspaces. Registration no
+longer promotes a candidate into `MasterProduct`.
 
 ```text
 SourcingCandidate (status: sourced | rejected)
@@ -707,10 +824,11 @@ SourcingCandidate (status: sourced | rejected)
   -> persist executing/uncertain before provider IO and reconcile by key/provider ID
   -> call provider outside the DB tx only when the execution remains
      prepared/not_attempted and reconciliation proves this is new
-  -> one final DB tx resolves/reactivates the account-scoped ChannelListing,
-     succeeds the execution,
-     + branches selected content into a listing-owned ContentWorkspace
-     + marks the ProductPreparation compatibility projection registered
+  -> persist the fenced provider outcome
+  -> one Channels DB tx resolves/reactivates the account-scoped ChannelListing
+     + claims exact owner key/request hash in
+       ChannelRegistrationOwnerIdempotencyReceipt
+     + replays the minimal listing result or rejects changed canonical input
 ```
 
 No bulk cutover backfill copies legacy preparation or deletion rows into these
@@ -927,30 +1045,104 @@ in the [Sourcing Intelligence Phase 0–1 runbook](runbooks/sourcing-intelligenc
 
 ## Agent OS
 
-Agent OS is a backend platform capability. Runtime execution and run accounting
-live under `apps/server/src/agent-os/`; schema ownership is documented in
-`prisma/AGENTS.md`:
+Agent OS is the single-node backend execution boundary under
+`apps/server/src/agent-os/`; its schema ownership is in `prisma/AGENTS.md`.
+Its only persistence model is `CapabilityInvocation`, which stores exact
+request-driven mutation admission, approval fields, and the idempotent
+result/error. Agent definitions and capability manifests are code-owned.
+Provider-native conversation/session continuity is host-local, completed UI
+event history is API-local SQLite, and long work remains an Operations-owned
+`OperationRun`.
 
-- Public workflow routes live under the route-family controllers in
-  `apps/server/src/automation/adapter/in/http/workflow-templates.controller.ts`,
-  `workflow-run-commands.controller.ts`, and
-  `workflow-runs.controller.ts`.
-- Public action-board routes live under
-  `apps/server/src/automation/adapter/in/http/action-task.controller.ts`.
-- Manager routes live under
-  `apps/server/src/automation/adapter/in/http/manager.controller.ts`.
-- Business domains depend on Agent OS ports such as `AgentRunnerPort`; they do
-  not import runtime services or adapters directly.
-- Automation workflows are deterministic and must not create Agent OS runs. If
-  LLM judgment is required, the entrypoint starts in Agent OS; Agent OS may call
-  deterministic workflows through automation-owned incoming ports or registered
-  workflow capabilities.
+Completed canonical AG-UI event history has one outbound SQLite Adapter at
+`apps/server/src/agent-os/adapter/out/history/sqlite/`, behind the unchanged
+Interface at `application/port/out/history/`. Its `ConversationSqliteEventHistory`
+Implementation is not part of the incoming CopilotKit transport seam. It uses
+the attributed package-level fork of `@copilotkit/sqlite-runner@1.69.0`; the
+delta is limited to process-local active-run serialization, exact-run stop
+semantics, and exact completed-thread deletion. Upstream AG-UI compaction,
+replay, and connection behavior remain intact. No CopilotKit cloud service or
+PostgreSQL conversation/preferences model is used.
 
-Agent OS remains the dashboard's top-level operational interface and its
-autonomous reasoning runtime. It does not make every operation an `AgentRun`:
-deterministic workflows, direct AI jobs, and browser tasks retain their native
-engines while their top-level execution is recorded by the Operations control
-plane.
+The browser reaches the Nest CopilotKit incoming adapter at same-origin
+`/api/copilotkit`. The API authorizes the current user and sends only structured
+conversation commands to the native Agent Gateway. The Gateway is the only
+process that starts Codex/Claude and owns provider-native sessions plus bounded
+conversation descriptors. Each live turn reaches the Nest MCP adapter through
+private Streamable HTTP. The worker executes durable Operations but never
+receives a CLI login profile or imports the HTTP adapter. A restart ends the
+live turn without replay; a later normal user message starts new reasoning
+against the provider-native session continuity.
+
+The runtime keeps only the boundaries that own live correctness:
+
+- the CopilotKit OSS runner and its authenticated SQLite Adapter own canonical
+  completed AG-UI event recording/replay plus run, stream, and connect
+  transport. They do not project provider-local history or persist a live lock;
+  `isRunning` and `stop` delegate to Nest's exact in-memory active-turn record;
+- one API-side Gateway control session owns command delivery, event fencing,
+  readiness, one process-scoped MCP transport registration, and exact
+  per-Conversation active-turn activation/deactivation;
+- one native Gateway control session owns polling, command dispatch, bounded
+  event retry, its internal four-slot provider-turn registry, and control-loss
+  transition;
+- one deep native provider runtime Module owns exact package-train validation,
+  boolean-only login probes, Codex/Claude startup, readiness projection, and
+  idempotent complete provider-tree shutdown behind the existing provider map;
+- one authenticated conversation facade derives the organization from Nest
+  authentication; Gateway descriptors persist that organization and fence
+  create/list/rename/delete/turn start/input/interrupt without exposing it to
+  browser DTOs or provider metadata;
+- one request-driven CapabilityInvocation repository owns request-key
+  uniqueness, input-drift conflict, exact approval, and result replay;
+- the API-owned `CapabilityMutationDispatcher` revalidates the persisted
+  receipt and stable owner key before owner execution, and performs only one
+  bounded bootstrap sweep of at most 100 `pending`/`approved` receipts.
+
+The installation bearer authenticates protected Gateway polling and event
+delivery. The distinct process-scoped MCP token authenticates only the private
+MCP transport. Nest derives organization, user, turn, and fresh execution ID
+from its in-memory active-turn map; `conversationId` is only a lookup key.
+Descriptor organization is a Conversation access fence shared by users in the
+same organization, not MCP business authority. Provider terminal, process, and
+Gateway-registration lifecycle messages carry no organization. At
+most one turn is active per Conversation. An exact terminal event removes only
+its matching record, so a stale terminal cannot clear a newer turn. Idle MCP
+discovery may remain connected, but business tool calls fail closed when no
+turn is active. There is no turn bearer rotation, binding TTL, durable runtime
+session, unsubscribe barrier, cold resume, or automatic model recovery.
+
+Web keeps one route-stable CopilotKit presentation adapter for the selected
+Conversation. It does not independently own active-turn admission, interrupt
+acknowledgement, stale settlement, or provider-history reconciliation. Its
+completed-event replay and connection mechanics come from CopilotKit; Nest's
+active-turn map remains the only run/stop authority and the Gateway remains the
+provider process/session owner.
+
+Owner domains pair their own `CapabilityDefinition`, incoming port, and
+implementation in owner-local composition adapters. Agent OS only aggregates
+those compositions and rejects duplicate, missing, unexpected, or mismatched
+registrations. The 17-entry catalog, Zod schemas, and Gateway wire DTOs stay
+flat declarations; wrapping them in stateful service classes would add no
+invariant ownership.
+
+Each public capability is defined by its owner domain with strict business Zod
+input/output contracts. Agent OS aggregates definitions. Reads call the
+owner-domain incoming port directly. Mutations only admit the exact durable
+receipt; after durable approval, `CapabilityMutationDispatcher` calls the
+owner-domain incoming port from that persisted receipt. There is no ephemeral
+grant or database Agent version. An owner implementation may use AI, DB, an
+external provider, or an Operation; Agent OS does not write owner-domain
+canonical rows. Deterministic workflows remain native workflows and do not
+create provider conversations merely for bookkeeping.
+
+Official Codex/Claude execution uses only the dedicated Agent Gateway service
+account's persisted local login. KidItem does not issue, copy, inject, log, or
+persist provider credentials. The API remains unavailable until the Gateway
+proves the required runtime/version, model/effort matrix, MCP contract, and
+login readiness. Conversation runtime is fixed at creation; the user explicitly
+selects model and effort for each turn. Provider credential and history bytes
+remain owned by the host account/provider runtime on both macOS and Windows.
 
 ## Verification Baseline
 

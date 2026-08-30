@@ -1,5 +1,11 @@
 # Sourcing Long-Running Operations, API Lifecycle, and Snapshot-First UI Design
 
+> Partial supersession notice (2026-08-23): deterministic Operations and
+> Sourcing business behavior remain authoritative. Generic Agent worker,
+> AgentRun, HMAC grant, conversation, artifact, and provider-runtime assumptions
+> are replaced by the
+> [KID-25 Agent OS Clean Contraction Design](2026-08-23-kid-25-agent-os-clean-contraction-design.md).
+
 - Date: 2026-08-13
 - Status: Approved
 - Tracking issue: KID-24
@@ -43,7 +49,9 @@ second sourcing queue:
    machine and its consumers.
 7. The API server lifecycle and every `OperationRun` execution lifecycle end
    together. Server shutdown or loss terminally cancels old active/waiting runs;
-   a later server process never reclaims, resumes, or requeues them.
+   a later server process never reclaims, resumes, or requeues them. The narrow
+   AgentOS durable-runtime continuation described in §5.5 creates a distinct
+   successor envelope after `ACCEPTING`; it never changes the cancelled row.
 8. The HTTP API and Agent OS worker use separate Nest root modules. Only the API
    root imports `OperationsModule` and owns operation creation, scheduling,
    execution, startup cleanup, and shutdown cancellation.
@@ -160,8 +168,10 @@ failure, or how cancellation fences late provider writes.
 - persisting a server-lifecycle ID or adding a lifecycle schema migration in
   the current single-API-instance deployment;
 - supporting multiple API replicas or rolling overlap between API processes;
-- automatically restarting, requeueing, reclaiming, or resuming work across a
-  server lifecycle boundary;
+- automatically restarting, requeueing, reclaiming, or resuming an existing
+  `OperationRun` across a server lifecycle boundary. The only exception is the
+  explicit AgentOS durable-runtime continuation in §5.5, which creates a new
+  immutable envelope for the same persisted external handle after `ACCEPTING`;
 - including KID-23 inventory UI work in this issue;
 - returning raw provider rows, HTML, payloads, tokens, or credentials in an
   `OperationRun.result`.
@@ -473,6 +483,29 @@ resurrect.
 already terminal audit outcomes and are not changed by lifecycle cleanup. A
 cancelled run is immutable. Operator retry creates a new `OperationRun`; it
 never reactivates the old row.
+
+#### AgentOS durable-runtime continuation
+
+An official durable AgentOS runtime is distinct from the API-owned envelope:
+one immutable `AgentExecutionAttempt` owns its opaque external runtime handle,
+while `AgentExecutionAttemptOperationBinding` records every immutable
+`OperationRun` envelope that has carried that attempt. When startup cleanup
+cancels the current AgentOS envelope but its session task, execution, and
+attempt are still running, the API wrapper waits until this gate is
+`ACCEPTING`, then atomically creates a successor `OperationRun`, a binding with
+the predecessor run ID and an idempotent continuation key, and a successor
+runtime-handle checkpoint. The original run remains cancelled audit history;
+its binding is never moved or overwritten.
+
+The successor reuses the exact persisted runtime type, external run ID,
+encrypted handle reference, generation, and canonical AgentOS identifiers. It
+does not create another attempt or external run. Recovery is organization
+fenced, accepts only a current lifecycle-cancelled AgentOS binding whose task is
+still `running`, and is idempotent for duplicate boot/retry calls. An approval
+uses the same boundary with an `approval:<approvalId>` key; it never requeues
+the old `attention_required` row. Shutdown, a lost attempt fence, and an idle
+stream deadline stop event consumption; only the deadline cancels the exact
+external handle and terminalizes its canonical graph.
 
 An unexpected kill cannot run the graceful hook. Its memory work disappears
 with the process, and the next startup cleanup terminally cancels every old

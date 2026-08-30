@@ -1,5 +1,10 @@
 # Sourcing AgentOS Capability And Runtime Design
 
+> Partial supersession notice (2026-08-23): retain only Sourcing-owned business
+> capability behavior. AgentRun, conversation, artifact, cost, playbook,
+> authority, and provider-runtime contracts are replaced by the
+> [KID-25 Agent OS Clean Contraction Design](2026-08-23-kid-25-agent-os-clean-contraction-design.md).
+
 - Date: 2026-08-10
 - Updated: 2026-08-11
 - Status: Approved design

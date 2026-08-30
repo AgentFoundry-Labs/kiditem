@@ -52,4 +52,48 @@ describe('OperationHandlerRegistryService', () => {
       expect.objectContaining({ resourceClass: 'default', executionTimeoutMs: 900_000 }),
     ]);
   });
+
+  it('normalizes an omitted success persistence policy to retained', () => {
+    const registry = new OperationHandlerRegistryService();
+    registry.register(definition, handler);
+
+    expect(registry.getDefinition(definition.key)).toMatchObject({
+      successPersistence: 'retained',
+    });
+  });
+
+  it('rejects an ephemeral definition without both required terminal handlers', () => {
+    const registry = new OperationHandlerRegistryService();
+    const ephemeralDefinition = {
+      ...definition,
+      key: 'agent-os.delete-session',
+      allowedTriggers: ['system'],
+      scheduleSupported: false,
+      successPersistence: 'ephemeral_on_success',
+    };
+
+    expect(() => registry.register(ephemeralDefinition as never, handler)).toThrow(
+      'operation_ephemeral_definition_invalid',
+    );
+  });
+
+  it('rejects an ephemeral definition unless schedule support is explicitly false', () => {
+    const registry = new OperationHandlerRegistryService();
+    const ephemeralHandler: OperationHandler = {
+      ...handler,
+      async finalizeEphemeralSuccess() {},
+      async exhaustRetry() {},
+    };
+    const malformedDefinition = {
+      ...definition,
+      key: 'agent-os.delete-session-without-schedule-policy',
+      allowedTriggers: ['system'],
+      successPersistence: 'ephemeral_on_success',
+    };
+    delete (malformedDefinition as { scheduleSupported?: boolean }).scheduleSupported;
+
+    expect(() => registry.register(malformedDefinition as never, ephemeralHandler)).toThrow(
+      'operation_ephemeral_definition_invalid',
+    );
+  });
 });

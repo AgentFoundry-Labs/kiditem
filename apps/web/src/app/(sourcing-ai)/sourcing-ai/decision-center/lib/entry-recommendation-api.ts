@@ -95,28 +95,6 @@ export interface EntryRecommendationResult {
   dataGaps: string[];
 }
 
-export type SourcingAssistantAnswerMode = 'generated' | 'retrieval_only';
-
-export interface SourcingAssistantCitation {
-  index: number;
-  title: string;
-  sourceScope: string;
-  sourceDate: string | null;
-  matchedTerms: string[];
-}
-
-export interface SourcingAssistantAnswer {
-  mode: SourcingAssistantAnswerMode;
-  text: string;
-  citations: SourcingAssistantCitation[];
-  documentCount: number;
-  runtime: 'claude' | 'codex' | null;
-  model: string | null;
-  degradedReason: string | null;
-  degradedCode: string | null;
-  conversationId: string | null;
-}
-
 /**
  * 경로가 `/api/sourcing/entry/*` 인 이유: `/api/sourcing/:id` 가 후보 상세를 잡고 있어
  * 한 세그먼트 경로를 쓰면 후보 ID 로 해석된다.
@@ -125,12 +103,4 @@ export function fetchEntryRecommendations(limit = 50): Promise<EntryRecommendati
   return apiClient.get<EntryRecommendationResult>(
     `/api/sourcing/entry/recommendations?limit=${encodeURIComponent(String(limit))}`,
   );
-}
-
-export function askSourcingAssistant(input: {
-  question: string;
-  visibleContext?: string;
-  conversationId?: string;
-}): Promise<SourcingAssistantAnswer> {
-  return apiClient.post<SourcingAssistantAnswer>('/api/sourcing/entry/assistant-ask', input);
 }

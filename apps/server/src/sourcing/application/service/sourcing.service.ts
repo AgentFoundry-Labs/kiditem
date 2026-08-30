@@ -1,4 +1,9 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  OperationRunIdSchema,
+  OrganizationIdSchema,
+  formatOperationRunName,
+} from '@kiditem/shared/identifiers';
 import { paginationParams } from '../../../common/pagination';
 import {
   SOURCING_AGENT_GATEWAY_PORT,
@@ -34,10 +39,14 @@ import {
 import { sellpiaNameJoinKey } from '../../domain/sellpia-name-key';
 import {
   normalizeSourcingVariantKey,
-  stableSourcingCandidateIdentity,
+  canonicalSourcingCandidateIdentity,
 } from '../../domain/sourcing-candidate-identity';
 import { buildProductBasics } from './product-basics.presenter';
 import { SourcingAgentCommandService } from './sourcing-agent-command.service';
+import {
+  SOURCING_SCRAPE_OPERATION_PORT,
+  type SourcingScrapeOperationPort,
+} from '../port/out/cross-domain/sourcing-scrape-operation.port';
 
 const PLATFORM_MAP: Record<string, string> = {
   '1688': 'ALIBABA_1688',
@@ -82,6 +91,8 @@ export class SourcingService {
     @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
     private readonly registrationContentWorkspaces: RegistrationContentWorkspacePort,
     private readonly agentCommands: SourcingAgentCommandService,
+    @Inject(SOURCING_SCRAPE_OPERATION_PORT)
+    private readonly scrapes: SourcingScrapeOperationPort,
   ) {}
 
   async receiveExtensionData(
@@ -105,13 +116,12 @@ export class SourcingService {
         sourcePlatform: platform,
         externalOfferId,
         variantKeyNormalized,
-        sourceIdentityHash: externalOfferId
-          ? stableSourcingCandidateIdentity(
-              platform,
-              externalOfferId,
-              variantKeyNormalized,
-            )
-          : null,
+        sourceIdentityHash: canonicalSourcingCandidateIdentity({
+          sourcePlatform: platform,
+          sourceUrl,
+          validatedExternalOfferId: extractSupplierOfferId(parseAllowedSupplierUrl(sourceUrl)),
+          variantKeyNormalized,
+        }),
         rawData: data as Record<string, unknown>,
         name: data.title as string,
         description: (data.description as string) || '',
@@ -257,13 +267,40 @@ export class SourcingService {
     url: string,
     organizationId: string,
     triggeredByUserId: string | null,
-    lineage?: {
-      conversationId?: string | null;
-      parentRequestId?: string | null;
-      delegatedByRunId?: string | null;
-    },
   ) {
-    return this.agentCommands.scrapeUrl(url, organizationId, triggeredByUserId, lineage);
+    const existing = await this.candidates.findActiveBySourceUrl({
+      organizationId,
+      sourceUrl: url,
+    });
+    if (existing) {
+      return {
+        ok: true,
+        skipped: true,
+        message: '이미 수집된 URL입니다. 기존 수집 상품으로 이동할 수 있습니다.',
+        operation: null,
+        candidateId: existing.id,
+        product_id: existing.id,
+        href: collectedCandidateHref(existing.id),
+      };
+    }
+    const operation = await this.scrapes.startDirect({
+      organizationId,
+      requestedByUserId: triggeredByUserId,
+      sourceUrl: url,
+      idempotencyKey: `sourcing.scrape_url:${url}`,
+    });
+    return {
+      ok: true,
+      skipped: false,
+      message: '스크래핑 작업이 대기열에 등록되었습니다.',
+      operation: formatOperationRunName(
+        OrganizationIdSchema.parse(organizationId),
+        OperationRunIdSchema.parse(operation.operationRunId),
+      ),
+      candidateId: null,
+      product_id: null,
+      href: null,
+    };
   }
 
   async scrapeUrlStatus(url: string, organizationId: string) {

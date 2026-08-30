@@ -6,6 +6,8 @@ import type { SourcingRepositoryTransaction } from '../transaction/repository-tr
 import type { FrozenProductPreparationSubmission } from '../repository/product-preparation.repository.port';
 
 export class DefinitiveChannelProductRegistrationError extends Error {
+  readonly knownNoCommit = true;
+
   constructor(message: string) {
     super(message);
     this.name = 'DefinitiveChannelProductRegistrationError';

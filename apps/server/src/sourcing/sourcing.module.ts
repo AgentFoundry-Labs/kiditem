@@ -1,6 +1,5 @@
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
-import { AgentOsModule } from "../agent-os/agent-os.module";
 import { AiModule } from "../ai/ai.module";
 import { AdvertisingModule } from "../advertising/advertising.module";
 import { ChannelsModule } from "../channels/channels.module";
@@ -8,8 +7,18 @@ import { InventoryModule } from "../inventory/inventory.module";
 import { OperationsModule } from "../operations/operations.module";
 import { SupplyModule } from "../supply/supply.module";
 import { SourcingAgentRuntimeModule } from "./sourcing-agent-runtime.module";
-import { SourcingAgentApiCollectionModule } from "./sourcing-agent-api-collection.module";
 import { SourcingShadowOperationModule } from "./sourcing-shadow-operation.module";
+import { SourcingFinalCapabilityAdapter } from './adapter/in/agent/sourcing-final-capability.adapter';
+import { SourcingCapabilityCompositionAdapter } from './adapter/in/agent/sourcing-capability-composition.adapter';
+import { SourcingScrapeSnapshotAdmissionGuard } from './adapter/in/agent/sourcing-scrape-snapshot-admission.guard';
+import { SourcingFinalDiscoveryCapabilityAdapter } from './adapter/in/agent/sourcing-final-discovery-capability.adapter';
+import { SourcingPlaywrightRuntimeHandler } from './adapter/out/runtime/sourcing-playwright-runtime.handler';
+import { SOURCING_FINAL_CAPABILITY_PORT } from './application/port/in/capability/sourcing-final-capability.port';
+import { SOURCING_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capability/sourcing-capability-composition.port';
+import { SOURCING_CAPABILITY_ADMISSION_PORT } from './application/port/in/capability/sourcing-capability-admission.port';
+import { SOURCING_FINAL_DISCOVERY_CAPABILITY_PORT } from './application/port/in/capability/sourcing-final-discovery-capability.port';
+import { SOURCING_BROWSER_SCRAPE_PORT } from './application/port/out/runtime/sourcing-browser-scrape.port';
+import { SourcingFrozenRegistrationReadCapabilityModule } from './sourcing-frozen-registration-read-capability.module';
 import { SourcingCandidateWorkspaceController } from "./adapter/in/http/sourcing-candidate-workspace.controller";
 import { MarketShadowSignalController } from "./adapter/in/http/market-shadow-signal.controller";
 import { Sourcing1688SearchResultController } from "./adapter/in/http/sourcing-1688-search-result.controller";
@@ -39,7 +48,6 @@ import { Sourcing1688SearchResultService } from "./application/service/sourcing-
 import { SourcingService } from "./application/service/sourcing.service";
 import { SourcingPromotionService } from "./application/service/sourcing-promotion.service";
 import { SourcingWorkspaceArchiveService } from "./application/service/sourcing-workspace-archive.service";
-import { SourcingAssistantService } from "./application/service/sourcing-assistant.service";
 import { SourcingExtensionIngestService } from "./application/service/sourcing-extension-ingest.service";
 import { SourcingEntryRecommendationService } from "./application/service/sourcing-entry-recommendation.service";
 import { SourcingRecommendationService } from "./application/service/sourcing-recommendation.service";
@@ -128,9 +136,8 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
  * during issue #192 follow-up Track A PR 1). `supplier-payments` is a finance
  * capability.
  *
- * Agent delegation goes through `AGENT_RUNNER_PORT` (exported by
- * `AgentOsModule`). `SourcingAgentGatewayAdapter` is the only seam that calls
- * the runner; `SourcingService` consumes `SOURCING_AGENT_GATEWAY_PORT`.
+ * Deterministic URL scraping is a Sourcing-owned Operation. Product generation
+ * uses the direct AI owner port; neither path creates a generic AgentRun.
  *
  * Sourcing ingest writes `SourcingCandidate` + `CandidateImage` rows via
  * `SOURCING_CANDIDATE_REPOSITORY_PORT`. Registration is account-scoped and
@@ -139,10 +146,9 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
 @Module({
   imports: [
     PrismaModule,
-    AgentOsModule,
     SourcingAgentRuntimeModule,
-    SourcingAgentApiCollectionModule,
     SourcingShadowOperationModule,
+    SourcingFrozenRegistrationReadCapabilityModule,
     AiModule,
     AdvertisingModule,
     ChannelsModule,
@@ -170,6 +176,13 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
   ],
   providers: [
     SourcingService,
+    SourcingFinalCapabilityAdapter,
+    SourcingCapabilityCompositionAdapter,
+    {
+      provide: SourcingScrapeSnapshotAdmissionGuard,
+      useFactory: () => new SourcingScrapeSnapshotAdmissionGuard(),
+    },
+    SourcingFinalDiscoveryCapabilityAdapter,
     NaverKeywordResearchService,
     Sourcing1688ImageSearchService,
     Sourcing1688KeywordSearchService,
@@ -181,7 +194,6 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     SourcingKeywordPreferenceService,
     SourcingKeywordSuggestionService,
     SourcingWingCatalogIngestService,
-    SourcingAssistantService,
     SourcingExtensionIngestService,
     SourcingMarketDiscoveryService,
     SourcingRisingProductService,
@@ -337,7 +349,32 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
       provide: SOURCING_SELLPIA_SALE_PRICE_PORT,
       useExisting: SellpiaSalePriceAdapter,
     },
+    {
+      provide: SOURCING_FINAL_CAPABILITY_PORT,
+      useExisting: SourcingFinalCapabilityAdapter,
+    },
+    {
+      provide: SOURCING_CAPABILITY_COMPOSITION_PORT,
+      useExisting: SourcingCapabilityCompositionAdapter,
+    },
+    {
+      provide: SOURCING_CAPABILITY_ADMISSION_PORT,
+      useExisting: SourcingScrapeSnapshotAdmissionGuard,
+    },
+    {
+      provide: SOURCING_FINAL_DISCOVERY_CAPABILITY_PORT,
+      useExisting: SourcingFinalDiscoveryCapabilityAdapter,
+    },
+    {
+      provide: SOURCING_BROWSER_SCRAPE_PORT,
+      useExisting: SourcingPlaywrightRuntimeHandler,
+    },
   ],
-  exports: [SourcingAgentRuntimeModule],
+  exports: [
+    SourcingAgentRuntimeModule,
+    SOURCING_FINAL_CAPABILITY_PORT,
+    SOURCING_CAPABILITY_COMPOSITION_PORT,
+    SOURCING_CAPABILITY_ADMISSION_PORT,
+  ],
 })
 export class SourcingModule {}

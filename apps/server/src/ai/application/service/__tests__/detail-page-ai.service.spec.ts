@@ -7,7 +7,6 @@ import { DetailPageResultRefinerService } from '../detail-page-result-refiner.se
 import { BoldVerticalRefinerService } from '../bold-vertical-refiner.service';
 import { KidsPlayfulRefinerService } from '../kids-playful-refiner.service';
 import type { OperationAlertPort } from '../../port/out/cross-domain/operation-alert.port';
-import type { AgentRunnerPort } from '../../../../agent-os/application/port/in/agent-runner.port';
 import type { ProductGenerationAlertService } from '../product-generation-alert.service';
 import type { DetailPageGenerationRepositoryPort } from '../../port/out/repository/detail-page-generation.repository.port';
 import type { DetailPageQueryRepositoryPort } from '../../port/out/repository/detail-page-query.repository.port';
@@ -41,15 +40,17 @@ function makeProductGenerationAlertsStub(): ProductGenerationAlertService {
   } as unknown as ProductGenerationAlertService;
 }
 
+type LegacyRunnerAssertionStub = ReturnType<typeof makeAgentRunnerStub>;
+
 function makeAgentRunnerStub(
-  result: Awaited<ReturnType<AgentRunnerPort['runByType']>> = {
+  result: { requestId: string } = {
     ok: true,
     requestId: REQUEST_ID,
     agentType: 'detail_page_generate',
     agentInstanceId: 'agent-instance',
     status: 'pending',
   },
-): AgentRunnerPort {
+): { runByType: ReturnType<typeof vi.fn>; executeRequest: ReturnType<typeof vi.fn>; cancelRequest: ReturnType<typeof vi.fn>; cancelBySource: ReturnType<typeof vi.fn> } {
   return {
     runByType: vi.fn().mockResolvedValue(result),
     executeRequest: vi.fn().mockResolvedValue({
@@ -324,7 +325,7 @@ function makeService(
   imageStorage: unknown,
   operationAlerts: OperationAlertPort,
   heroImageService?: unknown,
-  agentRunner: AgentRunnerPort = makeAgentRunnerStub(),
+  _agentRunner: LegacyRunnerAssertionStub = makeAgentRunnerStub(),
   contentWorkspaces: { ensureForGeneration: ReturnType<typeof vi.fn> } = {
     ensureForGeneration: vi.fn(async () => ({
       id: REGISTRATION_WORKSPACE_ID,
@@ -360,7 +361,7 @@ function makeGenerationService(input: {
   imageStorage?: unknown;
   operationAlerts?: OperationAlertPort;
   heroImageService?: unknown;
-  agentRunner?: AgentRunnerPort;
+  agentRunner?: LegacyRunnerAssertionStub;
   directGenerationJobs?: ReturnType<typeof makeDirectDetailGenerationJobsStub>;
   contentWorkspaces?: { ensureForGeneration: ReturnType<typeof vi.fn> };
   productGenerationAlerts?: ProductGenerationAlertService;

@@ -12,8 +12,10 @@ protected release/office SHA
   -> immutable API/web images + office-deployment.json
     -> Office operator guard
       -> local Docker Compose
-        -> PostgreSQL + MinIO external volumes
-        -> API + worker + web + nginx
+        -> PostgreSQL + MinIO external volumes + API-only CopilotKit SQLite event-history volume
+        -> one API + one worker + one web + nginx
+      -> native Windows Agent Gateway under Task Scheduler
+        -> dedicated service-account login + provider-native session continuity
 ```
 
 The Office checkout is always `release/office`, tracking
@@ -29,24 +31,31 @@ secret contract.
 ### Nest process ownership
 
 ```text
-main.ts   -> ApiApplicationModule         -> HTTP + domains + Operations
-worker.ts -> AgentWorkerApplicationModule -> Agent OS queue/runtime only
-MCP/CLI   -> AgentMcpApplicationModule    -> scoped Agent capabilities only
+main.ts            -> ApiApplicationModule         -> HTTP + domains + CopilotKit + admission + private MCP
+worker.ts          -> AgentWorkerApplicationModule -> durable OperationRun execution only
+apps/agent-gateway -> native Agent Gateway          -> Codex/Claude sessions and process trees
 ```
 
-Office runs exactly one API container. Replicas and rolling API overlap are
-unsupported because every OperationRun is bound to that one API process
-lifecycle. The API root does not contain the Agent run worker; the separate
-worker container enables it with `AGENT_RUNTIME_WORKER_ENABLED=1`. The API has
-a 10-second stop grace period, and its health check allows a 60-second startup
-period for fail-closed lifecycle cleanup before it is considered unhealthy.
+Office runs exactly one API container, one worker, and one web container.
+Replicas and rolling API overlap are unsupported. The API owns authenticated
+conversation commands, one durable `CapabilityInvocation` model, exact-input
+approval, owner dispatch, the stateless private MCP HTTP adapter, API-local
+completed-event SQLite history, and Nest's in-memory active-turn run/stop
+authority. The native Agent Gateway alone owns Codex/Claude executables,
+provider conversation references and session continuity, bounded descriptor
+JSON, and live process cleanup. The worker owns only durable `OperationRun`
+execution and receives neither a provider login profile, Gateway token, nor
+provider binaries. The Gateway's four process-local parent-turn slots are the
+native capacity control; Nest's exact active-turn record is the execution
+authority. API or Gateway restart clears live turns and starts nothing
+automatically; the next user message starts a new turn through provider-native
+session continuity.
 
 Only the API application graph reaches OperationsModule; ApiApplicationModule
 owns OperationRun creation, scheduling, resource-class dispatch, browser
 claims, startup cleanup, and shutdown cancellation. AgentWorkerApplicationModule
-and MCP roots are Agent-runtime-only: they cannot import OperationsModule or
-query/mutate OperationRun. A bounded Agent command reaches the one API owner
-instead.
+cannot import Agent transport or start a CLI. The Agent Gateway can submit only
+strict outbound long-poll/events and provider MCP requests to the one API owner.
 
 The API lifecycle is code-owned:
 
@@ -65,9 +74,41 @@ restart, replacement, and an expired lease never reactivate, reclaim, or
 requeue a cancelled row; a deliberate operator retry creates a new run only
 after a single API is ACCEPTING.
 
-The Office nginx edge returns 404 for `^~ /api/internal/` before ordinary API
-proxying. Container-local access to an internal Agent command still requires a
-valid bounded capability grant.
+The API image contains no Codex or Claude binary and never mounts a provider
+login home. One native Agent Gateway under the dedicated host account owns the
+release-train CLIs, operator-established login state, provider-native session
+continuity, a fixed workspace, bounded conversation descriptors, and
+process-tree cleanup. KidItem never stores or injects provider API/OAuth
+credentials or provider transcripts. The API-only
+`kiditem_copilotkit-event-history` volume mounts at
+`/var/lib/kiditem/agent-os` and supplies
+`KIDITEM_COPILOTKIT_SQLITE_PATH=/var/lib/kiditem/agent-os/copilotkit-events.sqlite`;
+the worker never mounts or opens it, and it is not active-turn authority.
+PostgreSQL owns only durable capability mutation authority and business/
+`OperationRun` records. Gateway command/event state, Nest active-turn records,
+and CLI processes remain ephemeral and never auto-resume after restart. The
+bounded Gateway descriptor keeps only provider-local Conversation routing
+metadata and the server-derived organization access fence; it is not a
+transcript or MCP authority store.
+
+Codex and Claude run non-interactively with trusted full access within the
+dedicated non-administrator account's OS permissions. This is deliberately not
+a hostile same-account containment boundary: the account contains only provider
+login and Gateway control material, never DB, Nest, business-provider, or
+unrelated credentials. The installation bearer still protects the loopback
+control boundary from LAN, other-user, and accidental callers.
+
+Office publishes the Nest port only as `127.0.0.1:4000:4000`. Public API routes
+remain under `/api/*`; Agent Gateway and CLI traffic use the sibling
+`/internal/agent-runtime/*` namespace on the same loopback port. The nginx edge
+returns 404 for `^~ /internal/` and never proxies it publicly. Gateway long-poll
+and event calls require the installation bearer. The Gateway's process-scoped
+MCP transport token authenticates provider traffic; Nest obtains business
+authority only by resolving the conversation locator against its current
+active-turn record. The token grants no Agent, capability, or delegation
+authority and is never persisted. Conversation-facing commands carry the
+authenticated organization to the Gateway descriptor boundary, while provider
+terminal, process, and Gateway-registration lifecycle messages do not.
 
 ## Release Boundary
 
@@ -86,6 +127,14 @@ The current bundle publication entrypoint is
 runner, the same immutable SHA, digest, protected-branch, and operator approval
 contracts still apply. Runner placement must not give untrusted pull requests
 access to Office secrets or the Docker host.
+
+The GitHub-hosted workflow produces the immutable Office artifact only. It does
+not receive the dedicated Windows Task Scheduler credential and does not invoke
+`apply-deployment.ps1` against the Office host. A human operator supplies that
+credential as an in-memory `PSCredential` only to the explicit
+`InstallOrUpdateGatewayTask` operation after downloading the approved artifact
+onto the guarded Windows host. Ordinary Deploy/CutoverDeploy/Rollback/token
+rotation restarts the existing task and never receive or re-register it.
 
 ## Runner Decision
 
@@ -124,15 +173,20 @@ changes, or queued jobs.
 An incompatible schema contraction uses a full-stop maintenance window instead
 of the normal runtime rollback path. Stop API, worker, web, and nginx before the
 final database dump; keep them stopped through the destructive schema push and
-relation verification. If the cutover fails, restore the verified pre-push dump
-before starting the previous manifest. The database backup and prior runtime
-are one recovery unit. The normal deployment wrapper is not used for this
-cutover because its application-only runtime restore cannot roll back the
+relation verification. After the schema is accepted, start the candidate only
+with `apply-deployment.ps1 -Operation CutoverDeploy -ConfirmCutoverDeploy`; it
+does not restore a prior runtime on failure. If the cutover fails, restore the
+verified pre-push dump before starting the previous manifest. The database
+backup and prior runtime are one recovery unit. The normal `Deploy` operation
+is not used because its application-only runtime restore cannot roll back the
 database.
 
 ## Security Boundary
 
 - Office environment files remain outside Git and are never workflow inputs.
+- Codex/Claude login material stays only in the dedicated Windows Agent Gateway
+  service account. It is never copied to an env file, container image,
+  workflow artifact, log, or backup.
 - Office database and object storage are not exposed to the public Internet.
 - The `office` GitHub Environment restricts bundle publication to the protected
   branch and may require reviewers.
@@ -152,11 +206,14 @@ repository on a NAS share. The NAS is a verified backup target only.
 Before changing this architecture:
 
 ```bash
-npm run check:workflow-yaml
 npm run test:scripts
+npm run check:conventions
 powershell -NoProfile -Command '$tokens = $null; $errors = $null; [void][System.Management.Automation.Language.Parser]::ParseFile("deploy/office/apply-deployment.ps1",[ref]$tokens,[ref]$errors); if ($errors.Count) { $errors; exit 1 }'
 docker compose --env-file deploy/office/office.env.example --env-file deploy/office/digest.env.example -f deploy/office/compose.office.yml config --quiet
 ```
+
+`npm run test:scripts` includes the Office workflow/manifest/archive contract;
+there is no standalone `check:workflow-yaml` script.
 
 For release operation details, use [Office Deploy](office-deploy.md).
 

@@ -33,7 +33,9 @@ model Organization {
   reviews                         Review[]
   alerts                          Alert[]
   operationRuns                   OperationRun[]
+  operationRunCheckpoints         OperationRunCheckpoint[]
   operationSchedules              OperationSchedule[]
+  rulesEvaluationApplications     RulesEvaluationApplication[]
 
   // Sourcing & Content
   contentGenerations                  ContentGeneration[]
@@ -55,21 +57,8 @@ model Organization {
   workflowTemplates WorkflowTemplate[]
   activityEvents    ActivityEvent[]
 
-  // Agent OS
-  agentInstances            AgentInstance[]
-  agentRuntimeStates        AgentRuntimeState[]
-  agentTaskSessions         AgentTaskSession[]
-  agentRunRequests          AgentRunRequest[]
-  agentRuns                 AgentRun[]
-  agentRunEvents            AgentRunEvent[]
-  agentInstanceToolPolicies AgentInstanceToolPolicy[]
-  agentAuthorizationEvents  AgentAuthorizationEvent[]
-  agentApprovalRequests     AgentApprovalRequest[]
-  agentCostEvents           AgentCostEvent[]
-  agentConversations        AgentConversation[]
-  agentMessages             AgentMessage[]
-  agentToolInvocations      AgentToolInvocation[]
-  agentArtifacts            AgentArtifact[]
+  // Agent OS — exact capability mutation admission and replay receipts.
+  capabilityInvocations CapabilityInvocation[]
 
   // Order domain (Plan A.5)
   orderLineItems       OrderLineItem[]
@@ -136,6 +125,7 @@ model Organization {
   channelListings                         ChannelListing[]
   channelListingOptions                   ChannelListingOption[]
   channelListingOptionInventoryComponents ChannelListingOptionInventoryComponent[]
+  channelRegistrationOwnerIdempotencyReceipts ChannelRegistrationOwnerIdempotencyReceipt[] @relation("ChannelRegistrationOwnerIdempotencyReceiptOrganization")
   channelListingDeletionOperations        ChannelListingDeletionOperation[]        @relation("ChannelListingDeletionOperationOrganization")
 
   // Channels — market-data snapshots (Wave C0)
@@ -160,6 +150,7 @@ model Organization {
 
   // Sourcing (issue #192)
   sourcingCandidates                   SourcingCandidate[]
+  sourcingOwnerIdempotencyReceipts     SourcingOwnerIdempotencyReceipt[]
   candidateImages                      CandidateImage[]
   sourcingWorkspaceSnapshots           SourcingWorkspaceSnapshot[]
   sourcingInterestTargets              SourcingInterestTarget[]
@@ -195,7 +186,7 @@ model Organization {
 }
 
 /// @namespace Core
-/// @describe human(직원) / agent(AI, agentInstanceId 연결) / system(챗봇). 조직 소속은 OrganizationMembership 이 source of truth.
+/// @describe Human or system account. Organization membership is the source of truth.
 model User {
   id              String    @id @default(uuid()) @db.Uuid
   email           String    @unique
@@ -205,13 +196,11 @@ model User {
   type            String    @default("human")
   team            String?
   avatarUrl       String?   @map("avatar_url")
-  agentInstanceId String?   @map("agent_instance_id") @db.Uuid
   isActive        Boolean   @default(true) @map("is_active")
   lastLoginAt     DateTime? @map("last_login_at") @db.Timestamptz
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  agentInstance                              AgentInstance?                                 @relation(fields: [agentInstanceId], references: [id], onDelete: SetNull)
   memberships                                OrganizationMembership[]
   authSessions                               AuthSession[]
   invitedOrganizationMemberships             OrganizationMembership[]                       @relation("OrganizationMembershipInviter")
@@ -249,20 +238,14 @@ model User {
   confirmedRocketPurchaseConfirmations       RocketPurchaseConfirmation[]                   @relation("RocketPurchaseConfirmationConfirmer")
   releasedRocketPurchaseConfirmations        RocketPurchaseConfirmation[]                   @relation("RocketPurchaseConfirmationReleaser")
 
-  // Agent OS — actor relations
-  requestedAgentRunRequests         AgentRunRequest[]         @relation("AgentRunRequestRequestedBy")
-  requestedAgentAuthorizationEvents AgentAuthorizationEvent[] @relation("AgentAuthorizationRequestedBy")
-  decidedAgentAuthorizationEvents   AgentAuthorizationEvent[] @relation("AgentAuthorizationDecidedBy")
-  requestedAgentApprovalRequests    AgentApprovalRequest[]    @relation("AgentApprovalRequestedBy")
-  approverAgentApprovalRequests     AgentApprovalRequest[]    @relation("AgentApprovalApprover")
-  decidedAgentApprovalRequests      AgentApprovalRequest[]    @relation("AgentApprovalDecidedBy")
-  createdAgentConversations         AgentConversation[]       @relation("AgentConversationCreatedBy")
+  // Agent OS — capability invocation actor relations
+  initiatedCapabilityInvocations CapabilityInvocation[] @relation("CapabilityInvocationInitiator")
+  approvedCapabilityInvocations  CapabilityInvocation[] @relation("CapabilityInvocationApprover")
 
   // Sourcing (issue #192)
   rejectedSourcingCandidates  SourcingCandidate[] @relation("SourcingCandidateRejectedBy")
   triggeredSourcingCandidates SourcingCandidate[] @relation("SourcingCandidateTriggeredBy")
 
-  @@index([agentInstanceId])
   @@map("users")
 }
 

@@ -1,6 +1,30 @@
 import { describe, expect, it } from 'vitest';
 import { queryKeys } from './query-keys';
 
+describe('conversation query keys', () => {
+  it('keeps each authenticated identity isolated across summaries, readiness, preferences, and invocations without a provider-history cache', () => {
+    const firstIdentity = { userId: 'user-1', organizationId: 'org-1' };
+    const secondIdentity = { userId: 'user-2', organizationId: 'org-1' };
+
+    expect(queryKeys.conversations.list(firstIdentity)).toEqual([
+      'agent-os', 'conversations', 'identity', 'user-1', 'org-1', 'list',
+    ]);
+    expect(queryKeys.conversations).not.toHaveProperty('history');
+    expect(queryKeys.conversations.readiness(firstIdentity)).toEqual([
+      'agent-os', 'conversations', 'identity', 'user-1', 'org-1', 'readiness',
+    ]);
+    expect(queryKeys.conversations.preferences(firstIdentity)).toEqual([
+      'agent-os', 'conversations', 'identity', 'user-1', 'org-1', 'preferences',
+    ]);
+    expect(queryKeys.conversations.invocation(firstIdentity, 'invocation-1')).toEqual([
+      'agent-os', 'conversations', 'identity', 'user-1', 'org-1', 'invocation', 'invocation-1',
+    ]);
+    expect(queryKeys.conversations.list(firstIdentity)).not.toEqual(
+      queryKeys.conversations.list(secondIdentity),
+    );
+  });
+});
+
 describe('retired inventory route query keys', () => {
   it('removes unshipped and keeps warehouse reference lookup', () => {
     expect(queryKeys).not.toHaveProperty('unshipped');

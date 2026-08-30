@@ -7,6 +7,10 @@ import {
 import { OperationDispatcherService } from './operation-dispatcher.service';
 import type { OperationDispatchControls } from './operation-dispatcher.service';
 import { resolveOperationRunLeaseMs } from './operation-runtime.config';
+import {
+  OPERATION_HANDLER_REGISTRY_PORT,
+  type OperationHandlerRegistryPort,
+} from '../port/in/operation-handler-registry.port';
 
 @Injectable()
 export class OperationAttemptExecutorService {
@@ -18,6 +22,8 @@ export class OperationAttemptExecutorService {
     private readonly dispatcher: OperationDispatcherService,
     @Inject(OPERATION_REPOSITORY_PORT)
     private readonly repository: OperationRunRepositoryPort,
+    @Inject(OPERATION_HANDLER_REGISTRY_PORT)
+    private readonly registry: OperationHandlerRegistryPort,
   ) {}
 
   abortAll(reason: unknown = new Error('operation_server_shutdown')): void {
@@ -35,6 +41,8 @@ export class OperationAttemptExecutorService {
     this.activeControllers.add(controller);
     try {
       let deadlineExceeded = false;
+      let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+      let ephemeralFinalization: { signal: AbortSignal } | null = null;
 
       const performCheckpoint: OperationDispatchControls['checkpoint'] = async (
         update = {},
@@ -83,22 +91,37 @@ export class OperationAttemptExecutorService {
       const deadlineDelayMs = run.deadlineAt
         ? Math.max(0, run.deadlineAt.getTime() - Date.now())
         : 0;
-      const deadlineTimer = setTimeout(() => {
+      deadlineTimer = setTimeout(() => {
         deadlineExceeded = true;
         controller.abort(new Error('operation_deadline_exceeded'));
       }, deadlineDelayMs);
       deadlineTimer.unref?.();
+      const enterEphemeralFinalization: OperationDispatchControls['enterEphemeralFinalization'] =
+        async () => {
+          const definition = this.registry.getDefinition(run.operationKey);
+          if (definition.successPersistence !== 'ephemeral_on_success') {
+            throw new Error('operation_ephemeral_finalization_not_allowed');
+          }
+          if (!ephemeralFinalization) {
+            if (deadlineTimer) clearTimeout(deadlineTimer);
+            deadlineTimer = null;
+            deadlineExceeded = false;
+            ephemeralFinalization = { signal: controller.signal };
+          }
+          return ephemeralFinalization;
+        };
 
       try {
         await this.dispatcher.dispatch(run, {
           signal: controller.signal,
           checkpoint,
+          enterEphemeralFinalization,
         });
       } catch (error) {
         if (!controller.signal.aborted) throw error;
       } finally {
         clearInterval(heartbeatInterval);
-        clearTimeout(deadlineTimer);
+        if (deadlineTimer) clearTimeout(deadlineTimer);
         await heartbeatQueue;
       }
 

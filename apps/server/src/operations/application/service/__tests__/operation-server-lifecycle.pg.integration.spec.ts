@@ -23,6 +23,7 @@ import { OperationLifecycleGateService } from '../operation-lifecycle-gate.servi
 import { OperationHandlerRegistryService } from '../operation-handler-registry.service';
 import { OperationRunWorkerService } from '../operation-run-worker.service';
 import { OperationSchedulerService } from '../operation-scheduler.service';
+import { OperationPostAcceptingHookRegistryService } from '../operation-post-accepting-hook-registry.service';
 import {
   OPERATION_LIFECYCLE_OPTIONS,
   OperationServerLifecycleService,
@@ -40,6 +41,7 @@ const EXPECTED_CANONICAL_OPERATION_OWNER_DOMAINS = [
   'inventory',
   'orders',
   'products',
+  'rules',
   'sourcing',
 ] as const;
 const LIFECYCLE_ACTIVE_STATUSES = [
@@ -51,9 +53,10 @@ const LIFECYCLE_ACTIVE_STATUSES = [
 
 let canonicalOperationOwnerDomains: string[] = [];
 
-async function readRegisteredOperationOwnerDomains(): Promise<string[]> {
+async function readRegisteredOperationOwnerDomains(
+  client: PrismaClient,
+): Promise<string[]> {
   const disabledRuntimeEnvironment = {
-    AGENT_RUNTIME_WORKER_ENABLED: '0',
     AI_DIRECT_JOB_WORKER_ENABLED: '0',
     OPERATION_RUNTIME_WORKER_ENABLED: '0',
     OPERATION_SCHEDULER_ENABLED: '0',
@@ -67,7 +70,7 @@ async function readRegisteredOperationOwnerDomains(): Promise<string[]> {
   try {
     context = await NestFactory.createApplicationContext(
       ApiApplicationModule,
-      { logger: false },
+      { logger: false, abortOnError: false },
     );
     const definitions = context
       .get(OperationHandlerRegistryService)
@@ -120,6 +123,7 @@ function lifecycle(
   return new OperationServerLifecycleService(
     repository,
     gate,
+    new OperationPostAcceptingHookRegistryService(),
     runtimes.scheduler as never,
     runtimes.worker as never,
     options,
@@ -140,7 +144,7 @@ describe('operation server lifecycle PostgreSQL integration', () => {
     await Promise.all([locker.$connect(), updater.$connect()]);
     await resetDb(locker);
     await seedBaseFixture(locker);
-    canonicalOperationOwnerDomains = await readRegisteredOperationOwnerDomains();
+    canonicalOperationOwnerDomains = await readRegisteredOperationOwnerDomains(updater);
   });
 
   afterAll(async () => {
@@ -207,9 +211,9 @@ describe('operation server lifecycle PostgreSQL integration', () => {
     const gate = new OperationLifecycleGateService();
     const service = lifecycle(repository, gate, runtimes);
 
-    const cutoff = await repository.readLifecycleDatabaseTime();
+    const cutoff = await repository.readLifecycleDatabaseCutoff();
     const cutoffSpy = vi
-      .spyOn(repository, 'readLifecycleDatabaseTime')
+      .spyOn(repository, 'readLifecycleDatabaseCutoff')
       .mockResolvedValueOnce(cutoff);
     await service.onApplicationBootstrap();
 
@@ -241,7 +245,7 @@ describe('operation server lifecycle PostgreSQL integration', () => {
       expect(run).toMatchObject({
         status: 'cancelled',
         errorCode: 'operation_server_lifecycle_expired',
-        finishedAt: cutoff,
+        finishedAt: cutoff.observedAt,
         attempts: 2,
         startedAt,
         claimedBy: null,
@@ -257,7 +261,7 @@ describe('operation server lifecycle PostgreSQL integration', () => {
     });
     expect(advanced).toHaveLength(2);
     for (const schedule of advanced) {
-      expect(schedule.nextRunAt.getTime()).toBeGreaterThan(cutoff.getTime());
+      expect(schedule.nextRunAt.getTime()).toBeGreaterThan(cutoff.observedAt.getTime());
       expect(schedule.lastScheduledFor).toEqual(lastScheduledFor);
     }
     expect(await locker.operationRun.count()).toBe(
@@ -366,6 +370,7 @@ describe('operation server lifecycle PostgreSQL integration', () => {
         OperationServerLifecycleService,
         { provide: OPERATION_REPOSITORY_PORT, useValue: repository },
         { provide: OperationLifecycleGateService, useValue: gate },
+        OperationPostAcceptingHookRegistryService,
         { provide: OperationSchedulerService, useValue: runtimes.scheduler },
         { provide: OperationRunWorkerService, useValue: runtimes.worker },
         {

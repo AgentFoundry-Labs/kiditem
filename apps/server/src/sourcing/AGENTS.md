@@ -1,12 +1,9 @@
 # sourcing
 
-`src/sourcing/` owns Chinese new-product discovery: scraper ingest from
-Alibaba/1688, `SourcingCandidate` workspaces, manual product registration
-candidates, source/evidence governance, exact launch identity, immutable
-recommendation decisions, and the account-scoped product-registration state
-machine. Supplier registry, supplier-offer commercial terms, procurement test
-intents, and purchase orders live in `src/supply/`; supplier payments live in
-`src/finance/`.
+`src/sourcing/` owns Chinese-product discovery, `SourcingCandidate`,
+source/evidence governance, launch decisions, and account-scoped registration
+preparation. Suppliers, offers, procurement intents, and purchase orders belong
+to `src/supply/`; supplier payments belong to `src/finance/`.
 
 ## Folder Map
 
@@ -17,16 +14,16 @@ sourcing/
 ├── adapter/out/
 │   ├── agent/              # sourcing Agent OS gateway adapter
 │   ├── ai/                 # AI archive/workspace and registration-content adapters
-│   ├── automation/         # operation-alert adapter
 │   ├── channels/           # account-scoped marketplace registration bridge
-│   ├── products/           # legacy products compatibility bridge
+│   ├── products/           # Products boundary adapter
 │   ├── supply/             # Supply incoming-port bridge; never direct model writes
 │   └── repository/         # candidate, evidence, launch, decision repositories
 ├── application/
+│   ├── port/in/            # Sourcing-owned Agent capability/use-case contracts
 │   ├── port/out/           # local outbound ports + transaction handle
 │   └── service/            # use-case orchestration
 ├── domain/
-│   └── capability/         # sourcing resource/tool/workflow/sink manifest
+│   └── capability/         # strict Sourcing-owned CapabilityDefinitions
 └── __tests__/              # architecture and behavior specs
 ```
 
@@ -77,8 +74,8 @@ catches single-segment paths and fails as a bad candidate UUID.
 
 ## Cross-Domain Ports
 
-- Sourcing delegates scrape/product-generation work through
-  `SOURCING_AGENT_GATEWAY_PORT`.
+- Sourcing starts URL scraping through `SOURCING_SCRAPE_OPERATION_PORT` and
+  delegates deterministic AI product generation through `SOURCING_AGENT_GATEWAY_PORT`.
 - Product registration calls Channels through
   `CHANNEL_PRODUCT_REGISTRATION_PORT` and branches AI content through
   `REGISTRATION_CONTENT_WORKSPACE_PORT`.
@@ -86,8 +83,6 @@ catches single-segment paths and fails as a bad candidate UUID.
   registration flows must not call it.
 - Generated-content archive/delete calls AI through
   `SOURCING_AI_WORKSPACE_ARCHIVE_PORT`.
-- Operation-alert lifecycle writes go through
-  `SOURCING_OPERATION_ALERT_PORT`.
 - Supplier-offer reads and RFQ/sample/test-order intent creation use
   `SOURCING_SUPPLY_INTELLIGENCE_PORT`, backed only by Supply's exported
   `SUPPLY_SOURCING_PROCUREMENT_PORT`; sourcing must not mutate supply models
@@ -101,13 +96,14 @@ No direct/1688/status/read-or-compute paths. Cancellation never reactivates.
 
 ## Scrape Runtime
 
-`/api/sourcing/scrape-url` enqueues a `sourcing` Agent OS request. Handler
-`SourcingPlaywrightRuntimeHandler` opens Playwright Chromium with a persistent
+`/api/sourcing/scrape-url` starts the Sourcing-owned `sourcing.scrape_url`
+Operation. Agent-facing capabilities enqueue the same owner Operation with the
+exact admitted idempotency key; they never manufacture provider runtime work or
+fall back to a generic runner. The Operation handler calls
+`SourcingPlaywrightRuntimeHandler`, which opens Playwright Chromium with a persistent
 profile and runs approved deterministic extractors, reusing
 `extensions/kiditem-os/content/sourcing/extractors/*` as reviewed reference
-scripts; retired extension paths are not fallbacks. Develop new scrapers via the
-Codex-global `$magic-scraper` skill, then promote them into reviewed
-extractor/runtime code with fixtures and tests.
+scripts; retired extension paths are not fallbacks.
 
 The version-2 1688 keyword Operation is server-domain owned and attaches only
 through `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` to authenticated Office Chrome. It
@@ -115,12 +111,10 @@ has no extension, anonymous-browser, or fresh-profile fallback. The adapter
 closes only its page; host Chrome, login, and unrelated tabs survive. Login or
 security challenges are truthful attention states, never bypassed.
 
-`magic-scraper` is development-only: never expose arbitrary browser JS, CDN
-scripts, or raw CDP as Agent OS/MCP tools. For the direct `scrape_url` action,
+Never expose arbitrary browser JS, CDN scripts, or raw CDP as Agent OS/MCP tools. For the direct `scrape_url` action,
 `SourcingScrapeResultService` validates and upserts the canonical candidate
-synchronously before the runtime returns success. Agent OS finalized listeners
-are non-authoritative alert/audit projections and never write canonical sourcing
-rows.
+synchronously before the Operation completes. Agent OS projections are
+non-authoritative and never write canonical sourcing rows.
 
 Supplier URLs are an SSRF boundary. `supplier-source-url-policy.ts` is the
 single parser for extension ingest, scrape DTO validation, and Playwright
@@ -144,8 +138,9 @@ New extension writers first obtain a permit from
 external offer identity, collection session UUID, captured timestamp, extractor
 version, and payload hash. V1 and v2 both use the collection coordinator;
 an unknown or disabled source must leave zero candidate and evidence rows.
-Candidate identity is platform + external offer + normalized variant, never
-title, tracking URL, or search-result array index.
+Identity includes variant. Alibaba uses canonical URL (aliases/tracking/fragments
+removed); 1688 uses validated offer ID, then URL. All ingress uses it, never
+title/extractor ID.
 
 Entry assistant: server-only runtime/model; client never selects. Claude:
 `--tools ""` (not `--allowed-tools`). Codex: ephemeral read-only/no tools.
@@ -153,22 +148,27 @@ Failure: retrieval-only.
 
 ## Capability Surface
 
-The manifest lives in `domain/capability/sourcing.capabilities.ts`:
+Strict Agent-facing definitions live in
+`domain/capability/sourcing.capabilities.ts` and execute through Sourcing-owned
+incoming ports. The exact ten are:
 
-- `sourcing.duplicateCheck` (`resource`) reads existing candidates by URL.
-- `sourcing.scrapeProductUrl` (`tool`) is an internal deterministic bridge for
-  reviewed scrape workflows; it is not exposed to the Sourcing model.
-- `sourcing.ingestCandidate` (`sink`) validates and persists a candidate.
-- `sourcing.scrapeUrlWorkflow` (`workflow`) composes duplicate-check, scrape,
-  sink, alerting, and candidate-detail routing deterministically.
-- `sourcing.retrieveWorkspaceEvidence`, `sourcing.inspectRecommendationRun`,
-  `sourcing.refreshCollection`, and `sourcing.refreshValidation` are the direct
-  dashboard model's bounded evidence/run capabilities.
-- `sourcing.createReviewBatch` is registry-valid for a future explicit
-  selection handoff but is absent from the dashboard Sourcing policy.
+- reads: `sourcing.duplicateCheck`, `sourcing.retrieveWorkspaceEvidence`,
+  `sourcing.inspectRecommendationRun`;
+- split scrape/ingest: `sourcing.scrapeProductUrl` returns a bounded snapshot
+  without writing a candidate, and `sourcing.ingestCandidate` admits only that
+  same attempt's exact snapshot/hash;
+- mutations: `sourcing.refreshValidation`, `sourcing.createReviewBatch`;
+- Operation-backed: `sourcing.scrapeUrlWorkflow`,
+  `sourcing.refreshCollection`, `sourcing.collect_shadow_signals`.
 
-The dashboard assistant reaches Claude/Codex only through
-`AGENT_INTERACTION_PORT`; Sourcing does not own a second CLI subprocess path.
+All ten are discoverable through the code-owned registry and private MCP
+catalog. Required-idempotency mutations pass the exact owner key to the final
+Sourcing DB or Operation boundary. Agent OS only aggregates, admits, and routes
+them.
+
+The dashboard opens the shared conversation workspace with the fixed Sourcing
+Agent; Sourcing owns no local assistant endpoint, transcript, or CLI subprocess
+path.
 
 Agent OS and automation reach sourcing through incoming capability ports, not
 by importing sourcing application services.

@@ -9,7 +9,7 @@ import {
 } from '../../domain/supplier-source-url-policy';
 import {
   normalizeSourcingVariantKey,
-  stableSourcingCandidateIdentity,
+  canonicalSourcingCandidateIdentity,
 } from '../../domain/sourcing-candidate-identity';
 
 export interface PersistSourcingScrapeResultInput {
@@ -95,8 +95,9 @@ export class SourcingScrapeResultService {
     }
 
     const sourcePlatform = PLATFORM_MAP[source.platform];
+    const validatedExternalOfferId = extractSupplierOfferId(source);
     const externalOfferId =
-      extractSupplierOfferId(source) ?? nonEmptyString(scraped.product_id);
+      validatedExternalOfferId ?? nonEmptyString(scraped.product_id);
     const variantKeyNormalized = normalizeSourcingVariantKey(
       scraped.variant_key,
     );
@@ -107,13 +108,12 @@ export class SourcingScrapeResultService {
       sourcePlatform,
       externalOfferId,
       variantKeyNormalized,
-      sourceIdentityHash: externalOfferId
-        ? stableSourcingCandidateIdentity(
-            sourcePlatform,
-            externalOfferId,
-            variantKeyNormalized,
-          )
-        : null,
+      sourceIdentityHash: canonicalSourcingCandidateIdentity({
+        sourcePlatform,
+        sourceUrl: source.normalizedUrl,
+        validatedExternalOfferId,
+        variantKeyNormalized,
+      }),
       rawData: {
         ...scraped,
         source_url: source.normalizedUrl,

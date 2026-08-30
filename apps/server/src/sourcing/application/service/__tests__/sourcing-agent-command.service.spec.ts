@@ -7,7 +7,6 @@ function createSubject() {
     upsertSourced: vi.fn().mockResolvedValue({ id: 'candidate-1' }),
   };
   const gateway = {
-    scrapeUrl: vi.fn().mockResolvedValue({ taskId: 'task-1', requestId: 'request-1' }),
     startProductGeneration: vi.fn().mockResolvedValue({
       candidateId: 'candidate-1',
       parentOperationKey: 'product-generation:batch-1',
@@ -17,16 +16,12 @@ function createSubject() {
       href: '/product-pipeline/collected-products/candidate-1',
     }),
   };
-  const alerts = { start: vi.fn().mockResolvedValue({}) };
-
   return {
     candidates,
     gateway,
-    alerts,
     subject: new SourcingAgentCommandService(
       candidates as never,
       gateway as never,
-      alerts as never,
     ),
   };
 }
@@ -55,24 +50,5 @@ describe('SourcingAgentCommandService', () => {
       }),
     );
     expect(result.candidateId).toBe('candidate-1');
-  });
-
-  it('returns an existing candidate without enqueueing or raising another alert', async () => {
-    const { subject, candidates, gateway, alerts } = createSubject();
-    candidates.findActiveBySourceUrl.mockResolvedValueOnce({ id: 'candidate-existing' });
-
-    const result = await subject.scrapeUrl(
-      'https://detail.1688.com/offer/1.html',
-      'org-1',
-      'user-1',
-    );
-
-    expect(result).toMatchObject({
-      skipped: true,
-      candidateId: 'candidate-existing',
-      href: '/product-pipeline/collected-products/candidate-existing',
-    });
-    expect(gateway.scrapeUrl).not.toHaveBeenCalled();
-    expect(alerts.start).not.toHaveBeenCalled();
   });
 });

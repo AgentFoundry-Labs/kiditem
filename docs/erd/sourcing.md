@@ -27,6 +27,7 @@
 | SourcingInterestTarget | `sourcing_interest_targets` | 서버가 소유하는 관심 키워드. 화면의 전체 JSON snapshot 대체를 금지하고 낙관적 버전으로 개별 변경을 보장한다. |
 | SourcingKeywordPreference | `sourcing_keyword_preferences` | 조직별 키워드 제외 설정. 전체 JSON snapshot 대신 키 하나를 낙관적으로 갱신한다. |
 | SourcingLaunchCandidate | `sourcing_launch_candidates` | Immutable launch and outcome identity that freezes an exact supplier variant, Korean bundle, launch plan, compliance/IP/quality versions, target account, price, and initial quantity. |
+| SourcingOwnerIdempotencyReceipt | `sourcing_owner_idempotency_receipts` | 최종 소싱 capability의 불변 owner idempotency 결과. 후보 수명주기와 독립적으로 replay 결과를 보존한다. |
 | SourcingRecommendationItem | `sourcing_recommendation_items` | 한 추천 실행 안의 stable offer/variant 후보. 점수와 근거는 이 행을 기준으로 추적한다. |
 | SourcingRecommendationItemEvidence | `sourcing_recommendation_item_evidence` | 추천 후보가 사용한 immutable evidence 링크. retention과 재현성의 기준이다. |
 | SourcingRecommendationRun | `sourcing_recommendation_runs` | 재현 가능한 추천 계산의 immutable header. 입력 manifest와 모델 버전을 함께 고정한다. |
@@ -142,6 +143,7 @@ erDiagram
     String expectedProviderAccountId
     String idempotencyKey
     String requestHash
+    String ownerIdempotencyKey
     Json submissionPayloadJson
     String submissionPayloadHash
     String status
@@ -440,6 +442,15 @@ erDiagram
     String createdByUserId FK
     DateTime createdAt
   }
+  SourcingOwnerIdempotencyReceipt {
+    String id PK
+    String organizationId FK
+    String capabilityKey
+    String idempotencyKey
+    String requestHash
+    Json result
+    DateTime createdAt
+  }
   SourcingRecommendationItem {
     String id PK
     String organizationId FK
@@ -679,6 +690,7 @@ erDiagram
 | SourcingLaunchCandidate | organization | references external | Core | Organization |
 | SourcingLaunchCandidate | supplierOfferSkuSnapshot | references external | Supply | SupplierOfferSkuSnapshot |
 | SourcingLaunchCandidate | targetChannelAccount | references external | Core | ChannelAccount |
+| SourcingOwnerIdempotencyReceipt | organization | references external | Core | Organization |
 | SourcingRecommendationItem | organization | references external | Core | Organization |
 | SourcingRecommendationItemEvidence | organization | references external | Core | Organization |
 | SourcingRecommendationRun | organization | references external | Core | Organization |

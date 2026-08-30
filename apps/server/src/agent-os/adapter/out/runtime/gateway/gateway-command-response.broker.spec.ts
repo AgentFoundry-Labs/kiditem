@@ -1,0 +1,218 @@
+import { describe, expect, it, vi } from 'vitest';
+import { GatewayCommandResponseBroker } from './gateway-command-response.broker';
+
+const OWNER = {
+  organizationId: '00000000-0000-4000-8000-000000000001',
+  initiatingUserId: '00000000-0000-4000-8000-000000000002',
+};
+
+const TURN_START_INPUT = {
+  message: 'Inspect the supplier evidence.',
+  model: 'gpt-5.6',
+  reasoningEffort: 'high',
+};
+
+const PREFERENCES = {
+  schemaVersion: 1 as const,
+  contexts: {
+    general: {
+      codex_cli: { model: 'gpt-5.6', reasoningEffort: 'low' },
+    },
+  },
+};
+
+describe('GatewayCommandResponseBroker', () => {
+  it('reuses the exact canonical start request for a same-owner live retry and rejects another owner', () => {
+    const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
+    const first = broker.beginTurnStart({
+      ...OWNER,
+      ...TURN_START_INPUT,
+      commandId: 'command-start-1',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    });
+    const retry = broker.beginTurnStart({
+      ...OWNER,
+      ...TURN_START_INPUT,
+      commandId: 'command-start-retry',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    });
+
+    expect(retry).toBe(first);
+    expect(retry.result).toBe(first.result);
+    expect(() => broker.beginTurnStart({
+      ...OWNER,
+      ...TURN_START_INPUT,
+      initiatingUserId: '00000000-0000-4000-8000-000000000003',
+      commandId: 'command-start-other-owner',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    })).toThrow('gateway_broker_turn_unavailable');
+  });
+
+  it.each([
+    ['message', { message: 'Use a different prompt.' }],
+    ['model', { model: 'gpt-5.7' }],
+    ['reasoning effort', { reasoningEffort: 'max' }],
+  ])('rejects a same-owner live retry with changed %s', async (_field, changed) => {
+    const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
+    const first = broker.beginTurnStart({
+      ...OWNER,
+      ...TURN_START_INPUT,
+      commandId: 'command-start-1',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    });
+
+    expect(() => broker.beginTurnStart({
+      ...OWNER,
+      ...TURN_START_INPUT,
+      ...changed,
+      commandId: 'command-start-retry',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    })).toThrow('gateway_broker_turn_start_input_conflict');
+
+    broker.publishTurnEvent('conversation-1', 'turn-1', { kind: 'status', status: 'started' });
+    await expect(first.result).resolves.toBeUndefined();
+  });
+
+  it('fences a live turn by organization, user, conversation, and turn while forwarding only bounded live events', async () => {
+    const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
+    const started = broker.beginTurnStart({ ...OWNER, ...TURN_START_INPUT, commandId: 'command-1', conversationId: 'conversation-1', turnId: 'turn-1' });
+    const events: unknown[] = [];
+    const unsubscribe = broker.subscribeTurn({ ...OWNER, conversationId: 'conversation-1', turnId: 'turn-1' }, (event) => events.push(event));
+
+    expect(() => broker.subscribeTurn({ ...OWNER, initiatingUserId: '00000000-0000-4000-8000-000000000003', conversationId: 'conversation-1', turnId: 'turn-1' }, () => undefined))
+      .toThrow('gateway_broker_fence_invalid');
+    broker.publishTurnEvent('conversation-1', 'turn-1', { kind: 'status', status: 'started' });
+    broker.publishTurnEvent('conversation-1', 'turn-1', { kind: 'assistant.delta', delta: 'Bounded provider delta.' });
+    broker.publishTurnEvent('conversation-1', 'turn-1', { kind: 'status', status: 'completed' });
+    unsubscribe();
+
+    await expect(started.result).resolves.toBeUndefined();
+    expect(events).toEqual([
+      { kind: 'status', status: 'started' },
+      { kind: 'assistant.delta', delta: 'Bounded provider delta.' },
+      { kind: 'status', status: 'completed' },
+    ]);
+  });
+
+  it('publishes a server-originated approval locator only to the exact live turn owner', async () => {
+    const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 });
+    const started = broker.beginTurnStart({
+      ...OWNER,
+      ...TURN_START_INPUT,
+      commandId: 'command-1',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    });
+    const events: unknown[] = [];
+    broker.subscribeTurn({ ...OWNER, conversationId: 'conversation-1', turnId: 'turn-1' }, (event) => events.push(event));
+    broker.publishTurnEvent('conversation-1', 'turn-1', { kind: 'status', status: 'started' });
+
+    broker.publishOwnedTurnEvent({
+      ...OWNER,
+      initiatingUserId: '00000000-0000-4000-8000-000000000003',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    }, {
+      kind: 'capability.approval_required',
+      invocationId: '00000000-0000-4000-8000-000000000004',
+    });
+    broker.publishOwnedTurnEvent({
+      ...OWNER,
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    }, {
+      kind: 'capability.approval_required',
+      invocationId: '00000000-0000-4000-8000-000000000005',
+    });
+    broker.publishTurnEvent('conversation-1', 'turn-1', { kind: 'status', status: 'completed' });
+
+    await expect(started.result).resolves.toBeUndefined();
+    expect(events).toEqual([
+      { kind: 'status', status: 'started' },
+      {
+        kind: 'capability.approval_required',
+        invocationId: '00000000-0000-4000-8000-000000000005',
+      },
+      { kind: 'status', status: 'completed' },
+    ]);
+  });
+
+  it('rejects bounded pending commands on timeout and disconnect without keeping a durable transcript or queue', async () => {
+    vi.useFakeTimers();
+    try {
+      const broker = new GatewayCommandResponseBroker({ timeoutMs: 100 });
+      const timedOut = broker.begin<void>({ ...OWNER, command: { kind: 'conversation.delete', commandId: 'command-1', organizationId: OWNER.organizationId, conversationId: 'conversation-1' } });
+      const timedOutExpectation = expect(timedOut.result).rejects.toThrow('gateway_command_timeout');
+      await vi.advanceTimersByTimeAsync(100);
+      await timedOutExpectation;
+
+      const timedOutStart = broker.beginTurnStart({ ...OWNER, ...TURN_START_INPUT, commandId: 'start-1', conversationId: 'conversation-1', turnId: 'turn-1' });
+      const streamEvents: unknown[] = [];
+      broker.subscribeTurn({ ...OWNER, conversationId: 'conversation-1', turnId: 'turn-1' }, (event) => streamEvents.push(event));
+      const timedOutStartExpectation = expect(timedOutStart.result).rejects.toThrow('gateway_command_timeout');
+      await vi.advanceTimersByTimeAsync(100);
+      await timedOutStartExpectation;
+      expect(streamEvents).toEqual([{ kind: 'status', status: 'failed' }]);
+      expect(() => broker.subscribeTurn({ ...OWNER, conversationId: 'conversation-1', turnId: 'turn-1' }, () => undefined))
+        .toThrow('gateway_broker_fence_invalid');
+
+      const disconnected = broker.begin<void>({ ...OWNER, command: { kind: 'conversation.delete', commandId: 'command-2', organizationId: OWNER.organizationId, conversationId: 'conversation-1' } });
+      const disconnectedExpectation = expect(disconnected.result).rejects.toThrow('gateway_command_disconnected');
+      broker.disconnect();
+      await disconnectedExpectation;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps preference result correlation live through acknowledgement until the exact loaded or updated event arrives', async () => {
+    const broker = new GatewayCommandResponseBroker({ timeoutMs: 1_000 }) as GatewayCommandResponseBroker & {
+      resolvePreferenceLoaded(event: {
+        kind: 'conversation.preferences.loaded';
+        commandId: string;
+        preferences: typeof PREFERENCES;
+      }): void;
+      resolvePreferenceUpdated(event: {
+        kind: 'conversation.preferences.updated';
+        commandId: string;
+        preferences: typeof PREFERENCES;
+      }): void;
+    };
+    const loaded = broker.begin<typeof PREFERENCES>({
+      ...OWNER,
+      command: { kind: 'conversation.preferences.get', commandId: 'preferences-get' },
+    });
+    const updated = broker.begin<typeof PREFERENCES>({
+      ...OWNER,
+      command: {
+        kind: 'conversation.preferences.set',
+        commandId: 'preferences-set',
+        context: 'general',
+        runtime: 'codex_cli',
+        model: 'gpt-5.6',
+        reasoningEffort: 'low',
+      },
+    });
+
+    broker.acknowledge('preferences-get');
+    broker.acknowledge('preferences-set');
+    broker.resolvePreferenceLoaded({
+      kind: 'conversation.preferences.loaded',
+      commandId: 'preferences-get',
+      preferences: PREFERENCES,
+    });
+    broker.resolvePreferenceUpdated({
+      kind: 'conversation.preferences.updated',
+      commandId: 'preferences-set',
+      preferences: PREFERENCES,
+    });
+
+    await expect(loaded.result).resolves.toEqual(PREFERENCES);
+    await expect(updated.result).resolves.toEqual(PREFERENCES);
+  });
+});

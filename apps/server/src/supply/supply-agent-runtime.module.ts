@@ -1,14 +1,16 @@
 import { Module } from '@nestjs/common';
-import { AgentOsModule } from '../agent-os/agent-os.module';
+import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
 import { InventoryFreshnessRuntimeModule } from '../inventory/inventory-freshness-runtime.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SupplyAgentCapabilityAdapter } from './adapter/in/agent/supply-agent-capability.adapter';
+import { SupplyCapabilityCompositionAdapter } from './adapter/in/agent/supply-capability-composition.adapter';
 import { ProcurementRepositoryAdapter } from './adapter/out/repository/procurement.repository.adapter';
 import { Alibaba1688CheckoutRuntimeAdapter } from './adapter/out/runtime/alibaba-1688-checkout-runtime.adapter';
-import { OrderAgentRuntimeHandler } from './adapter/out/runtime/order-agent-runtime.handler';
 import { PurchaseOrderSubmissionTransactionAdapter } from './adapter/out/transaction/purchase-order-submission.transaction.adapter';
 import { PURCHASE_ORDER_DRAFT_PORT } from './application/port/in/procurement/purchase-order-draft.port';
 import { PURCHASE_ORDER_SUBMISSION_PORT } from './application/port/in/procurement/purchase-order-submission.port';
+import { SUPPLY_PURCHASE_ORDER_CAPABILITY_PORT } from './application/port/in/capability/purchase-order.port';
+import { SUPPLY_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capability/supply-capability-composition.port';
 import { PROCUREMENT_REPOSITORY_PORT } from './application/port/out/repository/procurement.repository.port';
 import { PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT } from './application/port/out/runtime/purchase-order-checkout-runtime.port';
 import { PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT } from './application/port/out/transaction/purchase-order-submission.transaction.port';
@@ -17,14 +19,18 @@ import { PurchaseOrderDraftService } from './application/service/purchase-order-
 import { PurchaseOrderSubmissionService } from './application/service/purchase-order-submission.service';
 
 @Module({
-  imports: [PrismaModule, AgentOsModule, InventoryFreshnessRuntimeModule],
+  imports: [
+    PrismaModule,
+    AgentOsCapabilityModule,
+    InventoryFreshnessRuntimeModule,
+  ],
   providers: [
     ProcurementService,
     PurchaseOrderDraftService,
     PurchaseOrderSubmissionService,
     SupplyAgentCapabilityAdapter,
+    SupplyCapabilityCompositionAdapter,
     Alibaba1688CheckoutRuntimeAdapter,
-    OrderAgentRuntimeHandler,
     ProcurementRepositoryAdapter,
     PurchaseOrderSubmissionTransactionAdapter,
     { provide: PURCHASE_ORDER_DRAFT_PORT, useExisting: PurchaseOrderDraftService },
@@ -32,6 +38,8 @@ import { PurchaseOrderSubmissionService } from './application/service/purchase-o
       provide: PURCHASE_ORDER_SUBMISSION_PORT,
       useExisting: PurchaseOrderSubmissionService,
     },
+    { provide: SUPPLY_PURCHASE_ORDER_CAPABILITY_PORT, useExisting: SupplyAgentCapabilityAdapter },
+    { provide: SUPPLY_CAPABILITY_COMPOSITION_PORT, useExisting: SupplyCapabilityCompositionAdapter },
     { provide: PROCUREMENT_REPOSITORY_PORT, useExisting: ProcurementRepositoryAdapter },
     {
       provide: PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT,
@@ -46,6 +54,8 @@ import { PurchaseOrderSubmissionService } from './application/service/purchase-o
     ProcurementService,
     PURCHASE_ORDER_DRAFT_PORT,
     PURCHASE_ORDER_SUBMISSION_PORT,
+    SUPPLY_PURCHASE_ORDER_CAPABILITY_PORT,
+    SUPPLY_CAPABILITY_COMPOSITION_PORT,
   ],
 })
 export class SupplyAgentRuntimeModule {}

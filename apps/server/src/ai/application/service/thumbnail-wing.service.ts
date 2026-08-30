@@ -76,11 +76,29 @@ export class ThumbnailWingService {
     };
   }
 
-  async registerToWing(generationId: string, organizationId: string): Promise<WingRegistrationResult> {
+  async registerToWing(
+    generationId: string,
+    organizationId: string,
+    owner?: { ownerIdempotencyKey: string; requestHash: string },
+  ): Promise<WingRegistrationResult> {
     this.assertLocalServerAutomationAllowed();
     const target = await this.resolveRegistrationTarget(generationId, organizationId);
-
-    const attempt = await this.repository.createRegistrationAttempt(generationId, organizationId);
+    const claim = owner
+      ? await this.repository.claimAgentRegistrationAttempt({ generationId, organizationId, ...owner })
+      : null;
+    if (claim?.mode === 'replay') {
+      return {
+        success: claim.success,
+        screenshotPath: claim.screenshotPath,
+        ...(claim.success ? {} : { error: 'Wing upload previously failed' }),
+      };
+    }
+    if (claim?.mode === 'reconcile') {
+      throw new ServiceUnavailableException('wing_registration_reconciliation_pending');
+    }
+    const attempt = claim
+      ? { id: claim.attemptId }
+      : await this.repository.createRegistrationAttempt(generationId, organizationId);
 
     try {
       const imagePath = await this.materializeImage(target.selectedUrl, generationId);
@@ -92,21 +110,35 @@ export class ThumbnailWingService {
         imagePath,
         screenshotPath,
       });
-      await this.repository.updateRegistrationAttemptOrThrow(attempt.id, organizationId, {
-        status: automation.success ? 'uploaded' : 'failed',
-        errorMessage: automation.success ? null : (automation.error ?? 'Unknown error'),
-        screenshotUrl: automation.success ? screenshotPath : null,
-        finishedAt: new Date(),
-      });
+      if (owner) {
+        await this.repository.finalizeAgentRegistrationAttempt({
+          id: attempt.id, organizationId, ...owner, success: automation.success,
+          screenshotPath: automation.success ? screenshotPath : null,
+          errorMessage: automation.success ? null : (automation.error ?? 'Unknown error'),
+        });
+      } else {
+        await this.repository.updateRegistrationAttemptOrThrow(attempt.id, organizationId, {
+          status: automation.success ? 'uploaded' : 'failed',
+          errorMessage: automation.success ? null : (automation.error ?? 'Unknown error'),
+          screenshotUrl: automation.success ? screenshotPath : null,
+          finishedAt: new Date(),
+        });
+      }
 
       return toRegistrationResult(automation, screenshotPath);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await this.repository.updateRegistrationAttemptOrThrow(attempt.id, organizationId, {
-        status: 'failed',
-        errorMessage: message,
-        finishedAt: new Date(),
-      });
+      if (owner) {
+        await this.repository.markAgentRegistrationAttemptUncertain({
+          id: attempt.id, organizationId, ...owner, message,
+        });
+      } else {
+        await this.repository.updateRegistrationAttemptOrThrow(attempt.id, organizationId, {
+          status: 'failed',
+          errorMessage: message,
+          finishedAt: new Date(),
+        });
+      }
       throw err;
     }
   }

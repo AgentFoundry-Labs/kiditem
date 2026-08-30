@@ -1,18 +1,6 @@
-import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { SourcingScrapeResultService } from '../sourcing-scrape-result.service';
-
-function identityHash(
-  sourcePlatform: string,
-  externalOfferId: string,
-  variantKey: string,
-): string {
-  return createHash('sha256')
-    .update(
-      [sourcePlatform.toLowerCase(), externalOfferId, variantKey].join('\u001f'),
-    )
-    .digest('hex');
-}
+import { canonicalSourcingCandidateIdentity } from '../../../domain/sourcing-candidate-identity';
 
 describe('SourcingScrapeResultService', () => {
   it('normalizes and upserts a canonical candidate before returning its route', async () => {
@@ -44,11 +32,16 @@ describe('SourcingScrapeResultService', () => {
     expect(candidates.upsertSourced).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: 'org-1',
-        sourceUrl: 'https://detail.1688.com/offer/123.html?spm=a261y',
+        sourceUrl: 'https://detail.1688.com/offer/123.html',
         sourcePlatform: 'ALIBABA_1688',
         externalOfferId: '123',
         variantKeyNormalized: 'blue set',
-        sourceIdentityHash: identityHash('ALIBABA_1688', '123', 'blue set'),
+        sourceIdentityHash: canonicalSourcingCandidateIdentity({
+          sourcePlatform: 'ALIBABA_1688',
+          sourceUrl: 'https://detail.1688.com/offer/123.html',
+          validatedExternalOfferId: '123',
+          variantKeyNormalized: 'blue set',
+        }),
         name: '실리콘 식판',
         tags: ['유아식기'],
         costCny: 12.5,

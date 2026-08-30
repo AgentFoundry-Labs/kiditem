@@ -9,6 +9,12 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('next/dynamic', () => ({ default: () => () => null }));
 vi.mock('sonner', () => ({ toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() } }));
+vi.mock('@/hooks/useAuth', () => ({
+  useAuth: () => ({
+    status: 'ready',
+    user: { organizationId: '22222222-2222-4222-8222-222222222222' },
+  }),
+}));
 vi.mock('@/hooks/useSellpiaChannelSales', () => ({
   sellpiaPeriodRange: () => ({ from: '2026-07-01', to: '2026-07-24' }),
   useSellpiaChannelSales: () => ({

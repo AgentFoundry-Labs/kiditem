@@ -41,6 +41,7 @@ import { ListPurchaseOrdersQueryDto, PurchaseOrderActionBodyDto } from './dto';
 import type { Response } from 'express';
 import type { AuthUser } from '../../../../auth/auth.types';
 import type { MulterFile } from '../../../../common/types';
+import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 
 const MAX_ROCKET_WORKBOOK_SIZE = 10 * 1024 * 1024;
 const MAX_ROCKET_WORKBOOK_REQUEST_SIZE = 25 * 1024 * 1024;
@@ -97,19 +98,21 @@ export class ProcurementController {
       return this.procurementService.delete(organizationId, body.id!);
     }
     if (body.action === 'submit') {
+      const businessInput = purchaseOrderSubmissionInput(body);
       return this.submissions.submit({
         organizationId,
-        purchaseOrderId: body.id!,
+        purchaseOrderId: businessInput.purchaseOrderId,
         idempotencyKey: body.idempotencyKey!,
+        requestHash: canonicalOwnerInputHash(businessInput),
         userId: user.id,
-        ...(body.externalOrderPlatform !== undefined && {
-          externalOrderPlatform: body.externalOrderPlatform,
+        ...(businessInput.externalOrderPlatform !== undefined && {
+          externalOrderPlatform: businessInput.externalOrderPlatform,
         }),
-        ...(body.externalOrderId !== undefined && {
-          externalOrderId: body.externalOrderId,
+        ...(businessInput.externalOrderId !== undefined && {
+          externalOrderId: businessInput.externalOrderId,
         }),
-        ...(body.externalOrderUrl !== undefined && {
-          externalOrderUrl: body.externalOrderUrl,
+        ...(businessInput.externalOrderUrl !== undefined && {
+          externalOrderUrl: businessInput.externalOrderUrl,
         }),
       });
     }
@@ -214,4 +217,24 @@ export class ProcurementController {
     }
     throw new BadRequestException(`Unknown action: ${body.action}`);
   }
+}
+
+function purchaseOrderSubmissionInput(body: PurchaseOrderActionBodyDto): {
+  purchaseOrderId: string;
+  externalOrderPlatform?: string | null;
+  externalOrderId?: string | null;
+  externalOrderUrl?: string | null;
+} {
+  return {
+    purchaseOrderId: body.id!,
+    ...(body.externalOrderPlatform !== undefined && {
+      externalOrderPlatform: body.externalOrderPlatform,
+    }),
+    ...(body.externalOrderId !== undefined && {
+      externalOrderId: body.externalOrderId,
+    }),
+    ...(body.externalOrderUrl !== undefined && {
+      externalOrderUrl: body.externalOrderUrl,
+    }),
+  };
 }

@@ -1,17 +1,15 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
 import { sourcingWingCatalogKeywordIdentity } from '@kiditem/shared/sourcing';
 import { toast } from 'sonner';
 import { AlertTriangle, Loader2, RefreshCw, Sparkles, Star } from 'lucide-react';
-import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
 import { isTerminalOperationStatus } from '@/hooks/useOperationRun';
 import { useAuth } from '@/hooks/useAuth';
+import { useRightSurfaceLauncher } from '@/components/layout/right-surface-launcher-context';
 import {
-  askSourcingAssistant,
   type EntryInterestKeywordStatus,
   type EntryRecommendation,
   type EntrySourceStatus,
@@ -34,7 +32,6 @@ import { SourcingReadState } from '../../components/SourcingReadState';
 import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
 import { EntryRecommendationDetail } from './EntryRecommendationDetail';
 import { EntryRecommendationTable } from './EntryRecommendationTable';
-import { SourcingAssistantPanel, type AssistantTurn } from './SourcingAssistantPanel';
 
 const LIMIT = 50;
 
@@ -52,11 +49,10 @@ type InterestFilter = 'all' | 'interest' | 'other';
  */
 export function EntryRecommendationBoard() {
   const { user } = useAuth();
+  const { openConversationFromLauncher } = useRightSurfaceLauncher();
   const organizationId = user?.organizationId ?? null;
   const [activeId, setActiveId] = useState<string | null>(null);
   const [interestFilter, setInterestFilter] = useState<InterestFilter>('all');
-  const [turns, setTurns] = useState<AssistantTurn[]>([]);
-  const assistantConversationIdRef = useRef<string | null>(null);
   const saveSelection = useSaveSourcingReviewSelection();
 
   const recommendationsQuery = useSourcingRecommendations('entry', { limit: LIMIT });
@@ -73,32 +69,6 @@ export function EntryRecommendationBoard() {
     dailyTrendOperation.run !== null
     && !isTerminalOperationStatus(dailyTrendOperation.run.status)
   );
-
-  const assistantMutation = useMutation({
-    mutationFn: (question: string) =>
-      askSourcingAssistant({
-        question,
-        visibleContext: buildVisibleContext(items),
-        conversationId: assistantConversationIdRef.current ?? undefined,
-      }),
-    onSuccess: (answer, question) => {
-      assistantConversationIdRef.current = answer.conversationId;
-      setTurns((prev) => [
-        ...prev,
-        { id: `a:${prev.length}:${question}`, role: 'assistant', text: answer.text, answer },
-      ]);
-    },
-    onError: (error: unknown, question) => {
-      const message = isApiError(error) ? error.message : '어시스턴트 호출에 실패했습니다.';
-      toast.error(message);
-      // 토스트는 사라진다. 대화 로그에 실패를 남겨, 질문만 덩그러니 남아 답을
-      // 기다리는 것처럼 보이지 않게 한다.
-      setTurns((prev) => [
-        ...prev,
-        { id: `e:${prev.length}:${question}`, role: 'assistant', text: `⚠️ ${message}` },
-      ]);
-    },
-  });
 
   const recommendationItems = recommendationsQuery.data?.data?.items ?? [];
   const allItems = useMemo(() => toEntryRecommendations(recommendationItems), [recommendationItems]);
@@ -184,11 +154,8 @@ export function EntryRecommendationBoard() {
   );
   const activeItem = items.find((item) => item.id === activeId) ?? null;
 
-  // 진행 중이면 새 질문을 받지 않는다. CLI 프로세스가 겹쳐 뜨는 것을 막는다.
-  const handleAsk = (question: string) => {
-    if (assistantMutation.isPending) return;
-    setTurns((prev) => [...prev, { id: `u:${prev.length}:${question}`, role: 'user', text: question }]);
-    assistantMutation.mutate(question);
+  const handleAsk = (question: string, launcher: HTMLElement) => {
+    openConversationFromLauncher({ fixedAgentKey: 'sourcing', draft: question }, launcher);
   };
 
   const saveEntrySelection = (itemKey: string, state: 'neutral' | 'selected' | 'removed') => {
@@ -224,7 +191,7 @@ export function EntryRecommendationBoard() {
   };
 
   return (
-    <div className="grid gap-4 xl:h-[calc(100dvh-48px)] xl:grid-cols-[minmax(0,1fr)_340px]">
+    <div className="grid gap-4 xl:h-[calc(100dvh-48px)]">
       <div className="flex min-w-0 flex-col gap-3 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
         <Toolbar
           selectedCount={selectedIds.size}
@@ -269,7 +236,6 @@ export function EntryRecommendationBoard() {
         {activeItem && (
           <EntryRecommendationDetail
             item={activeItem}
-            isAsking={assistantMutation.isPending}
             onClose={() => setActiveId(null)}
             onAsk={handleAsk}
           />
@@ -303,15 +269,6 @@ export function EntryRecommendationBoard() {
         </SourcingReadState>
       </div>
 
-      <SourcingAssistantPanel
-        turns={turns}
-        isBusy={assistantMutation.isPending}
-        // 최신 답변 기준. `find` 로 첫 답변에 고정하면 코퍼스가 갱신돼도 옛 숫자가 남는다.
-        documentCount={
-          [...turns].reverse().find((turn) => turn.answer)?.answer?.documentCount ?? null
-        }
-        onAsk={handleAsk}
-      />
     </div>
   );
 }
@@ -604,15 +561,4 @@ function EmptyState({
       )}
     </div>
   );
-}
-
-/** 어시스턴트에게 넘길 "지금 화면" 요약. 상위 몇 줄만 넣어 프롬프트를 짧게 유지한다. */
-function buildVisibleContext(items: EntryRecommendation[]): string {
-  return items
-    .slice(0, 10)
-    .map(
-      (item) =>
-        `${item.rank}. ${item.title} (키워드 ${item.keyword ?? '-'}, ${item.grade}등급 ${item.score}점, 마진 ${item.estimatedMarginRate ?? '-'}%)`,
-    )
-    .join('\n');
 }

@@ -56,11 +56,124 @@ integration/E2E/scanner 가 이미 보호하는 중복 테스트는 아래
 | `apps/web/src/lib`, `src/components` | shared owner 폴더의 `__tests__/` 선호 | `*.spec.ts` 또는 기존 파일군이 쓰는 `*.test.ts` |
 | `packages/shared/src/` | schema/entrypoint 옆 co-located | `*.spec.ts` |
 | `scripts/` | `scripts/__tests__/` | `*.spec.ts` |
+| Agent interaction cross-process acceptance | `scripts/smoke-interaction-os.mjs` + Agent OS PostgreSQL integration specs | smoke + `*.pg.integration.spec.ts` |
+
+Fresh-clone developer setup is a public repository contract. Keep its dynamic
+helpers under `scripts/__tests__/*.spec.ts` and its cross-file assertions in
+`scripts/__tests__/developer-onboarding-contract.test.mjs`. The contract must
+cover the Node pin, env/Compose agreement, non-overwrite and file permissions,
+local-auth admission, Gateway provider-home isolation, package entrypoints,
+and README/runbook links. Run it without a database or provider login:
+
+```bash
+node --test scripts/__tests__/developer-onboarding-contract.test.mjs
+npm run test:scripts
+```
 
 새 파일은 주변 파일군의 관습을 따른다. 서버와 scripts 는 config 가 명시한
 `*.spec.ts` / `__tests__` 규칙에서 벗어나지 않는다. 웹은 Vitest 기본 include
 때문에 `*.test.ts` 도 실행되지만, 새 테스트는 주변 route 가 이미 `*.test.ts`
 를 쓰는 경우가 아니면 `*.spec.ts` 를 우선한다.
+
+## Agent OS native Gateway boundary
+
+KID-25의 provider-native runtime은 다음 경계를 따로 증명한다.
+
+- `scripts/check-agent-os-contraction.mjs --enforce`는 하나의
+  `CapabilityInvocation` 모델, 정확한 Agent/domain/capability/MCP 수, active
+  credential·secret 비영속, ephemeral Gateway control-state 비영속을 고정한다.
+- `apps/server/src/agent-os` focused tests는 authenticated conversation facade,
+  exact create-ID replay/title-drift conflict, CopilotKit real HTTP
+  `agent/run → agent/connect` completed-event replay, request-key idempotency,
+  stateless MCP `2026-07-28`, owner-domain port dispatch를 검증한다. SQLite
+  adapter/runner tests는 organization namespace, restart, subscriber departure,
+  exact stop, exact deletion을 검증한다. Real PostgreSQL race suite는 같은 입력
+  replay, 다른 입력 conflict, concurrent approval, ambiguous owner 결과를
+  실제 unique/conditional-write 경계에서 증명한다.
+- `apps/agent-gateway` tests는 outbound long-poll/event 계약, provider-native
+  conversation/session continuity, serialized descriptor/preference state,
+  provider-first exact deletion, internal parent-turn cleanup, explicit
+  model/effort, macOS process supervision과 deterministic Windows 계약을
+  다룬다. Provider login과 session continuity는 host account가 소유하며 Nest,
+  DB, worker, 브라우저로 복사하지 않는다. Canonical completed AG-UI history는
+  Gateway가 아니라 API-local SQLite runner 계약으로 별도 검증한다.
+- `apps/web` focused tests는 authenticated route-stable
+  `ConversationProvider`/`RuntimeHost`, Agent OS history versus global chat
+  presentation, and the one `notifications | ai_chat | null`
+  `RightAuxiliaryPanel` state machine을 검증한다. 1536 px 이상 (`2xl`) desktop은
+  정확히 352 px push dock으로 work surface 폭을 줄이고, 768-1535 px tablet은
+  정확히 352 px overlay, 768 px 미만 mobile은 full-width modal drawer를 쓴다.
+  Shared 256/64 sidebar shell, desktop preference continuity, panel/Agent OS
+  shared conversation primitives, focus와 close behavior도 같은 contract에
+  포함한다.
+- Cutover regression tests require retired presentation paths to be absent,
+  including `PanelSheet`, panel-open stores, and duplicate conversation UI.
+  Approved Agent OS tree, narrow-composer/draft-parity, structured response,
+  business-evidence, card, and settings visual contracts remain covered, while
+  `DashboardChartPanel.agent-os-cutover.regression-1.spec.ts` keeps Dashboard
+  Agent OS labels, charts, cards, and actions unchanged.
+- `npm run qa:agent-os:clean-cutover`는 자체 Testcontainer만 대상으로 legacy
+  rows를 버리고 one-model schema를 적용한다. 개발/Office DB, `--force-reset`,
+  검증되지 않은 URL은 거절한다. `--serve-browser-qa`는 내장 deterministic
+  auth/business seed만 실행하며, interactive stdin과 `--email` 또는
+  `KIDITEM_BROWSER_QA_EMAIL`가 없으면 container 시작 전 fail-closed한다.
+
+Normal CI는 live provider login을 요구하지 않는다. macOS executable QA에서는
+host의 기존 Codex login으로 canary와 대화 흐름을 확인한다. Claude live reply와
+Windows native process/ACL/Job Object/Task Scheduler 실행은 현재 명시적 deferred
+항목이며, deterministic contract 검증을 통과했다는 사실과 혼동하지 않는다.
+어떤 QA도 provider credential, installation bearer, prompt, canonical mutation
+input, raw provider payload를 출력하거나 저장하면 안 된다.
+
+### Agent OS business evaluation
+
+`evals/agent-os`는 실제 모델 행동을 평가하는 별도 개발 자산이다. Provider에
+보이는 `agent-config`와 분리하고 production Docker build context에서도 제외한다.
+다만 별도 애플리케이션, durable transcript store, conversation runtime을 만들지는
+않는다.
+
+역할은 다음과 같이 나눈다.
+
+| 자산 | 위치 | 책임 |
+|---|---|---|
+| 자연어 case와 숨겨진 판정 기준 | `evals/agent-os/cases/` | 실제 사용자 요청, 복수 capability 경로, milestone, hard invariant, expected/allowed state change, 위임 대안 |
+| disposable fixture descriptor | `evals/agent-os/fixtures/` | 기존 격리 browser-QA seed profile과 prompt 변수 이름 |
+| evidence contract와 grader | `evals/agent-os/contracts/`, `graders/` | transcript 없이 normalized evidence를 fail-closed 판정 |
+| 실제 격리 DB/app/provider 실행 | `scripts/qa-agent-os-clean-cutover.mjs`와 Dashboard QA | production과 같은 public interaction 경로 실행 |
+| owner correctness | 각 owner domain의 unit/real PostgreSQL integration spec | approval, exact-input admission, idempotency, race, restart 결과 유실 |
+| generated evidence | `.tmp/agent-evals/` | git 비추적 sanitized run 결과 |
+
+모델에는 다음 명령이 렌더링한 `messages`만 전달한다.
+
+```bash
+npm run eval:agent-os -- --validate
+npm run eval:agent-os -- --list
+npm run eval:agent-os -- --prompt <case-id> --var name=value
+npm run eval:agent-os -- --grade .tmp/agent-evals/<run>.json
+npm run test:agent-evals
+```
+
+모델 prompt에 capability 순서, owner request key, canonical input/hash, replay,
+변조 시도를 적지 않는다. 이 항목은 deterministic harness 또는 hidden grader가
+검증한다. Live trial은 정확한 문장이나 한 경로를 맞히는 시험이 아니라 최종
+business outcome과 금지 동작을 판정한다. 판정은 hard safety, business
+completion, delegation correctness, grounded-response diagnostics, 3-trial
+reliability로 분리한다. 모든 hard invariant는 전 trial에서 통과해야 하고
+capability case의 기본 업무 완료 기준은 3회 중 2회다. 응답 Critic/Verifier는
+private reasoning을 보거나 저장하지 않으며 deterministic 실패를 pass로 바꾸지
+못한다. latency, tool/turn/subagent count는 실제 사용자 문제로 budget이 정해지기
+전까지 진단값일 뿐 completion gate가 아니다.
+
+현재 12개 case는 General chat, Sourcing, Merchandising, Supply, Channel
+Operations, Advertising의 여섯 사용자-visible profile을 모두 포함한다. grounded
+read, 승인·거절 mutation, duplicate no-op, scrape 실패, Products 위임, direct
+Merchandising generation, providerless purchase submission, confirmed listing,
+Advertising overview, 일반 no-tool 대화, two-turn/restart를 위험 기준으로
+표본화한다. `expectedDomainDelta` 호환 parser는 두지 않고 milestone과
+expected/allowed state policy로 clean cutover한다. 전체 capability catalog와 MCP
+wire를 각각 live prompt로 반복하지 않는다. 모든 공개 key의
+discovery/invocation 및 strict schema는 catalog/MCP contract test가, owner
+replay·drift·race는 owner integration test가 각각 소유한다.
 
 ## Mock / test double 정책
 
@@ -175,6 +288,57 @@ npm run test:integration -- src/inventory/__tests__/inventory-flow.pg.integratio
 - `supply/__tests__/purchase-order-submission.pg.integration.spec.ts` — locked freshness fence, idempotent attempt creation, ambiguous provider classification, and reconciliation
 
 각 파일은 mock 시뮬레이션 대응 파일(`*.spec.ts`) 과 **공존**한다. Mock 은 fast smoke, real 은 동시성 정확성.
+
+### Agent interaction cross-process acceptance
+
+Final Agent OS에는 generic Task, Attempt, KidItem-owned transcript 또는 browser-owned
+session graph가 없다. `npm run smoke:interaction-os`는 authenticated facade에서
+bounded disposable conversation create의 exact-ID replay와 title-drift `409`,
+preference read/set/read, fresh disposable Conversation의 exact public
+`agent/connect` SSE contract, empty local namespace, exact disposable deletion을
+확인한다. 이 smoke는 completed history를 seed하거나 provider turn을 시작하지
+않으며, empty-array pseudo-history `[]`를 받아들이지 않는다. Caller-supplied Gateway/MCP token을
+받거나 internal MCP endpoint를 호출하지 않는다.
+
+Completed AG-UI history는 `conversation-copilotkit.controller.spec.ts`의 real HTTP
+`agent/run → agent/connect`와 `ConversationSqliteEventHistory`/sqlite-runner
+deterministic specs가 검증한다. 이 deterministic gate들은 authenticated organization namespace,
+completed-event replay, subscriber departure, restart stale-lock, exact stop, exact
+deletion을 검증한다. Runner의 `isRunning`/`stop`은 Nest in-memory active-turn
+authority를 통해 exact provider interrupt를 검증한다. MCP tool 목록, active-turn authority, read invocation,
+approval-pending mutation은 Gateway loopback integration, MCP server tests, 실제
+provider-turn browser QA가 검증한다. Preference traffic은 native serialized state로
+끝나며 PostgreSQL persistence를 뜻하지 않는다. Real PostgreSQL integration specs는
+durable `CapabilityInvocation`, exact-input approval, owner idempotency, Operation,
+organization fence를 독립 Testcontainer에서 검증한다.
+
+Release acceptance는 `npm run qa:agent-os:clean-cutover`의 명시적으로 격리된
+PostgreSQL 17에 compiled API, Operations worker, Web을 부팅하고 native macOS
+Gateway를 별도 host process로 연결한다. 브라우저 QA는 same-origin
+`/api/copilotkit`, SQLite completed-event replay with provider-native session
+continuity, Agent-fixed Sourcing entry, direct read, provider-native delegation,
+approval-triggered deterministic dispatch and same-key replay, Operation card,
+interrupt/restart/no-auto-turn, four-active-turn cap, conversation deletion의
+business-record 비연쇄 삭제, nginx internal-route 404를 확인한 뒤 모든 process와
+QA container를 종료한다.
+
+Authenticated browser QA is a release gate for one runtime across Dashboard,
+work routes, and Agent OS; first-send retry without duplicate streams; global
+chat/history presentation replacement; one right auxiliary surface; and the
+exact 352 px 1536-plus push/768-1535 overlay/mobile-drawer panel contracts. It
+also verifies the shared 256/64 sidebar shell, exact disposable provider
+deletion, focus restoration, clean retired-surface removal, approved Agent OS
+visuals, and the Dashboard regression contract without printing credentials,
+provider payloads, or transcripts.
+
+CopilotKit runner contract tests are the interaction-lifecycle gate: run owns
+the active stream, connect projects authenticated organization-namespaced local
+SQLite completed history plus live events, and Nest's exact in-memory
+active-turn record answers `isRunning` and sends the exact Gateway provider
+interrupt for `stop`. Web tests verify only route-stable presentation and
+first-send coalescing; they must not recreate a second active-turn,
+interrupt-acknowledgement, stale-settlement, or history-reconciliation state
+machine.
 
 ### Tier 3 추가 시 체크리스트
 

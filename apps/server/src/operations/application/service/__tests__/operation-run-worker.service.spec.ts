@@ -104,6 +104,27 @@ afterEach(() => {
 });
 
 describe('OperationRunWorkerService', () => {
+  it('executes the exact expired running run returned by the durable lease claim', async () => {
+    const reclaimed = run('default', 'reclaimed-running');
+    const repository = {
+      expirePastDeadlineRuns: vi.fn().mockResolvedValue(0),
+      cancelExpiredWorkerAttempts: vi.fn().mockResolvedValue(0),
+      claimNextRun: vi.fn(({ resourceClass }: { resourceClass: OperationResourceClass }) =>
+        resourceClass === 'default' ? Promise.resolve(reclaimed) : Promise.resolve(null)),
+    };
+    const executor = { execute: vi.fn().mockResolvedValue(undefined) };
+    const worker = new OperationRunWorkerService(
+      executor as never,
+      repository as never,
+      { resumeTerminalChildren: vi.fn().mockResolvedValue(undefined) } as never,
+      acceptingGate(),
+    );
+
+    await worker.tick();
+
+    expect(executor.execute).toHaveBeenCalledWith(reclaimed);
+  });
+
   it('starts naver work while a claimed playwright attempt remains blocked', async () => {
     const blockedPlaywright = deferred<void>();
     const claimed = new Set<OperationResourceClass>();

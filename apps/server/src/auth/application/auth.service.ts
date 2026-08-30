@@ -1,5 +1,5 @@
 import { Inject, Injectable, NotFoundException, Optional, UnauthorizedException } from '@nestjs/common';
-import type { AuthUserPublic, LoginRequest, LoginResponse } from '@kiditem/shared/auth';
+import type { AuthUserPublic, LoginRequest } from '@kiditem/shared/auth';
 import type { AuthUser } from '../auth.types';
 import {
   createAuthSessionToken,
@@ -24,6 +24,14 @@ export interface AuthenticatedSession {
   authUser: AuthUser;
 }
 
+export interface BrowserLoginResult {
+  session: {
+    token: string;
+    expiresAt: string;
+  };
+  user: AuthUserPublic;
+}
+
 @Injectable()
 export class AuthService {
   private readonly now: () => Date;
@@ -35,7 +43,7 @@ export class AuthService {
     this.now = clock ?? (() => new Date());
   }
 
-  async login(input: LoginRequest): Promise<LoginResponse> {
+  async login(input: LoginRequest): Promise<BrowserLoginResult> {
     const email = normalizeEmail(input.email);
     const user = await this.repository.findUserByEmail(email);
     const passwordMatches = await verifyAuthPassword(input.password, user?.passwordHash);
@@ -56,7 +64,7 @@ export class AuthService {
     return {
       session: { token, expiresAt: expiresAt.toISOString() },
       user: toAuthUserPublic(user),
-    } satisfies LoginResponse;
+    } satisfies BrowserLoginResult;
   }
 
   async authenticateToken(token: string): Promise<AuthenticatedSession | null> {

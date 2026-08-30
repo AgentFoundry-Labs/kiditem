@@ -14,7 +14,7 @@ describe('sourcing extension route security wiring', () => {
       resolve(__dirname, '../../../../../deploy/office/nginx.conf'),
       'utf8',
     );
-    const internalBoundary = nginx.indexOf('location ^~ /api/internal/');
+    const internalBoundary = nginx.indexOf('location ^~ /internal/');
     const apiProxy = nginx.indexOf('location /api/');
     expect(internalBoundary).toBeGreaterThanOrEqual(0);
     expect(nginx.slice(internalBoundary, apiProxy)).toContain('return 404;');

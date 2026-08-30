@@ -74,6 +74,150 @@ afterEach(() => {
 });
 
 describe('OperationAttemptExecutorService', () => {
+  it('keeps graph commit and retried ephemeral purge alive past the ordinary deadline', async () => {
+    const graphCommit = deferred<void>();
+    const repository = {
+      heartbeatRun: vi.fn().mockResolvedValue(run()),
+      transition: vi.fn(),
+      transitionActiveAttempt: vi.fn(),
+    };
+    let finalizationSignal: AbortSignal | undefined;
+    const finalizeEphemeralSuccess = vi.fn()
+      .mockRejectedValueOnce(new Error('purge unavailable'))
+      .mockResolvedValueOnce(undefined);
+    const registry = {
+      getDefinition: vi.fn().mockReturnValue({
+        successPersistence: 'ephemeral_on_success',
+      }),
+      getHandler: vi.fn().mockReturnValue({
+        execute: vi.fn(async (context: {
+          enterEphemeralFinalization(): Promise<{ signal: AbortSignal }>;
+        }) => {
+          const first = await context.enterEphemeralFinalization();
+          const second = await context.enterEphemeralFinalization();
+          finalizationSignal = first.signal;
+          expect(second.signal).toBe(first.signal);
+          await graphCommit.promise;
+          return { kind: 'completed', result: { deleted: true } };
+        }),
+        finalizeEphemeralSuccess,
+      }),
+    };
+    const dispatcher = new OperationDispatcherService(
+      registry as never,
+      repository as never,
+      { waitForChild: vi.fn() } as never,
+    );
+    const executor = new OperationAttemptExecutorService(
+      dispatcher,
+      repository as never,
+      registry as never,
+    );
+
+    const execution = executor.execute(run({
+      operationKey: 'agent-os.delete-session',
+      triggerSource: 'system',
+      executionTimeoutMs: 900_000,
+      deadlineAt: new Date(NOW.getTime() + 900_000),
+    }));
+
+    await vi.waitFor(() => expect(finalizationSignal).toBeDefined());
+    await vi.advanceTimersByTimeAsync(900_000);
+    expect(finalizationSignal?.aborted).toBe(false);
+    graphCommit.resolve();
+    await vi.waitFor(() => expect(finalizeEphemeralSuccess).toHaveBeenCalledOnce());
+    await vi.advanceTimersByTimeAsync(250);
+    await execution;
+
+    expect(finalizeEphemeralSuccess).toHaveBeenCalledTimes(2);
+    expect(repository.heartbeatRun).toHaveBeenCalled();
+    expect(repository.transition).not.toHaveBeenCalledWith(
+      expect.objectContaining({ errorCode: 'operation_deadline_exceeded' }),
+    );
+  });
+
+  it('clears the deadline while an exhausted ephemeral hook keeps retrying', async () => {
+    const repository = {
+      heartbeatRun: vi.fn().mockResolvedValue(run()),
+      transition: vi.fn(),
+      transitionActiveAttempt: vi.fn(),
+    };
+    let finalizationSignal: AbortSignal | undefined;
+    const exhaustRetry = vi.fn(async (context: { signal: AbortSignal }) => {
+      finalizationSignal = context.signal;
+      throw new Error('purge unavailable');
+    });
+    const registry = {
+      getDefinition: vi.fn().mockReturnValue({
+        successPersistence: 'ephemeral_on_success',
+      }),
+      getHandler: vi.fn().mockReturnValue({
+        execute: vi.fn().mockResolvedValue({
+          kind: 'retryable',
+          code: 'STORAGE_DELETE_UNKNOWN',
+          message: 'Deletion storage state is unknown',
+          retryAfterMs: 60_000,
+        }),
+        exhaustRetry,
+      }),
+    };
+    const dispatcher = new OperationDispatcherService(
+      registry as never,
+      repository as never,
+      { waitForChild: vi.fn() } as never,
+    );
+    const executor = new OperationAttemptExecutorService(
+      dispatcher,
+      repository as never,
+      registry as never,
+    );
+
+    const execution = executor.execute(run({
+      operationKey: 'agent-os.delete-session',
+      triggerSource: 'system',
+      attempts: 3,
+      maxAttempts: 3,
+      deadlineAt: new Date(NOW.getTime() + 1_000),
+    }));
+
+    await vi.waitFor(() => expect(exhaustRetry).toHaveBeenCalledOnce());
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(finalizationSignal?.aborted).toBe(false);
+    expect(exhaustRetry).toHaveBeenCalledTimes(5);
+    expect(repository.transition).not.toHaveBeenCalledWith(
+      expect.objectContaining({ errorCode: 'operation_deadline_exceeded' }),
+    );
+
+    executor.abortAll(new Error('operation_attempt_fence_lost'));
+    await execution;
+    expect(repository.transition).not.toHaveBeenCalledWith(
+      expect.objectContaining({ errorCode: 'operation_deadline_exceeded' }),
+    );
+  });
+
+  it('rejects retained operations that request ephemeral finalization', async () => {
+    const dispatcher = {
+      dispatch: vi.fn(async (_run, controls: {
+        enterEphemeralFinalization(): Promise<{ signal: AbortSignal }>;
+      }) => controls.enterEphemeralFinalization()),
+    };
+    const Executor = OperationAttemptExecutorService as unknown as new (
+      dispatcher: unknown,
+      repository: unknown,
+      registry: unknown,
+    ) => OperationAttemptExecutorService;
+    const executor = new Executor(dispatcher, {
+      heartbeatRun: vi.fn(),
+      transition: vi.fn(),
+    }, {
+      getDefinition: vi.fn().mockReturnValue({ successPersistence: 'retained' }),
+    });
+
+    await expect(executor.execute(run())).rejects.toThrow(
+      'operation_ephemeral_finalization_not_allowed',
+    );
+  });
+
   it('renews the attempt lease every lease third while dispatch is active', async () => {
     const dispatch = deferred<void>();
     const repository = {
@@ -392,6 +536,7 @@ describe('OperationAttemptExecutorService', () => {
     };
     const dispatcher = new OperationDispatcherService(
       {
+        getDefinition: vi.fn().mockReturnValue({ successPersistence: 'retained' }),
         getHandler: vi.fn().mockReturnValue({
           execute: vi.fn().mockResolvedValue({
             kind: 'completed',

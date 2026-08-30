@@ -60,6 +60,33 @@ describe('OperationsController', () => {
     });
   });
 
+  it('keeps ephemeral definitions out of the public Operations catalog', () => {
+    const controller = new OperationsController({
+      ...registry,
+      listDefinitions: vi.fn().mockReturnValue([
+        ...registry.listDefinitions(),
+        {
+          key: 'agent-os.delete-session',
+          version: 1,
+          title: 'Delete session',
+          ownerDomain: 'agent-os',
+          engineType: 'server',
+          allowedTriggers: ['system'],
+          scheduleSupported: false,
+          maxAttempts: 3,
+          resourceClass: 'default',
+          executionTimeoutMs: 900_000,
+          successPersistence: 'ephemeral_on_success',
+          inputSchema: z.object({}).strict(),
+        },
+      ] as never),
+    }, makeRunner());
+
+    expect(controller.listDefinitions().items).not.toContainEqual(
+      expect.objectContaining({ key: 'agent-os.delete-session' }),
+    );
+  });
+
   it('rejects organization input from the HTTP body', () => {
     const controller = new OperationsController(registry, makeRunner());
 

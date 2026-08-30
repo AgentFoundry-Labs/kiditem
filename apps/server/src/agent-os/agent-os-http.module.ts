@@ -1,25 +1,10 @@
-import { Module } from '@nestjs/common';
-import { AgentCatalogController } from './adapter/in/http/agent-catalog.controller';
-import { AgentApprovalsController } from './adapter/in/http/agent-approvals.controller';
-import { AgentConversationsController } from './adapter/in/http/agent-conversations.controller';
-import { AgentExecutorController } from './adapter/in/http/agent-executor.controller';
-import { AgentRunObservabilityController } from './adapter/in/http/agent-run-observability.controller';
-import { AgentRunRequestsController } from './adapter/in/http/agent-run-requests.controller';
-import { AgentRunsQueryController } from './adapter/in/http/agent-runs-query.controller';
-import { AgentInlineRunReconciler } from './application/service/agent-inline-run-reconciler.service';
-import { AgentOsModule } from './agent-os.module';
+import { Module } from "@nestjs/common";
+import { AgentOsApiExecutionModule } from "./agent-os-api-execution.module";
+import { CapabilityInvocationController } from './adapter/in/http/interaction/capability-invocation.controller';
 
+/** Same-origin Agent interaction HTTP composition. */
 @Module({
-  imports: [AgentOsModule],
-  controllers: [
-    AgentCatalogController,
-    AgentRunRequestsController,
-    AgentExecutorController,
-    AgentRunsQueryController,
-    AgentRunObservabilityController,
-    AgentApprovalsController,
-    AgentConversationsController,
-  ],
-  providers: [AgentInlineRunReconciler],
+  imports: [AgentOsApiExecutionModule],
+  controllers: [CapabilityInvocationController],
 })
 export class AgentOsHttpModule {}

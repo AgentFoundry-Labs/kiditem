@@ -101,7 +101,7 @@ describe('Sourcing1688ImageSearchService', () => {
           row: {
             offerId: '607635921546',
             sourceKeyword: '유아 우산',
-            sourceUrl: 'https://detail.1688.com/offer/607635921546.html?spm=test',
+            sourceUrl: 'https://detail.1688.com/offer/607635921546.html',
           },
         },
       ],

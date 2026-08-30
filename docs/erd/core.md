@@ -24,7 +24,7 @@
 | Organization | `organizations` | - |
 | OrganizationMembership | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
 | SourceImportRun | `source_import_runs` | Durable provenance and publication fence for Sellpia and channel full-snapshot imports. |
-| User | `users` | human(직원) / agent(AI, agentInstanceId 연결) / system(챗봇). 조직 소속은 OrganizationMembership 이 source of truth. |
+| User | `users` | Human or system account. Organization membership is the source of truth. |
 
 ## Mermaid ER Diagram
 
@@ -290,7 +290,6 @@ erDiagram
     String type
     String team
     String avatarUrl
-    String agentInstanceId FK
     Boolean isActive
     DateTime lastLoginAt
     DateTime createdAt
@@ -369,21 +368,7 @@ erDiagram
 | Organization | organization | referenced by external | Advertising | AdAction |
 | Organization | organization | referenced by external | Advertising | ExecutionWorker |
 | Organization | organization | referenced by external | Advertising | ScrapeTarget |
-| Organization | organization | referenced by external | AgentOS | AgentApprovalRequest |
-| Organization | organization | referenced by external | AgentOS | AgentArtifact |
-| Organization | organization | referenced by external | AgentOS | AgentAuthorizationEvent |
-| Organization | organization | referenced by external | AgentOS | AgentConversation |
-| Organization | organization | referenced by external | AgentOS | AgentCostEvent |
-| Organization | organization | referenced by external | AgentOS | AgentInstance |
-| Organization | organization | referenced by external | AgentOS | AgentInstanceToolPolicy |
-| Organization | organization | referenced by external | AgentOS | AgentMessage |
-| Organization | organization | referenced by external | AgentOS | AgentRun |
-| Organization | organization | referenced by external | AgentOS | AgentRunEvent |
-| Organization | organization | referenced by external | AgentOS | AgentRunRequest |
-| Organization | organization | referenced by external | AgentOS | AgentRuntimeState |
-| Organization | organization | referenced by external | AgentOS | AgentTaskSession |
-| Organization | organization | referenced by external | AgentOS | AgentToolInvocation |
-| Organization | organization | referenced by external | AgentOS | WorkflowTemplate |
+| Organization | organization | referenced by external | AgentOS | CapabilityInvocation |
 | Organization | organization | referenced by external | AI | AiDirectJob |
 | Organization | organization | referenced by external | AI | ContentAsset |
 | Organization | organization | referenced by external | AI | ContentGeneration |
@@ -406,11 +391,13 @@ erDiagram
 | Organization | organization | referenced by external | AI | ThumbnailRegistrationAttempt |
 | Organization | organization | referenced by external | AI | ThumbnailTracking |
 | Organization | organization | referenced by external | AI | ThumbnailTrackingDailySnapshot |
+| Organization | organization | referenced by external | Automation | WorkflowTemplate |
 | Organization | organization | referenced by external | Channels | ChannelAccountDailyKpiSnapshot |
 | Organization | organization | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | Organization | organization | referenced by external | Channels | ChannelListingDailySnapshot |
 | Organization | organization | referenced by external | Channels | ChannelListingDeletionOperation |
 | Organization | organization | referenced by external | Channels | ChannelListingOptionDailySnapshot |
+| Organization | organization | referenced by external | Channels | ChannelRegistrationOwnerIdempotencyReceipt |
 | Organization | organization | referenced by external | Channels | ChannelScrapeChunk |
 | Organization | organization | referenced by external | Channels | ChannelScrapeRun |
 | Organization | organization | referenced by external | Channels | ChannelScrapeSnapshot |
@@ -461,6 +448,7 @@ erDiagram
 | Organization | organization | referenced by external | Sourcing | SourcingInterestTarget |
 | Organization | organization | referenced by external | Sourcing | SourcingKeywordPreference |
 | Organization | organization | referenced by external | Sourcing | SourcingLaunchCandidate |
+| Organization | organization | referenced by external | Sourcing | SourcingOwnerIdempotencyReceipt |
 | Organization | organization | referenced by external | Sourcing | SourcingRecommendationItem |
 | Organization | organization | referenced by external | Sourcing | SourcingRecommendationItemEvidence |
 | Organization | organization | referenced by external | Sourcing | SourcingRecommendationRun |
@@ -491,7 +479,9 @@ erDiagram
 | Organization | organization | referenced by external | System | Alert |
 | Organization | organization | referenced by external | System | BusinessRule |
 | Organization | organization | referenced by external | System | OperationRun |
+| Organization | organization | referenced by external | System | OperationRunCheckpoint |
 | Organization | organization | referenced by external | System | OperationSchedule |
+| Organization | organization | referenced by external | System | RulesEvaluationApplication |
 | Organization | organization | referenced by external | System | SystemSetting |
 | SourceImportRun | lastCompletedImportRun | referenced by external | Inventory | SellpiaInventoryState |
 | SourceImportRun | lastImportRun | referenced by external | Inventory | SellpiaInventorySku |
@@ -503,13 +493,11 @@ erDiagram
 | User | activeSyncOwner | referenced by external | Inventory | SellpiaInventoryState |
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
 | User | actorUser | referenced by external | System | Alert |
-| User | agentInstance | references external | AgentOS | AgentInstance |
+| User | approvalDecidedByUser | referenced by external | AgentOS | CapabilityInvocation |
 | User | approvedByUser | referenced by external | AI | ProductPreparation |
-| User | approver | referenced by external | AgentOS | AgentApprovalRequest |
 | User | assigneeUser | referenced by external | System | ActionTask |
 | User | claimedBy | referenced by external | AI | DetailPageImageRenderIntent |
 | User | confirmer | referenced by external | Supply | RocketPurchaseConfirmation |
-| User | createdBy | referenced by external | AgentOS | AgentConversation |
 | User | createdBy | referenced by external | AI | DetailPageImageArtifact |
 | User | createdBy | referenced by external | System | OperationSchedule |
 | User | createdByUser | referenced by external | AI | ContentAsset |
@@ -520,15 +508,11 @@ erDiagram
 | User | createdByUser | referenced by external | AI | ProductPreparation |
 | User | createdByUser | referenced by external | Sourcing | SourcingLaunchCandidate |
 | User | creator | referenced by external | Orders | SellpiaOrderTransmissionIntent |
-| User | decidedBy | referenced by external | AgentOS | AgentApprovalRequest |
-| User | decidedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
+| User | initiatingUser | referenced by external | AgentOS | CapabilityInvocation |
 | User | reconciler | referenced by external | Orders | SellpiaOrderTransmissionIntentReconciliation |
 | User | reconciler | referenced by external | Supply | PurchaseOrderSubmissionAttempt |
 | User | rejectedByUser | referenced by external | Sourcing | SourcingCandidate |
 | User | releaser | referenced by external | Supply | RocketPurchaseConfirmation |
-| User | requestedBy | referenced by external | AgentOS | AgentApprovalRequest |
-| User | requestedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
-| User | requestedBy | referenced by external | AgentOS | AgentRunRequest |
 | User | requestedBy | referenced by external | AI | DetailPageImageRenderIntent |
 | User | requestedBy | referenced by external | Sourcing | SourcingReviewBatch |
 | User | requestedBy | referenced by external | System | OperationRun |
@@ -537,8 +521,8 @@ erDiagram
 | User | requestedByUser | referenced by external | Sourcing | SourcingDecisionBatch |
 | User | requestedByUser | referenced by external | Supply | ProcurementTestIntent |
 | User | reviewedByUser | referenced by external | Supply | ProcurementTestIntent |
-| User | triggeredByUser | referenced by external | AgentOS | WorkflowRun |
 | User | triggeredByUser | referenced by external | AI | ContentGeneration |
 | User | triggeredByUser | referenced by external | AI | ThumbnailGeneration |
+| User | triggeredByUser | referenced by external | Automation | WorkflowRun |
 | User | triggeredByUser | referenced by external | Sourcing | SourcingCandidate |
 | User | triggeredByUser | referenced by external | Sourcing | SourcingEvidenceIngestionRun |

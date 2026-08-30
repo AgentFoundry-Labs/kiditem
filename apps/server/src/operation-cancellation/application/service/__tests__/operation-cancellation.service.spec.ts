@@ -49,28 +49,6 @@ function makeService() {
     cancelRun: vi.fn().mockResolvedValue({
       status: 'cancelled',
       workflowRunId: 'wf-run-1',
-      cancelledAgentRunRequests: 1,
-      cancelledAgentRuns: 0,
-    }),
-  };
-  const agentRunner = {
-    cancelRequest: vi.fn().mockResolvedValue({
-      cancelledRequests: 1,
-      cancelledRuns: 0,
-      skippedRequests: 0,
-      skippedRuns: 0,
-    }),
-    cancelRun: vi.fn().mockResolvedValue({
-      cancelledRequests: 1,
-      cancelledRuns: 1,
-      skippedRequests: 0,
-      skippedRuns: 0,
-    }),
-    cancelByWorkflowRun: vi.fn().mockResolvedValue({
-      cancelledRequests: 1,
-      cancelledRuns: 0,
-      skippedRequests: 0,
-      skippedRuns: 0,
     }),
   };
   const ai = {
@@ -96,12 +74,10 @@ function makeService() {
   return {
     operationAlerts,
     workflows,
-    agentRunner,
     ai,
     service: new OperationCancellationService(
       operationAlerts as never,
       workflows as never,
-      agentRunner as never,
       ai as never,
     ),
   };
@@ -151,8 +127,6 @@ describe('OperationCancellationService', () => {
             },
             affected: {
               workflowRunIds: [],
-              agentRunRequestIds: [],
-              agentRunIds: [],
               contentGenerationIds: ['cg-1'],
               thumbnailGenerationIds: ['tg-1'],
               directAiJobIds: [],
@@ -265,7 +239,7 @@ describe('OperationCancellationService', () => {
     ).rejects.toThrow(NotFoundException);
   });
 
-  it('cancels workflow target and linked agent requests', async () => {
+  it('cancels workflow targets without generic AgentRun cancellation counts', async () => {
     const { service, workflows } = makeService();
 
     const result = await service.cancel({
@@ -281,7 +255,6 @@ describe('OperationCancellationService', () => {
       reason: '사용자 요청으로 중단되었습니다.',
     });
     expect(result.affected.workflowRunIds).toEqual(['wf-run-1']);
-    expect(result.affected.agentRunRequestIds).toEqual([]);
-    expect(result.warnings).toContain('Linked Agent OS requests cancelled: 1');
+    expect(result.warnings).toEqual([]);
   });
 });

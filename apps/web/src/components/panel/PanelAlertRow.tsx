@@ -81,7 +81,6 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
-  const setPanelOpen = usePanelStore((s) => s.setOpen);
   const dismissItem = usePanelStore((s) => s.dismissItem);
   const upsertItem = usePanelStore((s) => s.upsertItem);
 
@@ -263,7 +262,6 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
                   className="inline-flex items-center gap-0.5 text-xs text-purple-600 hover:underline"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setPanelOpen(false);
                   }}
                 >
                   <span>이동</span>

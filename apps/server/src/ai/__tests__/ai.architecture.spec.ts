@@ -33,6 +33,9 @@ const PR2B_ADAPTER_IMPORT_DEBT: string[] = [];
 const ALLOWED_PRISMA_PREFIXES = [
   aiRel('adapter/out/direct-output') + path.sep,
   aiRel('adapter/out/repository') + path.sep,
+  // Transactional advisory locking is an outbound persistence adapter, not
+  // application Prisma access.
+  aiRel('adapter/out/transaction') + path.sep,
 ];
 
 const PRISMA_ALLOWLIST = new Set([

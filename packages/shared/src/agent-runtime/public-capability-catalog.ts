@@ -1,0 +1,27 @@
+/**
+ * Stable capability names that may be included in Gateway tool-status events.
+ * This is deliberately a key-only runtime contract, not a business capability
+ * definition or invocation authority.
+ */
+export const PUBLIC_CAPABILITY_CATALOG_KEYS = Object.freeze([
+  'analytics.readOverview',
+  'channels.register_confirmed_listing',
+  'channels.submit_coupang_listing',
+  'channels.submit_wing_thumbnail',
+  'products.create_listing_generation_package',
+  'sourcing.collect_shadow_signals',
+  'sourcing.createReviewBatch',
+  'sourcing.duplicateCheck',
+  'sourcing.ingestCandidate',
+  'sourcing.inspectRecommendationRun',
+  'sourcing.refreshCollection',
+  'sourcing.refreshValidation',
+  'sourcing.retrieveWorkspaceEvidence',
+  'sourcing.scrapeProductUrl',
+  'sourcing.scrapeUrlWorkflow',
+  'supply.create_purchase_order_draft',
+  'supply.submit_purchase_order',
+] as const);
+
+export type PublicCapabilityCatalogKey =
+  (typeof PUBLIC_CAPABILITY_CATALOG_KEYS)[number];

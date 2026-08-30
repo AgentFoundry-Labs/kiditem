@@ -6,6 +6,7 @@ import {
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
+  TEST_USER_ID,
 } from '../../../../../test-helpers/real-prisma';
 import { OperationRepositoryAdapter } from '../operation.repository.adapter';
 import type { PrismaClient } from '@prisma/client';
@@ -179,6 +180,52 @@ describe('operation composite repository PostgreSQL fencing', () => {
       where: { id: runId },
       select: { status: true, attemptToken: true },
     })).resolves.toEqual({ status: 'waiting_dependency', attemptToken: null });
+  });
+
+  it('rejects a composite child replay when its immutable definition or input drifts', async () => {
+    const runId = randomUUID();
+    const attemptToken = randomUUID();
+    await createRunningParent(locker, {
+      runId,
+      attemptToken,
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+      deadlineAt: new Date(Date.now() + 60_000),
+    });
+    const repository = new OperationRepositoryAdapter(
+      updater as unknown as PrismaService,
+    );
+    const child = childInput(TEST_ORGANIZATION_ID, runId);
+    await expect(repository.createChildAndWaitForDependency({
+      signal: new AbortController().signal,
+      parentOrganizationId: TEST_ORGANIZATION_ID,
+      parentRunId: runId,
+      expectedAttemptToken: attemptToken,
+      child,
+    })).resolves.not.toBeNull();
+    const replayAttemptToken = randomUUID();
+    await locker.operationRun.update({
+      where: { id: runId },
+      data: {
+        status: 'running',
+        attemptToken: replayAttemptToken,
+        claimedBy: 'operations:integration-test',
+        claimedAt: new Date(),
+        leaseExpiresAt: new Date(Date.now() + 60_000),
+        deadlineAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    await expect(repository.createChildAndWaitForDependency({
+      signal: new AbortController().signal,
+      parentOrganizationId: TEST_ORGANIZATION_ID,
+      parentRunId: runId,
+      expectedAttemptToken: replayAttemptToken,
+      child: {
+        ...child,
+        title: 'drifted composite child definition',
+        input: { drifted: true },
+      },
+    })).rejects.toThrow('operation_composite_child_scope_invalid');
   });
 
   it('atomically creates one exact set of plural children under concurrent duplicate requests', async () => {

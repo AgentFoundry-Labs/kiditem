@@ -147,9 +147,13 @@ describe('ProcurementRepositoryAdapter', () => {
     expect(prisma.purchaseOrder.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          organizationId: 'organization-1',
+          organization: { connect: { id: 'organization-1' } },
           supplierName: 'Supplier A',
-          supplierId: 'supplier-1',
+          supplier: {
+            connect: {
+              id_organizationId: { id: 'supplier-1', organizationId: 'organization-1' },
+            },
+          },
           totalAmountCny: 6,
           status: 'draft',
         }),

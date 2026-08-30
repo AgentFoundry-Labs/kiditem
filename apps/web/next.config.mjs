@@ -13,7 +13,9 @@ const backendBase = stripTrailingSlash(
 const proxyAllApi = process.env.KIDITEM_PROXY_ALL_API === 'true';
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 
-const nextConfig = {
+function createNextConfig() {
+  return {
+  allowedDevOrigins: ['127.0.0.1'],
   output: 'standalone',
   transpilePackages: ['@kiditem/templates'],
   images: {
@@ -41,22 +43,24 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: ['lucide-react', 'recharts'],
     turbopackFileSystemCacheForDev: false,
+    // Match the Office API proxy: CopilotKit SSE runs may have long model/tool
+    // intervals, but still retain a bounded transport lifetime.
+    proxyTimeout: 3_600_000,
   },
-  // CopilotKit browser runtime calls only same-origin `/api/chat/copilot`.
-  // Next forwards both the exact path (CopilotKit POST entry) and any
-  // sub-path (Hono router `/info`, etc.) to the Nest chat runtime. No API
+  // CopilotKit browser runtime calls only same-origin `/api/copilotkit`.
+  // Next forwards it to the ordinary Nest API origin. No API
   // Route/Route Handler is added — `apps/web/AGENTS.md` keeps the No API
   // Routes rule; AI chat is the bounded transport exception, implemented
   // purely as a rewrite.
   async rewrites() {
     return [
       {
-        source: '/api/chat/copilot',
-        destination: `${backendBase}/api/chat/copilot`,
+        source: '/api/copilotkit',
+        destination: `${backendBase}/api/copilotkit`,
       },
       {
-        source: '/api/chat/copilot/:path*',
-        destination: `${backendBase}/api/chat/copilot/:path*`,
+        source: '/api/copilotkit/:path*',
+        destination: `${backendBase}/api/copilotkit/:path*`,
       },
       ...(proxyAllApi
         ? [
@@ -68,6 +72,7 @@ const nextConfig = {
         : []),
     ];
   },
-};
+  };
+}
 
-export default nextConfig;
+export default createNextConfig;

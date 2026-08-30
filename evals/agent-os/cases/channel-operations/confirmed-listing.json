@@ -1,0 +1,48 @@
+{
+  "id": "channel-operations.confirmed-listing.v1",
+  "suite": "capability",
+  "fixtureId": "channels.confirmed-listing.v1",
+  "messages": [
+    {
+      "id": "initial",
+      "promptTemplate": "외부 등록이 확인된 상품을 KidItem 판매 상품에 반영해 주세요. 등록 실행 {{registrationExecutionRef}}, 준비 자료 {{preparationRef}}, 외부 상품 식별자 {{externalListingRef}}를 사용해 주세요. 판매자 식별자 {{wingVendorRef}}는 등록 확인 URL의 vendorId에서 확인한 값입니다. 실제 반영 전에는 제 확인을 받아 주세요."
+    }
+  ],
+  "target": {
+    "agentKey": "channel_operations",
+    "provider": "codex",
+    "model": "gpt-5.6-terra",
+    "effort": "max"
+  },
+  "trials": 3,
+  "userBehavior": {
+    "approval": "approve_when_requested"
+  },
+  "harness": {
+    "restartAfterMessageIds": []
+  },
+  "grading": {
+    "minimumNormalCompletions": 2,
+    "hardInvariants": [
+      "organization_isolation",
+      "approval_before_write",
+      "no_fabricated_canonical_input",
+      "no_duplicate_write"
+    ],
+    "capabilityAlternatives": [
+      ["channels.register_confirmed_listing"]
+    ],
+    "requiredMilestones": [
+      "approval_requested",
+      "owner_mutation_committed"
+    ],
+    "statePolicy": {
+      "expectedChanges": {
+        "channelListings": 1
+      },
+      "allowedChanges": ["channelListings"]
+    },
+    "delegationAlternatives": [[]],
+    "responseCriteria": ["reports_final_mutation_outcome"]
+  }
+}

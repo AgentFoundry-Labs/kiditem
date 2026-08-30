@@ -1,5 +1,10 @@
 # Sourcing Long-Running Operations Implementation Plan
 
+> Superseded as an executable KID-25 plan (2026-08-23). Do not resume tasks from
+> this plan. Completed deterministic Operations contracts are reference-only;
+> use the
+> [KID-25 Agent OS Clean Contraction Design](../specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Bind every `OperationRun` to the single API process lifecycle, then move every long-running sourcing collection or derived-snapshot action onto that fail-closed control plane with isolated resource classes and snapshot-first UI.
@@ -29,7 +34,10 @@
   bump and no data migration
 - Approved lifecycle policy: no run deletion, requeue, attempt decrement,
   reclaim, resume, or automatic restart across an API process boundary;
-  operator retry creates a new `OperationRun`
+  operator retry creates a new `OperationRun`. KID-25's official durable
+  AgentOS runtime is the narrow exception: after `ACCEPTING`, it atomically
+  creates a new immutable OperationRun binding for the same persisted external
+  attempt/handle; it never reactivates or rewrites the lifecycle-cancelled row.
 - Supported deployment: exactly one API process; replica overlap and rolling
   API replacement remain prohibited until a persisted lifecycle-generation
   design is approved

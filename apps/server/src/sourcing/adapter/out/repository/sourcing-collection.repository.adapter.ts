@@ -4,6 +4,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
 import type { ActiveOperationAttemptTransaction } from '../../../../operations/application/port/active-browser-attempt-transaction';
 import { isAllowedSourcingCollectionSource } from '../../../domain/sourcing-collection-source-policy';
+import { sourcingCandidateIdentityLockKey } from '../../../domain/sourcing-candidate-identity';
 import {
   isActiveCollectionStatus,
   terminalStatusForCollectionError,
@@ -871,10 +872,7 @@ async function persistExtensionCandidateProjection(
   tx: Transaction,
   row: SourcingExtensionCandidateProjection,
 ): Promise<'accepted' | 'duplicate' | 'stale'> {
-  await lockTypedIdentity(
-    tx,
-    `extension-candidate:${row.organizationId}:${row.sourcePlatform}:${row.sourceIdentityHash}`,
-  );
+  await advisoryLock(tx, sourcingCandidateIdentityLockKey(row));
   if (row.pageType === 'description') {
     const existing = await tx.sourcingCandidate.findFirst({
       where: {

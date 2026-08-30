@@ -70,6 +70,10 @@ export interface SourcingValidationRepositoryPort {
   replaceForRun(command: {
     organizationId: string;
     recommendationRunId: string;
+    /** Agent capability path uses this exact owner key for a DB transaction fence. */
+    idempotencyKey?: string;
+    /** Exact canonical input hash paired with an Agent owner key. */
+    requestHash?: string;
     episodes: SourcingValidationEpisodeWrite[];
   }): Promise<SourcingValidationItemRecord[]>;
 

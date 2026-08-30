@@ -15,16 +15,6 @@ export interface BuildCancelOperationResultInput {
   warnings?: string[];
 }
 
-export interface LinkedAgentCancellationCounts {
-  cancelledAgentRunRequests: number;
-  cancelledAgentRuns: number;
-}
-
-export interface AgentCancellationCounts {
-  cancelledRequests: number;
-  cancelledRuns: number;
-}
-
 export function buildCancelOperationResult(
   input: BuildCancelOperationResultInput,
 ): CancelOperationResult {
@@ -37,31 +27,4 @@ export function buildCancelOperationResult(
     preserved: input.preserved ?? emptyPreserved(),
     warnings: input.warnings ?? [],
   };
-}
-
-export function linkedAgentCancellationWarnings(
-  result: LinkedAgentCancellationCounts,
-): string[] {
-  const warnings: string[] = [];
-  if (result.cancelledAgentRunRequests > 0) {
-    warnings.push(linkedAgentRequestsWarning(result.cancelledAgentRunRequests));
-  }
-  if (result.cancelledAgentRuns > 0) {
-    warnings.push(linkedAgentRunsWarning(result.cancelledAgentRuns));
-  }
-  return warnings;
-}
-
-export function linkedAgentRequestsWarning(count: number): string {
-  return `Linked Agent OS requests cancelled: ${count}`;
-}
-
-export function linkedAgentRunsWarning(count: number): string {
-  return `Linked Agent OS runs cancelled: ${count}`;
-}
-
-export function agentCancellationWasApplied(
-  result: AgentCancellationCounts | undefined,
-): boolean {
-  return result ? result.cancelledRequests + result.cancelledRuns > 0 : false;
 }

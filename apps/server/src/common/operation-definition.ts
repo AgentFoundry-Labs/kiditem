@@ -17,6 +17,7 @@ export interface OperationDefinition {
   resourceClass: OperationResourceClass;
   executionTimeoutMs: number;
   inputSchema: z.ZodType<Record<string, unknown>>;
+  successPersistence?: 'retained' | 'ephemeral_on_success';
 }
 
 export interface OperationHandlerContext {
@@ -30,11 +31,14 @@ export interface OperationHandlerContext {
   parentRunId: string | null;
   attemptToken: string;
   signal: AbortSignal;
+  attempts: number;
+  maxAttempts: number;
   checkpoint(update?: {
     stage?: string;
     progressCurrent?: number;
     progressTotal?: number;
   }): Promise<void>;
+  enterEphemeralFinalization(): Promise<{ signal: AbortSignal }>;
 }
 
 export interface OperationCancelContext {
@@ -58,9 +62,27 @@ export type OperationHandlerResult =
   | { kind: 'waiting_dependency'; child: StartChildOperation }
   | { kind: 'waiting_dependencies'; children: StartChildOperation[] }
   | { kind: 'attention_required'; reason: string; result: Record<string, unknown> }
-  | { kind: 'failed'; code: string; message: string };
+  | { kind: 'cancelled'; result: Record<string, unknown> }
+  | { kind: 'failed'; code: string; message: string }
+  | {
+      kind: 'retryable';
+      code: string;
+      message: string;
+      retryAfterMs: number;
+    };
 
 export interface OperationHandler {
   execute(context: OperationHandlerContext): Promise<OperationHandlerResult>;
   cancel?(context: OperationCancelContext): Promise<void>;
+  fenceExternalAuthority?(
+    context: OperationCancelContext,
+  ): Promise<'fenced' | 'unknown'>;
+  finalizeEphemeralSuccess?(
+    context: OperationHandlerContext,
+    result: Record<string, unknown>,
+  ): Promise<void>;
+  exhaustRetry?(
+    context: OperationHandlerContext,
+    failure: { code: string; message: string },
+  ): Promise<void>;
 }

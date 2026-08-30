@@ -32,7 +32,6 @@ import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import { detectExtensionId } from '@/lib/extension-bridge';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { runReadinessExtensionCollection } from '@/components/readiness/readiness-extension-collection';
-import { useAuthSession } from '@/components/providers/AuthProvider';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber, formatDateTime } from '@/lib/utils';
 import { friendlyError } from '@/lib/api-error';
@@ -49,7 +48,6 @@ import { DashboardGradeCards } from './components/DashboardGradeCards';
 
 export default function Dashboard() {
   const queryClient = useQueryClient();
-  const { session: authSession } = useAuthSession();
 
   const [showProfitDetail, setShowProfitDetail] = useState(false);
   const [kpiRange, setKpiRange] = useState<'month' | 'week' | 'day' | 'custom'>('month');
@@ -196,7 +194,6 @@ export default function Dashboard() {
         producer: 'dashboard.wing_sales',
         extensionId,
         runId: await issueBrowserCollectionRunId(),
-      accessToken: authSession?.token,
       });
       if (session.status === 'succeeded') {
         toast.success('Wing 매출·트래픽 수집이 완료되었습니다.');
@@ -208,7 +205,6 @@ export default function Dashboard() {
       toast.error(error instanceof Error ? error.message : 'Wing 트래픽 수집 실패');
     });
   }, [
-    authSession?.token,
     queryClient,
     salesBaseline?.trafficKpi?.needsScrape,
     salesBaseline?.effectivePeriod?.revenueSource,

@@ -91,19 +91,55 @@ export async function createFencedCompositeChildren(
       const children: ChildRunIdentity[] = [];
       for (const [index, childInput] of input.children.entries()) {
         input.signal.throwIfAborted();
-        let child = await transaction.operationRun.findFirst({
+        const existingChild = await transaction.operationRun.findFirst({
           where: {
             organizationId: childInput.organizationId,
             operationKey: childInput.operationKey,
             idempotencyKey: childInput.idempotencyKey,
           },
-          select: { id: true, organizationId: true, parentRunId: true },
+          select: {
+            id: true,
+            organizationId: true,
+            operationKey: true,
+            definitionVersion: true,
+            ownerDomain: true,
+            title: true,
+            engineType: true,
+            resourceClass: true,
+            executionTimeoutMs: true,
+            triggerSource: true,
+            requestedByUserId: true,
+            parentRunId: true,
+            scheduleId: true,
+            idempotencyKey: true,
+            input: true,
+            maxAttempts: true,
+            scheduledFor: true,
+          },
         });
-        if (child && child.parentRunId !== input.parentRunId) {
+        if (existingChild && (
+          existingChild.organizationId !== childInput.organizationId ||
+          existingChild.operationKey !== childInput.operationKey ||
+          existingChild.definitionVersion !== childInput.definitionVersion ||
+          existingChild.ownerDomain !== childInput.ownerDomain ||
+          existingChild.title !== childInput.title ||
+          existingChild.engineType !== childInput.engineType ||
+          existingChild.resourceClass !== childInput.resourceClass ||
+          existingChild.executionTimeoutMs !== executionTimeouts[index] ||
+          existingChild.triggerSource !== childInput.triggerSource ||
+          existingChild.requestedByUserId !== childInput.requestedByUserId ||
+          existingChild.parentRunId !== childInput.parentRunId ||
+          existingChild.scheduleId !== childInput.scheduleId ||
+          existingChild.idempotencyKey !== childInput.idempotencyKey ||
+          existingChild.maxAttempts !== childInput.maxAttempts ||
+          existingChild.scheduledFor?.getTime() !== childInput.scheduledFor?.getTime() ||
+          !sameJson(existingChild.input, childInput.input)
+        )) {
           throw new Error('operation_composite_child_scope_invalid');
         }
         input.signal.throwIfAborted();
-        child ??= await transaction.operationRun.create({
+        const created = existingChild === null
+          ? await transaction.operationRun.create({
           data: {
             organizationId: childInput.organizationId,
             operationKey: childInput.operationKey,
@@ -123,7 +159,10 @@ export async function createFencedCompositeChildren(
             scheduledFor: childInput.scheduledFor,
           },
           select: { id: true, organizationId: true, parentRunId: true },
-        });
+          })
+          : null;
+        const child = existingChild ?? created;
+        if (!child) throw new Error('operation_composite_child_missing');
         children.push({ runId: child.id, organizationId: child.organizationId });
       }
 
@@ -286,4 +325,22 @@ function validateChildrenScope(input: {
     operationKeys.add(child.operationKey);
     idempotencyKeys.add(child.idempotencyKey);
   }
+}
+
+function sameJson(left: Prisma.JsonValue, right: Record<string, unknown>): boolean {
+  return canonicalJson(left) === canonicalJson(right);
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalJson(item)).join(',')}]`;
+  }
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
 }

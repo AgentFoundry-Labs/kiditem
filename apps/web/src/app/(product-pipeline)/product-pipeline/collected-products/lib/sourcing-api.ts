@@ -1,5 +1,6 @@
 import { apiClient } from '@/lib/api-client';
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
+import type { OperationRunName } from '@kiditem/shared/identifiers';
 import {
   CreateProductPreparationInputSchema,
   ProductPreparationCommandResultSchema,
@@ -209,7 +210,7 @@ export interface ScrapeUrlResponse {
   message: string;
   product_id: string | null;
   skipped?: boolean;
-  taskId?: string | null;
+  operation?: OperationRunName | null;
   candidateId?: string | null;
   href?: string | null;
 }
@@ -643,11 +644,8 @@ export const productsApi = {
     id: string,
     opts?: { generation_mode?: string }
   ): Promise<{ ok: boolean; message: string }> {
-    await apiClient.post<{ ok: boolean }>('/api/agent-os/runs', {
-      agentType: 'content',
-      sourceType: 'sourcing',
-      sourceId: id,
-      payload: { productId: id, ...(opts || {}) },
+    await apiClient.post<{ ok: boolean }>(`/api/sourcing/candidates/${id}/quick-process`, {
+      task: opts?.generation_mode === 'image' ? 'thumbnail' : opts?.generation_mode === 'draft' ? 'detail' : 'all',
     });
     return { ok: true, message: 'AI 가공 작업이 시작되었습니다.' };
   },

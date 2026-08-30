@@ -48,6 +48,36 @@ vi.mock('@aws-sdk/client-s3', () => ({
       Object.assign(this, args);
     }
   },
+  CreateMultipartUploadCommand: class MockCreateMultipartUploadCommand {
+    __type = 'CreateMultipartUpload';
+    constructor(args: Record<string, unknown>) {
+      Object.assign(this, args);
+    }
+  },
+  UploadPartCommand: class MockUploadPartCommand {
+    __type = 'UploadPart';
+    constructor(args: Record<string, unknown>) {
+      Object.assign(this, args);
+    }
+  },
+  CompleteMultipartUploadCommand: class MockCompleteMultipartUploadCommand {
+    __type = 'CompleteMultipartUpload';
+    constructor(args: Record<string, unknown>) {
+      Object.assign(this, args);
+    }
+  },
+  AbortMultipartUploadCommand: class MockAbortMultipartUploadCommand {
+    __type = 'AbortMultipartUpload';
+    constructor(args: Record<string, unknown>) {
+      Object.assign(this, args);
+    }
+  },
+  ListMultipartUploadsCommand: class MockListMultipartUploadsCommand {
+    __type = 'ListMultipartUploads';
+    constructor(args: Record<string, unknown>) {
+      Object.assign(this, args);
+    }
+  },
 }));
 
 vi.mock('@aws-sdk/s3-request-presigner', () => ({
@@ -176,6 +206,123 @@ describe('StorageService', () => {
       expect(cmd.__type).toBe('DeleteObject');
       expect(cmd.Bucket).toBe('kiditem');
       expect(cmd.Key).toBe('images/a.png');
+    });
+  });
+
+  describe('listExactMultipartUploads', () => {
+    it('paginates every exact-key upload and excludes a prefix sibling', async () => {
+      mockSend
+        .mockResolvedValueOnce({
+          IsTruncated: true,
+          NextKeyMarker: 'agent-artifacts/org/session/artifact',
+          NextUploadIdMarker: 'upload-1',
+          Uploads: [
+            { Key: 'agent-artifacts/org/session/artifact', UploadId: 'upload-1' },
+            { Key: 'agent-artifacts/org/session/artifact-sibling', UploadId: 'sibling' },
+          ],
+        })
+        .mockResolvedValueOnce({
+          IsTruncated: false,
+          Uploads: [
+            { Key: 'agent-artifacts/org/session/artifact', UploadId: 'upload-2' },
+          ],
+        });
+      const service = new StorageService();
+
+      await expect(
+        service.listExactMultipartUploads(
+          'agent-artifacts/org/session/artifact',
+          AbortSignal.timeout(1_000),
+        ),
+      ).resolves.toEqual([
+        { key: 'agent-artifacts/org/session/artifact', uploadId: 'upload-1' },
+        { key: 'agent-artifacts/org/session/artifact', uploadId: 'upload-2' },
+      ]);
+      expect(mockSend.mock.calls.map(([command]) => command)).toEqual([
+        expect.objectContaining({
+          __type: 'ListMultipartUploads',
+          Prefix: 'agent-artifacts/org/session/artifact',
+        }),
+        expect.objectContaining({
+          __type: 'ListMultipartUploads',
+          Prefix: 'agent-artifacts/org/session/artifact',
+          KeyMarker: 'agent-artifacts/org/session/artifact',
+          UploadIdMarker: 'upload-1',
+        }),
+      ]);
+    });
+  });
+
+  describe('verifyOwnedObjectSha256', () => {
+    it('reads the bounded exact key and rejects a completed object with a corrupt digest', async () => {
+      const bytes = Buffer.from('corrupt');
+      mockSend
+        .mockResolvedValueOnce({ ContentLength: bytes.byteLength })
+        .mockResolvedValueOnce({
+          Body: { transformToByteArray: async () => bytes },
+        });
+      const service = new StorageService();
+
+      await expect(service.verifyOwnedObjectSha256({
+        key: 'agent-artifacts/org/session/artifact',
+        expectedSha256: 'a'.repeat(64),
+        expectedByteLength: bytes.byteLength,
+        maxByteLength: 16 * 1024 * 1024,
+        signal: AbortSignal.timeout(1_000),
+      })).rejects.toThrow('STORAGE_OBJECT_SHA256_MISMATCH');
+      expect(mockSend.mock.calls.map(([command]) => command.__type)).toEqual([
+        'HeadObject',
+        'GetObject',
+      ]);
+    });
+
+    it('bounds the verification read even when a replaced object grows after HEAD', async () => {
+      const headBytes = Buffer.from('exact');
+      const overflowBytes = Buffer.alloc(17, 1);
+      mockSend
+        .mockResolvedValueOnce({ ContentLength: headBytes.byteLength })
+        .mockResolvedValueOnce({
+          Body: { transformToByteArray: async () => overflowBytes },
+        });
+      const service = new StorageService();
+
+      await expect(service.verifyOwnedObjectSha256({
+        key: 'agent-artifacts/org/session/artifact',
+        expectedSha256: 'a'.repeat(64),
+        expectedByteLength: headBytes.byteLength,
+        maxByteLength: 16,
+        signal: AbortSignal.timeout(1_000),
+      })).rejects.toThrow('STORAGE_OBJECT_LENGTH_MISMATCH');
+      expect(mockSend.mock.calls[1][0]).toMatchObject({
+        __type: 'GetObject',
+        Range: 'bytes=0-16',
+      });
+    });
+  });
+
+  describe('conditional multipart completion capability', () => {
+    it('sends IfNoneMatch on every owned multipart completion', async () => {
+      mockSend
+        .mockResolvedValueOnce({ ETag: 'part-etag' })
+        .mockResolvedValueOnce({});
+      const service = new StorageService();
+
+      await service.uploadAndCompleteMultipart({
+        key: 'agent-artifacts/org/session/artifact',
+        uploadId: 'upload-1',
+        bytes: new Uint8Array([1]),
+        signal: AbortSignal.timeout(1_000),
+      });
+
+      expect(mockSend.mock.calls[1][0]).toMatchObject({
+        __type: 'CompleteMultipartUpload',
+        IfNoneMatch: '*',
+      });
+    });
+
+    it('keeps deletion cleanup unsupported until a provider-specific proof exists', () => {
+      const service = new StorageService();
+      expect(service.multipartCleanupCapability()).toBe('unsupported');
     });
   });
 

@@ -1,10 +1,8 @@
 import { Module } from '@nestjs/common';
-import { AgentOsModule } from '../agent-os/agent-os.module';
-import { AgentApiShadowCapabilityGrantGuard } from '../agent-os/adapter/in/http/agent-api-shadow-capability-grant.guard';
+import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
 import { OperationsModule } from '../operations/operations.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { MarketShadowSignalCapabilityAdapter } from './adapter/in/agent/market-shadow-signal-capability.adapter';
-import { InternalMarketShadowOperationController } from './adapter/in/http/internal-market-shadow-operation.controller';
 import { SourcingShadowSignalOperationHandler } from './adapter/in/operation/sourcing-shadow-signal.operation-handler';
 import { GoogleTrendsRssAdapter } from './adapter/out/google-trends/google-trends-rss.adapter';
 import { LinkfoxEchotikShadowAdapter } from './adapter/out/linkfox/linkfox-echotik-shadow.adapter';
@@ -24,13 +22,11 @@ import { SourcingAgentRuntimeModule } from './sourcing-agent-runtime.module';
 @Module({
   imports: [
     PrismaModule,
-    AgentOsModule,
+    AgentOsCapabilityModule,
     OperationsModule,
     SourcingAgentRuntimeModule,
   ],
-  controllers: [InternalMarketShadowOperationController],
   providers: [
-    AgentApiShadowCapabilityGrantGuard,
     MarketShadowSignalCapabilityAdapter,
     MarketShadowOperationAdapter,
     SourcingShadowSignalOperationHandler,
@@ -60,6 +56,7 @@ import { SourcingAgentRuntimeModule } from './sourcing-agent-runtime.module';
     },
   ],
   exports: [
+    MARKET_SHADOW_COLLECTION_CAPABILITY_PORT,
     MARKET_SHADOW_OPERATION_PORT,
     SourcingShadowSignalService,
   ],

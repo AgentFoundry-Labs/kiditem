@@ -21,10 +21,7 @@ export { SelectPreparationDetailDto } from './select-preparation-detail.dto';
 export { Search1688ImageDto } from './search-1688-image.dto';
 export { Search1688KeywordDto } from './search-1688-keyword.dto';
 export { QuerySourcingAgentRagDto } from './sourcing-agent-rag.dto';
-export {
-  AskSourcingAssistantDto,
-  ListEntryRecommendationsQueryDto,
-} from './sourcing-entry-recommendation.dto';
+export { ListEntryRecommendationsQueryDto } from './sourcing-entry-recommendation.dto';
 export { UpsertSourcingInterestTargetDto } from './sourcing-interest-target.dto';
 export {
   SourcingCoupangObservationDto,

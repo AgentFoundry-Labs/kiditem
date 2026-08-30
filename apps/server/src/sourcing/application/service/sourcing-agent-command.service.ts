@@ -1,13 +1,9 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import type {
   CreateProductGenerationCommand,
   RegisterManualProductCommand,
 } from '../port/in/sourcing.commands';
-import {
-  SOURCING_OPERATION_ALERT_PORT,
-  type OperationAlertPort,
-} from '../port/out/cross-domain/operation-alert.port';
 import {
   SOURCING_CANDIDATE_REPOSITORY_PORT,
   type SourcingCandidateRepositoryPort,
@@ -34,14 +30,13 @@ export class SourcingAgentCommandService {
     private readonly candidates: SourcingCandidateRepositoryPort,
     @Inject(SOURCING_AGENT_GATEWAY_PORT)
     private readonly agentGateway: SourcingAgentGatewayPort,
-    @Inject(SOURCING_OPERATION_ALERT_PORT)
-    private readonly operationAlerts: OperationAlertPort,
   ) {}
 
   async registerManualProduct(
     data: RegisterManualProductCommand,
     organizationId: string,
     triggeredByUserId: string | null,
+    idempotencyKey?: string,
   ) {
     const title = data.title.trim();
     const imageUrls = uniqueNonEmptyStrings(data.imageUrls);
@@ -62,11 +57,17 @@ export class SourcingAgentCommandService {
       : '';
     const optionNames = uniqueNonEmptyStrings(data.optionNames ?? []);
     const keywords = uniqueNonEmptyStrings(data.keywords ?? []).slice(0, 10);
-    const sourceUrl = `kiditem://manual-product-registration/${randomUUID()}`;
+    const identityHash = idempotencyKey
+      ? createHash('sha256').update(idempotencyKey).digest('hex')
+      : null;
+    const sourceUrl = identityHash
+      ? `kiditem://manual-product-registration/${identityHash}`
+      : `kiditem://manual-product-registration/${randomUUID()}`;
     const candidate = await this.candidates.upsertSourced({
       organizationId,
       sourceUrl,
       sourcePlatform: MANUAL_PRODUCT_REGISTRATION_PLATFORM,
+      sourceIdentityHash: identityHash,
       rawData: {
         source: 'kiditem_product_registration',
         title,
@@ -118,6 +119,7 @@ export class SourcingAgentCommandService {
     data: CreateProductGenerationCommand,
     organizationId: string,
     triggeredByUserId: string | null,
+    idempotencyKey?: string,
   ) {
     const thumbnailUrls = uniqueNonEmptyStrings(data.thumbnailUrls ?? []).slice(0, 10);
     const representativeThumbnailUrl = typeof data.thumbnailUrl === 'string' && data.thumbnailUrl.trim()
@@ -127,10 +129,15 @@ export class SourcingAgentCommandService {
       data,
       organizationId,
       triggeredByUserId,
+      idempotencyKey,
     );
     const ai = await this.agentGateway.startProductGeneration({
       organizationId,
       triggeredByUserId,
+      idempotencyKey,
+      requestHash: createHash('sha256')
+        .update(JSON.stringify(data))
+        .digest('hex'),
       candidateId: candidate.candidateId,
       productName: data.title.trim(),
       category: data.category ?? null,
@@ -164,63 +171,4 @@ export class SourcingAgentCommandService {
     };
   }
 
-  async scrapeUrl(
-    url: string,
-    organizationId: string,
-    triggeredByUserId: string | null,
-    lineage?: {
-      conversationId?: string | null;
-      parentRequestId?: string | null;
-      delegatedByRunId?: string | null;
-    },
-  ) {
-    const existing = await this.candidates.findActiveBySourceUrl({
-      organizationId,
-      sourceUrl: url,
-    });
-    if (existing) {
-      return {
-        ok: true,
-        skipped: true,
-        message: '이미 수집된 URL입니다. 기존 수집 상품으로 이동할 수 있습니다.',
-        taskId: null,
-        candidateId: existing.id,
-        product_id: existing.id,
-        href: collectedCandidateHref(existing.id),
-        operationKey: null,
-      };
-    }
-
-    const result = await this.agentGateway.scrapeUrl({
-      organizationId,
-      url,
-      triggeredByUserId,
-      conversationId: lineage?.conversationId ?? null,
-      parentRequestId: lineage?.parentRequestId ?? null,
-      delegatedByRunId: lineage?.delegatedByRunId ?? null,
-    });
-    if (result.requestId) {
-      await this.operationAlerts.start({
-        organizationId,
-        operationKey: `sourcing-scrape:${result.requestId}`,
-        type: 'sourcing_scrape_url',
-        title: '소싱 URL 스크래핑 진행 중',
-        sourceType: 'agent_run_request',
-        sourceId: result.requestId,
-        actorUserId: triggeredByUserId,
-        href: '/product-pipeline/collected-products',
-        metadata: { agentType: 'sourcing', url },
-      });
-    }
-    return {
-      ok: true,
-      skipped: false,
-      message: '스크래핑 작업이 대기열에 등록되었습니다.',
-      taskId: result.taskId,
-      candidateId: null,
-      product_id: null,
-      href: null,
-      operationKey: result.requestId ? `sourcing-scrape:${result.requestId}` : null,
-    };
-  }
 }

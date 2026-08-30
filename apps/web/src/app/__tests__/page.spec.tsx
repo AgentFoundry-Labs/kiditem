@@ -26,6 +26,13 @@ vi.mock('sonner', () => ({
   },
 }));
 
+vi.mock('@/hooks/useAuth', () => ({
+  useAuth: () => ({
+    status: 'ready',
+    user: { organizationId: '22222222-2222-4222-8222-222222222222' },
+  }),
+}));
+
 vi.mock('@/hooks/useSellpiaChannelSales', () => ({
   sellpiaPeriodRange: () => ({ from: '2026-07-01', to: '2026-07-27' }),
   useSellpiaChannelSales: () => ({

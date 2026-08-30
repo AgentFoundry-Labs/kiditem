@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { alertPanelMapper } from '../../mapper/panel-event/alert.mapper';
 import { PANEL_EVENTS } from '../../adapter/out/panel-event/panel-events';
@@ -13,6 +13,10 @@ import type {
   StartOperationAlertInput,
 } from '../port/in/operation-alert.port';
 import type { AlertRecord } from '../port/persistence-records';
+import {
+  OPERATION_ALERT_SOURCE_STATE_PORT,
+  type OperationAlertSourceStatePort,
+} from '../port/out/operations/operation-alert-source-state.port';
 
 /**
  * OperationAlertService — write-side surface for `Alert.kind = "operation"`.
@@ -52,6 +56,9 @@ export class OperationAlertService implements OperationAlertPort {
     @Inject(OPERATION_ALERT_REPOSITORY_PORT)
     private readonly repository: OperationAlertRepositoryPort,
     private readonly eventEmitter: EventEmitter2,
+    @Optional()
+    @Inject(OPERATION_ALERT_SOURCE_STATE_PORT)
+    private readonly sourceStates?: OperationAlertSourceStatePort,
   ) {}
 
   async start(input: StartOperationAlertInput): Promise<AlertRecord> {
@@ -81,7 +88,48 @@ export class OperationAlertService implements OperationAlertPort {
       },
     );
     this.emitUpsert(alert);
-    return alert;
+    return this.reconcileSource(alert);
+  }
+
+  async reconcileSource(input: Pick<AlertRecord, 'organizationId' | 'operationKey' | 'sourceType' | 'sourceId'>): Promise<AlertRecord> {
+    if (!input.sourceType || !input.sourceId || !this.sourceStates) {
+      return input as AlertRecord;
+    }
+    const state = await this.sourceStates.find({
+      organizationId: input.organizationId,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
+    });
+    if (!state) return input as AlertRecord;
+    const current = input.operationKey
+      ? input as AlertRecord
+      : await this.repository.findLatestBySource(
+          input.organizationId,
+          input.sourceType,
+          input.sourceId,
+        );
+    if (!current?.operationKey) return input as AlertRecord;
+    if (state.state === 'succeeded') {
+      return await this.succeed(current.organizationId, current.operationKey!, {
+        message: null,
+      }) ?? current;
+    }
+    if (state.state === 'failed') {
+      return await this.fail(current.organizationId, current.operationKey!, {
+        message: state.errorMessage ?? state.errorCode,
+      }) ?? current;
+    }
+    if (state.state === 'cancelled') {
+      return await this.cancel(current.organizationId, current.operationKey!, {
+        message: state.errorMessage ?? state.errorCode,
+      }) ?? current;
+    }
+    if (state.state === 'attention_required') {
+      return await this.attention(current.organizationId, current.operationKey!, {
+        message: state.errorMessage ?? state.errorCode,
+      }) ?? current;
+    }
+    return current;
   }
 
   findByOperationKey(
@@ -166,14 +214,14 @@ export class OperationAlertService implements OperationAlertPort {
 
   /**
    * Close any operation alert linked to a specific (sourceType, sourceId)
-   * tuple. Used by cross-domain bridges (eg. AgentRun finalize) that know the
+   * tuple. Used by cross-domain finalized-event bridges that know the
    * upstream identity but not which producer set up the operationKey.
    */
   async closeBySource(
     organizationId: string,
     sourceType: string,
     sourceId: string,
-    status: 'succeeded' | 'failed' | 'cancelled',
+    status: 'succeeded' | 'failed' | 'cancelled' | 'attention_required',
     patch: OperationLifecyclePatch = {},
   ): Promise<AlertRecord | null> {
     const existing = await this.repository.findLatestBySource(
@@ -187,6 +235,9 @@ export class OperationAlertService implements OperationAlertPort {
     }
     if (status === 'failed') {
       return this.fail(organizationId, existing.operationKey, patch);
+    }
+    if (status === 'attention_required') {
+      return this.attention(organizationId, existing.operationKey, patch);
     }
     return this.cancel(organizationId, existing.operationKey, patch);
   }

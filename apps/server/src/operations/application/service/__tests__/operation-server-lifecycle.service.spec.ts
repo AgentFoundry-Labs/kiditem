@@ -1,9 +1,14 @@
 import { Logger } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OperationLifecycleGateService } from '../operation-lifecycle-gate.service';
+import { OperationPostAcceptingHookRegistryService } from '../operation-post-accepting-hook-registry.service';
 import { OperationServerLifecycleService } from '../operation-server-lifecycle.service';
 
 const STARTED_AT = new Date('2026-08-13T01:02:03.000Z');
+const STARTED_CUTOFF = {
+  observedAt: STARTED_AT,
+  rawTimestamp: '2026-08-13 01:02:03+00',
+};
 const OPTIONS = {
   batchSize: 100,
   startupTimeoutMs: 30_000,
@@ -13,7 +18,7 @@ const OPTIONS = {
 function makeDependencies() {
   const events: string[] = [];
   const repository = {
-    readLifecycleDatabaseTime: vi.fn().mockResolvedValue(STARTED_AT),
+    readLifecycleDatabaseCutoff: vi.fn().mockResolvedValue(STARTED_CUTOFF),
     cancelRunsForLifecycle: vi.fn().mockImplementation(async (input: {
       errorCode: string;
     }) => {
@@ -48,8 +53,32 @@ function makeLifecycle(
   return new OperationServerLifecycleService(
     dependencies.repository as never,
     dependencies.gate,
+    new OperationPostAcceptingHookRegistryService(),
     dependencies.scheduler as never,
     dependencies.worker as never,
+    options,
+  );
+}
+
+function makeLifecycleWithHooks(
+  dependencies: ReturnType<typeof makeDependencies>,
+  hooks: OperationPostAcceptingHookRegistryService,
+  options = OPTIONS,
+) {
+  const Lifecycle = OperationServerLifecycleService as unknown as new (
+    repository: unknown,
+    gate: OperationLifecycleGateService,
+    hooks: OperationPostAcceptingHookRegistryService,
+    scheduler: unknown,
+    worker: unknown,
+    lifecycleOptions: typeof OPTIONS,
+  ) => OperationServerLifecycleService;
+  return new Lifecycle(
+    dependencies.repository,
+    dependencies.gate,
+    hooks,
+    dependencies.scheduler,
+    dependencies.worker,
     options,
   );
 }
@@ -65,6 +94,161 @@ afterEach(() => {
 });
 
 describe('OperationServerLifecycleService startup', () => {
+  it('rejects duplicate post-accepting hooks and runs a frozen priority/key snapshot', async () => {
+    const hooks = new OperationPostAcceptingHookRegistryService();
+    const order: string[] = [];
+    hooks.register({
+      key: 'beta',
+      priority: 10,
+      run: async () => {
+        order.push('beta');
+        hooks.register({
+          key: 'late',
+          priority: 0,
+          run: async () => order.push('late'),
+        });
+      },
+    });
+    hooks.register({
+      key: 'alpha',
+      priority: 10,
+      run: async () => order.push('alpha'),
+    });
+
+    expect(() => hooks.register({
+      key: 'alpha',
+      priority: 20,
+      run: async () => undefined,
+    })).toThrow('duplicate operation post-accepting hook');
+
+    await hooks.runAll(new AbortController().signal);
+
+    expect(order).toEqual(['alpha', 'beta']);
+  });
+
+  it('runs post-accepting hooks before starting intake in exact lifecycle order', async () => {
+    const dependencies = makeDependencies();
+    const hooks = new OperationPostAcceptingHookRegistryService();
+    const open = dependencies.gate.open.bind(dependencies.gate);
+    vi.spyOn(dependencies.gate, 'open').mockImplementation(() => {
+      dependencies.events.push('open');
+      open();
+    });
+    hooks.register({
+      key: 'recover-deletions',
+      priority: 20,
+      run: vi.fn(async () => dependencies.events.push('recover-deletions')),
+    });
+    hooks.register({
+      key: 'recover-finalizers',
+      priority: 10,
+      run: vi.fn(async () => dependencies.events.push('recover-finalizers')),
+    });
+    const lifecycle = makeLifecycleWithHooks(dependencies, hooks);
+
+    await lifecycle.onApplicationBootstrap();
+
+    expect(dependencies.events).toEqual([
+      'cancel:operation_server_lifecycle_expired',
+      'schedules',
+      'open',
+      'recover-finalizers',
+      'recover-deletions',
+      'scheduler:start',
+      'worker:start',
+    ]);
+  });
+
+  it('gives hooks only the remaining shared startup budget after a slow sweep', async () => {
+    const dependencies = makeDependencies();
+    const hooks = new OperationPostAcceptingHookRegistryService();
+    const hookStarted = vi.fn();
+    dependencies.repository.cancelRunsForLifecycle.mockImplementationOnce(async () => {
+      dependencies.events.push('cancel:operation_server_lifecycle_expired');
+      await new Promise<void>((resolve) => setTimeout(resolve, 20_000));
+      return { updated: 0, remaining: false };
+    });
+    hooks.register({
+      key: 'bounded-recovery',
+      priority: 1,
+      run: async (signal) => {
+        hookStarted(Date.now());
+        await new Promise<void>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      },
+    });
+    const lifecycle = makeLifecycleWithHooks(dependencies, hooks);
+
+    const bootstrap = lifecycle.onApplicationBootstrap();
+    const rejection = expect(bootstrap).rejects.toThrow(
+      'operation_server_lifecycle_startup_timeout',
+    );
+    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.waitFor(() => expect(hookStarted).toHaveBeenCalledOnce());
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await rejection;
+    expect(hookStarted).toHaveBeenCalledWith(
+      STARTED_AT.getTime() + 20_000,
+    );
+    expect(dependencies.scheduler.start).not.toHaveBeenCalled();
+    expect(dependencies.worker.start).not.toHaveBeenCalled();
+  });
+
+  it('rejects at the remaining shared deadline when a post-accepting hook ignores abort', async () => {
+    const dependencies = makeDependencies();
+    const hooks = new OperationPostAcceptingHookRegistryService();
+    dependencies.repository.cancelRunsForLifecycle.mockImplementationOnce(async () => {
+      dependencies.events.push('cancel:operation_server_lifecycle_expired');
+      await new Promise<void>((resolve) => setTimeout(resolve, 20_000));
+      return { updated: 0, remaining: false };
+    });
+    hooks.register({
+      key: 'never-settles',
+      priority: 1,
+      run: async () => new Promise<void>(() => undefined),
+    });
+    const lifecycle = makeLifecycleWithHooks(dependencies, hooks);
+
+    const bootstrap = lifecycle.onApplicationBootstrap();
+    const outcome = Promise.race([
+      bootstrap.then(
+        () => 'unexpected_success',
+        (error: Error) => error.message,
+      ),
+      new Promise<string>((resolve) => {
+        setTimeout(() => resolve('post_accepting_hook_was_unbounded'), 30_000);
+      }),
+    ]);
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await expect(outcome).resolves.toBe('operation_server_lifecycle_startup_timeout');
+    expect(dependencies.gate.state()).toBe('STOPPING');
+    expect(dependencies.scheduler.start).not.toHaveBeenCalled();
+    expect(dependencies.worker.start).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when a post-accepting hook rejects after opening the gate', async () => {
+    const dependencies = makeDependencies();
+    const hooks = new OperationPostAcceptingHookRegistryService();
+    hooks.register({
+      key: 'recovery-failure',
+      priority: 1,
+      run: async () => {
+        throw new Error('session_recovery_failed');
+      },
+    });
+    const lifecycle = makeLifecycleWithHooks(dependencies, hooks);
+
+    await expect(lifecycle.onApplicationBootstrap()).rejects.toThrow(
+      'session_recovery_failed',
+    );
+    expect(dependencies.gate.state()).toBe('STOPPING');
+    expect(dependencies.scheduler.start).not.toHaveBeenCalled();
+    expect(dependencies.worker.start).not.toHaveBeenCalled();
+  });
+
   it('drains runs then schedules before opening intake in exact order', async () => {
     const dependencies = makeDependencies();
     const lifecycle = makeLifecycle(dependencies);
@@ -79,7 +263,7 @@ describe('OperationServerLifecycleService startup', () => {
     ]);
     expect(dependencies.gate.state()).toBe('ACCEPTING');
     expect(dependencies.repository.cancelRunsForLifecycle).toHaveBeenCalledWith({
-      cutoff: STARTED_AT,
+      cutoff: STARTED_CUTOFF,
       errorCode: 'operation_server_lifecycle_expired',
       errorMessage: 'Operation cancelled because its API server lifecycle expired',
       finishedAt: STARTED_AT,
@@ -88,7 +272,7 @@ describe('OperationServerLifecycleService startup', () => {
     });
     expect(dependencies.repository.advanceSchedulesPastLifecycleCutoff)
       .toHaveBeenCalledWith({
-        cutoff: STARTED_AT,
+        cutoff: STARTED_CUTOFF,
         limit: 100,
         statementTimeoutMs: 30_000,
       });
@@ -106,6 +290,11 @@ describe('OperationServerLifecycleService startup', () => {
     await bootstrap;
 
     expect(dependencies.repository.cancelRunsForLifecycle).toHaveBeenCalledTimes(2);
+    expect(dependencies.repository.cancelRunsForLifecycle.mock.calls.map(
+      ([input]) => input.cutoff,
+    )).toEqual([STARTED_CUTOFF, STARTED_CUTOFF]);
+    expect(dependencies.repository.advanceSchedulesPastLifecycleCutoff)
+      .toHaveBeenCalledWith(expect.objectContaining({ cutoff: STARTED_CUTOFF }));
     expect(dependencies.repository.cancelRunsForLifecycle.mock.calls[1]?.[0])
       .toMatchObject({ statementTimeoutMs: 29_990 });
     expect(dependencies.gate.state()).toBe('ACCEPTING');
@@ -155,8 +344,8 @@ describe('OperationServerLifecycleService startup', () => {
 
   it('fails closed when reading the database cutoff consumes the shared startup deadline', async () => {
     const dependencies = makeDependencies();
-    dependencies.repository.readLifecycleDatabaseTime.mockReturnValue(
-      new Promise<Date>(() => undefined),
+    dependencies.repository.readLifecycleDatabaseCutoff.mockReturnValue(
+      new Promise<typeof STARTED_CUTOFF>(() => undefined),
     );
     const lifecycle = makeLifecycle(dependencies, {
       ...OPTIONS,

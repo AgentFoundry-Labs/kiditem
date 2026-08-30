@@ -32,7 +32,16 @@ export interface CancelOperationRunCommand {
 }
 
 export interface OperationRunnerPort {
+  /** Generic runner access is restricted to retained operation definitions. */
   start(command: StartOperationCommand): Promise<OperationRun>;
+  /** Resolves an immutable idempotent operation result before mutable owner shortcuts. */
+  findByIdempotency(input: {
+    organizationId: string;
+    operationKey: string;
+    idempotencyKey: string;
+    /** Fail closed when the durable receipt belongs to a different canonical input. */
+    expectedInput?: Record<string, unknown>;
+  }): Promise<OperationRun | null>;
   list(query: ListOperationRunsQuery): Promise<OperationRun[]>;
   findReconnectable(input: {
     organizationId: string;

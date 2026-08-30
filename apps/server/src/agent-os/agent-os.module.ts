@@ -1,128 +1,13 @@
 import { Module } from '@nestjs/common';
-import { OperationAlertRuntimeModule } from '../automation/operation-alert-runtime.module';
-import { PrismaModule } from '../prisma/prisma.module';
-import { ReadinessStateModule } from '../readiness/readiness-state.module';
-import { AgentOsRepositoryAdapter } from './adapter/out/repository/agent-os.repository.adapter';
-import { FilesystemAgentLogStoreAdapter } from './adapter/out/log-store/filesystem-agent-log-store.adapter';
-import { AgentRunOperationAlertBridge } from './adapter/out/automation/agent-run-operation-alert.bridge';
-import { AgentOsLiveReadinessAdapter } from './adapter/out/cross-domain/agent-os-live-readiness.adapter';
-import { OpenAiResponsesOperatorRuntimeAdapter } from './adapter/out/runtime/openai-responses-operator-runtime.adapter';
-import { OperatorRuntimeHandler } from './adapter/out/runtime/operator-runtime.handler';
-import { RoutingRuntimeAdapter } from './adapter/out/runtime/routing-runtime.adapter';
-import { FilesystemAgentRuntimeAssetsAdapter } from './adapter/out/runtime/filesystem-agent-runtime-assets.adapter';
-import { AgentLocalCliRuntimeAdapter } from './adapter/out/runtime/agent-local-cli-runtime.adapter';
-import { AgentLocalProcessRegistry } from './adapter/out/runtime/agent-local-process-registry';
-import { KidItemMcpSessionAdapter } from './adapter/out/runtime/kiditem-mcp-session.adapter';
-import { AGENT_LOG_STORE_PORT } from './application/port/out/storage/agent-log-store.port';
-import { AGENT_OS_LIVE_READINESS_PORT } from './application/port/out/cross-domain/agent-os-live-readiness.port';
-import { AGENT_OS_REPOSITORY_PORT } from './application/port/out/repository/agent-os-repository.port';
-import { AGENT_RUNTIME_PORT } from './application/port/out/runtime/agent-runtime.port';
-import { AGENT_RUNTIME_ASSETS_PORT } from './application/port/out/runtime/agent-runtime-assets.port';
-import { AGENT_MCP_SESSION_PORT } from './application/port/out/runtime/agent-mcp-session.port';
-import { AGENT_RUNNER_PORT } from './application/port/in/agent-runner.port';
-import { AGENT_INTERACTION_PORT } from './application/port/in/agent-interaction.port';
-import { AgentCapabilityRegistry } from './application/service/agent-capability-registry.service';
-import { AgentApprovalService } from './application/service/agent-approval.service';
-import { AgentCatalogService } from './application/service/agent-catalog.service';
-import { AgentConversationService } from './application/service/agent-conversation.service';
-import { AgentObservabilityService } from './application/service/agent-observability.service';
-import { AgentPlanValidator } from './application/service/agent-plan-validator.service';
-import { AgentPolicyService } from './application/service/agent-policy.service';
-import { OperatorContextBuilder } from './application/service/operator-context-builder.service';
-import { AgentRunCoordinator } from './application/service/agent-run-coordinator.service';
-import { AgentRunExecutor } from './application/service/agent-run-executor.service';
-import { AgentRunGraphService } from './application/service/agent-run-graph.service';
-import { AgentRuntimeHandlerRegistry } from './application/service/agent-runtime-handler-registry.service';
-import { AgentTaskDelegationService } from './application/service/agent-task-delegation.service';
-import { AgentToolRouter } from './application/service/agent-tool-router.service';
-import { AgentOsMcpToolExecutor } from './application/service/agent-os-mcp-tool-executor.service';
-import { KidItemMcpToolRegistry } from './application/service/kiditem-mcp-tool-registry.service';
-import { OperatorDecisionExecutor } from './application/service/operator-decision-executor.service';
-import { OperatorDecisionParser } from './application/service/operator-decision-parser.service';
-import { AgentRuntimeAssetsStartupValidator } from './application/service/agent-runtime-assets-startup-validator.service';
-import { AgentInteractionService } from './application/service/agent-interaction.service';
-import { AgentApiCapabilityGrantService } from './application/service/agent-api-capability-grant.service';
+import { AgentOsInvocationModule } from './agent-os-invocation.module';
 
-const agentInteractionProviders = [
-  AgentInteractionService,
-  {
-    provide: AGENT_INTERACTION_PORT,
-    useExisting: AgentInteractionService,
-  },
-];
-
+/** Controller-free AgentOS facade for focused internal composition modules. */
 @Module({
-  imports: [PrismaModule, OperationAlertRuntimeModule, ReadinessStateModule],
-  providers: [
-    ...agentInteractionProviders,
-    AgentApprovalService,
-    AgentCatalogService,
-    AgentCapabilityRegistry,
-    AgentConversationService,
-    AgentObservabilityService,
-    AgentPlanValidator,
-    AgentPolicyService,
-    OperatorContextBuilder,
-    AgentRunCoordinator,
-    AgentRunExecutor,
-    AgentRunGraphService,
-    AgentRuntimeHandlerRegistry,
-    AgentRuntimeAssetsStartupValidator,
-    AgentTaskDelegationService,
-    AgentToolRouter,
-    AgentOsMcpToolExecutor,
-    KidItemMcpToolRegistry,
-    OpenAiResponsesOperatorRuntimeAdapter,
-    OperatorDecisionExecutor,
-    OperatorDecisionParser,
-    OperatorRuntimeHandler,
-    RoutingRuntimeAdapter,
-    AgentLocalCliRuntimeAdapter,
-    AgentLocalProcessRegistry,
-    KidItemMcpSessionAdapter,
-    AgentApiCapabilityGrantService,
-    FilesystemAgentRuntimeAssetsAdapter,
-    AgentRunOperationAlertBridge,
-    AgentOsLiveReadinessAdapter,
-    { provide: AGENT_RUNNER_PORT, useExisting: AgentRunCoordinator },
-    {
-      provide: AGENT_OS_LIVE_READINESS_PORT,
-      useExisting: AgentOsLiveReadinessAdapter,
-    },
-    { provide: AGENT_OS_REPOSITORY_PORT, useClass: AgentOsRepositoryAdapter },
-    { provide: AGENT_RUNTIME_PORT, useExisting: RoutingRuntimeAdapter },
-    {
-      provide: AGENT_RUNTIME_ASSETS_PORT,
-      useExisting: FilesystemAgentRuntimeAssetsAdapter,
-    },
-    {
-      provide: AGENT_MCP_SESSION_PORT,
-      useExisting: KidItemMcpSessionAdapter,
-    },
-    { provide: AGENT_LOG_STORE_PORT, useClass: FilesystemAgentLogStoreAdapter },
+  imports: [
+    AgentOsInvocationModule,
   ],
   exports: [
-    AGENT_INTERACTION_PORT,
-    AGENT_RUNNER_PORT,
-    AGENT_OS_REPOSITORY_PORT,
-    AgentApiCapabilityGrantService,
-    AgentRunCoordinator,
-    AgentRunExecutor,
-    AgentRunGraphService,
-    AgentApprovalService,
-    AgentCatalogService,
-    AgentCapabilityRegistry,
-    AgentConversationService,
-    AgentObservabilityService,
-    AgentPlanValidator,
-    AgentPolicyService,
-    OperatorContextBuilder,
-    AgentRuntimeHandlerRegistry,
-    AgentTaskDelegationService,
-    AgentToolRouter,
-    AgentOsMcpToolExecutor,
-    OperatorDecisionExecutor,
-    OperatorDecisionParser,
+    AgentOsInvocationModule,
   ],
 })
 export class AgentOsModule {}

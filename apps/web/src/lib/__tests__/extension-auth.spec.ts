@@ -4,7 +4,13 @@ import {
   detectSourcingExtensionId,
   sendToExtension,
 } from '../extension-bridge';
-import { syncExtensionAuth } from '../extension-auth';
+import {
+  clearExtensionAuth,
+  syncExtensionAuth,
+  transferExtensionAuthTo,
+} from '../extension-auth';
+
+const apiPostMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../extension-bridge', () => ({
   detectExtensionId: vi.fn(),
@@ -12,8 +18,8 @@ vi.mock('../extension-bridge', () => ({
   sendToExtension: vi.fn(),
 }));
 
-vi.mock('../api', () => ({
-  getApiBase: () => 'http://localhost:4000',
+vi.mock('../api-client', () => ({
+  apiClient: { post: (...args: unknown[]) => apiPostMock(...args) },
 }));
 
 describe('syncExtensionAuth', () => {
@@ -21,6 +27,8 @@ describe('syncExtensionAuth', () => {
     vi.mocked(detectExtensionId).mockReset();
     vi.mocked(detectSourcingExtensionId).mockReset();
     vi.mocked(sendToExtension).mockReset();
+    apiPostMock.mockReset();
+    apiPostMock.mockResolvedValue({ token: 'a'.repeat(43) });
     vi.mocked(detectExtensionId).mockResolvedValue(null);
     vi.mocked(detectSourcingExtensionId).mockResolvedValue(null);
   });
@@ -31,8 +39,10 @@ describe('syncExtensionAuth', () => {
     vi.mocked(sendToExtension).mockResolvedValue({ success: true });
 
     const token = 'a'.repeat(43);
-    const result = await syncExtensionAuth({ token });
+    const result = await syncExtensionAuth();
 
+    expect(apiPostMock).toHaveBeenCalledTimes(1);
+    expect(apiPostMock).toHaveBeenCalledWith('/api/auth/extension-handoff');
     expect(sendToExtension).toHaveBeenCalledWith('coupang-ext', {
       action: 'setAuthToken',
       token,
@@ -52,7 +62,7 @@ describe('syncExtensionAuth', () => {
     vi.mocked(detectSourcingExtensionId).mockResolvedValue('sourcing-ext');
     vi.mocked(sendToExtension).mockResolvedValue({ success: true });
 
-    const result = await syncExtensionAuth(null);
+    const result = await clearExtensionAuth();
 
     expect(sendToExtension).toHaveBeenCalledWith('coupang-ext', {
       action: 'clearAuthToken',
@@ -68,12 +78,13 @@ describe('syncExtensionAuth', () => {
 
   it('does not fail login when optional extensions are not installed', async () => {
     await expect(
-      syncExtensionAuth({ token: 'a'.repeat(43) }),
+      syncExtensionAuth(),
     ).resolves.toEqual({
       coupang: { status: 'not_installed' },
       sourcing: { status: 'not_installed' },
     });
     expect(sendToExtension).not.toHaveBeenCalled();
+    expect(apiPostMock).not.toHaveBeenCalled();
   });
 
   it('isolates one extension failure from the other extension', async () => {
@@ -82,7 +93,7 @@ describe('syncExtensionAuth', () => {
     vi.mocked(sendToExtension).mockResolvedValue({ success: true });
 
     const token = 'a'.repeat(43);
-    const result = await syncExtensionAuth({ token });
+    const result = await syncExtensionAuth();
 
     expect(sendToExtension).toHaveBeenCalledTimes(1);
     expect(sendToExtension).toHaveBeenCalledWith('sourcing-ext', {
@@ -92,6 +103,18 @@ describe('syncExtensionAuth', () => {
     expect(result).toEqual({
       coupang: { status: 'failed' },
       sourcing: { status: 'synced' },
+    });
+  });
+
+  it('hands auth to one already selected extension immediately before work', async () => {
+    vi.mocked(sendToExtension).mockResolvedValue({ success: true });
+
+    await expect(transferExtensionAuthTo('coupang-ext')).resolves.toBeUndefined();
+
+    expect(apiPostMock).toHaveBeenCalledWith('/api/auth/extension-handoff');
+    expect(sendToExtension).toHaveBeenCalledWith('coupang-ext', {
+      action: 'setAuthToken',
+      token: 'a'.repeat(43),
     });
   });
 });

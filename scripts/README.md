@@ -21,9 +21,14 @@ npm run test:scripts
 | path | owner / purpose | entrypoint |
 |---|---|---|
 | `scripts/bootstrap-authoritative-inventory-dev.ts` | verified-local DB bootstrap for the Sellpia-authoritative inventory baseline; requires `--coupang-vendor-id` and creates only organization and Wing/Rocket account metadata | `npm run inventory:bootstrap:dev`, `docs/runbooks/sellpia-rocket-inventory-sync.md` |
+| `scripts/bootstrap-local-auth-user.ts` | explicit loopback-DB-only bootstrap for one local User, Organization, active admin membership, and stdin password; reruns revoke that user's sessions and never mint a login session | `npm run dev:bootstrap-user`, `docs/runbooks/local-development.md`, `docs/runbooks/auth-office-local.md` |
+| `scripts/check-agent-os-contraction.mjs` | Enforced Agent OS clean-contraction guard for legacy runtime, transcript, and retired model surfaces | `npm run check:agent-os-contraction -- --enforce` |
+| `scripts/check-agent-os-hexagonal.mjs` | AgentOS lane-first/capability-second dependency, input-port placement, and official module-size contract scanner; intentionally standalone until the KID-25 migration removes its live baseline violations | `npm run check:agent-os-hexagonal` |
 | `scripts/check-agents-hygiene.mjs` | AGENTS/CLAUDE instruction hygiene gate | `npm run check:agents-hygiene` |
+| `scripts/check-copilotkit-train.mjs` | exact CopilotKit v2 and AG-UI platform-train guard | `npm run check:copilotkit-train` |
 | `scripts/check-directory-architecture.mjs` | docs/ARCHITECTURE directory map drift gate | `npm run check:directory-architecture` |
 | `scripts/check-frontend-db-boundary.sh` | frontend must not import DB/Prisma clients | `npm run check:web-db-boundary` |
+| `scripts/check-identifier-contracts.mjs` | canonical resource-name and identifier-class boundary gate | `npm run check:identifier-contracts` |
 | `scripts/check-pr-reconstruction-contract.mjs` | high-risk reconstruction PR body gate | `npm run check:pr-reconstruction` |
 | `scripts/check-pr-release-contract.mjs` | persisted schema/data/release PR body and migration-version gate | `npm run check:pr-release-contract` |
 | `scripts/check-queryraw-tenancy.sh` | raw SQL organization-scope scanner | `npm run check:idor` |
@@ -37,11 +42,15 @@ npm run test:scripts
 | `scripts/dev-data-coupang.ts` | coupang domain adapter for dev data bundles | `npm run data:dev:* -- --domain coupang` |
 | `scripts/dev-data.ts` | dev data bundle CLI | `npm run data:dev:*` |
 | `scripts/generate-prisma-erd.mjs` | Prisma ERD markdown generator | `npm run db:erd` |
+| `scripts/local-agent-gateway.mjs` | macOS local Gateway operator entrypoint; starts only the generated protected config or logs a bundled Codex/Claude provider into its isolated home | `npm run dev:gateway`, `npm run gateway:login:codex`, `npm run gateway:login:claude`, `docs/runbooks/local-development.md` |
 | `scripts/manage-extension-release.mjs` | deterministic universal Chrome-extension bundle packager and manual GitHub Release publisher | `npm run extension:release`, `docs/runbooks/extension-releases.md` |
 | `scripts/run-data-migrations.ts` | durable data migration runner; migration units live under root `VERSION` release folders such as `scripts/data-migrations/v0.1.0/`, record `data_migration_runs` ledger rows, and export/restore the hash-bound ledger baseline for an authoritative reset | `npm run data:migrate`, `docs/runbooks/release-train-versioning.md` |
 | `scripts/safe-prisma-db-push.mjs` | local `db:push` wrapper that blocks whole-schema `--force-reset`; the guarded production rebuild workflow keeps its direct Prisma entrypoint | `npm run db:push` |
-| `scripts/seed-agent-os.ts` | local/dev Agent OS runtime seed wrapper | `npm run seed:agent-os` |
+| `scripts/seed-agent-os-browser-qa.ts` | clean-cutover-owned isolated browser-QA fixture: accepts only the helper-injected Testcontainer target, seeds the selected minimal QA profile, and accepts the login password only from interactive stdin; the clean-cutover browser entrypoint explicitly uses the auth-only general-chat profile | `npm run seed:agent-os:browser-qa` through `npm run qa:agent-os:clean-cutover -- --serve-browser-qa --email <email>` |
 | `scripts/seed-order-collection-mall-accounts.ts` | confirmation-gated, organization-scoped order-collection mall credential seed; encrypts complete `ID/PW/URL` triples into `ChannelAccount` and never creates a runtime env fallback | `npm run seed:order-collection-malls`, `docs/runbooks/environment-variables.md` |
+| `scripts/qa-agent-os-clean-cutover.mjs` | provisions a guarded isolated PostgreSQL cutover fixture, verifies the one-model schema, and can serve the macOS browser-QA stack with the built-in stdin-only auth/business seed without exposing database credentials | `npm run qa:agent-os:clean-cutover` |
+| `scripts/smoke-interaction-os.mjs` | exercises Gateway readiness, provider conversation/history, the five stateless MCP tools, one read, and one approval-pending mutation without executing it | `npm run smoke:interaction-os` |
+| `scripts/setup-macos-development.mjs` | idempotent fresh-clone setup for local env examples, protected Gateway config/token/home, Git hooks, and locked npm dependencies; never applies schema or stores provider credentials | `npm run setup:macos`, `docs/runbooks/local-development.md` |
 
 ## Support Files
 

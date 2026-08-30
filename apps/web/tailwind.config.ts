@@ -13,11 +13,41 @@ const config: Config = {
       colors: {
         background: "var(--background)",
         foreground: "var(--foreground)",
-        card: "var(--card)",
-        "card-foreground": "var(--card-foreground)",
+        card: {
+          DEFAULT: "var(--card)",
+          foreground: "var(--card-foreground)",
+        },
+        popover: {
+          DEFAULT: "var(--surface-raised)",
+          foreground: "var(--foreground)",
+        },
+        primary: {
+          DEFAULT: "var(--primary)",
+          foreground: "var(--primary-contrast)",
+          soft: "var(--primary-soft)",
+        },
         border: "var(--border)",
-        accent: "var(--accent)",
-        muted: "var(--muted)",
+        input: "var(--border)",
+        ring: "var(--primary)",
+        accent: {
+          DEFAULT: "var(--accent)",
+          foreground: "var(--primary-contrast)",
+        },
+        muted: {
+          DEFAULT: "var(--surface-sunken)",
+          foreground: "var(--text-tertiary)",
+        },
+        destructive: {
+          DEFAULT: "var(--danger)",
+          foreground: "var(--primary-contrast)",
+        },
+        "conversation-user": {
+          DEFAULT: "var(--conversation-user-bg)",
+          foreground: "var(--conversation-user-foreground)",
+        },
+        evidence: {
+          surface: "var(--evidence-surface)",
+        },
       },
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',

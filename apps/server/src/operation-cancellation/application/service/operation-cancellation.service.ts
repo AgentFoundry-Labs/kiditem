@@ -1,9 +1,5 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
-  AGENT_RUNNER_PORT,
-  type AgentRunnerPort,
-} from '../../../agent-os/application/port/in/agent-runner.port';
-import {
   AI_GENERATION_CANCELLATION_PORT,
   type AiGenerationCancellationPort,
 } from '../../../ai/application/port/in/generation/ai-generation-cancellation.port';
@@ -23,11 +19,7 @@ import {
   emptyPreserved,
 } from './operation-cancellation.types';
 import {
-  agentCancellationWasApplied,
   buildCancelOperationResult,
-  linkedAgentRequestsWarning,
-  linkedAgentRunsWarning,
-  linkedAgentCancellationWarnings,
 } from './operation-cancellation-result';
 import {
   operationCancellationAudit,
@@ -63,10 +55,6 @@ function auditTargetFrom(target: CancelOperationTarget): OperationCancellationTa
       return { targetType: 'operation_key', operationKey: target.operationKey };
     case 'workflow_run':
       return { targetType: 'workflow_run', runId: target.runId };
-    case 'agent_run_request':
-      return { targetType: 'agent_run_request', requestId: target.requestId };
-    case 'agent_run':
-      return { targetType: 'agent_run', runId: target.runId };
     case 'content_generation':
       return { targetType: 'content_generation', generationId: target.generationId };
     case 'thumbnail_generation':
@@ -98,8 +86,6 @@ export class OperationCancellationService {
     private readonly operationAlerts: OperationAlertPort,
     @Inject(WORKFLOW_RUN_CANCELLATION_PORT)
     private readonly workflows: WorkflowRunCancellationPort,
-    @Inject(AGENT_RUNNER_PORT)
-    private readonly agentRunner: AgentRunnerPort,
     @Inject(AI_GENERATION_CANCELLATION_PORT)
     private readonly ai: AiGenerationCancellationPort,
   ) {}
@@ -110,10 +96,6 @@ export class OperationCancellationService {
         return this.cancelByOperationKey(command);
       case 'workflow_run':
         return this.cancelWorkflowRun(command, command.target.runId, null);
-      case 'agent_run_request':
-        return this.cancelAgentRunRequest(command, command.target.requestId, null);
-      case 'agent_run':
-        return this.cancelAgentRun(command, command.target.runId, null);
       case 'content_generation':
         return this.cancelContentGeneration(command, command.target.generationId, null);
       case 'thumbnail_generation':
@@ -170,30 +152,6 @@ export class OperationCancellationService {
         pushUnique(affected.directAiJobIds, result.jobId);
       }
     }
-    if (alert.sourceType === 'agent_run_request' && alert.sourceId) {
-      const result = await this.agentRunner.cancelRequest?.({
-        organizationId: command.organizationId,
-        requestId: alert.sourceId,
-        reason,
-        actorUserId: command.actorUserId,
-      });
-      if (result?.cancelledRequests) pushUnique(affected.agentRunRequestIds, alert.sourceId);
-      if (result?.cancelledRuns) {
-        warnings.push(linkedAgentRunsWarning(result.cancelledRuns));
-      }
-    }
-    if (alert.sourceType === 'agent_run' && alert.sourceId) {
-      const result = await this.agentRunner.cancelRun?.({
-        organizationId: command.organizationId,
-        runId: alert.sourceId,
-        reason,
-        actorUserId: command.actorUserId,
-      });
-      if (result?.cancelledRuns) pushUnique(affected.agentRunIds, alert.sourceId);
-      if (result?.cancelledRequests) {
-        warnings.push(linkedAgentRequestsWarning(result.cancelledRequests));
-      }
-    }
     if (alert.sourceType === 'workflow_run' && alert.sourceId) {
       const result = await this.workflows.cancelRun({
         runId: alert.sourceId,
@@ -202,13 +160,10 @@ export class OperationCancellationService {
         reason,
       });
       if (result.status === 'cancelled') pushUnique(affected.workflowRunIds, alert.sourceId);
-      warnings.push(...linkedAgentCancellationWarnings(result));
     }
 
     const hasAnyEffect =
       affected.workflowRunIds.length +
-      affected.agentRunRequestIds.length +
-      affected.agentRunIds.length +
       affected.contentGenerationIds.length +
       affected.thumbnailGenerationIds.length +
       affected.directAiJobIds.length +
@@ -284,7 +239,6 @@ export class OperationCancellationService {
     const warnings: string[] = [];
     if (result.status === 'cancelled') {
       pushUnique(affected.workflowRunIds, runId);
-      warnings.push(...linkedAgentCancellationWarnings(result));
     }
     return buildCancelOperationResult({
       status: result.status === 'cancelled' ? 'cancelled' : 'already_terminal',
@@ -292,64 +246,6 @@ export class OperationCancellationService {
         result.status === 'already_terminal'
           ? '이미 완료되었거나 중단된 워크플로우입니다.'
           : '워크플로우 중단 요청이 반영되었습니다.',
-      operationKey,
-      affected,
-      warnings,
-    });
-  }
-
-  private async cancelAgentRunRequest(
-    command: CancelOperationCommand,
-    requestId: string,
-    operationKey: string | null,
-  ): Promise<CancelOperationResult> {
-    const result = await this.agentRunner.cancelRequest?.({
-      organizationId: command.organizationId,
-      requestId,
-      reason: reasonFrom(command),
-      actorUserId: command.actorUserId,
-    });
-    const affected = emptyAffected();
-    const warnings = result ? [] : ['Agent OS cancellation port is not available.'];
-    if (result?.cancelledRequests) pushUnique(affected.agentRunRequestIds, requestId);
-    if (result?.cancelledRuns) {
-      warnings.push(linkedAgentRunsWarning(result.cancelledRuns));
-    }
-    const cancelled = agentCancellationWasApplied(result);
-    return buildCancelOperationResult({
-      status: cancelled ? 'cancelled' : 'already_terminal',
-      message: cancelled
-        ? '에이전트 작업 중단 요청이 반영되었습니다.'
-        : '이미 완료되었거나 중단된 에이전트 작업입니다.',
-      operationKey,
-      affected,
-      warnings,
-    });
-  }
-
-  private async cancelAgentRun(
-    command: CancelOperationCommand,
-    runId: string,
-    operationKey: string | null,
-  ): Promise<CancelOperationResult> {
-    const result = await this.agentRunner.cancelRun?.({
-      organizationId: command.organizationId,
-      runId,
-      reason: reasonFrom(command),
-      actorUserId: command.actorUserId,
-    });
-    const affected = emptyAffected();
-    const warnings = result ? [] : ['Agent OS cancellation port is not available.'];
-    if (result?.cancelledRuns) pushUnique(affected.agentRunIds, runId);
-    if (result?.cancelledRequests) {
-      warnings.push(linkedAgentRequestsWarning(result.cancelledRequests));
-    }
-    const cancelled = agentCancellationWasApplied(result);
-    return buildCancelOperationResult({
-      status: cancelled ? 'cancelled' : 'already_terminal',
-      message: cancelled
-        ? '에이전트 실행 중단 요청이 기록되었습니다.'
-        : '이미 완료되었거나 중단된 에이전트 실행입니다.',
       operationKey,
       affected,
       warnings,

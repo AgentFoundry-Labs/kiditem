@@ -4,7 +4,8 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ActivityEventsModule } from './activity-events/activity-events.module';
 import { AdvertisingModule } from './advertising/advertising.module';
-import { AgentOsHttpModule } from './agent-os/agent-os-http.module';
+import { AgentOsInteractionHttpModule } from './agent-os/agent-os-interaction-http.module';
+import { AgentOsRuntimeHttpModule } from './agent-os/agent-os-runtime-http.module';
 import { AiModule } from './ai/ai.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthModule } from './auth/auth.module';
@@ -13,14 +14,13 @@ import { RolesGuard } from './auth/guards/roles.guard';
 import { SessionAuthMiddleware } from './auth/middleware/session-auth.middleware';
 import { AutomationModule } from './automation/automation.module';
 import { ChannelsModule } from './channels/channels.module';
-import { ChatModule } from './chat/chat.module';
 import { CommonModule } from './common/common.module';
 import { StorageModule } from './common/storage/storage.module';
 import { FeatureGateModule } from './feature-gate/feature-gate.module';
 import { FinanceModule } from './finance/finance.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { OperationCancellationModule } from './operation-cancellation/operation-cancellation.module';
-import { OperationsModule } from './operations/operations.module';
+import { OperationsHttpModule } from './operations/operations-http.module';
 import { OrdersModule } from './orders/orders.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -53,16 +53,18 @@ import { UploadsModule } from './uploads/uploads.module';
     AiModule,
     FinanceModule,
     RulesModule,
-    OperationsModule,
-    AgentOsHttpModule,
+    AgentOsInteractionHttpModule,
+    AgentOsRuntimeHttpModule,
     AutomationModule,
     OperationCancellationModule,
+    OperationsHttpModule,
     AdvertisingModule,
-    ChatModule,
     UploadsModule,
     ReadinessModule,
   ],
   providers: [
+    // 가드 실행 순서 (providers 선언 순서 = 평가 순서):
+    // OrganizationScope → rebuild readiness → Roles → Throttler.
     { provide: APP_GUARD, useClass: OrganizationScopeGuard },
     { provide: APP_GUARD, useClass: RebuildReadinessGuard },
     { provide: APP_GUARD, useClass: RolesGuard },

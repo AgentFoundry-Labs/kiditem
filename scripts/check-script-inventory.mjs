@@ -5,9 +5,14 @@ import { fileURLToPath } from 'node:url';
 
 export const SCRIPT_INVENTORY = Object.freeze([
   'bootstrap-authoritative-inventory-dev.ts',
+  'bootstrap-local-auth-user.ts',
+  'check-agent-os-contraction.mjs',
+  'check-agent-os-hexagonal.mjs',
   'check-agents-hygiene.mjs',
+  'check-copilotkit-train.mjs',
   'check-directory-architecture.mjs',
   'check-frontend-db-boundary.sh',
+  'check-identifier-contracts.mjs',
   'check-pr-reconstruction-contract.mjs',
   'check-pr-release-contract.mjs',
   'check-queryraw-tenancy.sh',
@@ -21,11 +26,15 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'dev-data-coupang.ts',
   'dev-data.ts',
   'generate-prisma-erd.mjs',
+  'local-agent-gateway.mjs',
   'manage-extension-release.mjs',
+  'qa-agent-os-clean-cutover.mjs',
   'run-data-migrations.ts',
   'safe-prisma-db-push.mjs',
-  'seed-agent-os.ts',
+  'seed-agent-os-browser-qa.ts',
   'seed-order-collection-mall-accounts.ts',
+  'smoke-interaction-os.mjs',
+  'setup-macos-development.mjs',
   'vitest.config.ts',
 ]);
 
@@ -64,6 +73,48 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   const undocumented = expected.filter((file) => !readme.includes(`scripts/${file}`));
 
   const missingPackageHooks = [];
+  if (
+    packageScripts['check:copilotkit-train'] !==
+    'node scripts/check-copilotkit-train.mjs'
+  ) {
+    missingPackageHooks.push('check:copilotkit-train');
+  }
+  if (
+    packageScripts['check:agent-os-hexagonal'] !==
+    'node scripts/check-agent-os-hexagonal.mjs'
+  ) {
+    missingPackageHooks.push('check:agent-os-hexagonal');
+  }
+  if (
+    packageScripts['check:agent-os-contraction'] !==
+    'node scripts/check-agent-os-contraction.mjs'
+  ) {
+    missingPackageHooks.push('check:agent-os-contraction');
+  }
+  if (
+    packageScripts['qa:agent-os:clean-cutover'] !==
+    'node scripts/qa-agent-os-clean-cutover.mjs'
+  ) {
+    missingPackageHooks.push('qa:agent-os:clean-cutover');
+  }
+  if (packageScripts['setup:macos'] !== 'node scripts/setup-macos-development.mjs') {
+    missingPackageHooks.push('setup:macos');
+  }
+  if (packageScripts['dev:gateway'] !== 'npm run build --workspace=apps/agent-gateway && node scripts/local-agent-gateway.mjs start') {
+    missingPackageHooks.push('dev:gateway');
+  }
+  if (packageScripts['gateway:login:codex'] !== 'node scripts/local-agent-gateway.mjs login codex') {
+    missingPackageHooks.push('gateway:login:codex');
+  }
+  if (packageScripts['dev:bootstrap-user'] !== 'bash bin/bootstrap-local-auth-user.sh') {
+    missingPackageHooks.push('dev:bootstrap-user');
+  }
+  if (
+    packageScripts['seed:agent-os:browser-qa'] !==
+    'tsx scripts/seed-agent-os-browser-qa.ts'
+  ) {
+    missingPackageHooks.push('seed:agent-os:browser-qa');
+  }
   if (!packageScripts['check:scripts-inventory']) {
     missingPackageHooks.push('check:scripts-inventory');
   }
@@ -79,6 +130,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   if (!packageScripts['check:shared-interface-names']) {
     missingPackageHooks.push('check:shared-interface-names');
   }
+  if (packageScripts['check:identifier-contracts'] !== 'node scripts/check-identifier-contracts.mjs') {
+    missingPackageHooks.push('check:identifier-contracts');
+  }
   if (!packageScripts['test:scripts']) {
     missingPackageHooks.push('test:scripts');
   }
@@ -93,6 +147,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   }
   if (!packageScripts['check:conventions']?.includes('check:shared-interface-names')) {
     missingPackageHooks.push('check:conventions -> check:shared-interface-names');
+  }
+  if (!packageScripts['check:conventions']?.includes('check:identifier-contracts')) {
+    missingPackageHooks.push('check:conventions -> check:identifier-contracts');
   }
 
   return { unexpected, missing, undocumented, missingPackageHooks };

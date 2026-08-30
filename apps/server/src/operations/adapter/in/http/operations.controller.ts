@@ -41,16 +41,18 @@ export class OperationsController {
   @Get()
   listDefinitions() {
     return {
-      items: this.registry.listDefinitions().map((definition) => ({
-        key: definition.key,
-        version: definition.version,
-        title: definition.title,
-        ownerDomain: definition.ownerDomain,
-        engineType: definition.engineType,
-        resourceClass: definition.resourceClass,
-        executionTimeoutMs: definition.executionTimeoutMs,
-        scheduleSupported: definition.scheduleSupported,
-      })),
+      items: this.registry.listDefinitions()
+        .filter((definition) => definition.successPersistence !== 'ephemeral_on_success')
+        .map((definition) => ({
+          key: definition.key,
+          version: definition.version,
+          title: definition.title,
+          ownerDomain: definition.ownerDomain,
+          engineType: definition.engineType,
+          resourceClass: definition.resourceClass,
+          executionTimeoutMs: definition.executionTimeoutMs,
+          scheduleSupported: definition.scheduleSupported,
+        })),
     } satisfies OperationCatalogResponse;
   }
 

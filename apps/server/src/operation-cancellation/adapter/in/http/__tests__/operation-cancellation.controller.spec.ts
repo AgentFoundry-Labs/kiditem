@@ -14,8 +14,6 @@ function makeService() {
       operationKey: 'product-generation:batch-1',
       affected: {
         workflowRunIds: [],
-        agentRunRequestIds: [],
-        agentRunIds: [],
         contentGenerationIds: ['cg-1'],
         thumbnailGenerationIds: ['tg-1'],
         directAiJobIds: [],

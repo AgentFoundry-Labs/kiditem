@@ -1,4 +1,28 @@
+export type ConversationIdentity = Readonly<{
+  userId: string;
+  organizationId: string;
+}>;
+
+export function conversationIdentityKey(identity: ConversationIdentity): string {
+  return JSON.stringify([identity.userId, identity.organizationId]);
+}
+
 export const queryKeys = {
+  conversations: {
+    all: (identity: ConversationIdentity) => [
+      'agent-os', 'conversations', 'identity', identity.userId, identity.organizationId,
+    ] as const,
+    list: (identity: ConversationIdentity) => [...queryKeys.conversations.all(identity), 'list'] as const,
+    readiness: (identity: ConversationIdentity) => [
+      ...queryKeys.conversations.all(identity), 'readiness',
+    ] as const,
+    preferences: (identity: ConversationIdentity) => [
+      ...queryKeys.conversations.all(identity), 'preferences',
+    ] as const,
+    invocation: (identity: ConversationIdentity, invocationId: string) => [
+      ...queryKeys.conversations.all(identity), 'invocation', invocationId,
+    ] as const,
+  },
   agents: {
     all: ['agents'] as const,
     list: () => [...queryKeys.agents.all, 'list'] as const,

@@ -9,7 +9,6 @@ import type { OperationRunRepositoryPort } from '../port/out/repository/operatio
 import {
   resolveOperationRunLeaseMs,
   resolveOperationResourceClassLimits,
-  resolveOperationRuntimeWorkerEnabled,
   resolveOperationRuntimeWorkerIntervalMs,
 } from './operation-runtime.config';
 import { OperationAttemptExecutorService } from './operation-attempt-executor.service';
@@ -31,7 +30,6 @@ const DEADLINE_SWEEP_LIMIT = 100;
 @Injectable()
 export class OperationRunWorkerService {
   private readonly logger = new Logger(OperationRunWorkerService.name);
-  private readonly enabled = resolveOperationRuntimeWorkerEnabled();
   private readonly intervalMs = resolveOperationRuntimeWorkerIntervalMs();
   private readonly leaseMs = resolveOperationRunLeaseMs();
   private readonly resourceClassLimits = resolveOperationResourceClassLimits();
@@ -57,12 +55,6 @@ export class OperationRunWorkerService {
 
   start(): void {
     if (this.intervalHandle || this.stopping) return;
-    if (!this.enabled) {
-      this.logger.log(
-        'Operation runtime worker disabled (set OPERATION_RUNTIME_WORKER_ENABLED=1 to enable).',
-      );
-      return;
-    }
     this.intervalHandle = setInterval(() => void this.tick(), this.intervalMs);
     this.intervalHandle.unref?.();
   }

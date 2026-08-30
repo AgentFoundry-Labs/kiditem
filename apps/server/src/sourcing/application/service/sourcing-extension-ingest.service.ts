@@ -11,6 +11,7 @@ import type {
   SourcingCollectionPermit,
 } from '../port/out/repository/sourcing-collection.repository.port';
 import { parseAllowedSupplierUrl, extractSupplierOfferId } from '../../domain/supplier-source-url-policy';
+import { canonicalSourcingCandidateIdentity } from '../../domain/sourcing-candidate-identity';
 import { SourcingCollectionCoordinator } from './sourcing-collection-coordinator.service';
 import {
   hashCollectionRequest,
@@ -258,6 +259,7 @@ function sanitizeV1(
     source_url: sourceUrl,
     source_platform: sourcePlatform,
     product_id: product.product_id,
+    variant_key: product.variant_key,
     title: product.title,
     description: product.description,
     description_text: product.description_text,
@@ -373,10 +375,11 @@ function extensionCandidateProjection(
     sourcePlatform: candidatePlatform(command.sourcePlatform),
     externalOfferId: command.externalOfferId,
     variantKeyNormalized: command.variantKeyNormalized,
-    sourceIdentityHash: hashCollectionRequest({
+    sourceIdentityHash: canonicalSourcingCandidateIdentity({
       sourcePlatform: candidatePlatform(command.sourcePlatform),
-      externalOfferId: command.externalOfferId,
-      variantKey: command.variantKeyNormalized,
+      sourceUrl: command.sourceUrl,
+      validatedExternalOfferId: extractSupplierOfferId(parseSupplierUrl(command.sourceUrl)),
+      variantKeyNormalized: command.variantKeyNormalized,
     }),
     rawData: command.payload,
     name: command.title,

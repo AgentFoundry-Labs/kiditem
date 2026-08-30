@@ -31,12 +31,14 @@ function candidateRow(overrides: Record<string, unknown> = {}) {
 describe('SourcingCandidateRepositoryAdapter', () => {
   it('retries sourced candidate create races by updating the concurrent candidate', async () => {
     const tx1 = {
+      $queryRaw: vi.fn().mockResolvedValue([{ lock: 'locked' }]),
       sourcingCandidate: {
         findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockRejectedValue({ code: 'P2002' }),
       },
     };
     const tx2 = {
+      $queryRaw: vi.fn().mockResolvedValue([{ lock: 'locked' }]),
       sourcingCandidate: {
         findFirst: vi.fn().mockResolvedValue({ id: 'candidate-1', rawData: { old: true } }),
         update: vi.fn().mockResolvedValue(candidateRow({
@@ -88,6 +90,89 @@ describe('SourcingCandidateRepositoryAdapter', () => {
       }),
     }));
     expect(row).toMatchObject({ id: 'candidate-1', status: 'sourced' });
+  });
+
+  it('serializes the shared source identity before returning the same candidate without another image create', async () => {
+    let candidate: ReturnType<typeof candidateRow> | null = null;
+    let imageCount = 0;
+    const tx = {
+      $queryRaw: vi.fn(async () => [{ lock: 'locked' }]),
+      sourcingCandidate: {
+        findFirst: vi.fn(async () => candidate && { id: candidate.id, rawData: candidate.rawData }),
+        create: vi.fn(async ({ data }) => {
+          candidate = candidateRow({
+            id: 'candidate-1',
+            sourceIdentityHash: data.sourceIdentityHash,
+            externalOfferId: data.externalOfferId,
+            variantKeyNormalized: data.variantKeyNormalized,
+            rawData: data.rawData,
+          });
+          return candidate;
+        }),
+        update: vi.fn(async ({ data }) => {
+          candidate = candidateRow({
+            id: candidate!.id,
+            sourceIdentityHash: data.sourceIdentityHash,
+            externalOfferId: data.externalOfferId,
+            variantKeyNormalized: data.variantKeyNormalized,
+            rawData: data.rawData,
+          });
+          return candidate;
+        }),
+      },
+      candidateImage: {
+        count: vi.fn(async () => imageCount),
+        createMany: vi.fn(async ({ data }) => {
+          imageCount += data.length;
+          return { count: data.length };
+        }),
+      },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx)),
+    };
+    const repository = new SourcingCandidateRepositoryAdapter(prisma as never);
+    const input = {
+      organizationId: 'org-1',
+      idempotencyKey: 'candidate-owner-key',
+      sourceUrl: 'https://detail.1688.com/offer/1.html',
+      sourcePlatform: 'ALIBABA_1688',
+      externalOfferId: '1',
+      variantKeyNormalized: '',
+      sourceIdentityHash: 'supplier-offer-1',
+      rawData: { source: 'agent_final_scrape', contentHash: 'a'.repeat(64) },
+      name: 'Toy candidate', description: '', category: null, tags: [],
+      thumbnailUrl: 'https://cdn.example.com/item.jpg', imageUrl: 'https://cdn.example.com/item.jpg',
+      costCny: 12.5, triggeredByUserId: 'user-1',
+      images: [{
+        url: 'https://cdn.example.com/item.jpg', role: 'product', label: null,
+        sortOrder: 0, source: 'agent-final-scrape', isPrimary: true,
+      }],
+    };
+
+    const first = await repository.upsertSourced(input);
+    const replay = await repository.upsertSourced({ ...input, rawData: { ...input.rawData } });
+
+    expect(replay.id).toBe(first.id);
+    expect(tx.sourcingCandidate.create).toHaveBeenCalledOnce();
+    expect(tx.candidateImage.createMany).toHaveBeenCalledOnce();
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(4);
+    expect(imageCount).toBe(1);
+  });
+
+  it('bounds receipt recovery after a persistent unique conflict instead of recursing forever', async () => {
+    const unique = { code: 'P2002' };
+    const prisma = {
+      $transaction: vi.fn()
+        .mockRejectedValueOnce(unique)
+        .mockRejectedValueOnce(unique)
+        .mockRejectedValueOnce(new Error('must not make a third receipt attempt')),
+    };
+    const repository = new SourcingCandidateRepositoryAdapter(prisma as never);
+
+    await expect(repository.upsertSourcedWithIdempotencyReceipt(receiptInput()))
+      .rejects.toBe(unique);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
   });
 
   it('finds only an active sourced candidate by source URL', async () => {
@@ -263,6 +348,27 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     });
   });
 });
+
+function receiptInput() {
+  return {
+    organizationId: 'org-1',
+    capabilityKey: 'sourcing.ingestCandidate',
+    idempotencyKey: 'owner:attempt:ingest',
+    requestHash: 'a'.repeat(64),
+    sourceUrl: 'https://detail.1688.com/offer/1.html',
+    sourcePlatform: 'ALIBABA_1688',
+    rawData: { source: 'agent_final_scrape' },
+    name: 'Toy candidate',
+    description: '',
+    category: null,
+    tags: [],
+    thumbnailUrl: null,
+    imageUrl: null,
+    costCny: null,
+    triggeredByUserId: 'user-1',
+    images: [],
+  };
+}
 
 function listPrisma() {
   const prisma = {

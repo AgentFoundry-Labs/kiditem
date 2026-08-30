@@ -1,9 +1,11 @@
-export const CHANNEL_LISTING_REPOSITORY_PORT = Symbol('CHANNEL_LISTING_REPOSITORY_PORT');
+export const CHANNEL_LISTING_REPOSITORY_PORT = Symbol(
+  "CHANNEL_LISTING_REPOSITORY_PORT",
+);
 export const MARKETPLACE_REGISTRATION_REPOSITORY_PORT = Symbol(
-  'MARKETPLACE_REGISTRATION_REPOSITORY_PORT',
+  "MARKETPLACE_REGISTRATION_REPOSITORY_PORT",
 );
 
-export type ChannelListingSort = 'newest' | 'oldest' | 'name_asc';
+export type ChannelListingSort = "newest" | "oldest" | "name_asc";
 
 export interface ChannelListingQuery {
   page?: number;
@@ -14,7 +16,7 @@ export interface ChannelListingQuery {
   search?: string | null;
   createdSince?: string | null;
   includeDeleted?: boolean;
-  tab?: 'registered' | 'deleted';
+  tab?: "registered" | "deleted";
 }
 
 export interface ChannelListingSummary {
@@ -34,7 +36,7 @@ export interface ChannelListingSummary {
   status: string | null;
   exposureStatus: string | null;
   optionCount: number;
-  mappingStatus: 'matched' | 'unmatched' | 'needs_review';
+  mappingStatus: "matched" | "unmatched" | "needs_review";
   createdAt: string;
   updatedAt: string;
 }
@@ -74,11 +76,21 @@ export interface ChannelListingRepositoryPort {
     listingId: string,
   ): Promise<ChannelListingDeletionTarget | null>;
 
-  authorizeDeletion(input: ChannelListingDeletionAuthorizationInput): Promise<ChannelListingDeletionOperationResult>;
-  claimDeletionExecution(input: ChannelListingDeletionOperationLookup): Promise<ChannelListingDeletionExecutionClaim>;
-  markDeletionUnresolved(input: ChannelListingDeletionUnresolvedInput): Promise<ChannelListingDeletionUnresolvedResult>;
-  completeDeletion(input: ChannelListingDeletionCompletionInput): Promise<ChannelListingDeletionUnresolvedResult>;
-  getDeletionOperation(input: ChannelListingDeletionOperationLookup): Promise<ChannelListingDeletionOperationStatus | null>;
+  authorizeDeletion(
+    input: ChannelListingDeletionAuthorizationInput,
+  ): Promise<ChannelListingDeletionOperationResult>;
+  claimDeletionExecution(
+    input: ChannelListingDeletionOperationLookup,
+  ): Promise<ChannelListingDeletionExecutionClaim>;
+  markDeletionUnresolved(
+    input: ChannelListingDeletionUnresolvedInput,
+  ): Promise<ChannelListingDeletionUnresolvedResult>;
+  completeDeletion(
+    input: ChannelListingDeletionCompletionInput,
+  ): Promise<ChannelListingDeletionUnresolvedResult>;
+  getDeletionOperation(
+    input: ChannelListingDeletionOperationLookup,
+  ): Promise<ChannelListingDeletionOperationStatus | null>;
 }
 
 export interface ChannelListingDeletionAuthorizationInput {
@@ -98,7 +110,6 @@ export interface ChannelListingDeletionExecutionClaim {
   executionCapability: string;
   expiresAt: string;
 }
-
 
 export interface ChannelListingDeletionUnresolvedInput {
   organizationId: string;
@@ -123,15 +134,15 @@ export interface ChannelListingDeletionOperationResult {
   displayName: string;
   channel: string;
   expectedVendorId: string;
-  status: 'executing' | 'reconciling';
-  providerOutcome: 'uncertain';
+  status: "executing" | "reconciling";
+  providerOutcome: "uncertain";
   extensionClaimed: boolean;
 }
 
 export interface ChannelListingDeletionUnresolvedResult {
   operationId: string;
-  status: 'reconciling' | 'succeeded';
-  providerOutcome: 'uncertain' | 'succeeded';
+  status: "reconciling" | "succeeded";
+  providerOutcome: "uncertain" | "succeeded";
 }
 
 export interface ChannelListingDeletionOperationStatus {
@@ -146,8 +157,7 @@ export interface ChannelListingDeletionOperationStatus {
   lastErrorCode: string | null;
 }
 
-export interface ChannelListingDeletionCompletionInput
-  extends ChannelListingDeletionOperationLookup {
+export interface ChannelListingDeletionCompletionInput extends ChannelListingDeletionOperationLookup {
   verifiedProviderAccountId: string;
   verifiedExternalListingId: string;
 }
@@ -168,10 +178,58 @@ export interface ChannelListingDeletionTarget {
 }
 
 export interface MarketplaceRegistrationRepositoryPort {
+  /**
+   * Channels owns the provider-write fence over the existing immutable
+   * registration execution.  Sourcing may freeze provenance, but it cannot
+   * transition this external side effect.
+   */
+  claimProviderWrite(input: {
+    organizationId: string;
+    executionId: string;
+    preparationId: string;
+    channelAccountId: string;
+    sourceCandidateId: string;
+    idempotencyKey: string;
+    requestHash: string;
+    ownerIdempotencyKey: string;
+  }): Promise<
+    | { mode: "create"; leaseToken: string }
+    | { mode: "reconcile"; leaseToken: string | null }
+    | {
+        mode: "replay";
+        leaseToken: null;
+        providerSubmissionId: string;
+        externalListingId: string;
+      }
+  >;
+  finalizeProviderWrite(input: {
+    organizationId: string;
+    executionId: string;
+    leaseToken: string;
+    providerSubmissionId: string | null;
+    externalListingId: string;
+    result: unknown;
+  }): Promise<void>;
+  markProviderWriteUncertain(input: {
+    organizationId: string;
+    executionId: string;
+    leaseToken: string;
+    message: string;
+  }): Promise<void>;
+  markProviderWriteDefinitiveFailure(input: {
+    organizationId: string;
+    executionId: string;
+    leaseToken: string;
+    message: string;
+  }): Promise<void>;
   assertActiveRegistrationAccount(input: {
     organizationId: string;
     channelAccountId: string;
-  }): Promise<{ channel: string; vendorId: string | null; externalAccountId: string | null }>;
+  }): Promise<{
+    channel: string;
+    vendorId: string | null;
+    externalAccountId: string | null;
+  }>;
   findExistingActiveListingBySellerSku(input: {
     organizationId: string;
     channelAccountId: string;
@@ -206,6 +264,34 @@ export interface MarketplaceRegistrationRepositoryPort {
         sellpiaInventorySkuId: string;
         quantity: number;
       }>;
+    },
+  ): Promise<{
+    listingId: string;
+    channelAccountId: string;
+    channel: string;
+    externalId: string;
+    status: string | null;
+  }>;
+  resolveProductRegistrationWithOwnerReceipt(
+    transaction: object,
+    input: {
+      organizationId: string;
+      sourceCandidateId: string;
+      channelAccountId: string;
+      submissionKey: string;
+      externalListingId: string;
+      displayName: string;
+      masterProductId?: string;
+      optionLinks?: Array<{
+        externalOptionId: string;
+        sellpiaInventorySkuId: string;
+        quantity: number;
+      }>;
+      ownerCapabilityKey:
+        | "channels.register_confirmed_listing"
+        | "channels.submit_coupang_listing";
+      ownerIdempotencyKey: string;
+      ownerRequestHash: string;
     },
   ): Promise<{
     listingId: string;

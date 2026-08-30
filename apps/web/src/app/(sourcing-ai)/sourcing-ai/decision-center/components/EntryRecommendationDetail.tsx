@@ -10,10 +10,8 @@ import type {
 
 export interface EntryRecommendationDetailProps {
   item: EntryRecommendation;
-  /** 어시스턴트가 응답 중인지. 중복 제출로 CLI 프로세스가 겹치지 않게 버튼을 잠근다. */
-  isAsking: boolean;
   onClose: () => void;
-  onAsk: (question: string) => void;
+  onAsk: (question: string, launcher: HTMLElement) => void;
 }
 
 const COMPONENT_LABELS: Record<keyof EntryRecommendationComponents, string> = {
@@ -34,7 +32,6 @@ const SOURCE_LABELS: Record<EntrySourceKey, string> = {
 /** 표에서 행을 클릭하면 펼쳐지는 상세. 왜 추천됐는지를 근거 단위로 보여준다. */
 export function EntryRecommendationDetail({
   item,
-  isAsking,
   onClose,
   onAsk,
 }: EntryRecommendationDetailProps) {
@@ -133,11 +130,14 @@ export function EntryRecommendationDetail({
         <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
-            disabled={isAsking}
-            onClick={() => onAsk(`${item.keyword ?? item.title} 지금 진입해도 될까? 근거로 설명해줘.`)}
-            className="rounded-md bg-[var(--primary)] px-2.5 py-1.5 text-[11px] font-black text-white transition-[filter] hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-60"
+            data-right-surface-launcher="sourcing-ai-chat"
+            onClick={(event) => onAsk(
+              `${item.keyword ?? item.title} 지금 진입해도 될까? 근거로 설명해줘.`,
+              event.currentTarget,
+            )}
+            className="rounded-md bg-[var(--primary)] px-2.5 py-1.5 text-[11px] font-black text-white transition-[filter] hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
           >
-            {isAsking ? '답변 생성 중…' : '어시스턴트에게 묻기'}
+            소싱 Agent에게 묻기
           </button>
           {item.sourceUrl && (
             <a

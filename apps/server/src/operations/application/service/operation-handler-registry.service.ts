@@ -3,10 +3,13 @@ import type {
   OperationDefinition,
   OperationHandler,
 } from '../../../common/operation-definition';
-import type { OperationHandlerRegistryPort } from '../port/in/operation-handler-registry.port';
+import type {
+  OperationHandlerRegistryPort,
+  RegisteredOperationDefinition,
+} from '../port/in/operation-handler-registry.port';
 
 interface RegisteredOperation {
-  definition: OperationDefinition;
+  definition: RegisteredOperationDefinition;
   handler: OperationHandler;
 }
 
@@ -20,10 +23,29 @@ export class OperationHandlerRegistryService
     if (this.operations.has(definition.key)) {
       throw new Error(`duplicate operation key: ${definition.key}`);
     }
-    this.operations.set(definition.key, { definition, handler });
+    const normalizedDefinition: RegisteredOperationDefinition = {
+      ...definition,
+      successPersistence: definition.successPersistence ?? 'retained',
+    };
+    if (
+      normalizedDefinition.successPersistence === 'ephemeral_on_success' &&
+      (
+        normalizedDefinition.scheduleSupported !== false ||
+        normalizedDefinition.allowedTriggers.length !== 1 ||
+        normalizedDefinition.allowedTriggers[0] !== 'system' ||
+        !handler.finalizeEphemeralSuccess ||
+        !handler.exhaustRetry
+      )
+    ) {
+      throw new Error('operation_ephemeral_definition_invalid');
+    }
+    this.operations.set(normalizedDefinition.key, {
+      definition: normalizedDefinition,
+      handler,
+    });
   }
 
-  getDefinition(operationKey: string): OperationDefinition {
+  getDefinition(operationKey: string): RegisteredOperationDefinition {
     return this.get(operationKey).definition;
   }
 
@@ -38,7 +60,7 @@ export class OperationHandlerRegistryService
     return this.getDefinition(operationKey).inputSchema.parse(input);
   }
 
-  listDefinitions(): readonly OperationDefinition[] {
+  listDefinitions(): readonly RegisteredOperationDefinition[] {
     return [...this.operations.values()]
       .map(({ definition }) => definition)
       .sort((left, right) => left.key.localeCompare(right.key));

@@ -4,15 +4,12 @@
  * Panel SSE exception: fetch-event-source is authorized for Panel domain only.
  * Raw fetch() is otherwise prohibited in apps/web (see apps/web/AGENTS.md).
  *
- * Auth: connect 시점에 KidItem 세션 token 을 `Authorization: Bearer` 헤더로 첨부.
- * `credentials: 'include'` 도 같이 보내 추후 cookie-only 백엔드와 호환. fetchEventSource 는
- * 표준 EventSource API 와 달리 fetch() 옵션을 받으므로 헤더/credentials 둘 다 가능.
+ * Auth: `credentials: 'include'` 로 HttpOnly KidItem cookie만 전송한다.
  */
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { PanelEventSchema } from '@kiditem/shared/panel';
 import type { PanelEvent } from '@kiditem/shared/panel';
 import { API_BASE } from '@/lib/api';
-import { getAuthSession } from '@/lib/auth/session';
 
 export interface PanelSseClientOptions {
   onMessage: (event: PanelEvent) => void;
@@ -53,16 +50,18 @@ export class PanelSseClient {
     this.controller = controller;
     this.retryCount = 0;
 
-    void Promise.resolve(this.buildHeaders()).then((headers) =>
-      this.openStream(controller, headers),
-    );
+    void Promise.resolve(this.buildHeaders()).then((headers) => {
+      // React Strict Mode and rapid route replacement can disconnect this
+      // client before the async header step settles. Never let that stale
+      // continuation open a second long-lived browser connection.
+      if (controller.signal.aborted) return;
+      this.openStream(controller, headers);
+    });
   }
 
   private async buildHeaders(): Promise<Record<string, string>> {
     const headers: Record<string, string> = { Accept: 'text/event-stream' };
     if (this.lastEventId) headers['last-event-id'] = this.lastEventId;
-    const token = getAuthSession()?.token;
-    if (token) headers['Authorization'] = `Bearer ${token}`;
     return headers;
   }
 

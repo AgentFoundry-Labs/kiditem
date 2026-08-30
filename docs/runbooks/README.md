@@ -16,6 +16,12 @@ Runbooks are different from concept docs:
 
 Current runbooks:
 
+- [Local Development](local-development.md) — bootstrap a fresh macOS clone,
+  protected native Gateway home, local login identity, Codex provider login,
+  and the Web/API/Gateway development stack without sharing secrets.
+- [Interaction Platform](interaction-platform.md) — operate the CopilotKit
+  interaction plane, native provider conversations, Gateway registration, MCP
+  authority, and restart/stop boundaries.
 - [Warehouse API Provisioning](warehouse-api-provisioning.md) — safely read,
   create, update, verify, and delete organization-scoped Warehouse reference
   rows consumed by StockTransfers after standalone warehouse UI retirement.

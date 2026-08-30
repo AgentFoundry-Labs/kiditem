@@ -1,0 +1,296 @@
+import { randomUUID } from 'node:crypto';
+import type {
+  ProviderEvent,
+  ProviderReadiness,
+} from '@kiditem/shared/agent-runtime';
+import { buildClaudeTurnCommand } from './claude-command';
+import { ClaudeStreamParser } from './claude-stream-parser';
+import type { GatewayProviderCommand } from '../provider-command';
+import type {
+  CreateProviderConversation,
+  InterruptProviderTurn,
+  ProviderConversation,
+  ProviderConversationPort,
+  ProviderConversationSummary,
+  ProviderEventSink,
+  StartProviderTurn,
+} from '../provider-conversation.port';
+
+export interface ClaudeMcpConfigPort {
+  create(input: { turnId: string; conversationId: string; mcpUrl: string; mcpTransportToken: string }): Promise<string>;
+  remove(path: string): Promise<void>;
+  close(): Promise<void>;
+}
+
+export interface ClaudeProviderSessionStorePort {
+  exists(sessionId: string): Promise<boolean>;
+  remove(sessionId: string): Promise<void>;
+}
+
+export interface ClaudeTurnHandle {
+  interrupt(): Promise<void>;
+}
+
+export interface ClaudeProcessLauncher {
+  start(input: Readonly<{
+    command: GatewayProviderCommand;
+    input: string;
+    onOutput: (chunk: string) => void;
+    onExit: (code: number | null) => void;
+  }>): Promise<ClaudeTurnHandle>;
+}
+
+type ActiveClaudeTurn = Readonly<{
+  providerConversationRef: string;
+  turnId: string;
+  handle: ClaudeTurnHandle;
+  configPath: string;
+  sink: ProviderEventSink;
+}>;
+
+/**
+ * Claude Code has documented session create/resume stream flags, but no native
+ * list or title endpoint. List/name are descriptor concerns; the exact
+ * provider-owned session artifacts are deleted only through the native store.
+ */
+export class ClaudeConversationProvider implements ProviderConversationPort {
+  readonly runtime = 'claude_cli' as const;
+  private readonly active = new Map<string, ActiveClaudeTurn>();
+  private readonly finishing = new Map<string, Promise<void>>();
+  private readonly terminating = new Map<string, Promise<void>>();
+  private readonly requestedTerminal = new Map<string, 'interrupted'>();
+
+  constructor(private readonly options: Readonly<{
+    runtimeRoot: string;
+    workspace: string;
+    loginRoot: string;
+    mcpUrl: string;
+    mcpTransportToken: string;
+    configs: ClaudeMcpConfigPort;
+    launcher: ClaudeProcessLauncher;
+    sessions: ClaudeProviderSessionStorePort;
+    readiness: ProviderReadiness;
+    randomSessionId?: () => string;
+  }>) {}
+
+  async list(): Promise<ProviderConversationSummary[]> { return []; }
+
+  async create(input: CreateProviderConversation): Promise<ProviderConversation> {
+    const providerConversationRef = (this.options.randomSessionId ?? randomUUID)();
+    const timestamp = new Date().toISOString();
+    return { providerConversationRef, title: input.title ?? 'New conversation', createdAt: timestamp, updatedAt: timestamp };
+  }
+
+  async rename(_providerConversationRef: string, _title: string): Promise<void> {
+    // The installed Claude CLI exposes no session-name command. The title is
+    // bounded descriptor metadata and never represented as provider history.
+  }
+
+  async delete(providerConversationRef: string): Promise<void> {
+    try {
+      await this.options.sessions.remove(providerConversationRef);
+    } catch {
+      throw new Error('claude_provider_delete_failed');
+    }
+  }
+
+  async startTurn(input: StartProviderTurn, sink: ProviderEventSink): Promise<void> {
+    const key = turnKey(input.providerConversationRef, input.turnId);
+    if (this.active.has(key)) throw new Error('claude_turn_already_live');
+    const configPath = await this.options.configs.create({
+      turnId: input.turnId,
+      conversationId: input.conversationId,
+      mcpUrl: this.options.mcpUrl,
+      mcpTransportToken: this.options.mcpTransportToken,
+    });
+    let resume: boolean;
+    try {
+      // Provider state, not Gateway process memory, decides first-session
+      // versus resume semantics after a Gateway restart.
+      resume = await this.options.sessions.exists(input.providerConversationRef);
+    } catch {
+      await this.removeConfigOrThrow(configPath);
+      throw new Error('claude_provider_session_state_unavailable');
+    }
+    const command = buildClaudeTurnCommand({
+      runtimeRoot: this.options.runtimeRoot,
+      workspace: this.options.workspace,
+      loginRoot: this.options.loginRoot,
+      mcpConfigPath: configPath,
+      sessionId: input.providerConversationRef,
+      resume,
+      model: input.model,
+      reasoningEffort: input.reasoningEffort,
+      instructionProfile: input.instructionProfile,
+    });
+    let active: ActiveClaudeTurn | undefined;
+    const parser = new ClaudeStreamParser({ redactionTokens: [this.options.mcpTransportToken] });
+    const earlyEvents: ProviderEvent[] = [];
+    let earlyOutputFailed = false;
+    let earlyExit: number | null | undefined;
+    try {
+      const handle = await this.options.launcher.start({
+        command,
+        input: streamInput(input.message),
+        onOutput: (chunk) => {
+          let events: ProviderEvent[];
+          try { events = parser.receive(chunk); }
+          catch {
+            if (active) void this.terminateAndFinish(active, 'failed').catch(() => undefined);
+            else earlyOutputFailed = true;
+            return;
+          }
+          if (active) {
+            for (const event of events) this.emit(active, event);
+            return;
+          }
+          if (earlyEvents.length + events.length > 64) { earlyOutputFailed = true; return; }
+          earlyEvents.push(...events);
+        },
+        onExit: (code) => {
+          if (!active) { earlyExit = code; return; }
+          // A parse failure, disconnect, or explicit interrupt has already
+          // begun supervised termination. Do not let a parent-exit callback
+          // release its Gateway fence before that termination promise proves
+          // the complete process tree is gone.
+          if (this.terminating.has(key)) return;
+          void this.finish(active, this.requestedTerminal.get(key) ?? (code === 0 ? 'completed' : 'failed')).catch(() => undefined);
+        },
+      });
+      active = Object.freeze({
+        providerConversationRef: input.providerConversationRef,
+        turnId: input.turnId,
+        handle,
+        configPath,
+        sink,
+      });
+      this.active.set(key, active);
+      sink({ kind: 'status', status: 'started' });
+      if (earlyOutputFailed) {
+        await this.terminateAndFinish(active, 'failed').catch(() => undefined);
+        return;
+      }
+      for (const event of earlyEvents) {
+        if (this.active.get(key) !== active) break;
+        this.emit(active, event);
+      }
+      if (this.active.get(key) === active && earlyExit !== undefined) await this.finish(active, earlyExit === 0 ? 'completed' : 'failed');
+    } catch (error) {
+      if (active) {
+        await this.terminateAndFinish(active, 'failed').catch(() => undefined);
+        return;
+      }
+      await this.removeConfigOrThrow(configPath);
+      throw error;
+    }
+  }
+
+  async interrupt(input: InterruptProviderTurn): Promise<void> {
+    const active = this.require(input.providerConversationRef, input.turnId);
+    const key = turnKey(active.providerConversationRef, active.turnId);
+    this.requestedTerminal.set(key, 'interrupted');
+    try {
+      await active.handle.interrupt();
+    } catch (error) {
+      if (this.active.get(key) === active) this.requestedTerminal.delete(key);
+      throw error;
+    }
+  }
+
+  async readiness(): Promise<ProviderReadiness> {
+    if (this.options.readiness.runtime !== this.runtime) throw new Error('claude_readiness_invalid');
+    return this.options.readiness;
+  }
+
+  /** Gateway loss never leaves a provider child with a live private MCP connection. */
+  async close(): Promise<void> {
+    const results = await Promise.allSettled([...this.active.values()].map((active) => this.terminateAndFinish(active, 'disconnected')));
+    const failures = results.flatMap((result) => result.status === 'rejected' ? [result.reason] : []);
+    try { await this.options.configs.close(); }
+    catch (error) { failures.push(error); }
+    if (failures.length) throw new AggregateError(failures, 'claude_provider_close_failed');
+  }
+
+  private require(providerConversationRef: string, turnId: string): ActiveClaudeTurn {
+    const key = turnKey(providerConversationRef, turnId);
+    const active = this.active.get(key);
+    if (!active || this.finishing.has(key)) throw new Error('claude_turn_not_live');
+    return active;
+  }
+
+  private emit(active: ActiveClaudeTurn, event: ProviderEvent): void {
+    const key = turnKey(active.providerConversationRef, active.turnId);
+    if (this.active.get(key) !== active || this.finishing.has(key)) return;
+    if (event.kind === 'status' && event.status !== 'started') {
+      void this.finish(active, event.status).catch(() => undefined);
+      return;
+    }
+    active.sink(event);
+  }
+
+  private finish(
+    active: ActiveClaudeTurn,
+    status: 'completed' | 'failed' | 'interrupted' | 'disconnected',
+  ): Promise<void> {
+    const key = turnKey(active.providerConversationRef, active.turnId);
+    const existing = this.finishing.get(key);
+    if (existing) return existing;
+    if (this.active.get(key) !== active) return Promise.resolve();
+    const completion = Promise.resolve().then(async () => {
+      let terminalStatus = status;
+      try { await this.options.configs.remove(active.configPath); }
+      catch { terminalStatus = 'failed'; }
+      if (this.active.get(key) !== active) return;
+      this.active.delete(key);
+      this.requestedTerminal.delete(key);
+      active.sink({ kind: 'status', status: terminalStatus });
+    });
+    this.finishing.set(key, completion);
+    void completion.then(
+      () => { if (this.finishing.get(key) === completion) this.finishing.delete(key); },
+      () => { if (this.finishing.get(key) === completion) this.finishing.delete(key); },
+    );
+    return completion;
+  }
+
+  /** A failure terminal is valid only after the launcher proves the child tree is gone. */
+  private terminateAndFinish(
+    active: ActiveClaudeTurn,
+    status: 'completed' | 'failed' | 'interrupted' | 'disconnected',
+  ): Promise<void> {
+    const key = turnKey(active.providerConversationRef, active.turnId);
+    if (this.active.get(key) !== active) return Promise.resolve();
+    const finishing = this.finishing.get(key);
+    if (finishing) return finishing;
+    const existing = this.terminating.get(key);
+    if (existing) return existing;
+    // Register before invoking the handle: an implementation may report a
+    // parent exit synchronously while its tree-proof promise is still pending.
+    const completion = Promise.resolve().then(async () => {
+      try {
+        await active.handle.interrupt();
+      } finally {
+        await this.finish(active, status);
+      }
+    });
+    this.terminating.set(key, completion);
+    void completion.then(
+      () => { if (this.terminating.get(key) === completion) this.terminating.delete(key); },
+      () => { if (this.terminating.get(key) === completion) this.terminating.delete(key); },
+    );
+    return completion;
+  }
+
+  private async removeConfigOrThrow(path: string): Promise<void> {
+    try { await this.options.configs.remove(path); }
+    catch { throw new Error('claude_mcp_config_cleanup_failed'); }
+  }
+}
+
+function streamInput(message: string): string {
+  return `${JSON.stringify({ type: 'user', message: { role: 'user', content: message } })}\n`;
+}
+
+function turnKey(providerConversationRef: string, turnId: string): string {
+  return `${providerConversationRef}\u0000${turnId}`;
+}

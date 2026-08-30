@@ -4,8 +4,6 @@ const SERVER_CANCELLABLE_SOURCE_TYPES = new Set([
   'content_generation',
   'thumbnail_generation',
   'image_ai_job',
-  'agent_run_request',
-  'agent_run',
   'workflow_run',
 ]);
 

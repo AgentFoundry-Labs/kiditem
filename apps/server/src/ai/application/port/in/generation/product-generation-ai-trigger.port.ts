@@ -14,6 +14,10 @@ export type ProductGenerationTask = 'all' | 'detail' | 'thumbnail';
 
 export interface ProductGenerationAiRequest {
   organizationId: string;
+  /** Caller-owned immutable request coordinate; runtime rejects an unlocked request. */
+  idempotencyKey?: string;
+  /** Canonical request digest required with the idempotency coordinate. */
+  requestHash?: string;
   triggeredByUserId: string | null;
   candidateId: string;
   productName: string;

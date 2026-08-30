@@ -1,4 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { OPERATION_HANDLER_REGISTRY_PORT } from '../port/in/operation-handler-registry.port';
 import { OPERATION_REPOSITORY_PORT } from '../port/out/repository/operation.repository.port';
 import {
@@ -10,6 +11,10 @@ import type {
   OperationRunRepositoryPort,
 } from '../port/out/repository/operation.repository.port';
 import type { OperationHandlerRegistryPort } from '../port/in/operation-handler-registry.port';
+import {
+  OPERATION_RUN_EVENTS,
+  type OperationRunFinalizedEvent,
+} from '../event/operation-run-events';
 
 export interface OperationDispatchControls {
   signal: AbortSignal;
@@ -18,6 +23,7 @@ export interface OperationDispatchControls {
     progressCurrent?: number;
     progressTotal?: number;
   }): Promise<void>;
+  enterEphemeralFinalization(): Promise<{ signal: AbortSignal }>;
 }
 
 @Injectable()
@@ -29,6 +35,7 @@ export class OperationDispatcherService {
     private readonly repository: OperationRunRepositoryPort,
     @Inject(COMPOSITE_OPERATION_COORDINATOR_PORT)
     private readonly compositeCoordinator: CompositeOperationCoordinatorPort,
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   async dispatch(
@@ -42,8 +49,19 @@ export class OperationDispatcherService {
 
     try {
       controls.signal.throwIfAborted();
+      const definition = this.registry.getDefinition(run.operationKey);
+      if (
+        definition.successPersistence === 'ephemeral_on_success' &&
+        (
+          run.triggerSource !== 'system' ||
+          run.parentRunId !== null ||
+          run.scheduleId !== null
+        )
+      ) {
+        throw new Error('operation_ephemeral_dispatch_invalid');
+      }
       const handler = this.registry.getHandler(run.operationKey);
-      const result = await handler.execute({
+      const context = {
         runId: run.id,
         organizationId: run.organizationId,
         operationKey: run.operationKey,
@@ -54,8 +72,12 @@ export class OperationDispatcherService {
         parentRunId: run.parentRunId,
         attemptToken,
         signal: controls.signal,
+        attempts: run.attempts,
+        maxAttempts: run.maxAttempts,
         checkpoint: controls.checkpoint,
-      });
+        enterEphemeralFinalization: controls.enterEphemeralFinalization,
+      };
+      const result = await handler.execute(context);
       controls.signal.throwIfAborted();
       await controls.checkpoint();
       controls.signal.throwIfAborted();
@@ -63,6 +85,27 @@ export class OperationDispatcherService {
       switch (result.kind) {
         case 'completed':
           controls.signal.throwIfAborted();
+          if (definition.successPersistence === 'ephemeral_on_success') {
+            if (!handler.finalizeEphemeralSuccess) {
+              throw new Error('operation_ephemeral_finalizer_missing');
+            }
+            const finalization = await controls.enterEphemeralFinalization();
+            while (!finalization.signal.aborted) {
+              try {
+                await handler.finalizeEphemeralSuccess(context, result.result);
+                return;
+              } catch {
+                if (finalization.signal.aborted) return;
+                await controls.checkpoint({ stage: 'ephemeral_finalizing' });
+                try {
+                  await abortableDelay(250, finalization.signal);
+                } catch {
+                  return;
+                }
+              }
+            }
+            return;
+          }
           await this.repository.transitionActiveAttempt({
             organizationId: run.organizationId,
             runId: run.id,
@@ -76,6 +119,56 @@ export class OperationDispatcherService {
             attemptToken: null,
             claimedAt: null,
             leaseExpiresAt: null,
+          });
+          this.publishTerminal(run, 'succeeded', null, null);
+          return;
+        case 'retryable':
+          controls.signal.throwIfAborted();
+          if (run.attempts >= run.maxAttempts) {
+            if (!handler.exhaustRetry) {
+              throw new Error('operation_retry_exhaustion_handler_missing');
+            }
+            if (definition.successPersistence === 'ephemeral_on_success') {
+              const finalization = await controls.enterEphemeralFinalization();
+              while (!finalization.signal.aborted) {
+                try {
+                  await handler.exhaustRetry(context, {
+                    code: result.code,
+                    message: result.message,
+                  });
+                  return;
+                } catch {
+                  if (finalization.signal.aborted || controls.signal.aborted) return;
+                  try {
+                    await controls.checkpoint({
+                      stage: 'ephemeral_exhaustion_finalizing',
+                    });
+                  } catch {
+                    return;
+                  }
+                  if (finalization.signal.aborted || controls.signal.aborted) return;
+                  try {
+                    await abortableDelay(250, finalization.signal);
+                  } catch {
+                    return;
+                  }
+                }
+              }
+              return;
+            }
+            await handler.exhaustRetry(context, {
+              code: result.code,
+              message: result.message,
+            });
+            return;
+          }
+          await this.repository.requeueActiveAttemptAfter({
+            organizationId: run.organizationId,
+            runId: run.id,
+            expectedAttemptToken: attemptToken,
+            delayMs: result.retryAfterMs,
+            errorCode: result.code,
+            errorMessage: result.message,
           });
           return;
         case 'delegated':
@@ -139,6 +232,28 @@ export class OperationDispatcherService {
             claimedAt: null,
             leaseExpiresAt: null,
           });
+          this.publishTerminal(
+            run,
+            'attention_required',
+            'operation_attention_required',
+            result.reason,
+          );
+          return;
+        case 'cancelled':
+          await this.repository.transition({
+            organizationId: run.organizationId,
+            runId: run.id,
+            expectedStatuses: ['running'],
+            expectedAttemptToken: run.attemptToken,
+            status: 'cancelled',
+            result: result.result,
+            finishedAt: new Date(),
+            claimedBy: null,
+            attemptToken: null,
+            claimedAt: null,
+            leaseExpiresAt: null,
+          });
+          this.publishTerminal(run, 'cancelled', null, null);
           return;
         case 'failed':
           controls.signal.throwIfAborted();
@@ -156,6 +271,7 @@ export class OperationDispatcherService {
             claimedAt: null,
             leaseExpiresAt: null,
           });
+          this.publishTerminal(run, 'failed', result.code, result.message);
           return;
       }
     } catch (error) {
@@ -190,5 +306,44 @@ export class OperationDispatcherService {
       claimedAt: null,
       leaseExpiresAt: null,
     });
+    if (terminal) {
+      this.publishTerminal(
+        run,
+        'failed',
+        'operation_execution_failed',
+        'Operation execution failed',
+      );
+    }
   }
+
+  private publishTerminal(
+    run: OperationRunRecord,
+    status: OperationRunFinalizedEvent['status'],
+    errorCode: string | null,
+    errorMessage: string | null,
+  ): void {
+    this.events?.emit(OPERATION_RUN_EVENTS.FINALIZED, {
+      organizationId: run.organizationId,
+      runId: run.id,
+      status,
+      errorCode,
+      errorMessage,
+    } satisfies OperationRunFinalizedEvent);
+  }
+}
+
+function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(signal.reason);
+    };
+    const timeout = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, milliseconds);
+    timeout.unref?.();
+    if (signal.aborted) return onAbort();
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 }

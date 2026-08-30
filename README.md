@@ -1,131 +1,169 @@
 # KidItem
 
-이커머스 셀러 운영 자동화 플랫폼. 소싱 → 상품/채널 카탈로그 → AI 이미지·콘텐츠 처리 → 리스팅 운영 → 재고·주문·정산·광고 자동화.
+소싱부터 상품·채널 카탈로그, 콘텐츠 생성, 리스팅, 재고·주문·정산·광고까지
+이커머스 운영을 한곳에서 관리하는 자동화 플랫폼입니다. 일반 AI 대화와 업무별
+Agent는 호스트의 Codex/Claude CLI를 사용하고, 실제 업무 변경은 KidItem의
+도메인 capability와 승인/idempotency 경계를 거칩니다.
 
-## 사전 요구사항
+## macOS 빠른 시작
 
-- **Node.js** v20+ (npm 포함)
-- **Python** 3.11+
-- **Docker Desktop** (PostgreSQL 실행용)
+현재 개발 표준은 macOS입니다. Python은 기본 실행에 필요하지 않습니다.
 
-## Chrome 익스텐션
+사전 요구사항:
 
-KidItem OS 익스텐션 한 설치본이 로컬과 Office를 동시에 지원한다. 개발 중에는
-`extensions/kiditem-os`를 `chrome://extensions`에서 바로 로드한다.
-배포본은 [GitHub Releases](https://github.com/AgentFoundry-Labs/kiditem/releases)의
-해당 `office-v<VERSION>` 통합 ZIP을 사용한다. 버전 게시·검증·업데이트 방법은
-[Chrome Extension Releases runbook](docs/runbooks/extension-releases.md)을 따른다.
-
-## 셋업
+- Git
+- Docker Desktop
+- Node 버전 관리자(`nvm`, `fnm`, `mise` 등)
+- Codex Agent OS를 사용할 경우 유효한 OpenAI 구독/로그인
 
 ```bash
 git clone https://github.com/AgentFoundry-Labs/kiditem.git
 cd kiditem
-npm install --legacy-peer-deps
+nvm install
+nvm use
 
-# 환경 변수
-cp .env.example .env                           # Root tooling — Prisma/dev bootstrap/dev data
-cp apps/server/.env.example apps/server/.env   # NestJS — DB, MinIO, Gemini/Agent OS
-cp agents/.env.example agents/.env             # Python sourcing agents — DB, TMAPI, Langfuse
+# env 예제, Git hooks, locked npm 의존성, 격리된 Gateway 상태를 준비합니다.
+npm run setup:macos
 
-# Python 가상환경 (sourcing agents 실행 시 필요)
-cd agents && python -m venv .venv && .venv/bin/pip install -r requirements.txt && cd ..
+# PostgreSQL + MinIO를 시작하고 현재 Prisma schema를 적용합니다.
+docker compose up -d --wait
+npm run db:push
 
-# DB 실행 + 스키마 적용
-docker compose up -d                           # PostgreSQL만 (Docker)
-npm run db:push                                # 스키마 적용
+# 새 DB에 로컬 로그인 사용자/조직을 만들고 비밀번호를 안전하게 입력합니다.
+npm run dev:bootstrap-user -- --email you@example.com
 
-# 전체 실행 (한번에)
-npm run dev:all                                # Next.js + NestJS + Python sourcing agents 동시 실행
+# KidItem 전용 provider home에 Codex를 로그인합니다.
+npm run gateway:login:codex
 
-# 공유 개발 데이터 (선택, 서버 실행 후 다른 터미널에서 주요 화면 상태 맞추기)
-# Canonical Drive: https://drive.google.com/drive/folders/1sIuAiZAX6wAFOoEmmJGe6p0b5xwey1AO?usp=drive_link
-export KIDITEM_DEV_DATA_DRIVE_DIR="$HOME/.../KidItem Dev Data" # Google Drive Desktop 로컬 동기화 경로
+# Web + API/Operation worker + native Agent Gateway
+npm run dev:all
+```
+
+브라우저에서 [http://localhost:3000/login](http://localhost:3000/login)을 열고
+방금 만든 계정으로 로그인합니다. 기본 Dashboard만 필요하면 Gateway/provider
+로그인 없이 `npm run dev:core`를 실행해도 됩니다.
+
+전체 설치 절차, 재실행, 초기화, provider history 격리, 문제 해결은
+[Local Development runbook](docs/runbooks/local-development.md)에 있습니다.
+변수별 소유 런타임과 local/Office 차이는
+[Environment Variables runbook](docs/runbooks/environment-variables.md)을
+기준으로 합니다.
+
+## 개발 명령
+
+| 명령 | 내용 |
+|---|---|
+| `npm run setup:macos` | 누락된 local env와 보호된 Gateway config/token/home을 만들고, 의존성이 없으면 `npm ci` 실행 |
+| `npm run dev:core` | Next.js + NestJS API/Operation worker |
+| `npm run dev:gateway` | Gateway를 빌드하고 생성된 macOS config로 실행 |
+| `npm run dev:all` | Core + Gateway |
+| `npm run dev` | Next.js만 실행 |
+| `npm run dev:server` | NestJS API만 실행 |
+| `npm run dev:agents` | 선택적 Python Agent 서버만 실행(별도 Python 3.11+ venv 필요) |
+| `npm run gateway:login:codex` | 격리된 KidItem provider home에 bundled Codex 로그인 |
+| `npm run gateway:login:claude` | 격리된 KidItem provider home에 bundled Claude 로그인(선택) |
+| `npm run dev:bootstrap-user` | loopback 개발 DB에 로그인 사용자/조직/membership 생성 또는 갱신 |
+| `npm run db:studio` | Prisma Studio |
+
+`dev:bootstrap-user`는 비밀번호를 stdin으로만 받고 기존 세션을 폐기합니다. Office
+사용자나 원격 DB에는 사용할 수 없습니다. 기존 사용자 비밀번호만 바꿀 때는
+`npm run auth:password`를 사용합니다.
+
+## 환경 파일
+
+`npm run setup:macos`는 기존 파일을 덮어쓰지 않고 다음 예제만 복사합니다.
+
+| 로컬 파일 | 소비자 | 내용 |
+|---|---|---|
+| `.env` | Prisma/root scripts | local DB URL, dev-data 경로와 scope |
+| `apps/server/.env` | NestJS | DB/MinIO, server-side provider keys, sourcing, Gateway token **경로** |
+| `apps/web/.env.local` | Next.js | 공개 API URL과 개발 UI flag만 |
+| `agents/.env` | optional Python runtime | `setup:macos -- --with-python-agents`일 때만 생성 |
+
+Gateway bearer, config, provider login/history는 `.env`나 PostgreSQL이 아니라
+`~/Library/Application Support/KidItem/AgentGateway` 아래에 0700/0600 권한으로
+보관됩니다. 실제 token, password, provider credential은 Git에 커밋하지 않습니다.
+
+## 로컬 포트
+
+| 서비스 | 주소 | 기본 여부 |
+|---|---|---|
+| Next.js | http://localhost:3000 | 기본 |
+| NestJS API | http://localhost:4000/api | 기본 |
+| PostgreSQL | localhost:5433 | 기본 Docker |
+| MinIO S3 | http://localhost:9000 | 기본 Docker |
+| MinIO Console | http://localhost:9001 | 기본 Docker |
+| Python Agents | http://localhost:8001 | 선택 |
+
+Native Agent Gateway는 HTTP listener를 열지 않습니다. Gateway가
+`127.0.0.1:4000`의 보호된 Nest runtime route로 outbound 연결합니다.
+
+## 선택적 Python Agents
+
+Python helper runtime이 필요한 작업에서만 준비합니다. macOS 기본 `python3`이
+3.11 미만일 수 있으므로 실행 파일 버전을 직접 확인합니다.
+
+```bash
+npm run setup:macos -- --with-python-agents
+python3.11 -m venv agents/.venv
+agents/.venv/bin/pip install -r agents/requirements.txt
+npm run dev:agents
+```
+
+기본 1688 URL scrape는 Python이 아니라 NestJS Sourcing 도메인의 TypeScript
+Playwright 구현이 소유합니다.
+
+## 공유 개발 데이터
+
+Google Drive bundle은 화면/수집 데이터 baseline을 맞추기 위한 선택 단계입니다.
+먼저 로컬 조직을 만든 뒤 해당 organization ID를 사용합니다.
+
+```bash
+export KIDITEM_DEV_DATA_DRIVE_DIR="$HOME/.../KidItem Dev Data"
 export KIDITEM_DEV_ORGANIZATION_ID="<local organization uuid>"
-# 기준 파일: profiles/workspace.json -> coupang/latest.json -> bundles/kiditem-coupang-{datasetId}.zip
-# 프로젝트 reference: references/kiditem_list.xlsx, references/wing-inventory-matched.xlsx
-# 셋업 runbook: docs/runbooks/google-drive-dev-data.md
-# 재고/상품 재구성: docs/runbooks/sellpia-rocket-inventory-sync.md
-# 쿠팡 Wing 수집: docs/runbooks/coupang-wing-catalog-collection.md
 npm run data:dev:setup -- --drive-root "$KIDITEM_DEV_DATA_DRIVE_DIR"
 npm run data:dev:sync -- --profile workspace --yes
 ```
 
-Google Drive 번들은 광고/스크래프 공유 데이터를 복원한다. Sellpia 재고와
-쿠팡 Wing 등록 상품은 각각 전용 import 흐름으로 재구성하며, 업로드한 Sellpia
-스냅샷의 `MasterProduct.currentStock`이 KidItem 재고 기준이다.
-
-### 개별 실행
-
-```bash
-npm run dev                          # Next.js 프론트엔드만 (localhost:3000)
-npm run dev:server                   # NestJS 백엔드만 (localhost:4000)
-npm run dev:agents                   # Python sourcing agents만
-npm run db:studio                    # Prisma Studio (DB GUI, localhost:5555)
-```
-
-### 상세페이지 생성 테스트
-
-1. `apps/server/.env`에 `GEMINI_API_KEY`와 필요한 `AGENT_*_MODEL` 설정
-2. `npm run dev:all`
-3. `localhost:3000/product-pipeline/collected-products` → 상품 선택 → 에디터 → AI 생성 버튼
-
-## 포트
-
-| 서비스 | URL | 실행 방식 |
-|---|---|---|
-| Next.js | http://localhost:3000 | 로컬 (`npm run dev`) |
-| NestJS API | http://localhost:4000/api | 로컬 (`npm run dev:server`) |
-| Python Agents | http://localhost:8001 | 로컬 sourcing/scraping FastAPI (`npm run dev:agents`) |
-| PostgreSQL | localhost:5433 | Docker |
+자세한 절차는 [Google Drive Dev Data](docs/runbooks/google-drive-dev-data.md)를
+따릅니다. Sellpia 물리 재고의 source of truth는 `SellpiaInventorySku`이며,
+`MasterProduct`에 물리 수량을 복제하지 않습니다. Sellpia/Coupang 재구성은
+[Sellpia Inventory And Rocket](docs/runbooks/sellpia-rocket-inventory-sync.md)과
+[Coupang Wing Catalog](docs/runbooks/coupang-wing-catalog-collection.md)를
+각각 따릅니다.
 
 ## 구조
 
+```text
+apps/web/             Next.js 16 Web
+apps/server/          NestJS 11 API and Operation runtime
+apps/agent-gateway/   host-native Codex/Claude conversation process boundary
+agents/               optional Python 3.11+ helper runtime
+packages/shared/      focused Zod schemas and TypeScript contracts
+packages/templates/   detail-page React templates
+prisma/               multi-file Prisma schema source of truth
+extensions/           universal KidItem Chrome extension
 ```
-apps/web/            — Next.js 16 프론트엔드
-apps/server/         — NestJS 11 백엔드 API
-agents/              — Python 3.11+ sourcing/scraping 에이전트
-packages/shared/     — @kiditem/shared (Zod 스키마 + TypeScript 타입 + 에러 코드)
-packages/templates/  — 상세페이지 React 템플릿
-prisma/              — Prisma multi-file DB 스키마 (source of truth)
-extensions/          — Chrome 익스텐션 (1688/Alibaba 스크래퍼)
-```
 
-프론트엔드 라우트는 Next.js App Router route group으로 도메인별 배치한다. 예: `/agents`는 `apps/web/src/app/(automation)/agents/page.tsx`, `/product-hub`는 `apps/web/src/app/(catalog)/product-hub/page.tsx`에 있다.
+상위 소유권은 [Architecture](docs/ARCHITECTURE.md), 코드 변경 규칙은
+[AGENTS.md](AGENTS.md), 테스트 선택은 [Testing](docs/TESTING.md)을 기준으로
+합니다.
 
-백엔드는 owner-domain 기준으로 정리한다. 재구성된 도메인은 `adapter/application/domain/mapper` 구조와 선택적 hexagonal ports를 사용하고, 단순 CRUD는 전환기 flat module로 남을 수 있다. 현재 계약은 [AGENTS.md](AGENTS.md), [apps/server/AGENTS.md](apps/server/AGENTS.md), [apps/web/AGENTS.md](apps/web/AGENTS.md)를 기준으로 한다.
+## Chrome 익스텐션
 
-## 기술 스택
+개발 중에는 `extensions/kiditem-os`를 `chrome://extensions`에서 unpacked로
+로드합니다. Office 배포본은 GitHub Release의 `office-v<VERSION>` 통합 ZIP을
+사용하며 [Extension Releases](docs/runbooks/extension-releases.md)를 따릅니다.
 
-| 레이어 | 기술 |
-|---|---|
-| 프론트엔드 | Next.js 16, React 19, Tailwind CSS, TanStack React Query, Zustand, Sonner |
-| 백엔드 | NestJS 11, TypeScript, class-validator DTO |
-| DB | PostgreSQL 17, Prisma v7 |
-| 공유 | Zod 스키마 (@kiditem/shared), ESM + CJS dual format |
-| AI | NestJS Gemini direct calls, Claude CLI Agent OS, Python sourcing/scraping agents |
-| 인프라 | Docker Compose |
-
-## 환경 변수
-
-각 런타임의 `.env`는 같은 위치의 `.env.example`을 기준으로 관리한다.
-
-| 파일 | 용도 |
-|---|---|
-| `.env` | 루트 도구용: Prisma CLI, dev bootstrap, dev data sync |
-| `apps/server/.env` | NestJS API 런타임: PostgreSQL, MinIO, Gemini/Agent OS, Playwriter |
-| `apps/web/.env.local` | Next.js public env: API URL, local devtools flag |
-| `agents/.env` | Python sourcing agents: DB, VectorEngine/OpenAI/Gemini, TMAPI, Langfuse |
-
-앱 런타임용 AI/provider/marketplace 시크릿은 루트 `.env`에 두지 않는다.
-
-## 테스트
+## 검증
 
 ```bash
-npm exec --workspace=apps/server -- vitest run   # 백엔드
-npm exec --workspace=apps/web -- vitest run      # 프론트엔드
-npm run check:idor
-npm run check:tenant-scope
+npm run test:scripts
+npm run check:conventions
+npm run build --workspace=packages/shared
+npm run build --workspace=apps/agent-gateway
+npm run build --workspace=apps/server
+npm run build --workspace=apps/web
 ```
 
 ## License
