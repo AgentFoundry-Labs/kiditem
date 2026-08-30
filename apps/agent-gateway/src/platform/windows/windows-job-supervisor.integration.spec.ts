@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { ATTEMPT_RUNTIME_TRAIN } from '@kiditem/shared/agent-runtime';
-import { bundledProviderVersionProbe } from '../../provider/provider-command';
+import { GATEWAY_RUNTIME_TRAIN } from '@kiditem/shared/agent-runtime';
+import {
+  gatewayProviderInvocation,
+  providerEnvironment,
+  type GatewayProviderCommand,
+} from '../../provider/provider-command';
 import { WindowsJobSupervisor } from './windows-job-supervisor';
 
 describe('WindowsJobSupervisor', () => {
@@ -65,10 +69,10 @@ describe('WindowsJobSupervisor', () => {
     const runtimeRoot = resolve(__dirname, '../../..');
 
     for (const [provider, expectedVersion] of [
-      ['codex', ATTEMPT_RUNTIME_TRAIN.codexVersion],
-      ['claude', ATTEMPT_RUNTIME_TRAIN.claudeVersion],
+      ['codex', GATEWAY_RUNTIME_TRAIN.codexVersion],
+      ['claude', GATEWAY_RUNTIME_TRAIN.claudeVersion],
     ] as const) {
-      const command = bundledProviderVersionProbe(runtimeRoot, provider);
+      const command = gatewayProviderVersionCommand(runtimeRoot, provider);
       expect(command.executable.toLocaleLowerCase('en-US')).not.toMatch(/\.js$/);
       if (provider === 'codex') expect(command.args[0]).toMatch(/[\\/]codex\.js$/);
 
@@ -82,7 +86,7 @@ describe('WindowsJobSupervisor', () => {
     const helperPath = process.env.KIDITEM_WINDOWS_JOB_RUNNER_PATH;
     expect(helperPath).toBeTruthy();
     const supervisor = new WindowsJobSupervisor({ helperPath: helperPath! });
-    const running = await supervisor.launch(bundledProviderVersionProbe(resolve(__dirname, '../../..'), 'codex'));
+    const running = await supervisor.launch(gatewayProviderVersionCommand(resolve(__dirname, '../../..'), 'codex'));
     const exited = awaitExit(running);
 
     await exited;
@@ -97,7 +101,7 @@ describe('WindowsJobSupervisor', () => {
     let resolveExit!: () => void;
     const exited = new Promise<void>((resolveExitValue) => { resolveExit = resolveExitValue; });
     const rejected = {
-      ...bundledProviderVersionProbe(resolve(__dirname, '../../..'), 'codex'),
+      ...gatewayProviderVersionCommand(resolve(__dirname, '../../..'), 'codex'),
       executable: 'C:\\KidItem\\invalid-provider.js',
       args: [],
     };
@@ -112,7 +116,20 @@ function awaitExit(running: Awaited<ReturnType<WindowsJobSupervisor['launch']>>)
   return new Promise((resolveExit) => { running.onExit(() => resolveExit()); });
 }
 
-async function runWithNativeJobHelper(helperPath: string, command: ReturnType<typeof bundledProviderVersionProbe>): Promise<{
+function gatewayProviderVersionCommand(
+  runtimeRoot: string,
+  provider: 'codex' | 'claude',
+): GatewayProviderCommand {
+  const invocation = gatewayProviderInvocation(runtimeRoot, provider);
+  return {
+    executable: invocation.executable,
+    args: [...invocation.argsPrefix, '--version'],
+    cwd: runtimeRoot,
+    env: providerEnvironment({ home: runtimeRoot }),
+  };
+}
+
+async function runWithNativeJobHelper(helperPath: string, command: GatewayProviderCommand): Promise<{
   exit: { code: number | null; signal: NodeJS.Signals | null };
   stdout: string;
 }> {

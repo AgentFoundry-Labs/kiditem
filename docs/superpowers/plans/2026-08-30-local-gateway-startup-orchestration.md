@@ -111,7 +111,7 @@ Expected: 12 tests PASS.
 - Consumes: `loadLocalGatewayConfig(configFile)`, bundled provider entrypoints, and isolated `loginRoot`.
 - Produces: `buildProviderAuthStatusCommand(...)`, `ensureProviderAuthentication({ status, login, interactive })`, package command `gateway:auth:codex`, and a non-interactive Codex guard for `start`.
 
-- [ ] **Step 1: Write failing command and authentication-state tests**
+- [x] **Step 1: Write failing command and authentication-state tests**
 
 ```ts
 const status = buildProviderAuthStatusCommand({
@@ -156,13 +156,13 @@ expect(() => ensureProviderAuthentication({
 })).toThrow('gateway_provider_auth_failed');
 ```
 
-- [ ] **Step 2: Run the focused test and verify missing exports fail**
+- [x] **Step 2: Run the focused test and verify missing exports fail**
 
 Run: `npx vitest run --config scripts/vitest.config.ts scripts/__tests__/local-agent-gateway.spec.ts`
 
 Expected: FAIL because `buildProviderAuthStatusCommand` and `ensureProviderAuthentication` are not exported.
 
-- [ ] **Step 3: Implement provider status and ensure-auth behavior**
+- [x] **Step 3: Implement provider status and ensure-auth behavior**
 
 ```js
 export function ensureProviderAuthentication({ status, login, interactive }) {
@@ -203,7 +203,7 @@ login: () => run(loginCommand, 'gateway_provider_auth_failed'), interactive:
 true })`. Before `start`, invoke the same function with `interactive: false`;
 never open a browser from `start`.
 
-- [ ] **Step 4: Add package and inventory contracts**
+- [x] **Step 4: Add package and inventory contracts**
 
 ```json
 "gateway:auth:codex": "node scripts/local-agent-gateway.mjs auth codex"
@@ -213,7 +213,7 @@ Require that exact value from `check-script-inventory.mjs`, its fixture test,
 and `developer-onboarding-contract.test.mjs`. Keep the existing forced
 `gateway:login:codex` command.
 
-- [ ] **Step 5: Run focused and complete script tests**
+- [x] **Step 5: Run focused and complete script tests**
 
 Run: `npx vitest run --config scripts/vitest.config.ts scripts/__tests__/local-agent-gateway.spec.ts`
 
@@ -223,7 +223,7 @@ Run: `npm run test:scripts`
 
 Expected: all Vitest and Node script tests PASS.
 
-- [ ] **Step 6: Commit the provider-auth boundary**
+- [x] **Step 6: Commit the provider-auth boundary**
 
 ```bash
 git add package.json scripts/local-agent-gateway.mjs scripts/check-script-inventory.mjs scripts/__tests__/local-agent-gateway.spec.ts scripts/__tests__/check-script-inventory.test.mjs scripts/__tests__/developer-onboarding-contract.test.mjs
@@ -247,7 +247,7 @@ git commit -m "feat: add local gateway auth boundary"
 - Consumes: `setup-macos-development.mjs`, `local-agent-gateway.mjs auth codex`, `dev:core`, and `dev:gateway`.
 - Produces: `orchestrateLocalDevelopment({ setup, authenticate, startServices })`, `startLocalServices({ concurrentlyImpl })`, and `dev:all` as the single local runtime entrypoint.
 
-- [ ] **Step 1: Write failing orchestration-order and short-circuit tests**
+- [x] **Step 1: Write failing orchestration-order and short-circuit tests**
 
 ```ts
 const events: string[] = [];
@@ -275,13 +275,13 @@ await expect(orchestrateLocalDevelopment({
 expect(authFailureEvents).toEqual(['setup', 'auth']);
 ```
 
-- [ ] **Step 2: Run the new focused test and verify the missing module fails**
+- [x] **Step 2: Run the new focused test and verify the missing module fails**
 
 Run: `npx vitest run --config scripts/vitest.config.ts scripts/__tests__/run-local-development.spec.ts`
 
 Expected: FAIL because `run-local-development.mjs` does not exist.
 
-- [ ] **Step 3: Implement the built-in-only preflight orchestration**
+- [x] **Step 3: Implement the built-in-only preflight orchestration**
 
 ```js
 export async function orchestrateLocalDevelopment({ setup, authenticate, startServices }) {
@@ -301,7 +301,7 @@ The main function resolves the repository root, runs setup with the current
 `process.execPath`, runs `local-agent-gateway.mjs auth codex`, and only then
 dynamically imports `concurrently`.
 
-- [ ] **Step 4: Implement service ownership with tested concurrently options**
+- [x] **Step 4: Implement service ownership with tested concurrently options**
 
 ```js
 export async function startLocalServices({ concurrentlyImpl }) {
@@ -343,7 +343,7 @@ expect(received).toEqual({
 `concurrently` retains its built-in SIGINT/SIGTERM handler so `Ctrl-C` closes
 both process trees; the real smoke step verifies that integration.
 
-- [ ] **Step 5: Wire the package command and durable inventory**
+- [x] **Step 5: Wire the package command and durable inventory**
 
 ```json
 "dev:all": "node scripts/run-local-development.mjs"
@@ -353,7 +353,7 @@ Add `run-local-development.mjs` to `SCRIPT_INVENTORY`, document it in
 `scripts/README.md`, and update both inventory/developer-onboarding tests to
 require the exact command while continuing to exclude `dev:agents`.
 
-- [ ] **Step 6: Run orchestration and inventory tests**
+- [x] **Step 6: Run orchestration and inventory tests**
 
 Run: `npx vitest run --config scripts/vitest.config.ts scripts/__tests__/run-local-development.spec.ts scripts/__tests__/local-agent-gateway.spec.ts`
 
@@ -363,7 +363,7 @@ Run: `npm run check:scripts-inventory && npm run test:scripts`
 
 Expected: both commands PASS.
 
-- [ ] **Step 7: Commit orchestration**
+- [x] **Step 7: Commit orchestration**
 
 ```bash
 git add package.json scripts/run-local-development.mjs scripts/__tests__/run-local-development.spec.ts scripts/check-script-inventory.mjs scripts/README.md scripts/__tests__/check-script-inventory.test.mjs scripts/__tests__/developer-onboarding-contract.test.mjs
@@ -383,14 +383,14 @@ git commit -m "feat: orchestrate local gateway startup"
 - Consumes: the final package commands and stable error codes from Tasks 1–3.
 - Produces: operator documentation matching the automated first-run and repeat-run behavior.
 
-- [ ] **Step 1: Update the runbook command flow**
+- [x] **Step 1: Update the runbook command flow**
 
 Document that `.nvmrc` is recommended, Node 22 is supported, setup creates
 `.codex`, `gateway:auth:codex` checks/repairs authentication, `dev:gateway`
 never opens login, and `dev:all` runs setup → auth → Core/Gateway. Retain the
 explicit Docker, schema, and local-user steps.
 
-- [ ] **Step 2: Run all repository script gates**
+- [x] **Step 2: Run all repository script gates**
 
 Run: `npm run check:scripts-inventory`
 
@@ -404,7 +404,7 @@ Run: `npm run check:conventions`
 
 Expected: all convention guards PASS.
 
-- [ ] **Step 3: Verify builds required by the changed runtime path**
+- [x] **Step 3: Verify builds required by the changed runtime path**
 
 Run: `npm run build --workspace=apps/agent-gateway`
 
@@ -414,14 +414,14 @@ Run: `npm run build --workspace=apps/web`
 
 Expected: exit code 0.
 
-- [ ] **Step 4: Verify setup under the installed non-exact Node patch**
+- [x] **Step 4: Verify setup under the installed non-exact Node patch**
 
 Run: `node --version && npm run setup:macos -- --skip-install`
 
 Expected: Node `22.23.1` is accepted, setup exits 0, and the isolated
 `provider-home/.codex` exists with mode `0700`.
 
-- [ ] **Step 5: Verify provider authentication and automatic startup**
+- [x] **Step 5: Verify provider authentication and automatic startup**
 
 Run: `npm run gateway:auth:codex`
 
@@ -438,7 +438,7 @@ Send `Ctrl-C` once.
 
 Expected: Core and Gateway children terminate without orphan processes.
 
-- [ ] **Step 6: Commit documentation and verification contract**
+- [x] **Step 6: Commit documentation and verification contract**
 
 ```bash
 git add docs/runbooks/local-development.md docs/runbooks/environment-variables.md scripts/setup-macos-development.mjs scripts/__tests__/setup-macos-development.spec.ts

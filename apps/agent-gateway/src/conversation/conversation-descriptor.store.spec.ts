@@ -21,8 +21,10 @@ describe('ConversationDescriptorStore', () => {
 
     expect(await store.list()).toEqual([descriptor]);
     const file = join(root, 'conversations.json');
-    expect((await stat(root)).mode & 0o777).toBe(0o700);
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') {
+      expect((await stat(root)).mode & 0o777).toBe(0o700);
+      expect((await stat(file)).mode & 0o777).toBe(0o600);
+    }
     const raw = await readFile(file, 'utf8');
     expect(JSON.parse(raw)).toEqual([descriptor]);
     for (const forbidden of [
