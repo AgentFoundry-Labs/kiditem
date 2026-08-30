@@ -16,4 +16,33 @@ describe('Gateway-owned provider command environment', () => {
       vi.unstubAllEnvs();
     }
   });
+
+  it('preserves only the Windows bootstrap environment required by Node and provider child processes', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+    expect(platform).toBeDefined();
+    Object.defineProperty(process, 'platform', { ...platform, value: 'win32' });
+    vi.stubEnv('SystemRoot', 'C:\\Windows');
+    vi.stubEnv('windir', 'C:\\Windows');
+    vi.stubEnv('ComSpec', 'C:\\Windows\\System32\\cmd.exe');
+    vi.stubEnv('Temp', 'C:\\Windows\\Temp');
+    vi.stubEnv('tmp', 'C:\\Windows\\Temp');
+    vi.stubEnv('UNRELATED_WINDOWS_SECRET', 'must-not-cross');
+
+    try {
+      const { providerEnvironment } = await import('./provider-command');
+      const env = providerEnvironment({ home: 'C:\\KidItem\\login' });
+
+      expect(env).toMatchObject({
+        SYSTEMROOT: 'C:\\Windows',
+        WINDIR: 'C:\\Windows',
+        COMSPEC: 'C:\\Windows\\System32\\cmd.exe',
+        TEMP: 'C:\\Windows\\Temp',
+        TMP: 'C:\\Windows\\Temp',
+      });
+      expect(env).not.toHaveProperty('UNRELATED_WINDOWS_SECRET');
+    } finally {
+      Object.defineProperty(process, 'platform', platform!);
+      vi.unstubAllEnvs();
+    }
+  });
 });
