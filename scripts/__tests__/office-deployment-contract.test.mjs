@@ -38,6 +38,12 @@ test('Office CLI admits only named origin branches and explicit schema/data cuto
   assert.throws(() => parseOfficeDeployArgs(['status', '--ref', 'origin/develop']));
 });
 
+test('Windows native fixture avoids PowerShell PID collisions', () => {
+  const nativeFixture = read('scripts/__tests__/office-windows-native-runtime.fixture.ps1');
+  assert.doesNotMatch(nativeFixture, /\b\d+_\d+\b/);
+  assert.doesNotMatch(nativeFixture, /foreach\s*\(\s*\$pid\s+in/i);
+});
+
 test('CLI delegates to the checked-in PowerShell operator without passing secrets', () => {
   const args = powershellArgs(
     parseOfficeDeployArgs(['deploy', '--ref', 'origin/develop']),
