@@ -103,6 +103,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   if (packageScripts['dev:gateway'] !== 'npm run build --workspace=apps/agent-gateway && node scripts/local-agent-gateway.mjs start') {
     missingPackageHooks.push('dev:gateway');
   }
+  if (packageScripts['gateway:auth:codex'] !== 'node scripts/local-agent-gateway.mjs auth codex') {
+    missingPackageHooks.push('gateway:auth:codex');
+  }
   if (packageScripts['gateway:login:codex'] !== 'node scripts/local-agent-gateway.mjs login codex') {
     missingPackageHooks.push('gateway:login:codex');
   }

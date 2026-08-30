@@ -54,6 +54,7 @@ test('root commands keep the optional Python runtime out of the default developm
   assert.match(scripts['dev:all'], /dev:core/);
   assert.match(scripts['dev:all'], /dev:gateway/);
   assert.doesNotMatch(scripts['dev:all'], /dev:agents/);
+  assert.equal(scripts['gateway:auth:codex'], 'node scripts/local-agent-gateway.mjs auth codex');
   assert.equal(scripts['gateway:login:codex'], 'node scripts/local-agent-gateway.mjs login codex');
   assert.equal(scripts['gateway:login:claude'], 'node scripts/local-agent-gateway.mjs login claude');
   assert.equal(scripts['dev:bootstrap-user'], 'bash bin/bootstrap-local-auth-user.sh');

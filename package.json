@@ -20,6 +20,7 @@
     "dev:core": "concurrently -n web,server -c blue,green \"npm run dev\" \"OPERATION_RUNTIME_WORKER_ENABLED=1 npm run dev:server\"",
     "dev:gateway": "npm run build --workspace=apps/agent-gateway && node scripts/local-agent-gateway.mjs start",
     "dev:all": "concurrently -n core,gateway -c cyan,magenta \"npm run dev:core\" \"npm run dev:gateway\"",
+    "gateway:auth:codex": "node scripts/local-agent-gateway.mjs auth codex",
     "gateway:login:codex": "node scripts/local-agent-gateway.mjs login codex",
     "gateway:login:claude": "node scripts/local-agent-gateway.mjs login claude",
     "dev:bootstrap-user": "bash bin/bootstrap-local-auth-user.sh",

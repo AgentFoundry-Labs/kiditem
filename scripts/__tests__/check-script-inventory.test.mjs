@@ -21,6 +21,7 @@ test('accepts complete script inventory metadata', () => {
       'qa:agent-os:clean-cutover': 'node scripts/qa-agent-os-clean-cutover.mjs',
       'setup:macos': 'node scripts/setup-macos-development.mjs',
       'dev:gateway': 'npm run build --workspace=apps/agent-gateway && node scripts/local-agent-gateway.mjs start',
+      'gateway:auth:codex': 'node scripts/local-agent-gateway.mjs auth codex',
       'gateway:login:codex': 'node scripts/local-agent-gateway.mjs login codex',
       'dev:bootstrap-user': 'bash bin/bootstrap-local-auth-user.sh',
       'seed:agent-os:browser-qa': 'tsx scripts/seed-agent-os-browser-qa.ts',
@@ -65,7 +66,10 @@ test('requires the built-in browser-QA seed package entrypoint', () => {
     },
   });
 
-  assert.deepEqual(result.missingPackageHooks, ['seed:agent-os:browser-qa']);
+  assert.deepEqual(result.missingPackageHooks, [
+    'gateway:auth:codex',
+    'seed:agent-os:browser-qa',
+  ]);
 });
 
 test('reports unregistered scripts and missing hooks', () => {
@@ -85,6 +89,7 @@ test('reports unregistered scripts and missing hooks', () => {
     'qa:agent-os:clean-cutover',
     'setup:macos',
     'dev:gateway',
+    'gateway:auth:codex',
     'gateway:login:codex',
     'dev:bootstrap-user',
     'seed:agent-os:browser-qa',

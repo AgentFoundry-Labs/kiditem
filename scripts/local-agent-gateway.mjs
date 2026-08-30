@@ -65,6 +65,27 @@ export function buildProviderLoginCommand({
   });
 }
 
+export function buildProviderAuthStatusCommand(input) {
+  const login = buildProviderLoginCommand(input);
+  const argsPrefix = input.provider === 'codex'
+    ? login.args.slice(0, -1)
+    : login.args.slice(0, -2);
+  return Object.freeze({
+    ...login,
+    args: Object.freeze(input.provider === 'codex'
+      ? [...argsPrefix, 'login', 'status']
+      : [...argsPrefix, 'auth', 'status', '--json']),
+  });
+}
+
+export function ensureProviderAuthentication({ status, login, interactive }) {
+  if (status()) return Object.freeze({ loginStarted: false });
+  if (!interactive) throw new Error('gateway_provider_unauthenticated');
+  login();
+  if (!status()) throw new Error('gateway_provider_auth_failed');
+  return Object.freeze({ loginStarted: true });
+}
+
 export function buildLocalGatewayStartCommand({
   configFile,
   config,
@@ -98,32 +119,56 @@ function providerLoginEnvironment({ provider, loginRoot, platform, environment }
   });
 }
 
-function run(command) {
+function commandSucceeds(command) {
+  const result = spawnSync(command.executable, command.args, {
+    cwd: command.cwd,
+    env: command.env,
+    stdio: 'ignore',
+  });
+  if (result.error) throw result.error;
+  return result.status === 0;
+}
+
+function run(command, failureCode = 'gateway_command_failed') {
   const result = spawnSync(command.executable, command.args, {
     cwd: command.cwd,
     env: command.env,
     stdio: 'inherit',
   });
   if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error('gateway_command_failed');
+  if (result.status !== 0) throw new Error(failureCode);
 }
 
 async function main() {
   const [command, provider, extra] = process.argv.slice(2);
   if (command === '--help' || command === '-h') {
-    process.stdout.write('Usage: local-agent-gateway <start | login codex | login claude>\n');
+    process.stdout.write('Usage: local-agent-gateway <start | auth codex | auth claude | login codex | login claude>\n');
     return;
   }
-  if (extra || (command !== 'start' && command !== 'login')) throw new Error('gateway_arguments_invalid');
+  if (extra || !['start', 'auth', 'login'].includes(command)) throw new Error('gateway_arguments_invalid');
   if (command === 'start' && provider) throw new Error('gateway_arguments_invalid');
-  if (command === 'login' && provider !== 'codex' && provider !== 'claude') throw new Error('gateway_arguments_invalid');
+  if ((command === 'auth' || command === 'login') && provider !== 'codex' && provider !== 'claude') {
+    throw new Error('gateway_arguments_invalid');
+  }
   const configFile = process.env.KIDITEM_AGENT_GATEWAY_CONFIG_FILE?.trim()
     || defaultMacosGatewayConfigPath();
   if (!isAbsolute(configFile)) throw new Error('gateway_config_path_invalid');
   const config = await loadLocalGatewayConfig(configFile);
-  run(command === 'start'
-    ? buildLocalGatewayStartCommand({ configFile, config })
-    : buildProviderLoginCommand({ provider, config }));
+  if (command === 'login') {
+    run(buildProviderLoginCommand({ provider, config }));
+    return;
+  }
+  const selectedProvider = command === 'start' ? 'codex' : provider;
+  const statusCommand = buildProviderAuthStatusCommand({ provider: selectedProvider, config });
+  ensureProviderAuthentication({
+    status: () => commandSucceeds(statusCommand),
+    login: () => run(
+      buildProviderLoginCommand({ provider: selectedProvider, config }),
+      'gateway_provider_auth_failed',
+    ),
+    interactive: command === 'auth',
+  });
+  if (command === 'start') run(buildLocalGatewayStartCommand({ configFile, config }));
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
