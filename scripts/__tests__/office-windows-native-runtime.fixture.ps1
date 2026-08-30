@@ -17,14 +17,24 @@ foreach ($path in @($AgentGatewayPath, $FixturePath, $GatewayEntrypoint, $Deploy
 $root = Join-Path ([System.IO.Path]::GetTempPath()) ("kiditem-gateway-native-fixture-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $root -Force | Out-Null
 
-function Wait-ForFixtureFile {
+function Wait-ForFixtureProcessIds {
   param([Parameter(Mandatory = $true)][string]$Path)
   $deadline = (Get-Date).AddSeconds(10)
   while ((Get-Date) -lt $deadline) {
-    if (Test-Path -LiteralPath $Path -PathType Leaf) { return }
+    if (Test-Path -LiteralPath $Path -PathType Leaf) {
+      try {
+        $lines = @(Get-Content -LiteralPath $Path -ErrorAction Stop)
+        if ($lines.Count -eq 2 -and @($lines | Where-Object { $_ -notmatch '^[1-9][0-9]*$' }).Count -eq 0) {
+          return @($lines | ForEach-Object { [int]$_ })
+        }
+      }
+      catch {
+        # The async fixture writer may still own or be populating the file.
+      }
+    }
     Start-Sleep -Milliseconds 50
   }
-  throw "Timed out waiting for Windows Job fixture marker."
+  throw "Timed out waiting for the complete Windows Job fixture process tree."
 }
 
 function Test-FixtureProcessStopped {
@@ -120,8 +130,7 @@ try {
     env = @{ TEMP = $root; TMP = $root; PATH = $env:PATH }
   }
   $tree = Start-StructuredHelper $treeLaunch
-  Wait-ForFixtureFile $pidFile
-  $pids = @(Get-Content -LiteralPath $pidFile | ForEach-Object { [int]$_ })
+  $pids = @(Wait-ForFixtureProcessIds $pidFile)
   if ($pids.Count -ne 2) { throw 'Windows Job fixture did not report a parent and descendant.' }
   $tree.StandardInput.Close()
   if (-not $tree.WaitForExit(15000)) { $tree.Kill(); throw 'Windows Job helper did not terminate after Gateway control EOF.' }

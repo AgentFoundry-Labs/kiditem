@@ -40,6 +40,9 @@ test('Office release build gates reserve enough heap and keep Windows fixtures p
   }
   assert.doesNotMatch(nativeFixture, /\b\d+_\d+\b/);
   assert.doesNotMatch(nativeFixture, /foreach\s*\(\s*\$pid\s+in/i);
+  assert.match(nativeFixture, /function Wait-ForFixtureProcessIds/);
+  assert.match(nativeFixture, /\$lines\.Count -eq 2/);
+  assert.doesNotMatch(nativeFixture, /function Wait-ForFixtureFile/);
 });
 
 test('office Compose is image-only and preserves external state volumes', () => {
