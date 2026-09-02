@@ -58,14 +58,12 @@ catches single-segment paths and fails as a bad candidate UUID.
 - `SourcingDecisionBatch`, items, and evidence freeze server-derived baseline
   shadow decisions. Coverage confidence is never a calibrated probability and
   `policyProbability` remains null until a real assignment ledger exists.
-- `ProductPreparation` owns the operator-reviewed input, selected content, and
-  legacy lifecycle compatibility columns for one candidate/account attempt.
-  It is not authoritative for provider side effects.
-- `ProductRegistrationExecution` owns the frozen canonical payload/hash,
-  idempotency key, actor, create-versus-external-WING kind, provider outcome,
-  reconciliation state, and terminal listing result. Existing compatibility
-  columns on `ProductPreparation` are dual-written only while legacy readers
-  remain.
+- `ProductPreparation` owns reviewed input, selected content, and legacy
+  lifecycle columns for one candidate/account attempt, not provider effects.
+- `ProductRegistrationExecution` owns frozen payload/hash, idempotency, actor,
+  create-versus-external-WING kind, provider outcome, reconciliation, and the
+  terminal listing. Preparation compatibility columns are dual-written only
+  while legacy readers remain.
 - `ChannelListing` registration is owned by Channels and reached only through
   a sourcing outgoing registration port. Registration never creates or returns
   a `MasterProduct`.
@@ -74,8 +72,8 @@ catches single-segment paths and fails as a bad candidate UUID.
 
 ## Cross-Domain Ports
 
-- Sourcing starts URL scraping through `SOURCING_SCRAPE_OPERATION_PORT` and
-  delegates deterministic AI product generation through `SOURCING_AGENT_GATEWAY_PORT`.
+- URL scraping uses `SOURCING_SCRAPE_OPERATION_PORT`; deterministic AI product
+  generation uses `SOURCING_AGENT_GATEWAY_PORT`.
 - Product registration calls Channels through
   `CHANNEL_PRODUCT_REGISTRATION_PORT` and branches AI content through
   `REGISTRATION_CONTENT_WORKSPACE_PORT`.
@@ -90,54 +88,50 @@ catches single-segment paths and fails as a bad candidate UUID.
 
 ## Operation-Backed Collection
 
-Explicit screen -> Operations -> owner handler; mount/read/navigation starts no
-work. Browser requires fenced owner ingest; Operations owns no canonical rows.
-No direct/1688/status/read-or-compute paths. Cancellation never reactivates.
+Screen -> Operations -> owner handler. Mount/read/navigation starts no work;
+browser ingest is fenced and Operations owns no canonical rows. No
+direct/1688/status/read-or-compute paths. Cancellation never reactivates.
 
 ## Scrape Runtime
 
-`/api/sourcing/scrape-url` starts the Sourcing-owned `sourcing.scrape_url`
-Operation. Agent-facing capabilities enqueue the same owner Operation with the
-exact admitted idempotency key; they never manufacture provider runtime work or
-fall back to a generic runner. The Operation handler calls
-`SourcingPlaywrightRuntimeHandler`, which opens Playwright Chromium with a persistent
-profile and runs approved deterministic extractors, reusing
+`/api/sourcing/scrape-url` and Agent capabilities enqueue the Sourcing-owned
+`sourcing.scrape_url` Operation with the exact admitted idempotency key; no
+provider-work manufacture or generic runner fallback. Its handler calls
+`SourcingPlaywrightRuntimeHandler`, which uses persistent-profile Playwright
+Chromium and approved deterministic extractors, reusing
 `extensions/kiditem-os/content/sourcing/extractors/*` as reviewed reference
 scripts; retired extension paths are not fallbacks.
 
-The version-2 1688 keyword Operation is server-domain owned and attaches only
-through `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` to authenticated Office Chrome. It
-has no extension, anonymous-browser, or fresh-profile fallback. The adapter
-closes only its page; host Chrome, login, and unrelated tabs survive. Login or
-security challenges are truthful attention states, never bypassed.
+The server-owned v2 1688 keyword Operation attaches only through
+`SOURCING_PLAYWRIGHT_CDP_ENDPOINT` to authenticated Office Chrome, with no
+extension, anonymous-browser, or fresh-profile fallback. It closes only its
+page; host Chrome, login, and unrelated tabs survive. Login/security challenges
+are truthful attention states, never bypassed.
 
-Never expose arbitrary browser JS, CDN scripts, or raw CDP as Agent OS/MCP tools. For the direct `scrape_url` action,
-`SourcingScrapeResultService` validates and upserts the canonical candidate
-synchronously before the Operation completes. Agent OS projections are
-non-authoritative and never write canonical sourcing rows.
+Never expose arbitrary browser JS, CDN scripts, or raw CDP as Agent OS/MCP
+tools. For direct `scrape_url`, `SourcingScrapeResultService` validates and
+upserts the canonical candidate before completion. Agent OS projections never
+write canonical sourcing rows.
 
-Supplier URLs are an SSRF boundary. `supplier-source-url-policy.ts` is the
-single parser for extension ingest, scrape DTO validation, and Playwright
-navigation: only HTTPS 1688/Alibaba hosts without credentials or non-default
-ports are accepted. Playwright must keep that allowlist on navigation and
-redirect hops; do not add a second permissive URL parser.
+Supplier URLs use one SSRF boundary, `supplier-source-url-policy.ts`, across
+extension ingest, DTO validation, and Playwright. Admit only HTTPS 1688/Alibaba
+hosts without credentials or non-default ports; enforce the allowlist through
+navigation/redirects and add no second parser.
 
 ## Extension Ingest Contract
 
-`POST /api/sourcing/extension/product-data` is the deployed KidItem OS v1
-snake_case wire and must remain compatible. `SourcingExtensionIngestService`
-parses it through `@kiditem/shared/sourcing`, records only the normalized
-commercial summary, and claims a controlled collection run before it projects a
-candidate. Do not restore controller-side `{ ...body, ...extra }` merging:
-global `ValidationPipe` must retain known commercial fields explicitly rather
-than accepting arbitrary page-world data.
+`POST /api/sourcing/extension/product-data` remains the KidItem OS v1
+snake_case wire. `SourcingExtensionIngestService` parses the shared schema,
+records the normalized commercial summary, and claims a controlled run before
+candidate projection. Never restore `{ ...body, ...extra }`; `ValidationPipe`
+must enumerate known fields rather than admit page-world data.
 
-New extension writers first obtain a permit from
-`POST /api/sourcing/extension/v2/sessions`, then post to
-`/api/sourcing/extension/v2/product-data` with the strict v2 contract, an
-external offer identity, collection session UUID, captured timestamp, extractor
-version, and payload hash. V1 and v2 both use the collection coordinator;
-an unknown or disabled source must leave zero candidate and evidence rows.
+New extension writers obtain a permit at
+`POST /api/sourcing/extension/v2/sessions`, then send the strict v2 contract to
+`/api/sourcing/extension/v2/product-data` with offer identity, session UUID,
+capture time, extractor version, and payload hash. Both versions use the
+collection coordinator; unknown/disabled sources leave zero candidate and
+evidence rows.
 Identity includes variant. Alibaba uses canonical URL (aliases/tracking/fragments
 removed); 1688 uses validated offer ID, then URL. All ingress uses it, never
 title/extractor ID.
