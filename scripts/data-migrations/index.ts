@@ -15,6 +15,7 @@ import { backfillProfitabilitySourceFreshness } from "./v0.1.30/002_backfill_pro
 import { moveVariantRecipesToChannelOptions } from "./v0.1.30/003_move_variant_recipes_to_channel_options";
 import { canonicalMasterInventoryIdentity } from "./v0.1.30/004_canonical_master_inventory_identity";
 import { resetSourcingDisplayState } from "./v0.1.30/005_reset_sourcing_display_state";
+import { deleteLegacyChannelDerivedMasterProducts } from "./v0.1.30/006_delete_legacy_channel_derived_master_products";
 import type { DataMigration } from "./types";
 
 export {
@@ -44,6 +45,7 @@ export const dataMigrations: readonly DataMigration[] = [
   moveVariantRecipesToChannelOptions,
   canonicalMasterInventoryIdentity,
   resetSourcingDisplayState,
+  deleteLegacyChannelDerivedMasterProducts,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(
