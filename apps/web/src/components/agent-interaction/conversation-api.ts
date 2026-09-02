@@ -2,7 +2,7 @@ import { apiClient } from '@/lib/api-client';
 import {
   AgentKeySchema,
   ConversationTitleSchema,
-  CreateConversationCommandSchema,
+  CreateConversationRequestSchema,
   ConversationPreferencesSchema,
   ConversationSummarySchema,
   GatewayReadinessSchema,
@@ -29,13 +29,12 @@ export async function listConversations(): Promise<ConversationSummary[]> {
 }
 
 export async function createConversation(input: {
-  conversationId: string;
   runtime: ConversationRuntime;
   agentKey: AgentConversationKey | null;
   title: string;
 }): Promise<ConversationSummary> {
-  const command = CreateConversationCommandSchema.parse(input);
-  return ConversationSummarySchema.parse(await apiClient.post<unknown>('/api/agent-os/conversations', command));
+  const request = CreateConversationRequestSchema.parse(input);
+  return ConversationSummarySchema.parse(await apiClient.post<unknown>('/api/agent-os/conversations', request));
 }
 
 export async function getConversationPreferences(): Promise<ConversationPreferences> {

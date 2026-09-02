@@ -47,7 +47,6 @@ function renderPanel() {
 describe('ConversationPanel empty draft', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'panel-empty-draft') });
     useConversationSurfaceState.getState().reset();
     vi.mocked(apiClient.get).mockResolvedValue([] as never);
   });
@@ -61,8 +60,10 @@ describe('ConversationPanel empty draft', () => {
     expect(await screen.findByTestId('conversation-empty-state')).toBeVisible();
     const composer = await screen.findByPlaceholderText('무엇을 도와드릴까요?');
     expect(composer).toHaveValue('');
+    const draftId = useConversationSurfaceState.getState().pendingDraft?.draftId;
+    expect(draftId).toMatch(/^draft-\d+$/);
     expect(useConversationSurfaceState.getState().pendingDraft).toMatchObject({
-      conversationId: 'panel-empty-draft',
+      draftId,
       agentKey: null,
       message: '',
     });
@@ -71,7 +72,7 @@ describe('ConversationPanel empty draft', () => {
     await user.type(composer, '패널 초안을 작성해 주세요.');
 
     expect(useConversationSurfaceState.getState().pendingDraft).toMatchObject({
-      conversationId: 'panel-empty-draft',
+      draftId,
       message: '패널 초안을 작성해 주세요.',
     });
     expect(vi.mocked(apiClient.post)).not.toHaveBeenCalled();
