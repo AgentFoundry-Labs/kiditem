@@ -81,3 +81,19 @@ test('publishes Sellpia operation alerts to the canonical inventory workspace', 
   assert.match(worker, /sourceId: "inventory\.sellpia",\s+href: "\/inventory-hub"/);
   assert.doesNotMatch(worker, /\/inventory-hub\?tab=/);
 });
+
+test('gives the product-profit ingest enough time to outlive the backend transaction budget', () => {
+  const ingestStart = worker.indexOf('const productProfitIngest = await');
+  const ingestEnd = worker.indexOf('\n      if (!productProfitIngest.ok)', ingestStart);
+
+  assert.notEqual(ingestStart, -1);
+  assert.notEqual(ingestEnd, -1);
+  assert.match(
+    worker,
+    /const SELLPIA_PRODUCT_PROFIT_INGEST_TIMEOUT_MS = 60_000;/,
+  );
+  assert.match(
+    worker.slice(ingestStart, ingestEnd),
+    /timeoutMs: SELLPIA_PRODUCT_PROFIT_INGEST_TIMEOUT_MS/,
+  );
+});

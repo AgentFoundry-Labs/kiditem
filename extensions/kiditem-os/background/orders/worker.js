@@ -12,6 +12,10 @@ const ordersEnvironmentContext = KidItemEnvironmentContext.create({
   legacyStorageKeys: ["apiBase", "kiditem_auth_token"],
 });
 const SELLPIA_MANUAL_MATCH_PORT_NAME = "kiditem-sellpia-manual-match-v1";
+// The backend reserves up to 30 seconds for the atomic profitability ingest.
+// Leave room for request validation and response serialization without
+// weakening the shared 25-second timeout for ordinary extension requests.
+const SELLPIA_PRODUCT_PROFIT_INGEST_TIMEOUT_MS = 60_000;
 const orderCollectionLifecycle = KidItemOrderCollectionLifecycle.create({
   sessions: collectionSessions,
   producer: "orders.mall",
@@ -413,6 +417,7 @@ async function runSellpiaInventoryOperation(operation) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(productProfit.payload),
+          timeoutMs: SELLPIA_PRODUCT_PROFIT_INGEST_TIMEOUT_MS,
         },
       );
       if (!productProfitIngest.ok) {
