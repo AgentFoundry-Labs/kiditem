@@ -186,6 +186,15 @@ test('controlled recreate preserves runtime evidence and automatically restores 
   assert.doesNotMatch(script, /docker system prune/);
 });
 
+test('deploy checks disk capacity before creating an exact-SHA build worktree', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const deployFlow = script.slice(script.lastIndexOf("'Deploy' {"));
+  assert.match(
+    deployFlow,
+    /Assert-SchemaDataCutoverContract -ChangedPaths \$schemaDataPaths[\s\S]*Assert-DiskCapacity[\s\S]*New-CleanSourceWorktree/,
+  );
+});
+
 test('Gateway uses the invoking Windows profile and its existing Node 22', () => {
   const script = read('deploy/office/apply-deployment.ps1');
   assert.match(script, /WindowsIdentity\]::GetCurrent\(\)\.Name/);

@@ -2203,6 +2203,7 @@ switch ($Operation) {
     $source = Resolve-RemoteSourceCommit $checkoutRoot
     $schemaDataPaths = @(Get-SchemaDataChanges -CheckoutRoot $checkoutRoot -TargetSha $source.GitSha)
     Assert-SchemaDataCutoverContract -ChangedPaths $schemaDataPaths
+    Assert-DiskCapacity
     $localBuildRoot = Get-LocalBuildRoot
     $worktree = $null
     $localBundle = $null
