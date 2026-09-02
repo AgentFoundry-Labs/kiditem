@@ -10,21 +10,11 @@ to `src/supply/`; supplier payments belong to `src/finance/`.
 ```text
 sourcing/
 ├── sourcing.module.ts
-├── adapter/in/http/        # extension ingest, scrape, candidate workspace DTO/controllers
-├── adapter/out/
-│   ├── agent/              # sourcing Agent OS gateway adapter
-│   ├── ai/                 # AI archive/workspace and registration-content adapters
-│   ├── channels/           # account-scoped marketplace registration bridge
-│   ├── products/           # Products boundary adapter
-│   ├── supply/             # Supply incoming-port bridge; never direct model writes
-│   └── repository/         # candidate, evidence, launch, decision repositories
-├── application/
-│   ├── port/in/            # Sourcing-owned Agent capability/use-case contracts
-│   ├── port/out/           # local outbound ports + transaction handle
-│   └── service/            # use-case orchestration
-├── domain/
-│   └── capability/         # strict Sourcing-owned CapabilityDefinitions
-└── __tests__/              # architecture and behavior specs
+├── adapter/in/http/
+├── adapter/out/{agent,ai,channels,products,supply,repository}/
+├── application/{port/in,port/out,service}/
+├── domain/capability/
+└── __tests__/
 ```
 
 ## Owned Surfaces
