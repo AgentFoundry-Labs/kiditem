@@ -544,7 +544,7 @@ function New-LocalDeploymentBundle {
     [Parameter(Mandatory = $true)][string]$WorktreePath,
     [Parameter(Mandatory = $true)][object]$Source,
     [Parameter(Mandatory = $true)][string]$LocalBuildRoot,
-    [Parameter(Mandatory = $true)][string[]]$SchemaDataPaths
+    [AllowEmptyCollection()][string[]]$SchemaDataPaths = @()
   )
   $version = (Get-Content -LiteralPath (Join-Path $WorktreePath 'VERSION') -Raw).Trim()
   if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {

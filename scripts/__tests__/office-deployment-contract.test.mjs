@@ -111,6 +111,7 @@ test('schema and data surfaces fail closed without explicit cutover approval', (
   assert.match(script, /git -C \$CheckoutRoot diff --name-only/);
   assert.match(script, /prisma\.config\.ts scripts\/data-migrations scripts\/run-data-migrations\.ts/);
   assert.match(script, /\[AllowEmptyCollection\(\)\]\[string\[\]\]\$ChangedPaths = @\(\)/);
+  assert.match(script, /\[AllowEmptyCollection\(\)\]\[string\[\]\]\$SchemaDataPaths = @\(\)/);
   assert.match(script, /Assert-SchemaDataCutoverContract -ChangedPaths \$schemaDataPaths/);
   assert.doesNotMatch(script, /return ,@\(/);
   assert.match(script, /APPLY_SCHEMA_DATA/);
