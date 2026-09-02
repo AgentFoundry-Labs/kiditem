@@ -8,11 +8,11 @@
         "tools/codex/skills"
       ]
     },
-    "hub-kiditem": {
+    "hub-development": {
       "type": "directory",
-      "env": "AGENT_SKILL_HUB_KIDITEM",
+      "env": "AGENT_SKILL_HUB_DEVELOPMENT",
       "pathCandidates": [
-        "~/workspace/agent-skill-hub/exports/kiditem"
+        "~/workspace/agent-skill-hub/exports/development"
       ]
     },
     "hub-workflow": {
@@ -41,7 +41,7 @@
     },
     "default": {
       "include": [
-        "hub-kiditem:*"
+        "hub-development:*"
       ]
     },
     "workflow": {
