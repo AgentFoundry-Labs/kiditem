@@ -153,6 +153,21 @@ test('Gateway reuse behavior covers script-only reuse, impact builds, fallback, 
   assert.match(result.stdout, /office-gateway-reuse fixture passed/);
 });
 
+test('Gateway release validation and cleanup support Windows extended-length paths', { skip: process.platform !== 'win32' }, () => {
+  const result = spawnSync('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy', 'Bypass',
+    '-File', join(root, 'scripts', '__tests__', 'office-gateway-long-path.fixture.ps1'),
+  ], {
+    cwd: root,
+    encoding: 'utf8',
+    timeout: 120_000,
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /office-gateway-long-path fixture passed/);
+});
+
 test('runtime manifest records local image IDs, Gateway hash, and cutover evidence', () => {
   const script = read('deploy/office/apply-deployment.ps1');
   assert.match(script, /schemaVersion = 3/);

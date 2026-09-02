@@ -1423,6 +1423,31 @@ function Test-GatewayPathWithinRoot {
   return $normalizedCandidate -eq $normalizedRoot -or $normalizedCandidate.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)
 }
 
+function ConvertTo-GatewayExtendedPath {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  $fullPath = [System.IO.Path]::GetFullPath($Path)
+  if ($fullPath.StartsWith('\\?\', [System.StringComparison]::Ordinal)) {
+    return $fullPath
+  }
+  if ($fullPath.StartsWith('\\', [System.StringComparison]::Ordinal)) {
+    return '\\?\UNC\' + $fullPath.Substring(2)
+  }
+  return '\\?\' + $fullPath
+}
+
+function ConvertFrom-GatewayExtendedPath {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  if ($Path.StartsWith('\\?\UNC\', [System.StringComparison]::OrdinalIgnoreCase)) {
+    return '\\' + $Path.Substring(8)
+  }
+  if ($Path.StartsWith('\\?\', [System.StringComparison]::Ordinal)) {
+    return $Path.Substring(4)
+  }
+  return $Path
+}
+
 function Assert-GatewayExtractionTree {
   param([Parameter(Mandatory = $true)][string]$Root)
 
@@ -1430,24 +1455,33 @@ function Assert-GatewayExtractionTree {
   if (-not $rootItem.PSIsContainer -or (($rootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
     throw 'Gateway extraction root is not a regular protected directory.'
   }
-  $canonicalRoot = (Resolve-Path -LiteralPath $Root -ErrorAction Stop).ProviderPath
+  # Windows PowerShell 5.1's provider rejects a 260-character descendant even
+  # when the file exists. The bundled Codex runtime reaches that boundary once
+  # the candidate UUID is present, so traverse through Win32 extended-length
+  # paths and keep the admission comparison on normalized ordinary paths.
+  $canonicalRoot = [System.IO.Path]::GetFullPath($Root)
   $pending = [System.Collections.Generic.Queue[string]]::new()
   $pending.Enqueue($canonicalRoot)
   while ($pending.Count -gt 0) {
     $directory = $pending.Dequeue()
-    foreach ($path in [System.IO.Directory]::GetFileSystemEntries($directory)) {
-      $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
-      if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+    $extendedDirectory = ConvertTo-GatewayExtendedPath $directory
+    foreach ($entry in [System.IO.Directory]::GetFileSystemEntries($extendedDirectory)) {
+      $path = ConvertFrom-GatewayExtendedPath $entry
+      $attributes = [System.IO.File]::GetAttributes((ConvertTo-GatewayExtendedPath $path))
+      if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw 'Gateway extraction contains a Windows reparse point.'
       }
-      $canonical = (Resolve-Path -LiteralPath $path -ErrorAction Stop).ProviderPath
+      $canonical = [System.IO.Path]::GetFullPath($path)
       if (-not (Test-GatewayPathWithinRoot $canonicalRoot $canonical)) {
         throw 'Gateway canonical descendant escapes the candidate root.'
       }
-      if ($item.PSIsContainer) {
+      if (($attributes -band [System.IO.FileAttributes]::Directory) -ne 0) {
         $pending.Enqueue($canonical)
       }
-      elseif (-not ($item -is [System.IO.FileInfo])) {
+      elseif (
+        ($attributes -band [System.IO.FileAttributes]::Device) -ne 0 -or
+        -not [System.IO.File]::Exists((ConvertTo-GatewayExtendedPath $canonical))
+      ) {
         throw 'Gateway extraction contains a non-regular filesystem entry.'
       }
     }
@@ -1486,7 +1520,7 @@ function Remove-GatewayReleaseTreeBestEffort {
   if (-not (Test-Path -LiteralPath $Path)) { return }
   try {
     Invoke-GatewayTransientFileOperation -Label "Gateway release cleanup $Path" -Operation {
-      Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+      [System.IO.Directory]::Delete((ConvertTo-GatewayExtendedPath $Path), $true)
     }
   }
   catch {
