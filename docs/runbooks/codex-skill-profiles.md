@@ -62,6 +62,7 @@ replacements during normal updates:
 ~/workspace/agent-skill-hub/repos/gstack
 ~/workspace/agent-skill-hub/repos/understand-anything
 ~/workspace/agent-skill-hub/repos/supabase-agent-skills
+~/workspace/agent-skill-hub/repos/ponytail
 ```
 
 The former top-level workspace paths remain compatibility symlinks.
@@ -69,7 +70,7 @@ The former top-level workspace paths remain compatibility symlinks.
 The default hub location is `~/workspace/agent-skill-hub`. Set
 `AGENT_SKILL_HUB_ROOT` to an absolute path when KidItem must use another
 location. Both `skills:hub` and `skills:update` honor it. The tracked
-KidItem manifest also supports `AGENT_SKILL_HUB_KIDITEM` and
+KidItem manifest also supports `AGENT_SKILL_HUB_DEVELOPMENT` and
 `AGENT_SKILL_HUB_WORKFLOW` and `AGENT_SKILL_HUB_FULL` overrides that point
 directly to export directories.
 
@@ -81,22 +82,22 @@ existing checkout. The update workflow does not silently clone another copy.
 KidItem profiles are defined in `tools/codex/skill-profiles.json`:
 
 - `project-only`: three KidItem-owned skills;
-- `default`: 12 skills: `project-only` plus the nine-skill hub `kiditem`
+- `default`: 14 skills: `project-only` plus the 11-skill hub `development`
   export;
-- `workflow`: 15 skills: `default` plus Superpowers brainstorming,
+- `workflow`: 17 skills: `default` plus Superpowers brainstorming,
   plan-writing, and plan execution;
 - `full`: `project-only` plus every skill in the hub `full` export.
 
 The shared hub profiles are defined in
 `~/workspace/agent-skill-hub/profiles.json`:
 
-- `core`: gstack runtime plus four leaf skills and two Understand Anything
-  skills;
-- `kiditem`: `core` plus the two selected Supabase skills; this keeps one
+- `core`: gstack runtime plus four leaf skills, two Understand Anything
+  skills, and the two default Ponytail skills;
+- `development`: `core` plus the two selected Supabase skills; this keeps one
   debugger (`gstack-investigate`) and one reviewer (`gstack-review`);
-- `workflow`: `kiditem` plus the three non-overlapping Superpowers planning
+- `workflow`: `development` plus the three non-overlapping Superpowers planning
   skills;
-- `full`: every valid immediate child skill from all four active sources.
+- `full`: every valid immediate child skill from all registered sources.
 
 Superpowers is opt-in because its skills prescribe session behavior. Routine
 KidItem work uses `default`; apply `workflow` only for structured
@@ -126,8 +127,8 @@ Use `hub-full` when selecting a skill that is not in `core`:
 
 ```bash
 rtk npm run skills:profile -- add hub-full:gstack-plan-eng-review
-rtk npm run skills:profile -- remove hub-kiditem:gstack-browse
-rtk npm run skills:profile -- reset hub-kiditem:gstack-browse
+rtk npm run skills:profile -- remove hub-development:gstack-browse
+rtk npm run skills:profile -- reset hub-development:gstack-browse
 rtk npm run skills:profile -- apply default
 ```
 
