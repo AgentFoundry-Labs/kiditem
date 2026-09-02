@@ -1454,6 +1454,46 @@ function Assert-GatewayExtractionTree {
   }
 }
 
+function Invoke-GatewayTransientFileOperation {
+  param(
+    [Parameter(Mandatory = $true)][string]$Label,
+    [Parameter(Mandatory = $true)][scriptblock]$Operation,
+    [ValidateRange(1, 12)][int]$MaximumAttempts = 6
+  )
+
+  $lastError = $null
+  for ($attempt = 1; $attempt -le $MaximumAttempts; $attempt += 1) {
+    try {
+      & $Operation
+      return
+    }
+    catch {
+      $lastError = $_
+      if ($attempt -eq $MaximumAttempts) { break }
+      Write-Warning "$Label hit a transient Windows file lock (attempt $attempt/$MaximumAttempts); retrying. $($_.Exception.Message)"
+      Start-Sleep -Seconds ([Math]::Min(5, $attempt))
+    }
+  }
+  throw [System.InvalidOperationException]::new(
+    "$Label failed after $MaximumAttempts attempts. $($lastError.Exception.Message)",
+    $lastError.Exception
+  )
+}
+
+function Remove-GatewayReleaseTreeBestEffort {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  if (-not (Test-Path -LiteralPath $Path)) { return }
+  try {
+    Invoke-GatewayTransientFileOperation -Label "Gateway release cleanup $Path" -Operation {
+      Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+    }
+  }
+  catch {
+    Write-Warning "Gateway release cleanup will be retried by later maintenance. $($_.Exception.Message)"
+  }
+}
+
 function New-GatewayRelease {
   param(
     [Parameter(Mandatory = $true)][string]$ArtifactPath,
@@ -1477,10 +1517,14 @@ function New-GatewayRelease {
   $promoted = $false
   try {
     New-Item -ItemType Directory -Path $candidateRoot -Force | Out-Null
-    Copy-Item -LiteralPath $ArtifactPath -Destination (Join-Path $candidateRoot $Manifest.gatewayArtifact) -Force
+    Invoke-GatewayTransientFileOperation -Label 'Gateway artifact staging' -Operation {
+      Copy-Item -LiteralPath $ArtifactPath -Destination (Join-Path $candidateRoot $Manifest.gatewayArtifact) -Force -ErrorAction Stop
+    }
     Assert-GatewayArtifact (Join-Path $candidateRoot $Manifest.gatewayArtifact) $Manifest
     Assert-GatewayOuterArchiveEntries (Join-Path $candidateRoot $Manifest.gatewayArtifact)
-    Expand-Archive -LiteralPath (Join-Path $candidateRoot $Manifest.gatewayArtifact) -DestinationPath $candidateRoot
+    Invoke-GatewayTransientFileOperation -Label 'Gateway outer archive extraction' -Operation {
+      Expand-Archive -LiteralPath (Join-Path $candidateRoot $Manifest.gatewayArtifact) -DestinationPath $candidateRoot -Force
+    }
     Assert-GatewayExtractionTree $candidateRoot
     $expectedOuterFiles = @('agent-gateway.tgz', 'KidItem.AgentGateway.exe', 'gateway-runtime-contract.json', 'release-identity.json')
     foreach ($name in $expectedOuterFiles) {
@@ -1489,10 +1533,14 @@ function New-GatewayRelease {
       }
     }
     Assert-GatewayArchiveEntries (Join-Path $candidateRoot 'agent-gateway.tgz')
-    Invoke-Checked tar.exe -xf (Join-Path $candidateRoot 'agent-gateway.tgz') -C $candidateRoot
+    Invoke-GatewayTransientFileOperation -Label 'Gateway payload extraction' -Operation {
+      Invoke-Checked tar.exe -xf (Join-Path $candidateRoot 'agent-gateway.tgz') -C $candidateRoot
+    }
     Assert-GatewayExtractionTree $candidateRoot
     New-Item -ItemType Directory -Path (Join-Path $candidateRoot 'package\\windows') -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $candidateRoot 'KidItem.AgentGateway.exe') -Destination (Join-Path $candidateRoot 'package\\windows\\KidItem.AgentGateway.exe') -Force
+    Invoke-GatewayTransientFileOperation -Label 'Gateway native host staging' -Operation {
+      Copy-Item -LiteralPath (Join-Path $candidateRoot 'KidItem.AgentGateway.exe') -Destination (Join-Path $candidateRoot 'package\\windows\\KidItem.AgentGateway.exe') -Force -ErrorAction Stop
+    }
     Assert-GatewayPackageContents $candidateRoot $Manifest
 
     # The config survives promotion from the private extraction directory to
@@ -1515,20 +1563,34 @@ function New-GatewayRelease {
     Set-GatewayProtectedAcl -Path $gatewayConfigPath -Mode Read
     if (Test-Path -LiteralPath $releaseRoot -PathType Container) {
       $retiredRoot = "$releaseRoot.retired-$([guid]::NewGuid().ToString('N'))"
-      Move-Item -LiteralPath $releaseRoot -Destination $retiredRoot
+      Invoke-GatewayTransientFileOperation -Label 'Gateway current release retirement' -Operation {
+        Move-Item -LiteralPath $releaseRoot -Destination $retiredRoot -ErrorAction Stop
+      }
     }
-    Move-Item -LiteralPath $candidateRoot -Destination $releaseRoot
+    Invoke-GatewayTransientFileOperation -Label 'Gateway candidate promotion' -Operation {
+      Move-Item -LiteralPath $candidateRoot -Destination $releaseRoot -ErrorAction Stop
+    }
     $promoted = $true
     Assert-GatewayArtifact (Join-Path $releaseRoot $Manifest.gatewayArtifact) $Manifest
     Assert-GatewayPackageContents $releaseRoot $Manifest
   }
   catch {
-    Remove-Item -LiteralPath $candidateRoot -Recurse -Force -ErrorAction SilentlyContinue
-    throw
+    $releaseError = $_
+    if ($promoted -and (Test-Path -LiteralPath $releaseRoot)) {
+      Remove-GatewayReleaseTreeBestEffort -Path $releaseRoot
+    }
+    if ($null -ne $retiredRoot -and (Test-Path -LiteralPath $retiredRoot) -and -not (Test-Path -LiteralPath $releaseRoot)) {
+      Invoke-GatewayTransientFileOperation -Label 'Gateway retired release restoration' -Operation {
+        Move-Item -LiteralPath $retiredRoot -Destination $releaseRoot -ErrorAction Stop
+      }
+      $retiredRoot = $null
+    }
+    Remove-GatewayReleaseTreeBestEffort -Path $candidateRoot
+    throw $releaseError
   }
   finally {
     if ($promoted -and $null -ne $retiredRoot) {
-      Remove-Item -LiteralPath $retiredRoot -Recurse -Force -ErrorAction SilentlyContinue
+      Remove-GatewayReleaseTreeBestEffort -Path $retiredRoot
     }
   }
   return $releaseRoot
@@ -2100,8 +2162,12 @@ function Install-Deployment {
       Restore-Transaction $backupRoot
     }
     catch {
+      $restoreError = $_
       Stop-OfficeRuntimeFailClosed 'Automatic runtime restore also failed'
-      throw [System.InvalidOperationException]::new('Office deployment failed and rollback could not restore one coherent release identity; runtime was fail-closed.', $deploymentError.Exception)
+      throw [System.InvalidOperationException]::new(
+        "Office deployment failed and rollback could not restore one coherent release identity; runtime was fail-closed. Deployment error: $($deploymentError.Exception.Message) Restore error: $($restoreError.Exception.Message)",
+        $deploymentError.Exception
+      )
     }
     throw $deploymentError
   }

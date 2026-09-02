@@ -188,6 +188,10 @@ test('controlled recreate preserves runtime evidence and automatically restores 
   assert.match(script, /--detach --no-build --force-recreate api worker web nginx/);
   assert.match(script, /Restore-Transaction \$backupRoot/);
   assert.match(script, /Automatic runtime restore also failed/);
+  assert.match(script, /function Invoke-GatewayTransientFileOperation/);
+  assert.match(script, /Gateway candidate promotion/);
+  assert.match(script, /Gateway retired release restoration/);
+  assert.match(script, /Deployment error: \$\(\$deploymentError\.Exception\.Message\) Restore error: \$\(\$restoreError\.Exception\.Message\)/);
   assert.doesNotMatch(script, /docker system prune/);
 });
 
