@@ -190,24 +190,27 @@ describe('ConversationRuntimeHost', () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
-  it('binds a draft to its one reserved ID without a create, history request, durable write, or CopilotKit run', async () => {
+  it('binds a browser-only draft key without a create, history request, durable write, or CopilotKit run', async () => {
     renderHost(<RuntimeProbe />);
     await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/agent-os/conversations'));
     vi.clearAllMocks();
 
-    act(() => useConversationSurfaceState.getState().openConversation({
-      fixedAgentKey: 'sourcing',
-      draft: 'Review the supplier evidence.',
-    }));
+    let draft!: ReturnType<typeof useConversationSurfaceState.getState.openConversation>;
+    act(() => {
+      draft = useConversationSurfaceState.getState().openConversation({
+        fixedAgentKey: 'sourcing',
+        draft: 'Review the supplier evidence.',
+      });
+    });
 
-    await waitFor(() => expect(latestRuntime?.conversationId).toBe('uuid-1'));
+    await waitFor(() => expect(latestRuntime?.conversationId).toBe(`draft:${draft.draftId}`));
     expect(runtimeMocks.useAgent).toHaveBeenLastCalledWith({
-      agentId: 'kiditem-conversation:uuid-1',
+      agentId: `kiditem-conversation:draft:${draft.draftId}`,
       runtimeAgentId: 'conversation',
-      threadId: 'uuid-1',
+      threadId: `draft:${draft.draftId}`,
     });
     expect(useConversationSurfaceState.getState().pendingDraft).toMatchObject({
-      conversationId: 'uuid-1', agentKey: 'sourcing', message: 'Review the supplier evidence.',
+      draftId: draft.draftId, agentKey: 'sourcing', message: 'Review the supplier evidence.',
     });
     expect(apiClient.post).not.toHaveBeenCalled();
     expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringMatching(/\/history$/));
@@ -285,7 +288,7 @@ describe('ConversationRuntimeHost', () => {
       draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
       useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
     });
-    const promoted = { ...FIRST, id: draft.conversationId, title: 'Wait for snapshot' };
+    const promoted = { ...FIRST, title: 'Wait for snapshot' };
     vi.mocked(apiClient.post).mockImplementation((path: string) => (
       path === '/api/agent-os/conversations'
         ? Promise.resolve(promoted as never)
@@ -312,7 +315,7 @@ describe('ConversationRuntimeHost', () => {
       draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
       useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
     });
-    const promoted = { ...FIRST, id: draft.conversationId, title: 'Use the CopilotKit run owner' };
+    const promoted = { ...FIRST, title: 'Use the CopilotKit run owner' };
     vi.mocked(apiClient.post).mockImplementation((path: string) => (
       path === '/api/agent-os/conversations'
         ? Promise.resolve(promoted as never)
@@ -327,7 +330,7 @@ describe('ConversationRuntimeHost', () => {
 
     expect(runtimeMocks.coreRunAgent).toHaveBeenCalledWith({
       agent: runtimeMocks.agent,
-      runId: 'uuid-2',
+      runId: 'uuid-1',
       forwardedProps: { model: 'gpt-5.6', reasoningEffort: 'low' },
     });
     expect(runtimeMocks.runAgent).not.toHaveBeenCalled();
@@ -340,7 +343,7 @@ describe('ConversationRuntimeHost', () => {
       draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'advertising' });
       useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
     });
-    const promoted = { ...FIRST, id: draft.conversationId, agentKey: 'advertising' as const, title: 'Fast overview' };
+    const promoted = { ...FIRST, agentKey: 'advertising' as const, title: 'Fast overview' };
     vi.mocked(apiClient.post).mockImplementation((path: string) => (
       path === '/api/agent-os/conversations'
         ? Promise.resolve(promoted as never)
@@ -374,7 +377,7 @@ describe('ConversationRuntimeHost', () => {
       draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
       useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
     });
-    const promoted = { ...FIRST, id: draft.conversationId, title: 'Cancelled promotion' };
+    const promoted = { ...FIRST, title: 'Cancelled promotion' };
     vi.mocked(apiClient.post).mockImplementation((path: string) => (
       path === '/api/agent-os/conversations'
         ? Promise.resolve(promoted as never)
@@ -414,7 +417,7 @@ describe('ConversationRuntimeHost', () => {
       draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
       useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
     });
-    const promoted = { ...FIRST, id: draft.conversationId, title: 'Review the supplier evidence' };
+    const promoted = { ...FIRST, title: 'Review the supplier evidence' };
     vi.mocked(apiClient.post).mockImplementation((path: string) => (
       path === '/api/agent-os/conversations'
         ? Promise.resolve(promoted as never)
@@ -428,27 +431,30 @@ describe('ConversationRuntimeHost', () => {
     const second = latestRuntime!.start({
       message: 'Review the supplier evidence', model: 'gpt-5.6', reasoningEffort: 'low',
     });
-    await Promise.all([first, second]);
+    await act(async () => {
+      await Promise.all([first, second]);
+    });
 
     expect(apiClient.post).toHaveBeenCalledWith('/api/agent-os/conversations', {
-      conversationId: draft.conversationId,
       runtime: 'codex_cli',
       agentKey: 'sourcing',
       title: 'Review the supplier evidence',
     });
     expect(runtimeMocks.addMessage).toHaveBeenCalledTimes(1);
     expect(runtimeMocks.addMessage).toHaveBeenCalledWith({
-      id: `user-uuid-2`, role: 'user', content: 'Review the supplier evidence',
+      id: 'user-uuid-1', role: 'user', content: 'Review the supplier evidence',
     });
     expect(runtimeMocks.coreRunAgent).toHaveBeenCalledTimes(1);
     expect(runtimeMocks.coreRunAgent).toHaveBeenCalledWith({
       agent: runtimeMocks.agent,
-      runId: 'uuid-2',
+      runId: 'uuid-1',
       forwardedProps: { model: 'gpt-5.6', reasoningEffort: 'low' },
     });
-    expect(runtimeMocks.subscriptions).toHaveLength(1);
+    expect(runtimeMocks.subscriptions).toHaveLength(2);
+    expect(runtimeMocks.subscriptions[0].unsubscribe).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.subscriptions[1].unsubscribe).not.toHaveBeenCalled();
     expect(useConversationSurfaceState.getState()).toMatchObject({
-      activeConversationId: draft.conversationId,
+      activeConversationId: promoted.id,
       pendingDraft: null,
     });
   });
@@ -460,7 +466,7 @@ describe('ConversationRuntimeHost', () => {
       draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
       useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
     });
-    const promoted = { ...FIRST, id: draft.conversationId, title: 'Retry this message' };
+    const promoted = { ...FIRST, title: 'Retry this message' };
     let createAttempts = 0;
     vi.mocked(apiClient.post).mockImplementation((path: string) => {
       if (path === '/api/copilotkit') return Promise.resolve({ agents: {} } as never);
@@ -475,15 +481,14 @@ describe('ConversationRuntimeHost', () => {
     await expect(latestRuntime!.start({
       message: 'Retry this message', model: 'gpt-5.6', reasoningEffort: 'low',
     })).rejects.toThrow('gateway unavailable');
-    expect(useConversationSurfaceState.getState().pendingDraft?.conversationId).toBe(draft.conversationId);
+    expect(useConversationSurfaceState.getState().pendingDraft?.draftId).toBe(draft.draftId);
 
     await latestRuntime!.start({
       message: 'Retry this message', model: 'gpt-5.6', reasoningEffort: 'low',
     });
     const creates = vi.mocked(apiClient.post).mock.calls.filter(([path]) => path === '/api/agent-os/conversations');
     expect(creates).toHaveLength(2);
-    expect(creates.map(([, input]) => (input as { conversationId: string }).conversationId))
-      .toEqual([draft.conversationId, draft.conversationId]);
+    expect(creates[0]?.[1]).toEqual(creates[1]?.[1]);
   });
 
   it('keeps a failed first handoff consumed and retries it as a normal existing-conversation turn', async () => {
@@ -493,7 +498,7 @@ describe('ConversationRuntimeHost', () => {
       draft = useConversationSurfaceState.getState().openConversation({ fixedAgentKey: 'sourcing' });
       useConversationSurfaceState.getState().updateDraft({ provider: 'codex_cli' });
     });
-    const promoted = { ...FIRST, id: draft.conversationId, title: 'First request' };
+    const promoted = { ...FIRST, title: 'First request' };
     vi.mocked(apiClient.post).mockImplementation((path: string) => (
       path === '/api/agent-os/conversations'
         ? Promise.resolve(promoted as never)
@@ -533,7 +538,7 @@ describe('ConversationRuntimeHost', () => {
     })).rejects.toThrow('conversation_runtime_not_ready');
     expect(apiClient.post).not.toHaveBeenCalledWith('/api/agent-os/conversations', expect.anything());
     expect(useConversationSurfaceState.getState().pendingDraft).toMatchObject({
-      conversationId: draft.conversationId,
+      draftId: draft.draftId,
       message: 'Wait for the binding',
       model: 'gpt-5.6',
       reasoningEffort: 'low',

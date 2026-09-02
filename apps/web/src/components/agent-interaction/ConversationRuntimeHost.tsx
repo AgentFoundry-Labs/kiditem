@@ -14,7 +14,11 @@ import {
   type ReactNode,
 } from 'react';
 import { conversationIdentityKey, queryKeys, type ConversationIdentity } from '@/lib/query-keys';
-import { ConversationFirstSendCoordinator, type ConversationFirstSend } from './conversation-first-send.coordinator';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
+import {
+  ConversationFirstSendCoordinator,
+  type PromotedConversationFirstSend,
+} from './conversation-first-send.coordinator';
 import { ConversationSettingsDialog } from './ConversationSettingsDialog';
 import { capabilityApprovalInvocationIdFromAgUiEvent } from './capability-approval-event';
 import { conversationTitleFromMessage } from './conversation-title';
@@ -42,7 +46,7 @@ export type LiveMessage = {
 };
 
 type TurnInput = { message: string; model: string; reasoningEffort: string };
-type DraftPatch = Partial<Omit<NewConversationDraft, 'conversationId'>>;
+type DraftPatch = Partial<Omit<NewConversationDraft, 'draftId'>>;
 
 const TURN_FAILURE_NOTICE = '응답을 완료하지 못했습니다. 다시 시도해 주세요.';
 const TURN_CONNECTION_NOTICE = '대화 연결이 끊어졌습니다. 다시 시도해 주세요.';
@@ -69,7 +73,7 @@ export interface ConversationRuntimeContextValue {
 }
 
 type RuntimeBinding = { kind: 'existing'; conversation: ConversationSummary } | { kind: 'draft'; draft: NewConversationDraft };
-type RuntimeHandle = { conversationId: string; handoff(input: ConversationFirstSend): Promise<void> };
+type RuntimeHandle = { conversationId: string; handoff(input: PromotedConversationFirstSend): Promise<void> };
 const ConversationRuntimeContext = createContext<ConversationRuntimeContextValue | null>(null);
 
 /**
@@ -133,9 +137,7 @@ export function ConversationRuntimeHost({
   const activeConversation = activeConversationId
     ? conversations.find((conversation) => conversation.id === activeConversationId) ?? null
     : null;
-  const activeDraft = pendingDraft?.conversationId === activeConversationId
-    ? pendingDraft
-    : null;
+  const activeDraft = activeConversationId === null ? pendingDraft : null;
   const binding: RuntimeBinding | null = activeConversation
     ? { kind: 'existing', conversation: activeConversation }
     : activeDraft
@@ -203,11 +205,11 @@ export function ConversationRuntimeHost({
   latestHostRef.current = { queryClient, runtimeHandleRef };
   const coordinatorRef = useRef<ConversationFirstSendCoordinator | null>(null);
   const coordinatorLifetimeRef = useRef<typeof identityLifetime | null>(null);
-  const promotedDraftIsCurrent = (conversationId: string) => {
+  const draftIsCurrent = (draftId: string, conversationId?: string) => {
     if (!identityIsActive()) return false;
     const state = useConversationSurfaceState.getState();
-    return state.activeConversationId === conversationId
-      && state.pendingDraft?.conversationId === conversationId;
+    return state.pendingDraft?.draftId === draftId
+      && state.activeConversationId === (conversationId ?? null);
   };
   if (coordinatorLifetimeRef.current !== identityLifetime) {
     coordinatorRef.current = new ConversationFirstSendCoordinator({
@@ -219,11 +221,11 @@ export function ConversationRuntimeHost({
           (current = []) => [summary, ...current.filter((item) => item.id !== summary.id)],
         );
       },
-      selectConversation: (summary) => {
+      promoteDraft: (draftId, summary) => {
         if (!identityIsActive()) return;
-        useConversationSurfaceState.getState().selectConversation(summary);
+        useConversationSurfaceState.getState().promoteDraft(draftId, summary);
       },
-      isCurrent: promotedDraftIsCurrent,
+      isCurrent: draftIsCurrent,
       handoff: async (input) => {
         if (!identityIsActive()) {
           throw new Error('conversation_identity_no_longer_active');
@@ -231,7 +233,7 @@ export function ConversationRuntimeHost({
         // Let the external-store selection commit before a fast first run can
         // finish against the draft presentation binding.
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
-        if (!promotedDraftIsCurrent(input.conversationId)) {
+        if (!draftIsCurrent(input.draftId, input.conversationId)) {
           throw new Error('conversation_runtime_binding_unavailable');
         }
         const runtimeHandle = latestHostRef.current.runtimeHandleRef.current;
@@ -243,15 +245,15 @@ export function ConversationRuntimeHost({
     });
     coordinatorLifetimeRef.current = identityLifetime;
   }
-  const previousDraftIdRef = useRef<string | null>(pendingDraft?.conversationId ?? null);
+  const previousDraftIdRef = useRef<string | null>(pendingDraft?.draftId ?? null);
   useEffect(() => {
-    const currentDraftId = pendingDraft?.conversationId ?? null;
+    const currentDraftId = pendingDraft?.draftId ?? null;
     const previousDraftId = previousDraftIdRef.current;
     if (previousDraftId && previousDraftId !== currentDraftId) {
       coordinatorRef.current?.dispose(previousDraftId);
     }
     previousDraftIdRef.current = currentDraftId;
-  }, [pendingDraft?.conversationId]);
+  }, [pendingDraft?.draftId]);
   const [settingsRun, setSettingsRun] = useState<{ conversationId: string | null; isRunning: boolean }>({
     conversationId: null,
     isRunning: false,
@@ -288,7 +290,7 @@ export function ConversationRuntimeHost({
           key={JSON.stringify([identity.userId, identity.organizationId, conversationIdForBinding(binding)])}
           identity={identity}
           binding={binding}
-          retainedDraft={activeDraft}
+          retainedDraft={pendingDraft}
           conversations={conversations}
           conversationsLoading={conversationsQuery.isLoading}
           conversationsError={conversationsQuery.isError}
@@ -367,7 +369,7 @@ function ActiveConversationRuntime({
   refreshConversations(): Promise<void>;
   coordinator: ConversationFirstSendCoordinator;
   runtimeHandleRef: MutableRefObject<RuntimeHandle | null>;
-  updateDraft(patch: Partial<Omit<NewConversationDraft, 'conversationId'>>): void;
+  updateDraft(patch: Partial<Omit<NewConversationDraft, 'draftId'>>): void;
   setPreference(input: SetConversationPreferenceCommand): Promise<ConversationPreferences>;
   renameConversation(conversationId: string, title: string): Promise<ConversationSummary>;
   deleteConversation(conversationId: string): Promise<void>;
@@ -497,7 +499,7 @@ function ActiveConversationRuntime({
     await ensureConnected();
     await issueRun(input);
   }, [binding.kind, ensureConnected, issueRun]);
-  const handoffFirstSend = useCallback(async (input: ConversationFirstSend) => {
+  const handoffFirstSend = useCallback(async (input: PromotedConversationFirstSend) => {
     if (input.conversationId !== conversationId) {
       throw new Error('conversation_runtime_binding_unavailable');
     }
@@ -524,7 +526,9 @@ function ActiveConversationRuntime({
   const start = useCallback(async (input: TurnInput) => {
     if (binding.kind === 'existing') {
       await startExisting(input);
-      useConversationSurfaceState.getState().completePromotedDraft(conversationId);
+      if (retainedDraft) {
+        useConversationSurfaceState.getState().completePromotedDraft(retainedDraft.draftId);
+      }
       return;
     }
     if (!binding.draft.provider) throw new Error('conversation_runtime_required');
@@ -537,7 +541,7 @@ function ActiveConversationRuntime({
     });
     if (!isReady) throw new Error('conversation_runtime_not_ready');
     await coordinator.send({
-      conversationId,
+      draftId: binding.draft.draftId,
       runtime: binding.draft.provider,
       agentKey: binding.draft.agentKey,
       title,
@@ -545,8 +549,8 @@ function ActiveConversationRuntime({
       model: input.model,
       reasoningEffort: input.reasoningEffort,
     });
-    useConversationSurfaceState.getState().completePromotedDraft(conversationId);
-  }, [binding, conversationId, coordinator, isReady, startExisting, updateDraft]);
+    useConversationSurfaceState.getState().completePromotedDraft(binding.draft.draftId);
+  }, [binding, coordinator, isReady, retainedDraft, startExisting, updateDraft]);
   const interrupt = useCallback(async () => {
     if (!agent.isRunning) return;
     copilotkit.stopAgent({ agent });
@@ -701,15 +705,15 @@ function inactiveRuntimeValue({
 }
 
 function conversationIdForBinding(binding: RuntimeBinding): string {
-  return binding.kind === 'existing' ? binding.conversation.id : binding.draft.conversationId;
+  return binding.kind === 'existing' ? binding.conversation.id : `draft:${binding.draft.draftId}`;
 }
 
 function newTurnId(): string {
-  const randomUUID = globalThis.crypto?.randomUUID;
-  if (typeof randomUUID !== 'function') throw new Error('conversation_turn_id_unavailable');
-  const turnId = randomUUID.call(globalThis.crypto);
-  if (!turnId) throw new Error('conversation_turn_id_unavailable');
-  return turnId;
+  try {
+    return createSecureRandomUuid();
+  } catch {
+    throw new Error('conversation_turn_id_unavailable');
+  }
 }
 
 function toPresentationMessages(messages: readonly unknown[]): LiveMessage[] {

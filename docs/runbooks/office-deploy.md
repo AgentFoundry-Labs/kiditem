@@ -4,8 +4,9 @@
 
 - Run on the Windows Office host from a clean KidItem checkout.
 - Docker Desktop uses the `desktop-linux` context.
-- Current-profile Node is major 22; .NET 8 SDK is available for the native
-  Gateway build.
+- Current-profile Node is major 22. A .NET 8 SDK is available whenever the
+  Gateway payload inputs changed or archived-payload reuse falls back to an
+  exact-SHA full build.
 - `C:\workspace\kiditem` is clean on `release/office`, tracking
   `origin/release/office`. It remains protected against deletion but does not
   need to match the deploy target.
@@ -23,9 +24,20 @@ npm run deploy:office:local -- --ref origin/develop
 
 The command refuses a dirty invoking checkout. It fetches `origin/develop`,
 resolves its authoritative full SHA, creates a clean detached temporary
-worktree, builds API/web/Gateway from it, verifies VERSION and SHA identities,
-records the prior runtime, and performs a controlled recreate. It never pulls
-an Office image and never modifies the live checkout.
+worktree, builds API/web from it, resolves the Gateway payload, verifies VERSION
+and SHA identities, records the prior runtime, and performs a controlled
+recreate. It never pulls an Office image and never modifies the live checkout.
+
+Gateway payload reuse is automatic; there is no operator skip flag or general
+`node_modules` cache. The deployer diffs the current manifest SHA against the
+target SHA only for root package/lock/npm/TypeScript configuration, Prisma,
+`packages/shared`, `apps/agent-gateway`, and
+`deploy/office/gateway-build.ps1`. A match forces the exact-SHA build, including
+`npm ci`. With no match, the deployer hash-verifies the current manifest's ZIP
+under `deployments/bundles/<sha>`, extracts only the package, native executable,
+and runtime contract, writes a new target VERSION/SHA identity, and creates a
+new ZIP/hash. Missing, corrupt, or runtime-incompatible archives fall back to
+the full build before any live runtime change.
 
 If the deployed-to-target diff includes Prisma or data-migration surfaces, the
 normal command stops before build. After explicit cutover review, run:

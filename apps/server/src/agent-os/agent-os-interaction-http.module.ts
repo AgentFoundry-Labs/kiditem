@@ -10,6 +10,7 @@ import { GatewayCommandResponseBroker } from './adapter/out/runtime/gateway/gate
 import { GatewayControlSessionModule } from './adapter/out/runtime/gateway/gateway-control-session.module';
 import { GatewayReadinessService } from './adapter/out/runtime/gateway/gateway-readiness.service';
 import {
+  CONVERSATION_ID_FACTORY,
   CONVERSATION_PORT,
   CONVERSATION_TURN_ID_FACTORY,
 } from './application/port/in/capability/conversation.port';
@@ -38,6 +39,7 @@ import { AgentOsHttpModule } from './agent-os-http.module';
     },
     { provide: CONVERSATION_EVENT_HISTORY_PORT, useExisting: ConversationSqliteEventHistory },
     { provide: COPILOTKIT_CONVERSATION_HISTORY_TRANSPORT, useExisting: ConversationSqliteEventHistory },
+    { provide: CONVERSATION_ID_FACTORY, useValue: randomUUID },
     { provide: CONVERSATION_TURN_ID_FACTORY, useValue: randomUUID },
     ConversationService,
     { provide: CONVERSATION_PORT, useExisting: ConversationService },

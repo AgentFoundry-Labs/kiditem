@@ -19,16 +19,22 @@ describe('Gateway conversation contract', () => {
     expect(contract).not.toHaveProperty('ProviderMessageSchema');
   });
 
-  it('requires the browser-reserved ID and every public create field', async () => {
-    const { CreateConversationCommandSchema, ProviderRuntimeSchema } = await import('./conversation');
-    const command = {
-      conversationId: 'browser-conversation-1',
+  it('keeps browser create requests ID-free and requires a server ID for Gateway commands', async () => {
+    const {
+      CreateConversationCommandSchema,
+      CreateConversationRequestSchema,
+      ProviderRuntimeSchema,
+    } = await import('./conversation');
+    const request = {
       runtime: 'claude_cli',
       agentKey: null,
       title: 'Sourcing chat',
     };
+    const command = { conversationId: 'server-conversation-1', ...request };
 
     expect(ProviderRuntimeSchema.options).toEqual(['codex_cli', 'claude_cli']);
+    expect(CreateConversationRequestSchema.parse(request)).toEqual(request);
+    expect(CreateConversationRequestSchema.safeParse(command).success).toBe(false);
     expect(CreateConversationCommandSchema.parse(command)).toEqual(command);
     expect(CreateConversationCommandSchema.safeParse({
       runtime: 'claude_cli',
@@ -36,26 +42,25 @@ describe('Gateway conversation contract', () => {
       title: 'Sourcing chat',
     }).success).toBe(false);
     expect(CreateConversationCommandSchema.safeParse({
-      conversationId: 'browser-conversation-1',
+      conversationId: 'server-conversation-1',
       agentKey: null,
       title: 'Sourcing chat',
     }).success).toBe(false);
     expect(CreateConversationCommandSchema.safeParse({
-      conversationId: 'browser-conversation-1',
+      conversationId: 'server-conversation-1',
       runtime: 'claude_cli',
       title: 'Sourcing chat',
     }).success).toBe(false);
     expect(CreateConversationCommandSchema.safeParse({
-      conversationId: 'browser-conversation-1',
+      conversationId: 'server-conversation-1',
       runtime: 'claude_cli',
       agentKey: null,
     }).success).toBe(false);
   });
 
   it('rejects server authority, provider references, credentials, transcript data, and transport tokens from creates', async () => {
-    const { CreateConversationCommandSchema } = await import('./conversation');
-    const command = {
-      conversationId: 'browser-conversation-1',
+    const { CreateConversationRequestSchema } = await import('./conversation');
+    const request = {
       runtime: 'codex_cli',
       agentKey: 'sourcing',
       title: 'Supplier research',
@@ -64,12 +69,13 @@ describe('Gateway conversation contract', () => {
     for (const forbidden of [
       { organizationId: 'organization-1' },
       { userId: 'user-1' },
+      { conversationId: 'browser-must-not-assign' },
       { providerConversationRef: 'provider-thread-1' },
       { credential: 'secret' },
       { transcript: [{ role: 'user', content: 'private history' }] },
       { mcpTransportToken: 'transport-token' },
     ]) {
-      expect(CreateConversationCommandSchema.safeParse({ ...command, ...forbidden }).success).toBe(false);
+      expect(CreateConversationRequestSchema.safeParse({ ...request, ...forbidden }).success).toBe(false);
     }
   });
 
@@ -153,16 +159,14 @@ describe('Gateway conversation contract', () => {
   });
 
   it('restricts conversation agent keys to the five published Agents', async () => {
-    const { CreateConversationCommandSchema } = await import('./conversation');
+    const { CreateConversationRequestSchema } = await import('./conversation');
 
-    expect(CreateConversationCommandSchema.safeParse({
-      conversationId: 'browser-conversation-1',
+    expect(CreateConversationRequestSchema.safeParse({
       runtime: 'codex_cli',
       agentKey: 'operator',
       title: 'Sourcing chat',
     }).success).toBe(false);
-    expect(CreateConversationCommandSchema.safeParse({
-      conversationId: 'browser-conversation-1',
+    expect(CreateConversationRequestSchema.safeParse({
       runtime: 'codex_cli',
       agentKey: null,
       title: 'Sourcing chat',

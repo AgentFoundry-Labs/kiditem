@@ -21,6 +21,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+Import-Module Microsoft.PowerShell.Utility -ErrorAction Stop
 
 # This is a release-contract constant, deliberately not an operator or Gateway
 # config input.  The Host Gateway only admits descendants of this exact anchor.
@@ -45,6 +46,22 @@ $script:GatewayTokenPath = Join-Path $script:OfficeRoot 'secrets\agent-gateway-t
 $script:GatewayConfigName = 'gateway-config.json'
 $script:GatewayLauncherPath = Join-Path $script:GatewayRoot 'gateway-launcher.cjs'
 $script:GatewayLauncherSourcePath = Join-Path $PSScriptRoot 'gateway-launcher.cjs'
+$script:GatewayPayloadFiles = @(
+  'agent-gateway.tgz',
+  'KidItem.AgentGateway.exe',
+  'gateway-runtime-contract.json'
+)
+$script:GatewayBuildImpactPaths = @(
+  'package.json',
+  'package-lock.json',
+  '.npmrc',
+  'tsconfig.json',
+  'prisma',
+  'prisma.config.ts',
+  'packages/shared',
+  'apps/agent-gateway',
+  'deploy/office/gateway-build.ps1'
+)
 $script:SchemaDataConfirmation = 'APPLY_SCHEMA_DATA'
 $script:ApiRuntimeBaseImage = 'ghcr.io/agentfoundry-labs/kiditem-api-base:node22-chromium-b6503cb2512e'
 
@@ -248,7 +265,7 @@ function Remove-CleanSourceWorktree {
     [Parameter(Mandatory = $true)][string]$WorktreePath
   )
   Assert-PathWithinRoot -Root $LocalBuildRoot -Candidate $WorktreePath
-  & git -C $CheckoutRoot worktree remove --force $WorktreePath
+  & git -c core.longpaths=true -C $CheckoutRoot worktree remove --force $WorktreePath
   if ($LASTEXITCODE -ne 0) {
     Write-Warning "Exact-SHA temporary worktree was retained for manual inspection: $WorktreePath"
   }
@@ -283,7 +300,7 @@ function Get-SchemaDataChanges {
   )
   $currentSha = Get-CurrentDeployedSha
   if (-not $currentSha) {
-    return ,@('__missing_current_runtime_manifest__')
+    return @('__missing_current_runtime_manifest__')
   }
   & git -C $CheckoutRoot cat-file -e "${currentSha}^{commit}" 2>$null
   if ($LASTEXITCODE -ne 0) {
@@ -293,11 +310,11 @@ function Get-SchemaDataChanges {
   if ($LASTEXITCODE -ne 0) {
     throw 'Schema/data diff detection failed.'
   }
-  return ,@($changed | Where-Object { $_ } | Sort-Object -Unique)
+  return @($changed | Where-Object { $_ } | Sort-Object -Unique)
 }
 
 function Assert-SchemaDataCutoverContract {
-  param([Parameter(Mandatory = $true)][string[]]$ChangedPaths)
+  param([AllowEmptyCollection()][string[]]$ChangedPaths = @())
 
   if ($ChangedPaths.Count -gt 0) {
     if (-not $SchemaDataCutover -or $CutoverConfirmation -ne $script:SchemaDataConfirmation) {
@@ -414,38 +431,136 @@ function Build-LocalOfficeImages {
   }
 }
 
-function Resolve-DotNetExecutable {
-  $command = Get-Command dotnet.exe -ErrorAction SilentlyContinue
-  if ($null -eq $command) {
-    $fallback = Join-Path $script:OfficeRoot 'tools\dotnet\dotnet.exe'
-    if (Test-Path -LiteralPath $fallback -PathType Leaf) {
-      return $fallback
+function Get-GatewayBuildChanges {
+  param(
+    [Parameter(Mandatory = $true)][string]$CheckoutRoot,
+    [Parameter(Mandatory = $true)][string]$CurrentGitSha,
+    [Parameter(Mandatory = $true)][string]$TargetGitSha
+  )
+
+  foreach ($sha in @($CurrentGitSha, $TargetGitSha)) {
+    if ($sha -notmatch '^[0-9a-f]{40}$') {
+      throw 'Gateway build diff requires full lowercase Git SHAs.'
     }
-    throw 'The local Office Gateway build requires a .NET 8 SDK (dotnet.exe).'
+    & git -C $CheckoutRoot cat-file -e "${sha}^{commit}" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+      throw "Gateway build diff commit is unavailable locally: $sha"
+    }
   }
-  return [System.IO.Path]::GetFullPath($command.Source)
+  $changed = @(& git -C $CheckoutRoot diff --name-only --diff-filter=ACDMRTUXB $CurrentGitSha $TargetGitSha -- $script:GatewayBuildImpactPaths)
+  if ($LASTEXITCODE -ne 0) {
+    throw 'Gateway build impact diff failed.'
+  }
+  return @($changed | Where-Object { $_ } | Sort-Object -Unique)
 }
 
-function Invoke-BundledCliVersionCheck {
+function Initialize-GatewayPayloadRoot {
+  param([Parameter(Mandatory = $true)][string]$PayloadRoot)
+
+  if (Test-Path -LiteralPath $PayloadRoot) {
+    Remove-Item -LiteralPath $PayloadRoot -Recurse -Force
+  }
+  New-Item -ItemType Directory -Path $PayloadRoot -Force | Out-Null
+}
+
+function Assert-GatewayRuntimeMatchesManifest {
   param(
-    [Parameter(Mandatory = $true)][string]$Name,
-    [Parameter(Mandatory = $true)][string]$Executable,
-    [Parameter(Mandatory = $true)][string[]]$Arguments,
-    [Parameter(Mandatory = $true)][string]$ExpectedVersion
+    [Parameter(Mandatory = $true)][object]$Runtime,
+    [Parameter(Mandatory = $true)][object]$Manifest
   )
-  $output = & $Executable @Arguments 2>&1 | Out-String
-  $exitCode = $LASTEXITCODE
-  $bounded = $output.Trim()
-  if ($bounded.Length -gt 256) { $bounded = $bounded.Substring(0, 256) }
-  if ($exitCode -ne 0) { throw "$Name bundled version command failed." }
-  $accepted = if ($Name -eq 'Codex') {
-    @($ExpectedVersion, "codex $ExpectedVersion", "codex-cli $ExpectedVersion")
+
+  Assert-GatewayRuntimeContract $Runtime
+  foreach ($name in @('schemaVersion', 'platform', 'nodeMajor', 'controlRevision', 'mcpProtocolRevision', 'codexVersion', 'claudeVersion')) {
+    if ($Runtime.$name -ne $Manifest.gatewayRuntime.$name) {
+      throw "Gateway runtime contract field $name does not match the source deployment manifest."
+    }
   }
-  else {
-    @($ExpectedVersion, "claude $ExpectedVersion", "$ExpectedVersion (Claude Code)", "Claude Code $ExpectedVersion")
+}
+
+function Copy-ArchivedGatewayPayload {
+  param(
+    [Parameter(Mandatory = $true)][object]$SourceManifest,
+    [Parameter(Mandatory = $true)][string]$BundleRoot,
+    [Parameter(Mandatory = $true)][string]$PayloadRoot
+  )
+
+  $artifact = Get-ArchivedGatewayArtifact $SourceManifest
+  Assert-GatewayOuterArchiveEntries $artifact
+  $extractRoot = Join-Path $BundleRoot 'gateway-reuse-source'
+  if (Test-Path -LiteralPath $extractRoot) {
+    Remove-Item -LiteralPath $extractRoot -Recurse -Force
   }
-  if ($accepted -notcontains $bounded) {
-    throw "$Name bundled version does not match the Gateway runtime contract."
+  try {
+    New-Item -ItemType Directory -Path $extractRoot -Force | Out-Null
+    Expand-Archive -LiteralPath $artifact -DestinationPath $extractRoot
+    Assert-GatewayExtractionTree $extractRoot
+    Initialize-GatewayPayloadRoot $PayloadRoot
+    foreach ($name in $script:GatewayPayloadFiles) {
+      $source = Join-Path $extractRoot $name
+      if (-not (Test-Path -LiteralPath $source -PathType Leaf) -or (Get-Item -LiteralPath $source).Length -le 0) {
+        throw "Archived Gateway payload file is missing or empty: $name"
+      }
+      Copy-Item -LiteralPath $source -Destination (Join-Path $PayloadRoot $name)
+    }
+    $runtime = Get-Content -LiteralPath (Join-Path $PayloadRoot 'gateway-runtime-contract.json') -Raw | ConvertFrom-Json
+    Assert-GatewayRuntimeMatchesManifest -Runtime $runtime -Manifest $SourceManifest
+    Assert-GatewayArchiveEntries (Join-Path $PayloadRoot 'agent-gateway.tgz')
+    return $runtime
+  }
+  finally {
+    Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Complete-GatewayArtifact {
+  param(
+    [Parameter(Mandatory = $true)][string]$BundleRoot,
+    [Parameter(Mandatory = $true)][string]$PayloadRoot,
+    [Parameter(Mandatory = $true)][string]$GitSha,
+    [Parameter(Mandatory = $true)][string]$AppVersion,
+    [Parameter(Mandatory = $true)][object]$Runtime
+  )
+
+  Assert-GatewayRuntimeContract $Runtime
+  $items = @(Get-ChildItem -LiteralPath $PayloadRoot -Force)
+  $actual = @($items | ForEach-Object { $_.Name })
+  if (
+    @($items | Where-Object { $_.PSIsContainer -or $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint }).Count -ne 0 -or
+    $actual.Count -ne $script:GatewayPayloadFiles.Count -or
+    @(Compare-Object -ReferenceObject $script:GatewayPayloadFiles -DifferenceObject $actual).Count -ne 0
+  ) {
+    throw 'Gateway payload does not have the approved closed file set.'
+  }
+
+  $runtimeFromPayload = Get-Content -LiteralPath (Join-Path $PayloadRoot 'gateway-runtime-contract.json') -Raw | ConvertFrom-Json
+  Assert-GatewayRuntimeContract $runtimeFromPayload
+  foreach ($name in @('schemaVersion', 'platform', 'nodeMajor', 'controlRevision', 'mcpProtocolRevision', 'codexVersion', 'claudeVersion')) {
+    if ($runtimeFromPayload.$name -ne $Runtime.$name) {
+      throw "Gateway payload runtime field $name changed before packaging."
+    }
+  }
+  Assert-GatewayArchiveEntries (Join-Path $PayloadRoot 'agent-gateway.tgz')
+
+  $identity = [ordered]@{
+    schemaVersion = 1
+    appVersion = $AppVersion
+    gitSha = $GitSha
+  } | ConvertTo-Json
+  [System.IO.File]::WriteAllText(
+    (Join-Path $PayloadRoot 'release-identity.json'),
+    "$identity`n",
+    [System.Text.UTF8Encoding]::new($false)
+  )
+
+  $zipPath = Join-Path $BundleRoot 'kiditem-agent-gateway-windows-x64.zip'
+  Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
+  Compress-Archive -Path (Join-Path $PayloadRoot '*') -DestinationPath $zipPath -CompressionLevel Optimal
+  Assert-GatewayOuterArchiveEntries $zipPath
+  $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  return [pscustomobject]@{
+    ArtifactPath = $zipPath
+    ArtifactSha256 = $hash
+    Runtime = $runtimeFromPayload
   }
 }
 
@@ -456,87 +571,34 @@ function Build-LocalGatewayArtifact {
     [Parameter(Mandatory = $true)][string]$GitSha,
     [Parameter(Mandatory = $true)][string]$AppVersion
   )
-  $dotnet = Resolve-DotNetExecutable
-  $nativeRoot = Join-Path $BundleRoot 'native'
-  $archiveRoot = Join-Path $BundleRoot 'gateway-archive'
-  $verifyRoot = Join-Path $BundleRoot 'gateway-verify'
-  foreach ($path in @($nativeRoot, $archiveRoot)) {
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
-  }
-  $zipPath = Join-Path $BundleRoot 'kiditem-agent-gateway-windows-x64.zip'
-  $priorLocation = Get-Location
-  $priorNodeOptions = $env:NODE_OPTIONS
-  $priorDatabaseUrl = $env:DATABASE_URL
-  $priorPuppeteerSkip = $env:PUPPETEER_SKIP_DOWNLOAD
-  $priorRunner = $env:KIDITEM_WINDOWS_JOB_RUNNER_PATH
-  $staged = $false
+
+  $payloadRoot = Join-Path $BundleRoot 'gateway-payload'
   try {
-    Set-Location -LiteralPath $WorktreePath
-    $env:NODE_OPTIONS = '--max-old-space-size=4096'
-    $env:DATABASE_URL = 'postgresql://kiditem:kiditem@127.0.0.1:5433/kiditem'
-    $env:PUPPETEER_SKIP_DOWNLOAD = 'true'
-    Invoke-Checked npm.cmd ci --no-audit --no-fund
-    Invoke-Checked npm.cmd run build --workspace=packages/shared
-    Invoke-Checked npm.cmd run build --workspace=apps/agent-gateway
-    Invoke-Checked npm.cmd run prepack --workspace=apps/agent-gateway
-    $staged = $true
-    Invoke-Checked $dotnet publish apps/agent-gateway/windows/KidItem.JobRunner/KidItem.JobRunner.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o $nativeRoot
-    $nativeExe = Join-Path $nativeRoot 'KidItem.JobRunner.exe'
-    $env:KIDITEM_WINDOWS_JOB_RUNNER_PATH = $nativeExe
-    Invoke-Checked npm.cmd exec --workspace=apps/agent-gateway vitest -- run
-    '{"unexpected":true}' | & $nativeExe *> $null
-    if ($LASTEXITCODE -ne 64) {
-      throw 'Windows Gateway native helper admitted malformed structured input.'
+    if (-not (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf)) {
+      throw 'Current Office manifest is unavailable for Gateway payload reuse.'
     }
-    $global:LASTEXITCODE = 0
-
-    Invoke-Checked npm.cmd pack --workspace=apps/agent-gateway --ignore-scripts
-    $tgz = Get-ChildItem -LiteralPath $WorktreePath -Filter 'kiditem-agent-gateway-*.tgz' | Select-Object -First 1
-    if ($null -eq $tgz) { throw 'Gateway npm package was not produced.' }
-    $gatewayTgz = Join-Path $archiveRoot 'agent-gateway.tgz'
-    Move-Item -LiteralPath $tgz.FullName -Destination $gatewayTgz
-    Copy-Item -LiteralPath $nativeExe -Destination (Join-Path $archiveRoot 'KidItem.AgentGateway.exe')
-    $runtimePath = Join-Path $archiveRoot 'gateway-runtime-contract.json'
-    $runtimeCode = "import { writeFileSync } from 'node:fs'; import { GATEWAY_RUNTIME_TRAIN } from './packages/shared/dist/agent-runtime/index.js'; writeFileSync(process.argv[1], JSON.stringify({ schemaVersion: 1, platform: 'windows', ...GATEWAY_RUNTIME_TRAIN }, null, 2) + '\n');"
-    Invoke-Checked node.exe --input-type=module -e $runtimeCode $runtimePath
-    $runtime = Get-Content -LiteralPath $runtimePath -Raw | ConvertFrom-Json
-    Assert-GatewayRuntimeContract $runtime
-
-    $identity = [ordered]@{
-      schemaVersion = 1
-      appVersion = $AppVersion
-      gitSha = $GitSha
-    } | ConvertTo-Json
-    [System.IO.File]::WriteAllText(
-      (Join-Path $archiveRoot 'release-identity.json'),
-      "$identity`n",
-      [System.Text.UTF8Encoding]::new($false)
-    )
-
-    New-Item -ItemType Directory -Path $verifyRoot -Force | Out-Null
-    Invoke-Checked tar.exe -xf $gatewayTgz -C $verifyRoot
-    $packageRoot = Join-Path $verifyRoot 'package'
-    Invoke-BundledCliVersionCheck -Name Codex -Executable (Resolve-GatewayNodeExecutable) -Arguments @((Join-Path $packageRoot 'node_modules\@openai\codex\bin\codex.js'), '--version') -ExpectedVersion $runtime.codexVersion
-    Invoke-BundledCliVersionCheck -Name Claude -Executable (Join-Path $packageRoot 'node_modules\@anthropic-ai\claude-code\bin\claude.exe') -Arguments @('--version') -ExpectedVersion $runtime.claudeVersion
-    Compress-Archive -Path (Join-Path $archiveRoot '*') -DestinationPath $zipPath -CompressionLevel Optimal
-    Assert-GatewayOuterArchiveEntries $zipPath
-    $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    return [pscustomobject]@{
-      ArtifactPath = $zipPath
-      ArtifactSha256 = $hash
-      Runtime = $runtime
+    $sourceManifest = (Read-DeploymentManifest $script:CurrentManifestPath).Manifest
+    $changes = @(Get-GatewayBuildChanges -CheckoutRoot $WorktreePath -CurrentGitSha $sourceManifest.gitSha -TargetGitSha $GitSha)
+    if ($changes.Count -gt 0) {
+      throw "Gateway build inputs changed: $(($changes | Select-Object -First 12) -join ', ')"
     }
+    $runtime = Copy-ArchivedGatewayPayload -SourceManifest $sourceManifest -BundleRoot $BundleRoot -PayloadRoot $payloadRoot
+    $artifact = Complete-GatewayArtifact -BundleRoot $BundleRoot -PayloadRoot $payloadRoot -GitSha $GitSha -AppVersion $AppVersion -Runtime $runtime
+    Write-Host "Gateway payload reused from archived SHA $($sourceManifest.gitSha); release identity rebound to $GitSha."
+    return $artifact
   }
-  finally {
-    if ($staged) {
-      & npm.cmd run postpack --workspace=apps/agent-gateway *> $null
-    }
-    Set-Location -LiteralPath $priorLocation
-    if ($null -eq $priorNodeOptions) { Remove-Item Env:NODE_OPTIONS -ErrorAction SilentlyContinue } else { $env:NODE_OPTIONS = $priorNodeOptions }
-    if ($null -eq $priorDatabaseUrl) { Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue } else { $env:DATABASE_URL = $priorDatabaseUrl }
-    if ($null -eq $priorPuppeteerSkip) { Remove-Item Env:PUPPETEER_SKIP_DOWNLOAD -ErrorAction SilentlyContinue } else { $env:PUPPETEER_SKIP_DOWNLOAD = $priorPuppeteerSkip }
-    if ($null -eq $priorRunner) { Remove-Item Env:KIDITEM_WINDOWS_JOB_RUNNER_PATH -ErrorAction SilentlyContinue } else { $env:KIDITEM_WINDOWS_JOB_RUNNER_PATH = $priorRunner }
+  catch {
+    Write-Warning "Gateway payload reuse unavailable; running exact-SHA full build before live mutation. $($_.Exception.Message)"
   }
+
+  Initialize-GatewayPayloadRoot $payloadRoot
+  $targetBuildScript = Join-Path $WorktreePath 'deploy\office\gateway-build.ps1'
+  if (-not (Test-Path -LiteralPath $targetBuildScript -PathType Leaf)) {
+    throw 'Exact-SHA worktree is missing deploy/office/gateway-build.ps1.'
+  }
+  . $targetBuildScript
+  $runtime = Build-ExactShaGatewayPayload -WorktreePath $WorktreePath -BundleRoot $BundleRoot -PayloadRoot $payloadRoot -GitSha $GitSha
+  return Complete-GatewayArtifact -BundleRoot $BundleRoot -PayloadRoot $payloadRoot -GitSha $GitSha -AppVersion $AppVersion -Runtime $runtime
 }
 
 function New-LocalDeploymentBundle {
@@ -544,7 +606,7 @@ function New-LocalDeploymentBundle {
     [Parameter(Mandatory = $true)][string]$WorktreePath,
     [Parameter(Mandatory = $true)][object]$Source,
     [Parameter(Mandatory = $true)][string]$LocalBuildRoot,
-    [Parameter(Mandatory = $true)][string[]]$SchemaDataPaths
+    [AllowEmptyCollection()][string[]]$SchemaDataPaths = @()
   )
   $version = (Get-Content -LiteralPath (Join-Path $WorktreePath 'VERSION') -Raw).Trim()
   if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
@@ -730,12 +792,12 @@ function Assert-GatewayRuntimeContract {
 
   Assert-ManifestShape -Value $Runtime -Expected @(
     'schemaVersion', 'platform', 'nodeMajor', 'controlRevision',
-    'cliContractIdentity', 'mcpProtocolRevision', 'codexVersion', 'claudeVersion'
+    'mcpProtocolRevision', 'codexVersion', 'claudeVersion'
   ) -Label 'Gateway runtime contract'
   foreach ($name in @('schemaVersion', 'nodeMajor')) {
     Assert-ManifestIntegerField -Value $Runtime -Name $name
   }
-  foreach ($name in @('platform', 'controlRevision', 'cliContractIdentity', 'mcpProtocolRevision', 'codexVersion', 'claudeVersion')) {
+  foreach ($name in @('platform', 'controlRevision', 'mcpProtocolRevision', 'codexVersion', 'claudeVersion')) {
     Assert-ManifestStringField -Value $Runtime -Name $name
   }
 
@@ -744,7 +806,6 @@ function Assert-GatewayRuntimeContract {
     $Runtime.platform -ne 'windows' -or
     $Runtime.nodeMajor -ne 22 -or
     $Runtime.controlRevision -ne 'kiditem-gateway-control-v1' -or
-    $Runtime.cliContractIdentity -ne 'office-cli-contract-v2' -or
     $Runtime.mcpProtocolRevision -ne '2026-07-28' -or
     $Runtime.codexVersion -ne '0.149.1' -or
     $Runtime.claudeVersion -ne '2.1.245'
@@ -1233,7 +1294,7 @@ function Assert-GatewayPackageContents {
   $runtimePath = Join-Path $ReleaseRoot 'gateway-runtime-contract.json'
   $runtime = (Get-Content -LiteralPath $runtimePath -Raw | ConvertFrom-Json)
   Assert-GatewayRuntimeContract $runtime
-  foreach ($name in @('schemaVersion', 'platform', 'nodeMajor', 'controlRevision', 'cliContractIdentity', 'mcpProtocolRevision', 'codexVersion', 'claudeVersion')) {
+  foreach ($name in @('schemaVersion', 'platform', 'nodeMajor', 'controlRevision', 'mcpProtocolRevision', 'codexVersion', 'claudeVersion')) {
     if ($runtime.$name -ne $Manifest.gatewayRuntime.$name) {
       throw "Gateway runtime contract field $name does not match the deployment manifest."
     }
@@ -1362,6 +1423,31 @@ function Test-GatewayPathWithinRoot {
   return $normalizedCandidate -eq $normalizedRoot -or $normalizedCandidate.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)
 }
 
+function ConvertTo-GatewayExtendedPath {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  $fullPath = [System.IO.Path]::GetFullPath($Path)
+  if ($fullPath.StartsWith('\\?\', [System.StringComparison]::Ordinal)) {
+    return $fullPath
+  }
+  if ($fullPath.StartsWith('\\', [System.StringComparison]::Ordinal)) {
+    return '\\?\UNC\' + $fullPath.Substring(2)
+  }
+  return '\\?\' + $fullPath
+}
+
+function ConvertFrom-GatewayExtendedPath {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  if ($Path.StartsWith('\\?\UNC\', [System.StringComparison]::OrdinalIgnoreCase)) {
+    return '\\' + $Path.Substring(8)
+  }
+  if ($Path.StartsWith('\\?\', [System.StringComparison]::Ordinal)) {
+    return $Path.Substring(4)
+  }
+  return $Path
+}
+
 function Assert-GatewayExtractionTree {
   param([Parameter(Mandatory = $true)][string]$Root)
 
@@ -1369,27 +1455,76 @@ function Assert-GatewayExtractionTree {
   if (-not $rootItem.PSIsContainer -or (($rootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
     throw 'Gateway extraction root is not a regular protected directory.'
   }
-  $canonicalRoot = (Resolve-Path -LiteralPath $Root -ErrorAction Stop).ProviderPath
+  # Windows PowerShell 5.1's provider rejects a 260-character descendant even
+  # when the file exists. The bundled Codex runtime reaches that boundary once
+  # the candidate UUID is present, so traverse through Win32 extended-length
+  # paths and keep the admission comparison on normalized ordinary paths.
+  $canonicalRoot = [System.IO.Path]::GetFullPath($Root)
   $pending = [System.Collections.Generic.Queue[string]]::new()
   $pending.Enqueue($canonicalRoot)
   while ($pending.Count -gt 0) {
     $directory = $pending.Dequeue()
-    foreach ($path in [System.IO.Directory]::GetFileSystemEntries($directory)) {
-      $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
-      if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+    $extendedDirectory = ConvertTo-GatewayExtendedPath $directory
+    foreach ($entry in [System.IO.Directory]::GetFileSystemEntries($extendedDirectory)) {
+      $path = ConvertFrom-GatewayExtendedPath $entry
+      $attributes = [System.IO.File]::GetAttributes((ConvertTo-GatewayExtendedPath $path))
+      if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw 'Gateway extraction contains a Windows reparse point.'
       }
-      $canonical = (Resolve-Path -LiteralPath $path -ErrorAction Stop).ProviderPath
+      $canonical = [System.IO.Path]::GetFullPath($path)
       if (-not (Test-GatewayPathWithinRoot $canonicalRoot $canonical)) {
         throw 'Gateway canonical descendant escapes the candidate root.'
       }
-      if ($item.PSIsContainer) {
+      if (($attributes -band [System.IO.FileAttributes]::Directory) -ne 0) {
         $pending.Enqueue($canonical)
       }
-      elseif (-not ($item -is [System.IO.FileInfo])) {
+      elseif (
+        ($attributes -band [System.IO.FileAttributes]::Device) -ne 0 -or
+        -not [System.IO.File]::Exists((ConvertTo-GatewayExtendedPath $canonical))
+      ) {
         throw 'Gateway extraction contains a non-regular filesystem entry.'
       }
     }
+  }
+}
+
+function Invoke-GatewayTransientFileOperation {
+  param(
+    [Parameter(Mandatory = $true)][string]$Label,
+    [Parameter(Mandatory = $true)][scriptblock]$Operation,
+    [ValidateRange(1, 12)][int]$MaximumAttempts = 6
+  )
+
+  $lastError = $null
+  for ($attempt = 1; $attempt -le $MaximumAttempts; $attempt += 1) {
+    try {
+      & $Operation
+      return
+    }
+    catch {
+      $lastError = $_
+      if ($attempt -eq $MaximumAttempts) { break }
+      Write-Warning "$Label hit a transient Windows file lock (attempt $attempt/$MaximumAttempts); retrying. $($_.Exception.Message)"
+      Start-Sleep -Seconds ([Math]::Min(5, $attempt))
+    }
+  }
+  throw [System.InvalidOperationException]::new(
+    "$Label failed after $MaximumAttempts attempts. $($lastError.Exception.Message)",
+    $lastError.Exception
+  )
+}
+
+function Remove-GatewayReleaseTreeBestEffort {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  if (-not (Test-Path -LiteralPath $Path)) { return }
+  try {
+    Invoke-GatewayTransientFileOperation -Label "Gateway release cleanup $Path" -Operation {
+      [System.IO.Directory]::Delete((ConvertTo-GatewayExtendedPath $Path), $true)
+    }
+  }
+  catch {
+    Write-Warning "Gateway release cleanup will be retried by later maintenance. $($_.Exception.Message)"
   }
 }
 
@@ -1416,10 +1551,14 @@ function New-GatewayRelease {
   $promoted = $false
   try {
     New-Item -ItemType Directory -Path $candidateRoot -Force | Out-Null
-    Copy-Item -LiteralPath $ArtifactPath -Destination (Join-Path $candidateRoot $Manifest.gatewayArtifact) -Force
+    Invoke-GatewayTransientFileOperation -Label 'Gateway artifact staging' -Operation {
+      Copy-Item -LiteralPath $ArtifactPath -Destination (Join-Path $candidateRoot $Manifest.gatewayArtifact) -Force -ErrorAction Stop
+    }
     Assert-GatewayArtifact (Join-Path $candidateRoot $Manifest.gatewayArtifact) $Manifest
     Assert-GatewayOuterArchiveEntries (Join-Path $candidateRoot $Manifest.gatewayArtifact)
-    Expand-Archive -LiteralPath (Join-Path $candidateRoot $Manifest.gatewayArtifact) -DestinationPath $candidateRoot
+    Invoke-GatewayTransientFileOperation -Label 'Gateway outer archive extraction' -Operation {
+      Expand-Archive -LiteralPath (Join-Path $candidateRoot $Manifest.gatewayArtifact) -DestinationPath $candidateRoot -Force
+    }
     Assert-GatewayExtractionTree $candidateRoot
     $expectedOuterFiles = @('agent-gateway.tgz', 'KidItem.AgentGateway.exe', 'gateway-runtime-contract.json', 'release-identity.json')
     foreach ($name in $expectedOuterFiles) {
@@ -1428,10 +1567,14 @@ function New-GatewayRelease {
       }
     }
     Assert-GatewayArchiveEntries (Join-Path $candidateRoot 'agent-gateway.tgz')
-    Invoke-Checked tar.exe -xf (Join-Path $candidateRoot 'agent-gateway.tgz') -C $candidateRoot
+    Invoke-GatewayTransientFileOperation -Label 'Gateway payload extraction' -Operation {
+      Invoke-Checked tar.exe -xf (Join-Path $candidateRoot 'agent-gateway.tgz') -C $candidateRoot
+    }
     Assert-GatewayExtractionTree $candidateRoot
     New-Item -ItemType Directory -Path (Join-Path $candidateRoot 'package\\windows') -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $candidateRoot 'KidItem.AgentGateway.exe') -Destination (Join-Path $candidateRoot 'package\\windows\\KidItem.AgentGateway.exe') -Force
+    Invoke-GatewayTransientFileOperation -Label 'Gateway native host staging' -Operation {
+      Copy-Item -LiteralPath (Join-Path $candidateRoot 'KidItem.AgentGateway.exe') -Destination (Join-Path $candidateRoot 'package\\windows\\KidItem.AgentGateway.exe') -Force -ErrorAction Stop
+    }
     Assert-GatewayPackageContents $candidateRoot $Manifest
 
     # The config survives promotion from the private extraction directory to
@@ -1454,20 +1597,34 @@ function New-GatewayRelease {
     Set-GatewayProtectedAcl -Path $gatewayConfigPath -Mode Read
     if (Test-Path -LiteralPath $releaseRoot -PathType Container) {
       $retiredRoot = "$releaseRoot.retired-$([guid]::NewGuid().ToString('N'))"
-      Move-Item -LiteralPath $releaseRoot -Destination $retiredRoot
+      Invoke-GatewayTransientFileOperation -Label 'Gateway current release retirement' -Operation {
+        Move-Item -LiteralPath $releaseRoot -Destination $retiredRoot -ErrorAction Stop
+      }
     }
-    Move-Item -LiteralPath $candidateRoot -Destination $releaseRoot
+    Invoke-GatewayTransientFileOperation -Label 'Gateway candidate promotion' -Operation {
+      Move-Item -LiteralPath $candidateRoot -Destination $releaseRoot -ErrorAction Stop
+    }
     $promoted = $true
     Assert-GatewayArtifact (Join-Path $releaseRoot $Manifest.gatewayArtifact) $Manifest
     Assert-GatewayPackageContents $releaseRoot $Manifest
   }
   catch {
-    Remove-Item -LiteralPath $candidateRoot -Recurse -Force -ErrorAction SilentlyContinue
-    throw
+    $releaseError = $_
+    if ($promoted -and (Test-Path -LiteralPath $releaseRoot)) {
+      Remove-GatewayReleaseTreeBestEffort -Path $releaseRoot
+    }
+    if ($null -ne $retiredRoot -and (Test-Path -LiteralPath $retiredRoot) -and -not (Test-Path -LiteralPath $releaseRoot)) {
+      Invoke-GatewayTransientFileOperation -Label 'Gateway retired release restoration' -Operation {
+        Move-Item -LiteralPath $retiredRoot -Destination $releaseRoot -ErrorAction Stop
+      }
+      $retiredRoot = $null
+    }
+    Remove-GatewayReleaseTreeBestEffort -Path $candidateRoot
+    throw $releaseError
   }
   finally {
     if ($promoted -and $null -ne $retiredRoot) {
-      Remove-Item -LiteralPath $retiredRoot -Recurse -Force -ErrorAction SilentlyContinue
+      Remove-GatewayReleaseTreeBestEffort -Path $retiredRoot
     }
   }
   return $releaseRoot
@@ -1552,7 +1709,10 @@ function Install-GatewayLauncher {
 function Resolve-GatewayNodeExecutable {
   $command = Get-Command node.exe -ErrorAction Stop
   $nodeExecutable = [System.IO.Path]::GetFullPath($command.Source)
-  $major = Get-CheckedOutput $nodeExecutable -p 'process.versions.node.split(".")[0]'
+  $major = Get-CheckedOutput -Program $nodeExecutable -Arguments @(
+    '-p',
+    'parseInt(process.versions.node,10)'
+  )
   if ($major -ne '22') {
     throw "Office Gateway requires Node 22 in the invoking profile; found major $major."
   }
@@ -2036,8 +2196,12 @@ function Install-Deployment {
       Restore-Transaction $backupRoot
     }
     catch {
+      $restoreError = $_
       Stop-OfficeRuntimeFailClosed 'Automatic runtime restore also failed'
-      throw [System.InvalidOperationException]::new('Office deployment failed and rollback could not restore one coherent release identity; runtime was fail-closed.', $deploymentError.Exception)
+      throw [System.InvalidOperationException]::new(
+        "Office deployment failed and rollback could not restore one coherent release identity; runtime was fail-closed. Deployment error: $($deploymentError.Exception.Message) Restore error: $($restoreError.Exception.Message)",
+        $deploymentError.Exception
+      )
     }
     throw $deploymentError
   }
@@ -2138,7 +2302,8 @@ switch ($Operation) {
     $checkoutRoot = Assert-CleanInvokerCheckout
     $source = Resolve-RemoteSourceCommit $checkoutRoot
     $schemaDataPaths = @(Get-SchemaDataChanges -CheckoutRoot $checkoutRoot -TargetSha $source.GitSha)
-    Assert-SchemaDataCutoverContract $schemaDataPaths
+    Assert-SchemaDataCutoverContract -ChangedPaths $schemaDataPaths
+    Assert-DiskCapacity
     $localBuildRoot = Get-LocalBuildRoot
     $worktree = $null
     $localBundle = $null
