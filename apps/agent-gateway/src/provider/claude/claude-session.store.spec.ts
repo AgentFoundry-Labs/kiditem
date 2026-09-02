@@ -22,7 +22,11 @@ describe('ClaudeProviderSessionStore', () => {
     await mkdir(join(root, '.claude'), { recursive: true });
     await mkdir(join(outside, 'workspace'), { recursive: true });
     await writeFile(join(outside, 'workspace', `${sessionId}.jsonl`), JSON.stringify({ type: 'assistant', message: { content: 'outside' } }));
-    await symlink(outside, join(root, '.claude', 'projects'));
+    await symlink(
+      outside,
+      join(root, '.claude', 'projects'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
 
     await expect(new ClaudeProviderSessionStore({ loginRoot: root }).exists(sessionId))
       .rejects.toThrow('claude_provider_history_path_invalid');
@@ -40,7 +44,8 @@ describe('ClaudeProviderSessionStore', () => {
     const transcript = join(project, `${sessionId}.jsonl`);
     const sidecars = join(project, sessionId);
     const symlinkedTranscript = join(neighbor, `${sessionId}.jsonl`);
-    const outside = join(root, 'outside.jsonl');
+    const outside = join(root, process.platform === 'win32' ? 'outside-artifact' : 'outside.jsonl');
+    const outsideMarker = process.platform === 'win32' ? join(outside, 'marker.txt') : outside;
     await mkdir(sidecars, { recursive: true });
     await mkdir(join(project, otherSessionId), { recursive: true });
     await mkdir(neighbor, { recursive: true });
@@ -49,8 +54,14 @@ describe('ClaudeProviderSessionStore', () => {
     await writeFile(join(project, `${otherSessionId}.jsonl`), 'neighbor session');
     await writeFile(join(project, otherSessionId, 'sidecar.json'), 'neighbor sidecar');
     await writeFile(join(neighbor, `${otherSessionId}.jsonl`), 'other project session');
-    await writeFile(outside, 'outside provider artifact');
-    await symlink(outside, symlinkedTranscript);
+    if (process.platform === 'win32') {
+      await mkdir(outside, { recursive: true });
+      await writeFile(outsideMarker, 'outside provider artifact');
+      await symlink(outside, symlinkedTranscript, 'junction');
+    } else {
+      await writeFile(outsideMarker, 'outside provider artifact');
+      await symlink(outside, symlinkedTranscript, 'file');
+    }
 
     await expect(new ClaudeProviderSessionStore({ loginRoot: root }).remove(sessionId)).resolves.toBeUndefined();
 
@@ -60,7 +71,7 @@ describe('ClaudeProviderSessionStore', () => {
     await expect(readFile(join(project, otherSessionId, 'sidecar.json'), 'utf8')).resolves.toBe('neighbor sidecar');
     await expect(readFile(join(neighbor, `${otherSessionId}.jsonl`), 'utf8')).resolves.toBe('other project session');
     expect((await lstat(symlinkedTranscript)).isSymbolicLink()).toBe(true);
-    await expect(readFile(outside, 'utf8')).resolves.toBe('outside provider artifact');
+    await expect(readFile(outsideMarker, 'utf8')).resolves.toBe('outside provider artifact');
   });
 
   it('fails closed before deleting any artifact when multiple exact transcript matches exist', async () => {
