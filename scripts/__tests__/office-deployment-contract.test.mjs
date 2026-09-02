@@ -75,6 +75,7 @@ test('local deploy fetches a remote branch and builds an exact clean detached wo
   assert.match(script, /fetch --no-tags origin/);
   assert.match(script, /ls-remote --heads origin/);
   assert.match(script, /worktree add --detach/);
+  assert.match(script, /git -c core\.longpaths=true -C \$CheckoutRoot worktree remove --force/);
   assert.match(script, /Fetched remote-tracking SHA does not match/);
   assert.match(script, /Temporary Office source worktree is not the exact clean fetched SHA/);
   assert.doesNotMatch(script, /ls-remote --heads origin refs\/heads\/release\/office/);
@@ -89,7 +90,9 @@ test('API, web, and Windows Gateway are built locally with one VERSION and Git S
   assert.match(script, /org\.opencontainers\.image\.version=\$AppVersion/);
   assert.match(script, /Assert-LocalImageIdentity/);
   assert.doesNotMatch(script, /Invoke-Checked docker pull/);
-  assert.match(script, /dotnet publish apps\/agent-gateway\/windows\/KidItem\.JobRunner/);
+  assert.match(script, /Invoke-Checked -Program \$dotnet -Arguments @\(/);
+  assert.match(script, /'publish',[\s\S]*'apps\/agent-gateway\/windows\/KidItem\.JobRunner\/KidItem\.JobRunner\.csproj'/);
+  assert.match(script, /'-o', \$nativeRoot/);
   assert.match(script, /npm\.cmd pack --workspace=apps\/agent-gateway --ignore-scripts/);
   assert.match(script, /release-identity\.json/);
   assert.match(script, /Gateway release VERSION\/Git SHA identity/);

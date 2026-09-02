@@ -248,7 +248,7 @@ function Remove-CleanSourceWorktree {
     [Parameter(Mandatory = $true)][string]$WorktreePath
   )
   Assert-PathWithinRoot -Root $LocalBuildRoot -Candidate $WorktreePath
-  & git -C $CheckoutRoot worktree remove --force $WorktreePath
+  & git -c core.longpaths=true -C $CheckoutRoot worktree remove --force $WorktreePath
   if ($LASTEXITCODE -ne 0) {
     Write-Warning "Exact-SHA temporary worktree was retained for manual inspection: $WorktreePath"
   }
@@ -480,7 +480,15 @@ function Build-LocalGatewayArtifact {
     Invoke-Checked npm.cmd run build --workspace=apps/agent-gateway
     Invoke-Checked npm.cmd run prepack --workspace=apps/agent-gateway
     $staged = $true
-    Invoke-Checked $dotnet publish apps/agent-gateway/windows/KidItem.JobRunner/KidItem.JobRunner.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o $nativeRoot
+    Invoke-Checked -Program $dotnet -Arguments @(
+      'publish',
+      'apps/agent-gateway/windows/KidItem.JobRunner/KidItem.JobRunner.csproj',
+      '-c', 'Release',
+      '-r', 'win-x64',
+      '--self-contained', 'true',
+      '-p:PublishSingleFile=true',
+      '-o', $nativeRoot
+    )
     $nativeExe = Join-Path $nativeRoot 'KidItem.JobRunner.exe'
     $env:KIDITEM_WINDOWS_JOB_RUNNER_PATH = $nativeExe
     Invoke-Checked npm.cmd exec --workspace=apps/agent-gateway vitest -- run
