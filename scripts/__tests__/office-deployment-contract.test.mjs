@@ -18,16 +18,16 @@ test('package exposes the three simplified Office commands', () => {
 });
 
 test('Office CLI admits only named origin branches and explicit schema/data cutover', () => {
-  assert.deepEqual(parseOfficeDeployArgs(['deploy', '--ref', 'origin/develop']), {
+  assert.deepEqual(parseOfficeDeployArgs(['deploy', '--ref', 'origin/release/office']), {
     operation: 'deploy',
-    sourceRef: 'origin/develop',
+    sourceRef: 'origin/release/office',
     schemaDataCutover: false,
     confirmation: undefined,
     pruneBuildCache: false,
   });
   assert.equal(
     parseOfficeDeployArgs([
-      'deploy', '--ref', 'origin/develop', '--cutover', '--confirm', 'APPLY_SCHEMA_DATA',
+      'deploy', '--ref', 'origin/release/office', '--cutover', '--confirm', 'APPLY_SCHEMA_DATA',
     ]).schemaDataCutover,
     true,
   );
@@ -46,11 +46,11 @@ test('Windows native fixture avoids PowerShell PID collisions', () => {
 
 test('CLI delegates to the checked-in PowerShell operator without passing secrets', () => {
   const args = powershellArgs(
-    parseOfficeDeployArgs(['deploy', '--ref', 'origin/develop']),
+    parseOfficeDeployArgs(['deploy', '--ref', 'origin/release/office']),
     'C:\\repo',
   );
   assert.ok(args.includes('-SourceRef'));
-  assert.ok(args.includes('origin/develop'));
+  assert.ok(args.includes('origin/release/office'));
   assert.ok(args.includes('-InvokerRepoRoot'));
   assert.doesNotMatch(args.join(' '), /password|token|database_url/i);
 });
@@ -78,7 +78,15 @@ test('local deploy fetches a remote branch and builds an exact clean detached wo
   assert.match(script, /git -c core\.longpaths=true -C \$CheckoutRoot worktree remove --force/);
   assert.match(script, /Fetched remote-tracking SHA does not match/);
   assert.match(script, /Temporary Office source worktree is not the exact clean fetched SHA/);
-  assert.doesNotMatch(script, /ls-remote --heads origin refs\/heads\/release\/office/);
+  assert.match(script, /ls-remote --heads origin/);
+});
+
+test('final release requires live checkout alignment and status reports provisional drift', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  assert.match(script, /function Get-AuthoritativeRemoteReleaseSha/);
+  assert.match(script, /Final Office release requires the clean live release\/office checkout/);
+  assert.match(script, /Provisional Office incident deployment/);
+  assert.match(script, /Office runtime is provisional/);
 });
 
 test('API, web, and Windows Gateway are built locally with one VERSION and Git SHA', () => {
@@ -263,7 +271,8 @@ test('runbooks describe the local exact-SHA contract and no GitHub Office bundle
   const office = read('docs/runbooks/office-deploy.md');
   for (const text of [architecture, office]) {
     assert.match(text, /npm run deploy:office:local/);
-    assert.match(text, /origin\/develop/);
+    assert.match(text, /origin\/release\/office/);
+    assert.match(text, /provisional/i);
     assert.match(text, /deploy:office:status/);
     assert.match(text, /deploy:office:rollback/);
     assert.doesNotMatch(text, /office-images\.yml|develop-gateway-package\.yml/);

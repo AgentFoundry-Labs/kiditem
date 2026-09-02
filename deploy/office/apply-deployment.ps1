@@ -150,6 +150,19 @@ function Assert-LiveCheckout {
   return (Get-CheckedOutput git -C $RepoRoot rev-parse HEAD)
 }
 
+function Get-AuthoritativeRemoteReleaseSha {
+  $remoteBranchRef = 'refs/heads/release/office'
+  $remoteLine = & git -C $RepoRoot ls-remote --heads origin $remoteBranchRef 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    return $null
+  }
+  $parts = @((($remoteLine | Out-String).Trim()) -split '\s+')
+  if ($parts.Count -ne 2 -or $parts[1] -ne $remoteBranchRef -or $parts[0] -notmatch '^[0-9a-f]{40}$') {
+    return $null
+  }
+  return $parts[0]
+}
+
 function Resolve-InvokerRepoRoot {
   if (-not $InvokerRepoRoot) {
     $script:InvokerRepoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
@@ -2241,6 +2254,16 @@ function Show-OfficeStatus {
   param([Parameter(Mandatory = $true)][string]$Head)
 
   Write-Host "Protected live checkout release/office HEAD: $Head"
+  $remoteReleaseSha = Get-AuthoritativeRemoteReleaseSha
+  if ($remoteReleaseSha) {
+    Write-Host "Authoritative remote release/office SHA: $remoteReleaseSha"
+    if ($Head -ne $remoteReleaseSha) {
+      Write-Warning 'Live release/office checkout is not fast-forwarded to the authoritative remote release SHA.'
+    }
+  }
+  else {
+    Write-Warning 'Could not resolve authoritative origin/release/office; release alignment is unknown.'
+  }
   Write-Host "Office root disk free: $(Get-FreeSpaceGb $script:OfficeRoot) GB"
   $dockerDataGuardPath = Get-DockerDataGuardPath
   Write-Host "Docker data disk free: $(Get-FreeSpaceGb $dockerDataGuardPath) GB ($dockerDataGuardPath)"
@@ -2270,6 +2293,9 @@ function Show-OfficeStatus {
       Write-Host "Gateway task: $($task.State)"
       Write-Host "Gateway profile: $($script:GatewayServiceAccount)"
       Write-Host "Schema/data cutover applied: $($current.schemaData.cutoverApproved)"
+      if ($remoteReleaseSha -and $current.gitSha -ne $remoteReleaseSha) {
+        Write-Warning 'Office runtime is provisional: runtime SHA does not match authoritative origin/release/office.'
+      }
     }
     else {
       Write-Host "Legacy runtime SHA: $($loose.gitSha)"
@@ -2301,6 +2327,14 @@ switch ($Operation) {
     if (-not $SourceRef) { throw '-SourceRef origin/<branch> is required for Deploy.' }
     $checkoutRoot = Assert-CleanInvokerCheckout
     $source = Resolve-RemoteSourceCommit $checkoutRoot
+    if ($source.SourceRef -eq 'origin/release/office') {
+      if ($head -ne $source.GitSha) {
+        throw 'Final Office release requires the clean live release/office checkout to be fast-forwarded to the authoritative remote release SHA before build.'
+      }
+    }
+    else {
+      Write-Warning "Provisional Office incident deployment from $($source.SourceRef); settle into release/office and deploy its merge SHA."
+    }
     $schemaDataPaths = @(Get-SchemaDataChanges -CheckoutRoot $checkoutRoot -TargetSha $source.GitSha)
     Assert-SchemaDataCutoverContract -ChangedPaths $schemaDataPaths
     Assert-DiskCapacity
