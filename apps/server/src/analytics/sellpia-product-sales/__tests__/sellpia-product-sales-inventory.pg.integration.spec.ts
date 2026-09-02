@@ -1,12 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaClient } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
 import { SellpiaProductInventoryReader } from '../sellpia-product-inventory-reader';
 import { SellpiaMasterProductProfitFactReader } from '../sellpia-master-product-profit-fact.reader';
 import { SELLPIA_PRODUCT_SALES_EVENTS } from '../sellpia-product-sales.events';
-import type { PrismaService } from '../../../prisma/prisma.service';
 import { InventoryAvailabilityRepositoryAdapter } from '../../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
 import { InventoryAvailabilityService } from '../../../inventory/application/service/inventory-availability.service';
 import {
@@ -17,6 +14,8 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../../test-helpers/real-prisma';
+import type { PrismaService } from '../../../prisma/prisma.service';
+import type { PrismaClient } from '@prisma/client';
 
 describe('SellpiaProductSalesService canonical inventory projection (PG)', () => {
   let prisma: PrismaClient;
@@ -408,6 +407,102 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     })).resolves.toEqual([{ productCode: 'KEEP-ME', yearMonth: '2026-04' }]);
     expect(result).toEqual({ upserted: 0, productCount: 0, months: ['2026-05'] });
     expect(events).toEqual([{ organizationId: TEST_ORGANIZATION_ID }]);
+  });
+
+  it('set-based ingest replaces only the requested organization and persists typed facts', async () => {
+    await prisma.sellpiaProductMonthlySales.createMany({
+      data: [
+        { ...sales('REPLACE-ME', '', null), yearMonth: '2026-05' },
+        {
+          ...sales('FOREIGN-KEEP', '', null),
+          organizationId: OTHER_ORGANIZATION_ID,
+          yearMonth: '2026-05',
+        },
+      ],
+    });
+
+    const result = await service.ingest(TEST_ORGANIZATION_ID, {
+      range: { from: '2026-05-16', to: '2026-06-02' },
+      provenance: {
+        source: 'sellpia_stat_prd_profit',
+        costBasis: 'ORDER_TIME_SUPPLY_COST',
+        vatIncluded: true,
+      },
+      products: [{
+        productCode: 'BULK-INSERT',
+        optionCode: 'OPT-1',
+        productName: 'Bulk insert product',
+        optionName: 'Option 1',
+        providerName: 'Provider',
+        salePrice: 1_100,
+        buyPrice: 580,
+        barcode: '880-BULK',
+        months: [
+          {
+            yearMonth: '2026-05',
+            orderQty: 3,
+            orderAmount: 3_300,
+            inQty: 2,
+            inAmount: 1_160,
+          },
+          {
+            yearMonth: '2026-06',
+            orderQty: 4,
+            orderAmount: 4_400,
+            inQty: 1,
+            inAmount: 580,
+          },
+        ],
+      }],
+    });
+
+    expect(result).toEqual({
+      upserted: 2,
+      productCount: 1,
+      months: ['2026-05', '2026-06'],
+    });
+    await expect(prisma.sellpiaProductMonthlySales.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      orderBy: { yearMonth: 'asc' },
+      select: {
+        productCode: true,
+        optionCode: true,
+        yearMonth: true,
+        orderQty: true,
+        costBasis: true,
+        vatIncluded: true,
+        coverageStartDate: true,
+        coverageEndDate: true,
+      },
+    })).resolves.toEqual([
+      {
+        productCode: 'BULK-INSERT',
+        optionCode: 'OPT-1',
+        yearMonth: '2026-05',
+        orderQty: 3,
+        costBasis: 'ORDER_TIME_SUPPLY_COST',
+        vatIncluded: true,
+        coverageStartDate: new Date('2026-05-16T00:00:00.000Z'),
+        coverageEndDate: new Date('2026-05-31T00:00:00.000Z'),
+      },
+      {
+        productCode: 'BULK-INSERT',
+        optionCode: 'OPT-1',
+        yearMonth: '2026-06',
+        orderQty: 4,
+        costBasis: 'ORDER_TIME_SUPPLY_COST',
+        vatIncluded: true,
+        coverageStartDate: new Date('2026-06-01T00:00:00.000Z'),
+        coverageEndDate: new Date('2026-06-02T00:00:00.000Z'),
+      },
+    ]);
+    await expect(prisma.sellpiaProductMonthlySales.count({
+      where: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        productCode: 'FOREIGN-KEEP',
+        yearMonth: '2026-05',
+      },
+    })).resolves.toBe(1);
   });
 
   it('uses physical available stock for depletion', async () => {

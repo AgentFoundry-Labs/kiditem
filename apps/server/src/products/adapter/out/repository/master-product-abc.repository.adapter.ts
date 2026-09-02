@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   ProductAbcEvaluationSchema,
@@ -7,14 +7,16 @@ import {
   type ProductAbcFormulaSummary,
 } from '@kiditem/shared/product-abc';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import type { ActiveOperationAttemptTransaction } from '../../../../operations/application/port/active-browser-attempt-transaction';
 import { listSellingMasterProductIds } from './selling-master-product.query';
+import type { ActiveOperationAttemptTransaction } from '../../../../operations/application/port/active-browser-attempt-transaction';
 import type {
   MasterProductAbcFormulaStateRecord,
   MasterProductAbcRepositoryPort,
   EnsureInitialMasterProductAbcFormulaInput,
   PublishMasterProductAbcEvaluationsInput,
 } from '../../../application/port/out/repository/master-product-abc.repository.port';
+
+const ABC_PUBLICATION_INSERT_CHUNK = 1_000;
 
 @Injectable()
 export class MasterProductAbcRepositoryAdapter implements MasterProductAbcRepositoryPort {
@@ -212,52 +214,79 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
           ? []
           : [{ id: product.id, oldGrade: product.abcGrade, evaluation }];
       });
+
+      const gradeChangeGroups = new Map<string, {
+        oldGrade: string | null;
+        newGrade: ProductAbcEvaluation['abcGrade'];
+        ids: string[];
+      }>();
       for (const row of changed) {
-        await tx.masterProduct.updateMany({
-          where: { id: row.id, organizationId: input.organizationId, abcGrade: row.oldGrade },
-          data: { abcGrade: row.evaluation.abcGrade },
-        });
+        const key = JSON.stringify([row.oldGrade, row.evaluation.abcGrade]);
+        const group = gradeChangeGroups.get(key) ?? {
+          oldGrade: row.oldGrade,
+          newGrade: row.evaluation.abcGrade,
+          ids: [],
+        };
+        group.ids.push(row.id);
+        gradeChangeGroups.set(key, group);
       }
-      for (const product of products) {
-        const evaluation = input.evaluations.get(product.id)!;
-        await tx.masterProductAbcEvaluation.upsert({
+      for (const group of gradeChangeGroups.values()) {
+        const updated = await tx.masterProduct.updateMany({
           where: {
-            masterProductId_organizationId: {
-              masterProductId: product.id,
-              organizationId: input.organizationId,
-            },
+            organizationId: input.organizationId,
+            id: { in: group.ids },
+            abcGrade: group.oldGrade,
           },
-          create: evaluationData({
-            organizationId: input.organizationId,
-            masterProductId: product.id,
-            formulaVersionId: input.formulaVersionId,
-            evaluation,
-          }),
-          update: evaluationData({
-            organizationId: input.organizationId,
-            masterProductId: product.id,
-            formulaVersionId: input.formulaVersionId,
-            evaluation,
-          }),
+          data: { abcGrade: group.newGrade },
         });
+        if (updated.count !== group.ids.length) {
+          throw new ConflictException('MasterProduct ABC grade changed during publication');
+        }
       }
-      if (input.formulaVersionId) {
-        await tx.masterProductAbcGradeHistory.createMany({
-          data: changed.map((row) => ({
+
+      if (products.length > 0) {
+        await tx.masterProductAbcEvaluation.deleteMany({
+          where: {
             organizationId: input.organizationId,
-            masterProductId: row.id,
-            formulaVersionId: input.formulaVersionId!,
-            oldGrade: row.oldGrade,
-            newGrade: row.evaluation.abcGrade,
-            calculationStatus: row.evaluation.calculationStatus,
-            adjustedScore: decimalOrNull(row.evaluation.adjustedScore),
-            weightedContributionProfit: decimalOrNull(row.evaluation.weightedContributionProfit),
-            weightedContributionMargin: decimalOrNull(row.evaluation.weightedContributionMargin),
-            sourceCutoffDate: atUtcCalendarDate(row.evaluation.sourceFreshness.evaluationCutoffDate),
-            reason: input.reason,
-            calculatedAt: dateOrNull(row.evaluation.calculatedAt) ?? new Date(),
-          })),
+            masterProductId: { in: products.map(({ id }) => id) },
+          },
         });
+        const evaluationRows = products.map((product) => evaluationData({
+          organizationId: input.organizationId,
+          masterProductId: product.id,
+          formulaVersionId: input.formulaVersionId,
+          evaluation: input.evaluations.get(product.id)!,
+        }));
+        for (let offset = 0; offset < evaluationRows.length; offset += ABC_PUBLICATION_INSERT_CHUNK) {
+          const batch = evaluationRows.slice(offset, offset + ABC_PUBLICATION_INSERT_CHUNK);
+          const inserted = await tx.masterProductAbcEvaluation.createMany({ data: batch });
+          if (inserted.count !== batch.length) {
+            throw new ConflictException('MasterProduct ABC evaluation publication was incomplete');
+          }
+        }
+      }
+      if (input.formulaVersionId && changed.length > 0) {
+        const historyRows = changed.map((row) => ({
+          organizationId: input.organizationId,
+          masterProductId: row.id,
+          formulaVersionId: input.formulaVersionId!,
+          oldGrade: row.oldGrade,
+          newGrade: row.evaluation.abcGrade,
+          calculationStatus: row.evaluation.calculationStatus,
+          adjustedScore: decimalOrNull(row.evaluation.adjustedScore),
+          weightedContributionProfit: decimalOrNull(row.evaluation.weightedContributionProfit),
+          weightedContributionMargin: decimalOrNull(row.evaluation.weightedContributionMargin),
+          sourceCutoffDate: atUtcCalendarDate(row.evaluation.sourceFreshness.evaluationCutoffDate),
+          reason: input.reason,
+          calculatedAt: dateOrNull(row.evaluation.calculatedAt) ?? new Date(),
+        }));
+        for (let offset = 0; offset < historyRows.length; offset += ABC_PUBLICATION_INSERT_CHUNK) {
+          const batch = historyRows.slice(offset, offset + ABC_PUBLICATION_INSERT_CHUNK);
+          const inserted = await tx.masterProductAbcGradeHistory.createMany({ data: batch });
+          if (inserted.count !== batch.length) {
+            throw new ConflictException('MasterProduct ABC grade history publication was incomplete');
+          }
+        }
       }
       return { changedProductCount: changed.length + cleared.count, stale: false };
   }

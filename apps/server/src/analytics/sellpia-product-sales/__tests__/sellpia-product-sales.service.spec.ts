@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
-import type { SellpiaProductSalesIngestBodyDto } from '../dto/sellpia-product-sales.dto';
 import { SellpiaProductInventoryReader } from '../sellpia-product-inventory-reader';
 import { SELLPIA_PRODUCT_SALES_EVENTS } from '../sellpia-product-sales.events';
+import type { SellpiaProductSalesIngestBodyDto } from '../dto/sellpia-product-sales.dto';
 
 const ORGANIZATION_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 const PRODUCT_PROFIT_PROVENANCE = {
@@ -14,18 +13,17 @@ const PRODUCT_PROFIT_PROVENANCE = {
 
 function makePrisma() {
   const callOrder: string[] = [];
-  const upsert = vi.fn(async () => ({}));
-  const createMany = vi.fn((args: unknown) => {
-    callOrder.push('create');
-    return Promise.resolve({ count: (args as { data: unknown[] }).data.length });
-  });
   const deleteMany = vi.fn(() => {
     callOrder.push('delete');
     return Promise.resolve({ count: 0 });
   });
-  const queryRaw = vi.fn(async () => {
+  const queryRaw = vi.fn(async (_statement: { values?: unknown[] }) => {
     callOrder.push('lock');
     return [{ locked: 1 }];
+  });
+  const executeRaw = vi.fn(async (statement: { values?: unknown[] }) => {
+    callOrder.push('insert');
+    return bulkPayloadRows(statement).length;
   });
   const findMany = vi.fn(async () => [] as unknown[]);
   const inventoryFindMany = vi.fn(async () => [] as unknown[]);
@@ -35,11 +33,12 @@ function makePrisma() {
     items: [],
   }));
   const tx = {
-    sellpiaProductMonthlySales: { createMany, deleteMany },
+    sellpiaProductMonthlySales: { deleteMany },
     $queryRaw: queryRaw,
+    $executeRaw: executeRaw,
   };
   const prisma = {
-    sellpiaProductMonthlySales: { upsert, createMany, deleteMany, findMany },
+    sellpiaProductMonthlySales: { deleteMany, findMany },
     sellpiaInventorySku: { findMany: inventoryFindMany },
     channelListingOptionInventoryComponent: { findMany: destinationFindMany },
     $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => {
@@ -68,17 +67,30 @@ function makePrisma() {
   return {
     prisma,
     service,
-    upsert,
-    createMany,
     deleteMany,
     findMany,
     inventoryFindMany,
     destinationFindMany,
     inventoryAvailability,
     queryRaw,
+    executeRaw,
     eventEmitter,
     callOrder,
   };
+}
+
+function bulkPayloadRows(statement: { values?: unknown[] }): Array<Record<string, unknown>> {
+  const payload = statement.values?.find(
+    (value): value is string => typeof value === 'string' && value.startsWith('['),
+  );
+  return payload ? JSON.parse(payload) as Array<Record<string, unknown>> : [];
+}
+
+function allBulkPayloadRows(
+  executeRaw: ReturnType<typeof vi.fn>,
+): Array<Record<string, unknown>> {
+  return executeRaw.mock.calls.flatMap((call) =>
+    bulkPayloadRows(call[0] as { values?: unknown[] }));
 }
 
 function row(o: {
@@ -109,8 +121,8 @@ function row(o: {
 describe('SellpiaProductSalesService.ingest', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('조직 범위 전체를 원자적으로 교체(deleteMany + 벌크 createMany)한다', async () => {
-    const { prisma, service, deleteMany, createMany, queryRaw, eventEmitter, callOrder } = makePrisma();
+  it('조직 범위 전체를 원자적으로 교체(deleteMany + JSONB 벌크 insert)한다', async () => {
+    const { prisma, service, deleteMany, executeRaw, queryRaw, eventEmitter, callOrder } = makePrisma();
     const body: SellpiaProductSalesIngestBodyDto = {
       range: { from: '2026-05-16', to: '2026-07-15' },
       provenance: PRODUCT_PROFIT_PROVENANCE,
@@ -143,19 +155,21 @@ describe('SellpiaProductSalesService.ingest', () => {
     expect(queryRaw).toHaveBeenCalledOnce();
     const lockStatement = queryRaw.mock.calls[0]?.[0] as { values?: unknown[] };
     expect(lockStatement.values).toContain(`kiditem.sellpia-product-sales:${ORGANIZATION_ID}`);
-    const inserted = createMany.mock.calls.flatMap((c) => (c[0] as { data: unknown[] }).data);
+    expect(executeRaw).toHaveBeenCalledOnce();
+    const insertStatement = executeRaw.mock.calls[0]?.[0] as { values?: unknown[] };
+    expect(insertStatement.values).toContain(ORGANIZATION_ID);
+    expect(insertStatement.values).toContain('ORDER_TIME_SUPPLY_COST');
+    expect(insertStatement.values).toContain(true);
+    const inserted = allBulkPayloadRows(executeRaw);
     expect(inserted).toHaveLength(2);
     expect(inserted).toContainEqual(
       expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
         productCode: '9882',
         optionCode: '1',
         yearMonth: '2026-06',
         orderQty: 13030,
-        costBasis: 'ORDER_TIME_SUPPLY_COST',
-        vatIncluded: true,
-        coverageStartDate: new Date('2026-06-01T00:00:00.000Z'),
-        coverageEndDate: new Date('2026-06-30T00:00:00.000Z'),
+        coverageStartDate: '2026-06-01',
+        coverageEndDate: '2026-06-30',
         productName: '2000바풍투톤슬라임',
       }),
     );
@@ -163,11 +177,11 @@ describe('SellpiaProductSalesService.ingest', () => {
       SELLPIA_PRODUCT_SALES_EVENTS.INGESTED,
       { organizationId: ORGANIZATION_ID },
     );
-    expect(callOrder).toEqual(['lock', 'delete', 'create', 'commit', 'emit']);
+    expect(callOrder).toEqual(['lock', 'delete', 'insert', 'commit', 'emit']);
   });
 
   it('빈 권위 payload도 요청 range의 월을 삭제하고 재계산 이벤트를 발행한다', async () => {
-    const { service, deleteMany, createMany, eventEmitter } = makePrisma();
+    const { service, deleteMany, executeRaw, eventEmitter } = makePrisma();
 
     const result = await service.ingest(ORGANIZATION_ID, {
       range: { from: '2026-04-15', to: '2026-06-02' },
@@ -181,7 +195,7 @@ describe('SellpiaProductSalesService.ingest', () => {
         yearMonth: { in: ['2026-04', '2026-05', '2026-06'] },
       },
     });
-    expect(createMany).not.toHaveBeenCalled();
+    expect(executeRaw).not.toHaveBeenCalled();
     expect(result.months).toEqual(['2026-04', '2026-05', '2026-06']);
     expect(eventEmitter.emitAsync).toHaveBeenCalledOnce();
   });
@@ -215,7 +229,7 @@ describe('SellpiaProductSalesService.ingest', () => {
   });
 
   it('페이로드 내 (상품·옵션·연월) 중복은 마지막 값으로 병합한다', async () => {
-    const { prisma, service, createMany } = makePrisma();
+    const { prisma, service, executeRaw } = makePrisma();
     await service.ingest(ORGANIZATION_ID, {
       range: { from: '2026-06-01', to: '2026-06-30' },
       provenance: PRODUCT_PROFIT_PROVENANCE,
@@ -224,13 +238,15 @@ describe('SellpiaProductSalesService.ingest', () => {
         { productCode: '1', optionCode: '', productName: 'A', salePrice: 0, buyPrice: 0, months: [{ yearMonth: '2026-06', orderQty: 9, orderAmount: 0, inQty: 0, inAmount: 0 }] },
       ],
     });
-    const inserted = prisma.$transaction.mock.calls.length ? createMany.mock.calls.flatMap((c) => (c[0] as { data: { orderQty: number }[] }).data) : [];
+    const inserted = prisma.$transaction.mock.calls.length
+      ? allBulkPayloadRows(executeRaw) as Array<{ orderQty: number }>
+      : [];
     expect(inserted).toHaveLength(1); // 중복 병합
     expect(inserted[0].orderQty).toBe(9); // 마지막 값
   });
 
   it('payload-level request range와 월의 실제 교집합을 서버에서 저장한다', async () => {
-    const { service, createMany } = makePrisma();
+    const { service, executeRaw } = makePrisma();
     await service.ingest(ORGANIZATION_ID, {
       range: { from: '2026-05-16', to: '2026-07-15' },
       provenance: PRODUCT_PROFIT_PROVENANCE,
@@ -243,13 +259,43 @@ describe('SellpiaProductSalesService.ingest', () => {
         ],
       }],
     });
-    const inserted = createMany.mock.calls.flatMap((call) =>
-      (call[0] as { data: Array<{ yearMonth: string; coverageStartDate: Date; coverageEndDate: Date }> }).data);
+    const inserted = allBulkPayloadRows(executeRaw);
     expect(inserted).toEqual(expect.arrayContaining([
-      expect.objectContaining({ yearMonth: '2026-05', coverageStartDate: new Date('2026-05-16T00:00:00.000Z'), coverageEndDate: new Date('2026-05-31T00:00:00.000Z') }),
-      expect.objectContaining({ yearMonth: '2026-06', coverageStartDate: new Date('2026-06-01T00:00:00.000Z'), coverageEndDate: new Date('2026-06-30T00:00:00.000Z') }),
-      expect.objectContaining({ yearMonth: '2026-07', coverageStartDate: new Date('2026-07-01T00:00:00.000Z'), coverageEndDate: new Date('2026-07-15T00:00:00.000Z') }),
+      expect.objectContaining({ yearMonth: '2026-05', coverageStartDate: '2026-05-16', coverageEndDate: '2026-05-31' }),
+      expect.objectContaining({ yearMonth: '2026-06', coverageStartDate: '2026-06-01', coverageEndDate: '2026-06-30' }),
+      expect.objectContaining({ yearMonth: '2026-07', coverageStartDate: '2026-07-01', coverageEndDate: '2026-07-15' }),
     ]));
+  });
+
+  it('대량 payload를 바인드 파라미터 폭증 없이 5천 행 JSONB 배치로 저장한다', async () => {
+    const { service, executeRaw } = makePrisma();
+    const products = Array.from({ length: 5_001 }, (_, index) => ({
+      productCode: `SKU-${index}`,
+      optionCode: '',
+      productName: `상품 ${index}`,
+      salePrice: 1,
+      buyPrice: 1,
+      months: [{
+        yearMonth: '2026-06',
+        orderQty: 1,
+        orderAmount: 1,
+        inQty: 0,
+        inAmount: 0,
+      }],
+    }));
+
+    await service.ingest(ORGANIZATION_ID, {
+      range: { from: '2026-06-01', to: '2026-06-30' },
+      provenance: PRODUCT_PROFIT_PROVENANCE,
+      products,
+    });
+
+    expect(executeRaw).toHaveBeenCalledTimes(2);
+    expect(executeRaw.mock.calls.map((call) =>
+      bulkPayloadRows(call[0] as { values?: unknown[] }).length)).toEqual([5_000, 1]);
+    for (const [statement] of executeRaw.mock.calls) {
+      expect((statement as { values?: unknown[] }).values).toHaveLength(5);
+    }
   });
 
   it('요청 범위 밖의 월을 조용히 무시하지 않는다', async () => {
