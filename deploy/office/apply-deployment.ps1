@@ -506,7 +506,12 @@ function Build-LocalGatewayArtifact {
     Copy-Item -LiteralPath $nativeExe -Destination (Join-Path $archiveRoot 'KidItem.AgentGateway.exe')
     $runtimePath = Join-Path $archiveRoot 'gateway-runtime-contract.json'
     $runtimeCode = "import { writeFileSync } from 'node:fs'; import { GATEWAY_RUNTIME_TRAIN } from './packages/shared/dist/agent-runtime/index.js'; writeFileSync(process.argv[1], JSON.stringify({ schemaVersion: 1, platform: 'windows', ...GATEWAY_RUNTIME_TRAIN }, null, 2) + '\n');"
-    Invoke-Checked node.exe --input-type=module -e $runtimeCode $runtimePath
+    Invoke-Checked -Program node.exe -Arguments @(
+      '--input-type=module',
+      '-e',
+      $runtimeCode,
+      $runtimePath
+    )
     $runtime = Get-Content -LiteralPath $runtimePath -Raw | ConvertFrom-Json
     Assert-GatewayRuntimeContract $runtime
 

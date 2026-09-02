@@ -91,6 +91,7 @@ test('API, web, and Windows Gateway are built locally with one VERSION and Git S
   assert.match(script, /Assert-LocalImageIdentity/);
   assert.doesNotMatch(script, /Invoke-Checked docker pull/);
   assert.match(script, /Invoke-Checked -Program \$dotnet -Arguments @\(/);
+  assert.match(script, /Invoke-Checked -Program node\.exe -Arguments @\([\s\S]*'-e'/);
   assert.match(script, /'publish',[\s\S]*'apps\/agent-gateway\/windows\/KidItem\.JobRunner\/KidItem\.JobRunner\.csproj'/);
   assert.match(script, /'-o', \$nativeRoot/);
   assert.match(script, /npm\.cmd pack --workspace=apps\/agent-gateway --ignore-scripts/);
