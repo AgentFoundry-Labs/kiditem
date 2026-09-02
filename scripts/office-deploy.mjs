@@ -53,6 +53,7 @@ export function parseOfficeDeployArgs(argv) {
 
   return parsed;
 }
+
 function checkedRepoRoot() {
   const result = spawnSync('git', ['rev-parse', '--show-toplevel'], {
     cwd: process.cwd(),
@@ -119,4 +120,3 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     process.exit(1);
   }
 }
-
