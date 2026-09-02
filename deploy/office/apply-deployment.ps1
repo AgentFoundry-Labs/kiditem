@@ -283,7 +283,7 @@ function Get-SchemaDataChanges {
   )
   $currentSha = Get-CurrentDeployedSha
   if (-not $currentSha) {
-    return ,@('__missing_current_runtime_manifest__')
+    return @('__missing_current_runtime_manifest__')
   }
   & git -C $CheckoutRoot cat-file -e "${currentSha}^{commit}" 2>$null
   if ($LASTEXITCODE -ne 0) {
@@ -293,7 +293,7 @@ function Get-SchemaDataChanges {
   if ($LASTEXITCODE -ne 0) {
     throw 'Schema/data diff detection failed.'
   }
-  return ,@($changed | Where-Object { $_ } | Sort-Object -Unique)
+  return @($changed | Where-Object { $_ } | Sort-Object -Unique)
 }
 
 function Assert-SchemaDataCutoverContract {
