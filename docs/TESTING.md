@@ -413,13 +413,16 @@ duplicate persistent server.
 ## CI 통합
 
 `develop`/`main`/`release/office` 대상 PR은 대기 시간을 줄이기 위해
-`.github/workflows/pr-checks.yml` 은 아래의 단일 저비용 검증만 수행한다. PR
-작성자는 `AGENTS.md` 의 변경 유형별 검증과 PR body guard 를 로컬에서 완료한 뒤
+`.github/workflows/pr-checks.yml`에서 정적 계약과 Gateway 단위 검증만 수행한다.
+provider runtime staging과 self-contained .NET publish는 정확한 원격 SHA를 선택한
+`npm run deploy:office:local`이 Windows Office 호스트에서 수행한다.
+PR 작성자는 `AGENTS.md`의 변경 유형별 검증과 PR body guard를 로컬에서 완료한 뒤
 공유한다. `Develop Validation` 전체 suite는 필요할 때 `develop`에서 수동 실행한다.
 
-| Workflow / Job                                 | 실행 시점                                    | 역할                                                                                                                       |
-| ---------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `PR Checks / PR hygiene`                       | `develop`, `main`, `release/office` 대상 PR  | PR diff 의 whitespace error 검증 (`git diff --check`)                                                                      |
+| Workflow / Job | 실행 시점 | 역할 |
+| --- | --- | --- |
+| `PR Checks / PR hygiene` | `develop`, `main`, `release/office` 대상 PR | PR diff whitespace와 AGENTS hygiene 검증 |
+| `PR Checks / Gateway fast checks` | 동일 PR | lifecycle script 없는 install, Gateway가 소비하는 Shared 런타임 진입점과 Gateway build, Gateway unit tests |
 | `Develop Validation / Develop full validation` | `develop`에서 수동 실행 | 한 번의 dependency install 뒤 deployable workspace 전체 build, web/extension tests, real PostgreSQL integration suite 실행 |
 
 `Develop Validation` 은 `develop` 누적 HEAD에 대해 필요할 때 수동으로 실행한다.
@@ -437,8 +440,11 @@ node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs
 npm run test:integration
 ```
 
-검증 실패는 Office 승격 또는 `main` promotion 전에 fix-forward 한다. Release image 는
-별도 build workflow 에서 다시 clean build 하므로 배포 산출물 계약은 유지된다.
+검증 실패는 Office 배포 또는 `main` promotion 전에 fix-forward 한다. 최종 Office
+배포는 `origin/release/office`의 clean exact-SHA worktree에서 API/web/Gateway를 함께
+만들고 VERSION, image ID, Git SHA, Gateway hash/runtime contract를 검증한다. 명시적으로
+승인된 incident ref는 임시 복구에만 사용하며 release 병합과 재배포 전까지 status가
+provisional drift를 표시한다.
 
 ## FAQ
 

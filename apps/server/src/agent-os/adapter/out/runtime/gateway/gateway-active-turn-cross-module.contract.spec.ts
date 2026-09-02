@@ -200,7 +200,12 @@ function createLane(options: Readonly<{ registerProcess?: boolean }> = {}): Runt
     interrupt: adapter.interrupt.bind(adapter),
     readiness: adapter.readiness.bind(adapter),
   };
-  const service = new ConversationService(gateway, { delete: () => undefined }, () => 'generated-turn');
+  const service = new ConversationService(
+    gateway,
+    { delete: () => undefined },
+    () => CONVERSATION.id,
+    () => 'generated-turn',
+  );
   if (options.registerProcess !== false) queue.claim(POLL);
   return { registry, queue, broker, handler, service, eventSeq: 0 };
 }

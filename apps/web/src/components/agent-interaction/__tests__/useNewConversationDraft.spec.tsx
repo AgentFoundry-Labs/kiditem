@@ -7,14 +7,9 @@ describe('useNewConversationDraft', () => {
   beforeEach(() => {
     useConversationSurfaceState.getState().reset();
   });
-
   afterEach(() => vi.unstubAllGlobals());
 
-  it('reserves one opaque UUID when opening, keeps it through retry, and allocates a new one after close', () => {
-    const randomUUID = vi.fn()
-      .mockReturnValueOnce('conversation-reserved-1')
-      .mockReturnValueOnce('conversation-reserved-2');
-    vi.stubGlobal('crypto', { randomUUID });
+  it('keeps one browser-only draft key through retry and allocates a new one after close', () => {
     const { result } = renderHook(() => useNewConversationDraft());
 
     act(() => result.current.openConversation({
@@ -22,9 +17,9 @@ describe('useNewConversationDraft', () => {
       draft: '  Review the supplier evidence. ',
     }));
 
-    expect(randomUUID).toHaveBeenCalledTimes(1);
-    expect(result.current.draft).toEqual({
-      conversationId: 'conversation-reserved-1',
+    const firstDraftId = result.current.draft?.draftId;
+    expect(firstDraftId).toMatch(/^draft-\d+$/);
+    expect(result.current.draft).toMatchObject({
       agentKey: 'sourcing',
       provider: null,
       model: null,
@@ -33,21 +28,21 @@ describe('useNewConversationDraft', () => {
     });
 
     act(() => result.current.updateDraft({ model: 'gpt-5.6' }));
-    expect(result.current.draft?.conversationId).toBe('conversation-reserved-1');
-    expect(randomUUID).toHaveBeenCalledTimes(1);
+    expect(result.current.draft?.draftId).toBe(firstDraftId);
 
     act(() => result.current.discardDraft());
     act(() => result.current.openConversation({ fixedAgentKey: null }));
-    expect(result.current.draft?.conversationId).toBe('conversation-reserved-2');
-    expect(randomUUID).toHaveBeenCalledTimes(2);
+    expect(result.current.draft?.draftId).toMatch(/^draft-\d+$/);
+    expect(result.current.draft?.draftId).not.toBe(firstDraftId);
   });
 
-  it('fails explicitly when cryptographic UUID allocation is unavailable', () => {
+  it('does not require browser cryptographic APIs before the server assigns a conversation ID', () => {
     vi.stubGlobal('crypto', undefined);
     const { result } = renderHook(() => useNewConversationDraft());
 
     expect(() => act(() => result.current.openConversation({ fixedAgentKey: null })))
-      .toThrow('conversation_id_unavailable');
-    expect(result.current.draft).toBeNull();
+      .not.toThrow();
+    expect(result.current.draft?.draftId).toMatch(/^draft-\d+$/);
+    expect(result.current.draft).not.toHaveProperty('conversationId');
   });
 });

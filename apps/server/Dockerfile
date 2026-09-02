@@ -30,10 +30,13 @@ RUN npm ci \
       --fetch-retries=5 \
       --fetch-retry-mintimeout=20000 \
       --fetch-retry-maxtimeout=120000 \
+      --maxsockets=4 \
       --no-audit \
       --no-fund
 
 FROM deps AS builder
+
+ENV NODE_OPTIONS=--max-old-space-size=4096
 
 COPY packages/copilotkit-sqlite-runner ./packages/copilotkit-sqlite-runner
 COPY packages/shared ./packages/shared
@@ -79,6 +82,7 @@ RUN npm ci \
       --fetch-retries=5 \
       --fetch-retry-mintimeout=20000 \
       --fetch-retry-maxtimeout=120000 \
+      --maxsockets=4 \
       --no-audit \
       --no-fund \
     && npm cache clean --force \

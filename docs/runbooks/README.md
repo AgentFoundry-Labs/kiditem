@@ -43,9 +43,9 @@ Current runbooks:
 - [Sourcing Collection Operations](sourcing-collection-operations.md) — operate
   operation-backed sourcing collection, browser claims, lifecycle recovery,
   provider outages, and the 14-route Chrome regression matrix.
-- [Office Deploy](office-deploy.md) — build immutable office images in GitHub
-  Actions, apply digest-only releases to the Windows office runtime, verify
-  health, manage disk pressure, and roll back without local image builds.
+- [Office Deploy](office-deploy.md) — build and deploy one exact remote SHA on
+  the Office host, verify runtime identity and health, manage disk pressure,
+  and perform archived runtime-only rollback.
 - [KidItem Local Authentication](auth-office-local.md) — operate Office
   email/password hashes, 30-day sessions, revocation, and extension token sync.
 - [Deployment Architecture](deployment-architecture.md) — CI/CD architecture,

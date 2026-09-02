@@ -37,11 +37,11 @@ test('local service images are version-pinned instead of following floating tags
   assert.doesNotMatch(compose, /image:\s*\S+:latest/);
 });
 
-test('the Windows Gateway install gives Prisma postinstall a non-secret local URL', () => {
-  const workflow = read('.github/workflows/pr-checks.yml');
-  const job = workflow.slice(workflow.indexOf('windows_gateway_package:'));
-  assert.match(job, /DATABASE_URL:\s*postgresql:\/\/kiditem:kiditem@127\.0\.0\.1:5433\/kiditem/);
-  assert.match(job, /npm ci/);
+test('the Office Gateway package is built only by the exact-SHA local deployer', () => {
+  assert.equal(existsSync(resolve(root, '.github/workflows/develop-gateway-package.yml')), false);
+  const deployer = read('deploy/office/apply-deployment.ps1');
+  assert.match(deployer, /npm\.cmd ci/);
+  assert.match(deployer, /dotnet publish apps\/agent-gateway\/windows/);
 });
 
 test('root commands keep the optional Python runtime out of the default development path', () => {

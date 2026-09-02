@@ -3,7 +3,7 @@ import { ConversationFirstSendCoordinator } from '../conversation-first-send.coo
 import { conversationTitleFromMessage } from '../conversation-title';
 
 const SUMMARY = {
-  id: 'conversation-reserved',
+  id: 'server-conversation-1',
   runtime: 'codex_cli' as const,
   agentKey: 'sourcing' as const,
   title: 'Review the supplier evidence',
@@ -12,7 +12,7 @@ const SUMMARY = {
 };
 
 const FIRST_SEND = {
-  conversationId: SUMMARY.id,
+  draftId: 'draft-1',
   runtime: SUMMARY.runtime,
   agentKey: SUMMARY.agentKey,
   title: SUMMARY.title,
@@ -35,7 +35,7 @@ function coordinator(overrides: Partial<ConstructorParameters<typeof Conversatio
   const dependencies = {
     createConversation: vi.fn().mockResolvedValue(SUMMARY),
     cacheSummary: vi.fn(),
-    selectConversation: vi.fn(),
+    promoteDraft: vi.fn(),
     handoff: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
@@ -59,20 +59,22 @@ describe('conversationTitleFromMessage', () => {
 });
 
 describe('ConversationFirstSendCoordinator', () => {
-  it('creates with the exact browser-reserved ID, runtime, Agent, and deterministic title', async () => {
+  it('lets the server assign the durable ID before promoting and handing off', async () => {
     const runtime = coordinator();
 
     await runtime.coordinator.send(FIRST_SEND);
 
     expect(runtime.createConversation).toHaveBeenCalledWith({
-      conversationId: 'conversation-reserved',
       runtime: 'codex_cli',
       agentKey: 'sourcing',
       title: 'Review the supplier evidence',
     });
     expect(runtime.cacheSummary).toHaveBeenCalledWith(SUMMARY);
-    expect(runtime.selectConversation).toHaveBeenCalledWith(SUMMARY);
-    expect(runtime.handoff).toHaveBeenCalledWith(FIRST_SEND);
+    expect(runtime.promoteDraft).toHaveBeenCalledWith('draft-1', SUMMARY);
+    expect(runtime.handoff).toHaveBeenCalledWith({
+      ...FIRST_SEND,
+      conversationId: 'server-conversation-1',
+    });
   });
 
   it('shares one create and one already-mounted runtime handoff for concurrent identical sends', async () => {
@@ -92,7 +94,7 @@ describe('ConversationFirstSendCoordinator', () => {
     expect(runtime.handoff).toHaveBeenCalledTimes(1);
   });
 
-  it('clears only a failed create attempt so retry retains the exact same reserved ID', async () => {
+  it('clears only a failed create attempt so the same draft can retry', async () => {
     const createConversation = vi.fn()
       .mockRejectedValueOnce(new Error('gateway unavailable'))
       .mockResolvedValueOnce(SUMMARY);
@@ -102,26 +104,21 @@ describe('ConversationFirstSendCoordinator', () => {
     await runtime.coordinator.send(FIRST_SEND);
 
     expect(createConversation).toHaveBeenCalledTimes(2);
-    expect(createConversation).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      conversationId: 'conversation-reserved',
-    }));
-    expect(createConversation).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      conversationId: 'conversation-reserved',
-    }));
+    expect(createConversation.mock.calls[0]?.[0]).toEqual(createConversation.mock.calls[1]?.[0]);
   });
 
-  it('does not select or hand off a draft disposed while its create is pending', async () => {
+  it('does not promote or hand off a draft disposed while its create is pending', async () => {
     const create = deferred<typeof SUMMARY>();
     const runtime = coordinator({ createConversation: vi.fn().mockReturnValue(create.promise) });
     const first = runtime.coordinator.send(FIRST_SEND);
 
     await Promise.resolve();
-    runtime.coordinator.dispose(FIRST_SEND.conversationId);
+    runtime.coordinator.dispose(FIRST_SEND.draftId);
     create.resolve(SUMMARY);
     await first;
 
     expect(runtime.cacheSummary).toHaveBeenCalledWith(SUMMARY);
-    expect(runtime.selectConversation).not.toHaveBeenCalled();
+    expect(runtime.promoteDraft).not.toHaveBeenCalled();
     expect(runtime.handoff).not.toHaveBeenCalled();
   });
 
@@ -161,7 +158,7 @@ describe('ConversationFirstSendCoordinator', () => {
     expect(runtime.createConversation).toHaveBeenCalledTimes(1);
     expect(handoff).toHaveBeenCalledTimes(1);
 
-    runtime.coordinator.dispose(FIRST_SEND.conversationId);
+    runtime.coordinator.dispose(FIRST_SEND.draftId);
     await runtime.coordinator.send(FIRST_SEND);
     expect(runtime.createConversation).toHaveBeenCalledTimes(2);
   });

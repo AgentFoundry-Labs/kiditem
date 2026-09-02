@@ -5,7 +5,7 @@ import type {
 } from '@kiditem/shared/agent-runtime';
 
 export interface ConversationFirstSend {
-  conversationId: string;
+  draftId: string;
   runtime: ProviderRuntime;
   agentKey: AgentKey | null;
   title: string;
@@ -14,8 +14,11 @@ export interface ConversationFirstSend {
   reasoningEffort: string;
 }
 
-interface ConversationCreate {
+export interface PromotedConversationFirstSend extends ConversationFirstSend {
   conversationId: string;
+}
+
+interface ConversationCreate {
   runtime: ProviderRuntime;
   agentKey: AgentKey | null;
   title: string;
@@ -24,9 +27,9 @@ interface ConversationCreate {
 export interface ConversationFirstSendCoordinatorDependencies {
   createConversation(input: ConversationCreate): Promise<ConversationSummary>;
   cacheSummary(summary: ConversationSummary): void;
-  selectConversation(summary: ConversationSummary): void;
-  handoff(input: ConversationFirstSend): Promise<void>;
-  isCurrent?(conversationId: string): boolean;
+  promoteDraft(draftId: string, summary: ConversationSummary): void;
+  handoff(input: PromotedConversationFirstSend): Promise<void>;
+  isCurrent?(draftId: string, conversationId?: string): boolean;
 }
 
 interface FirstSendEntry {
@@ -38,8 +41,8 @@ interface FirstSendEntry {
 }
 
 /**
- * Coordinates the one irreversible transition from a browser-reserved draft
- * to its Gateway-created conversation. Entries intentionally live until the
+ * Coordinates the one irreversible transition from a browser-only draft key
+ * to its server-identified Gateway conversation. Entries intentionally live until the
  * owning draft is disposed so reconnects cannot duplicate the first run.
  */
 export class ConversationFirstSendCoordinator {
@@ -62,7 +65,7 @@ export class ConversationFirstSendCoordinator {
       model: input.model,
       reasoningEffort: input.reasoningEffort,
     });
-    const existing = this.entries.get(input.conversationId);
+    const existing = this.entries.get(input.draftId);
     if (existing) {
       if (existing.createCanonicalJson !== createCanonicalJson
         || existing.firstSendCanonicalJson !== firstSendCanonicalJson) {
@@ -77,17 +80,17 @@ export class ConversationFirstSendCoordinator {
       .then(
         (summary) => {
           this.dependencies.cacheSummary(summary);
-          if (!this.entryIsCurrent(input.conversationId, entry)) return;
-          this.dependencies.selectConversation(summary);
-          if (!this.entryIsCurrent(input.conversationId, entry)) return;
+          if (!this.entryIsCurrent(input.draftId, entry)) return;
+          this.dependencies.promoteDraft(input.draftId, summary);
+          if (!this.entryIsCurrent(input.draftId, entry, summary.id)) return;
           // Set this before invoking the mounted binding: synchronous throws
           // must still count as a consumed handoff and never auto-replay.
           entry.handoffIssued = true;
-          return this.dependencies.handoff(input);
+          return this.dependencies.handoff({ ...input, conversationId: summary.id });
         },
         (error: unknown) => {
-          if (this.entries.get(input.conversationId) === entry) {
-            this.entries.delete(input.conversationId);
+          if (this.entries.get(input.draftId) === entry) {
+            this.entries.delete(input.draftId);
           }
           throw error;
         },
@@ -97,26 +100,29 @@ export class ConversationFirstSendCoordinator {
     entry.handoffIssued = false;
     entry.cancelled = false;
     entry.promise = promise;
-    this.entries.set(input.conversationId, entry);
+    this.entries.set(input.draftId, entry);
     return promise;
   }
 
-  dispose(conversationId: string): void {
-    const entry = this.entries.get(conversationId);
+  dispose(draftId: string): void {
+    const entry = this.entries.get(draftId);
     if (entry) entry.cancelled = true;
-    this.entries.delete(conversationId);
+    this.entries.delete(draftId);
   }
 
-  private entryIsCurrent(conversationId: string, entry: FirstSendEntry): boolean {
+  private entryIsCurrent(
+    draftId: string,
+    entry: FirstSendEntry,
+    conversationId?: string,
+  ): boolean {
     return !entry.cancelled
-      && this.entries.get(conversationId) === entry
-      && (this.dependencies.isCurrent?.(conversationId) ?? true);
+      && this.entries.get(draftId) === entry
+      && (this.dependencies.isCurrent?.(draftId, conversationId) ?? true);
   }
 }
 
 function createFromFirstSend(input: ConversationFirstSend): ConversationCreate {
   return {
-    conversationId: input.conversationId,
     runtime: input.runtime,
     agentKey: input.agentKey,
     title: input.title,

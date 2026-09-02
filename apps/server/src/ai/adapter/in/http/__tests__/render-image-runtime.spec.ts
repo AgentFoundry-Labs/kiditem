@@ -5,10 +5,7 @@ import { describe, expect, it } from 'vitest';
 describe('render-image Office runtime image', () => {
   it('builds the Office API image with Chromium enabled for Puppeteer', () => {
     const root = findRepoRoot();
-    const workflow = readFileSync(
-      join(root, '.github/workflows/office-images.yml'),
-      'utf8',
-    );
+    const deployer = readFileSync(join(root, 'deploy/office/apply-deployment.ps1'), 'utf8');
     const baseWorkflow = readFileSync(
       join(root, '.github/workflows/api-base-image.yml'),
       'utf8',
@@ -21,10 +18,8 @@ describe('render-image Office runtime image', () => {
     expect(dockerfile).toContain('npm run build --workspace=packages/templates');
     expect(dockerfile).toContain('/app/packages/templates/dist ./packages/templates/dist');
     expect(dockerfile).toContain("require.resolve('@kiditem/templates/styles.css')");
-    expect(workflow).toContain('API_RUNTIME_BASE_IMAGE');
-    expect(workflow).toContain(
-      'preflight_image: ghcr.io/agentfoundry-labs/kiditem-api-base:node22-chromium-b6503cb2512e',
-    );
+    expect(deployer).toContain('API_RUNTIME_BASE_IMAGE');
+    expect(deployer).toContain('node22-chromium-b6503cb2512e');
     expect(dockerfile).toMatch(
       /^ARG API_RUNTIME_BASE_IMAGE=ghcr\.io\/agentfoundry-labs\/kiditem-api-base:node22-chromium-b6503cb2512e$/m,
     );
@@ -40,7 +35,7 @@ describe('render-image Office runtime image', () => {
 function findRepoRoot(): string {
   let dir = process.cwd();
   for (;;) {
-    if (existsSync(join(dir, '.github/workflows/office-images.yml'))) return dir;
+    if (existsSync(join(dir, 'deploy/office/apply-deployment.ps1'))) return dir;
     const parent = dirname(dir);
     if (parent === dir) throw new Error('repo root not found');
     dir = parent;

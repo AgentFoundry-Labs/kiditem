@@ -14,10 +14,10 @@ import {
   Put,
 } from '@nestjs/common';
 import {
-  AgentKeySchema,
   ConversationIdSchema,
   ConversationPreferenceContextSchema,
   ConversationPreferencesSchema,
+  CreateConversationRequestSchema,
   ConversationTitleSchema,
   ModelSchema,
   ProviderRuntimeSchema,
@@ -33,12 +33,7 @@ import {
   type ConversationPort,
 } from '../../../../application/port/in/capability/conversation.port';
 
-const CreateConversationSchema = z.object({
-  conversationId: ConversationIdSchema,
-  runtime: ProviderRuntimeSchema,
-  agentKey: AgentKeySchema.nullable(),
-  title: ConversationTitleSchema,
-}).strict();
+const CreateConversationSchema = CreateConversationRequestSchema;
 const SetConversationPreferenceSchema = z.object({
   context: ConversationPreferenceContextSchema,
   runtime: ProviderRuntimeSchema,

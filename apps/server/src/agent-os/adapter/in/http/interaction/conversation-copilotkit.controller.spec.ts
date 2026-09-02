@@ -119,7 +119,12 @@ describe('GatewayAgUiEventMapper', () => {
       }),
       interrupt: vi.fn().mockResolvedValue(undefined),
     };
-    const conversations = new ConversationService(gateway as never, { delete: vi.fn() }, () => 'run-1');
+    const conversations = new ConversationService(
+      gateway as never,
+      { delete: vi.fn() },
+      () => 'conversation-1',
+      () => 'run-1',
+    );
     const agent = new GatewayConversationAgUiAgent(conversations, owner);
     const runner = new GatewayConversationAgentRunner(conversations, {
       run: vi.fn(),

@@ -49,14 +49,14 @@ describe('integration test runtime contract', () => {
     expect(packageJson.devDependencies).toHaveProperty('@testcontainers/postgresql');
   });
 
-  it('keeps PR checks to hygiene plus the required native Windows Gateway package boundary', () => {
+  it('keeps PR checks fast while native Windows packaging moves to the local deployer', () => {
     const prWorkflowSource = readRepoFile('.github/workflows/pr-checks.yml');
     const prJobSource = readWorkflowJobSource(prWorkflowSource, 'pr-hygiene');
-    const gatewayPackageJob = readWorkflowJobSource(prWorkflowSource, 'windows_gateway_package');
+    const gatewayFastJob = readWorkflowJobSource(prWorkflowSource, 'gateway_fast_checks');
 
     expect(readWorkflowJobNames(prWorkflowSource)).toEqual([
       'pr-hygiene',
-      'windows_gateway_package',
+      'gateway_fast_checks',
     ]);
     expect(prJobSource).toContain('runs-on: ubuntu-latest');
     expect(prJobSource).toContain('run: git diff --check "${BASE_SHA}...HEAD"');
@@ -64,14 +64,20 @@ describe('integration test runtime contract', () => {
     expect(prJobSource).not.toContain('actions/setup-node');
     expect(prJobSource).not.toContain('npm ci');
     expect(prJobSource).not.toContain('npm run build');
-    expect(gatewayPackageJob).toContain('runs-on: windows-latest');
-    expect(gatewayPackageJob).toContain('node-version: 22');
-    expect(gatewayPackageJob).toContain('npm ci');
-    expect(gatewayPackageJob).toContain('npm run build --workspace=packages/shared');
-    expect(gatewayPackageJob).toContain('npm run build --workspace=apps/agent-gateway');
-    expect(gatewayPackageJob).toContain('dotnet publish apps/agent-gateway/windows/KidItem.JobRunner/KidItem.JobRunner.csproj');
-    expect(gatewayPackageJob).toContain('npm pack --workspace=apps/agent-gateway --dry-run');
+    expect(gatewayFastJob).toContain('runs-on: ubuntu-latest');
+    expect(gatewayFastJob).toContain('node-version: 22');
+    expect(gatewayFastJob).toContain('npm ci --ignore-scripts');
+    expect(gatewayFastJob).toContain(
+      'npm exec --workspace=packages/shared tsup -- src/agent-runtime/index.ts src/identifiers/index.ts --format esm,cjs --no-config --out-dir dist --clean',
+    );
+    expect(gatewayFastJob).toContain('npm run build --workspace=apps/agent-gateway');
+    expect(gatewayFastJob).toContain('npm exec --workspace=apps/agent-gateway vitest -- run');
+    expect(gatewayFastJob).not.toContain('dotnet publish');
+    expect(gatewayFastJob).not.toContain('npm run prepack');
+    expect(gatewayFastJob).not.toContain('npm pack --workspace=apps/agent-gateway');
+    expect(prWorkflowSource).not.toContain('develop_artifact_gate');
     expect(prWorkflowSource).not.toContain('test:integration');
+    expect(existsSync(join(repoRoot, '.github/workflows/develop-gateway-package.yml'))).toBe(false);
 
     const developWorkflowSource = readRepoFile(
       '.github/workflows/develop-validation.yml',
