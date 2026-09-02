@@ -297,7 +297,7 @@ function Get-SchemaDataChanges {
 }
 
 function Assert-SchemaDataCutoverContract {
-  param([Parameter(Mandatory = $true)][string[]]$ChangedPaths)
+  param([AllowEmptyCollection()][string[]]$ChangedPaths = @())
 
   if ($ChangedPaths.Count -gt 0) {
     if (-not $SchemaDataCutover -or $CutoverConfirmation -ne $script:SchemaDataConfirmation) {
@@ -2138,7 +2138,7 @@ switch ($Operation) {
     $checkoutRoot = Assert-CleanInvokerCheckout
     $source = Resolve-RemoteSourceCommit $checkoutRoot
     $schemaDataPaths = @(Get-SchemaDataChanges -CheckoutRoot $checkoutRoot -TargetSha $source.GitSha)
-    Assert-SchemaDataCutoverContract $schemaDataPaths
+    Assert-SchemaDataCutoverContract -ChangedPaths $schemaDataPaths
     $localBuildRoot = Get-LocalBuildRoot
     $worktree = $null
     $localBundle = $null
