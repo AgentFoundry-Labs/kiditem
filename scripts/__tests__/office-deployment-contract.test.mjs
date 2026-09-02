@@ -102,6 +102,11 @@ test('API, web, and Windows Gateway are built locally with one VERSION and Git S
   assert.doesNotMatch(`${script}\n${gatewayBuild}`, /cliContractIdentity/);
 });
 
+test('API image installs cap npm registry concurrency for WSL network stability', () => {
+  const dockerfile = read('apps/server/Dockerfile');
+  assert.equal(dockerfile.match(/--maxsockets=4/g)?.length, 2);
+});
+
 test('Gateway payload reuse is scoped to explicit build inputs and hash-verified archives', () => {
   const script = read('deploy/office/apply-deployment.ps1');
   const gatewayBuild = read('deploy/office/gateway-build.ps1');
