@@ -53,7 +53,6 @@ export function parseOfficeDeployArgs(argv) {
 
   return parsed;
 }
-
 function checkedRepoRoot() {
   const result = spawnSync('git', ['rev-parse', '--show-toplevel'], {
     cwd: process.cwd(),
