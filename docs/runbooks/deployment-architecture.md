@@ -2,10 +2,12 @@
 
 ## Office release path
 
-Office has one supported release path:
+Office has one final release path:
 
 ```text
-named origin/<branch>
+reviewed develop or hotfix change
+  -> merge commit in origin/release/office
+  -> clean fast-forwarded live release/office checkout
   -> fetch and resolve one full remote SHA
   -> clean detached temporary worktree at that SHA
   -> local API image + local web image
@@ -18,16 +20,22 @@ named origin/<branch>
 Run it from a clean KidItem checkout on the Windows Office host:
 
 ```powershell
-npm run deploy:office:local -- --ref origin/develop
+npm run deploy:office:local -- --ref origin/release/office
 npm run deploy:office:status
 npm run deploy:office:rollback
 ```
 
 GitHub does not publish an Office deployment bundle, API/web release images,
-or a develop Gateway package. GHCR digests and a `release/office` promotion PR
-are not Office admission inputs. The API runtime-base workflow remains only to
-maintain the Chromium-equipped Docker base used by the checked-in API
-Dockerfile.
+or a develop Gateway package. GHCR digests are not Office inputs. A reviewed
+`release/office` PR supplies branch admission and audit history, while all
+deployable artifacts are still built locally from its exact merge SHA. The API
+runtime-base workflow remains only to maintain the Chromium-equipped Docker
+base used by the checked-in API Dockerfile.
+
+For an urgent incident, a remote hotfix ref created from the current runtime
+SHA may be deployed provisionally with explicit authorization. That does not
+replace branch admission: the fix is merged into `release/office`, deployed
+again from the release merge SHA, and then forward-merged to `develop`.
 
 ## Source and build admission
 
@@ -38,6 +46,11 @@ full SHA. Product Dockerfiles, Compose, nginx, Gateway launcher, API, web, and
 Gateway all come from that worktree. Local checkout edits and arbitrary
 Dockerfile copies therefore cannot enter the release.
 
+For `origin/release/office`, deployment additionally requires the permanent
+live checkout HEAD to equal that authoritative remote SHA before any build.
+Other named refs are provisional incident sources and status reports their
+runtime/release mismatch until reconciliation is complete.
+
 API and web images use unique `office-<full-sha>` tags and record both
 `org.opencontainers.image.revision` and
 `org.opencontainers.image.version`. The runtime manifest also stores their
@@ -47,9 +60,10 @@ local image IDs. The Gateway archive contains its runtime contract plus
 ## Runtime transaction
 
 The permanent checkout at `C:\workspace\kiditem` remains a clean protected
-`release/office` checkout, but it is an operational anchor rather than the
-deployment source. Never delete or prune that branch. Deployment does not pull,
-merge, reset, or build from the live checkout.
+`release/office` checkout and the final runtime audit anchor. Never delete or
+prune that branch. Before a final deployment, an operator fetches and
+fast-forwards it to the remote release SHA. The deployer verifies this identity
+but does not pull, merge, reset, or build from the live checkout.
 
 The protected `C:\ProgramData\Kiditem\.env.office`, server env file, and the
 external PostgreSQL, MinIO, and CopilotKit volumes remain in place. Before
@@ -70,7 +84,7 @@ The deployed SHA-to-target SHA diff is scanned for `prisma/`,
 normal deploy refuses any match. An approved cutover is explicit:
 
 ```powershell
-npm run deploy:office:local -- --ref origin/develop --cutover --confirm APPLY_SCHEMA_DATA
+npm run deploy:office:local -- --ref origin/release/office --cutover --confirm APPLY_SCHEMA_DATA
 ```
 
 The deployer stops writers, runs exact-SHA pre-schema migrations, applies
@@ -104,7 +118,8 @@ is required.
 ## Regression boundary
 
 `scripts/__tests__/office-deployment-contract.test.mjs` enforces the three
-commands, safe remote-ref/worktree contract, local identity labels, schema/data
-gate, runtime snapshot/restore, current-profile Gateway, archived-payload reuse
-and fallback, target identity rebinding, status/rollback, and absence of the
-retired GitHub Office workflows.
+commands, final release/live-checkout alignment, provisional hotfix reporting,
+safe remote-ref/worktree contract, local identity labels, schema/data gate,
+runtime snapshot/restore, current-profile Gateway, archived-payload reuse and
+fallback, target identity rebinding, status/rollback, and absence of the retired
+GitHub Office workflows.

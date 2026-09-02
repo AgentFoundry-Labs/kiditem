@@ -440,9 +440,11 @@ node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs
 npm run test:integration
 ```
 
-검증 실패는 Office 배포 또는 `main` promotion 전에 fix-forward 한다. Office 로컬
-배포기는 지정한 원격 ref의 clean exact-SHA worktree에서 API/web/Gateway를 함께 만들고
-VERSION, image ID, Git SHA, Gateway hash/runtime contract를 검증한다.
+검증 실패는 Office 배포 또는 `main` promotion 전에 fix-forward 한다. 최종 Office
+배포는 `origin/release/office`의 clean exact-SHA worktree에서 API/web/Gateway를 함께
+만들고 VERSION, image ID, Git SHA, Gateway hash/runtime contract를 검증한다. 명시적으로
+승인된 incident ref는 임시 복구에만 사용하며 release 병합과 재배포 전까지 status가
+provisional drift를 표시한다.
 
 ## FAQ
 
