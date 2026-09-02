@@ -738,12 +738,12 @@ function Assert-GatewayRuntimeContract {
 
   Assert-ManifestShape -Value $Runtime -Expected @(
     'schemaVersion', 'platform', 'nodeMajor', 'controlRevision',
-    'cliContractIdentity', 'mcpProtocolRevision', 'codexVersion', 'claudeVersion'
+    'mcpProtocolRevision', 'codexVersion', 'claudeVersion'
   ) -Label 'Gateway runtime contract'
   foreach ($name in @('schemaVersion', 'nodeMajor')) {
     Assert-ManifestIntegerField -Value $Runtime -Name $name
   }
-  foreach ($name in @('platform', 'controlRevision', 'cliContractIdentity', 'mcpProtocolRevision', 'codexVersion', 'claudeVersion')) {
+  foreach ($name in @('platform', 'controlRevision', 'mcpProtocolRevision', 'codexVersion', 'claudeVersion')) {
     Assert-ManifestStringField -Value $Runtime -Name $name
   }
 
@@ -752,7 +752,6 @@ function Assert-GatewayRuntimeContract {
     $Runtime.platform -ne 'windows' -or
     $Runtime.nodeMajor -ne 22 -or
     $Runtime.controlRevision -ne 'kiditem-gateway-control-v1' -or
-    $Runtime.cliContractIdentity -ne 'office-cli-contract-v2' -or
     $Runtime.mcpProtocolRevision -ne '2026-07-28' -or
     $Runtime.codexVersion -ne '0.149.1' -or
     $Runtime.claudeVersion -ne '2.1.245'
@@ -1241,7 +1240,7 @@ function Assert-GatewayPackageContents {
   $runtimePath = Join-Path $ReleaseRoot 'gateway-runtime-contract.json'
   $runtime = (Get-Content -LiteralPath $runtimePath -Raw | ConvertFrom-Json)
   Assert-GatewayRuntimeContract $runtime
-  foreach ($name in @('schemaVersion', 'platform', 'nodeMajor', 'controlRevision', 'cliContractIdentity', 'mcpProtocolRevision', 'codexVersion', 'claudeVersion')) {
+  foreach ($name in @('schemaVersion', 'platform', 'nodeMajor', 'controlRevision', 'mcpProtocolRevision', 'codexVersion', 'claudeVersion')) {
     if ($runtime.$name -ne $Manifest.gatewayRuntime.$name) {
       throw "Gateway runtime contract field $name does not match the deployment manifest."
     }
@@ -1560,7 +1559,10 @@ function Install-GatewayLauncher {
 function Resolve-GatewayNodeExecutable {
   $command = Get-Command node.exe -ErrorAction Stop
   $nodeExecutable = [System.IO.Path]::GetFullPath($command.Source)
-  $major = Get-CheckedOutput $nodeExecutable -p 'process.versions.node.split(".")[0]'
+  $major = Get-CheckedOutput -Program $nodeExecutable -Arguments @(
+    '-p',
+    'parseInt(process.versions.node,10)'
+  )
   if ($major -ne '22') {
     throw "Office Gateway requires Node 22 in the invoking profile; found major $major."
   }

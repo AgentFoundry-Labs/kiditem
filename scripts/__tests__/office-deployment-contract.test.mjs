@@ -96,6 +96,7 @@ test('API, web, and Windows Gateway are built locally with one VERSION and Git S
   assert.match(script, /npm\.cmd pack --workspace=apps\/agent-gateway --ignore-scripts/);
   assert.match(script, /release-identity\.json/);
   assert.match(script, /Gateway release VERSION\/Git SHA identity/);
+  assert.doesNotMatch(script, /cliContractIdentity/);
 });
 
 test('runtime manifest records local image IDs, Gateway hash, and cutover evidence', () => {
@@ -140,6 +141,7 @@ test('Gateway uses the invoking Windows profile and its existing Node 22', () =>
   const script = read('deploy/office/apply-deployment.ps1');
   assert.match(script, /WindowsIdentity\]::GetCurrent\(\)\.Name/);
   assert.match(script, /Get-Command node\.exe/);
+  assert.match(script, /Get-CheckedOutput -Program \$nodeExecutable -Arguments @\([\s\S]*'-p'/);
   assert.match(script, /requires Node 22 in the invoking profile/);
   assert.match(script, /-LogonType Interactive/);
   assert.match(script, /New-ScheduledTaskTrigger -AtLogOn/);
