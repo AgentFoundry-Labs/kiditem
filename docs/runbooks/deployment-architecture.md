@@ -8,7 +8,9 @@ Office has one supported release path:
 named origin/<branch>
   -> fetch and resolve one full remote SHA
   -> clean detached temporary worktree at that SHA
-  -> local API image + local web image + Windows Gateway archive
+  -> local API image + local web image
+  -> exact-SHA Gateway payload build or hash-verified archived-payload reuse
+  -> target-identity Windows Gateway archive
   -> VERSION/Git SHA/image ID/archive hash verification
   -> controlled recreation with the existing env and external volumes
 ```
@@ -79,15 +81,30 @@ from that cutover.
 
 ## Gateway and CLI profile
 
-The Windows Gateway is built locally, including its self-contained native Job
-Runner and pinned Codex/Claude packages. It runs as a limited scheduled task
-under the invoking Windows user's interactive profile and uses that profile's
-existing Node 22 and approved provider login stores. No separate Windows
-account or second Node installation is required.
+`deploy/office/gateway-build.ps1` is the explicit heavy-build boundary for the
+Windows Gateway, including its self-contained native Job Runner and pinned
+Codex/Claude packages. Gateway build inputs are the root package/lock/npm and
+TypeScript configuration, Prisma, `packages/shared`, `apps/agent-gateway`, and
+that build script. General admission, status, and rollback edits in
+`apply-deployment.ps1` do not invalidate the payload.
+
+When those inputs are unchanged, reuse starts only from the current manifest's
+SHA-256-verified archived ZIP in `deployments/bundles/<sha>`; an expanded live
+release is never a source. Only `agent-gateway.tgz`,
+`KidItem.AgentGateway.exe`, and `gateway-runtime-contract.json` cross the reuse
+boundary. A new `release-identity.json` and ZIP hash bind the target VERSION and
+Git SHA. Archive absence, corruption, or runtime mismatch falls back to a full
+exact-SHA build before live mutation.
+
+The Gateway runs as a limited scheduled task under the invoking Windows user's
+interactive profile and uses that profile's existing Node 22 and approved
+provider login stores. No separate Windows account or second Node installation
+is required.
 
 ## Regression boundary
 
 `scripts/__tests__/office-deployment-contract.test.mjs` enforces the three
 commands, safe remote-ref/worktree contract, local identity labels, schema/data
-gate, runtime snapshot/restore, current-profile Gateway, and absence of the
+gate, runtime snapshot/restore, current-profile Gateway, archived-payload reuse
+and fallback, target identity rebinding, status/rollback, and absence of the
 retired GitHub Office workflows.

@@ -83,6 +83,7 @@ test('local deploy fetches a remote branch and builds an exact clean detached wo
 
 test('API, web, and Windows Gateway are built locally with one VERSION and Git SHA', () => {
   const script = read('deploy/office/apply-deployment.ps1');
+  const gatewayBuild = read('deploy/office/gateway-build.ps1');
   assert.match(script, /docker build/);
   assert.match(script, /kiditem-api:office-\$GitSha/);
   assert.match(script, /kiditem-web:office-\$GitSha/);
@@ -90,14 +91,61 @@ test('API, web, and Windows Gateway are built locally with one VERSION and Git S
   assert.match(script, /org\.opencontainers\.image\.version=\$AppVersion/);
   assert.match(script, /Assert-LocalImageIdentity/);
   assert.doesNotMatch(script, /Invoke-Checked docker pull/);
-  assert.match(script, /Invoke-Checked -Program \$dotnet -Arguments @\(/);
-  assert.match(script, /Invoke-Checked -Program node\.exe -Arguments @\([\s\S]*'-e'/);
-  assert.match(script, /'publish',[\s\S]*'apps\/agent-gateway\/windows\/KidItem\.JobRunner\/KidItem\.JobRunner\.csproj'/);
-  assert.match(script, /'-o', \$nativeRoot/);
-  assert.match(script, /npm\.cmd pack --workspace=apps\/agent-gateway --ignore-scripts/);
+  assert.match(script, /gateway-build\.ps1/);
+  assert.match(gatewayBuild, /Invoke-Checked -Program \$dotnet -Arguments @\(/);
+  assert.match(gatewayBuild, /Invoke-Checked -Program node\.exe -Arguments @\([\s\S]*'-e'/);
+  assert.match(gatewayBuild, /'publish',[\s\S]*'apps\/agent-gateway\/windows\/KidItem\.JobRunner\/KidItem\.JobRunner\.csproj'/);
+  assert.match(gatewayBuild, /'-o', \$nativeRoot/);
+  assert.match(gatewayBuild, /npm\.cmd pack --workspace=apps\/agent-gateway --ignore-scripts/);
   assert.match(script, /release-identity\.json/);
   assert.match(script, /Gateway release VERSION\/Git SHA identity/);
-  assert.doesNotMatch(script, /cliContractIdentity/);
+  assert.doesNotMatch(`${script}\n${gatewayBuild}`, /cliContractIdentity/);
+});
+
+test('Gateway payload reuse is scoped to explicit build inputs and hash-verified archives', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const gatewayBuild = read('deploy/office/gateway-build.ps1');
+  for (const path of [
+    'package.json',
+    'package-lock.json',
+    '.npmrc',
+    'tsconfig.json',
+    'prisma',
+    'prisma.config.ts',
+    'packages/shared',
+    'apps/agent-gateway',
+    'deploy/office/gateway-build.ps1',
+  ]) {
+    assert.match(script, new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  assert.match(script, /git -C \$CheckoutRoot diff --name-only --diff-filter=ACDMRTUXB/);
+  assert.match(script, /Get-ArchivedGatewayArtifact \$SourceManifest/);
+  assert.match(script, /Assert-GatewayArtifact \$artifact \$Manifest/);
+  assert.match(script, /Gateway payload reused from archived SHA/);
+  assert.match(script, /running exact-SHA full build before live mutation/);
+  assert.match(script, /Join-Path \$WorktreePath 'deploy\\office\\gateway-build\.ps1'/);
+  assert.match(script, /Build-ExactShaGatewayPayload/);
+  assert.match(gatewayBuild, /npm\.cmd ci --no-audit --no-fund/);
+  assert.doesNotMatch(script, /npm\.cmd ci --no-audit --no-fund/);
+  assert.deepEqual(
+    [...script.matchAll(/^\s+'(agent-gateway\.tgz|KidItem\.AgentGateway\.exe|gateway-runtime-contract\.json)'[,]?$/gm)].map((match) => match[1]),
+    ['agent-gateway.tgz', 'KidItem.AgentGateway.exe', 'gateway-runtime-contract.json'],
+  );
+});
+
+test('Gateway reuse behavior covers script-only reuse, impact builds, fallback, and target identity', { skip: process.platform !== 'win32' }, () => {
+  const result = spawnSync('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy', 'Bypass',
+    '-File', join(root, 'scripts', '__tests__', 'office-gateway-reuse.fixture.ps1'),
+  ], {
+    cwd: root,
+    encoding: 'utf8',
+    timeout: 120_000,
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /office-gateway-reuse fixture passed/);
 });
 
 test('runtime manifest records local image IDs, Gateway hash, and cutover evidence', () => {
@@ -159,12 +207,22 @@ test('Office compose keeps env and external volumes while accepting only prebuil
 });
 
 test('PowerShell deployment operator parses on Windows', { skip: process.platform !== 'win32' }, () => {
-  const command = String.raw`$tokens=$null;$errors=$null;[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'deploy/office/apply-deployment.ps1'),[ref]$tokens,[ref]$errors)|Out-Null;if($errors.Count){exit 1}`;
+  const command = String.raw`foreach($file in @('deploy/office/apply-deployment.ps1','deploy/office/gateway-build.ps1')){$tokens=$null;$errors=$null;[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tokens,[ref]$errors)|Out-Null;if($errors.Count){exit 1}}`;
   const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], {
     cwd: root,
     encoding: 'utf8',
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test('status and rollback retain schema-3 archived-runtime admission', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  assert.match(script, /'Status'\s*\{\s*Show-OfficeStatus \$head/);
+  assert.match(script, /function Install-Deployment[\s\S]*Read-DeploymentManifest \$TargetManifestPath/);
+  assert.match(script, /'Rollback'\s*\{[\s\S]*Install-Deployment -TargetManifestPath \$script:PreviousManifestPath/);
+  assert.match(script, /Install-Deployment -TargetManifestPath \$script:PreviousManifestPath -DeploymentMode Rollback/);
+  assert.match(script, /Get-ArchivedGatewayArtifact \$previousManifest/);
+  assert.match(script, /--detach --no-build --force-recreate api worker web nginx/);
 });
 
 test('runbooks describe the local exact-SHA contract and no GitHub Office bundle fallback', () => {
