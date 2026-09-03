@@ -7,6 +7,7 @@ import { AdvertisingModule } from './advertising/advertising.module';
 import { AgentOsInteractionHttpModule } from './agent-os/agent-os-interaction-http.module';
 import { AgentOsRuntimeHttpModule } from './agent-os/agent-os-runtime-http.module';
 import { AiModule } from './ai/ai.module';
+import { AlertsModule } from './alerts/alerts.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthModule } from './auth/auth.module';
 import { OrganizationScopeGuard } from './auth/guards/organization-scope.guard';
@@ -37,6 +38,9 @@ import { UploadsModule } from './uploads/uploads.module';
     EventEmitterModule.forRoot(),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     PrismaModule,
+    // Source-failure alert routes must win over the legacy Automation
+    // controller while that owner is being retired.
+    AlertsModule,
     AuthModule,
     CommonModule,
     StorageModule,

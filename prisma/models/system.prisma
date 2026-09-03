@@ -169,6 +169,12 @@ model Alert {
   id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
 
+  // Focused source-failure identity. Legacy operation alerts still use the
+  // fields below while the operation surface is migrated away; source alerts
+  // always provide an owner-defined dedupe key and attempt id.
+  dedupeKey String  @default(uuid()) @map("dedupe_key")
+  attemptId String? @map("attempt_id") @db.Uuid
+
   targetType String? @map("target_type")
   targetId   String? @map("target_id") @db.Uuid
 
@@ -201,7 +207,10 @@ model Alert {
   actorUser    User?        @relation("AlertActor", fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, operationKey], map: "alerts_organization_id_operation_key_key", where: raw("operation_key IS NOT NULL"))
+  @@unique([organizationId, dedupeKey], map: "alerts_organization_id_dedupe_key_key")
   @@index([organizationId])
+  @@index([organizationId, dedupeKey])
+  @@index([organizationId, sourceType, attemptId])
   @@index([organizationId, isRead, createdAt])
   @@index([organizationId, kind, status, createdAt])
   @@index([organizationId, actorUserId, status, createdAt])

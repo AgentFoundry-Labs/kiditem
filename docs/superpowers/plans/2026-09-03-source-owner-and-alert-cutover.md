@@ -27,12 +27,14 @@
 **Files:**
 
 - Create: `apps/server/src/alerts/alerts.module.ts`
+- Create: `apps/server/src/alerts/alerts.module.spec.ts`
 - Create: `apps/server/src/alerts/alerts.service.ts`
 - Create: `apps/server/src/alerts/alerts.service.spec.ts`
 - Create: `apps/server/src/alerts/alerts.repository.ts`
 - Create: `apps/server/src/alerts/alerts.controller.ts`
 - Create: `apps/server/src/alerts/alerts.controller.spec.ts`
 - Create: `apps/server/src/alerts/__tests__/source-failure-alerts.pg.integration.spec.ts`
+- Modify: `apps/server/src/api-application.module.ts`
 - Modify: `packages/shared/src/schemas/alerts.ts`
 - Modify: `packages/shared/src/schemas/alerts.spec.ts`
 - Modify: `packages/shared/src/alerts.ts`
@@ -71,7 +73,7 @@ export class SourceFailureAlerts {
 }
 ```
 
-- [ ] **Step 1: Write failing PostgreSQL tests for the transaction seam**
+- [x] **Step 1: Write failing PostgreSQL tests for the transaction seam**
 
 ```ts
 it("keeps one row, ignores the same attempt replay, and reopens unread for a newer failure", async () => {
@@ -103,17 +105,17 @@ it("rolls source terminal state back when the alert mutation fails", async () =>
 });
 ```
 
-- [ ] **Step 2: Run the PG test and verify red**
+- [x] **Step 2: Run the PG test and verify red**
 
 Run: `npm run test:integration --workspace=apps/server -- src/alerts/__tests__/source-failure-alerts.pg.integration.spec.ts`
 
 Expected: FAIL because `SourceFailureAlerts` and `Alert.dedupeKey/attemptId` do not exist.
 
-- [ ] **Step 3: Implement the minimal Alert persistence and HTTP surface**
+- [x] **Step 3: Implement the minimal Alert persistence and HTTP surface**
 
 Retain `id`, `organizationId`, `dedupeKey`, `sourceType`, `attemptId`, `status`, `severity`, `title`, `message`, `href`, `isRead`, `readAt`, `createdAt`, and `updatedAt`. Add a unique constraint on `(organizationId, dedupeKey)`. `dismiss` updates only an organization-scoped open row; `resolveSourceFailure` changes `OPEN` to `RESOLVED`; the same attempt replay does not change read state or timestamps that drive unread behavior.
 
-- [ ] **Step 4: Run focused Alert tests**
+- [x] **Step 4: Run focused Alert tests**
 
 ```bash
 npm exec --workspace=apps/server vitest -- run src/alerts/alerts.service.spec.ts src/alerts/alerts.controller.spec.ts
@@ -123,10 +125,10 @@ npm exec --workspace=packages/shared vitest -- run src/schemas/alerts.spec.ts
 
 Expected: PASS; list/dismiss are the only web commands and the PG rollback assertions pass.
 
-- [ ] **Step 5: Commit the Alert seam**
+- [x] **Step 5: Commit the Alert seam**
 
 ```bash
-git add apps/server/src/alerts packages/shared/src/alerts.ts packages/shared/src/schemas/alerts.ts packages/shared/src/schemas/alerts.spec.ts prisma/models/system.prisma prisma/models/core.prisma
+git add apps/server/src/alerts apps/server/src/api-application.module.ts packages/shared/src/alerts.ts packages/shared/src/schemas/alerts.ts packages/shared/src/schemas/alerts.spec.ts prisma/models/system.prisma prisma/models/core.prisma
 git commit -m "refactor: isolate durable source alerts"
 ```
 

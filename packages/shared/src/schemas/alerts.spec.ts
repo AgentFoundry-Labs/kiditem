@@ -4,12 +4,15 @@ import {
   AlertKindSchema,
   AlertOperationLifecycleStatusSchema,
   AlertStatusSchema,
+  SourceFailureAlertInputSchema,
+  SourceFailureAlertItemSchema,
   UpdateOperationAlertRequestSchema,
 } from './alerts.js';
 
 const ALERT_ID = '00000000-0000-0000-0000-000000000001';
 const USER_ID = '00000000-0000-0000-0000-000000000002';
 const TARGET_ID = '00000000-0000-0000-0000-000000000003';
+const ATTEMPT_ID = '00000000-0000-0000-0000-000000000005';
 
 describe('Alert ledger schemas', () => {
   it('parses operation ledger fields and preserves them in the output', () => {
@@ -98,5 +101,43 @@ describe('Alert ledger schemas', () => {
     });
 
     expect(parsed).not.toHaveProperty('href');
+  });
+
+  it('parses the focused source-failure alert projection', () => {
+    const parsed = SourceFailureAlertItemSchema.parse({
+      id: ALERT_ID,
+      organizationId: '00000000-0000-0000-0000-000000000004',
+      dedupeKey: 'sellpia:profitability:2026-08',
+      sourceType: 'sellpia_product_profitability',
+      attemptId: ATTEMPT_ID,
+      status: 'OPEN',
+      severity: 'error',
+      title: 'Sellpia 수익성 수집 실패',
+      message: '공급가를 확인할 수 없습니다.',
+      href: '/analytics/sellpia-product-sales',
+      isRead: false,
+      readAt: null,
+      createdAt: '2026-09-03T00:00:00.000Z',
+      updatedAt: '2026-09-03T00:00:00.000Z',
+    });
+
+    expect(parsed.status).toBe('OPEN');
+    expect(parsed.attemptId).toBe(ATTEMPT_ID);
+  });
+
+  it('validates source-failure command input without accepting operation fields', () => {
+    const parsed = SourceFailureAlertInputSchema.parse({
+      organizationId: '00000000-0000-0000-0000-000000000004',
+      dedupeKey: 'sellpia:profitability:2026-08',
+      sourceType: 'sellpia_product_profitability',
+      attemptId: ATTEMPT_ID,
+      severity: 'critical',
+      title: '수집 실패',
+      message: '다시 시도해 주세요.',
+      href: '/analytics/sellpia-product-sales',
+    });
+
+    expect(parsed).not.toHaveProperty('operationKey');
+    expect(parsed.severity).toBe('critical');
   });
 });
