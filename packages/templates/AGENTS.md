@@ -4,13 +4,6 @@
 product detail pages. It is consumed by AI/detail-page rendering and editor
 surfaces.
 
-## Owned Surfaces
-
-- `@kiditem/templates`
-- `getTemplate(id)`
-- `parseDetailPageData(apiResponse)`
-- Template React components and layout schemas
-
 ## Template Rules
 
 - `parseDetailPageData()` converts snake_case API responses to camelCase
@@ -25,8 +18,8 @@ surfaces.
 
 ## Boundary Rules
 
-- Templates are render components and schemas only; do not add backend data
-  fetching, Prisma access, or provider SDK logic.
+- Keep templates limited to render components and schemas. Put data fetching,
+  Prisma access, and provider SDK logic in the owning backend module.
 - Keep template-specific style/assets inside the template folder unless 2+
   templates share them.
 

@@ -6,21 +6,14 @@ Products.
 `Settlement` still lives in the Orders Prisma namespace and `SupplierPayment`
 in Supply, but the backend capability owner is finance.
 
-## Owned Surfaces
-
-- Company P&L: `GET /api/profit-loss`
-- Sales analysis: `GET /api/sales-analysis`
-- Supplier payments: `/api/supplier-payments/*`
-- Sales plans: `/api/sales-plans/*`
-- Settlements: `/api/settlements/*`
-
-## Main Data Models
+## Data Boundaries
 
 - Live P&L reads aggregate orders, line items, returns, listing/options, and ad
   spend.
 - Sales plans, settlements, and supplier payments back finance-owned
   operational views.
-- No persisted `ProfitLoss`, manual-ledger, or processing-cost CRUD exists.
+- Keep P&L, manual-ledger, and processing-cost reporting as live aggregation;
+  introduce persistence only through a scoped finance design change.
 
 ## Aggregation Rules
 
@@ -52,9 +45,10 @@ in Supply, but the backend capability owner is finance.
   pricing resolver. Component purchase cost comes from the mapped physical
   `SellpiaInventorySku.purchasePrice`; do not restore removed `ProductOption`
   reads.
-- Do not add date-range support without updating DTOs, services, tests, and
-  this contract.
-- Do not inject automation's `OperationAlertService` directly.
+- Add date-range support only as one coordinated DTO, service, test, and
+  contract change.
+- Reach the current alert lifecycle through `FINANCE_OPERATION_ALERT_PORT`
+  rather than its concrete service; remove this seam with the Operation cutover.
 
 ## Transitional Exceptions
 

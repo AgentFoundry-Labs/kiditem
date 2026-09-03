@@ -67,7 +67,7 @@ test('flags a CLAUDE.md shim without a same-directory AGENTS.md', () => {
   }]);
 });
 
-test('flags an active AGENTS.md chain that exceeds the configured byte limit', () => {
+test('flags an active AGENTS.md chain that reaches the configured byte limit', () => {
   assert.equal(typeof agentsHygiene.findInstructionChainSizeFindings, 'function');
 
   const findings = agentsHygiene.findInstructionChainSizeFindings(
@@ -81,7 +81,19 @@ test('flags an active AGENTS.md chain that exceeds the configured byte limit', (
   assert.deepEqual(findings, [{
     file: 'apps/web/AGENTS.md',
     line: 1,
-    name: 'AGENTS.md active chain too large',
-    text: 'Active AGENTS.md chain is 12 bytes; limit is 10 bytes',
+    name: 'AGENTS.md active chain reached byte limit',
+    text: 'Active AGENTS.md chain is 12 bytes; it must stay below 10 bytes',
   }]);
+});
+
+test('uses the Codex 32 KiB project-instruction limit by default', () => {
+  const belowLimit = agentsHygiene.findInstructionChainSizeFindings(
+    new Map([['AGENTS.md', 'x'.repeat((32 * 1024) - 1)]]),
+  );
+  const atLimit = agentsHygiene.findInstructionChainSizeFindings(
+    new Map([['AGENTS.md', 'x'.repeat(32 * 1024)]]),
+  );
+
+  assert.equal(belowLimit.length, 0);
+  assert.equal(atLimit.length, 1);
 });

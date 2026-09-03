@@ -4,23 +4,8 @@
 such as matching, analysis, and ML-heavy pipelines. The default 1688 URL scrape
 runtime is owned by the NestJS sourcing domain through TS Playwright. Image edit
 (`image_edit`) is not owned here; it runs in the NestJS AI domain through Agent
-OS runtime handlers.
-
-## Owned Surfaces
-
-- FastAPI server on port 8001
-- `POST /run` with `{ agent_type, input, run_id }`
-- Python sourcing helper agents for optional worker/tool paths
-
-## Runtime Flow
-
-```text
-NestJS python_http runtime adapter
-  -> POST http://localhost:8001/run
-  -> FastAPI server
-  -> Agent.execute(pool, input)
-  -> JSON response { output: {...} }
-```
+OS runtime handlers. NestJS reaches optional Python helpers through the
+`python_http` runtime and its bounded request/response contract.
 
 ## Agent Rules
 
@@ -34,7 +19,7 @@ NestJS python_http runtime adapter
 
 ## DB Boundary
 
-- Use asyncpg raw SQL only; no SQLAlchemy.
+- Use asyncpg with bound raw SQL for Python-owned database access.
 - Bind organization predicates in every organization-owned query.
 - Table and column names use mapped snake_case DB names.
 - Agents communicate through DB state or explicit runtime input/output, not
@@ -42,10 +27,9 @@ NestJS python_http runtime adapter
 
 ## Boundary Rules
 
-- No `app.` imports; use `src.` imports.
+- Import Python application modules through the `src.` package.
 - Use Langfuse `@observe` for LLM/agent observability.
-- Do not add image edit or generated media ownership here; Nest AI owns those
-  runtime handlers.
+- Keep image edit and generated-media runtime handlers in the NestJS AI domain.
 
 ## Verification
 

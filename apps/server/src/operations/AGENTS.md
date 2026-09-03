@@ -36,19 +36,6 @@ and browser-runtime leases.
 - A lifecycle-cancelled row is immutable audit history. Never reclaim, requeue,
   decrement attempts, or reactivate it; an explicit retry after ACCEPTING starts
   a new row.
-- OPERATION_RESOURCE_CLASS_LIMITS, when set, is a complete strict positive JSON
+- `OPERATION_RESOURCE_CLASS_LIMITS`, when set, is a complete strict positive JSON
   map for default, naver_api, playwright_1688, snapshot_compute, and
   extension_coupang. Invalid or partial configuration must fail API boot.
-
-## Layout
-
-```text
-operations/
-├── adapter/in/http/        # operation, schedule, browser-runtime APIs
-├── adapter/out/            # repository, panel projection adapters
-├── application/port/in/    # common runner and handler registration ports
-├── application/port/out/   # repository and native-runtime ports
-├── application/service/    # dispatch, schedule, run, and worker orchestration
-├── domain/                 # pure state-transition and scheduling policies
-└── operations.module.ts    # public platform wiring
-```

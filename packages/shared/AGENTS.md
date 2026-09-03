@@ -4,13 +4,6 @@
 shared error codes. It is a contract package, not a backend implementation
 package.
 
-## Owned Surfaces
-
-- Public Zod schemas shared by server and web
-- Shared TypeScript types inferred from schemas
-- Focused `@kiditem/shared/*` subpath exports
-- Compatibility root exports while consumers migrate
-
 ## Export Policy
 
 - Treat `src/index.ts` and `src/schemas/index.ts` as compatibility surfaces.
@@ -21,13 +14,14 @@ package.
 - Keep root exports only while migrating existing consumers; remove them after
   server and web builds prove no direct consumers remain.
 - Backend-only concepts must not leak into frontend-facing root exports.
-- Do not add legacy aliases during migration.
+- Migrate consumers to canonical focused names before removing compatibility
+  exports; keep new contracts free of legacy aliases.
 
 ## Schema Rules
 
 - Exported Zod values use PascalCase `FooSchema`.
 - Exported TypeScript types use `export type Foo = z.infer<typeof FooSchema>`.
-- Do not write separate interfaces for schema-derived contracts.
+- Infer schema-derived TypeScript contracts from their exported Zod schemas.
 - Date fields use `zIsoDate` so Prisma `Date` and JSON strings both parse.
 - Entity subset responses should derive with `.omit()` / `.pick()`.
 - Split schemas by domain, for example `schemas/product.ts` and

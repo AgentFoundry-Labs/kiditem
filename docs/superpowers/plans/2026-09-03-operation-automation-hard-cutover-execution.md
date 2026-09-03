@@ -1,5 +1,7 @@
 # Operation And Automation Hard Cutover Execution Plan
 
+**Status:** ACTIVE
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the unreliable Operation/Automation execution plane with source-owned imports, an explicit absolute-ABC publication command, durable Alerts, and direct domain capabilities on PR 493.

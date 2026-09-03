@@ -4,35 +4,10 @@
 post-processing, activity events, critical alerts, and panel emits. Actual rule
 evaluation is deterministic Operations work.
 
-## Owned Surfaces
-
-- Rule evaluation enqueue: `POST /api/rules/evaluate`
-- Evaluation status polling: `GET /api/rules/evaluate/status/:requestId`
-- Rule list/update: `GET /api/rules`, `PATCH /api/rules/:id`
-- Rule summary: `GET /api/rules/summary`
-
-`GET/PATCH /api/rules/schedule` and threshold-suggestion Agent runtime routes
-are removed. Reintroduce scheduling only through Operations and a scoped plan.
-
-## Main Data Models
-
-- `BusinessRule` stores rule definitions and thresholds.
-- `OperationRun` stores deterministic rule-evaluation execution state.
-- `ActivityEvent`, `Alert`, and panel events are projections of results.
-
-## Evaluation Flow
-
-```text
-POST /api/rules/evaluate
-  -> Rules-owned `rules.evaluate` Operation
-  -> client polls the owner Operation identity
-  -> RulesEvaluationOperationHandler
-  -> APPLY_RULES_EVALUATION_PORT
-  -> healthScore update + ActivityEvent + Alert + panel emit
-```
-
-Scheduled work must use the Rules-owned Operation; Rules does not create
-provider conversations or generic runtime work.
+Current deterministic evaluation runs through the Rules-owned Operation and
+applies health-score updates plus user-facing projections through the Rules
+result boundary. Keep removed schedule and threshold-suggestion routes absent;
+new scheduling requires a scoped plan.
 
 ## Cross-Domain Ports
 

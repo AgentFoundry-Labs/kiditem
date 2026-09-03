@@ -4,15 +4,7 @@
 local password/session authentication, and `/api/auth/*`. It is infrastructure, not a
 business aggregate.
 
-## Owned Surfaces
-
-- Global authentication middleware and guards
-- Login, logout, current-session reads, and operator password/session commands
-- Current user/org decorators
-- Role metadata and guard behavior
-- Auth repository port and Prisma adapter
-
-## Main Data Models
+## Authority
 
 - `User` owns the nullable scrypt password hash. Account creation remains an
   explicit data/bootstrap operation, not an auth side effect.

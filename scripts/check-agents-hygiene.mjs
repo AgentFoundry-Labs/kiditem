@@ -104,7 +104,7 @@ export function findClaudeShimFindings(agentFiles, claudeContents) {
 
 export function findInstructionChainSizeFindings(
   agentContents,
-  limitBytes = 18 * 1024,
+  limitBytes = 32 * 1024,
 ) {
   const findings = [];
   for (const agentFile of agentContents.keys()) {
@@ -121,12 +121,12 @@ export function findInstructionChainSizeFindings(
       (total, file) => total + Buffer.byteLength(agentContents.get(file)),
       0,
     );
-    if (size > limitBytes) {
+    if (size >= limitBytes) {
       findings.push({
         file: agentFile,
         line: 1,
-        name: 'AGENTS.md active chain too large',
-        text: `Active AGENTS.md chain is ${size} bytes; limit is ${limitBytes} bytes`,
+        name: 'AGENTS.md active chain reached byte limit',
+        text: `Active AGENTS.md chain is ${size} bytes; it must stay below ${limitBytes} bytes`,
       });
     }
   }

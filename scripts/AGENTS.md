@@ -3,24 +3,18 @@
 `scripts/` owns durable repo automation. Human-facing inventory lives in
 `scripts/README.md`; this file is the agent-facing contract for editing scripts.
 
-## Owned Surfaces
-
-- Package scripts and CI/runbook-backed repo automation
-- Data migrations under `scripts/data-migrations/v<VERSION>/`
-- Script inventory checks
-
 ## Script Rules
 
 - Every top-level script needs a durable owner and entrypoint: `package.json`,
   a runbook under `docs/runbooks/`, or a CI/test gate.
-- Do not commit one-off backfills, scratch scripts, temporary SQL, or local
-  debugging helpers.
+- Put persisted-data rewrites in versioned migrations with a durable entrypoint.
+  Keep scratch scripts, temporary SQL, and local debugging helpers outside Git.
 - Adding, renaming, or deleting a script also updates:
   `scripts/README.md`, `scripts/check-script-inventory.mjs`, invoking
   package/runbook/CI references, and non-trivial script tests.
-- Do not store secrets, real tokens, organization/account UUIDs, names, prices,
-  stock values, or raw copied marketplace payloads in scripts, fixtures,
-  comments, or expected output.
+- Use sanitized synthetic fixtures. Keep secrets, real tokens, organization or
+  account identifiers, names, prices, stock values, and copied marketplace
+  payloads out of scripts, fixtures, comments, and expected output.
 - Prefer deterministic helpers that run without the database.
 - Database or external-account mutation scripts need a runbook with
   prerequisites, confirmation flags, verification, and rollback/blocker notes.

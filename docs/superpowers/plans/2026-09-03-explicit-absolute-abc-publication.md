@@ -1,5 +1,7 @@
 # Explicit Absolute ABC Publication Implementation Plan
 
+**Status:** ACTIVE
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace cohort-relative product ABC with a deterministic per-product formula published only by an explicit Product Hub request.

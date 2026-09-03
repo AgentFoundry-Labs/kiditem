@@ -1,7 +1,9 @@
 # Operation And Automation Hard Cutover Design
 
+**Status:** ACTIVE
+
 - **Date:** 2026-09-03
-- **Status:** Approved; explicit ABC publication review incorporated
+- **Decision:** Approved; explicit ABC publication review incorporated
 - **Delivery PR:** [#493](https://github.com/AgentFoundry-Labs/kiditem/pull/493)
 - **Base:** `develop`; Office deployment reference: `release/office`
 

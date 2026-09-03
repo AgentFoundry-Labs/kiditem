@@ -1,5 +1,7 @@
 # Operation Automation Legacy Removal Implementation Plan
 
+**Status:** ACTIVE
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Remove the generic Operation/Automation/Workflow/Panel runtime after every surviving business action has a direct owner or capability path.

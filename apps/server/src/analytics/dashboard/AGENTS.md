@@ -3,43 +3,13 @@
 `src/analytics/dashboard/` owns `/api/dashboard/*` read endpoints for the
 analytics domain. It hydrates report KPIs from order/listing/account daily-fact
 rows plus raw SQL on order line items, and falls back to Wing/Drive replay
-daily facts when order data is absent. No mutation lives here.
-
-## Folder Map
-
-```text
-dashboard/
-├── dashboard.module.ts
-├── adapter/in/http/          # /api/dashboard/* controller + DTOs
-├── adapter/out/repository/   # Prisma/raw-SQL repository adapters
-├── application/
-│   ├── port/out/             # dashboard repository ports
-│   └── service/              # Prisma-free report orchestration
-└── domain/                   # pure context builder and utilities
-```
-
-## Owned Surfaces
-
-- `GET /api/dashboard/sales`
-- `GET /api/dashboard/ad`
-- `GET /api/dashboard/inventory`
-- `GET /api/dashboard/trend`
-
-## Main Data Sources
-
-- `Order` + `OrderLineItem` for revenue and line-item canonical facts.
-- `ChannelListingDailySnapshot` for ad metrics, traffic, and daily snapshots.
-- `ChannelAccountDailyKpiSnapshot` for Wing adSummary/Coupang ads daily facts.
-- `MasterProduct`, `ChannelListing`, and `ChannelListingOption` for ranking and
-  grade/listing context.
-- `MasterProduct`, `ChannelListingOption`, `Alert`,
-  `MasterProductAbcGradeHistory`, and
-  `Thumbnail` for Sellpia zero-stock, mapping-attention, and inventory tiles.
+daily facts when order data is absent. Keep this as a read-only reporting
+boundary with HTTP and persistence adapters around Prisma-free orchestration.
 
 ## Source-Of-Truth Rules
 
-- Revenue is `SUM(OrderLineItem.totalPrice)`, never `Order.totalPrice` or
-  `Order.quantity`.
+- Compute revenue as `SUM(OrderLineItem.totalPrice)`; `Order.totalPrice` and
+  `Order.quantity` are not revenue sources.
 - Shipping cost accumulates from `Order.shippingPrice` once per order.
 - Ad metrics aggregate additive columns; ratios recompute caller-side through
   `domain/util/percent`.
@@ -57,7 +27,8 @@ dashboard/
   evidence and are not a fallback or input for inventory ABC.
 - Rocket sales splits use Sellpia daily sales facts. `/rocket-orders` uses the
   current Rocket PO catalog; there is no `dashboard.rocket_sales` source.
-- Delivery Statistics is retired and has no Order-backed replacement.
+- Omit the retired Delivery Statistics surface until an Order-backed owner is
+  explicitly introduced.
 
 ## Transitional Exceptions
 

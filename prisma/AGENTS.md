@@ -1,166 +1,101 @@
 # prisma — Shared Schema
 
 `prisma/` is the database schema source of truth. KidItem uses Prisma v7
-multi-file schema with domain-owned model files.
+multi-file schema with domain-owned model files. This guide covers schema,
+database-change safety, and bootstrap artifacts; business behavior belongs in
+the owning domain guide or architecture documentation.
 
-## Folder Map
+PostgreSQL schema, index, constraint, migration, or query-performance work in
+this scope uses the `supabase-postgres-best-practices` skill and only its
+relevant references. Repository-specific contracts below take precedence over
+generic guidance.
 
-```text
-prisma/
-├── schema.prisma        # generator + datasource only
-├── migrations/
-└── models/
-    ├── advertising.prisma
-    ├── agents.prisma
-    ├── ai.prisma
-    ├── channels.prisma
-    ├── core.prisma
-    ├── finance.prisma
-    ├── inventory.prisma
-    ├── orders.prisma
-    ├── sourcing.prisma
-    ├── supply.prisma
-    └── system.prisma
-```
+## Schema Ownership
 
-New models go in the owning domain file and include `/// @namespace` and
-`/// @describe` comments. Root `prisma.config.ts` points Prisma at the `prisma/`
-directory; do not move datasource URL back into `schema.prisma`.
-
-## Owned Surfaces
-
-- Prisma schema and generated client shape
-- DB push/migration workflows
-- Partial unique indexes
-- Fresh Docker bootstrap snapshot: `prisma/init.sql.gz`
-- Generated schema navigation artifacts
+- Keep generator and datasource configuration in `schema.prisma`. Root
+  `prisma.config.ts` supplies the datasource URL and points Prisma at this
+  directory.
+- Add models to the owning `models/<domain>.prisma` file with `/// @namespace`
+  and `/// @describe` comments.
+- Prisma schema and source code are authoritative. `docs/ERD.md` and
+  `docs/erd/**` are generated navigation aids.
 
 ## Schema Rules
 
-- No native PostgreSQL enums. Use `String` plus DTO/Zod/domain validation.
-- PascalCase model names map to snake_case table names with `@@map`.
-- camelCase fields map to snake_case columns with `@map`.
-- UUID primary keys use `@default(uuid()) @db.Uuid`.
-- Timestamps use `@db.Timestamptz`.
-- Atomic KRW amounts use `Int`; persisted aggregates that can exceed the
-  PostgreSQL integer range use `BigInt`. CNY/decimal money uses
-  `Decimal(12,2)`.
-- JSON is for one-off raw payload preservation only. Query, aggregate, or IDOR
-  guard data should be normalized.
-- FK columns need a leading `@@index([foreignKey])`; Prisma does not create FK
-  indexes automatically.
+- Represent enum-like values as `String` and validate them through DTO, Zod,
+  and domain contracts.
+- Map PascalCase models and camelCase fields to lowercase snake_case tables and
+  columns with `@@map` and `@map`.
+- UUID primary keys use `@default(uuid()) @db.Uuid`; timestamps use
+  `@db.Timestamptz`.
+- A bounded atomic KRW value may use `Int` only when its domain maximum is below
+  the signed 32-bit limit. Cumulative or aggregate KRW uses `BigInt`; fractional
+  currency uses `Decimal`. Monetary values never use floating-point types.
+- JSON is only for raw or genuinely document-shaped payloads. Normalize data
+  used for joins, filtering, aggregation, ownership, or IDOR guards.
+- Give every FK an index usable for joins and parent update/delete checks. Reuse
+  an existing composite index when its leftmost columns cover the FK access path.
 - Optional FKs declare `onDelete` explicitly.
 
 ## Organization Boundary
 
-- `Organization` / `organization_id` is the SaaS workspace boundary.
-- `OrganizationMembership` owns user role and current organization.
-- Do not reintroduce `User.organizationId`.
-- `LegalEntity` is tax/settlement identity, not a SaaS boundary.
-- `ChannelAccount` is marketplace/store identity, not a SaaS boundary.
+- `Organization` / `organization_id` is the workspace boundary, and
+  `OrganizationMembership` owns user role and current organization.
+- Use `Organization` / `organizationId` as the only workspace identifier; keep
+  `tenantId` and `User.organizationId` absent.
+- `LegalEntity` is tax/settlement identity; `ChannelAccount` is marketplace or
+  store identity. Neither is the workspace boundary.
+- Organization-owned cross-model relations use composite `[id, organizationId]`
+  references unless a durable owner contract documents an exception.
 
-## Integrated Model Contracts
+## Indexes And Database Objects
 
-- Agent OS uses one code-owned persistence model only:
-  `CapabilityInvocation`. It stores exact request-driven mutation admission,
-  approval fields, idempotent result/error, and no provider conversation state.
-- Agent definitions and capability manifests are code-owned registries, not
-  database versions. Provider runtime/model/effort/history, live execution
-  bindings, Gateway commands, active turns, credentials, and secrets never
-  enter Prisma.
-- The retired version/session/task/process-attempt graph, separate approval
-  rows, database-owned Agent definitions/runs, runtime state, cost ledgers,
-  event/replay rows, and handle/session keys must not return.
-- `Marketplace.type` distinguishes `agent` and `workflow`; Agent definitions
-  themselves are not Marketplace rows.
+- Design indexes from actual filter, join, and ordering shapes. Put equality
+  columns before range columns in composite indexes and use a partial index only
+  when its predicate matches the stable query contract.
+- Use Prisma v7 `partialIndexes` for predicate-backed uniqueness. Keep the same
+  logical key free of a full unique constraint, and query partial keys with a
+  predicate-aware selector instead of `findUnique`.
+- Verify performance-sensitive index changes against representative data with
+  `EXPLAIN (ANALYZE, BUFFERS)`; an index inventory in documentation is not
+  evidence that a query can use it.
+- Manage database objects through Prisma. When a required RLS policy, CHECK
+  constraint, expression index, sequence, trigger, extension, or other object
+  cannot be represented there, give it a durable owner and rationale, a
+  versioned migration or cutover path, proof that Prisma workflows preserve it,
+  and a regression gate.
+- KidItem currently exposes data through NestJS rather than direct database
+  clients, so organization isolation is enforced by guards and repository
+  predicates. Any direct client, database API, or new bypass path requires an
+  explicit RLS and privilege review before merge.
 
-## Partial Unique Indexes
+## Schema And Data Changes
 
-Prisma v7 `partialIndexes` manage active-row uniqueness. Do not add full unique
-constraints on the same logical keys.
-
-Current active-row uniqueness includes:
-
-- `channel_listings(organization_id, channel_account_id, external_id)`
-- active source-backed `channel_listings(organization_id, source_candidate_id,
-  channel_account_id)`
-- active `product_preparations(organization_id, source_candidate_id,
-  channel_account_id)`
-- one primary `supplier_products(sellpia_inventory_sku_id)` row
-
-`MasterProduct` is the canonical KidItem inventory product and sole ABC owner.
-Each provider source row may own at most one MasterProduct; Sellpia uses
-`SellpiaInventorySku.masterProductId`. Multiple channel listing options may
-consume the same MasterProduct through its source SKU.
-`ChannelListing.masterProductId` is only a derived single-product summary and
-must be null when the option recipes are incomplete or span multiple products.
-`ChannelListingOptionInventoryComponent` stores the positive quantity of one
-`SellpiaInventorySku` consumed by one channel-option sale, and
-`SellpiaInventorySku` is the sole physical Sellpia quantity/source-fact owner.
-Never put
-`currentStock`, source prices, barcode, raw import payload, or import provenance
-back on `MasterProduct`, and never restore ProductVariant or a second recipe
-layer.
-`MasterProductAbcEvaluation` is the Products-owned one-to-one explanation
-snapshot; the only writable official ABC grade remains `MasterProduct.abcGrade`.
-
-All relations among these models are organization-fenced with composite
-`[id, organizationId]` references. A nullable channel product summary means the
-option recipes are incomplete or span multiple inventory products; an empty
-option component list means inventory configuration is required. Candidate
-evidence is not persisted as confirmed truth.
-
-Service code should use `findFirst({ where: { ..., isDeleted: false } })`
-instead of `findUnique(...)` assumptions over partial keys.
-
-## Data + Migration Flow
-
-After pulling schema changes:
-
-```bash
-git pull
-npm install --legacy-peer-deps
-npm run db:push -- --accept-data-loss   # only when drops are expected
-npx prisma generate
-npm run data:migrate                    # when release data migrations exist
-```
-
-Compatible schema changes share the open root release-train `VERSION`; they do
-not bump it per Prisma diff. Use a versioned data migration only when persisted
-rows need an idempotent rewrite. Never append a new migration to a train already
-promoted to `main`; open the next train first. See
-[`docs/runbooks/release-train-versioning.md`](../docs/runbooks/release-train-versioning.md).
-
-Prisma `db push` changes schema only. Durable persisted-data rewrites live under
-`scripts/data-migrations/v<app-version>/<sequence>_<name>.ts`, run through
-`npm run data:migrate`, and record `data_migration_runs`.
-
-## Development Data
-
-Shared screen/data baselines use Google Drive dev data profiles, not
-`init.sql.gz` or synthetic seeds. Standard replay mode is `scoped-replace`, and
-Coupang bundles replay through the real ingest path:
-`POST /api/ads/extension/sync`.
-
-`prisma/init.sql.gz` is only a fresh Docker volume bootstrap snapshot. Existing
-volumes ignore it; deleting a local volume to apply it destroys local data.
-
-## Prisma-Only Boundary
-
-Schema truth stays in Prisma. Do not maintain long-lived RLS, CHECK
-constraint, expression index, standalone sequence, or SQL overlay systems.
-Tenant isolation is enforced by Nest guards plus application/repository
-`organizationId` predicates.
+- Prisma `db push` changes schema only. Persisted-row rewrites use an idempotent
+  versioned migration under
+  `scripts/data-migrations/v<app-version>/<sequence>_<name>.ts`, run through
+  `npm run data:migrate`, and record `data_migration_runs`.
+- Compatible schema changes share the open root release-train `VERSION`. Never
+  append a migration to a train already promoted to `main`; open the next train.
+  Follow
+  [`release-train-versioning.md`](../docs/runbooks/release-train-versioning.md).
+- Run `db push` only against an explicitly confirmed disposable or local target.
+  Drops, narrowing type changes, or `--accept-data-loss` require the explicit
+  data/cutover decision in the deployment runbook; never use them as routine
+  post-pull setup or against an operating database.
+- Shared development baselines follow
+  [`DEV_DATA_BUNDLES.md`](../docs/DEV_DATA_BUNDLES.md); keep bootstrap artifacts
+  and their lifecycle documented there.
 
 ## Verification
 
 After Prisma model or schema-consumer changes:
 
 ```bash
-npm run db:push
+npx prisma format
+npx prisma validate
+npm run db:push             # confirmed disposable/local target only
 npx prisma generate
 npm run build --workspace=packages/shared
 npm run db:erd
 ```
-
-`docs/ERD.md` and `docs/erd/**` are navigation aids only; verify important claims against Prisma and source code.

@@ -8,8 +8,14 @@ processing, listing, and operations.
 - AGENTS.md is the shared authority. The nearest guide adds to or overrides its
   parents; a sibling CLAUDE.md contains only `@AGENTS.md`.
 - Before editing, discover AGENTS.md files and read the root-to-target chain.
-  Repeat when scope moves. Keep every active chain at or below 18 KiB and run
-  `npm run check:agents-hygiene` after instruction changes.
+  Repeat when scope moves. Keep every active chain below Codex's default 32 KiB
+  project-instruction limit and run `npm run check:agents-hygiene` after
+  instruction changes. Treat 32 KiB as a truncation ceiling, not a target;
+  review clarity and relevance separately from byte size.
+- Write short, actionable guidance: name the required action, its trigger, and
+  the safe path or verification. Reserve `never` and `do not` for destructive,
+  security, or canonical-ownership invariants; keep inventories, history, and
+  extended rationale in source or durable docs.
 - AGENTS.md contains durable repository invariants only. Per-task agent/model
   allocation, review order, temporary migration state, and one-off
   implementation instructions belong in the task or an approved plan.
@@ -24,17 +30,17 @@ processing, listing, and operations.
 
 ## Core Contracts
 
-- Frontend code reaches data through NestJS APIs; it never imports Prisma,
-  `pg`, Supabase DB clients, or another direct database client.
-- Deterministic automation never creates Agent OS runs. Work requiring LLM
-  judgment starts in Agent OS, which may invoke deterministic capabilities.
-- Missing model selection is an explicit error; do not use a silent fallback.
+- Frontend code reaches data only through NestJS APIs. Keep Prisma, `pg`,
+  Supabase DB clients, and other direct database clients on the backend.
+- Route deterministic automation through deterministic capabilities. Start work
+  requiring LLM judgment in Agent OS, which may invoke those capabilities.
+- Require explicit model selection and return an error when it is missing.
 - Prisma uses `String` plus DTO/Zod/domain validation instead of native
   PostgreSQL enums. Production raw SQL uses tagged templates and whitelisted
   dynamic identifiers.
 - Organization scope is `Organization` / `organizationId` through
-  `OrganizationMembership`; do not add `tenantId` or
-  `User.organizationId`. Mutations carry organization scope and
+  `OrganizationMembership`. Keep `tenantId` and `User.organizationId` absent;
+  mutations carry organization scope and
   single-resource reads use `{ id, organizationId }`.
 - `LegalEntity` is tax/settlement identity. `ChannelAccount` is
   marketplace/store identity.
@@ -58,8 +64,8 @@ processing, listing, and operations.
 - Reconstruction cleans a platform boundary; it does not authorize unrelated
   business rewrites. Add a contract, scanner, or regression gate before
   deleting legacy behavior.
-- Controllers derive organization scope from `@CurrentOrganization()` and
-  never trust client input.
+- Controllers derive organization scope from `@CurrentOrganization()` rather
+  than client input.
 - File size and diff size are review signals, not design rules. Do not add a
   new state authority, lifecycle, or business responsibility to a module that
   already owns unrelated responsibilities.
@@ -74,13 +80,17 @@ processing, listing, and operations.
 - Release and schema decisions follow
   [release-train-versioning.md](docs/runbooks/release-train-versioning.md) and
   [prisma/AGENTS.md](prisma/AGENTS.md#data--migration-flow).
-- Final Office releases deploy exact `origin/release/office`; incident refs are
-  provisional. Follow [office-deploy.md](docs/runbooks/office-deploy.md) for
-  promotion, live alignment, local build, cutover, and reconciliation.
+- Office releases use `npm run deploy:office:local -- --ref origin/<branch>`
+  from the Windows host. The deployer fetches one named remote ref, builds API,
+  web, and Gateway from its clean exact-SHA worktree, and preserves the live
+  env/volumes while recreating application services. GitHub Office bundles,
+  GHCR release digests, and `release/office` promotion PRs are not deployment
+  inputs. Prisma/data diffs require the explicit cutover contract in
+  [deployment-architecture.md](docs/runbooks/deployment-architecture.md).
 
 ## Verification
 
-Do not claim completion without evidence. A scoped guide adds a Verification
+Claim completion only with evidence. A scoped guide adds a Verification
 section only when it has a narrower or different gate.
 
 | Change | Required gate |
@@ -94,9 +104,11 @@ contract.
 
 ## Git And Pull Requests
 
-- Treat `main`, `develop`, and `release/office` as protected shared branches.
-  Office promotes `develop -> release/office`; incident hotfixes target release
-  first, then move forward to `develop`. Never delete or prune `release/office`.
+- `main`, `develop`, and `release/office` are protected. Regular work branches
+  from and targets `develop`; promotions flow `develop` to `main`.
+- Never delete, prune, or classify `release/office` as stale. Every checkout
+  keeps a local branch tracking `origin/release/office`; the live checkout is
+  an operational anchor, not the source or admission gate for local deployment.
 - Use the repository branch/commit naming in the
   [AI collaboration runbook](docs/runbooks/ai-collaboration.md). Squash normal
   PRs; use merge commits for `develop`/`main` sync and promotion. Never

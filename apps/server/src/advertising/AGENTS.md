@@ -15,17 +15,6 @@ throughout.
   auditable. Advertising is the canonical writer for its own facts; consumers
   use its read contracts rather than mutating channel tables directly.
 
-## Main Data Models
-
-- `ChannelScrapeRun` and `ChannelScrapeSnapshot` are raw audit/replay evidence.
-- `ChannelListingDailySnapshot` and `ChannelListingOptionDailySnapshot` are
-  listing/option daily facts.
-- `ChannelAdTargetDailySnapshot` is the campaign/keyword/product target daily
-  fact. `targetType='keyword'` rows are the exception to "daily": they are
-  trailing-window observations (see Keyword Grain below).
-- `ChannelAccountDailyKpiSnapshot` is the account/store KPI fact.
-- `AdAction` is the executable action record and is target-daily based.
-
 ## Keyword Grain
 
 `ad_keyword` reads the per-ad keyword table behind the ad centre "키워드 보기"
@@ -33,8 +22,8 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
 
 - Collection is its own producer (`advertising.ad_keyword`), triggered from the
   dashboard collection modal. It enumerates every campaign from
-  `tetris-api/campaigns` (each campaign carries its `groupList`) and never
-  navigates, so it does not depend on the 31-day campaign sweep finishing.
+  `tetris-api/campaigns` (each campaign carries its `groupList`) without page
+  navigation or a dependency on the 31-day campaign sweep.
 - A one-day window returns an empty keyword table. Collection uses a trailing
   multi-day window (7 days), `businessDate` is the window END, and
   `metaJson.data.windowDays` records its width.
@@ -52,7 +41,7 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
   product, capped per product and per run, with the remainder reported.
 - The judgement is a language call through AI's `TEXT_JUDGEMENT_PORT`, wrapped
   by advertising's `KEYWORD_RELEVANCE_JUDGE_PORT` seam. It uses the explicit
-  shared `AI_TEXT_MODEL`; there is no fallback model.
+  shared `AI_TEXT_MODEL` and returns an error when model selection is missing.
 - Keyword relevance judgement is a scoped exception to the root rule that LLM
   judgement starts from Agent OS. This path is a bounded direct-AI capability:
   fixed prompt/schema/model, no autonomous tool use or planning, and output
@@ -68,25 +57,25 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
   complete manifest. It does not invoke ABC or another downstream calculation;
   readers use only the latest complete advertising snapshot.
 - Sellable-stock reads go through Channels' exported read-only
-  `CHANNEL_SKU_AVAILABILITY_PORT`; Advertising never computes a second stock
-  balance or reads stock fields from marketplace SKU metadata.
+  `CHANNEL_SKU_AVAILABILITY_PORT`; use that projection as the sole stock balance
+  instead of marketplace SKU metadata.
 - Advertising intentionally reads/writes channel daily fact models because the
   scrape ingest path owns raw/fact projection traceability.
 - Product ABC reads go through Products' exported stored-grade port. An
-  unclassified product stays `null`; Advertising must not calculate a product
-  grade or coerce a missing/stale source to C.
+  unclassified product stays `null`; consume the stored grade without deriving
+  a product grade or coercing a missing/stale source to C.
 - Advertising evidence used by ABC preserves `OBSERVED`, `CONFIRMED_ZERO`, and
   `NOT_APPLIED`. `MISSING`/`STALE` is not an advertising cost of zero.
 - Revenue, operating-profit contribution, rank, and cumulative share are
   reporting metrics only; none changes the absolute ABC grade.
-- Advertising must not inject concrete Channels services.
+- Reach Channels through its exported port rather than concrete services.
 
 ## Boundary Rules
 
 - KST business date conversion goes through `toBusinessDate()`.
 - Period views derive from daily facts; ratios recompute from summed raw
-  values and do not trust provider ratios.
+  values instead of provider ratios.
 - Listing facts match `vendorItemId` to `ChannelListingOption`, then
   `externalId` to a Coupang `ChannelListing`; preserve unmatched raw evidence.
-- `buildAdTargetKey()` is the only target-key builder and must fail if no
+- Build target keys only with `buildAdTargetKey()` and return an error when no
   stable identifier exists.
