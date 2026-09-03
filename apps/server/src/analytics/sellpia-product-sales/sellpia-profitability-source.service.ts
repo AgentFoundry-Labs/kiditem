@@ -573,12 +573,13 @@ export class SellpiaProfitabilitySourceService
         return { latestAttempt: attemptView, latestComplete: null, status: 'MISSING' };
       }
       const currentTarget = buildSellpiaProfitabilityPlan(new Date()).to;
-      const latestFailed = attemptView?.state === 'FAILED'
-        && latestAttempt?.id !== latestComplete.sourceImportRunId;
+      const latestAttemptIsCurrentComplete = latestAttempt === null
+        || (attemptView?.state === 'COMPLETE'
+          && latestAttempt.id === latestComplete.sourceImportRunId);
       return {
         latestAttempt: attemptView,
         latestComplete,
-        status: latestComplete.coveredThrough === currentTarget && !latestFailed
+        status: latestComplete.coveredThrough === currentTarget && latestAttemptIsCurrentComplete
           ? 'READY'
           : 'STALE',
       };

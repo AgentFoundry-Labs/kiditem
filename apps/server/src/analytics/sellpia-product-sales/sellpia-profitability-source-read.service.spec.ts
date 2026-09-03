@@ -130,6 +130,27 @@ describe('Sellpia profitability source deep read', () => {
     }));
   });
 
+  it('marks a current prior COMPLETE generation stale while a newer attempt is RUNNING', async () => {
+    const replacementId = '66666666-6666-4666-8666-666666666666';
+    const { service } = makeService({
+      latestAttempt: run({
+        id: replacementId,
+        status: 'running',
+        publicationSequence: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        createdAt: new Date('2026-09-03T02:00:00.000Z'),
+        updatedAt: new Date('2026-09-03T02:00:00.000Z'),
+      }),
+      completed: [run()],
+    });
+
+    await expect(service.readSourceStatus(ORGANIZATION_ID)).resolves.toMatchObject({
+      status: 'STALE',
+      latestAttempt: { attemptId: replacementId, state: 'RUNNING' },
+      latestComplete: { sourceImportRunId: ATTEMPT_ID, generation: '7' },
+    });
+  });
+
   it('truncates a long COMPLETE history to the requested catalog limit', async () => {
     const { service, tx } = makeService({
       completed: [run(), run({
