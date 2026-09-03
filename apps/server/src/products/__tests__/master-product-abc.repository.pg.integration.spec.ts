@@ -1,311 +1,558 @@
 import { randomUUID } from 'node:crypto';
-import type { PrismaClient } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { ProductAbcEvaluation, ProductAbcFormulaSummary } from '@kiditem/shared/product-abc';
-import type { PrismaService } from '../../prisma/prisma.service';
+import { PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD } from '@kiditem/shared/product-abc';
+import { AlertsRepository } from '../../alerts/alerts.repository';
+import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
+import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
 import {
   makeTestPrisma,
+  OTHER_ORGANIZATION_ID,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { MasterProductAbcRepositoryAdapter } from '../adapter/out/repository/master-product-abc.repository.adapter';
+import type {
+  ProductAbcPublicationInput,
+} from '../application/port/out/repository/master-product-abc.repository.port';
 
-const activatedAt = new Date('2026-08-01T00:00:00.000Z');
-const formula: ProductAbcFormulaSummary = {
-  formulaKey: 'ABC_V1', version: 1,
-  calculationCodeChecksum: 'a'.repeat(64), formulaChecksum: 'b'.repeat(64), activatedAt,
-  halfLifeDays: 90, weights: { profit: 0.5, margin: 0.3, persistence: 0.2 }, dayShrinkK: 30,
-  cutoffs: { cToB: 40, bToA: 70 },
-  normalizationKnots: {
-    profitVelocity: [{ value: 0, score: 0 }, { value: 100, score: 100 }],
-    contributionMargin: [{ value: 0, score: 0 }, { value: 1, score: 100 }],
-    lossRecurrence: [{ value: 0, score: 0 }, { value: 1, score: 100 }],
-  },
-  trainingRange: { from: '2025-07-01', to: '2026-07-01' }, sampleCount: 30, foldCount: 3,
-  calibrationMetrics: { meanSpearmanRankCorrelation: 0.5, meanExplainedVariance: 0.2, gradeChurnRate: 0.1 },
-};
+const CUTOFF = '2026-08-31';
 
-function evaluation(): ProductAbcEvaluation {
-  return {
-    abcGrade: 'A', calculationStatus: 'READY', rawScore: 80, adjustedScore: 75, reliability: 0.8,
-    weightedRevenue: 1_000, weightedOrderTimeCogs: 200, weightedAdSpend: 100, weightedContributionProfit: 700,
-    profitVelocity30: 350, weightedContributionMargin: 0.7, lossRecurrence: 0,
-    paidOrderCount: 30, observationDays: 61, firstValidPaidSaleAt: new Date('2026-06-01T00:00:00.000Z'), formula,
-    sourceFreshness: {
-      evaluationCutoffDate: '2026-07-31',
-      sellpia: { status: 'READY', coverageStartDate: '2025-07-01', coverageEndDate: '2026-07-31', capturedAt: null },
-      advertising: { status: 'READY', coverageStartDate: '2025-07-01', coverageEndDate: '2026-07-31', capturedAt: null },
-      orders: { status: 'READY', coverageStartDate: '2025-07-01', coverageEndDate: '2026-07-31', capturedAt: null },
-      mapping: { status: 'READY', inventoryGeneration: '1', verifiedAt: activatedAt },
-    },
-    costBreakdown: {
-      recognizedRevenue: { amount: 1_000, status: 'OBSERVED' }, orderTimeCogs: { amount: 200, status: 'OBSERVED' },
-      advertisingSpend: { amount: 100, status: 'OBSERVED' }, marketplaceCommission: { amount: 0, status: 'NOT_APPLIED' },
-      outboundFulfillment: { amount: 0, status: 'NOT_APPLIED' }, returnLoss: { amount: 0, status: 'NOT_APPLIED' },
-      otherVariableCost: { amount: 0, status: 'NOT_APPLIED' },
-    },
-    statusDetail: null, calculatedAt: activatedAt,
-  };
-}
-
-describe('MasterProductAbcRepositoryAdapter (PG integration)', () => {
+describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
   let prisma: PrismaClient;
   let repository: MasterProductAbcRepositoryAdapter;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    repository = new MasterProductAbcRepositoryAdapter(prisma as unknown as PrismaService);
+    repository = new MasterProductAbcRepositoryAdapter(prisma as never);
   });
-  afterAll(async () => { await prisma?.$disconnect(); });
-  beforeEach(async () => { await resetDb(prisma); await seedBaseFixture(prisma); });
 
-  it('immutably stores the initial formula and publishes an organization-fenced current evaluation/history', async () => {
-    const product = await prisma.masterProduct.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, code: `ABC-${randomUUID()}`, name: 'Profitability ABC' },
-    });
-    const account = await prisma.channelAccount.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang', name: 'ABC account' },
-    });
-    const listing = await prisma.channelListing.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: account.id,
-        masterProductId: product.id,
-        externalId: `LISTING-${randomUUID()}`,
-        status: 'active',
-      },
-    });
-    const sellingOption = await prisma.channelListingOption.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: listing.id,
-        externalOptionId: `OPTION-${randomUUID()}`,
-        status: 'NEW',
-      },
-    });
-    const sellingSku = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        masterProductId: product.id,
-        code: `ABC-SKU-${randomUUID()}`,
-        name: 'ABC inventory',
-        currentStock: 10,
-      },
-    });
-    await prisma.channelListingOptionInventoryComponent.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelListingOptionId: sellingOption.id,
-        sellpiaInventorySkuId: sellingSku.id,
-        quantity: 1,
-      },
-    });
-    const empty = await repository.getFormulaState(TEST_ORGANIZATION_ID);
-    const initialized = await repository.ensureInitialFormula({
-      organizationId: TEST_ORGANIZATION_ID, expectedRevision: empty.revision, formula,
-    });
-    expect(initialized).toMatchObject({ created: true, stale: false, state: { revision: 1 } });
+  afterAll(async () => {
+    await prisma?.$disconnect();
+  });
 
-    await expect(repository.publishEvaluations({
-      organizationId: TEST_ORGANIZATION_ID,
-      expectedFormulaStateRevision: initialized.state.revision,
-      formulaVersionId: initialized.state.formulaVersionId,
-      evaluations: new Map([[product.id, evaluation()]]),
-      reason: 'AUTOMATIC_PROFITABILITY_RECALCULATION',
-    })).resolves.toEqual({ changedProductCount: 1, stale: false });
+  beforeEach(async () => {
+    await resetDb(prisma);
+    await seedBaseFixture(prisma);
+  });
 
-    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: product.id } }))
+  it('publishes the baseline atomically without creating history', async () => {
+    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    const result = await repository.publish(publication({
+      formulaVersionId,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [candidate(productId, sources, 'A')],
+    }));
+
+    expect(result).toEqual({ outcome: 'PUBLISHED', publicationRevision: 1, changedProductCount: 1 });
+    await expect(prisma.masterProductAbcFormulaState.findUniqueOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toMatchObject({
+      formulaRevision: 1,
+      publicationRevision: 1,
+      officialCutoffDate: new Date(`${CUTOFF}T00:00:00.000Z`),
+      publishedMappingGeneration: 0n,
+    });
+    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
       .resolves.toMatchObject({ abcGrade: 'A' });
     await expect(prisma.masterProductAbcEvaluation.findUniqueOrThrow({
-      where: { masterProductId_organizationId: { masterProductId: product.id, organizationId: TEST_ORGANIZATION_ID } },
-    })).resolves.toMatchObject({ calculationStatus: 'READY', sellpiaSourceStatus: 'READY' });
-    await expect(prisma.masterProductAbcGradeHistory.findMany({ where: { masterProductId: product.id } }))
-      .resolves.toEqual([expect.objectContaining({ oldGrade: null, newGrade: 'A', formulaVersionId: initialized.state.formulaVersionId })]);
-    await expect(repository.publishEvaluations({
-      organizationId: TEST_ORGANIZATION_ID, expectedFormulaStateRevision: 0, formulaVersionId: null,
-      evaluations: new Map(), reason: 'AUTOMATIC_PROFITABILITY_RECALCULATION',
-    })).resolves.toEqual({ changedProductCount: 0, stale: true });
+      where: { masterProductId_organizationId: { masterProductId: productId, organizationId: TEST_ORGANIZATION_ID } },
+    })).resolves.toMatchObject({
+      abcGrade: 'A',
+      publicationRevision: 1,
+      formulaRevision: 1,
+      gradeBasisCutoffDate: new Date(`${CUTOFF}T00:00:00.000Z`),
+    });
+    await expect(prisma.masterProductAbcGradeHistory.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
   });
 
-  it('uses only explicitly selling products and clears a stopped product stale grade', async () => {
-    const account = await prisma.channelAccount.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang', name: 'Selling account' },
-    });
-    const selling = await prisma.masterProduct.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, code: `SELL-${randomUUID()}`, name: 'Selling' },
-    });
-    const stopped = await prisma.masterProduct.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        code: `STOP-${randomUUID()}`,
-        name: 'Stopped',
-        abcGrade: 'B',
-      },
-    });
-    const unverified = await prisma.masterProduct.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, code: `UNKNOWN-${randomUUID()}`, name: 'Unknown' },
-    });
-    const sellingListing = await prisma.channelListing.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: account.id,
-        masterProductId: selling.id,
-        externalId: `SELL-LISTING-${randomUUID()}`,
-        status: 'approved',
-      },
-    });
-    const sellingOption = await prisma.channelListingOption.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: sellingListing.id,
-        externalOptionId: `SELL-OPTION-${randomUUID()}`,
-        status: '판매중',
-      },
-    });
-    const sellingSku = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        masterProductId: selling.id,
-        code: `SELL-SKU-${randomUUID()}`,
-        name: 'Selling inventory',
-        currentStock: 10,
-      },
-    });
-    await prisma.channelListingOptionInventoryComponent.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelListingOptionId: sellingOption.id,
-        sellpiaInventorySkuId: sellingSku.id,
-        quantity: 1,
-      },
-    });
-    await prisma.channelListing.createMany({
-      data: [
-        {
-          organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: account.id,
-          masterProductId: stopped.id,
-          externalId: `STOP-LISTING-${randomUUID()}`,
-          status: 'paused',
-        },
-        {
-          organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: account.id,
-          masterProductId: unverified.id,
-          externalId: `UNKNOWN-LISTING-${randomUUID()}`,
-          status: null,
-        },
-      ],
-    });
+  it('records only a later A/B/C to A/B/C transition', async () => {
+    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    await repository.publish(publication({
+      formulaVersionId,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [candidate(productId, sources, 'B')],
+    }));
+    const state = await repository.getFormulaState(TEST_ORGANIZATION_ID);
 
-    await expect(repository.listSellingMasterProductIds(TEST_ORGANIZATION_ID))
-      .resolves.toEqual([selling.id]);
-
-    const initialized = await repository.ensureInitialFormula({
-      organizationId: TEST_ORGANIZATION_ID,
-      expectedRevision: 0,
-      formula,
+    await expect(repository.publish(publication({
+      formulaVersionId,
+      expectedPublicationRevision: state.publicationRevision,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [candidate(productId, sources, 'A')],
+    }))).resolves.toMatchObject({
+      outcome: 'PUBLISHED',
+      publicationRevision: 2,
     });
-    await expect(repository.publishEvaluations({
-      organizationId: TEST_ORGANIZATION_ID,
-      expectedFormulaStateRevision: initialized.state.revision,
-      formulaVersionId: initialized.state.formulaVersionId,
-      evaluations: new Map([[selling.id, evaluation()]]),
-      reason: 'AUTOMATIC_PROFITABILITY_RECALCULATION',
-    })).resolves.toEqual({ changedProductCount: 2, stale: false });
-    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: stopped.id } }))
+    await expect(prisma.masterProductAbcGradeHistory.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      select: { oldGrade: true, newGrade: true, publicationRevision: true },
+    })).resolves.toEqual([{ oldGrade: 'B', newGrade: 'A', publicationRevision: 2 }]);
+  });
+
+  it('does not count an unchanged official grade as changed', async () => {
+    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    await repository.publish(publication({
+      formulaVersionId,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [candidate(productId, sources, 'A')],
+    }));
+    const state = await repository.getFormulaState(TEST_ORGANIZATION_ID);
+
+    await expect(repository.publish(publication({
+      formulaVersionId,
+      expectedPublicationRevision: state.publicationRevision,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [candidate(productId, sources, 'A')],
+    }))).resolves.toEqual({
+      outcome: 'PUBLISHED',
+      publicationRevision: 2,
+      changedProductCount: 0,
+    });
+  });
+
+  it('does not create history for null-to-grade or grade-to-null changes', async () => {
+    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    await repository.publish(publication({
+      formulaVersionId,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [candidate(productId, sources, 'A')],
+    }));
+    let state = await repository.getFormulaState(TEST_ORGANIZATION_ID);
+    await prisma.masterProduct.update({ where: { id: productId }, data: { isActive: false } });
+
+    await expect(repository.publish(publication({
+      formulaVersionId,
+      expectedPublicationRevision: state.publicationRevision,
+      sourceFences: sources,
+      targetProductIds: [],
+      candidates: [],
+    }))).resolves.toMatchObject({ outcome: 'PUBLISHED', publicationRevision: 2 });
+    state = await repository.getFormulaState(TEST_ORGANIZATION_ID);
+    expect(state.publicationRevision).toBe(2);
+    await expect(prisma.masterProductAbcGradeHistory.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
+    await expect(prisma.masterProductAbcEvaluation.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
+    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
       .resolves.toMatchObject({ abcGrade: null });
   });
 
-  it('reconciles mapped product activity from verified Sellpia physical stock', async () => {
-    const account = await prisma.channelAccount.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang', name: 'Inventory activity account' },
+  it('removes an old official grade when a current product becomes insufficient', async () => {
+    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    await repository.publish(publication({
+      formulaVersionId,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [candidate(productId, sources, 'A')],
+    }));
+    const state = await repository.getFormulaState(TEST_ORGANIZATION_ID);
+
+    await expect(repository.publish(publication({
+      formulaVersionId,
+      expectedPublicationRevision: state.publicationRevision,
+      sourceFences: sources,
+      // The product still belongs to the current selling set, but the service
+      // omits it because its valid observation days are below the threshold.
+      targetProductIds: [productId],
+      candidates: [],
+    }))).resolves.toMatchObject({ outcome: 'PUBLISHED', publicationRevision: 2 });
+    await expect(prisma.masterProductAbcEvaluation.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
+    await expect(prisma.masterProductAbcGradeHistory.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
+    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
+      .resolves.toMatchObject({ abcGrade: null });
+  });
+
+  it('waits for a source terminalization lock before comparing its source fence', async () => {
+    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    const blocker = makeTestPrisma();
+    await blocker.$connect();
+
+    let release!: () => void;
+    const releaseSignal = new Promise<void>((resolve) => { release = resolve; });
+    let acquired!: () => void;
+    const acquiredSignal = new Promise<void>((resolve) => { acquired = resolve; });
+    const sourceRunId = sources.sellpia.selectedComplete.sourceImportRunId!;
+    const sourceLockKey = `kiditem.sellpia-product-profitability:${TEST_ORGANIZATION_ID}`;
+
+    const blockerTransaction = blocker.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`
+        SELECT pg_advisory_xact_lock(hashtextextended(${sourceLockKey}, 0::bigint))::text AS "lock"
+      `);
+      // Simulate a source owner terminalizing a newer generation while ABC is
+      // waiting for the same lock. The source mutation commits before ABC can
+      // re-read its fence.
+      await tx.sourceImportRun.update({
+        where: { id: sourceRunId },
+        data: { publicationSequence: 999n },
+      });
+      acquired();
+      await releaseSignal;
     });
-    const zeroStock = await createMappedProductWithStock({
-      prisma,
-      accountId: account.id,
-      code: `ZERO-${randomUUID()}`,
-      currentStock: 0,
-      abcGrade: 'A',
+    await acquiredSignal;
+
+    const publicationPromise = repository.publish(publication({
+      formulaVersionId,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [candidate(productId, sources, 'A')],
+    }));
+
+    try {
+      await expect(Promise.race([
+        publicationPromise.then(() => 'PUBLISHED' as const),
+        new Promise<'WAITING'>((resolve) => setTimeout(() => resolve('WAITING'), 50)),
+      ])).resolves.toBe('WAITING');
+    } finally {
+      release();
+      await blockerTransaction;
+      await blocker.$disconnect();
+    }
+
+    await expect(publicationPromise).resolves.toEqual({ outcome: 'INPUT_CHANGED' });
+  });
+
+  it('rejects complete source generations from an older mapping generation', async () => {
+    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    await prisma.masterProductAbcFormulaState.update({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      data: { mappingGeneration: 1n },
     });
-    const positiveStock = await createMappedProductWithStock({
-      prisma,
-      accountId: account.id,
-      code: `POSITIVE-${randomUUID()}`,
-      currentStock: 3,
-      abcGrade: 'B',
+
+    await expect(repository.publish(publication({
+      formulaVersionId,
+      mappingGeneration: '1',
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [],
+    }))).resolves.toEqual({ outcome: 'INPUT_CHANGED' });
+    await expect(prisma.masterProductAbcFormulaState.findUniqueOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toMatchObject({ publicationRevision: 0 });
+  });
+
+  it('rejects candidate provenance that does not match the selected source IDs', async () => {
+    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    const mismatched = {
+      ...candidate(productId, sources, 'A'),
+      sellpiaSourceImportRunId: sources.advertising.selectedComplete.sourceImportRunId!,
+    };
+
+    await expect(repository.publish(publication({
+      formulaVersionId,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [mismatched],
+    }))).resolves.toEqual({ outcome: 'INPUT_CHANGED' });
+    await expect(prisma.masterProductAbcEvaluation.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
+  });
+
+  it('rejects a candidate after the captured product stops selling', async () => {
+    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    await prisma.masterProduct.update({
+      where: { id: productId },
+      data: { isActive: false },
     });
-    const restocked = await createMappedProductWithStock({
-      prisma,
-      accountId: account.id,
-      code: `RESTOCKED-${randomUUID()}`,
-      currentStock: 2,
-      abcGrade: null,
-      isActive: false,
-    });
-    const unmapped = await prisma.masterProduct.create({
+
+    await expect(repository.publish(publication({
+      formulaVersionId,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [candidate(productId, sources, 'A')],
+    }))).resolves.toEqual({ outcome: 'INPUT_CHANGED' });
+    await expect(prisma.masterProductAbcEvaluation.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
+  });
+
+  it('rejects a source attempt that stopped being the latest COMPLETE attempt', async () => {
+    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    await prisma.sourceImportRun.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        code: `UNMAPPED-${randomUUID()}`,
-        name: 'Unmapped product',
-        abcGrade: 'C',
+        sourceType: 'sellpia_product_profitability',
+        status: 'running',
+        idempotencyKey: `abc-running-${randomUUID()}`,
       },
     });
 
-    const inventoryActivityRepository = repository as unknown as {
-      reconcileInventoryActivity(organizationId: string): Promise<{
-        deactivatedMasterProductIds: readonly string[];
-        reactivatedMasterProductIds: readonly string[];
-      }>;
-    };
-    await expect(inventoryActivityRepository.reconcileInventoryActivity(TEST_ORGANIZATION_ID))
-      .resolves.toEqual({
-        deactivatedMasterProductIds: [zeroStock.id],
-        reactivatedMasterProductIds: [restocked.id],
-      });
+    await expect(repository.publish(publication({
+      formulaVersionId,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [candidate(productId, sources, 'A')],
+    }))).resolves.toEqual({ outcome: 'INPUT_CHANGED' });
+  });
 
-    await expect(prisma.masterProduct.findMany({
-      where: { id: { in: [zeroStock.id, positiveStock.id, restocked.id, unmapped.id] } },
-      orderBy: { code: 'asc' },
-      select: { id: true, isActive: true, abcGrade: true },
-    })).resolves.toEqual(expect.arrayContaining([
-      { id: zeroStock.id, isActive: false, abcGrade: null },
-      { id: positiveStock.id, isActive: true, abcGrade: 'B' },
-      { id: restocked.id, isActive: true, abcGrade: null },
-      { id: unmapped.id, isActive: true, abcGrade: 'C' },
-    ]));
+  it('rejects a candidate cutoff older than the official publication', async () => {
+    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    await repository.publish(publication({
+      formulaVersionId,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [candidate(productId, sources, 'A')],
+    }));
+    const state = await repository.getFormulaState(TEST_ORGANIZATION_ID);
+
+    await expect(repository.publish(publication({
+      formulaVersionId,
+      expectedPublicationRevision: state.publicationRevision,
+      targetCutoff: '2026-07-31',
+      actualCutoff: '2026-07-31',
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [{
+        ...candidate(productId, sources, 'A'),
+        gradeBasisCutoffDate: '2026-07-31',
+      }],
+    }))).resolves.toEqual({ outcome: 'INPUT_CHANGED' });
+    await expect(repository.getFormulaState(TEST_ORGANIZATION_ID)).resolves.toMatchObject({
+      publicationRevision: 1,
+      officialCutoffDate: CUTOFF,
+    });
+  });
+
+  it('allows only one concurrent command to publish a captured revision', async () => {
+    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    const input = publication({
+      formulaVersionId,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [candidate(productId, sources, 'A')],
+    });
+
+    const outcomes = await Promise.all([
+      repository.publish(input),
+      repository.publish(input),
+    ]);
+
+    expect(outcomes.map(({ outcome }) => outcome).sort()).toEqual([
+      'INPUT_CHANGED',
+      'PUBLISHED',
+    ]);
+    await expect(repository.getFormulaState(TEST_ORGANIZATION_ID)).resolves.toMatchObject({
+      publicationRevision: 1,
+    });
+    await expect(prisma.masterProductAbcEvaluation.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(1);
+  });
+
+  it('never mutates another organization while publishing', async () => {
+    const foreign = await prisma.masterProduct.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        code: `FOREIGN-${randomUUID()}`,
+        name: 'Foreign ABC product',
+        abcGrade: 'C',
+      },
+    });
+    const { productId, formulaVersionId, sources } = await fixture(prisma);
+
+    await repository.publish(publication({
+      formulaVersionId,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [candidate(productId, sources, 'A')],
+    }));
+
+    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: foreign.id } }))
+      .resolves.toMatchObject({ abcGrade: 'C' });
+    await expect(prisma.masterProductAbcFormulaState.findUnique({
+      where: { organizationId: OTHER_ORGANIZATION_ID },
+    })).resolves.toBeNull();
+  });
+
+  it.each([
+    'formula revision',
+    'publication revision',
+    'mapping generation',
+    'target set',
+  ])('rejects changed %s without partial writes', async (changedFence) => {
+    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    const before = await repository.getFormulaState(TEST_ORGANIZATION_ID);
+    const input = publication({
+      formulaVersionId,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [candidate(productId, sources, 'A')],
+      ...(changedFence === 'formula revision' ? { expectedFormulaRevision: 2 } : {}),
+      ...(changedFence === 'publication revision' ? { expectedPublicationRevision: 4 } : {}),
+      ...(changedFence === 'mapping generation' ? { mappingGeneration: '1' } : {}),
+      ...(changedFence === 'target set' ? { targetProductIds: [] } : {}),
+    });
+
+    await expect(repository.publish(input)).resolves.toEqual({ outcome: 'INPUT_CHANGED' });
+    await expect(repository.getFormulaState(TEST_ORGANIZATION_ID)).resolves.toEqual(before);
+    await expect(prisma.masterProductAbcEvaluation.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
+    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
+      .resolves.toMatchObject({ abcGrade: null });
   });
 });
 
-async function createMappedProductWithStock(input: {
-  prisma: PrismaClient;
-  accountId: string;
-  code: string;
-  currentStock: number;
-  abcGrade: 'A' | 'B' | 'C' | null;
-  isActive?: boolean;
-}) {
-  const product = await input.prisma.masterProduct.create({
+async function fixture(prisma: PrismaClient): Promise<{
+  productId: string;
+  formulaVersionId: string;
+  sources: ProductAbcPublicationInput['sourceFences'];
+}> {
+  const formulaVersion = await prisma.masterProductAbcFormulaVersion.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
-      code: input.code,
-      name: input.code,
-      abcGrade: input.abcGrade,
-      isActive: input.isActive ?? true,
+      formulaKey: 'PRODUCT_ABC_ABSOLUTE',
+      version: 1,
+      formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD)),
+      formulaChecksum: '02dba3cbf6a204d89bfe8c68dfc38a17e1b410fac9f054657f63218120e2d94b',
     },
   });
-  const listing = await input.prisma.channelListing.create({
+  await prisma.masterProductAbcFormulaState.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
-      channelAccountId: input.accountId,
+      activeFormulaVersionId: formulaVersion.id,
+      formulaRevision: 1,
+      publicationRevision: 0,
+      mappingGeneration: 0n,
+    },
+  });
+  const product = await seedSellingProduct(prisma);
+  const { sellpiaRunId, advertisingRunId } = await publishSources(prisma, product.skuCode);
+  const [sellpiaRun, advertisingRun] = await Promise.all([
+    prisma.sourceImportRun.findUniqueOrThrow({ where: { id: sellpiaRunId } }),
+    prisma.sourceImportRun.findUniqueOrThrow({ where: { id: advertisingRunId } }),
+  ]);
+  return {
+    productId: product.productId,
+    formulaVersionId: formulaVersion.id,
+    sources: {
+      sellpia: { selectedComplete: sourceView(sellpiaRun) },
+      advertising: { selectedComplete: sourceView(advertisingRun) },
+    },
+  };
+}
+
+function publication(overrides: Partial<ProductAbcPublicationInput>): ProductAbcPublicationInput {
+  const sourceFences = overrides.sourceFences ?? {
+    sellpia: { selectedComplete: sourceViewById('00000000-0000-0000-0000-000000000001') },
+    advertising: { selectedComplete: sourceViewById('00000000-0000-0000-0000-000000000002') },
+  };
+  return {
+    organizationId: TEST_ORGANIZATION_ID,
+    expectedFormulaRevision: 1,
+    expectedPublicationRevision: 0,
+    formulaVersionId: '00000000-0000-0000-0000-000000000000',
+    targetCutoff: CUTOFF,
+    actualCutoff: CUTOFF,
+    mappingGeneration: '0',
+    targetProductIds: [],
+    candidates: [],
+    calculatedAt: new Date('2026-09-01T00:00:00.000Z'),
+    ...overrides,
+    sourceFences,
+  };
+}
+
+function candidate(
+  productId: string,
+  sources: ProductAbcPublicationInput['sourceFences'],
+  abcGrade: 'A' | 'B' | 'C',
+) {
+  return {
+    masterProductId: productId,
+    abcGrade,
+    validObservationDays: 30,
+    gradeBasisCutoffDate: CUTOFF,
+    weightedRevenue: 1_000_000,
+    weightedOrderTimeSupplyCost: 200_000,
+    weightedAdvertisingSpend: 100_000,
+    weightedOperatingProfit: 700_000,
+    operatingProfitVelocity30: 700_000,
+    operatingMargin: 0.7,
+    lossPersistence: 0,
+    profitScore: 70,
+    marginScore: 100,
+    consistencyScore: 100,
+    economicScore: abcGrade === 'A' ? 85 : abcGrade === 'B' ? 75 : 20,
+    sellpiaSourceImportRunId: sources.sellpia.selectedComplete.sourceImportRunId!,
+    advertisingSourceImportRunId: sources.advertising.selectedComplete.sourceImportRunId!,
+    sellpiaGeneration: sources.sellpia.selectedComplete.publicationSequence!,
+    advertisingGeneration: sources.advertising.selectedComplete.publicationSequence!,
+    mappingGeneration: '0',
+  };
+}
+
+function sourceView(run: {
+  id: string;
+  publicationSequence: bigint | null;
+  mappingGeneration: bigint | null;
+  coverageStartDate: Date | null;
+  coverageEndDate: Date | null;
+  importedAt: Date | null;
+}) {
+  return {
+    sourceImportRunId: run.id,
+    publicationSequence: run.publicationSequence?.toString() ?? null,
+    mappingGeneration: run.mappingGeneration?.toString() ?? null,
+    coverageStartDate: run.coverageStartDate?.toISOString().slice(0, 10) ?? null,
+    coverageEndDate: run.coverageEndDate?.toISOString().slice(0, 10) ?? null,
+    capturedAt: run.importedAt?.toISOString() ?? null,
+  };
+}
+
+function sourceViewById(sourceImportRunId: string) {
+  return {
+    sourceImportRunId,
+    publicationSequence: '1',
+    mappingGeneration: '0',
+    coverageStartDate: '2026-01-01',
+    coverageEndDate: CUTOFF,
+    capturedAt: '2026-09-01T00:00:00.000Z',
+  };
+}
+
+async function seedSellingProduct(prisma: PrismaClient): Promise<{ productId: string; skuCode: string }> {
+  const product = await prisma.masterProduct.create({
+    data: { organizationId: TEST_ORGANIZATION_ID, code: `ABC-${randomUUID()}`, name: 'ABC product' },
+  });
+  const account = await prisma.channelAccount.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      channel: 'coupang',
+      name: 'ABC account',
+      externalAccountId: 'abc-account',
+      vendorId: 'abc-vendor',
+      status: 'active',
+    },
+  });
+  const listing = await prisma.channelListing.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: account.id,
       masterProductId: product.id,
       externalId: `LISTING-${randomUUID()}`,
       status: 'active',
     },
   });
-  const option = await input.prisma.channelListingOption.create({
+  const option = await prisma.channelListingOption.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
       listingId: listing.id,
@@ -313,17 +560,18 @@ async function createMappedProductWithStock(input: {
       status: '판매중',
     },
   });
-  const sku = await input.prisma.sellpiaInventorySku.create({
+  const skuCode = `SKU-${randomUUID()}`;
+  const sku = await prisma.sellpiaInventorySku.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
       masterProductId: product.id,
-      code: `SKU-${randomUUID()}`,
-      name: input.code,
-      currentStock: input.currentStock,
+      code: skuCode,
+      name: 'ABC SKU',
+      currentStock: 10,
       isActive: true,
     },
   });
-  await input.prisma.channelListingOptionInventoryComponent.create({
+  await prisma.channelListingOptionInventoryComponent.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
       channelListingOptionId: option.id,
@@ -331,5 +579,64 @@ async function createMappedProductWithStock(input: {
       quantity: 1,
     },
   });
-  return product;
+  return { productId: product.id, skuCode };
+}
+
+async function publishSources(prisma: PrismaClient, skuCode: string): Promise<{
+  sellpiaRunId: string;
+  advertisingRunId: string;
+}> {
+  const alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+  const sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts);
+  const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
+  const sellpiaAttempt = await sellpia.beginAttempt(
+    TEST_ORGANIZATION_ID,
+    `abc-${randomUUID()}`,
+  );
+  await sellpia.submitAttempt(TEST_ORGANIZATION_ID, sellpiaAttempt.attemptId, {
+    attemptToken: sellpiaAttempt.attemptToken,
+    parserVersion: 'sellpia-profitability-v1',
+    providerBackedEmptyProof: true,
+    coveredMonths: sellpiaAttempt.plan.coveredMonths,
+    provenance: {
+      source: 'sellpia_stat_prd_profit',
+      costBasis: 'ORDER_TIME_SUPPLY_COST',
+      vatIncluded: true,
+    },
+    products: [{
+      productCode: skuCode,
+      optionCode: '',
+      productName: 'ABC product',
+      salePrice: 1_000_000,
+      buyPrice: 200_000,
+      months: [{
+        yearMonth: sellpiaAttempt.plan.coveredMonths.at(-1)!,
+        orderQty: 1,
+        orderAmount: 1_000_000,
+        inQty: 1,
+        inAmount: 200_000,
+      }],
+    }],
+  });
+  // A completed empty advertising generation is the explicit NOT_APPLIED
+  // proof for this fixture. Keep the selling account out of the collection
+  // plan while creating it, then restore its live selling status.
+  await prisma.channelAccount.updateMany({
+    where: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang' },
+    data: { status: 'inactive' },
+  });
+  const advertisingAttempt = await advertising.beginAttempt({
+    organizationId: TEST_ORGANIZATION_ID,
+    idempotencyKey: `abc-ad-${randomUUID()}`,
+  });
+  await advertising.finalizeAttempt({
+    organizationId: TEST_ORGANIZATION_ID,
+    attemptId: advertisingAttempt.attemptId,
+    attemptToken: advertisingAttempt.attemptToken,
+  });
+  await prisma.channelAccount.updateMany({
+    where: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang' },
+    data: { status: 'active' },
+  });
+  return { sellpiaRunId: sellpiaAttempt.attemptId, advertisingRunId: advertisingAttempt.attemptId };
 }

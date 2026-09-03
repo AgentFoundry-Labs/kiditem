@@ -380,9 +380,15 @@ git commit -m "feat: load coherent profitability evidence"
 - Modify: `apps/server/src/products/adapter/out/repository/master-product-abc.repository.adapter.ts`
 - Modify: `apps/server/src/products/adapter/out/repository/master-product-abc.repository.adapter.spec.ts`
 - Modify: `apps/server/src/products/__tests__/master-product-abc.repository.pg.integration.spec.ts`
+- Modify: `apps/server/src/products/products.module.ts`
+- Modify: `apps/server/src/operations/operation-owner-worker.module.ts`
+- Modify: `apps/server/src/agent-worker-application.module.spec.ts`
 - Delete: `apps/server/src/products/adapter/in/operation/product-profitability.operation-handler.ts`
 - Delete: `apps/server/src/products/adapter/in/operation/__tests__/product-profitability.operation-handler.spec.ts`
 - Delete: `apps/server/src/products/domain/operation/product-profitability.operations.ts`
+- Delete: `apps/server/src/products/adapter/in/event/master-product-inventory-activity.listener.ts`
+- Delete: `apps/server/src/products/adapter/in/event/master-product-inventory-activity.listener.spec.ts`
+- Delete: `apps/server/src/products/products-operation-worker.module.ts`
 
 **Interfaces:**
 
@@ -409,7 +415,7 @@ export type ProductAbcRecalculationResult =
     }>;
 ```
 
-- [ ] **Step 1: Write failing service tests at the public command seam**
+- [x] **Step 1: Write failing service tests at the public command seam**
 
 ```ts
 it("returns SOURCE_NOT_READY and performs no publication write", async () => {
@@ -437,17 +443,17 @@ it("surfaces one CAS miss as INPUT_CHANGED without retrying", async () => {
 });
 ```
 
-- [ ] **Step 2: Run service tests and verify red**
+- [x] **Step 2: Run service tests and verify red**
 
 Run: `npm exec --workspace=apps/server vitest -- run src/products/application/service/master-product-abc.service.spec.ts`
 
 Expected: FAIL because the current service calibrates, quantiles, retries twice, and accepts Operation controls.
 
-- [ ] **Step 3: Implement the minimal command service**
+- [x] **Step 3: Implement the minimal command service**
 
 Compute the target cutoff as the last completed KST month, read FormulaState and the complete current selling/mapped target set, call `ProfitabilityEvidence.load`, return `SOURCE_NOT_READY` without a write when blocked, derive `NEW` count for fewer than 30 valid days, evaluate formula-ready products independently, and call `repository.publish` once. Remove cancellation checkpoints, Operation transaction types, automatic reason strings, and retry loops.
 
-- [ ] **Step 4: Write failing PG tests for the publication boundary**
+- [x] **Step 4: Write failing PG tests for the publication boundary**
 
 ```ts
 it("publishes FormulaState, evaluations, cache, and baseline atomically without history", async () => {
@@ -489,23 +495,24 @@ it.each([
 });
 ```
 
-- [ ] **Step 5: Implement one short CAS publication transaction**
+- [x] **Step 5: Implement one short CAS publication transaction**
 
-Acquire the shared profitability advisory lock, lock FormulaState, compare formula/publication revisions, exact latest-attempt/current-complete source vector, source readiness, cutoff monotonicity, mapping generation, and the complete target IDs. Re-read current selling/mapping state for every write. Use bounded set-based upsert/delete/cache/history statements. Increment `publicationRevision` in the same transaction. Baseline is `publicationRevision === 0`; it creates no history.
+Acquire the shared profitability advisory locks, lock FormulaState, compare formula/publication revisions, exact latest-attempt/current-complete source vector, source readiness, cutoff monotonicity, mapping generation, and the complete target IDs. Re-read current selling/mapping state for every write. Use bounded set-based upsert/delete/cache/history statements. Increment `publicationRevision` in the same transaction. Baseline is `publicationRevision === 0`; it creates no history. Delete the inventory-event cache mutation so this transaction remains the only ABC publication path.
 
-- [ ] **Step 6: Run service/repository/PG tests**
+- [x] **Step 6: Run service/repository/PG tests**
 
 ```bash
 npm exec --workspace=apps/server vitest -- run src/products/application/service/master-product-abc.service.spec.ts src/products/adapter/out/repository/master-product-abc.repository.adapter.spec.ts
 npm run test:integration --workspace=apps/server -- src/products/__tests__/master-product-abc.repository.pg.integration.spec.ts
+npm exec --workspace=apps/server vitest -- run src/agent-worker-application.module.spec.ts src/products/__tests__/products.architecture.spec.ts
 ```
 
 Expected: PASS for baseline, transitions, stale/no-write, every CAS fence, organization isolation, concurrent commands, and target changes.
 
-- [ ] **Step 7: Commit explicit publication**
+- [x] **Step 7: Commit explicit publication**
 
 ```bash
-git add apps/server/src/products/application/port/in/master-product-abc-recalculation.port.ts apps/server/src/products/application/port/out/repository/master-product-abc.repository.port.ts apps/server/src/products/application/service/master-product-abc.service.ts apps/server/src/products/application/service/master-product-abc.service.spec.ts apps/server/src/products/adapter/out/repository/master-product-abc.repository.adapter.ts apps/server/src/products/adapter/out/repository/master-product-abc.repository.adapter.spec.ts apps/server/src/products/__tests__/master-product-abc.repository.pg.integration.spec.ts apps/server/src/products/adapter/in/operation/product-profitability.operation-handler.ts apps/server/src/products/adapter/in/operation/__tests__/product-profitability.operation-handler.spec.ts apps/server/src/products/domain/operation/product-profitability.operations.ts
+git add apps/server/src/agent-worker-application.module.spec.ts apps/server/src/operations/operation-owner-worker.module.ts apps/server/src/products docs/superpowers/plans/2026-09-03-explicit-absolute-abc-publication.md
 git commit -m "feat: publish absolute ABC explicitly"
 ```
 

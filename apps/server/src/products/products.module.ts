@@ -16,11 +16,6 @@ import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from './application/port/out/repos
 import { ProductOperationsDataStatusService } from './application/service/product-operations-data-status.service';
 import { ProductOperationsDataStatusRepositoryAdapter } from './adapter/out/repository/product-operations-data-status.repository.adapter';
 import { PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT } from './application/port/out/repository/product-operations-data-status.repository.port';
-import {
-  ProductProfitabilityAbcOperationHandler,
-  ProductProfitabilityRefreshOperationHandler,
-} from './adapter/in/operation/product-profitability.operation-handler';
-import { MasterProductInventoryActivityListener } from './adapter/in/event/master-product-inventory-activity.listener';
 import { ProductsListingGenerationCapabilityAdapter } from './adapter/in/agent/products-listing-generation-capability.adapter';
 import { ProductsCapabilityCompositionAdapter } from './adapter/in/agent/products-capability-composition.adapter';
 import { PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT } from './application/port/in/capability/listing-generation.port';
@@ -34,11 +29,8 @@ import { ProductsListingGenerationOperationHandler } from './adapter/in/operatio
     ProductOperationsService,
     ProductOperationsDataStatusService,
     ProductOperationsDataStatusRepositoryAdapter,
-    ProductProfitabilityRefreshOperationHandler,
-    ProductProfitabilityAbcOperationHandler,
     ProductRecipeComponentCandidateService,
     MasterProductAbcService,
-    MasterProductInventoryActivityListener,
     ProductsListingGenerationCapabilityAdapter,
     ProductsCapabilityCompositionAdapter,
     ProductsListingGenerationOperationHandler,

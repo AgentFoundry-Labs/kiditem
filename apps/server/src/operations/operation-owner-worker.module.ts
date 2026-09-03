@@ -14,7 +14,6 @@ import { RulesOperationAlertAdapter } from '../rules/adapter/out/automation/oper
 import { APPLY_RULES_EVALUATION_PORT } from '../rules/application/port/in/apply-rules-evaluation.port';
 import { RULES_OPERATION_ALERT_PORT } from '../rules/application/port/out/cross-domain/operation-alert.port';
 import { RulesService } from '../rules/services/rules.service';
-import { ProductsOperationWorkerModule } from '../products/products-operation-worker.module';
 import { SourcingOperationWorkerModule } from '../sourcing/sourcing-operation-worker.module';
 import { OperationsModule } from './operations.module';
 
@@ -29,7 +28,6 @@ import { OperationsModule } from './operations.module';
     AiProductGenerationRuntimeModule,
     InventoryFreshnessRuntimeModule,
     OperationAlertRuntimeModule,
-    ProductsOperationWorkerModule,
     SourcingOperationWorkerModule,
   ],
   providers: [

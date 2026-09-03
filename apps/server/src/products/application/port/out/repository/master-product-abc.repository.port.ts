@@ -1,63 +1,82 @@
 import type {
-  ProductAbcEvaluation,
-  ProductAbcFormulaSummary,
+  ProductAbcFormulaPayload,
   ProductAbcGrade,
 } from '@kiditem/shared/product-abc';
-import type { ActiveOperationAttemptTransaction } from '../../../../../operations/application/port/active-browser-attempt-transaction';
+import type {
+  SourceGenerationView,
+} from '../../../../../finance/application/port/in/master-product-profitability-read.port';
 
 export const MASTER_PRODUCT_ABC_REPOSITORY_PORT = Symbol(
   'MASTER_PRODUCT_ABC_REPOSITORY_PORT',
 );
 
 export type MasterProductAbcFormulaStateRecord = Readonly<{
-  revision: number;
-  formulaVersionId: string | null;
-  formula: ProductAbcFormulaSummary | null;
-}>;
-
-export type EnsureInitialMasterProductAbcFormulaInput = Readonly<{
   organizationId: string;
-  expectedRevision: number;
-  formula: ProductAbcFormulaSummary;
+  activeFormulaVersionId: string | null;
+  formulaRevision: number;
+  publicationRevision: number;
+  officialCutoffDate: string | null;
+  publishedSellpiaSourceImportRunId: string | null;
+  publishedAdvertisingSourceImportRunId: string | null;
+  publishedMappingGeneration: string | null;
+  mappingGeneration: string;
+  formula: ProductAbcFormulaPayload | null;
 }>;
 
-export type PublishMasterProductAbcEvaluationsInput = Readonly<{
-  organizationId: string;
-  expectedFormulaStateRevision: number;
-  formulaVersionId: string | null;
-  evaluations: ReadonlyMap<string, ProductAbcEvaluation>;
-  reason: string;
-}>;
-
-export interface MasterProductAbcRepositoryPort {
-  listSellingMasterProductIds(organizationId: string): Promise<readonly string[]>;
-  reconcileInventoryActivity(organizationId: string): Promise<{
-    deactivatedMasterProductIds: readonly string[];
-    reactivatedMasterProductIds: readonly string[];
-  }>;
-  getFormulaState(organizationId: string): Promise<MasterProductAbcFormulaStateRecord>;
-  ensureInitialFormula(
-    input: EnsureInitialMasterProductAbcFormulaInput,
-  ): Promise<{ state: MasterProductAbcFormulaStateRecord; created: boolean; stale: boolean }>;
-  ensureInitialFormulaInAttempt(
-    transaction: ActiveOperationAttemptTransaction,
-    input: EnsureInitialMasterProductAbcFormulaInput,
-  ): Promise<{ state: MasterProductAbcFormulaStateRecord; created: boolean; stale: boolean }>;
-  findCurrentEvaluations(input: {
-    organizationId: string;
-    masterProductIds: readonly string[];
-  }): Promise<ReadonlyMap<string, ProductAbcEvaluation>>;
-  publishEvaluations(
-    input: PublishMasterProductAbcEvaluationsInput,
-  ): Promise<{ changedProductCount: number; stale: boolean }>;
-  publishEvaluationsInAttempt(
-    transaction: ActiveOperationAttemptTransaction,
-    input: PublishMasterProductAbcEvaluationsInput,
-  ): Promise<{ changedProductCount: number; stale: boolean }>;
-}
-
-export type MasterProductAbcPublishedGrade = Readonly<{
+export type MasterProductAbcCandidateRecord = Readonly<{
   masterProductId: string;
-  abcGrade: ProductAbcGrade | null;
-  evaluation: ProductAbcEvaluation;
+  abcGrade: ProductAbcGrade;
+  validObservationDays: number;
+  gradeBasisCutoffDate: string;
+  weightedRevenue: number;
+  weightedOrderTimeSupplyCost: number;
+  weightedAdvertisingSpend: number;
+  weightedOperatingProfit: number;
+  operatingProfitVelocity30: number;
+  operatingMargin: number | null;
+  lossPersistence: number;
+  profitScore: number;
+  marginScore: number | null;
+  consistencyScore: number;
+  economicScore: number;
+  sellpiaSourceImportRunId: string;
+  advertisingSourceImportRunId: string;
+  sellpiaGeneration: string;
+  advertisingGeneration: string;
+  mappingGeneration: string;
 }>;
+
+export type MasterProductAbcSourceFence = Readonly<{
+  selectedComplete: SourceGenerationView;
+}>;
+
+export type ProductAbcPublicationInput = Readonly<{
+  organizationId: string;
+  expectedFormulaRevision: number;
+  expectedPublicationRevision: number;
+  formulaVersionId: string;
+  targetCutoff: string;
+  actualCutoff: string;
+  mappingGeneration: string;
+  sourceFences: Readonly<{
+    sellpia: MasterProductAbcSourceFence;
+    advertising: MasterProductAbcSourceFence;
+  }>;
+  targetProductIds: readonly string[];
+  candidates: readonly MasterProductAbcCandidateRecord[];
+  calculatedAt: Date;
+}>;
+
+export type MasterProductAbcPublicationResult =
+  | Readonly<{
+      outcome: 'PUBLISHED';
+      publicationRevision: number;
+      changedProductCount: number;
+    }>
+  | Readonly<{ outcome: 'INPUT_CHANGED' }>;
+
+export interface ProductAbcRepositoryPort {
+  getFormulaState(organizationId: string): Promise<MasterProductAbcFormulaStateRecord>;
+  listCurrentAbcTargetIds(organizationId: string): Promise<readonly string[]>;
+  publish(input: ProductAbcPublicationInput): Promise<MasterProductAbcPublicationResult>;
+}

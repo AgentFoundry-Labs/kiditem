@@ -13,7 +13,6 @@ import { OperationOwnerWorkerModule } from './operations/operation-owner-worker.
 import { OperationsModule, OperationsWorkerModule } from './operations/operations.module';
 import { SourcingTrendOperationHandler } from './sourcing/adapter/in/operation/sourcing-trend.operation-handler';
 import { PRODUCTS_LISTING_GENERATION_OPERATIONS } from './products/domain/operation/listing-generation.operations';
-import { PRODUCT_PROFITABILITY_OPERATIONS } from './products/domain/operation/product-profitability.operations';
 import { StorageService } from './common/storage/storage.service';
 import { PrismaService } from './prisma/prisma.service';
 import { RULES_EVALUATION_OPERATION } from './rules/domain/operation/rules.operations';
@@ -25,7 +24,6 @@ const operationDefinitionsRequiredByWorker = [
   ...INVENTORY_OPERATIONS,
   ...ORDERS_OPERATIONS,
   ...PRODUCTS_LISTING_GENERATION_OPERATIONS,
-  ...PRODUCT_PROFITABILITY_OPERATIONS,
   RULES_EVALUATION_OPERATION,
   ...SOURCING_OPERATIONS,
 ];

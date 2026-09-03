@@ -1,198 +1,201 @@
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
-import type { ProductAbcRecalculationResult } from '@kiditem/shared/product-abc';
-import type { ActiveOperationAttemptTransaction } from '../../../operations/application/port/active-browser-attempt-transaction';
 import {
-  MASTER_PRODUCT_PROFITABILITY_READ_PORT,
-  type MasterProductProfitabilityEvidence,
-  type MasterProductProfitabilityReadPort,
-} from '../../../finance/application/port/in/master-product-profitability-read.port';
-import {
-  createFixedProductAbcFormula,
-  type ProductAbcFormulaObservation,
-} from '../../domain/master-product-abc-calibration';
-import {
-  applyMasterProductAbcQuantiles,
   evaluateMasterProductAbc,
+  type MasterProductAbcCandidate,
 } from '../../domain/master-product-abc';
 import {
+  MASTER_PRODUCT_PROFITABILITY_READ_PORT,
+  type ProfitabilityEvidence,
+  type ProfitabilityEvidenceSnapshot,
+  type ProductProfitabilityEvidence,
+} from '../../../finance/application/port/in/master-product-profitability-read.port';
+import {
   MASTER_PRODUCT_ABC_REPOSITORY_PORT,
-  type MasterProductAbcFormulaStateRecord,
-  type MasterProductAbcRepositoryPort,
-  type PublishMasterProductAbcEvaluationsInput,
+  type MasterProductAbcCandidateRecord,
+  type ProductAbcRepositoryPort,
+  type ProductAbcPublicationInput,
 } from '../port/out/repository/master-product-abc.repository.port';
+import type {
+  MasterProductAbcRecalculationInput,
+  MasterProductAbcRecalculationPort,
+  ProductAbcRecalculationResult,
+} from '../port/in/master-product-abc-recalculation.port';
 
-const MAX_PUBLICATION_ATTEMPTS = 2;
-
-export interface MasterProductAbcRecalculationControls {
-  signal?: AbortSignal;
-  checkpoint?: (stage: string) => Promise<void>;
-  withinActiveOperationAttemptFence?: <T>(
-    callback: (transaction: ActiveOperationAttemptTransaction) => Promise<T>,
-  ) => Promise<T>;
-}
-
+/**
+ * Products owns the formula and the only publication command. Finance supplies
+ * one immutable, coherent source snapshot; it does not publish product state.
+ */
 @Injectable()
-export class MasterProductAbcService {
+export class MasterProductAbcService implements MasterProductAbcRecalculationPort {
   constructor(
     @Inject(MASTER_PRODUCT_ABC_REPOSITORY_PORT)
-    private readonly repository: MasterProductAbcRepositoryPort,
+    private readonly repository: ProductAbcRepositoryPort,
     @Inject(MASTER_PRODUCT_PROFITABILITY_READ_PORT)
-    private readonly profitability: MasterProductProfitabilityReadPort,
+    private readonly profitability: ProfitabilityEvidence,
   ) {}
 
-  async reconcileInventoryActivity(
-    organizationId: string,
-  ): Promise<{
-    deactivatedMasterProductIds: readonly string[];
-    reactivatedMasterProductIds: readonly string[];
-  }> {
-    return this.repository.reconcileInventoryActivity(organizationId);
-  }
-
-  /** Rebuilds active products from persisted source facts and the frozen formula. */
   async recalculate(
-    organizationId: string,
-    controls: MasterProductAbcRecalculationControls = {},
+    input: MasterProductAbcRecalculationInput,
   ): Promise<ProductAbcRecalculationResult> {
-    for (let attempt = 0; attempt < MAX_PUBLICATION_ATTEMPTS; attempt += 1) {
-      await cancellableCheckpoint(controls, 'reading_formula');
-      const calculatedAt = new Date();
-      const asOfDate = completedKstCalendarDate(calculatedAt);
-      let state = await this.repository.getFormulaState(organizationId);
-      await cancellableCheckpoint(controls, 'reading_evidence');
-      state = await this.ensureInitialFormula(
-        { organizationId, state, asOfDate, calculatedAt },
-        controls,
-      );
-      await cancellableCheckpoint(controls, 'reading_evidence');
-      const activeIds = await this.repository.listSellingMasterProductIds(organizationId);
-      const [evidence, previous] = await Promise.all([
-        activeIds.length === 0
-          ? Promise.resolve([] as readonly MasterProductProfitabilityEvidence[])
-          : this.profitability.readMany({
-            organizationId,
-            masterProductIds: activeIds,
-            asOfDate,
-            scope: 'ACTIVE_EVALUATION',
-          }),
-        this.repository.findCurrentEvaluations({ organizationId, masterProductIds: activeIds }),
-      ]);
-      await cancellableCheckpoint(controls, 'calculating_abc');
-      const evaluated = new Map(evidence.map((row) => [row.masterProductId, evaluateMasterProductAbc({
-        evidence: row,
-        formula: state.formula,
-        calculatedAt,
-        previousNormalEvaluation: previous.get(row.masterProductId),
-      })] as const));
-      const evaluations = applyMasterProductAbcQuantiles(evaluated);
-      const publication: PublishMasterProductAbcEvaluationsInput = {
-        organizationId,
-        expectedFormulaStateRevision: state.revision,
-        formulaVersionId: state.formulaVersionId,
-        evaluations,
-        reason: 'AUTOMATIC_PROFITABILITY_RECALCULATION',
-      };
-      await cancellableCheckpoint(controls, 'publishing_abc');
-      const published = controls.withinActiveOperationAttemptFence
-        ? await controls.withinActiveOperationAttemptFence((transaction) =>
-            this.repository.publishEvaluationsInAttempt(transaction, publication))
-        : await this.repository.publishEvaluations(publication);
-      controls.signal?.throwIfAborted();
-      if (!published.stale) return resultFor(evaluations, published.changedProductCount);
+    assertOrganizationId(input.organizationId);
+
+    const state = await this.repository.getFormulaState(input.organizationId);
+    if (!state.formula || !state.activeFormulaVersionId) {
+      throw new Error('ABC formula is not initialized');
     }
-    throw new ConflictException('MasterProduct ABC formula changed during recalculation');
-  }
 
-  private async ensureInitialFormula(input: {
-    organizationId: string;
-    state: MasterProductAbcFormulaStateRecord;
-    asOfDate: Date;
-    calculatedAt: Date;
-  }, controls: MasterProductAbcRecalculationControls): Promise<MasterProductAbcFormulaStateRecord> {
-    if (input.state.formula) return input.state;
-    const historical = await this.profitability.readMany({
+    const calculatedAt = new Date();
+    const targetCutoff = completedKstMonthEnd(calculatedAt);
+    const targetProductIds = uniqueSorted(
+      await this.repository.listCurrentAbcTargetIds(input.organizationId),
+    );
+    const snapshot = await this.profitability.load({
       organizationId: input.organizationId,
-      asOfDate: input.asOfDate,
-      scope: 'HISTORICAL_CALIBRATION',
+      targetCutoff,
     });
-    await cancellableCheckpoint(controls, 'calibrating_formula');
-    const formula = createFixedProductAbcFormula({
-      observations: formulaObservations(historical),
-      version: 1,
-      activatedAt: input.calculatedAt,
-    });
-    if (!formula) return input.state;
-    const ensureInput = {
+    if (!isReadyForPublication(snapshot, state.mappingGeneration, targetCutoff)) {
+      return {
+        outcome: 'SOURCE_NOT_READY',
+        publicationRevision: state.publicationRevision,
+        officialCutoff: state.officialCutoffDate,
+        actualCutoff: snapshot.actualCutoff,
+        sources: snapshot.sources,
+      };
+    }
+
+    const evidenceById = new Map(
+      snapshot.products.map((product) => [product.masterProductId, product] as const),
+    );
+    if (evidenceById.size !== snapshot.products.length) {
+      throw new Error('Profitability evidence contains duplicate product IDs');
+    }
+    const candidates: MasterProductAbcCandidateRecord[] = [];
+    let unclassifiedProductCount = 0;
+
+    for (const masterProductId of targetProductIds) {
+      const evidence = evidenceById.get(masterProductId);
+      if (!evidence || !evidence.selling || !evidence.mappingValid) {
+        throw new ConflictException({ code: 'INPUT_CHANGED' });
+      }
+      if (!isEligibleEvidence(evidence)) {
+        unclassifiedProductCount += 1;
+        continue;
+      }
+      candidates.push(candidateRecord(
+        evaluateMasterProductAbc({
+          facts: evidence.formulaReadyFacts!,
+          formula: state.formula,
+        }),
+        snapshot,
+        state.mappingGeneration,
+      ));
+    }
+
+    const publication: ProductAbcPublicationInput = {
       organizationId: input.organizationId,
-      expectedRevision: input.state.revision,
-      formula: formula.formula,
+      expectedFormulaRevision: state.formulaRevision,
+      expectedPublicationRevision: state.publicationRevision,
+      formulaVersionId: state.activeFormulaVersionId,
+      targetCutoff,
+      actualCutoff: snapshot.actualCutoff!,
+      mappingGeneration: state.mappingGeneration,
+      sourceFences: {
+        sellpia: {
+          selectedComplete: snapshot.sourceVector.sellpia,
+        },
+        advertising: {
+          selectedComplete: snapshot.sourceVector.advertising,
+        },
+      },
+      targetProductIds,
+      candidates,
+      calculatedAt,
     };
-    const stored = controls.withinActiveOperationAttemptFence
-      ? await controls.withinActiveOperationAttemptFence((transaction) =>
-          this.repository.ensureInitialFormulaInAttempt(transaction, ensureInput))
-      : await this.repository.ensureInitialFormula(ensureInput);
-    controls.signal?.throwIfAborted();
-    return stored.state;
+    const published = await this.repository.publish(publication);
+    if (published.outcome === 'INPUT_CHANGED') {
+      throw new ConflictException({ code: 'INPUT_CHANGED' });
+    }
+    return {
+      outcome: 'PUBLISHED',
+      publicationRevision: published.publicationRevision,
+      formulaRevision: state.formulaRevision,
+      officialCutoff: snapshot.actualCutoff!,
+      classifiedProductCount: candidates.length,
+      unclassifiedProductCount,
+      changedProductCount: published.changedProductCount,
+    };
   }
 }
 
-async function cancellableCheckpoint(
-  controls: MasterProductAbcRecalculationControls,
-  stage: string,
-): Promise<void> {
-  controls.signal?.throwIfAborted();
-  await controls.checkpoint?.(stage);
-  controls.signal?.throwIfAborted();
-}
-
-function formulaObservations(
-  evidence: readonly MasterProductProfitabilityEvidence[],
-): ProductAbcFormulaObservation[] {
-  return evidence.flatMap((product) => {
-    if (product.sellpiaStatus !== 'READY' || product.mappingStatus !== 'READY') return [];
-    const facts = [...product.monthlyFacts]
-      .filter((fact) => fact.contributionProfit !== null && fact.adSpend !== null && fact.negativeCoveredDays !== null)
-      .sort((left, right) => left.coverageEndDate.getTime() - right.coverageEndDate.getTime())
-      .map((fact) => ({
-        coverageStartDate: fact.coverageStartDate,
-        coverageEndDate: fact.coverageEndDate,
-        coveredDays: fact.coveredDays,
-        revenue: fact.revenue,
-        orderTimeCogs: fact.sellpiaInAmount,
-        adSpend: fact.adSpend!,
-        contributionProfit: fact.contributionProfit!,
-        negativeCoveredDays: fact.negativeCoveredDays!,
-      }));
-    if (facts.length === 0) return [];
-    return [{
-      masterProductId: product.masterProductId,
-      facts,
-      asOfDate: product.asOfDate,
-      observationDays: product.observationDays,
-    }];
-  });
-}
-
-function resultFor(
-  evaluations: ReadonlyMap<string, ReturnType<typeof evaluateMasterProductAbc>>,
-  changedProductCount: number,
-): ProductAbcRecalculationResult {
-  const grades = [...evaluations.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([masterProductId, evaluation]) => ({
-      masterProductId,
-      abcGrade: evaluation.abcGrade,
-      evaluation,
-    }));
+function candidateRecord(
+  candidate: MasterProductAbcCandidate,
+  snapshot: ProfitabilityEvidenceSnapshot,
+  mappingGeneration: string,
+): MasterProductAbcCandidateRecord {
+  const sellpia = snapshot.sourceVector.sellpia;
+  const advertising = snapshot.sourceVector.advertising;
+  if (
+    !sellpia.sourceImportRunId
+    || !sellpia.publicationSequence
+    || !advertising.sourceImportRunId
+    || !advertising.publicationSequence
+  ) {
+    throw new ConflictException({ code: 'SOURCE_NOT_READY' });
+  }
   return {
-    changedProductCount,
-    classifiedProductCount: grades.filter((grade) => grade.abcGrade !== null).length,
-    unclassifiedProductCount: grades.filter((grade) => grade.abcGrade === null).length,
-    grades,
+    ...candidate,
+    sellpiaSourceImportRunId: sellpia.sourceImportRunId,
+    advertisingSourceImportRunId: advertising.sourceImportRunId,
+    sellpiaGeneration: sellpia.publicationSequence,
+    advertisingGeneration: advertising.publicationSequence,
+    mappingGeneration,
   };
 }
 
-function completedKstCalendarDate(now: Date): Date {
-  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  return new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate() - 1));
+function isEligibleEvidence(evidence: ProductProfitabilityEvidence): boolean {
+  return evidence.validObservationDays >= 30
+    && evidence.formulaReadyFacts !== null;
+}
+
+function isReadyForPublication(
+  snapshot: ProfitabilityEvidenceSnapshot,
+  mappingGeneration: string,
+  targetCutoff: string,
+): boolean {
+  if (
+    snapshot.actualCutoff === null
+    || snapshot.mappingGeneration !== mappingGeneration
+    || snapshot.actualCutoff !== targetCutoff
+  ) return false;
+
+  for (const source of [snapshot.sources.sellpia, snapshot.sources.advertising]) {
+    if (source.status !== 'READY'
+      || source.latestAttemptState !== 'COMPLETE'
+      || source.actualCutoff !== targetCutoff) return false;
+  }
+  for (const source of [snapshot.sourceVector.sellpia, snapshot.sourceVector.advertising]) {
+    if (!source.sourceImportRunId
+      || !source.publicationSequence
+      || source.mappingGeneration !== mappingGeneration
+      || source.coverageEndDate !== targetCutoff) return false;
+  }
+  return true;
+}
+
+function assertOrganizationId(organizationId: string): void {
+  if (typeof organizationId !== 'string' || organizationId.trim().length === 0) {
+    throw new Error('organizationId is required');
+  }
+}
+
+/** Final day of the previous KST calendar month as a UTC calendar date string. */
+function completedKstMonthEnd(now: Date): string {
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1_000);
+  return new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), 0))
+    .toISOString()
+    .slice(0, 10);
+}
+
+function uniqueSorted(values: readonly string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
