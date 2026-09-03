@@ -65,23 +65,24 @@ Observed consequences include:
 
 The stable boundary is neither “return the result to the page” nor “put every
 result into OperationRun.” The stable boundary is: the extension posts the
-result directly to the server API owned by the source, and that owner commits
-its attempt, facts, manifest, and notification atomically.
+result directly to the server API owned by the source, and that owner makes
+staged facts canonical by atomically committing its attempt, complete
+manifest/current pointer, downstream revision, and notification.
 
 ## Goals
 
 1. Give every browser-collected source one durable server-owned ingestion path,
    regardless of which UI starts it.
-2. Make each source owner's latest `COMPLETE` snapshot the only input to
-   downstream calculations and screen freshness.
+2. Make a coherent vector of source-owner `COMPLETE` snapshots at one common
+   cutoff the only input to downstream calculations and screen freshness.
 3. Remove Operations and unused Automation runtime rather than rebuilding a
    second generic execution framework.
 4. Keep Alerts and ActionTasks as small human-work surfaces, not execution
    engines.
 5. Publish product ABC as a deterministic absolute evaluation that depends
    only on one product's facts and one immutable formula version.
-6. Make partial source failure visible while still allowing calculations from
-   previous complete snapshots.
+6. Make partial source failure visible while continuing to display the
+   previous complete snapshot and retaining the last normal official grade.
 7. Cut over PR 493 onto current `develop` and deploy the resulting exact SHA
    through the Office release process.
 
@@ -99,20 +100,74 @@ its attempt, facts, manifest, and notification atomically.
 - No silent estimate of commission, delivery, return, or other unavailable
   costs.
 
+## Reference Basis
+
+The design uses established patterns only at the narrow boundary where they
+apply:
+
+- Source-owner invariants and transactions follow
+  [hexagonal architecture](https://docs.aws.amazon.com/prescriptive-guidance/latest/hexagonal-architectures/overview.html)
+  and
+  [DDD aggregate](https://learn.microsoft.com/en-us/dotnet/architecture/microservices/microservice-ddd-cqrs-patterns/microservice-domain-model)
+  guidance.
+- Start retries follow
+  [idempotent API](https://aws.amazon.com/builders-library/making-retries-safe-with-idempotent-APIs/)
+  semantics: one client request ID and its mutation are recorded together.
+- Generation-tagged staged data plus a short metadata-pointer commit follows
+  the immutable-snapshot shape described by the
+  [Apache Iceberg specification](https://iceberg.apache.org/spec/).
+- Requested and handled revisions follow
+  [Kubernetes controller reconciliation](https://kubernetes.io/docs/concepts/architecture/controller/)
+  semantics. Calls may repeat; one revision has one publication effect.
+- [PostgreSQL transaction isolation](https://www.postgresql.org/docs/current/transaction-iso.html)
+  and optimistic CAS provide the publication fence inside the existing
+  database.
+- A transactional outbox is unnecessary while a database `Alert` is the
+  terminal notification. An outbox is introduced only at a future external
+  delivery seam such as email, Slack, push, or another database, following the
+  [transactional outbox](https://learn.microsoft.com/en-us/azure/architecture/databases/guide/transactional-out-box-cosmos)
+  pattern.
+
+Operation/Saga/Workflow machinery is not justified because source attempts do
+not span independent databases, require compensation, or wait on a durable
+cross-service event history.
+
 ## Selected Architecture
+
+### Canonical domain terms
+
+These names describe responsibilities and do not require a generic shared
+database model:
+
+| Term                         | Owner and meaning                                                                                                                                          |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ExtensionCollectionSession` | Extension-owned, noncanonical progress and human-attention state for one browser collection.                                                               |
+| `SourceImportAttempt`        | Source-owner durable record for one requested generation and its `RUNNING/COMPLETE/FAILED` result. Each owner implements it without legacy lifecycle code. |
+| staged generation            | Validated facts tagged with one attempt/generation but still invisible to canonical readers.                                                               |
+| complete manifest            | Source-owner proof of included/excluded rows, coverage, checksum, and actual cutoff.                                                                       |
+| published snapshot           | The staged generation selected by an atomically committed `COMPLETE` manifest/current pointer.                                                             |
+| source vector                | Exact source attempt IDs, generations, cutoffs, mapping generation, formula revision, and requested revision used by one ABC evaluation.                   |
+| `Alert`                      | Durable human-action notification; never an execution or freshness ledger.                                                                                 |
+
+`ExtensionCollectionSession` and `SourceImportAttempt` may share the
+owner-issued attempt ID for correlation, but they never mirror each other's
+state. Extension progress is not a publication fact, and source readiness is
+never derived from extension-local state.
 
 ### One source-owner write path
 
-Every source uses the same transport direction:
+Every browser-collected source uses the same transport direction without a
+shared execution runtime:
 
 ```text
 UI                           source-owner API                    extension
 |                                  |                                |
-|-- POST /attempts --------------->|                                |
+|-- POST /attempts                 |                                |
+|   Idempotency-Key -------------->|                                |
 |<-- attemptId + attemptToken -----|                                |
 |-- start browser command ----------------------------------------->|
-|                                  |<-- POST chunks ----------------|
-|                                  |<-- POST complete/fail ---------|
+|                                  |<-- upload staged facts --------|
+|                                  |<-- finalize/fail --------------|
 |<-- poll attempt + source status -|                                |
 ```
 
@@ -123,34 +178,39 @@ Closing the page after start cannot lose an already collected result.
 Shared code is limited to wire-level helpers:
 
 - authenticated upload client;
-- retry/backoff for safe idempotent requests;
-- the common `start`, `chunk`, `complete`, and `fail` DTO shape;
-- opaque `attemptId` and `attemptToken` propagation;
-- common validation for chunk sequence, checksum, and terminal immutability.
+- retry/backoff that preserves the caller's idempotency key;
+- opaque `attemptId` and `attemptToken` propagation; and
+- the minimal upload envelope required for authenticated owner requests.
+
+Each owner exposes the five conceptual capabilities `begin`, `upload`,
+`finalize`, `fail`, and `read`. This is a behavioral contract, not a
+shared controller, DTO family, state machine, repository, or runtime.
 
 There is no shared runtime service that owns source progress. Each owner keeps
 its own attempt and facts because only that owner can define completeness,
-deduplication, cutoff, mapping exclusions, and atomic publication.
-An existing `CollectionSession` may fulfill this role when it is already
-source-owner-specific; it is folded into the owner contract rather than copied
-into a new generic attempt table.
+deduplication, payload shape, whether chunking is necessary, cutoff, mapping
+exclusions, and atomic publication. A collection session can never fulfill the
+durable owner-attempt role. No common start/chunk/complete/fail DTO package,
+generic attempt table, or source-attempt runtime is introduced.
 
 ### Ownership map
 
-| Work | Durable owner record | Canonical result |
-|---|---|---|
-| Sellpia profit/cost collection | existing `SourceImportRun` | Sellpia facts + coverage manifest |
-| Advertising collection | Advertising-owned import/attempt | ad facts + coverage manifest |
-| Other browser collectors | existing owner ingestion/import record | owner facts/artifact |
-| Agent judgment | `CapabilityInvocation` / Agent OS records | owner-approved capability result |
-| Fixed AI generation | `AiDirectJob` | AI-owned artifact |
-| Rules evaluation | Rules-owned evaluation/application | rule result |
-| Human notification | `Alert` | open/resolved notification |
-| Human follow-up work | `ActionTask` | assignee/state/note |
+| Work                                                       | Durable owner record                         | Canonical result                  |
+| ---------------------------------------------------------- | -------------------------------------------- | --------------------------------- |
+| Sellpia profit/cost collection                             | reshaped `SourceImportRun` without Operation | Sellpia facts + coverage manifest |
+| Advertising collection                                     | Advertising-owned import/attempt             | ad facts + coverage manifest      |
+| Browser collectors found by the closed preflight inventory | the named domain's ingestion/import record   | owner facts/artifact              |
+| Agent judgment                                             | `CapabilityInvocation` / Agent OS records    | owner-approved capability result  |
+| Fixed AI generation                                        | `AiDirectJob`                                | AI-owned artifact                 |
+| Rules evaluation                                           | Rules-owned evaluation/application           | rule result                       |
+| Human notification                                         | `Alert`                                      | open/resolved notification        |
+| Human follow-up work                                       | `ActionTask`                                 | assignee/state/note               |
 
 An active schedule is retained only when operating-data preflight proves a real
 consumer. Its settings move to that source owner. The execution result remains
 the owner's attempt; a schedule never creates another generic run row.
+There is no fallback “other collector” owner: every production collector is
+named in the preflight record and either mapped to one domain or deleted.
 
 ## Source Attempt Contract
 
@@ -158,11 +218,11 @@ the owner's attempt; a schedule never creates another generic run row.
 
 Owner attempts use only three durable semantic states:
 
-| State | Meaning |
-|---|---|
-| `RUNNING` | One attempt token may upload validated chunks until `expiresAt`. |
-| `COMPLETE` | Facts and completeness manifest were atomically published. |
-| `FAILED` | The attempt cannot publish; an error code explains why. |
+| State      | Meaning                                                              |
+| ---------- | -------------------------------------------------------------------- |
+| `RUNNING`  | One attempt token may upload validated chunks until `expiresAt`.     |
+| `COMPLETE` | The manifest/current-pointer commit made the staged facts canonical. |
+| `FAILED`   | The attempt cannot publish; an error code explains why.              |
 
 `LOGIN_REQUIRED`, account mismatch, CAPTCHA, provider errors, mapping warnings,
 and validation failures are `errorCode`/warning data, not additional lifecycle
@@ -176,10 +236,27 @@ attempt states.
 ### Start and fencing
 
 `POST /api/<owner>/<source>/attempts` derives `organizationId` from the
-authenticated request. It creates a new generation and a random attempt token,
-and returns the canonical collection plan. A client-supplied organization,
-generation, date range, provider account, or owner key cannot override that
-plan.
+authenticated request. The UI generates one random `Idempotency-Key` per
+explicit start action and reuses it for transport retries. The owner stores the
+key, a normalized request fingerprint, the resulting attempt, and the exact
+collection plan atomically.
+
+Within `(organizationId, owner/source, Idempotency-Key)`:
+
+- the same fingerprint returns the original attempt token and collection plan,
+  including after the original response was lost;
+- a different fingerprint returns `409 Conflict`; and
+- a user-requested retry after a terminal failure uses a new key and creates a
+  new generation.
+
+The database enforces that tuple as unique. The fingerprint covers the
+normalized requested source/account/scope while the stored server plan is the
+response replay authority.
+
+The key and fingerprint have the same retention as their attempt; there is no
+second idempotency table or cleanup lifecycle. A client-supplied organization,
+generation, date range, provider account, owner key, or collection plan cannot
+override the server-owned plan.
 
 The attempt token is a write fence, not authentication. Every upload also
 requires the normal authenticated organization context. A stale token cannot
@@ -191,26 +268,43 @@ extend it when needed. A still-`RUNNING` expired attempt is CAS-transitioned to
 `FAILED` at server bootstrap or when the next attempt starts. Retry always
 creates a new generation and token; it never reuses a failed generation.
 
-### Chunking and terminal publication
+### Staged upload and terminal publication
 
-Chunks carry a monotonically increasing sequence and content checksum. Replays
-of the same sequence/checksum are no-ops; the same sequence with different
-content is rejected. A terminal attempt is immutable.
+One-shot upload is the default. A source uses chunks only when its measured
+payload requires them. Each accepted upload transaction validates owner
+identity and the attempt fence, then writes facts tagged with the attempt ID
+and generation. Chunked owners also write an idempotent receipt containing the
+monotonic sequence, row count, and content checksum. Replaying the same
+sequence/checksum is a no-op; conflicting content is rejected. Staged-row
+identity is scoped by attempt/generation so a replay cannot mutate another
+generation.
 
-Completion runs one owner transaction:
+Staged facts are never canonical merely because they exist. Readers select
+facts only through the source owner's current pointer to a `COMPLETE`
+manifest. A failed or expired attempt cannot move that pointer.
+
+Finalize is a short owner metadata transaction; it never rewrites the staged
+fact set:
 
 ```text
-validate token, account, requested range, row counts, totals, and checksums
-  -> write/replace canonical owner facts
+validate token, account, requested range, receipts, totals, and checksums
   -> write COMPLETE coverage manifest with actual cutoff
-  -> advance owner's requested downstream revision when applicable
-  -> upsert or resolve the owner Alert
+  -> atomically advance the owner's current generation pointer
+  -> advance requested downstream revision when applicable
+  -> resolve an existing actionable source Alert
   -> mark attempt COMPLETE
 ```
 
+Failure atomically marks the attempt `FAILED` and upserts an Alert only when
+operator action is required. It never changes the current generation pointer.
+For an ABC-input source, failure also advances the downstream requested
+revision so stale status is reconciled. A terminal attempt is immutable.
+
 No terminal outbox, Operation projection, or second consumer is required. A
 transaction rollback leaves no visible complete manifest and downstream reads
-continue using the previous complete generation.
+continue using the previous complete generation. Noncanonical staged
+generations follow the source owner's data-retention policy and never
+participate in reads or publication.
 
 ### Partial rows and mapping
 
@@ -239,6 +333,53 @@ proves zero. An uncollected value remains missing.
 
 Detailed progress stays on the owning domain screen. The global panel is not a
 second progress authority.
+
+## Coherent Source Snapshot
+
+ABC never mixes facts from different effective periods. Each calculation
+captures the latest selected `COMPLETE` generation for every required source
+and computes:
+
+```text
+targetCutoff = end of the latest closed KST evaluation month
+
+evaluationCutoff = min(
+  targetCutoff,
+  Sellpia COMPLETE coveredThrough,
+  Advertising COMPLETE coveredThrough
+)
+```
+
+Sellpia and Advertising are the dated source inputs in formula V1. Mapping is
+represented by its generation in the source vector, not by an invented cutoff.
+If either dated source has no `COMPLETE` manifest, `evaluationCutoff` is
+absent.
+
+When `evaluationCutoff` is present, facts newer than it are excluded from the
+candidate. A source manifest, rather than an absent fact row, proves a covered
+zero.
+
+An official grade may be recalculated only when every required source is
+`READY` for the target evaluation window. If any source is `MISSING` or
+`STALE`, the service does not use an older fallback to synthesize a new
+grade. It publishes a status-only evaluation that retains the last normal
+official grade and metrics, records the stale reason and actual
+`evaluationCutoff`, and writes no grade history. Without a prior normal
+grade, the official grade remains absent.
+
+Every evaluation stores the complete source vector used to explain its result:
+
+```text
+Sellpia attempt ID + generation + coveredThrough
+Advertising attempt ID + generation + coveredThrough
+mapping generation
+formula revision
+requested revision
+evaluation cutoff
+```
+
+The source vector is evidence and a publication fence, not a population hash
+or another execution record.
 
 ## Product ABC Absolute Evaluation
 
@@ -317,31 +458,31 @@ fixed knots and endpoint clamping. Changing a knot or a cost component requires
 a new immutable formula version.
 
 | 30-day operating-profit velocity (KRW) | Score |
-|---:|---:|
-| 0 | 0 |
-| 100,000 | 20 |
-| 300,000 | 40 |
-| 600,000 | 60 |
-| 1,200,000 | 80 |
-| 2,400,000 | 100 |
+| -------------------------------------: | ----: |
+|                                      0 |     0 |
+|                                100,000 |    20 |
+|                                300,000 |    40 |
+|                                600,000 |    60 |
+|                              1,200,000 |    80 |
+|                              2,400,000 |   100 |
 
 | Operating margin | Score |
-|---:|---:|
-| 0% | 0 |
-| 5% | 20 |
-| 10% | 40 |
-| 15% | 60 |
-| 20% | 80 |
-| 30% | 100 |
+| ---------------: | ----: |
+|               0% |     0 |
+|               5% |    20 |
+|              10% |    40 |
+|              15% |    60 |
+|              20% |    80 |
+|              30% |   100 |
 
 | Loss persistence | Consistency score |
-|---:|---:|
-| 0% | 100 |
-| 10% | 80 |
-| 20% | 60 |
-| 30% | 40 |
-| 40% | 20 |
-| 50% | 0 |
+| ---------------: | ----------------: |
+|               0% |               100 |
+|              10% |                80 |
+|              20% |                60 |
+|              30% |                40 |
+|              40% |                20 |
+|              50% |                 0 |
 
 These are the `PRODUCT_ABC_ABSOLUTE_V1` anchors already implemented on the
 reference ABC branch. Current data distribution is used only to validate the
@@ -366,11 +507,11 @@ Hard C applies when any condition holds:
 
 Missing/stale required data is unevaluated source abnormality, not C.
 
-| Grade | Rule |
-|---|---|
-| A | `economicScore >= 80`, `marginScore >= 60`, `consistencyScore >= 60`, and no Hard C |
-| B | `economicScore >= 50` and no Hard C |
-| C | every other eligible result |
+| Grade | Rule                                                                                |
+| ----- | ----------------------------------------------------------------------------------- |
+| A     | `economicScore >= 80`, `marginScore >= 60`, `consistencyScore >= 60`, and no Hard C |
+| B     | `economicScore >= 50` and no Hard C                                                 |
+| C     | every other eligible result                                                         |
 
 Any organization may legitimately have all A, all C, or no currently eligible
 products. Adding or deleting another product cannot change a product's grade.
@@ -402,18 +543,25 @@ publication establishes the baseline current evaluation/cache and writes no
 history. Later history rows are written only when the official grade actually
 changes.
 
-Calculation reads one snapshot of facts plus:
+Calculation reads one coherent database snapshot containing:
 
+- the exact source vector and common `evaluationCutoff`;
 - active formula ID and `formulaRevision`;
-- current `publicationRevision`;
-- each source's complete generation and actual cutoff.
+- current `requestedRevision`, `recalculatedRevision`, and
+  `publicationRevision`; and
+- current selling and mapping evidence.
 
 Immediately before commit, the publication transaction rechecks formula and
-publication revisions with CAS. It rejects a candidate whose source generation
-or cutoff is older than the official publication and rechecks current selling
-and mapping state for every changed product inside the transaction. Grade,
-evaluation, grade cache, publication state, and any real grade-change history
-are published atomically. Absolute evaluation has no population hash.
+publication revisions with CAS and verifies that the captured requested
+revision and full source vector are still current. It rejects a candidate whose
+source generation or cutoff is older than the official publication and
+rechecks current selling and mapping state for every changed product inside
+the transaction. Grade, evaluation, grade cache, publication state, and any
+real grade-change history are published atomically. A status-only source
+abnormality publication updates evaluation/source status and
+`recalculatedRevision` while retaining the last normal grade/cache and
+writing no history. Both grade and status-only publication advance
+`publicationRevision`. Absolute evaluation has no population hash.
 
 The same facts and formula version must always produce the same rounded
 persisted metrics and grade. Formula V1 retains binary64 arithmetic,
@@ -423,39 +571,60 @@ comparison against unrounded values.
 ## Recalculation Trigger
 
 ABC is a direct server service call, not an Operation handler, worker, or
-required child workflow:
+required child workflow. Method invocation is at-least-once; deterministic
+calculation may repeat, while publication has one effect for a handled
+requested revision.
 
 ```text
-source owner commits COMPLETE
-    -> abcGradeService.recalculate(organizationId, reason)
+ABC-input source owner commits COMPLETE or FAILED
+    -> requestedRevision += 1 in the owner transaction
+    -> after commit, call abcGradeService.recalculate(organizationId, reason)
 ```
 
-For the integrated profitability refresh, the UI starts Sellpia and
-Advertising attempts together or in their owner-defined order, awaits every
-attempt with `Promise.allSettled`, and calls
-`POST /api/products/abc/recalculate` once after all attempts terminate. The
-controller invokes `abcGradeService.recalculate()` directly. One source
-failure does not skip recalculation. The service reads the database's latest
-complete snapshot for each source, so a failed current attempt falls back to
-the previous complete snapshot while publishing stale status and its actual
-cutoff.
+For an integrated profitability refresh, the UI creates all required Sellpia
+and Advertising attempts before dispatching extension work. It awaits every
+attempt with `Promise.allSettled` and makes an additional
+`POST /api/products/abc/recalculate` call after all attempts terminate. A
+source-terminal server call that observes another required attempt still
+`RUNNING` returns `DEFERRED` without advancing
+`recalculatedRevision`. This coalesces the integrated refresh without a batch
+run, coordinator, queue, or child workflow.
 
-A standalone source refresh calls recalculation once after its attempt
-terminates. Server-internal selling or mapping mutations request recalculation
-after their own transaction commits.
+Once every required attempt is terminal, success can publish a new coherent
+grade and source failure can publish only the stale/status result described
+above. The previous complete snapshot remains available for data display, but
+is not used to manufacture a new official grade. A standalone source terminal
+uses the same direct server call. Server-internal selling or mapping mutations
+increment the revision in their own transaction and request recalculation
+after commit.
 
-The only lost-call recovery is a monotonic revision in existing FormulaState:
+Lost and duplicate calls converge through the monotonic revisions in existing
+FormulaState:
 
 ```text
-source transaction: requestedRevision += 1
-successful ABC publication: recalculatedRevision = requestedRevision observed
-server bootstrap / next request:
-  if requestedRevision > recalculatedRevision, run one bounded recalculation
+owner transaction:
+  requestedRevision += 1
+
+candidate:
+  handledRevision = requestedRevision observed
+  if a required source attempt is RUNNING:
+    return DEFERRED and leave the revision dirty
+  read one coherent source vector and calculate deterministically
+
+publication transaction:
+  require requestedRevision == handledRevision
+  require recalculatedRevision < handledRevision
+  require formula/publication/source-vector CAS
+  publish once and set recalculatedRevision = handledRevision
+
+server bootstrap or ABC read:
+  if requestedRevision > recalculatedRevision, invoke bounded reconciliation
 ```
 
 This is a dirty-bit/revision guard, not a queue. It has no per-product job,
 checkpoint, heartbeat, worker, or retry graph. Concurrent calls coalesce via
-the publication CAS.
+the publication CAS; a revision that changes during calculation rejects the
+stale candidate, and a later invocation handles the newest revision.
 
 ## Work Management After Automation Removal
 
@@ -463,13 +632,21 @@ the publication CAS.
 
 `Alert` is a small durable operator notification owned by a focused
 WorkManagement module. It supports list/read, dismiss, resolve, and promotion
-to an ActionTask. Source finalization writes it in the same owner transaction.
+to an ActionTask. An owner upserts an Alert in the same failure transaction
+only when operator action is required. A successful completion resolves the
+matching open source Alert in its metadata-publication transaction; it does
+not create a durable success notification.
 
 The schema uses a stable owner-defined `dedupeKey`, unique by
 `(organizationId, dedupeKey)`, so retries update one alert instead of creating
 duplicates. Operation-specific fields such as `operationKey`, progress,
 `startedAt`, and `finishedAt` are removed. An alert may retain a source record
 link and safe structured details, but it is not a progress ledger.
+
+Because the database Alert is the terminal notification and the web polls it
+directly, no outbox or relay is present. If email, Slack, mobile push, a broker,
+or another database later becomes a required delivery target, an outbox is
+added only at that external delivery seam.
 
 ### ActionTask
 
@@ -544,12 +721,12 @@ feature branch is a reference implementation only.
 Selectively reuse from that reference branch:
 
 - fixed formula payload and anchors;
-- source-fact and coverage reads;
+- coherent source-fact/coverage reads and source-vector fences;
 - deterministic absolute score calculation;
 - formula/publication CAS;
 - atomic evaluation/grade/history publication;
 - Products/Dashboard/Product Outflow read-model fields;
-- verified batch-persistence improvements.
+- generation-tagged fact writes and verified batch-persistence improvements.
 
 Do not import:
 
@@ -557,14 +734,14 @@ Do not import:
 - relative evaluation, calibration, reliability, population hashes, or Orders
   eligibility;
 - extra lifecycle states or compatibility DTOs;
+- current generic CollectionSession/Operation state synchronization;
 - server Panel projections;
 - legacy grade data preservation.
 
 PR 493's original timeout workaround and extension Operation claim path become
 obsolete under direct owner upload and must be removed rather than preserved.
 Its legacy-master cleanup must be revalidated against the operating database
-before the destructive cutover. Unrelated instruction-file compaction is
-dropped unless it remains necessary for a touched implementation boundary.
+before the destructive cutover.
 
 ## Operating-Database Preflight
 
@@ -578,9 +755,12 @@ queries against an up-to-date operational clone and record:
 - active `OperationSchedule` count and schedule settings;
 - recent Operation runs grouped by operation key and trigger;
 - nonterminal or recently failed Operation runs;
+- every registered browser collector, its web/extension entrypoints, and its
+  one canonical source owner;
 - current Alerts/ActionTasks that refer to deleted runtime identities;
 - current ABC formula/evaluation/history/cache counts;
-- source manifest generations, gaps, actual cutoffs, and failed attempts;
+- source attempt idempotency keys, staged generations, manifest gaps, actual
+  cutoffs, and failed attempts;
 - active product/listing/mapping counts, including known unmapped Advertising
   rows.
 
@@ -594,10 +774,14 @@ kept for rollback only, not queried by a compatibility layer.
 The repository may use reviewable implementation commits, but there is one
 deployable path and one coordinated production cutover:
 
-1. Record the operational-clone preflight and owner mapping.
-2. Implement and verify owner attempt APIs plus extension direct upload while
-   old production code remains undeployed.
-3. Implement the absolute ABC service/publication and direct triggers.
+1. Record the operational-clone preflight and the closed collector-to-owner
+   mapping.
+2. Implement and verify idempotent owner attempt APIs, generation-staged facts,
+   short metadata finalization, and extension direct upload while old
+   production code remains undeployed.
+3. Implement the absolute ABC service with coherent source vectors,
+   status-only stale publication, direct at-least-once triggers, and
+   revision/CAS reconciliation.
 4. Replace Automation with WorkManagement Alerts/ActionTasks and polling UI.
 5. Add route/reference scanners, then delete Operations, Workflow, Automation
    Marketplace, Panel projection, and compatibility code.
@@ -610,8 +794,8 @@ deployable path and one coordinated production cutover:
    immutable formula.
 10. Run one full Sellpia and Advertising refresh, then the first full ABC
     baseline publication without history.
-11. Verify source cutoffs, stale fallbacks, grade counts, Alerts, ActionTasks,
-    and all three ABC read surfaces.
+11. Verify source cutoffs, stale display fallbacks, grade counts, Alerts,
+    ActionTasks, and all three ABC read surfaces.
 12. Promote/deploy through `release/office` according to the release train;
     never use `main` as the Office deployment reference.
 
@@ -622,15 +806,28 @@ and extension-to-owner persistence accept canonical writes.
 
 ### Source attempts and extension
 
+- retrying a start after response loss with the same idempotency key and
+  fingerprint returns the same attempt, token, and plan;
+- reusing a start idempotency key with a different fingerprint returns
+  `409 Conflict`;
+- idempotency key/fingerprint and attempt creation commit or roll back
+  together;
 - stale attempt token cannot write or terminate a newer generation;
-- duplicate chunk sequence/checksum does not duplicate facts;
-- conflicting replay is rejected;
-- an incomplete generation is invisible to canonical readers;
+- a one-shot replay or duplicate chunk sequence/checksum does not duplicate
+  staged facts, while conflicting replay is rejected;
+- staged and incomplete generations are invisible to canonical readers;
+- finalize changes only validated metadata/current pointers and never rewrites
+  the staged fact set;
+- failed or expired attempts never move the current generation pointer;
 - closing/reloading the initiating tab does not lose collected data;
+- extension CollectionSession state cannot change source attempt, manifest, or
+  freshness state;
 - provider pagination/count/total mismatch fails the generation;
 - partial mapping publishes valid rows and warnings instead of failing all;
 - retry after failure creates a new generation;
-- source read models show latest failure and prior complete cutoff together.
+- source read models show latest failure and prior complete cutoff together;
+- every registered production collector has exactly one named source owner and
+  no generic fallback owner.
 
 ### ABC
 
@@ -642,11 +839,20 @@ and extension-to-owner persistence accept canonical writes.
 - missing/stale advertising never becomes zero or automatic C;
 - current month is excluded and at most 12 complete months are used;
 - confirmed zero months count while unproven empty months are stale;
-- integrated refresh recalculates exactly once after all attempts settle;
-- partial source failure reads the prior complete snapshot and actual cutoff;
-- standalone successful or failed attempts request exactly one recalculation;
-- lost requested revision is recovered once without a worker;
-- stale candidate, formula revision, and publication revision CAS are rejected;
+- all metrics use one common evaluation cutoff and persist the exact source
+  vector;
+- mismatched source cutoffs never combine newer revenue with older advertising
+  spend;
+- an invocation observed while another required source is `RUNNING` defers
+  publication and leaves the requested revision dirty;
+- integrated and standalone triggers may call recalculation repeatedly, but
+  concurrent calls have one publication effect for the handled revision;
+- partial source failure uses the prior complete snapshot only for display,
+  retains the last normal grade, and publishes stale status without history;
+- a lost requested revision is recovered on server bootstrap or ABC read
+  without a worker;
+- stale requested revision, source vector, source cutoff, formula revision,
+  and publication revision CAS are rejected;
 - selling/mapping changes are rechecked inside publication transaction;
 - baseline publication writes no history;
 - only subsequent real grade transitions write history;
@@ -654,8 +860,11 @@ and extension-to-owner persistence accept canonical writes.
 
 ### Alerts, tasks, and UI
 
-- source completion/failure and Alert mutation commit or roll back together;
-- dedupe prevents duplicate alerts across retries;
+- actionable source failure and Alert upsert commit or roll back together;
+- successful source publication and resolution of its matching failure Alert
+  commit or roll back together;
+- non-actionable and successful outcomes do not create durable Alerts, and
+  dedupe prevents duplicate actionable Alerts across retries;
 - polling plus focus refetch survives page reload and server restart;
 - dismiss/resolve/promote/claim/unclaim/state/note flows persist correctly;
 - removed Workflow/Marketplace/Operation routes and menu items return no live
@@ -694,7 +903,9 @@ requirements after this cutover.
 ## Acceptance Decision
 
 The cutover is accepted only when one owner attempt can explain each collected
-fact and each screen freshness state, one deterministic formula publication
-can explain every ABC grade, and no generic Operation/Workflow runtime remains
-in the production dependency graph. Fewer persisted states and fewer write
-paths are part of the correctness contract, not an optional cleanup phase.
+fact and each screen freshness state, one coherent source vector and one
+deterministic formula publication can explain every ABC grade, retries cannot
+duplicate an attempt or publication effect, and no generic Operation/Workflow
+runtime remains in the production dependency graph. Fewer persisted states
+and fewer write paths are part of the correctness contract, not an optional
+cleanup phase.
