@@ -9,22 +9,21 @@ const channelsSchema = readFileSync(join(repoRoot, 'prisma/models/channels.prism
 const packageJson = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
 const localDevelopment = readFileSync(join(repoRoot, 'scripts/run-local-development.mjs'), 'utf8');
 
-test('persists independent profitability source provenance', () => {
+test('persists exact source provenance for absolute ABC publication', () => {
   for (const field of [
-    'evaluationCutoffDate',
-    'sellpiaCoverageStartDate',
-    'sellpiaCoverageEndDate',
-    'advertisingCoverageStartDate',
-    'advertisingCoverageEndDate',
-    'ordersSourceStatus',
-    'ordersCoverageStartDate',
-    'ordersCoverageEndDate',
-    'ordersSourceCapturedAt',
-    'mappingSourceStatus',
-    'mappingInventoryGeneration',
-    'mappingVerifiedAt',
-    'coverageStartDate',
-    'coverageEndDate',
+    'officialCutoffDate',
+    'publishedSellpiaSourceImportRunId',
+    'publishedAdvertisingSourceImportRunId',
+    'publishedMappingGeneration',
+    'gradeBasisCutoffDate',
+    'sellpiaSourceImportRunId',
+    'advertisingSourceImportRunId',
+    'sellpiaGeneration',
+    'advertisingGeneration',
+    'previousSellpiaSourceImportRunId',
+    'nextSellpiaSourceImportRunId',
+    'previousAdvertisingSourceImportRunId',
+    'nextAdvertisingSourceImportRunId',
   ]) {
     assert.match(coreSchema, new RegExp(`\\b${field}\\b`));
   }

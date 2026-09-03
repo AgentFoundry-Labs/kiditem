@@ -10,6 +10,7 @@
 | Model | Table | Description |
 |---|---|---|
 | ChannelAccountDailyKpiSnapshot | `channel_account_daily_kpi_snapshots` | 채널 계정/스토어 단위 KPI 일별 정규화 fact (listing 에 귀속되지 않는 dashboard KPI 용). |
+| ChannelAdListingProductMonthlyFact | `channel_ad_listing_product_monthly_facts` | Immutable monthly recipe basis and integer-KRW allocation for one completed advertising source generation. |
 | ChannelAdTargetDailySnapshot | `channel_ad_target_daily_snapshots` | 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive. |
 | ChannelListingDailySnapshot | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
 | ChannelListingDeletionOperation | `channel_listing_deletion_operations` | Channel listing 삭제의 provider side effect 실행 기록. 삭제 대상 외부 listing identity를 요청 시점에 동결한다. |
@@ -55,6 +56,23 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ChannelAdListingProductMonthlyFact {
+    String id PK
+    String organizationId FK
+    String sourceImportRunId FK
+    String channelAccountId FK
+    String channelListingId FK
+    String masterProductId FK
+    DateTime month
+    DateTime coveredStartDate
+    DateTime coveredEndDate
+    Int wholeRecipeWeight
+    BigInt mappingGeneration
+    Int observedTargetDayCount
+    BigInt allocatedSpend
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ChannelAdTargetDailySnapshot {
     String id PK
     String organizationId FK
@@ -86,6 +104,7 @@ erDiagram
     Int adSpend
     Int adRevenue
     String rawSnapshotId FK
+    String sourceImportRunId FK
     Json metaJson
     Int sampleCount
     DateTime firstObservedAt
@@ -455,6 +474,9 @@ erDiagram
   SellpiaProductMonthlySales {
     String id PK
     String organizationId FK
+    String sourceImportRunId FK
+    String sellpiaInventorySkuId FK
+    String masterProductId FK
     String productCode
     String optionCode
     String yearMonth
@@ -507,11 +529,17 @@ erDiagram
 |---|---|---|---|---|
 | ChannelAccountDailyKpiSnapshot | channelAccount | references external | Core | ChannelAccount |
 | ChannelAccountDailyKpiSnapshot | organization | references external | Core | Organization |
+| ChannelAdListingProductMonthlyFact | channelAccount | references external | Core | ChannelAccount |
+| ChannelAdListingProductMonthlyFact | channelListing | references external | Core | ChannelListing |
+| ChannelAdListingProductMonthlyFact | masterProduct | references external | Core | MasterProduct |
+| ChannelAdListingProductMonthlyFact | organization | references external | Core | Organization |
+| ChannelAdListingProductMonthlyFact | sourceImportRun | references external | Core | SourceImportRun |
 | ChannelAdTargetDailySnapshot | adTargetDaily | referenced by external | Advertising | AdAction |
 | ChannelAdTargetDailySnapshot | channelAccount | references external | Core | ChannelAccount |
 | ChannelAdTargetDailySnapshot | listing | references external | Core | ChannelListing |
 | ChannelAdTargetDailySnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelAdTargetDailySnapshot | organization | references external | Core | Organization |
+| ChannelAdTargetDailySnapshot | sourceImportRun | references external | Core | SourceImportRun |
 | ChannelListingDailySnapshot | listing | references external | Core | ChannelListing |
 | ChannelListingDailySnapshot | organization | references external | Core | Organization |
 | ChannelListingDeletionOperation | channelAccount | references external | Core | ChannelAccount |
@@ -543,5 +571,8 @@ erDiagram
 | SellpiaManualMatchAlias | organization | references external | Core | Organization |
 | SellpiaManualMatchAlias | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
 | SellpiaManualMatchSnapshot | organization | references external | Core | Organization |
+| SellpiaProductMonthlySales | frozenMasterProduct | references external | Core | MasterProduct |
+| SellpiaProductMonthlySales | frozenSellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
 | SellpiaProductMonthlySales | organization | references external | Core | Organization |
+| SellpiaProductMonthlySales | sourceImportRun | references external | Core | SourceImportRun |
 | SellpiaSalesDailySnapshot | organization | references external | Core | Organization |

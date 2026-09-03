@@ -12,6 +12,8 @@
 
 ## Global Constraints
 
+- Each seam is implemented RED-to-GREEN with focused tests, then reviewed for
+  deletable Ponytail complexity before its commit.
 - `operatingProfit = recognizedRevenue - orderTimeSupplyCost - advertisingSpend`; no other cost is invented as zero.
 - Evaluation excludes the current KST month, uses at most 12 completed months, a 90-day half-life, and exact valid covered days.
 - Fixed V1 weights are 50/30/20; thresholds are A `80` with margin/consistency guards `60`, B `50`, otherwise C; Hard C is exactly nonpositive weighted profit, nonpositive margin, or loss persistence at least `0.5`.
@@ -67,7 +69,7 @@ export type MasterProductAbcFormulaReadyFacts = Readonly<{
 }>;
 ```
 
-- [ ] **Step 1: Write failing worked-example tests**
+- [x] **Step 1: Write failing worked-example tests**
 
 ```ts
 it("grades one product without a cohort", () => {
@@ -103,7 +105,7 @@ it("does not change a product when unrelated products are added", () => {
 });
 ```
 
-- [ ] **Step 2: Run formula tests and verify red**
+- [x] **Step 2: Run formula tests and verify red**
 
 ```bash
 npm exec --workspace=packages/shared vitest -- run src/schemas/product-abc.spec.ts
@@ -112,15 +114,15 @@ npm exec --workspace=apps/server vitest -- run src/products/domain/master-produc
 
 Expected: FAIL because current payload contains calibration/reliability/relative cutoffs and current evaluator applies quantiles.
 
-- [ ] **Step 3: Implement only the fixed V1 formula**
+- [x] **Step 3: Implement only the fixed V1 formula**
 
 Define the exact anchor tables from the spec, linear interpolation with endpoint clamp, 90-day half-life weighting, 30-day velocity, weighted margin, monthly inferred loss persistence, binary64 arithmetic, six-decimal half-up persistence values, and threshold comparisons against unrounded metrics. Reject invalid provenance, negative source amounts, non-month-end cutoff, overlap, more than 12 months, and fewer than 30 valid days.
 
-- [ ] **Step 4: Delete relative scoring and make the spec's NEW wording consistent**
+- [x] **Step 4: Delete relative scoring and make the spec's NEW wording consistent**
 
 Remove quantile, calibration, shrinkage, reliability, Orders, training range, sample/fold metrics, and cohort helpers. Amend the one contradictory spec sentence so `NEW/INSUFFICIENT_EVIDENCE` is a read-time derived evaluation reason rather than a stored normal Evaluation row.
 
-- [ ] **Step 5: Run formula tests**
+- [x] **Step 5: Run formula tests**
 
 ```bash
 npm exec --workspace=packages/shared vitest -- run src/schemas/product-abc.spec.ts
@@ -130,7 +132,7 @@ npm run build --workspace=packages/shared
 
 Expected: PASS for all anchors, interpolation points, A guards, B threshold, Hard C boundaries, 29/30 days, month clipping, zero-proof provenance, and cohort independence.
 
-- [ ] **Step 6: Commit the pure formula**
+- [x] **Step 6: Commit the pure formula**
 
 ```bash
 git add packages/shared/src/schemas/product-abc.ts packages/shared/src/schemas/product-abc.spec.ts packages/shared/src/product-abc.ts apps/server/src/products/domain docs/superpowers/specs/2026-09-03-operation-automation-hard-cutover-design.md
@@ -170,7 +172,7 @@ type FormulaState = {
 };
 ```
 
-- [ ] **Step 1: Write failing migration and schema-contract tests**
+- [x] **Step 1: Write failing migration and schema-contract tests**
 
 ```ts
 it("clears every legacy ABC row and grade cache before installing V1", async () => {
@@ -200,17 +202,17 @@ it("installs one immutable V1 formula state per organization without a publicati
 });
 ```
 
-- [ ] **Step 2: Run script tests and verify red**
+- [x] **Step 2: Run script tests and verify red**
 
 Run: `npm run test:scripts -- --runInBand`
 
 Expected: FAIL because the v0.1.31 reset/initialization migrations and minimal schema contract do not exist.
 
-- [ ] **Step 3: Replace legacy ABC columns and add migrations**
+- [x] **Step 3: Replace legacy ABC columns and add migrations**
 
 FormulaVersion keeps only identity/version/formula JSON/checksum/timestamps. FormulaState keeps the fields shown above and no calibration, pending, dirty, requested, or recalculated state. Evaluation keeps grade, fixed score/metric values, formula/publication revisions, exact source IDs/generations, mapping generation, cutoff, and calculated timestamp. History keeps old/new grade, score/profit/margin, source transition provenance, publication revision, cutoff, reason, and timestamp.
 
-- [ ] **Step 4: Run Prisma and migration tests on a disposable database**
+- [x] **Step 4: Run Prisma and migration tests on a disposable database**
 
 ```bash
 npx prisma validate
@@ -222,7 +224,7 @@ npm run data:migrate -- status
 
 Expected: schema validates, generated client builds, migrations are ordered under release `0.1.31`, and no migration publishes an ABC baseline or history.
 
-- [ ] **Step 5: Commit ABC persistence**
+- [x] **Step 5: Commit ABC persistence**
 
 ```bash
 git add prisma/models/core.prisma scripts/data-migrations/v0.1.31 scripts/data-migrations/index.ts scripts/__tests__/absolute-product-abc-baseline-migration.spec.ts scripts/__tests__/absolute-product-abc-hard-rewrite-contract.test.mjs scripts/__tests__/run-data-migrations.spec.ts scripts/__tests__/automatic-product-profitability-abc-schema-contract.test.mjs

@@ -63,6 +63,8 @@ erDiagram
   Alert {
     String id PK
     String organizationId FK
+    String dedupeKey
+    String attemptId
     String targetType
     String targetId
     String kind

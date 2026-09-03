@@ -133,6 +133,7 @@ erDiagram
 |---|---|---|---|---|
 | CoupangShipmentDateSummary | organization | references external | Core | Organization |
 | ReturnTransfer | organization | references external | Core | Organization |
+| SellpiaInventorySku | frozenSellpiaInventorySku | referenced by external | Channels | SellpiaProductMonthlySales |
 | SellpiaInventorySku | lastImportRun | references external | Core | SourceImportRun |
 | SellpiaInventorySku | masterProduct | references external | Core | MasterProduct |
 | SellpiaInventorySku | organization | references external | Core | Organization |

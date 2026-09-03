@@ -17,10 +17,10 @@
 | ChannelListingOptionInventoryComponent | `channel_listing_option_inventory_components` | Confirmed Sellpia inventory consumption for one channel sellable option. |
 | LegalEntity | `legal_entities` | Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary. |
 | MasterProduct | `master_products` | Organization-owned canonical inventory product and sole official product ABC identity. |
-| MasterProductAbcEvaluation | `master_product_abc_evaluations` | Current Products-owned automatic profitability ABC explanation snapshot for one MasterProduct. |
-| MasterProductAbcFormulaState | `master_product_abc_formula_states` | One Prisma-owned current-formula pointer for each organization. |
-| MasterProductAbcFormulaVersion | `master_product_abc_formula_versions` | Immutable organization-owned formula versions for automatic product profitability ABC. |
-| MasterProductAbcGradeHistory | `master_product_abc_grade_histories` | Immutable publication history for automatic product profitability ABC grade changes. |
+| MasterProductAbcEvaluation | `master_product_abc_evaluations` | Current Products-owned normal absolute ABC evaluation for one MasterProduct. |
+| MasterProductAbcFormulaState | `master_product_abc_formula_states` | One organization-owned formula and official publication envelope. |
+| MasterProductAbcFormulaVersion | `master_product_abc_formula_versions` | Immutable organization-owned formula versions for absolute product ABC publication. |
+| MasterProductAbcGradeHistory | `master_product_abc_grade_histories` | Immutable absolute ABC grade transitions after the initial baseline. |
 | Organization | `organizations` | - |
 | OrganizationMembership | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
 | SourceImportRun | `source_import_runs` | Durable provenance and publication fence for Sellpia and channel full-snapshot imports. |
@@ -157,48 +157,40 @@ erDiagram
     String organizationId FK
     String masterProductId FK
     String formulaVersionId FK
-    String calculationStatus
-    Decimal rawScore
-    Decimal adjustedScore
-    Decimal reliability
+    String abcGrade
     Decimal weightedRevenue
-    Decimal weightedOrderTimeCogs
-    Decimal weightedAdSpend
-    Decimal weightedContributionProfit
-    Decimal profitVelocity30
-    Decimal weightedContributionMargin
-    Decimal lossRecurrence
-    Int paidOrderCount
-    Int observationDays
-    DateTime firstValidPaidSaleAt
-    DateTime sourceCoverageStartDate
-    DateTime sourceCoverageEndDate
-    DateTime evaluationCutoffDate
-    DateTime sellpiaCoverageStartDate
-    DateTime sellpiaCoverageEndDate
-    String sellpiaSourceStatus
-    DateTime sellpiaSourceCapturedAt
-    DateTime advertisingCoverageStartDate
-    DateTime advertisingCoverageEndDate
-    String advertisingSourceStatus
-    DateTime advertisingSourceCapturedAt
-    String ordersSourceStatus
-    DateTime ordersCoverageStartDate
-    DateTime ordersCoverageEndDate
-    DateTime ordersSourceCapturedAt
-    String mappingSourceStatus
-    BigInt mappingInventoryGeneration
-    DateTime mappingVerifiedAt
-    Json costComponentsJson
-    String statusDetail
-    String runToken
+    Decimal weightedOrderTimeSupplyCost
+    Decimal weightedAdvertisingSpend
+    Decimal weightedOperatingProfit
+    Decimal operatingProfitVelocity30
+    Decimal operatingMargin
+    Decimal lossPersistence
+    Decimal profitScore
+    Decimal marginScore
+    Decimal consistencyScore
+    Decimal economicScore
+    Int validObservationDays
+    Int formulaRevision
+    Int publicationRevision
+    DateTime gradeBasisCutoffDate
+    String sellpiaSourceImportRunId FK
+    String advertisingSourceImportRunId FK
+    BigInt sellpiaGeneration
+    BigInt advertisingGeneration
+    BigInt mappingGeneration
     DateTime calculatedAt
   }
   MasterProductAbcFormulaState {
     String organizationId PK,FK
     String activeFormulaVersionId FK
-    DateTime activatedAt
-    Int revision
+    Int formulaRevision
+    Int publicationRevision
+    DateTime officialCutoffDate
+    String publishedSellpiaSourceImportRunId FK
+    String publishedAdvertisingSourceImportRunId FK
+    BigInt publishedMappingGeneration
+    BigInt mappingGeneration
+    DateTime publishedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -207,15 +199,8 @@ erDiagram
     String organizationId FK
     String formulaKey
     Int version
-    String calculationCodeChecksum
     Json formulaJson
     String formulaChecksum
-    DateTime trainingStartDate
-    DateTime trainingEndDate
-    Int sampleCount
-    Int foldCount
-    Json calibrationMetricsJson
-    DateTime firstActivatedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -226,10 +211,15 @@ erDiagram
     String formulaVersionId FK
     String oldGrade
     String newGrade
-    String calculationStatus
-    Decimal adjustedScore
-    Decimal weightedContributionProfit
-    Decimal weightedContributionMargin
+    Decimal economicScore
+    Decimal weightedOperatingProfit
+    Decimal operatingMargin
+    String previousSellpiaSourceImportRunId FK
+    String nextSellpiaSourceImportRunId FK
+    String previousAdvertisingSourceImportRunId FK
+    String nextAdvertisingSourceImportRunId FK
+    Int formulaRevision
+    Int publicationRevision
     DateTime sourceCutoffDate
     String reason
     DateTime calculatedAt
@@ -275,9 +265,20 @@ erDiagram
     String errorMessage
     String createdBy
     String attemptToken
+    String idempotencyKey
+    String requestFingerprint
+    DateTime expiresAt
+    Json plan
+    String parserVersion
+    String contentChecksum
+    Int contentByteCount
+    Boolean providerBackedEmptyProof
+    StringArray coveredMonths
+    BigInt mappingGeneration
     BigInt publicationSequence
     DateTime coverageStartDate
     DateTime coverageEndDate
+    String adSourcePolicyHash
     DateTime createdAt
     DateTime updatedAt
   }
@@ -303,7 +304,7 @@ erDiagram
   MasterProduct o|--o{ ChannelListing : "masterProduct"
   MasterProduct ||--|| MasterProductAbcEvaluation : "masterProduct"
   MasterProduct ||--o{ MasterProductAbcGradeHistory : "masterProduct"
-  MasterProductAbcFormulaVersion o|--o{ MasterProductAbcEvaluation : "formulaVersion"
+  MasterProductAbcFormulaVersion ||--o{ MasterProductAbcEvaluation : "formulaVersion"
   MasterProductAbcFormulaVersion o|--o| MasterProductAbcFormulaState : "activeFormulaVersion"
   MasterProductAbcFormulaVersion ||--o{ MasterProductAbcGradeHistory : "formulaVersion"
   Organization ||--o{ CategoryMapping : "organization"
@@ -321,6 +322,14 @@ erDiagram
   Organization ||--o{ SourceImportRun : "organization"
   SourceImportRun o|--o{ ChannelListing : "lastImportRun"
   SourceImportRun o|--o{ ChannelListingOption : "lastImportRun"
+  SourceImportRun ||--o{ MasterProductAbcEvaluation : "advertisingSourceImportRun"
+  SourceImportRun ||--o{ MasterProductAbcEvaluation : "sellpiaSourceImportRun"
+  SourceImportRun o|--o{ MasterProductAbcFormulaState : "publishedAdvertisingSourceImportRun"
+  SourceImportRun o|--o{ MasterProductAbcFormulaState : "publishedSellpiaSourceImportRun"
+  SourceImportRun o|--o{ MasterProductAbcGradeHistory : "nextAdvertisingSourceImportRun"
+  SourceImportRun o|--o{ MasterProductAbcGradeHistory : "nextSellpiaSourceImportRun"
+  SourceImportRun o|--o{ MasterProductAbcGradeHistory : "previousAdvertisingSourceImportRun"
+  SourceImportRun o|--o{ MasterProductAbcGradeHistory : "previousSellpiaSourceImportRun"
   User ||--o{ AuthSession : "user"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
@@ -333,6 +342,7 @@ erDiagram
 |---|---|---|---|---|
 | ChannelAccount | channelAccount | referenced by external | AI | ProductPreparation |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelAccountDailyKpiSnapshot |
+| ChannelAccount | channelAccount | referenced by external | Channels | ChannelAdListingProductMonthlyFact |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelListingDeletionOperation |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelScrapeRun |
@@ -344,6 +354,7 @@ erDiagram
 | ChannelAccount | targetChannelAccount | referenced by external | Sourcing | SourcingLaunchCandidate |
 | ChannelListing | channelListing | referenced by external | AI | ContentWorkspace |
 | ChannelListing | channelListing | referenced by external | AI | ProductPreparation |
+| ChannelListing | channelListing | referenced by external | Channels | ChannelAdListingProductMonthlyFact |
 | ChannelListing | channelListing | referenced by external | Channels | ChannelListingDeletionOperation |
 | ChannelListing | channelListing | referenced by external | Sourcing | ProductRegistrationExecution |
 | ChannelListing | listing | referenced by external | Advertising | AdAction |
@@ -363,6 +374,8 @@ erDiagram
 | ChannelListingOption | listingOption | referenced by external | Orders | OrderLineItem |
 | ChannelListingOption | listingOption | referenced by external | Orders | OrderReturnLineItem |
 | ChannelListingOptionInventoryComponent | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
+| MasterProduct | frozenMasterProduct | referenced by external | Channels | SellpiaProductMonthlySales |
+| MasterProduct | masterProduct | referenced by external | Channels | ChannelAdListingProductMonthlyFact |
 | MasterProduct | masterProduct | referenced by external | Inventory | SellpiaInventorySku |
 | MasterProduct | provenanceMasterProduct | referenced by external | Sourcing | SourcingCandidate |
 | Organization | organization | referenced by external | Advertising | AdAction |
@@ -393,6 +406,7 @@ erDiagram
 | Organization | organization | referenced by external | AI | ThumbnailTrackingDailySnapshot |
 | Organization | organization | referenced by external | Automation | WorkflowTemplate |
 | Organization | organization | referenced by external | Channels | ChannelAccountDailyKpiSnapshot |
+| Organization | organization | referenced by external | Channels | ChannelAdListingProductMonthlyFact |
 | Organization | organization | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | Organization | organization | referenced by external | Channels | ChannelListingDailySnapshot |
 | Organization | organization | referenced by external | Channels | ChannelListingDeletionOperation |
@@ -485,8 +499,11 @@ erDiagram
 | Organization | organization | referenced by external | System | SystemSetting |
 | SourceImportRun | lastCompletedImportRun | referenced by external | Inventory | SellpiaInventoryState |
 | SourceImportRun | lastImportRun | referenced by external | Inventory | SellpiaInventorySku |
+| SourceImportRun | sourceImportRun | referenced by external | Channels | ChannelAdListingProductMonthlyFact |
+| SourceImportRun | sourceImportRun | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | SourceImportRun | sourceImportRun | referenced by external | Channels | ChannelScrapeRun |
 | SourceImportRun | sourceImportRun | referenced by external | Channels | RocketPoCatalogSnapshot |
+| SourceImportRun | sourceImportRun | referenced by external | Channels | SellpiaProductMonthlySales |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | Order |
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmation |
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmationTransmission |
