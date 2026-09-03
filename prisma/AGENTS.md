@@ -42,7 +42,9 @@ directory; do not move datasource URL back into `schema.prisma`.
 - camelCase fields map to snake_case columns with `@map`.
 - UUID primary keys use `@default(uuid()) @db.Uuid`.
 - Timestamps use `@db.Timestamptz`.
-- KRW is `Int`; CNY/decimal money uses `Decimal(12,2)`.
+- Atomic KRW amounts use `Int`; persisted aggregates that can exceed the
+  PostgreSQL integer range use `BigInt`. CNY/decimal money uses
+  `Decimal(12,2)`.
 - JSON is for one-off raw payload preservation only. Query, aggregate, or IDOR
   guard data should be normalized.
 - FK columns need a leading `@@index([foreignKey])`; Prisma does not create FK

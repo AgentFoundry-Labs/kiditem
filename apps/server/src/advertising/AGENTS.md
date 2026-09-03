@@ -7,29 +7,13 @@ cost evidence and the marketplace
 `ChannelListing`/`ChannelListingOption` model, and is organization-scoped
 throughout.
 
-## Folder Map
+## Ownership
 
-```text
-advertising/
-├── adapter/in/http/          # /api/ads/* controllers and HTTP DTOs
-├── adapter/out/
-│   ├── automation/           # operation-alert adapter
-│   └── repository/           # Prisma/raw-fact repository adapters
-├── application/
-│   ├── port/out/             # repository, transaction, operation-alert ports
-│   └── service/              # Prisma-free orchestration + ingest handlers
-├── domain/                   # pure rules, normalizers, metrics, policies
-│   └── util/                 # ratio/date/key helpers
-├── mapper/                   # row/DTO/domain mapping
-└── services/                 # legacy facade only
-```
-
-## Owned Surfaces
-
-- Coupang ad scrape ingest: `POST /api/ads/extension/sync`
-- Ad dashboards and strategy/action APIs under `/api/ads/*`
-- Keyword/SERP rank tracking and competitor seller views under `/api/ads/*`
-- Ad action execution lifecycle for approved queued actions
+- Advertising owns Coupang ad facts, keyword/SERP evidence, competitor
+  observations, strategy proposals, and approved ad-action execution.
+- Raw scrape evidence and daily fact projections remain organization-scoped and
+  auditable. Advertising is the canonical writer for its own facts; consumers
+  use its read contracts rather than mutating channel tables directly.
 
 ## Main Data Models
 
@@ -41,23 +25,6 @@ advertising/
   trailing-window observations (see Keyword Grain below).
 - `ChannelAccountDailyKpiSnapshot` is the account/store KPI fact.
 - `AdAction` is the executable action record and is target-daily based.
-
-## Ingest Flow
-
-```text
-Extension/Wing payload
-  -> POST /api/ads/extension/sync
-  -> AdSyncService.sync
-  -> append ChannelScrapeRun/Snapshot
-  -> upsert listing/option daily facts
-  -> upsert ad-target daily facts
-  -> upsert account KPI facts
-  -> strategy/action services read fact projections
-```
-
-Listing match priority is `vendorItemId` to `ChannelListingOption`, then
-`externalId` to `ChannelListing(platform='coupang')`, then unmatched raw
-snapshot preservation.
 
 ## Keyword Grain
 
@@ -95,22 +62,23 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
   become `pause_keyword` AdActions in `pending_review` and still require human
   approval before the extension executes them.
 
-## Cross-Domain Ports
+## Cross-Domain Boundaries
 
-- For an advertising operation launched from a sourcing screen, Operations owns
-  only the run/lease and the Advertising handler owns canonical tracking,
-  competitor, and daily fact rows. The operation result is a safe summary, not
-  a fact sink; the screen reads Advertising's persisted snapshot.
-- Operation-alert lifecycle writes go through advertising's local
-  `operation-alert.port`, bound to automation's `OPERATION_ALERT_PORT`.
+- A source attempt ends at Advertising's `COMPLETE`/`FAILED` owner record and
+  complete manifest. It does not invoke ABC or another downstream calculation;
+  readers use only the latest complete advertising snapshot.
 - Sellable-stock reads go through Channels' exported read-only
   `CHANNEL_SKU_AVAILABILITY_PORT`; Advertising never computes a second stock
   balance or reads stock fields from marketplace SKU metadata.
 - Advertising intentionally reads/writes channel daily fact models because the
   scrape ingest path owns raw/fact projection traceability.
 - Product ABC reads go through Products' exported stored-grade port. An
-  unclassified product stays `null`; Advertising must not calculate a Sellpia
-  row grade or coerce it to C.
+  unclassified product stays `null`; Advertising must not calculate a product
+  grade or coerce a missing/stale source to C.
+- Advertising evidence used by ABC preserves `OBSERVED`, `CONFIRMED_ZERO`, and
+  `NOT_APPLIED`. `MISSING`/`STALE` is not an advertising cost of zero.
+- Revenue, operating-profit contribution, rank, and cumulative share are
+  reporting metrics only; none changes the absolute ABC grade.
 - Advertising must not inject concrete Channels services.
 
 ## Boundary Rules
@@ -118,12 +86,7 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
 - KST business date conversion goes through `toBusinessDate()`.
 - Period views derive from daily facts; ratios recompute from summed raw
   values and do not trust provider ratios.
+- Listing facts match `vendorItemId` to `ChannelListingOption`, then
+  `externalId` to a Coupang `ChannelListing`; preserve unmatched raw evidence.
 - `buildAdTargetKey()` is the only target-key builder and must fail if no
   stable identifier exists.
-
-## Transitional Exceptions
-
-- `services/channel-scrape-persistence.service.ts` is a grandfathered
-  compatibility facade and must not receive new business logic.
-- The channel fact ownership exception remains local to advertising ingest; do
-  not expand it to direct channel service injection.

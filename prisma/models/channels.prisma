@@ -356,8 +356,9 @@ model ChannelAdTargetDailySnapshot {
   adSpend     Int @default(0) @map("ad_spend")
   adRevenue   Int @default(0) @map("ad_revenue")
 
-  rawSnapshotId String? @map("raw_snapshot_id") @db.Uuid
-  metaJson      Json?   @map("meta_json")
+  rawSnapshotId    String? @map("raw_snapshot_id") @db.Uuid
+  sourceImportRunId String? @map("source_import_run_id") @db.Uuid
+  metaJson         Json?   @map("meta_json")
 
   sampleCount     Int      @default(1) @map("sample_count")
   firstObservedAt DateTime @default(now()) @map("first_observed_at") @db.Timestamptz
@@ -370,11 +371,13 @@ model ChannelAdTargetDailySnapshot {
   listing        ChannelListing?        @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Restrict)
   listingOption  ChannelListingOption?  @relation(fields: [listingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
   rawSnapshot    ChannelScrapeSnapshot? @relation("AdTargetDailyRawSnapshot", fields: [rawSnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceImportRun SourceImportRun? @relation("AdTargetSourceImport", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   adActions AdAction[]
 
   @@unique([id, organizationId], map: "channel_ad_target_daily_snapshots_id_org_key")
-  @@unique([organizationId, channelAccountId, channel, businessDate, targetType, targetKey])
+  @@unique([organizationId, channelAccountId, channel, businessDate, targetType, targetKey], map: "channel_ad_target_daily_legacy_key", where: raw("source_import_run_id IS NULL"))
+  @@unique([organizationId, sourceImportRunId, channelAccountId, channel, businessDate, targetType, targetKey], map: "channel_ad_target_daily_generation_key", where: raw("source_import_run_id IS NOT NULL"))
   @@index([organizationId, channel, businessDate])
   @@index([channelAccountId, businessDate])
   @@index([organizationId, channelAccountId, campaignIdentity, businessDate])
@@ -382,7 +385,42 @@ model ChannelAdTargetDailySnapshot {
   @@index([listingOptionId, businessDate])
   @@index([organizationId, targetType, businessDate])
   @@index([rawSnapshotId])
+  @@index([sourceImportRunId, organizationId], map: "channel_ad_target_daily_source_run_org_idx")
   @@map("channel_ad_target_daily_snapshots")
+}
+
+/// @namespace Channels
+/// @describe Immutable monthly recipe basis and integer-KRW allocation for one completed advertising source generation.
+model ChannelAdListingProductMonthlyFact {
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  sourceImportRunId String   @map("source_import_run_id") @db.Uuid
+  channelAccountId  String   @map("channel_account_id") @db.Uuid
+  channelListingId  String   @map("channel_listing_id") @db.Uuid
+  masterProductId   String   @map("master_product_id") @db.Uuid
+  month             DateTime @map("month") @db.Date
+  coveredStartDate  DateTime @map("covered_start_date") @db.Date
+  coveredEndDate    DateTime @map("covered_end_date") @db.Date
+  wholeRecipeWeight Int      @map("whole_recipe_weight")
+  mappingGeneration BigInt   @map("mapping_generation") @db.BigInt
+  observedTargetDayCount Int   @map("observed_target_day_count")
+  allocatedSpend    BigInt    @map("allocated_spend") @db.BigInt
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceImportRun SourceImportRun @relation("AdListingProductMonthlyFacts", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  channelAccount  ChannelAccount @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  channelListing  ChannelListing @relation("AdFactChannelListing", fields: [channelListingId, organizationId, channelAccountId], references: [id, organizationId, channelAccountId], onDelete: Restrict)
+  masterProduct   MasterProduct  @relation("AdFactMasterProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, sourceImportRunId, channelAccountId, channelListingId, month, masterProductId], map: "channel_ad_listing_product_monthly_facts_generation_key")
+  @@index([sourceImportRunId, organizationId], map: "channel_ad_listing_product_monthly_facts_source_run_org_idx")
+  @@index([channelAccountId, organizationId], map: "channel_ad_listing_product_monthly_facts_account_org_idx")
+  @@index([channelListingId, organizationId, channelAccountId], map: "ad_monthly_facts_listing_org_account_idx")
+  @@index([masterProductId, organizationId], map: "channel_ad_listing_product_monthly_facts_master_product_org_idx")
+  @@index([organizationId, sourceImportRunId, month])
+  @@map("channel_ad_listing_product_monthly_facts")
 }
 
 /// @namespace Channels

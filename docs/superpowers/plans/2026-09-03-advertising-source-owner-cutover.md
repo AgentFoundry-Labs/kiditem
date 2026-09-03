@@ -12,6 +12,8 @@
 
 ## Global Constraints
 
+- Each seam is implemented RED-to-GREEN with focused tests, then reviewed for
+  deletable Ponytail complexity before its commit.
 - Only the existing `/marketing-reporting/billboard/reports/pa` product report is authoritative for V1 profitability advertising spend.
 - One attempt covers every formula-applicable organization account. Missing one account or slice fails the whole generation and leaves the previous complete generation current.
 - The server owns the account/date plan; the client cannot add an account, advertiser ID, date, target, mapping generation, or policy hash.
@@ -19,7 +21,6 @@
 - Provider account identity, pagination counts, date universe, listing/option identity, zero proof, recipe weights, and whole-KRW conservation are verified before COMPLETE.
 - No Operation run, claim, heartbeat, child, scheduler, Alert lifecycle event, or ABC call remains.
 - The existing `/api/ads/profitability-refresh/runs*` route and operation handler are deleted after the direct owner routes pass.
-- The designated advertising implementation agent is the only subagent permitted to modify files in this plan; the main agent owns integration and tests.
 
 ---
 
@@ -115,10 +116,13 @@ export interface ProfitabilityAdImportPort {
     organizationId: string;
     idempotencyKey: string;
   }): Promise<AdvertisingProfitabilityPlan>;
-  read(input: {
+  readSourceStatus(input: {
     organizationId: string;
-    attemptId?: string;
   }): Promise<AdvertisingProfitabilitySourceView>;
+  readAttemptControl(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<AdvertisingProfitabilityPlan | null>;
   uploadSlice(
     input: AdvertisingProfitabilitySliceUpload,
   ): Promise<{ replayed: boolean }>;
@@ -135,7 +139,7 @@ export interface ProfitabilityAdImportPort {
 }
 ```
 
-- [ ] **Step 1: Write failing service and HTTP tests**
+- [x] **Step 1: Write failing service and HTTP tests**
 
 ```ts
 it("returns the same immutable server plan for a retried idempotency key", async () => {
@@ -152,13 +156,13 @@ it("derives organization scope and never accepts an account plan from the reques
 });
 ```
 
-- [ ] **Step 2: Run the focused tests and verify red**
+- [x] **Step 2: Run the focused tests and verify red**
 
 Run: `npm exec --workspace=apps/server vitest -- run src/advertising/application/service/__tests__/profitability-ad-import.service.spec.ts src/advertising/adapter/in/http/__tests__/profitability-ad-import.controller.spec.ts`
 
 Expected: FAIL because the direct import types and controller do not exist.
 
-- [ ] **Step 3: Implement the owner service and routes**
+- [x] **Step 3: Implement the owner service and routes**
 
 Expose:
 
@@ -172,14 +176,18 @@ POST /api/ads/profitability-imports/:attemptId/fail
 ```
 
 Begin reads active Coupang accounts, expected advertiser identities, the last 12 closed KST months plus required correction slices, current mapping generation, and the fixed ad policy hash. Upload and terminal calls require the normal organization guard plus `x-source-attempt-token`.
+The exact-attempt GET is an authenticated owner-control read: for the same
+organization's still-running attempt it rehydrates the immutable server plan
+and fence token. The current-status read and the Finance read capability never
+expose that token.
 
-- [ ] **Step 4: Run service/controller tests**
+- [x] **Step 4: Run service/controller tests**
 
 Run: `npm exec --workspace=apps/server vitest -- run src/advertising/application/service/__tests__/profitability-ad-import.service.spec.ts src/advertising/adapter/in/http/__tests__/profitability-ad-import.controller.spec.ts`
 
 Expected: PASS for idempotency, plan authority, token expiry, organization scope, and bounded error responses.
 
-- [ ] **Step 5: Commit the incoming owner seam**
+- [x] **Step 5: Commit the incoming owner seam**
 
 ```bash
 git add apps/server/src/advertising/application/port/in/profitability-ad-import.port.ts apps/server/src/advertising/application/port/out/repository/profitability-ad-import.repository.port.ts apps/server/src/advertising/application/service/profitability-ad-import.service.ts apps/server/src/advertising/application/service/__tests__/profitability-ad-import.service.spec.ts apps/server/src/advertising/adapter/in/http/profitability-ad-import.controller.ts apps/server/src/advertising/adapter/in/http/__tests__/profitability-ad-import.controller.spec.ts apps/server/src/advertising/application/port/in/profitability-ad-refresh.port.ts apps/server/src/advertising/application/port/out/repository/profitability-ad-refresh.repository.port.ts apps/server/src/advertising/application/service/__tests__/profitability-ad-refresh.service.spec.ts apps/server/src/advertising/application/service/profitability-ad-refresh.service.ts apps/server/src/advertising/adapter/in/http/__tests__/profitability-ad-refresh.controller.spec.ts apps/server/src/advertising/adapter/in/http/profitability-ad-refresh.controller.ts
@@ -203,7 +211,7 @@ git commit -m "refactor: define advertising import owner"
 - Consumes: `ProfitabilityAdImportRepositoryPort` commands and `SourceFailureAlerts` from the preceding plan.
 - Produces: immutable slice receipts, staged provider facts, frozen monthly product allocation facts, a completed manifest, and latest-complete exact-generation reads.
 
-- [ ] **Step 1: Write failing PostgreSQL publication tests**
+- [x] **Step 1: Write failing PostgreSQL publication tests**
 
 ```ts
 it("does not expose a generation until every planned account and slice is complete", async () => {
@@ -233,21 +241,21 @@ it("rolls COMPLETE back when resolving the source Alert fails", async () => {
 });
 ```
 
-- [ ] **Step 2: Run the PG test and verify red**
+- [x] **Step 2: Run the PG test and verify red**
 
 Run: `npm run test:integration --workspace=apps/server -- src/advertising/__tests__/profitability-ad-import.repository.pg.integration.spec.ts`
 
 Expected: FAIL because current slices publish independently through an Operation fence.
 
-- [ ] **Step 3: Implement generation-tagged Advertising storage**
+- [x] **Step 3: Implement generation-tagged Advertising storage**
 
 Use `SourceImportRun` with `sourceType='coupang_ad_profitability'` for the owner attempt/manifest. Add an organization-fenced `sourceImportRunId` to `ChannelAdTargetDailySnapshot`. Add `ChannelAdListingProductMonthlyFact` keyed by organization, source import, account, listing, master product, and month. Store frozen recipe weights and mapping generation in the manifest/allocated facts. Finalize verifies receipt count/checksums and performs only metadata/current-pointer/Alert writes; it does not rewrite staged facts.
 
-- [ ] **Step 4: Implement exact allocation and zero proof**
+- [x] **Step 4: Implement exact allocation and zero proof**
 
 For each account/listing/business-date, allocate integer KRW by positive recipe quantity. Apply floor first, then distribute remaining KRW by descending fractional remainder and ascending lowercase master-product UUID. `CONFIRMED_ZERO` requires the manifest's complete listing/date universe; absent rows without that proof are missing. `NOT_APPLIED` requires the fixed V1 applicability policy.
 
-- [ ] **Step 5: Run repository tests**
+- [x] **Step 5: Run repository tests**
 
 ```bash
 npm exec --workspace=apps/server vitest -- run src/advertising/adapter/out/repository/__tests__/profitability-ad-import.repository.adapter.spec.ts
@@ -256,7 +264,7 @@ npm run test:integration --workspace=apps/server -- src/advertising/__tests__/pr
 
 Expected: PASS for two accounts, partial failure fallback, frozen mapping, replay conflict, zero proof, exact KRW conservation, organization isolation, and Alert rollback.
 
-- [ ] **Step 6: Commit the Advertising generation**
+- [x] **Step 6: Commit the Advertising generation**
 
 ```bash
 git add prisma/models/core.prisma prisma/models/channels.prisma apps/server/src/advertising/adapter/out/repository/profitability-ad-import.repository.adapter.ts apps/server/src/advertising/adapter/out/repository/__tests__/profitability-ad-import.repository.adapter.spec.ts apps/server/src/advertising/__tests__/profitability-ad-import.repository.pg.integration.spec.ts apps/server/src/advertising/adapter/out/repository/profitability-ad-refresh.repository.adapter.ts apps/server/src/advertising/adapter/out/repository/__tests__/profitability-ad-refresh.repository.adapter.spec.ts
@@ -311,7 +319,13 @@ Expected: FAIL because current execution polls an Operation checkpoint and carri
 
 - [ ] **Step 3: Implement direct plan execution**
 
-Persist `attemptId`, token, current account index, and slice index in extension-local session metadata. Before each slice, switch to the planned account and read the visible advertiser identity. Upload the provider report directly with the owner token. Extension restart resumes the same nonterminal owner attempt; a terminal user retry always begins a new one.
+Persist only the owner `attemptId` plus the bounded public progress/attention and
+managed-tab metadata allowed by the collection-session contract. Keep the plan,
+token, and current loop indices in memory; after a service-worker restart,
+rehydrate the still-running plan and fence token from the authenticated exact-
+attempt owner endpoint. Before each slice, switch to the planned account and
+read the visible advertiser identity. Upload the provider report directly with
+the owner token. A terminal user retry always begins a new attempt.
 
 - [ ] **Step 4: Run extension tests**
 

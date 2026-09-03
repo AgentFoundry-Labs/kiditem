@@ -5,7 +5,7 @@ import { AutomationModule } from "../automation/automation.module";
 import { ChannelsModule } from "../channels/channels.module";
 import { ProductsModule } from "../products/products.module";
 import { OperationsModule } from "../operations/operations.module";
-
+import { AdvertisingProfitabilityReadModule } from "./advertising-profitability-read.module";
 import { AdvertisingActionsController } from "./adapter/in/http/advertising-actions.controller";
 import { AdvertisingCampaignsController } from "./adapter/in/http/advertising-campaigns.controller";
 import { AdvertisingConfigController } from "./adapter/in/http/advertising-config.controller";
@@ -18,7 +18,6 @@ import { AdKeywordAgentController } from "./adapter/in/http/ad-keyword-agent.con
 import { KeywordRankController } from "./adapter/in/http/keyword-rank.controller";
 import { CompetitorTrackingController } from "./adapter/in/http/competitor-tracking.controller";
 import { WingTrackedProductController } from "./adapter/in/http/wing-tracked-product.controller";
-
 // adapter/out/repository
 import { ScrapeTargetRepositoryAdapter } from "./adapter/out/repository/scrape-target.repository.adapter";
 import { AdConfigRepositoryAdapter } from "./adapter/out/repository/ad-config.repository.adapter";
@@ -40,7 +39,6 @@ import { KiditemStorefrontAdapter } from "./adapter/out/provider/kiditem-storefr
 import { OperationAlertAdapter } from "./adapter/out/automation/operation-alert.adapter";
 import { KeywordRelevanceJudgeAdapter } from "./adapter/out/ai/keyword-relevance-judge.adapter";
 import { AdIngestTransactionAdapter } from "./adapter/out/repository/ad-ingest-transaction.adapter";
-
 // application/service + handlers
 import { AdvertisingService } from "./application/service/advertising.service";
 import { AdCampaignsService } from "./application/service/ad-campaigns.service";
@@ -69,16 +67,8 @@ import { KeywordRankIngestHandler } from "./application/service/keyword-rank-ing
 import { WingSalesRankIngestHandler } from "./application/service/wing-sales-rank-ingest.handler";
 import { RawScrapeIngestHandler } from "./application/service/raw-scrape-ingest.handler";
 import { TrafficIngestHandler } from "./application/service/traffic-ingest.handler";
-import { AdvertisingProfitabilityOperationHandler } from "./adapter/in/operation/advertising-profitability.operation-handler";
-import { ProfitabilityAdRefreshController } from "./adapter/in/http/profitability-ad-refresh.controller";
-import { ProfitabilityAdRefreshService } from "./application/service/profitability-ad-refresh.service";
-import { ProfitabilityAdRefreshRepositoryAdapter } from "./adapter/out/repository/profitability-ad-refresh.repository.adapter";
-import { PROFITABILITY_AD_REFRESH_PORT } from "./application/port/in/profitability-ad-refresh.port";
-import { PROFITABILITY_AD_REFRESH_REPOSITORY_PORT } from "./application/port/out/repository/profitability-ad-refresh.repository.port";
-
 // transitional facade — grandfathered by AGENTS.md
 import { ChannelScrapePersistenceService } from "./services/channel-scrape-persistence.service";
-
 // application/port/out tokens
 import { SCRAPE_TARGET_REPOSITORY_PORT } from "./application/port/out/repository/scrape-target.repository.port";
 import { AD_CONFIG_REPOSITORY_PORT } from "./application/port/out/repository/ad-config.repository.port";
@@ -185,6 +175,7 @@ const REPOSITORY_PORT_BINDINGS = [
     ChannelsModule,
     ProductsModule,
     OperationsModule,
+    AdvertisingProfitabilityReadModule,
   ],
   controllers: [
     AdvertisingConfigController,
@@ -199,7 +190,6 @@ const REPOSITORY_PORT_BINDINGS = [
     KeywordRankController,
     CompetitorTrackingController,
     WingTrackedProductController,
-    ProfitabilityAdRefreshController,
   ],
   providers: [
     // adapter/out/repository
@@ -218,7 +208,6 @@ const REPOSITORY_PORT_BINDINGS = [
     ChannelTargetDailyRepositoryAdapter,
     KeywordRankRepositoryAdapter,
     WingTrackedProductRepositoryAdapter,
-    ProfitabilityAdRefreshRepositoryAdapter,
     KiditemStorefrontAdapter,
     // adapter/out/automation
     OperationAlertAdapter,
@@ -252,17 +241,7 @@ const REPOSITORY_PORT_BINDINGS = [
     WingSalesRankIngestHandler,
     RawScrapeIngestHandler,
     TrafficIngestHandler,
-    AdvertisingProfitabilityOperationHandler,
     AdvertisingTrackedWingProductsOperationHandler,
-    ProfitabilityAdRefreshService,
-    {
-      provide: PROFITABILITY_AD_REFRESH_PORT,
-      useExisting: ProfitabilityAdRefreshService,
-    },
-    {
-      provide: PROFITABILITY_AD_REFRESH_REPOSITORY_PORT,
-      useExisting: ProfitabilityAdRefreshRepositoryAdapter,
-    },
     // services/* — transitional facade (grandfathered)
     ChannelScrapePersistenceService,
     // port bindings

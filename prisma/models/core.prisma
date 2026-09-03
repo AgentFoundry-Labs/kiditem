@@ -138,6 +138,7 @@ model Organization {
   // Channels — daily fact extensions (Hard rewrite H1)
   channelAdTargetDailySnapshots   ChannelAdTargetDailySnapshot[]
   channelAccountDailyKpiSnapshots ChannelAccountDailyKpiSnapshot[]
+  channelAdListingProductMonthlyFacts ChannelAdListingProductMonthlyFact[]
 
   // Channels — Coupang keyword and competitor rank tracking
   coupangRepresentativeKeywordOverrides   CoupangRepresentativeKeywordOverride[]
@@ -339,6 +340,7 @@ model ChannelAccount {
   orderReturns                     OrderReturn[]
   channelScrapeRuns                ChannelScrapeRun[]
   channelAdTargetDailySnapshots    ChannelAdTargetDailySnapshot[]
+  channelAdListingProductMonthlyFacts ChannelAdListingProductMonthlyFact[]
   channelAccountDailyKpiSnapshots  ChannelAccountDailyKpiSnapshot[]
   rocketPurchaseConfirmations      RocketPurchaseConfirmation[]
   rocketPoCatalogSnapshots         RocketPoCatalogSnapshot[]
@@ -387,6 +389,7 @@ model SourceImportRun {
   publicationSequence          BigInt?   @map("publication_sequence") @db.BigInt
   coverageStartDate            DateTime? @map("coverage_start_date") @db.Date
   coverageEndDate              DateTime? @map("coverage_end_date") @db.Date
+  adSourcePolicyHash           String?   @map("ad_source_policy_hash") @db.VarChar(64)
   createdAt                    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt                    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -398,6 +401,8 @@ model SourceImportRun {
   channelProducts                         ChannelListing[]                         @relation("ChannelProductLastImport")
   channelSkus                             ChannelListingOption[]                   @relation("ChannelSkuLastImport")
   channelScrapeRuns                       ChannelScrapeRun[]
+  adListingProductMonthlyFacts            ChannelAdListingProductMonthlyFact[]       @relation("AdListingProductMonthlyFacts")
+  adTargetDailySnapshots                  ChannelAdTargetDailySnapshot[]             @relation("AdTargetSourceImport")
   lastCompletedSellpiaInventoryStates     SellpiaInventoryState[]                  @relation("SellpiaInventoryStateLastCompletedRun")
   rocketPurchaseConfirmations             RocketPurchaseConfirmation[]
   rocketPurchaseConfirmationTransmissions RocketPurchaseConfirmationTransmission[]
@@ -409,6 +414,7 @@ model SourceImportRun {
   @@unique([organizationId, sourceType, freshnessGeneration], map: "source_import_runs_org_source_failed_generation_key", where: raw("file_hash IS NULL AND source_type = 'sellpia_inventory' AND status = 'failed' AND freshness_generation IS NOT NULL"))
   @@unique([organizationId, sourceType, idempotencyKey], map: "source_import_runs_source_idempotency_key", where: raw("idempotency_key IS NOT NULL"))
   @@unique([organizationId, sourceType], map: "source_import_runs_sellpia_profitability_running_key", where: raw("source_type = 'sellpia_product_profitability' AND status = 'running'"))
+  @@unique([organizationId, sourceType], map: "source_import_runs_coupang_ad_profitability_running_key", where: raw("source_type = 'coupang_ad_profitability' AND status = 'running'"))
   @@unique([organizationId, sourceType, publicationSequence], map: "source_import_runs_org_source_publication_key", where: raw("publication_sequence IS NOT NULL"))
   @@unique([id, organizationId], map: "source_import_runs_id_org_key")
   @@index([organizationId, sourceType, status, createdAt])
@@ -467,6 +473,7 @@ model MasterProduct {
   originChannelListing ChannelListing?                @relation("ChannelListingOriginProduct", fields: [originChannelListingId, organizationId], references: [id, organizationId], onDelete: Restrict)
   inventorySkus        SellpiaInventorySku[]          @relation("MasterProductInventorySkus")
   frozenSellpiaProfitFacts SellpiaProductMonthlySales[] @relation("SellpiaProductMonthlyFrozenMaster")
+  frozenAdvertisingProfitFacts ChannelAdListingProductMonthlyFact[] @relation("AdFactMasterProduct")
   abcEvaluation        MasterProductAbcEvaluation?
   abcGradeHistories    MasterProductAbcGradeHistory[]
 
@@ -668,6 +675,7 @@ model ChannelListing {
 
   // Channels — daily fact extensions (Hard rewrite H1)
   channelAdTargetDailySnapshots ChannelAdTargetDailySnapshot[]
+  channelAdListingProductMonthlyFacts ChannelAdListingProductMonthlyFact[] @relation("AdFactChannelListing")
 
   @@unique([organizationId, channelAccountId, externalId])
   @@unique([organizationId, sourceCandidateId, channelAccountId], map: "channel_listings_org_source_account_active_key", where: raw("source_candidate_id IS NOT NULL AND is_active = true"))
