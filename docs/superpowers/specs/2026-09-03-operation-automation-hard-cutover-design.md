@@ -1,7 +1,7 @@
 # Operation And Automation Hard Cutover Design
 
 - **Date:** 2026-09-03
-- **Status:** Approved; manual ABC publication decision incorporated
+- **Status:** Approved; explicit ABC publication review incorporated
 - **Delivery PR:** [#493](https://github.com/AgentFoundry-Labs/kiditem/pull/493)
 - **Base:** `develop`; Office deployment reference: `release/office`
 
@@ -27,7 +27,8 @@ internal operators. Multi-instance coordination, zero-downtime operation,
 automatic failover, and a high-availability SLA are not requirements for this
 cutover. A user or Agent explicitly starts collection, visible failure is an
 acceptable terminal result, and an operator may manually retry with a new
-attempt. Product ABC is also published by an explicit user or Agent command.
+attempt. Product ABC is published only by an explicit user command from the ABC
+screen.
 These assumptions are why durable owner records and publication fencing are
 retained while schedulers, sweepers, generic runners, automatic recalculation,
 and recovery state machines are not.
@@ -157,7 +158,7 @@ database model:
 | staged generation            | Validated facts tagged with one attempt/generation but still invisible to canonical readers.                                                               |
 | complete manifest            | Source-owner proof of included/excluded rows, coverage, checksum, and actual cutoff.                                                                       |
 | published snapshot           | The staged generation selected by an atomically committed `COMPLETE` manifest/current pointer.                                                             |
-| source vector                | Exact selected source manifests, their generations/cutoffs, mapping generation, and formula revision captured for one ABC candidate.                       |
+| source vector                | Exact selected source manifests, their generations/cutoffs, and mapping generation captured for one ABC candidate.                                         |
 | `Alert`                      | Durable human-action notification; never an execution or freshness ledger.                                                                                 |
 
 `ExtensionCollectionSession` uses the owner-issued `SourceImportAttempt.id` as
@@ -433,12 +434,11 @@ parallel display/evidence port is added.
 Both the Products ABC Module and Products read Module consume this Interface.
 The web-facing Products Interface returns only grade, source/evaluation status,
 the actual source cutoff, the official publication cutoff, and display
-metrics. It derives whether newer ready evidence is available by comparing the
-current source vector with FormulaState's publication provenance; it does not
-persist a pending state. Revenue, operating profit, and contribution metrics
-may reflect the latest complete evidence when labeled with its actual cutoff,
-independently of whether ABC has been republished. The Products Interface never
-reconstructs source compatibility or readiness from persistence rows.
+metrics. It has no pending or refresh-needed ABC state. Revenue, operating
+profit, and contribution metrics may reflect the latest complete evidence when
+labeled with its actual cutoff, independently of whether ABC has been
+republished. The Products Interface never reconstructs source compatibility or
+readiness from persistence rows.
 
 ## Coherent Source Snapshot
 
@@ -667,22 +667,24 @@ Calculation reads one coherent database snapshot containing:
 - the exact source vector and common `evaluationCutoff`;
 - active formula ID and `formulaRevision`;
 - current `publicationRevision`; and
-- current selling and mapping evidence.
+- the complete evaluation target set with current selling and mapping evidence.
 
 Immediately before commit, the publication transaction rechecks formula and
 publication revisions with CAS and verifies that the full source vector is
 still current and required sources remain `READY`. It rejects a candidate whose
 source generation or cutoff is older than the official publication and
-rechecks current selling and mapping state for every changed product inside the
-transaction.
+rechecks the complete evaluation target set inside the transaction, including
+newly eligible and newly ineligible products. It also rechecks current selling
+and mapping state for every product it will write. No population hash or shared
+dirty revision is introduced for this comparison.
 
 A normal publication atomically updates FormulaState's selected manifest IDs,
 mapping generation, official cutoff, `publicationRevision`, and `publishedAt`
 together with Evaluation rows, the grade cache, and any real grade-change
 history. The baseline writes no history. A source-abnormal command writes
 nothing to FormulaState, Evaluation, the grade cache, or history. Live source
-status and whether newer ready evidence exists remain read-time derivations.
-Absolute evaluation has no population hash.
+status remains a read-time derivation. Absolute evaluation has no population
+hash.
 
 The same facts and formula version must always produce the same rounded
 persisted metrics and grade. Formula V1 retains binary64 arithmetic,
@@ -692,11 +694,11 @@ comparison against unrounded values.
 ## Explicit ABC Publication
 
 The Products ABC Module exposes one public calculation Interface,
-`abcGradeService.recalculate({ organizationId })`. It is called only by the
-authenticated `POST /api/products/abc/recalculate` command issued explicitly
-from the ABC screen or by Agent OS. It is not called by a source owner,
-canonical product mutation, Operation handler, worker, scheduler, or child
-workflow.
+`abcGradeService.recalculate({ organizationId })`. Its authenticated HTTP
+Adapter exposes `POST /api/products/abc/recalculate`; the ABC screen is its only
+production caller. No source owner, canonical product mutation, Agent OS
+capability, Operation handler, worker, scheduler, or child workflow calls this
+Interface.
 
 ```text
 Sellpia / Advertising / Mapping collection
@@ -712,12 +714,11 @@ explicit ABC refresh command
     -> return the committed publication for screen refresh
 ```
 
-The ABC screen's read is side-effect-free. It shows the last official grade and
-publication cutoff alongside live source status and the latest complete source
-cutoff. It derives “new source data available” by comparing the currently
-selected ready source vector and formula revision with FormulaState's stored
-publication provenance. No owner writes an ABC dirty bit, and there is no
-persisted pending-recalculation lifecycle.
+The ABC screen's read is side-effect-free. It shows the last official grade,
+publication formula, and publication cutoff alongside live source status,
+capture time, and the latest complete source cutoff. The refresh action is
+enabled only when the required sources are `READY`. There is no ABC pending or
+refresh-needed state, and no owner writes an ABC dirty bit.
 
 “Latest complete” is not permission to publish stale evidence. When any
 required source is `MISSING` or `STALE` for the target evaluation window, the
@@ -734,13 +735,13 @@ candidate:
   ProfitabilityEvidence.load(...)
   if a required source is MISSING or STALE:
     return SOURCE_NOT_READY with no ABC write
-  capture publicationRevision + formulaRevision + source vector
+  capture publicationRevision + formulaRevision + source vector + target set
   calculate deterministically
 
 publication transaction:
   require publicationRevision and formulaRevision unchanged
   require selected source vector still current and READY
-  require current selling and mapping evidence for changed products
+  require complete target set and current selling/mapping evidence unchanged
   reject a candidate older than the official publication
   publish atomically and increment publicationRevision
 ```
@@ -757,12 +758,15 @@ a normal screen refetch reads the committed FormulaState and evaluations. This
 requires no invocation ledger, dirty revision, outbox, worker, or recovery
 scan. The old `MAX_PUBLICATION_ATTEMPTS`, cancellation checkpoints, and
 `withinActiveOperationAttemptFence` contract are deleted with Operations.
+`SOURCE_NOT_READY`, `INPUT_CHANGED`, and an unexpected command failure are
+request outcomes, not durable lifecycle states or Alerts; the initiating user
+receives them directly.
 
 A `RUNNING` attempt does not replace its owner's current complete pointer. If
 it becomes `COMPLETE` or `FAILED` before the ABC commit, the transaction's
 source-readiness and source-vector recheck rejects an invalid candidate. If it
-terminalizes after ABC commits, the screen subsequently derives either newer
-ready evidence or a failed/stale source; nothing calls ABC automatically.
+terminalizes after ABC commits, the screen subsequently shows its new source
+status, capture time, and cutoff; nothing calls ABC automatically.
 
 ## Alerts After Automation Removal
 
@@ -900,7 +904,11 @@ The operating-clone gate records statement counts and `EXPLAIN (ANALYZE,
 BUFFERS)` for the source fact read, contribution projection, and ABC
 publication shape. It rejects sequential scans or N+1 behavior caused by the
 cutover. Wall-clock thresholds are recorded for comparison on the home server,
-not embedded as brittle CI timing assertions.
+not embedded as brittle CI timing assertions. Because explicit ABC publication
+is synchronous, the gate also records the configured browser/proxy/API request
+deadline and requires a full baseline publication to finish within it. A miss
+blocks the cutover for query or bulk-write correction; it does not justify an
+ABC worker or Operation fallback.
 
 ## Operating-Database Preflight
 
@@ -1032,10 +1040,10 @@ the extension Adapter journey.
   spend;
 - source completion, source failure, selling changes, and mapping changes do
   not invoke recalculation or persist an ABC pending state;
-- only an explicit authenticated user or Agent command calls the ABC
+- only the ABC screen's explicit authenticated user command calls the
   recalculation Interface;
-- the ABC screen derives newer-ready-evidence status by comparing the current
-  source vector and formula with FormulaState publication provenance;
+- a production-reference gate permits `recalculate` only in its HTTP Adapter
+  and rejects Products ABC imports from source-owner Modules;
 - partial source failure uses the prior complete snapshot only for display and
   leaves the last normal Evaluation, grade cache, publication provenance, and
   history unchanged;
@@ -1045,11 +1053,15 @@ the extension Adapter journey.
   response after commit is recovered by the normal screen refetch;
 - stale source vector, source cutoff, formula revision, and publication
   revision CAS are rejected;
-- selling/mapping changes are rechecked inside publication transaction;
+- the complete target set and every written product's selling/mapping evidence
+  are rechecked inside the publication transaction, including products that
+  became newly eligible or ineligible during calculation;
 - concurrent explicit commands have one publication effect against a captured
   publication revision;
 - one command makes one calculation and one publication CAS attempt without
   Operation cancellation/fence, dirty revision, or internal retry loops;
+- command errors are returned to the initiating caller and do not create an ABC
+  attempt row, lifecycle state, or Alert;
 - baseline publication writes no history;
 - only subsequent real grade transitions write history;
 - normal grade, evaluation, cache, FormulaState provenance, and history commit
@@ -1072,10 +1084,12 @@ the extension Adapter journey.
   UI or API surface;
 - source collection completion changes source status but does not change a
   grade until the ABC screen's explicit refresh command succeeds;
-- the ABC screen shows the last publication cutoff, current source cutoff and
-  failure/stale state, and whether newer ready evidence is available;
-- the ABC refresh command invalidates and refetches every affected grade read
-  projection after its synchronous response;
+- the ABC screen shows the last publication formula and cutoff plus current
+  source capture time, cutoff, and failure/stale state without another pending
+  status;
+- after a successful synchronous response, the initiating screen invalidates
+  and refetches its ABC queries; other screens read the committed database
+  projection on their next normal fetch or focus refresh;
 - Dashboard, Product Management, and Product Outflow render the same official
   grade/status and the correct source cutoff.
 
@@ -1093,8 +1107,9 @@ the extension Adapter journey.
 - `npm run db:push`, `npx prisma generate`, and the shared package build pass;
 - `npm run dev:server` boots the NestJS graph after module deletion;
 - `npm run build --workspace=apps/web` passes;
-- the operating clone completes a full source refresh and first baseline
-  publication within the measured write/performance budget;
+- the operating clone completes a full source refresh and synchronous first
+  baseline publication within the measured write/performance and configured
+  request-timeout budget;
 - the exact Office deployment SHA is recorded and post-deploy smoke checks
   pass.
 
