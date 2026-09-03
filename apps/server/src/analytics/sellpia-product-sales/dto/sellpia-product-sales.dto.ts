@@ -3,9 +3,11 @@ import {
   ArrayMaxSize,
   Equals,
   IsArray,
+  IsBoolean,
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -18,29 +20,33 @@ import {
 // 확장이 stat_action.ajax.html(mode=stat_prd_profit)의 graph(월별)에서 상품별로 스크랩.
 // `@Body()` 는 organizationId 를 받지 않는다(세션 소유).
 
-export class SellpiaProductSalesIngestMonthDto {
+export class SellpiaProfitabilityMonthDto {
   @IsString()
   @Matches(/^\d{4}-\d{2}$/, { message: 'yearMonth must be YYYY-MM' })
   yearMonth!: string;
 
   @IsInt()
   @Min(0)
+  @Max(2_147_483_647)
   orderQty!: number;
 
   @IsInt()
   @Min(0)
+  @Max(2_147_483_647)
   orderAmount!: number;
 
   @IsInt()
   @Min(0)
+  @Max(2_147_483_647)
   inQty!: number;
 
   @IsInt()
   @Min(0)
+  @Max(2_147_483_647)
   inAmount!: number;
 }
 
-export class SellpiaProductSalesIngestItemDto {
+export class SellpiaProfitabilityProductDto {
   @IsString()
   @MinLength(1)
   @MaxLength(64)
@@ -68,10 +74,12 @@ export class SellpiaProductSalesIngestItemDto {
 
   @IsInt()
   @Min(0)
+  @Max(2_147_483_647)
   salePrice!: number;
 
   @IsInt()
   @Min(0)
+  @Max(2_147_483_647)
   buyPrice!: number;
 
   @IsOptional()
@@ -82,21 +90,11 @@ export class SellpiaProductSalesIngestItemDto {
   @IsArray()
   @ArrayMaxSize(24)
   @ValidateNested({ each: true })
-  @Type(() => SellpiaProductSalesIngestMonthDto)
-  months!: SellpiaProductSalesIngestMonthDto[];
+  @Type(() => SellpiaProfitabilityMonthDto)
+  months!: SellpiaProfitabilityMonthDto[];
 }
 
-export class SellpiaProductSalesRangeDto {
-  @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'from must be YYYY-MM-DD' })
-  from!: string;
-
-  @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'to must be YYYY-MM-DD' })
-  to!: string;
-}
-
-export class SellpiaProductSalesProvenanceDto {
+export class SellpiaProfitabilityProvenanceDto {
   @Equals('sellpia_stat_prd_profit')
   source!: 'sellpia_stat_prd_profit';
 
@@ -107,20 +105,56 @@ export class SellpiaProductSalesProvenanceDto {
   vatIncluded!: true;
 }
 
-export class SellpiaProductSalesIngestBodyDto {
-  @ValidateNested()
-  @Type(() => SellpiaProductSalesRangeDto)
-  range!: SellpiaProductSalesRangeDto;
+export class SellpiaProfitabilityBeginBodyDto {
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'normalizedSourceAvailabilityDate must be YYYY-MM-DD' })
+  normalizedSourceAvailabilityDate?: string;
+}
+
+export class SellpiaProfitabilitySubmitBodyDto {
+  @IsString()
+  @IsUUID()
+  attemptToken!: string;
+
+  @IsString()
+  @Equals('sellpia-profitability-v1')
+  parserVersion!: 'sellpia-profitability-v1';
+
+  @IsBoolean()
+  providerBackedEmptyProof!: boolean;
+
+  @IsArray()
+  @ArrayMaxSize(24)
+  @IsString({ each: true })
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { each: true })
+  coveredMonths!: string[];
 
   @ValidateNested()
-  @Type(() => SellpiaProductSalesProvenanceDto)
-  provenance!: SellpiaProductSalesProvenanceDto;
+  @Type(() => SellpiaProfitabilityProvenanceDto)
+  provenance!: SellpiaProfitabilityProvenanceDto;
 
   @IsArray()
   @ArrayMaxSize(20_000)
   @ValidateNested({ each: true })
-  @Type(() => SellpiaProductSalesIngestItemDto)
-  products!: SellpiaProductSalesIngestItemDto[];
+  @Type(() => SellpiaProfitabilityProductDto)
+  products!: SellpiaProfitabilityProductDto[];
+}
+
+export class SellpiaProfitabilityFailureBodyDto {
+  @IsString()
+  @IsUUID()
+  attemptToken!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  errorCode!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(300)
+  errorMessage!: string;
 }
 
 export class SellpiaProductSalesQueryDto {

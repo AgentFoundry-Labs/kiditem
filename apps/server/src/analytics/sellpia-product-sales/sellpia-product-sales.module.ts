@@ -7,15 +7,17 @@ import { SellpiaProductInventoryReader } from './sellpia-product-inventory-reade
 import { SELLPIA_PRODUCT_DEPLETION_READ_PORT } from './sellpia-product-depletion-read.port';
 import { MASTER_PRODUCT_PROFIT_FACT_READ_PORT } from '../application/port/in/master-product-profit-fact-read.port';
 import { SellpiaMasterProductProfitFactReader } from './sellpia-master-product-profit-fact.reader';
+import { AlertsModule } from '../../alerts/alerts.module';
+import { SellpiaProfitabilitySourceService } from './sellpia-profitability-source.service';
 
-// Sellpia 상품별 이익현황(stat_prd_profit) 월별 소진 ingest + read.
-// analytics owner 의 daily/monthly-fact ingest 예외 레인(traffic upload·sellpia-sales 와 동일 성격).
+// Sellpia 상품별 이익현황(stat_prd_profit)의 source-owned publication + read.
 // PrismaModule 은 @Global 이므로 별도 import 불필요.
 @Module({
-  imports: [InventoryModule, AiModule],
+  imports: [InventoryModule, AiModule, AlertsModule],
   controllers: [SellpiaProductSalesController],
   providers: [
     SellpiaProductSalesService,
+    SellpiaProfitabilitySourceService,
     SellpiaProductInventoryReader,
     SellpiaMasterProductProfitFactReader,
     {
@@ -28,6 +30,7 @@ import { SellpiaMasterProductProfitFactReader } from './sellpia-master-product-p
     },
   ],
   exports: [
+    SellpiaProfitabilitySourceService,
     SELLPIA_PRODUCT_DEPLETION_READ_PORT,
     MASTER_PRODUCT_PROFIT_FACT_READ_PORT,
   ],

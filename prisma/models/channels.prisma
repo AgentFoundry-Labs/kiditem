@@ -731,6 +731,9 @@ model SellpiaSalesDailySnapshot {
 model SellpiaProductMonthlySales {
   id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
+  sourceImportRunId       String? @map("source_import_run_id") @db.Uuid
+  sellpiaInventorySkuId   String? @map("sellpia_inventory_sku_id") @db.Uuid
+  masterProductId         String? @map("master_product_id") @db.Uuid
 
   productCode String @map("product_code") // Sellpia 상품코드
   optionCode  String @map("option_code") // 옵션코드
@@ -758,9 +761,17 @@ model SellpiaProductMonthlySales {
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceImportRun SourceImportRun? @relation("SellpiaProductMonthlySourceImport", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  frozenSellpiaInventorySku SellpiaInventorySku? @relation("SellpiaProductMonthlyFrozenSku", fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  frozenMasterProduct MasterProduct? @relation("SellpiaProductMonthlyFrozenMaster", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@unique([organizationId, productCode, optionCode, yearMonth])
+  @@unique([organizationId, sourceImportRunId, productCode, optionCode, yearMonth], map: "sellpia_product_monthly_sales_generation_identity_key", where: raw("source_import_run_id IS NOT NULL"))
+  @@unique([organizationId, productCode, optionCode, yearMonth], map: "sellpia_product_monthly_sales_legacy_identity_key", where: raw("source_import_run_id IS NULL"))
   @@index([organizationId, yearMonth])
+  @@index([organizationId, sourceImportRunId, yearMonth])
+  @@index([sourceImportRunId, organizationId])
+  @@index([organizationId, sellpiaInventorySkuId])
+  @@index([organizationId, masterProductId])
   @@index([organizationId, productCode, optionCode])
   @@map("sellpia_product_monthly_sales")
 }

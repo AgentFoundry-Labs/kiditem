@@ -6,6 +6,8 @@ import {
   SellpiaInventoryBrowserSnapshotSchema,
   SellpiaInventoryImportOutcomeSchema,
   SellpiaInventoryImportResponseSchema,
+  SellpiaProfitabilityAttemptSchema,
+  SellpiaProfitabilitySourceStatusSchema,
   SourceImportRunSchema,
   SourceImportTypeSchema,
   VerifiedSellpiaSourceImportRunSchema,
@@ -394,5 +396,39 @@ describe('source import contracts', () => {
     expect(SourceImportTypeSchema.parse('coupang_rocket_catalog_seed')).toBe(
       'coupang_rocket_catalog_seed',
     );
+    expect(SourceImportTypeSchema.parse('sellpia_product_profitability')).toBe(
+      'sellpia_product_profitability',
+    );
+  });
+
+  it('keeps Sellpia profitability attempt and source status bounded', () => {
+    const attempt = SellpiaProfitabilityAttemptSchema.parse({
+      attemptId: '00000000-0000-4000-8000-000000000010',
+      attemptToken: '00000000-0000-4000-8000-000000000011',
+      state: 'COMPLETE',
+      expiresAt: '2026-09-03T01:30:00.000Z',
+      capturedAt: '2026-09-03T01:00:00.000Z',
+      generation: '7',
+      errorCode: null,
+      errorMessage: null,
+      plan: {
+        from: '2025-09-01',
+        to: '2026-08-31',
+        coveredMonths: ['2025-09', '2026-08'],
+      },
+    });
+    expect(attempt.generation).toBe('7');
+
+    expect(SellpiaProfitabilitySourceStatusSchema.parse({
+      latestAttempt: attempt,
+      latestComplete: {
+        sourceImportRunId: attempt.attemptId,
+        generation: '7',
+        coveredThrough: '2026-08-31',
+        capturedAt: '2026-09-03T01:00:00.000Z',
+        mappingGeneration: '3',
+      },
+      status: 'READY',
+    }).status).toBe('READY');
   });
 });

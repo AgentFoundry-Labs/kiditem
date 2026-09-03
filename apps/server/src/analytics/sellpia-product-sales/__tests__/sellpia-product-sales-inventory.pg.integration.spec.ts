@@ -1,9 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
 import { SellpiaProductInventoryReader } from '../sellpia-product-inventory-reader';
 import { SellpiaMasterProductProfitFactReader } from '../sellpia-master-product-profit-fact.reader';
-import { SELLPIA_PRODUCT_SALES_EVENTS } from '../sellpia-product-sales.events';
 import { InventoryAvailabilityRepositoryAdapter } from '../../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
 import { InventoryAvailabilityService } from '../../../inventory/application/service/inventory-availability.service';
 import {
@@ -17,11 +15,13 @@ import {
 import type { PrismaService } from '../../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
 
+let canonicalProfitabilityRunId: string;
+let foreignProfitabilityRunId: string;
+
 describe('SellpiaProductSalesService canonical inventory projection (PG)', () => {
   let prisma: PrismaClient;
   let service: SellpiaProductSalesService;
   let profitFactReader: SellpiaMasterProductProfitFactReader;
-  let eventEmitter: EventEmitter2;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -30,7 +30,6 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     const inventory = new InventoryAvailabilityService(
       new InventoryAvailabilityRepositoryAdapter(prismaService),
     );
-    eventEmitter = new EventEmitter2();
     service = new SellpiaProductSalesService(
       prismaService,
       new SellpiaProductInventoryReader(
@@ -38,7 +37,6 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
         inventory,
         { findDisplayMedia: async () => new Map() },
       ),
-      eventEmitter,
     );
     profitFactReader = new SellpiaMasterProductProfitFactReader(prismaService);
   });
@@ -50,7 +48,31 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    eventEmitter.removeAllListeners();
+    const coverageEndDate = previousKstMonthEnd();
+    const ownRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'sellpia_product_profitability',
+        status: 'completed',
+        publicationSequence: 1n,
+        mappingGeneration: 0n,
+        coverageEndDate,
+        importedAt: new Date('2026-07-20T01:00:00.000Z'),
+      },
+    });
+    const foreignRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        sourceType: 'sellpia_product_profitability',
+        status: 'completed',
+        publicationSequence: 1n,
+        mappingGeneration: 0n,
+        coverageEndDate,
+        importedAt: new Date('2026-07-20T01:00:00.000Z'),
+      },
+    });
+    canonicalProfitabilityRunId = ownRun.id;
+    foreignProfitabilityRunId = foreignRun.id;
   });
 
   it('uses active organization-scoped inventory with code, option-code, then unique-barcode precedence', async () => {
@@ -319,12 +341,16 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       data: [
         {
           ...metricSales('METRIC-ELIGIBLE', completedMonth, 12, 100),
+          sellpiaInventorySkuId: eligibleSku.id,
+          masterProductId: eligible.masterProductId,
           capturedAt,
           coverageStartDate,
           coverageEndDate,
         },
         {
           ...metricSales('METRIC-SHARED', completedMonth, 30, 100),
+          sellpiaInventorySkuId: sharedSku.id,
+          masterProductId: sharedOne.masterProductId,
           capturedAt,
           coverageStartDate,
           coverageEndDate,
@@ -332,6 +358,9 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
         {
           ...metricSales('METRIC-ELIGIBLE', completedMonth, 999, 100),
           organizationId: OTHER_ORGANIZATION_ID,
+          sourceImportRunId: foreignProfitabilityRunId,
+          sellpiaInventorySkuId: foreignSku.id,
+          masterProductId: foreign.masterProductId,
           productName: 'Foreign metric',
           capturedAt: new Date('2026-07-23T01:00:00.000Z'),
           coverageStartDate,
@@ -365,7 +394,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     });
     expect(evidence.get(incomplete.masterProductId)).toMatchObject({
       masterProductId: incomplete.masterProductId,
-      mappingStatus: 'MAPPED',
+      mappingStatus: 'UNMAPPED',
       monthlyFacts: [],
     });
     expect(evidence.get(sharedOne.masterProductId)).toMatchObject({
@@ -376,133 +405,6 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       expect.objectContaining({ productCode: 'METRIC-SHARED' }),
     ]));
     expect(evidence.has(foreign.masterProductId)).toBe(false);
-  });
-
-  it('authoritatively deletes an empty ingest range and publishes its post-commit event', async () => {
-    await prisma.sellpiaProductMonthlySales.createMany({
-      data: [
-        { ...sales('DELETE-ME', '', null), yearMonth: '2026-05' },
-        { ...sales('KEEP-ME', '', null), yearMonth: '2026-04' },
-      ],
-    });
-    const events: Array<{ organizationId: string }> = [];
-    eventEmitter.on(SELLPIA_PRODUCT_SALES_EVENTS.INGESTED, (event) => {
-      events.push(event);
-    });
-
-    const result = await service.ingest(TEST_ORGANIZATION_ID, {
-      range: { from: '2026-05-01', to: '2026-05-31' },
-      provenance: {
-        source: 'sellpia_stat_prd_profit',
-        costBasis: 'ORDER_TIME_SUPPLY_COST',
-        vatIncluded: true,
-      },
-      products: [],
-    });
-
-    await expect(prisma.sellpiaProductMonthlySales.findMany({
-      where: { organizationId: TEST_ORGANIZATION_ID },
-      orderBy: { yearMonth: 'asc' },
-      select: { productCode: true, yearMonth: true },
-    })).resolves.toEqual([{ productCode: 'KEEP-ME', yearMonth: '2026-04' }]);
-    expect(result).toEqual({ upserted: 0, productCount: 0, months: ['2026-05'] });
-    expect(events).toEqual([{ organizationId: TEST_ORGANIZATION_ID }]);
-  });
-
-  it('set-based ingest replaces only the requested organization and persists typed facts', async () => {
-    await prisma.sellpiaProductMonthlySales.createMany({
-      data: [
-        { ...sales('REPLACE-ME', '', null), yearMonth: '2026-05' },
-        {
-          ...sales('FOREIGN-KEEP', '', null),
-          organizationId: OTHER_ORGANIZATION_ID,
-          yearMonth: '2026-05',
-        },
-      ],
-    });
-
-    const result = await service.ingest(TEST_ORGANIZATION_ID, {
-      range: { from: '2026-05-16', to: '2026-06-02' },
-      provenance: {
-        source: 'sellpia_stat_prd_profit',
-        costBasis: 'ORDER_TIME_SUPPLY_COST',
-        vatIncluded: true,
-      },
-      products: [{
-        productCode: 'BULK-INSERT',
-        optionCode: 'OPT-1',
-        productName: 'Bulk insert product',
-        optionName: 'Option 1',
-        providerName: 'Provider',
-        salePrice: 1_100,
-        buyPrice: 580,
-        barcode: '880-BULK',
-        months: [
-          {
-            yearMonth: '2026-05',
-            orderQty: 3,
-            orderAmount: 3_300,
-            inQty: 2,
-            inAmount: 1_160,
-          },
-          {
-            yearMonth: '2026-06',
-            orderQty: 4,
-            orderAmount: 4_400,
-            inQty: 1,
-            inAmount: 580,
-          },
-        ],
-      }],
-    });
-
-    expect(result).toEqual({
-      upserted: 2,
-      productCount: 1,
-      months: ['2026-05', '2026-06'],
-    });
-    await expect(prisma.sellpiaProductMonthlySales.findMany({
-      where: { organizationId: TEST_ORGANIZATION_ID },
-      orderBy: { yearMonth: 'asc' },
-      select: {
-        productCode: true,
-        optionCode: true,
-        yearMonth: true,
-        orderQty: true,
-        costBasis: true,
-        vatIncluded: true,
-        coverageStartDate: true,
-        coverageEndDate: true,
-      },
-    })).resolves.toEqual([
-      {
-        productCode: 'BULK-INSERT',
-        optionCode: 'OPT-1',
-        yearMonth: '2026-05',
-        orderQty: 3,
-        costBasis: 'ORDER_TIME_SUPPLY_COST',
-        vatIncluded: true,
-        coverageStartDate: new Date('2026-05-16T00:00:00.000Z'),
-        coverageEndDate: new Date('2026-05-31T00:00:00.000Z'),
-      },
-      {
-        productCode: 'BULK-INSERT',
-        optionCode: 'OPT-1',
-        yearMonth: '2026-06',
-        orderQty: 4,
-        costBasis: 'ORDER_TIME_SUPPLY_COST',
-        vatIncluded: true,
-        coverageStartDate: new Date('2026-06-01T00:00:00.000Z'),
-        coverageEndDate: new Date('2026-06-02T00:00:00.000Z'),
-      },
-    ]);
-    await expect(prisma.sellpiaProductMonthlySales.count({
-      where: {
-        organizationId: OTHER_ORGANIZATION_ID,
-        productCode: 'FOREIGN-KEEP',
-        yearMonth: '2026-05',
-      },
-    })).resolves.toBe(1);
   });
 
   it('uses physical available stock for depletion', async () => {
@@ -568,6 +470,7 @@ function inventory(
 function sales(productCode: string, optionCode: string, barcode: string | null) {
   return {
     organizationId: TEST_ORGANIZATION_ID,
+    sourceImportRunId: canonicalProfitabilityRunId,
     productCode,
     optionCode,
     orderQty: 10,
@@ -582,6 +485,11 @@ function sales(productCode: string, optionCode: string, barcode: string | null) 
     barcode,
     capturedAt: new Date('2026-07-17T01:00:00.000Z'),
   };
+}
+
+function previousKstMonthEnd(): Date {
+  const current = new Date(Date.now() + 9 * 60 * 60 * 1_000);
+  return new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), 0));
 }
 
 function metricSales(

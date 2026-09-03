@@ -14,9 +14,11 @@ import owner-domain services or take mutation authority from them.
 - Sellpia 판매현황 몰별 매출: `POST /api/sellpia-sales/ingest`,
   `GET /api/sellpia-sales` (확장이 Sellpia sale_summary 를 몰별로 수집해 적재하는
   daily-fact ingest 레인 + 대시보드 read)
-- Sellpia 상품별 소진(재고관리): `POST /api/sellpia-product-sales/ingest`,
-  `GET /api/sellpia-product-sales`
-  (확장이 Sellpia stat_prd_profit 을 상품×월별로 수집해 적재하는 monthly-fact
+- Sellpia 상품별 소진(재고관리): `POST /api/sellpia-product-sales/attempts`,
+  `POST /api/sellpia-product-sales/attempts/:attemptId`,
+  `POST /api/sellpia-product-sales/attempts/:attemptId/fail`,
+  `GET /api/sellpia-product-sales/status`, `GET /api/sellpia-product-sales`
+  (Sellpia owner attempt가 stat_prd_profit 을 상품×월별 immutable generation으로 적재하는 monthly-fact
   ingest 레인 + Inventory가 소유하는 공통 가용재고 read + 상품별
   1/2개월 평균 소진량·악성재고·시즌·현재고·가용재고
   (`availableStock === currentStock`)·발주 read)

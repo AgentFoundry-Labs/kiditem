@@ -32,6 +32,7 @@ model SellpiaInventorySku {
   returnTransfers                         ReturnTransfer[]                         @relation("ReturnTransferSellpiaInventorySku")
   rocketPurchaseConfirmationAllocations   RocketPurchaseConfirmationAllocation[]
   manualMatchAliases                      SellpiaManualMatchAlias[]
+  frozenProfitFacts                       SellpiaProductMonthlySales[] @relation("SellpiaProductMonthlyFrozenSku")
 
   @@unique([organizationId, code])
   @@unique([organizationId, masterProductId], map: "sellpia_inventory_skus_org_master_key")

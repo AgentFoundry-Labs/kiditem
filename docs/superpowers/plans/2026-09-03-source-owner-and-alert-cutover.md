@@ -138,13 +138,21 @@ git commit -m "refactor: isolate durable source alerts"
 
 - Modify: `prisma/models/core.prisma`
 - Modify: `prisma/models/channels.prisma`
+- Modify: `prisma/models/inventory.prisma`
 - Modify: `packages/shared/src/schemas/source-import.ts`
 - Modify: `packages/shared/src/schemas/source-import.spec.ts`
+- Modify: `apps/server/src/analytics/AGENTS.md`
 - Modify: `apps/server/src/analytics/sellpia-product-sales/dto/sellpia-product-sales.dto.ts`
 - Modify: `apps/server/src/analytics/sellpia-product-sales/sellpia-product-sales.controller.ts`
+- Create: `apps/server/src/analytics/sellpia-product-sales/sellpia-product-sales.controller.spec.ts`
+- Modify: `apps/server/src/analytics/sellpia-product-sales/sellpia-product-sales.module.ts`
+- Modify: `apps/server/src/analytics/sellpia-product-sales/__tests__/sellpia-product-sales.module.wiring.spec.ts`
 - Modify: `apps/server/src/analytics/sellpia-product-sales/sellpia-product-sales.service.ts`
 - Modify: `apps/server/src/analytics/sellpia-product-sales/__tests__/sellpia-product-sales.service.spec.ts`
+- Create: `apps/server/src/analytics/sellpia-product-sales/sellpia-profitability-source.service.ts`
+- Create: `apps/server/src/analytics/sellpia-product-sales/sellpia-profitability-source.internal.ts`
 - Modify: `apps/server/src/analytics/sellpia-product-sales/__tests__/sellpia-product-sales-inventory.pg.integration.spec.ts`
+- Create: `apps/server/src/analytics/sellpia-product-sales/__tests__/sellpia-profitability-source.pg.integration.spec.ts`
 - Modify: `apps/server/src/analytics/sellpia-product-sales/sellpia-master-product-profit-fact.reader.ts`
 - Modify: `apps/server/src/analytics/sellpia-product-sales/sellpia-master-product-profit-fact.reader.spec.ts`
 - Delete: `apps/server/src/analytics/sellpia-product-sales/sellpia-product-sales.events.ts`
@@ -175,7 +183,7 @@ type SellpiaProfitabilitySourceStatus = Readonly<{
 }>;
 ```
 
-- [ ] **Step 1: Replace current overwrite expectations with failing owner-behavior tests**
+- [x] **Step 1: Replace current overwrite expectations with failing owner-behavior tests**
 
 ```ts
 it("keeps staged rows invisible and promotes all facts with one completed manifest", async () => {
@@ -200,7 +208,7 @@ it("does not mutate FormulaState, Evaluation, cache, or history on terminal sour
 });
 ```
 
-- [ ] **Step 2: Run Sellpia tests and verify red**
+- [x] **Step 2: Run Sellpia tests and verify red**
 
 ```bash
 npm exec --workspace=apps/server vitest -- run src/analytics/sellpia-product-sales/__tests__/sellpia-product-sales.service.spec.ts src/analytics/sellpia-product-sales/sellpia-master-product-profit-fact.reader.spec.ts
@@ -209,15 +217,15 @@ npm run test:integration --workspace=apps/server -- src/analytics/sellpia-produc
 
 Expected: FAIL because current ingest deletes the canonical month range, publishes no generation manifest, and emits a downstream event.
 
-- [ ] **Step 3: Implement owner attempt and generation persistence**
+- [x] **Step 3: Implement owner attempt and generation persistence**
 
 Add `sourceType='sellpia_product_profitability'`, `idempotencyKey`, `requestFingerprint`, fixed `expiresAt`, server plan JSON, checksums, mapping generation, coverage, and publication sequence to the reshaped `SourceImportRun`. Add `sourceImportRunId`, frozen `sellpiaInventorySkuId`, and frozen `masterProductId` to `SellpiaProductMonthlySales`. The submit transaction validates the token/provenance/coverage and inserts facts in existing 5,000-row JSONB batches before one short metadata transaction marks the run `completed`, advances publication sequence, and resolves its Alert.
 
-- [ ] **Step 4: Make every canonical Sellpia reader generation-aware**
+- [x] **Step 4: Make every canonical Sellpia reader generation-aware**
 
 `getSummary` and `SellpiaMasterProductProfitFactReader` first select the latest organization-scoped completed `sellpia_product_profitability` run, then filter facts by that exact ID. They never read all generations and never remap an old fact through the current SKU relation.
 
-- [ ] **Step 5: Run focused and module tests**
+- [x] **Step 5: Run focused and module tests**
 
 ```bash
 npm exec --workspace=apps/server vitest -- run src/analytics/sellpia-product-sales/__tests__/sellpia-product-sales.service.spec.ts src/analytics/sellpia-product-sales/sellpia-master-product-profit-fact.reader.spec.ts src/analytics/sellpia-product-sales/__tests__/sellpia-product-sales.module.wiring.spec.ts
@@ -229,7 +237,7 @@ Expected: PASS for replay, failure fallback, frozen mapping, provider-backed zer
 - [ ] **Step 6: Commit the Sellpia owner**
 
 ```bash
-git add prisma/models/core.prisma prisma/models/channels.prisma packages/shared/src/schemas/source-import.ts packages/shared/src/schemas/source-import.spec.ts apps/server/src/analytics/sellpia-product-sales
+git add prisma/models/core.prisma prisma/models/channels.prisma prisma/models/inventory.prisma packages/shared/src/schemas/source-import.ts packages/shared/src/schemas/source-import.spec.ts apps/server/src/analytics/AGENTS.md apps/server/src/analytics/sellpia-product-sales
 git commit -m "refactor: make Sellpia profitability source-owned"
 ```
 
@@ -300,6 +308,8 @@ git commit -m "refactor: version canonical product mappings"
 - Modify: `packages/shared/src/browser-collection-session.ts`
 - Modify: `extensions/shared/collection-session.js`
 - Modify: `extensions/kiditem-os/background/collection-session.js`
+- Modify: `extensions/kiditem-os/background/external-dispatch.js`
+- Modify: `extensions/kiditem-os/background/orders/order-collection-lifecycle.js`
 - Modify: `extensions/kiditem-os/background/orders/worker.js`
 - Modify: `extensions/kiditem-os/background/domain-registry.js`
 - Modify: `extensions/tests/collection-session-adapters.test.mjs`
@@ -354,6 +364,6 @@ Expected: PASS and no extension request contains an Operation run ID.
 - [ ] **Step 5: Commit the contracted session**
 
 ```bash
-git add packages/shared/src/schemas/browser-collection-session.ts packages/shared/src/schemas/browser-collection-session.spec.ts packages/shared/src/browser-collection-session.ts extensions/shared/collection-session.js extensions/kiditem-os/background/collection-session.js extensions/kiditem-os/background/orders/worker.js extensions/kiditem-os/background/domain-registry.js extensions/tests/collection-session-adapters.test.mjs extensions/tests/order-collector-collection-session.test.mjs extensions/tests/order-collector-action-coverage.test.mjs
+git add packages/shared/src/schemas/browser-collection-session.ts packages/shared/src/schemas/browser-collection-session.spec.ts packages/shared/src/browser-collection-session.ts extensions/shared/collection-session.js extensions/kiditem-os/background/collection-session.js extensions/kiditem-os/background/external-dispatch.js extensions/kiditem-os/background/orders/order-collection-lifecycle.js extensions/kiditem-os/background/orders/worker.js extensions/kiditem-os/background/domain-registry.js extensions/tests/collection-session-adapters.test.mjs extensions/tests/order-collector-collection-session.test.mjs extensions/tests/order-collector-action-coverage.test.mjs
 git commit -m "refactor: route Sellpia collection to its owner"
 ```

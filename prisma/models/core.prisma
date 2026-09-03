@@ -374,6 +374,16 @@ model SourceImportRun {
   errorMessage                 String?   @map("error_message")
   createdBy                    String?   @map("created_by")
   attemptToken                 String    @default(uuid()) @map("attempt_token") @db.Uuid
+  idempotencyKey               String?   @map("idempotency_key") @db.VarChar(128)
+  requestFingerprint           String?   @map("request_fingerprint") @db.VarChar(64)
+  expiresAt                    DateTime? @map("expires_at") @db.Timestamptz
+  plan                         Json?     @map("plan") @db.JsonB
+  parserVersion                String?   @map("parser_version")
+  contentChecksum              String?   @map("content_checksum") @db.VarChar(64)
+  contentByteCount             Int?      @map("content_byte_count")
+  providerBackedEmptyProof     Boolean?  @map("provider_backed_empty_proof")
+  coveredMonths                String[]  @default([]) @map("covered_months")
+  mappingGeneration            BigInt?   @map("mapping_generation") @db.BigInt
   publicationSequence          BigInt?   @map("publication_sequence") @db.BigInt
   coverageStartDate            DateTime? @map("coverage_start_date") @db.Date
   coverageEndDate              DateTime? @map("coverage_end_date") @db.Date
@@ -383,6 +393,7 @@ model SourceImportRun {
   organization                            Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   channelAccount                          ChannelAccount?                          @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   manualFreshExportConfirmer              User?                                    @relation("SourceImportRunManualFreshExportConfirmer", fields: [manualFreshExportConfirmedBy], references: [id], onDelete: SetNull)
+  sellpiaProductMonthlySales               SellpiaProductMonthlySales[]              @relation("SellpiaProductMonthlySourceImport")
   sellpiaInventorySkus                    SellpiaInventorySku[]                    @relation("SellpiaInventorySkuLastImport")
   channelProducts                         ChannelListing[]                         @relation("ChannelProductLastImport")
   channelSkus                             ChannelListingOption[]                   @relation("ChannelSkuLastImport")
@@ -396,9 +407,12 @@ model SourceImportRun {
   @@unique([organizationId, sourceType, channelAccountId, fileHash], map: "source_import_runs_org_source_account_hash_key", where: raw("channel_account_id IS NOT NULL AND file_hash IS NOT NULL"))
   @@unique([organizationId, sourceType, fileHash], map: "source_import_runs_org_source_hash_null_account_key", where: raw("channel_account_id IS NULL AND file_hash IS NOT NULL"))
   @@unique([organizationId, sourceType, freshnessGeneration], map: "source_import_runs_org_source_failed_generation_key", where: raw("file_hash IS NULL AND source_type = 'sellpia_inventory' AND status = 'failed' AND freshness_generation IS NOT NULL"))
+  @@unique([organizationId, sourceType, idempotencyKey], map: "source_import_runs_source_idempotency_key", where: raw("idempotency_key IS NOT NULL"))
+  @@unique([organizationId, sourceType], map: "source_import_runs_sellpia_profitability_running_key", where: raw("source_type = 'sellpia_product_profitability' AND status = 'running'"))
   @@unique([organizationId, sourceType, publicationSequence], map: "source_import_runs_org_source_publication_key", where: raw("publication_sequence IS NOT NULL"))
   @@unique([id, organizationId], map: "source_import_runs_id_org_key")
   @@index([organizationId, sourceType, status, createdAt])
+  @@index([organizationId, sourceType, idempotencyKey])
   @@index([organizationId, sourceType, status, coverageEndDate])
   @@index([channelAccountId])
   @@index([manualFreshExportConfirmedBy])
@@ -452,6 +466,7 @@ model MasterProduct {
   channelListings      ChannelListing[]               @relation("ChannelListingOperationalProduct")
   originChannelListing ChannelListing?                @relation("ChannelListingOriginProduct", fields: [originChannelListingId, organizationId], references: [id, organizationId], onDelete: Restrict)
   inventorySkus        SellpiaInventorySku[]          @relation("MasterProductInventorySkus")
+  frozenSellpiaProfitFacts SellpiaProductMonthlySales[] @relation("SellpiaProductMonthlyFrozenMaster")
   abcEvaluation        MasterProductAbcEvaluation?
   abcGradeHistories    MasterProductAbcGradeHistory[]
 
@@ -501,6 +516,7 @@ model MasterProductAbcFormulaState {
   activeFormulaVersionId String?   @map("active_formula_version_id") @db.Uuid
   activatedAt            DateTime? @map("activated_at") @db.Timestamptz
   revision               Int       @default(0)
+  mappingGeneration      BigInt    @default(0) @map("mapping_generation") @db.BigInt
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 

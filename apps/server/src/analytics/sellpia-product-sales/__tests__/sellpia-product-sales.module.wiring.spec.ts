@@ -6,6 +6,8 @@ import { SellpiaProductSalesModule } from '../sellpia-product-sales.module';
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
 import { SELLPIA_PRODUCT_DEPLETION_READ_PORT } from '../sellpia-product-depletion-read.port';
 import { MASTER_PRODUCT_PROFIT_FACT_READ_PORT } from '../../application/port/in/master-product-profit-fact-read.port';
+import { AlertsModule } from '../../../alerts/alerts.module';
+import { SellpiaProfitabilitySourceService } from '../sellpia-profitability-source.service';
 
 describe('SellpiaProductSalesModule wiring', () => {
   it('imports Inventory and AI owner ports, and exports the depletion read port through the service', () => {
@@ -22,6 +24,9 @@ describe('SellpiaProductSalesModule wiring', () => {
 
     expect(imports).toContain(InventoryModule);
     expect(imports).toContain(AiModule);
+    expect(imports).toContain(AlertsModule);
+    expect(providers).toContain(SellpiaProfitabilitySourceService);
+    expect(exports).toContain(SellpiaProfitabilitySourceService);
     expect(binding?.useExisting).toBe(SellpiaProductSalesService);
     expect(exports).toContain(SELLPIA_PRODUCT_DEPLETION_READ_PORT);
   });
