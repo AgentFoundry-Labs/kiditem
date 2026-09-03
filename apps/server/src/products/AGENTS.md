@@ -1,19 +1,16 @@
 # products — Product Operations + Categories Compatibility
 
 `src/products/` owns canonical inventory-product (`MasterProduct`) operations,
-automatic profitability ABC, and the direct inventory composition of channel
+absolute profitability ABC, and the direct inventory composition of channel
 listing options. It also retains `/api/categories` compatibility CRUD. It never
 owns physical stock quantities.
 
-## Owned Surface
+## Owned Surfaces
 
-- `/api/products/masters` product-operations list/detail and metadata mutations
-- `PUT /api/products/channel-options/:channelListingOptionId/inventory-components`
-  for complete direct inventory-composition replacement
-- focused active Sellpia inventory candidates:
-  `GET /api/products/recipe-component-candidates`
-- automatic profitability ABC formula, evaluation, publication, and history
-- `/api/categories`
+- Canonical `MasterProduct` operations and category compatibility.
+- Direct channel-option inventory composition.
+- Products-owned absolute ABC formula, evaluation, publication, current grade,
+  and history.
 
 ## Final Owners
 
@@ -62,17 +59,24 @@ owns physical stock quantities.
   inventory identity. Channels owns conservative typed option-to-Sellpia
   matching and explicit operator confirmation.
 - `MasterProduct.abcGrade` is nullable automatic output, never operator input.
-  Products evaluates Finance-owned profitability evidence for currently selling
-  mapped products, persists formula/evaluation provenance, and publishes only
-  changed grades with history. Missing or stale Sellpia/mapping evidence stays
-  unclassified; V1 missing or stale advertising evidence is a calculation-only
-  0 KRW cost with its source provenance preserved. Neither case is synthesized
-  as C.
-- ABC uses fixed operating policy, not a predictive model: a 90-day half-life,
-  50% profit velocity / 30% contribution margin / 20% inverse loss-recurrence
-  score, and a 30-day shrinkage constant. On each publication, source-ready
-  selling products with positive weighted contribution receive score quantiles
-  of A top 20%, B next 50%, C remaining 30%; non-positive contribution is C.
+  Products publishes ABC only through the explicit Product Hub grade-refresh
+  command. The service reads the latest compatible `COMPLETE` source snapshots,
+  persists formula/evaluation provenance, and records only actual grade changes
+  in history.
+- Evaluation requires a selling product, valid mapping, complete Sellpia
+  profitability coverage, `ORDER_TIME_SUPPLY_COST`, VAT provenance, at least 30
+  valid observation days, and advertising evidence of `OBSERVED`,
+  `CONFIRMED_ZERO`, or `NOT_APPLIED`. Missing or stale Sellpia, mapping, or
+  advertising evidence produces no publication; it is never zero-filled or
+  synthesized as C. An existing normal grade remains visible while the source
+  is stale.
+- ABC is a versioned absolute formula with fixed business anchors and
+  thresholds. A product's score depends only on its own complete facts and the
+  formula version; cohort rank, percentile/quota, population hash, calibration,
+  and reliability adjustments are forbidden. Exact formula policy belongs in
+  the approved ABC design/spec.
+- Revenue and operating-profit contribution, rank, cumulative share, and loss
+  impact are separate reporting metrics. They never alter `abcGrade`.
 - Evaluation/publication is organization-locked so an older snapshot cannot
   overwrite a newer completed publication.
 - Thumbnail analysis quality grades remain AI registration evidence and are

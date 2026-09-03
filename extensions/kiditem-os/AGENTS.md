@@ -11,8 +11,9 @@ domain guide owns marketplace-specific behavior.
   order. Domain workers consume registered globals and must not import again.
 - Every script shares one global scope. Keep top-level names unique and prefix
   domain instances.
-- `external-dispatch.js` is the sole responder for ping and shared collection
-  session list/get/cancel/restart/finalize/attention actions.
+- `external-dispatch.js` is the sole responder for extension health and source
+  attempt transport actions. Validate each action at this boundary before it
+  reaches a domain worker.
 - Domain workers register exact browser-operation handlers and disjoint producer
   prefixes through `KidItemDomains.register`. Do not add generic action or URL
   execution.
@@ -44,14 +45,15 @@ module map instead of duplicating every handler in this guide.
   database boundaries.
 - Never persist or commit tokens, cookies, credentials, or copied marketplace
   sessions.
-- Operation-backed browser work uses OperationRun.id as its collection-session
-  identity. Claim only the exact registered producer/environment, heartbeat and
-  report with the current attempt token, and stop/close owned background tabs
-  when the fence is lost or the API lifecycle is not ACCEPTING.
+- Source collection uses a server-issued owner attempt ID and token. Bind it to
+  the exact registered producer and environment; every chunk and terminal
+  submission carries the current token and uses the owner's deterministic
+  receipt identity. Stale, expired, or post-terminal writes are rejected, and
+  the worker stops and closes owned background tabs when the fence is lost.
 - The extension is never a canonical Sourcing or Ads writer. Post raw provider
-  rows only to the fenced owner ingest API; terminal operation reports contain
-  safe counts/references, never raw rows or credentials.
-- One environment has one active browser claim for extension_coupang work.
-  Attention is a human login/OTP/CAPTCHA state, not an automatic retry. A
-  lifecycle-cancelled run is not resumed or reactivated after maintenance; a
-  later explicit retry receives a new run identity.
+  rows only to the fenced owner ingest API; terminal submissions contain safe
+  counts/references, never raw rows or credentials.
+- One environment has one active browser claim per producer. Attention is a
+  human login/OTP/CAPTCHA state, not an automatic retry. A cancelled or expired
+  attempt is not resumed or reactivated; a later explicit retry receives a new
+  attempt identity.

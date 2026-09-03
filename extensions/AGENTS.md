@@ -11,6 +11,27 @@ canonical shared adapters. Edit them there and use
 Node tests stay in `extensions/tests/` because Chrome rejects unpacked roots
 containing test-style underscore paths.
 
+## Owner boundary
+
+- The extension captures and transports provider data; the server-side source
+  owner is the only canonical writer. The extension never decides that a
+  source is complete and never publishes downstream calculations.
+- A source collection uses a server-issued attempt ID and token, bound to the
+  exact producer and environment. Every chunk and terminal submission carries
+  that identity and is idempotent; stale, expired, or post-terminal writes are
+  rejected and stop local collection.
+- Raw provider rows go only to the fenced owner ingest API. Do not persist a
+  second canonical copy in extension storage or infer a successful snapshot
+  from a partial response.
+
+## Browser boundary
+
+- Popup, content, page, host, and external messages are untrusted. Validate
+  exact action/type and payload before tabs, fetches, or marketplace actions.
+- Keep permissions minimal and never persist or commit tokens, cookies,
+  credentials, or copied marketplace sessions. Backend calls use NestJS APIs
+  and inherit organization and source-owner authorization.
+
 ## Verification
 
     node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs

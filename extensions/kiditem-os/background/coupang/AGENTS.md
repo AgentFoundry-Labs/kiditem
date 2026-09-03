@@ -23,9 +23,13 @@ supports explicit Wing page automation.
   trust a message-provided environment id or keep one global API/token pair.
 - Data sync posts to `/api/ads/extension/sync`.
 - Approved queued ad actions are fetched from `/api/ads/actions`.
-- Full catalog collection uses the account-scoped
-  `/api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing/runs`
-  start/status/chunk/finalize contract.
+- Full catalog collection uses the account-scoped server-owned attempt
+  contract. The owner API defines start, upload, terminal, and status semantics;
+  the extension does not own a canonical run ledger.
+- Every chunk and terminal request carries the server-issued attempt ID/token
+  and uses the owner's deterministic receipt identity. Replays are safe; stale,
+  expired, or post-terminal mutations stop the worker and leave the prior
+  complete snapshot untouched.
 - Authorization profiles use `kiditem_environment_profiles_v1` in
   `chrome.storage.local`; tokens and operational state stay environment-bound.
 
@@ -42,9 +46,9 @@ supports explicit Wing page automation.
 - Wing registration waits for the bounded `wingFormReady` v2 probe on the exact
   final Wing URL before filling. Every command carries a `formSessionId`; the
   content script returns the same in-flight/completed result for duplicate IDs.
-- A missing managed collection window may be replaced once only while the same
-  stored run is still `running`. Never adopt an arbitrary user tab, cross an
-  environment/run owner boundary, or loop window replacement.
+- A missing managed collection window may be replaced only while the same
+  owner-issued attempt token remains valid. Never adopt an arbitrary user tab,
+  cross an environment/producer owner boundary, or loop window replacement.
 
 ## Coupang Rules
 

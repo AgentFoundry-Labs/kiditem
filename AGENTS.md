@@ -10,9 +10,12 @@ processing, listing, and operations.
 - Before editing, discover AGENTS.md files and read the root-to-target chain.
   Repeat when scope moves. Keep every active chain at or below 18 KiB and run
   `npm run check:agents-hygiene` after instruction changes.
-- Keep one business domain per session. Shared guards, exports, dependencies,
-  instruction cleanup, or one declared incident hotfix may cross domains; state
-  the exception and exclude unrelated cleanup.
+- AGENTS.md contains durable repository invariants only. Per-task agent/model
+  allocation, review order, temporary migration state, and one-off
+  implementation instructions belong in the task or an approved plan.
+- Keep one primary business responsibility per change. Cross-domain edits are
+  allowed only when required by a named interface, migration, shared guard, or
+  incident fix; identify the affected owners and exclude unrelated cleanup.
 - Keep durable plans/specs in `docs/superpowers/` and generated agent output
   out of git. Research existing OSS before introducing architecture.
 - Use the [AI collaboration runbook](docs/runbooks/ai-collaboration.md) for
@@ -35,8 +38,18 @@ processing, listing, and operations.
   single-resource reads use `{ id, organizationId }`.
 - `LegalEntity` is tax/settlement identity. `ChannelAccount` is
   marketplace/store identity.
-- `operations` owns the operation catalog, schedules, run envelope, and
-  engine dispatch.
+- Each domain owner is the canonical mutation authority for its state. An
+  orchestrator or consumer may call an owner interface but must not write the
+  owner's canonical rows directly.
+- A source owner owns its collection attempts, canonical facts, coverage
+  manifests, current complete snapshot, and terminal source status.
+- Browser extensions capture and transport source data; they never own
+  canonical business state. Attempt chunks and terminal submissions are
+  idempotent and fenced by the server-issued attempt identity; stale or
+  post-terminal mutations are rejected.
+- Completing source collection does not implicitly publish downstream
+  calculations. Those calculations run only through their explicit owner
+  entrypoints and read the latest complete source snapshots.
 - Use focused `@kiditem/shared/*` subpaths rather than expanding the root
   barrel.
 
@@ -47,9 +60,15 @@ processing, listing, and operations.
   deleting legacy behavior.
 - Controllers derive organization scope from `@CurrentOrganization()` and
   never trust client input.
-- Do not add substantial behavior to 700+ line services/components. Classify
-  changes spanning 10+ files, a 500+ line surface, cross-layer controls, or a
-  platform boundary.
+- File size and diff size are review signals, not design rules. Do not add a
+  new state authority, lifecycle, or business responsibility to a module that
+  already owns unrelated responsibilities.
+- Extract only a cohesive module that hides a meaningful policy, invariant, or
+  integration boundary. Do not add pass-through wrappers merely to reduce line
+  count.
+- Treat changes to mutation authority, transaction ownership, lifecycle,
+  source of truth, or a public contract as boundary changes that require an
+  explicit plan and focused regression coverage.
 - Update [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) when top-level backend or
   web ownership changes.
 - Release and schema decisions follow
@@ -66,10 +85,9 @@ section only when it has a narrower or different gate.
 
 | Change | Required gate |
 |---|---|
-| Backend | `npm run dev:server` |
+| Backend/NestJS | Focused tests, then `npm run dev:server` and confirm boot |
 | Frontend | `npm run build --workspace=apps/web` |
-| Schema | `npm run db:push` + `npx prisma generate` + shared package build |
-| NestJS module/service | `npm run dev:server` and confirm boot |
+| Schema/data | Follow `prisma/AGENTS.md` and the deployment cutover contract |
 
 Keep tests that document behavior, regression risk, domain policy, or a public
 contract.

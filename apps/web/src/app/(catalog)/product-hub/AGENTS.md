@@ -15,8 +15,13 @@ This folder owns three surfaces:
 - Render unavailable metrics as uncollected rather than deriving them from
   unrelated aggregates.
 - Product ABC/profit and depletion facts come from their owning backend
-  projections. Unclassified is not C, and Product Management's explicit full
-  refresh owns profit collection plus ABC recalculation.
+  projections. Unclassified is not C. The explicit grade-refresh command reads
+  the latest `COMPLETE` source snapshots and invokes the Products-owned ABC
+  recalculation; source collection never triggers it.
+- Missing or stale Sellpia, mapping, or advertising evidence is shown as the
+  source status, never as zero cost or C. Revenue/profit contribution, rank,
+  and cumulative share are separate reporting metrics and do not affect the
+  absolute ABC grade.
 - Product detail and matching share the Products-owned complete
   option-component replacement API. A sole option is displayed as the default
   option; there is no separate listing-level product picker.

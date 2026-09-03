@@ -2,7 +2,7 @@
 
 `apps/server/` owns HTTP entrypoints, organization-scoped application
 services, Prisma adapters, provider adapters, and backend capability ports. The
-local API runs on port 4000. The backend owner map lives in
+backend owner map lives in
 [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md); the nearest domain guide
 owns its identity and mutation rules.
 
@@ -18,9 +18,11 @@ owns its identity and mutation rules.
 
 ## Module Boundaries
 
-- Flat controller/service modules remain valid for simple CRUD. Add ports and
-  adapters for provider IO, cross-domain mutation, transactions or row locks,
-  shared use cases, or large-file pressure.
+- Flat controller/service modules remain valid for cohesive CRUD. Introduce a
+  port when it protects provider IO, cross-domain mutation,
+  transaction/locking semantics, or a stable shared capability. Line count
+  alone is not a reason to add a port or adapter.
+- Prefer one deep owner interface over multiple one-to-one forwarding layers.
 - Domain code is pure: no NestJS, Prisma, HTTP/provider SDK, workflow runtime,
   filesystem, or panel/event infrastructure.
 - Incoming adapters live under `adapter/in/{http,agent,workflow,cli}`.
@@ -34,6 +36,14 @@ owns its identity and mutation rules.
 - The owner publishes a cross-domain capability. Consumers use that incoming
   interface or a narrow anti-corruption port; shared behavior does not move to
   `common` merely for reuse.
+- Source owner services own the transaction for attempt terminality, staged
+  fact visibility, the current complete snapshot, coverage status, and any
+  owner-side failure alert that must commit with the source result. Consumers
+  read only the owner's complete snapshot.
+- Extension ingress is an untrusted transport boundary. It accepts only a
+  server-issued attempt identity and organization-scoped payload; chunks and
+  terminal submissions are idempotent, while stale or post-terminal writes
+  are rejected. Source completion does not trigger downstream calculations.
 - Capability manifests under `domain/capability/` describe resource, tool,
   workflow, and sink surfaces; they do not execute work or bypass incoming
   ports.
@@ -41,9 +51,9 @@ owns its identity and mutation rules.
 
 ## Special Surfaces
 
-Automation owns panel projection/action-board APIs, including
-`/api/action-tasks/*`. Feature-gate owns only feature endpoint/config
-behavior. `/api/categories` remains a Products compatibility route.
+- Feature-gate owns only feature endpoint/config behavior.
+- `/api/categories` remains a Products compatibility route; do not add new
+  compatibility routes without a named replacement owner.
 
 ## Verification
 
