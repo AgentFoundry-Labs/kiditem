@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
 import {
+  ProductAbcContributionOverviewSchema,
+  ProductAbcContributionProductSchema,
   ProductAbcDisplayStatusSchema,
   ProductAbcEvaluationSchema,
   ProductAbcFormulaPayloadSchema,
@@ -146,6 +148,7 @@ export const MasterProductOperationsMetadataSchema = z.object({
   displayImageUrls: z.array(z.string().min(1)),
   abcGrade: ProductAbcGradeSchema.nullable(),
   abcEvaluation: ProductAbcEvaluationSchema.nullable(),
+  contribution: ProductAbcContributionProductSchema.nullable(),
   profitTag: z.string().nullable(),
   adTier: z.string().nullable(),
   adBudgetLimit: z.number().int().nonnegative().nullable(),
@@ -250,8 +253,6 @@ export const MasterProductOperationsListItemSchema =
       traffic: ProductOperationsMetricFreshnessSchema,
       advertising: ProductOperationsMetricFreshnessSchema,
     }).strict(),
-    contributionProfitVelocity30: z.number().finite().nullable(),
-    contributionMargin: z.number().finite().nullable(),
   });
 export type MasterProductOperationsListItem = z.infer<
   typeof MasterProductOperationsListItemSchema
@@ -288,16 +289,7 @@ export const ProductOperationsListSummarySchema = z.object({
     AD_SOURCE_STALE: z.number().int().nonnegative(),
 
   }).strict(),
-  abcContributionProfitByGrade: z.object({
-    A: z.number().int(),
-    B: z.number().int(),
-    C: z.number().int(),
-  }).strict(),
-  abcContributionProfitShareByGrade: z.object({
-    A: z.number().finite(),
-    B: z.number().finite(),
-    C: z.number().finite(),
-  }).strict(),
+  contributionOverview: ProductAbcContributionOverviewSchema.nullable(),
   abcFormula: ProductAbcFormulaPayloadSchema.nullable(),
   displayDataAsOf: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   channelProductCounts: z.array(ProductOperationsChannelProductCountSchema),

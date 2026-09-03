@@ -15,6 +15,10 @@ import { SettlementsService } from './settlements/settlements.service';
 import { FinanceOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { FINANCE_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
 import { ProfitabilityEvidenceModule } from './profitability-evidence.module';
+import { MasterProductContributionRepositoryAdapter } from './adapter/out/repository/master-product-contribution.repository.adapter';
+import { MASTER_PRODUCT_CONTRIBUTION_READ_PORT } from './application/port/in/master-product-contribution-read.port';
+import { MASTER_PRODUCT_CONTRIBUTION_REPOSITORY_PORT } from './application/port/out/repository/master-product-contribution.repository.port';
+import { MasterProductContributionReadService } from './application/service/master-product-contribution-read.service';
 
 @Module({
   imports: [
@@ -36,9 +40,19 @@ import { ProfitabilityEvidenceModule } from './profitability-evidence.module';
     SupplierPaymentsService,
     SalesPlansService,
     SettlementsService,
+    MasterProductContributionRepositoryAdapter,
+    MasterProductContributionReadService,
     FinanceOperationAlertAdapter,
+    {
+      provide: MASTER_PRODUCT_CONTRIBUTION_REPOSITORY_PORT,
+      useExisting: MasterProductContributionRepositoryAdapter,
+    },
+    {
+      provide: MASTER_PRODUCT_CONTRIBUTION_READ_PORT,
+      useExisting: MasterProductContributionReadService,
+    },
     { provide: FINANCE_OPERATION_ALERT_PORT, useExisting: FinanceOperationAlertAdapter },
   ],
-  exports: [ProfitabilityEvidenceModule],
+  exports: [ProfitabilityEvidenceModule, MASTER_PRODUCT_CONTRIBUTION_READ_PORT],
 })
 export class FinanceModule {}

@@ -526,7 +526,10 @@ git commit -m "feat: publish absolute ABC explicitly"
 - Create: `apps/server/src/finance/adapter/out/repository/master-product-contribution.repository.adapter.ts`
 - Create: `apps/server/src/finance/adapter/out/repository/master-product-contribution.repository.adapter.spec.ts`
 - Create: `apps/server/src/finance/__tests__/master-product-contribution.repository.pg.integration.spec.ts`
+- Modify: `apps/server/src/finance/finance.module.ts`
+- Modify: `apps/server/src/finance/__tests__/finance.module.wiring.spec.ts`
 - Modify: `packages/shared/src/schemas/product-abc.ts`
+- Modify: `packages/shared/src/schemas/product-abc.spec.ts`
 - Modify: `packages/shared/src/schemas/product-operations.ts`
 
 **Interfaces:**
@@ -534,7 +537,7 @@ git commit -m "feat: publish absolute ABC explicitly"
 - Consumes: exact completed source IDs and an actual unweighted date basis.
 - Produces: revenue contribution, positive-profit contribution, loss impact, ranks, cumulative shares, and signed net operating profit.
 
-- [ ] **Step 1: Write failing PostgreSQL contribution tests**
+- [x] **Step 1: Write failing PostgreSQL contribution tests**
 
 ```ts
 it("keeps grade out of contribution and includes stopped/new products with complete metrics", async () => {
@@ -560,17 +563,17 @@ it("returns null shares when a metric denominator is zero", async () => {
 });
 ```
 
-- [ ] **Step 2: Run the PG test and verify red**
+- [x] **Step 2: Run the PG test and verify red**
 
 Run: `npm run test:integration --workspace=apps/server -- src/finance/__tests__/master-product-contribution.repository.pg.integration.spec.ts`
 
 Expected: FAIL because current Dashboard contribution reads weighted retained Evaluations and groups by ABC grade.
 
-- [ ] **Step 3: Implement one set-based SQL/window projection**
+- [x] **Step 3: Implement one set-based SQL/window projection**
 
 Validate source manifests in the first CTE, aggregate actual Sellpia and frozen Advertising facts, calculate signed product operating profit, then derive revenue, positive-profit, and loss-magnitude metric populations independently. Use `dense_rank()` and tie-preserving `RANGE` cumulative windows. Apply any requested product filter only in the final SELECT after organization-wide denominators and ranks are complete.
 
-- [ ] **Step 4: Run contribution tests**
+- [x] **Step 4: Run contribution tests**
 
 ```bash
 npm exec --workspace=apps/server vitest -- run src/finance/adapter/out/repository/master-product-contribution.repository.adapter.spec.ts
@@ -579,7 +582,7 @@ npm run test:integration --workspace=apps/server -- src/finance/__tests__/master
 
 Expected: PASS for positive-only, loss-only, mixed, zero denominators, ties, stopped/new products, per-metric exclusion, final filtering, and organization isolation.
 
-- [ ] **Step 5: Commit contribution projection**
+- [x] **Step 5: Commit contribution projection**
 
 ```bash
 git add apps/server/src/finance/application/port/in/master-product-contribution-read.port.ts apps/server/src/finance/application/port/out/repository/master-product-contribution.repository.port.ts apps/server/src/finance/application/service/master-product-contribution-read.service.ts apps/server/src/finance/adapter/out/repository/master-product-contribution.repository.adapter.ts apps/server/src/finance/adapter/out/repository/master-product-contribution.repository.adapter.spec.ts apps/server/src/finance/__tests__/master-product-contribution.repository.pg.integration.spec.ts packages/shared/src/schemas/product-abc.ts packages/shared/src/schemas/product-operations.ts

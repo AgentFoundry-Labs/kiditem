@@ -591,58 +591,95 @@ export type ProductAbcContributionMetricStatus = z.infer<
   typeof ProductAbcContributionMetricStatusSchema
 >;
 
-export const ProductAbcContributionMetricSchema = z.object({
-  amount: FiniteNumberSchema.nullable(),
-  denominator: FiniteNumberSchema.nullable(),
-  share: FiniteNumberSchema.nullable(),
-  cumulativeShare: FiniteNumberSchema.nullable(),
-  rank: z.number().int().positive().nullable(),
+export const ProductAbcContributionMetricBasisSchema = z.object({
   status: ProductAbcContributionMetricStatusSchema,
+  includedProductCount: z.number().int().nonnegative(),
+  excludedProductCount: z.number().int().nonnegative(),
+  denominator: z.number().int().positive().nullable(),
 }).strict().superRefine((metric, context) => {
-  if (metric.status === 'READY') {
-    if (
-      metric.amount === null
-      || metric.denominator === null
-      || metric.denominator === 0
-      || metric.share === null
-      || metric.cumulativeShare === null
-      || metric.rank === null
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['status'],
-        message: 'READY contribution metrics require amount, denominator, share, cumulativeShare, and rank',
-      });
-    }
-  } else if (
-    metric.denominator !== null
-    || metric.share !== null
-    || metric.cumulativeShare !== null
-    || metric.rank !== null
-  ) {
+  if (metric.status === 'READY' && metric.denominator === null) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ['status'],
-      message: 'a metric without a usable denominator cannot expose ratios or rank',
+      path: ['denominator'],
+      message: 'READY contribution metrics require a positive denominator',
     });
   }
-  if (metric.status === 'NO_DENOMINATOR' && metric.amount === null) {
+  if (metric.status === 'NO_DENOMINATOR' && metric.denominator !== null) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ['amount'],
-      message: 'NO_DENOMINATOR retains the actual product amount',
+      path: ['denominator'],
+      message: 'NO_DENOMINATOR cannot expose a denominator',
     });
   }
 });
-export type ProductAbcContributionMetric = z.infer<typeof ProductAbcContributionMetricSchema>;
+export type ProductAbcContributionMetricBasis = z.infer<
+  typeof ProductAbcContributionMetricBasisSchema
+>;
 
-export const ProductAbcContributionRowSchema = z.object({
+const ContributionRatioSchema = FiniteNumberSchema.min(0).max(1);
+const ContributionRankSchema = z.number().int().positive().nullable();
+
+export const ProductAbcContributionProductSchema = z.object({
   masterProductId: UuidSchema,
-  sales: ProductAbcContributionMetricSchema,
-  operatingProfit: ProductAbcContributionMetricSchema,
-  lossImpact: ProductAbcContributionMetricSchema,
-}).strict();
-export type ProductAbcContributionRow = z.infer<typeof ProductAbcContributionRowSchema>;
+  revenue: z.number().int().nullable(),
+  operatingProfit: z.number().int().nullable(),
+  salesContribution: ContributionRatioSchema.nullable(),
+  positiveOperatingProfitContribution: ContributionRatioSchema.nullable(),
+  lossImpact: ContributionRatioSchema.nullable(),
+  salesRank: ContributionRankSchema,
+  positiveOperatingProfitRank: ContributionRankSchema,
+  lossRank: ContributionRankSchema,
+  cumulativeSalesContribution: ContributionRatioSchema.nullable(),
+  cumulativePositiveOperatingProfitContribution: ContributionRatioSchema.nullable(),
+  cumulativeLossImpact: ContributionRatioSchema.nullable(),
+  metricCompleteness: z.object({
+    sales: z.boolean(),
+    operatingProfit: z.boolean(),
+  }).strict(),
+}).strict().superRefine((product, context) => {
+  if (!product.metricCompleteness.sales && product.revenue !== null) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['revenue'],
+      message: 'incomplete sales evidence cannot expose revenue',
+    });
+  }
+  if (!product.metricCompleteness.operatingProfit && product.operatingProfit !== null) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['operatingProfit'],
+      message: 'incomplete profit evidence cannot expose operating profit',
+    });
+  }
+  if (
+    product.operatingProfit !== null
+    && product.operatingProfit <= 0
+    && (
+      product.positiveOperatingProfitRank !== null
+      || product.cumulativePositiveOperatingProfitContribution !== null
+    )
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['positiveOperatingProfitRank'],
+      message: 'non-positive products do not belong to the positive-profit ranking',
+    });
+  }
+  if (
+    product.operatingProfit !== null
+    && product.operatingProfit >= 0
+    && (product.lossRank !== null || product.cumulativeLossImpact !== null)
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['lossRank'],
+      message: 'non-loss products do not belong to the loss ranking',
+    });
+  }
+});
+export type ProductAbcContributionProduct = z.infer<
+  typeof ProductAbcContributionProductSchema
+>;
 
 export const ProductAbcContributionSourceStatusSummarySchema = z.object({
   sellpia: ProductAbcSourceStatusSchema,
@@ -650,46 +687,52 @@ export const ProductAbcContributionSourceStatusSummarySchema = z.object({
   mapping: ProductAbcMappingStatusSchema,
 }).strict();
 
-export const ProductAbcContributionMetricSummarySchema = z.object({
-  basisCutoffDate: CalendarDateSchema,
+export const ProductAbcContributionBasisSchema = z.object({
+  fromDate: CalendarDateSchema,
+  cutoffDate: CalendarDateSchema,
   sourceCutoffDate: CalendarDateSchema.nullable(),
-  includedProductCount: z.number().int().nonnegative(),
-  excludedProductCount: z.number().int().nonnegative(),
-  denominator: FiniteNumberSchema.nullable(),
+  sellpiaSourceImportRunId: UuidSchema.nullable(),
+  advertisingSourceImportRunId: UuidSchema.nullable(),
   sourceStatusSummary: ProductAbcContributionSourceStatusSummarySchema,
+}).strict().superRefine((basis, context) => {
+  if (basis.fromDate > basis.cutoffDate) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['cutoffDate'],
+      message: 'contribution cutoff cannot precede the basis start',
+    });
+  }
+});
+export type ProductAbcContributionBasis = z.infer<
+  typeof ProductAbcContributionBasisSchema
+>;
+
+export const ProductAbcContributionTotalsSchema = z.object({
+  revenue: z.number().int().nullable(),
+  positiveOperatingProfit: z.number().int().nonnegative().nullable(),
+  lossMagnitude: z.number().int().nonnegative().nullable(),
+  netOperatingProfit: z.number().int().nullable(),
 }).strict();
-export type ProductAbcContributionMetricSummary = z.infer<
-  typeof ProductAbcContributionMetricSummarySchema
+export type ProductAbcContributionTotals = z.infer<
+  typeof ProductAbcContributionTotalsSchema
 >;
 
 export const ProductAbcContributionAnalyticsSchema = z.object({
-  basisCutoffDate: CalendarDateSchema,
-  rows: z.array(ProductAbcContributionRowSchema),
-  sales: ProductAbcContributionMetricSummarySchema,
-  operatingProfit: ProductAbcContributionMetricSummarySchema,
-  lossImpact: ProductAbcContributionMetricSummarySchema,
-}).strict().superRefine((analytics, context) => {
-  for (const [name, metric] of [
-    ['sales', analytics.sales],
-    ['operatingProfit', analytics.operatingProfit],
-    ['lossImpact', analytics.lossImpact],
-  ] as const) {
-    if (metric.basisCutoffDate !== analytics.basisCutoffDate) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: [name, 'basisCutoffDate'],
-        message: 'each contribution metric must use the common basis cutoff',
-      });
-    }
-    if (metric.includedProductCount + metric.excludedProductCount !== analytics.rows.length) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: [name, 'includedProductCount'],
-        message: 'included and excluded counts must partition the response rows',
-      });
-    }
-  }
-});
+  basis: ProductAbcContributionBasisSchema,
+  totals: ProductAbcContributionTotalsSchema,
+  metrics: z.object({
+    sales: ProductAbcContributionMetricBasisSchema,
+    positiveOperatingProfit: ProductAbcContributionMetricBasisSchema,
+    loss: ProductAbcContributionMetricBasisSchema,
+  }).strict(),
+  products: z.array(ProductAbcContributionProductSchema),
+}).strict();
 export type ProductAbcContributionAnalytics = z.infer<
   typeof ProductAbcContributionAnalyticsSchema
+>;
+
+export const ProductAbcContributionOverviewSchema =
+  ProductAbcContributionAnalyticsSchema.omit({ products: true });
+export type ProductAbcContributionOverview = z.infer<
+  typeof ProductAbcContributionOverviewSchema
 >;

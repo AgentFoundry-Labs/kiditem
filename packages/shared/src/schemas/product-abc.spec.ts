@@ -242,71 +242,100 @@ describe('absolute product profitability ABC contracts', () => {
     });
     expect(history.newGrade).toBe('A');
 
-    const metric = {
-      amount: 100,
-      denominator: 1_000,
-      share: 0.1,
-      cumulativeShare: 0.1,
-      rank: 1,
-      status: 'READY',
-    } as const;
     const analytics = ProductAbcContributionAnalyticsSchema.parse({
-      basisCutoffDate: '2026-07-31',
-      rows: [{
-        masterProductId: UUID,
-        sales: metric,
-        operatingProfit: {
-          ...metric,
-          amount: -100,
-          denominator: -1_000,
-          share: 0.1,
-          cumulativeShare: 0.1,
-        },
-        lossImpact: { ...metric, amount: 100, share: 1, cumulativeShare: 1 },
-      }],
-      sales: {
-        basisCutoffDate: '2026-07-31',
+      basis: {
+        fromDate: '2026-07-01',
+        cutoffDate: '2026-07-31',
         sourceCutoffDate: '2026-07-31',
-        includedProductCount: 1,
-        excludedProductCount: 0,
-        denominator: 1_000,
+        sellpiaSourceImportRunId: UUID,
+        advertisingSourceImportRunId: UUID_2,
         sourceStatusSummary: { sellpia: 'READY', advertising: 'READY', mapping: 'READY' },
       },
-      operatingProfit: {
-        basisCutoffDate: '2026-07-31',
-        sourceCutoffDate: '2026-07-30',
-        includedProductCount: 1,
-        excludedProductCount: 0,
-        denominator: -1_000,
-        sourceStatusSummary: { sellpia: 'READY', advertising: 'STALE', mapping: 'READY' },
+      totals: {
+        revenue: 1_000,
+        positiveOperatingProfit: 100,
+        lossMagnitude: 20,
+        netOperatingProfit: 80,
       },
-      lossImpact: {
-        basisCutoffDate: '2026-07-31',
-        sourceCutoffDate: '2026-07-29',
-        includedProductCount: 1,
-        excludedProductCount: 0,
-        denominator: 100,
-        sourceStatusSummary: { sellpia: 'READY', advertising: 'MISSING', mapping: 'READY' },
+      metrics: {
+        sales: {
+          status: 'READY',
+          includedProductCount: 2,
+          excludedProductCount: 0,
+          denominator: 1_000,
+        },
+        positiveOperatingProfit: {
+          status: 'READY',
+          includedProductCount: 2,
+          excludedProductCount: 0,
+          denominator: 100,
+        },
+        loss: {
+          status: 'READY',
+          includedProductCount: 2,
+          excludedProductCount: 0,
+          denominator: 20,
+        },
       },
+      products: [{
+        masterProductId: UUID,
+        revenue: 100,
+        operatingProfit: -20,
+        salesContribution: 0.1,
+        positiveOperatingProfitContribution: 0,
+        lossImpact: 1,
+        salesRank: 1,
+        positiveOperatingProfitRank: null,
+        lossRank: 1,
+        cumulativeSalesContribution: 0.1,
+        cumulativePositiveOperatingProfitContribution: null,
+        cumulativeLossImpact: 1,
+        metricCompleteness: { sales: true, operatingProfit: true },
+      }],
     });
-    expect(analytics.operatingProfit.rows).toBeUndefined();
-    expect(analytics.rows[0]?.operatingProfit.denominator).toBe(-1_000);
-    expect(analytics.rows[0]?.operatingProfit.share).toBe(0.1);
+    expect(analytics.products[0]?.lossImpact).toBe(1);
+    expect(analytics.metrics.positiveOperatingProfit.denominator).toBe(100);
+    expect(analytics.metrics.loss.denominator).toBe(20);
+    expect(() => ProductAbcContributionAnalyticsSchema.parse({
+      ...analytics,
+      products: [{
+        ...analytics.products[0]!,
+        positiveOperatingProfitRank: 2,
+        cumulativePositiveOperatingProfitContribution: 1,
+      }],
+    })).toThrow();
+    expect(() => ProductAbcContributionAnalyticsSchema.parse({
+      ...analytics,
+      products: [{
+        ...analytics.products[0]!,
+        operatingProfit: 20,
+        positiveOperatingProfitContribution: 0.2,
+        positiveOperatingProfitRank: 1,
+        cumulativePositiveOperatingProfitContribution: 0.2,
+        lossImpact: 0,
+        lossRank: 2,
+        cumulativeLossImpact: 1,
+      }],
+    })).toThrow();
     const zeroDenominator = ProductAbcContributionAnalyticsSchema.parse({
       ...analytics,
-      rows: [{
-        ...analytics.rows[0]!,
+      totals: { ...analytics.totals, revenue: 0 },
+      metrics: {
+        ...analytics.metrics,
         sales: {
-          amount: 0,
+          ...analytics.metrics.sales,
           denominator: null,
-          share: null,
-          cumulativeShare: null,
-          rank: null,
           status: 'NO_DENOMINATOR',
         },
+      },
+      products: [{
+        ...analytics.products[0]!,
+        revenue: 0,
+        salesContribution: null,
+        salesRank: null,
+        cumulativeSalesContribution: null,
       }],
-      sales: { ...analytics.sales, denominator: null },
     });
-    expect(zeroDenominator.sales.includedProductCount).toBe(1);
+    expect(zeroDenominator.metrics.sales.status).toBe('NO_DENOMINATOR');
   });
 });
