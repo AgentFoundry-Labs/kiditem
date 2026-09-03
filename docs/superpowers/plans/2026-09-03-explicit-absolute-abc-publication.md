@@ -300,7 +300,7 @@ export interface ProfitabilityEvidence {
 }
 ```
 
-- [ ] **Step 1: Write failing unit tests for source selection and dates**
+- [x] **Step 1: Write failing unit tests for source selection and dates**
 
 ```ts
 it("uses the previous KST month end and at most twelve closed months", async () => {
@@ -339,21 +339,21 @@ it("never converts missing advertising evidence to zero", async () => {
 });
 ```
 
-- [ ] **Step 2: Run Finance tests and verify red**
+- [x] **Step 2: Run Finance tests and verify red**
 
 Run: `npm exec --workspace=apps/server vitest -- run src/common/__tests__/kst.spec.ts src/finance/application/service/master-product-profitability-read.service.spec.ts src/finance/profitability-evidence.module.spec.ts`
 
 Expected: FAIL because the current reader accepts Orders, catches arbitrary errors, assumes eligibility, and treats missing/stale ad spend as zero.
 
-- [ ] **Step 3: Implement compatible manifest selection**
+- [x] **Step 3: Implement compatible manifest selection**
 
 Select the newest pair of completed Sellpia/Advertising generations with the same mapping generation and valid fixed ad policy hash. Derive `READY` only when the latest attempts are COMPLETE, both current generations cover the target, and the pair is compatible. Return an older compatible complete pair for labeled display when available, but mark the blocking source `STALE`; return `MISSING` and null numeric evidence when no compatible pair exists. Propagate database, overflow, and malformed manifest errors.
 
-- [ ] **Step 4: Assemble product/month facts set-wise**
+- [x] **Step 4: Assemble product/month facts set-wise**
 
 Exclude facts newer than the common cutoff. Count valid days only where Sellpia coverage, cost/VAT provenance, Advertising `OBSERVED|CONFIRMED_ZERO|NOT_APPLIED`, and frozen mapping all overlap. Preserve confirmed no-sales months as zero and missing months as missing. Do not read Orders, Evaluation, grade cache, or current mutable recipes.
 
-- [ ] **Step 5: Run unit and PostgreSQL tests**
+- [x] **Step 5: Run unit and PostgreSQL tests**
 
 ```bash
 npm exec --workspace=apps/server vitest -- run src/common/__tests__/kst.spec.ts src/finance/application/service/master-product-profitability-read.service.spec.ts src/finance/profitability-evidence.module.spec.ts
@@ -362,7 +362,7 @@ npm run test:integration --workspace=apps/server -- src/finance/__tests__/profit
 
 Expected: PASS for KST rollover, partial boundaries, 29/30 days, confirmed zero, missing/stale, prior complete fallback, mismatched mapping, malformed provenance, and organization isolation.
 
-- [ ] **Step 6: Commit ProfitabilityEvidence**
+- [x] **Step 6: Commit ProfitabilityEvidence**
 
 ```bash
 git add apps/server/src/finance apps/server/src/analytics/sellpia-product-sales/sellpia-product-sales.module.ts apps/server/src/advertising/advertising-profitability-read.module.ts apps/server/src/common/kst.ts apps/server/src/common/__tests__/kst.spec.ts

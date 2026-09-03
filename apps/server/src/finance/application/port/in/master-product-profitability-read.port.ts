@@ -1,68 +1,75 @@
-import type { ProductAbcCostBreakdown } from '@kiditem/shared/product-abc';
-
 export const MASTER_PRODUCT_PROFITABILITY_READ_PORT = Symbol(
   'MASTER_PRODUCT_PROFITABILITY_READ_PORT',
 );
 
-export type MasterProductProfitabilityScope =
-  | 'ACTIVE_EVALUATION'
-  | 'HISTORICAL_CALIBRATION';
+export type SourceGenerationView = Readonly<{
+  sourceImportRunId: string | null;
+  publicationSequence: string | null;
+  mappingGeneration: string | null;
+  coverageStartDate: string | null;
+  coverageEndDate: string | null;
+  capturedAt: string | null;
+}>;
 
-export type MasterProductSellpiaStatus = 'READY' | 'STALE' | 'UNMAPPED' | 'MISSING';
-export type MasterProductAdvertisingStatus = 'READY' | 'CONFIRMED_ZERO' | 'STALE' | 'MISSING';
-export type MasterProductOrdersStatus = 'NOT_APPLIED';
-export type MasterProductMappingStatus = 'READY' | 'UNMAPPED' | 'AMBIGUOUS' | 'STALE';
+export type SourceReadiness = Readonly<{
+  status: 'READY' | 'STALE' | 'MISSING';
+  actualCutoff: string | null;
+  latestAttemptState: 'RUNNING' | 'COMPLETE' | 'FAILED' | null;
+  errorCode: string | null;
+}>;
 
-export type MonthlyContributionFact = Readonly<{
+/**
+ * Finance's formula input. Finance assembles facts and provenance; Products
+ * remains the only owner of the ABC formula and evaluator.
+ */
+export type MasterProductAbcFormulaReadyMonthlyFact = Readonly<{
   yearMonth: string;
-  coverageStartDate: Date;
-  coverageEndDate: Date;
+  coverageStartDate: string;
+  coverageEndDate: string;
   coveredDays: number;
-  coverageMidpointEpochDay: number;
-  revenue: number;
-  sellpiaInAmount: number;
-  adSpend: number | null;
-  costBreakdown: ProductAbcCostBreakdown;
-  contributionProfit: number | null;
-  negativeCoveredDays: number | null;
-  lossGranularity: 'MONTH_INFERRED';
-  sourceProductCodes: readonly string[];
-  sourceOptionCodes: readonly string[];
+  recognizedRevenue: number;
+  orderTimeSupplyCost: number;
+  advertisingSpend: number | null;
+  provenance: Readonly<{
+    costBasis: 'ORDER_TIME_SUPPLY_COST';
+    vatIncluded: true;
+    advertisingEvidence: 'OBSERVED' | 'CONFIRMED_ZERO' | 'NOT_APPLIED';
+  }>;
 }>;
 
-export type MasterProductProfitabilityEvidence = Readonly<{
+export type MasterProductAbcFormulaReadyFacts = Readonly<{
   masterProductId: string;
-  asOfDate: Date;
-  firstValidPaidSaleAt: Date | null;
-  validPaidOrderDates: readonly Date[];
-  paidOrderCount: number;
-  observationDays: number;
-  eligibilityReached: boolean;
-  sellpiaStatus: MasterProductSellpiaStatus;
-  adStatus: MasterProductAdvertisingStatus;
-  /** Latest upstream capture used for the Sellpia fact window. */
-  sellpiaCapturedAt: Date | null;
-  /** Latest upstream capture used for the advertising-cost window. */
-  advertisingCapturedAt: Date | null;
-  advertisingCoverageStartDate: Date | null;
-  advertisingCoverageEndDate: Date | null;
-  ordersStatus: MasterProductOrdersStatus;
-  ordersCoverageStartDate: Date | null;
-  ordersCoverageEndDate: Date | null;
-  ordersCapturedAt: Date | null;
-  orderLinkedLineCount: number;
-  orderUnlinkedLineCount: number;
-  mappingStatus: MasterProductMappingStatus;
-  mappingInventoryGeneration: string | null;
-  mappingVerifiedAt: Date | null;
-  monthlyFacts: readonly MonthlyContributionFact[];
+  cutoffDate: string;
+  monthlyFacts: readonly MasterProductAbcFormulaReadyMonthlyFact[];
 }>;
 
-export interface MasterProductProfitabilityReadPort {
-  readMany(input: {
+export type ProductProfitabilityEvidence = Readonly<{
+  masterProductId: string;
+  selling: boolean;
+  mappingValid: boolean;
+  validObservationDays: number;
+  formulaReadyFacts: MasterProductAbcFormulaReadyFacts | null;
+}>;
+
+export type ProfitabilityEvidenceSnapshot = Readonly<{
+  targetCutoff: string;
+  actualCutoff: string | null;
+  mappingGeneration: string | null;
+  sourceVector: Readonly<{
+    sellpia: SourceGenerationView;
+    advertising: SourceGenerationView;
+  }>;
+  sources: Readonly<{
+    sellpia: SourceReadiness;
+    advertising: SourceReadiness;
+  }>;
+  products: readonly ProductProfitabilityEvidence[];
+}>;
+
+/** The one Finance-owned read seam consumed by Products. */
+export interface ProfitabilityEvidence {
+  load(input: {
     organizationId: string;
-    masterProductIds?: readonly string[];
-    asOfDate: Date;
-    scope: MasterProductProfitabilityScope;
-  }): Promise<readonly MasterProductProfitabilityEvidence[]>;
+    targetCutoff: string;
+  }): Promise<ProfitabilityEvidenceSnapshot>;
 }
