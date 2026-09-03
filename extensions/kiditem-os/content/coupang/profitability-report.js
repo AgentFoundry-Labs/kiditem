@@ -498,7 +498,6 @@
     const rows = parseChartReportText(text);
     return {
       reportId,
-      expectedRowCount: rows.length,
       responseBytes: new TextEncoder().encode(text).length,
       rows,
     };
@@ -513,24 +512,57 @@
     return value;
   }
 
-  function sendReportToServer(payload, environmentId) {
-    return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({
-        action: "syncProfitabilityReportToServer",
-        environmentId,
-        payload,
-      }, (response) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-          return;
-        }
-        if (!response?.success) {
-          reject(new Error(response?.error || "profitability_report_upload_failed"));
-          return;
-        }
-        resolve(response.body || response);
-      });
-    });
+  function profitabilityAccount(value) {
+    const externalAccountId = normalizedText(value?.externalAccountId);
+    const expectedAdvertiserId = normalizedText(value?.expectedAdvertiserId);
+    if (!externalAccountId || !expectedAdvertiserId) {
+      throw new Error("profitability_report_account_missing");
+    }
+    return { externalAccountId, expectedAdvertiserId };
+  }
+
+  function accountSwitchControl(account, root = document) {
+    const values = new Set([
+      account.externalAccountId,
+      account.expectedAdvertiserId,
+    ]);
+    const candidates = root.querySelectorAll(
+      '[data-advertiser-id], [data-advertiserid], [data-account-id], [data-accountid], button, [role="button"], a',
+    );
+    return [...candidates].find((candidate) => {
+      if (!isVisible(candidate)) return false;
+      const declared = [
+        candidate.getAttribute?.("data-advertiser-id"),
+        candidate.getAttribute?.("data-advertiserid"),
+        candidate.getAttribute?.("data-account-id"),
+        candidate.getAttribute?.("data-accountid"),
+      ].map(normalizedText);
+      return declared.some((value) => values.has(value)) ||
+        values.has(normalizedText(candidate.innerText || candidate.textContent));
+    }) || null;
+  }
+
+  async function switchProfitabilityAccount(value) {
+    const account = profitabilityAccount(value);
+    if (advertiserId() === account.expectedAdvertiserId) {
+      return account.expectedAdvertiserId;
+    }
+    const control = accountSwitchControl(account);
+    if (!control) throw new Error("profitability_report_account_switch_unavailable");
+    control.click();
+    const verified = await pollUntil(() => {
+      try {
+        return advertiserId() === account.expectedAdvertiserId
+          ? account.expectedAdvertiserId
+          : null;
+      } catch {
+        return null;
+      }
+    }, { timeoutMs: 10_000, intervalMs: 100 });
+    if (!verified) {
+      throw new Error(`profitability_report_advertiser_mismatch:${account.expectedAdvertiserId}`);
+    }
+    return verified;
   }
 
   async function run(input) {
@@ -544,6 +576,9 @@
     if (!reportReady) {
       throw new Error("profitability_report_wrong_page");
     }
+    const providerAdvertiserId = await switchProfitabilityAccount(
+      input?.profitabilityAccount,
+    );
     const slice = input?.profitabilitySlice;
     if (!slice?.startDate || !slice?.endDate || !Array.isArray(slice.businessDates)) {
       throw new Error("profitability_report_slice_missing");
@@ -573,21 +608,21 @@
     if (rows.some((row) => !allowedDates.has(row.businessDate))) {
       throw new Error("profitability_report_row_out_of_range");
     }
-    await sendReportToServer({
-      collectionRunId: input.collectionRunId,
-      advertiserId: advertiserId(),
-      campaignCount,
-      expectedRowCount: detail.expectedRowCount,
-      collectedRowCount: detail.rows.length,
-      businessDates: slice.businessDates,
-      rows,
-    }, input.environmentId);
     return {
       success: true,
       type: "profitability_report",
       completed: 1,
       totalRows: detail.rows.length,
       aggregatedRows: rows.length,
+      profitabilityReceipt: {
+        providerAdvertiserId,
+        reportId: detail.reportId,
+        campaignCount,
+        expectedRowCount: rows.length,
+        collectedRowCount: rows.length,
+        responseBytes: detail.responseBytes,
+        rows,
+      },
     };
   }
 
@@ -615,7 +650,10 @@
     reportIdFromRow,
     reportRowState,
     reportRowMatches,
+    accountSwitchControl,
+    profitabilityAccount,
     run,
+    switchProfitabilityAccount,
     waitForExistingReport,
     waitForReport,
   });

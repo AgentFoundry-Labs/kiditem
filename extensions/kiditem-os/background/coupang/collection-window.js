@@ -1030,6 +1030,9 @@
           if (producer === "advertising.ad_sync") {
             if (operationPayload?.profitabilitySlice) {
               message.syncMode = "profitability_report";
+              if (operationPayload?.profitabilityAccount) {
+                message.profitabilityAccount = operationPayload.profitabilityAccount;
+              }
               message.profitabilitySlice = operationPayload.profitabilitySlice;
             } else {
               message.syncMode = "campaign_sweep";
@@ -1450,6 +1453,7 @@
         success: !!response?.success,
         type: response?.type || "unknown",
         count: response?.count || 0,
+        receipt: response?.profitabilityReceipt || null,
         progress: normalizeProgress(response?.progress),
         error: response?.error || response?.reason,
       };
@@ -1490,6 +1494,7 @@
         environmentId,
         operationPayload = null,
         retainOwnedWindow = false,
+        keepSessionRunning = false,
       } = input;
       // Both advertising sweeps report their own campaign/ad-level progress
       // from the content script, so the window must not overwrite it with a
@@ -1502,6 +1507,7 @@
         let cancelled = false;
         let attentionRequired = false;
         let retainAfterSuccess = false;
+        let receipt = null;
         await chromeApi.storage.local.remove(cancelKey);
         try {
           let owned = await getOrCreate(runId, targets[0].url, producer);
@@ -1563,10 +1569,12 @@
             }
             if (result.attentionRequired) {
               attentionRequired = true;
-              await sessions.requireAttention(runId, {
-                reason: result.reason,
-                message: result.error,
-              });
+              if (!keepSessionRunning) {
+                await sessions.requireAttention(runId, {
+                  reason: result.reason,
+                  message: result.error,
+                });
+              }
               break;
             }
             if (result.success) completed += 1;
@@ -1574,6 +1582,7 @@
               failed += 1;
               latestError = result.error || target.label || "수집 실패";
             }
+            if (result.success && result.receipt) receipt = result.receipt;
             if (preservesContentProgress && result.success && result.progress) {
               // advertising.ad_sync는 content script가 캠페인 단위 progress를
               // 보고한다. 여기서 URL target 단위 1/1로 덮으면 완료 순간 UI가
@@ -1628,11 +1637,11 @@
           if (cancelled) {
             attentionRequired = false;
             latestError = null;
-            await sessions.cancel(runId);
+            if (!keepSessionRunning) await sessions.cancel(runId);
           } else if (!attentionRequired && failed > 0) {
-            await sessions.fail(runId);
+            if (!keepSessionRunning) await sessions.fail(runId);
           } else if (!attentionRequired) {
-            await sessions.succeed(runId);
+            if (!keepSessionRunning) await sessions.succeed(runId);
           }
           // Cancellation may race the terminal transition above. The generic
           // session is the durable fence, so read it once more before writing
@@ -1641,7 +1650,7 @@
             cancelled = true;
             attentionRequired = false;
             latestError = null;
-            await sessions.cancel(runId);
+            if (!keepSessionRunning) await sessions.cancel(runId);
           }
 
           const status = cancelled
@@ -1675,6 +1684,7 @@
             total: targets.length,
             cancelled,
             attentionRequired,
+            receipt,
             runId,
             error: latestError,
           };
@@ -1766,7 +1776,7 @@
             // Preserve and rethrow the original collection exception.
           }
           try {
-            await sessions.fail(runId);
+            if (!keepSessionRunning) await sessions.fail(runId);
           } catch {
             // Preserve and rethrow the original collection exception.
           }

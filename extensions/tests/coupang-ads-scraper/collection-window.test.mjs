@@ -2374,6 +2374,73 @@ test('dispatches a profitability slice as the dedicated report sync mode', async
   assert.equal(await helper.close('profitability-report-run'), true);
 });
 
+test('keeps the direct owner session running and returns the collected profitability receipt', async () => {
+  const receipt = {
+    providerAdvertiserId: 'advertiser-a',
+    reportId: 'report-a',
+    campaignCount: 1,
+    expectedRowCount: 1,
+    collectedRowCount: 1,
+    responseBytes: 100,
+    rows: [],
+  };
+  const fake = createFakeChrome({}, [{ success: true, profitabilityReceipt: receipt }]);
+  const terminalCalls = [];
+  const sessions = {
+    async attachTab() {},
+    async fail() { terminalCalls.push('fail'); },
+    async get() { return { status: 'running', attempt: 1 }; },
+    async progress() {},
+    async requireAttention() {},
+    async succeed() { terminalCalls.push('succeed'); },
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    delay: async () => {},
+    markScraped: async () => {},
+    sessions,
+    statusKey: 'collection-status',
+  });
+  const profitabilitySlice = {
+    sliceId: 'account-a:2026-07-01_2026-07-31',
+    startDate: '2026-07-01',
+    endDate: '2026-07-31',
+    businessDates: ['2026-07-01'],
+  };
+  const profitabilityAccount = {
+    externalAccountId: 'coupang-account-a',
+    expectedAdvertiserId: 'advertiser-a',
+  };
+
+  const result = await helper.collectTargets({
+    environmentId: 'local',
+    producer: 'advertising.ad_sync',
+    runId: 'profitability-owner-attempt',
+    startedAt: 1,
+    targets: [{
+      id: 'report',
+      label: '상품별 광고 보고서',
+      url: 'https://advertising.coupang.com/marketing-reporting/billboard/reports/pa',
+    }],
+    operationPayload: { profitabilityAccount, profitabilitySlice },
+    retainOwnedWindow: true,
+    keepSessionRunning: true,
+  });
+
+  assert.equal(result.success, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.receipt)), receipt);
+  assert.deepEqual(terminalCalls, []);
+  assert.deepEqual(fake.calls.tabMessages[0].message, {
+    action: 'manualSync',
+    collectionRunId: 'profitability-owner-attempt',
+    collectionAttempt: 1,
+    environmentId: 'local',
+    syncMode: 'profitability_report',
+    profitabilityAccount,
+    profitabilitySlice,
+  });
+});
+
 test('reuses one owned report window across sequential profitability slices', async () => {
   const fake = createFakeChrome({}, [
     { success: true, completed: 1 },

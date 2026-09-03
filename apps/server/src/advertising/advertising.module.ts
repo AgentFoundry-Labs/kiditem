@@ -3,7 +3,6 @@ import { PrismaModule } from "../prisma/prisma.module";
 import { AiModule } from "../ai/ai.module";
 import { AutomationModule } from "../automation/automation.module";
 import { ChannelsModule } from "../channels/channels.module";
-import { ProductsModule } from "../products/products.module";
 import { OperationsModule } from "../operations/operations.module";
 import { AdvertisingProfitabilityReadModule } from "./advertising-profitability-read.module";
 import { AdvertisingActionsController } from "./adapter/in/http/advertising-actions.controller";
@@ -173,7 +172,6 @@ const REPOSITORY_PORT_BINDINGS = [
     AiModule,
     AutomationModule,
     ChannelsModule,
-    ProductsModule,
     OperationsModule,
     AdvertisingProfitabilityReadModule,
   ],

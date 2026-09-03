@@ -5,7 +5,6 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { AiModule } from '../../ai/ai.module';
 import { AutomationModule } from '../../automation/automation.module';
 import { ChannelsModule } from '../../channels/channels.module';
-import { ProductsModule } from '../../products/products.module';
 import { OperationsModule } from '../../operations/operations.module';
 import { AdvertisingProfitabilityReadModule } from '../advertising-profitability-read.module';
 
@@ -17,10 +16,13 @@ describe('AdvertisingModule retained wiring', () => {
       AiModule,
       AutomationModule,
       ChannelsModule,
-      ProductsModule,
       OperationsModule,
       AdvertisingProfitabilityReadModule,
     ]);
+    const providerNames = (Reflect.getMetadata('providers', AdvertisingModule) ?? [])
+      .map((provider: Function | { provide?: unknown }) =>
+        typeof provider === 'function' ? provider.name : String(provider.provide));
+    expect(providerNames).not.toContain('AdvertisingProfitabilityOperationHandler');
     const controllerNames = (Reflect.getMetadata('controllers', AdvertisingModule) ?? []).map((controller: Function) => controller.name);
     expect(controllerNames).toContain('AdKeywordAgentController');
     expect(controllerNames).not.toContain('AdStrategyAgentController');

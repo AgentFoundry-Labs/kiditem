@@ -93,7 +93,6 @@ const catalogCollectionWindows = Object.fromEntries(
     }),
   ]),
 );
-const profitabilityAdUploadContexts = new Map();
 function collectionWindowFor(environmentId) {
   adsEnvironmentContext.requireEnvironment(environmentId);
   return collectionWindows[environmentId];
@@ -136,8 +135,12 @@ const collectionRuns = KidItemCollectionRuns.create({
       coupangCatalogImportDependencies(environmentId),
   ),
 });
-const profitabilityOperationCheckpoint = KidItemProfitabilityOperationCheckpoint.create({
-  chrome,
+const profitabilitySourceOwner = KidItemProfitabilitySourceOwner.create({
+  sessions: collectionSessions,
+  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
+  collectSlice: collectAdvertisingProfitabilitySlice,
+  closeAttempt: (environmentId, attemptId) =>
+    collectionWindowFor(environmentId).close(attemptId),
 });
 const wingFormRuntimeCompat = KidItemWingFormRuntimeCompat.create({ chrome });
 const wingFormReadiness = KidItemWingFormReadiness.create({ chrome });
@@ -453,45 +456,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // async response
   }
 
-  if (msg.action === "syncProfitabilityReportToServer") {
-    const payload = msg.payload || {};
-    const context = profitabilityAdUploadContexts.get(payload.collectionRunId);
-    Promise.resolve()
-      .then(async () => {
-        if (!context) throw new Error("profitability_report_upload_context_missing");
-        const senderUrl = new URL(sender?.url || sender?.tab?.url || "");
-        if (senderUrl.origin !== "https://advertising.coupang.com") {
-          throw new Error("profitability_report_sender_invalid");
-        }
-        const boundEnvironmentId = await coupangEnvironment.environmentForTab(sender?.tab?.id);
-        if (
-          boundEnvironmentId !== context.environmentId ||
-          (msg.environmentId && msg.environmentId !== context.environmentId)
-        ) {
-          throw new Error("profitability_report_environment_mismatch");
-        }
-        const response = await authedFetch(
-          context.environmentId,
-          `/api/ads/profitability-refresh/runs/${context.operationRunId}/slices/${encodeURIComponent(context.sliceId)}/report`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-operation-attempt-token": context.attemptToken,
-            },
-            body: JSON.stringify(payload),
-          },
-        );
-        const body = await response.json().catch(() => null);
-        if (!response.ok) {
-          throw new Error(body?.message || `profitability_report_upload_http_${response.status}`);
-        }
-        return { success: true, body };
-      })
-      .then(sendResponse)
-      .catch((error) => sendResponse({ success: false, error: error?.message || String(error) }));
-    return true;
-  }
 });
 
 // ═══ 대시보드(외부 웹페이지)에서 메시지 수신 ═══
@@ -5468,157 +5432,52 @@ async function runAdvertisingCompetitorCatalogOperation(operation) {
   }
 }
 
-async function runAdvertisingProfitabilityOperation(operation) {
-  const headers = {
-    "Content-Type": "application/json",
-    "x-operation-attempt-token": operation.attemptToken,
-  };
-  const request = async (path, options = {}) => {
-    const response = await authedFetch(operation.environmentId, path, {
-      ...options,
-      headers: { ...headers, ...(options.headers || {}) },
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      const error = new Error(payload?.message || `profitability_ad_refresh_http_${response.status}`);
-      error.status = response.status;
-      throw error;
-    }
-    return payload;
-  };
-
-  let completedSliceCount = 0;
-  let lastSlice = null;
-  let retainedCollectionRunId = null;
-  let activeCheckpoint = null;
-  let preserveAttentionWindow = false;
-  try {
-    for (let iteration = 0; iteration < 20; iteration += 1) {
-      const next = await request(
-        `/api/ads/profitability-refresh/runs/${operation.runId}/next-slice`,
-      );
-      if (next?.complete === true) {
-        const finalized = await request(
-          `/api/ads/profitability-refresh/runs/${operation.runId}/finalize`,
-          { method: "POST", body: "{}" },
-        );
-        await operation.heartbeat(1);
-        return {
-          status: "succeeded",
-          result: {
-            completedSliceCount,
-            coverageStartDate: finalized.coverageStartDate,
-            coverageEndDate: finalized.coverageEndDate,
-            completedDayCount: finalized.completedDayCount,
-            totalDayCount: finalized.totalDayCount,
-          },
-        };
-      }
-      const targets = collectionRuns.validateScrapeTargets(next?.targets || []);
-      if (!targets || targets.length === 0) {
-        return {
-          status: "attention_required",
-          attentionReason: "advertising_targets_not_configured",
-        };
-      }
-      lastSlice = next;
-      await operation.heartbeat(
-        Math.min(0.95, Number(next.completedDayCount || 0) / Math.max(1, Number(next.totalDayCount || 1))),
-      );
-      activeCheckpoint = {
-        environmentId: operation.environmentId,
-        operationRunId: operation.runId,
-        attemptToken: operation.attemptToken,
-        sliceId: next.sliceId,
-        createRunId: () => collectionRuns.createRunId(),
-      };
-      const collectionRunId = await profitabilityOperationCheckpoint.getOrCreate(
-        activeCheckpoint,
-      );
-      retainedCollectionRunId = collectionRunId;
-      profitabilityAdUploadContexts.set(collectionRunId, {
-        operationRunId: operation.runId,
-        attemptToken: operation.attemptToken,
-        environmentId: operation.environmentId,
-        sliceId: next.sliceId,
-      });
-      let result;
-      try {
-        result = await handleScrapeTargets(
-          targets,
-          collectionRunId,
-          Date.now(),
-          {
-            producer: "advertising.ad_sync",
-            restartStrategy: "extension",
-            environmentId: operation.environmentId,
-            retainOwnedWindow: true,
-            operationPayload: {
-              profitabilitySlice: {
-                sliceId: next.sliceId,
-                startDate: next.startDate,
-                endDate: next.endDate,
-                businessDates: next.businessDates,
-              },
-            },
-          },
-        );
-      } finally {
-        profitabilityAdUploadContexts.delete(collectionRunId);
-      }
-      if (!result?.success) {
-        preserveAttentionWindow = result?.attentionRequired === true;
-        return {
-          status: result?.attentionRequired ? "attention_required" : "failed",
-          ...(result?.attentionRequired
-            ? { attentionReason: result?.reason || "advertising_collection_attention" }
-            : {
-                errorCode: "advertising_collection_failed",
-                errorMessage: result?.error || "Advertising collection failed.",
-              }),
-        };
-      }
-      await request(
-        `/api/ads/profitability-refresh/runs/${operation.runId}/slices/${encodeURIComponent(next.sliceId)}/finalize`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            collectionRunId,
-            completedTargetCount: result.completed || 0,
-          }),
-        },
-      );
-      await profitabilityOperationCheckpoint.clear(activeCheckpoint);
-      activeCheckpoint = null;
-      completedSliceCount += 1;
-    }
+async function collectAdvertisingProfitabilitySlice({
+  environmentId,
+  attemptId,
+  account,
+  slice,
+}) {
+  const result = await collectionWindowFor(environmentId).collectTargets({
+    environmentId,
+    producer: "advertising.ad_sync",
+    runId: attemptId,
+    startedAt: Date.now(),
+    targets: [{
+      id: null,
+      label: "상품별 광고 보고서",
+      url: "https://advertising.coupang.com/marketing-reporting/billboard/reports/pa",
+    }],
+    operationPayload: {
+      profitabilityAccount: {
+        externalAccountId: account.externalAccountId,
+        expectedAdvertiserId: account.expectedAdvertiserId,
+      },
+      profitabilitySlice: {
+        sliceId: slice.sliceId,
+        startDate: slice.from,
+        endDate: slice.to,
+        businessDates: slice.businessDates,
+      },
+    },
+    retainOwnedWindow: true,
+    keepSessionRunning: true,
+  });
+  if (result.attentionRequired) {
     return {
-      status: "failed",
-      errorCode: "advertising_slice_limit_exceeded",
-      errorMessage: `Advertising refresh exceeded the bounded slice count after ${lastSlice?.sliceId || "unknown"}.`,
+      success: false,
+      attentionRequired: true,
+      reason: result.reason || "marketplace_login",
+      error: result.error || "Coupang advertising login is required.",
     };
-  } catch (error) {
-    if (error?.status === 422 && /targets_not_configured/.test(error.message || "")) {
-      return {
-        status: "attention_required",
-        attentionReason: "advertising_targets_not_configured",
-      };
-    }
-    return {
-      status: "failed",
-      errorCode: "advertising_profitability_refresh_failed",
-      errorMessage: error?.message || "Advertising profitability refresh failed.",
-    };
-  } finally {
-    if (activeCheckpoint) {
-      await profitabilityOperationCheckpoint.clear(activeCheckpoint).catch(() => false);
-    }
-    if (retainedCollectionRunId && !preserveAttentionWindow) {
-      await collectionWindowFor(operation.environmentId)
-        .close(retainedCollectionRunId)
-        .catch(() => false);
-    }
   }
+  if (!result.success || !result.receipt) {
+    return {
+      success: false,
+      error: result.error || "Advertising profitability collection failed.",
+    };
+  }
+  return { success: true, receipt: result.receipt };
 }
 
 async function cancelBatchScrape(runId = null, environmentId) {
@@ -5761,6 +5620,32 @@ collectionRuns.recover().catch((error) => {
   );
 });
 
+for (const environmentId of adsEnvironmentContext.environmentIds) {
+  KidItemWorkerKeepAlive.during(profitabilitySourceOwner.recover(environmentId))
+    .catch((error) =>
+      console.error(
+        "[KIDITEM] 수익성 광고비 source owner 복구 실패:",
+        error?.message || error,
+      ),
+    );
+}
+
+function parseAdvertisingProfitabilityStart(message) {
+  if (
+    !message ||
+    typeof message !== "object" ||
+    Array.isArray(message) ||
+    Object.keys(message).some((key) =>
+      key !== "action" && key !== "idempotencyKey") ||
+    typeof message.idempotencyKey !== "string" ||
+    message.idempotencyKey.trim().length === 0 ||
+    message.idempotencyKey.length > 128
+  ) {
+    throw new Error("Invalid Advertising profitability collection request");
+  }
+  return { idempotencyKey: message.idempotencyKey.trim() };
+}
+
 // ── 통합 서비스워커 등록 ──
 // producer 접두사로 이 도메인이 만든 수집 세션을 식별한다.
 KidItemDomains.register({
@@ -5768,15 +5653,23 @@ KidItemDomains.register({
   externalPorts: {
     [WING_FORM_PORT_NAME]: (port) => handleWingFormPort(port),
   },
+  externalActions: {
+    collectAdvertisingProfitability: {
+      validate: parseAdvertisingProfitabilityStart,
+      handle: ({ idempotencyKey }, environmentId) =>
+        KidItemWorkerKeepAlive.during(
+          profitabilitySourceOwner.run({ environmentId, idempotencyKey }),
+        ),
+    },
+  },
   operations: {
-    "advertising.refresh_profitability_spend": runAdvertisingProfitabilityOperation,
     "advertising.refresh_tracked_wing_products": runAdvertisingTrackedWingProductsOperation,
     "sourcing.collect_wing_catalog_batch": runSourcingWingCatalogOperation,
     "sourcing.collect_keyword_suggestions": runSourcingKeywordSuggestionOperation,
     "advertising.collect_competitor_catalog": runAdvertisingCompetitorCatalogOperation,
   },
   capabilities: {
-    profitabilityAdvertisingRefreshV1: true,
+    profitabilityAdvertisingSourceOwnerV1: true,
     wingCatalogSearch: true,
     wingCatalogSearchSource: "wing-pre-matching",
     coupangKeywordSuggestions: true,
@@ -5803,10 +5696,15 @@ KidItemDomains.register({
     wingFormReadinessV2: true,
     wingFormPortV1: true,
   },
-  cancelCollectionSession: (runId, environmentId) =>
-    collectionRuns
+  cancelCollectionSession: async (runId, environmentId) => {
+    const session = await collectionSessions.getOwned(runId, environmentId);
+    if (session?.producer === "advertising.profitability_import") {
+      return profitabilitySourceOwner.cancel({ environmentId, attemptId: runId });
+    }
+    return collectionRuns
       .cancel(runId, environmentId)
-      .then(() => collectionSessions.getOwned(runId, environmentId)),
+      .then(() => collectionSessions.getOwned(runId, environmentId));
+  },
   restartCollectionSession: (runId, environmentId) =>
     collectionRuns.restart(runId, environmentId),
 });

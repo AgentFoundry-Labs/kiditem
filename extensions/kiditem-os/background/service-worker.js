@@ -30,7 +30,7 @@ importScripts(
   "coupang/collection-window.js",
   "coupang/collection-runs.js",
   "coupang/wing-keyword-contract.js",
-  "coupang/profitability-operation-checkpoint.js",
+  "coupang/profitability-source-owner.js",
   "coupang/wing-image-fetch.js",
   "coupang/wing-form-runtime-compat.js",
   "coupang/wing-form-readiness.js",

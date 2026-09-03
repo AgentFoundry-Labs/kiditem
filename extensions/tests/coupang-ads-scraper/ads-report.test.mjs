@@ -2658,6 +2658,21 @@ test("profitability slices accept a contiguous server-owned window of at most 31
   }), null);
 });
 
+test("profitability manual sync keeps the owner plan only in its live message", () => {
+  assert.doesNotMatch(
+    source,
+    /PROFITABILITY_SLICE_KEY|saveProfitabilitySlice|loadProfitabilitySlice/,
+  );
+  assert.match(
+    source,
+    /runSyncOnce\(msg\.syncMode, msg\.environmentId, \{\s*profitabilitySlice: msg\.profitabilitySlice,\s*profitabilityAccount: msg\.profitabilityAccount,/,
+  );
+  assert.match(
+    source,
+    /KidItemProfitabilityReport\.run\(\{\s*profitabilitySlice: profitabilityInput\?\.profitabilitySlice \|\| null,\s*profitabilityAccount: profitabilityInput\?\.profitabilityAccount \|\| null,/,
+  );
+});
+
 test("yesterday follows the Asia/Seoul boundary regardless of browser timezone", () => {
   const contract = loadContract();
 

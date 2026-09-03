@@ -315,16 +315,10 @@ test('collection-session dispatch exposes no restart or finalize command', () =>
 
 test('Sellpia inventory is source-owner direct upload, not an Operation wrapper', () => {
   const worker = readFileSync(workerPath, 'utf8');
-  const registry = readFileSync(
-    path.join(repoRoot, 'extensions/kiditem-os/background/domain-registry.js'),
-    'utf8',
-  );
   assert.match(worker, /\/api\/sellpia-product-sales\/attempts/);
   assert.match(worker, /Idempotency-Key/);
   assert.match(worker, /attemptToken/);
   assert.doesNotMatch(worker, /\/api\/sellpia-product-sales\/ingest/);
   assert.doesNotMatch(worker, /runSellpiaInventoryOperation/);
   assert.doesNotMatch(worker, /\/api\/operation-alerts/);
-  assert.doesNotMatch(registry, /operations:/);
-  assert.doesNotMatch(registry, /runOperation/);
 });

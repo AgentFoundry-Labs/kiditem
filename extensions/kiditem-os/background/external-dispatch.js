@@ -85,6 +85,29 @@
         return false;
       }
 
+      const sourceAction = domains.forExternalAction(msg.action);
+      if (sourceAction) {
+        let input;
+        try {
+          input = sourceAction.validate(msg);
+        } catch (error) {
+          sendResponse({
+            success: false,
+            error: error?.message || "Invalid source collection request",
+          });
+          return false;
+        }
+        Promise.resolve(sourceAction.handle(input, environmentId))
+          .then(sendResponse)
+          .catch((error) =>
+            sendResponse({
+              success: false,
+              error: error?.message || "Source collection request failed",
+            }),
+          );
+        return true;
+      }
+
       if (!SESSION_ACTIONS.has(msg.action)) return false;
 
       handleSessionAction(msg, environmentId)

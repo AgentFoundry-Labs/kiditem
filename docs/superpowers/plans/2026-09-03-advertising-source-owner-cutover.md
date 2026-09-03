@@ -292,7 +292,7 @@ git commit -m "feat: publish complete advertising generations"
 - Consumes: `AdvertisingProfitabilityPlan` and the minimal collection-session contract.
 - Produces: deterministic account switching, provider identity verification, direct receipt upload, complete/fail owner calls, and local progress only.
 
-- [ ] **Step 1: Write failing extension tests**
+- [x] **Step 1: Write failing extension tests**
 
 ```js
 test("visits every server-planned account and slice before completing", async () => {
@@ -309,7 +309,7 @@ test("fails the owner attempt after an advertiser mismatch and does not complete
 });
 ```
 
-- [ ] **Step 2: Run extension tests and verify red**
+- [x] **Step 2: Run extension tests and verify red**
 
 ```bash
 node --test extensions/tests/coupang-ads-scraper/profitability-source-owner.test.mjs extensions/tests/coupang-ads-scraper/collection-window.test.mjs extensions/tests/coupang-ads-scraper/collection-session-flow.test.mjs extensions/tests/coupang-ads-scraper/wing-account-identity.test.mjs
@@ -317,7 +317,7 @@ node --test extensions/tests/coupang-ads-scraper/profitability-source-owner.test
 
 Expected: FAIL because current execution polls an Operation checkpoint and carries one run/attempt token rather than an owner plan.
 
-- [ ] **Step 3: Implement direct plan execution**
+- [x] **Step 3: Implement direct plan execution**
 
 Persist only the owner `attemptId` plus the bounded public progress/attention and
 managed-tab metadata allowed by the collection-session contract. Keep the plan,
@@ -327,7 +327,7 @@ attempt owner endpoint. Before each slice, switch to the planned account and
 read the visible advertiser identity. Upload the provider report directly with
 the owner token. A terminal user retry always begins a new attempt.
 
-- [ ] **Step 4: Run extension tests**
+- [x] **Step 4: Run extension tests**
 
 ```bash
 node --test extensions/tests/coupang-ads-scraper/profitability-source-owner.test.mjs extensions/tests/coupang-ads-scraper/profitability-report.test.mjs extensions/tests/coupang-ads-scraper/collection-window.test.mjs extensions/tests/coupang-ads-scraper/collection-window-tab-close.regression-1.test.mjs extensions/tests/coupang-ads-scraper/collection-session-flow.test.mjs extensions/tests/coupang-ads-scraper/wing-account-identity.test.mjs
@@ -335,7 +335,7 @@ node --test extensions/tests/coupang-ads-scraper/profitability-source-owner.test
 
 Expected: PASS, including page closure, service-worker restart, two accounts, identity mismatch, and transport retry.
 
-- [ ] **Step 5: Commit the extension direct path**
+- [x] **Step 5: Commit the extension direct path**
 
 ```bash
 git add extensions/kiditem-os/background/coupang/profitability-source-owner.js extensions/tests/coupang-ads-scraper/profitability-source-owner.test.mjs extensions/kiditem-os/background/coupang/collection-window.js extensions/kiditem-os/background/coupang/worker.js extensions/kiditem-os/content/coupang/profitability-report.js extensions/kiditem-os/background/domain-registry.js extensions/tests/coupang-ads-scraper/collection-window.test.mjs extensions/tests/coupang-ads-scraper/collection-session-flow.test.mjs extensions/tests/coupang-ads-scraper/wing-account-identity.test.mjs extensions/kiditem-os/background/coupang/profitability-operation-checkpoint.js extensions/tests/coupang-ads-scraper/profitability-operation-checkpoint.test.mjs
@@ -357,13 +357,16 @@ git commit -m "refactor: upload advertising facts to the owner"
 **Interfaces:**
 
 - Consumes: the completed direct owner implementation.
-- Produces: Advertising module wiring with no Products or Operations import and an exact-generation read capability for Finance.
+- Produces: Advertising module wiring with no Products dependency or
+  profitability Operation handler, plus an exact-generation read capability
+  for Finance. `OperationsModule` remains temporarily for unrelated Wing
+  tracked-product verification and is removed with that legacy group in the
+  final global cutover.
 
-- [ ] **Step 1: Write the failing module-boundary assertion**
+- [x] **Step 1: Write the failing module-boundary assertion**
 
 ```ts
-it("wires profitability import without Products or Operations", () => {
-  expect(moduleImports(AdvertisingModule)).not.toContain("OperationsModule");
+it("wires profitability import without Products or its retired handler", () => {
   expect(moduleImports(AdvertisingModule)).not.toContain("ProductsModule");
   expect(moduleProviders(AdvertisingModule)).not.toContain(
     "AdvertisingProfitabilityOperationHandler",
@@ -371,17 +374,17 @@ it("wires profitability import without Products or Operations", () => {
 });
 ```
 
-- [ ] **Step 2: Run the module test and verify red**
+- [x] **Step 2: Run the module test and verify red**
 
 Run: `npm exec --workspace=apps/server vitest -- run src/advertising/__tests__/advertising.module.wiring.spec.ts src/advertising/advertising-profitability-read.module.spec.ts`
 
 Expected: FAIL on the current module imports and handler.
 
-- [ ] **Step 3: Replace module wiring and delete the handler**
+- [x] **Step 3: Replace module wiring and delete the handler**
 
 Register the new controller/service/repository and `SourceFailureAlerts`. Export only the exact-generation profitability read port required by Finance. Remove the profitability operation definition while leaving unrelated operation definitions for the final global deletion plan.
 
-- [ ] **Step 4: Run Advertising focused tests and the cutover scanner**
+- [x] **Step 4: Run Advertising focused tests and the cutover scanner**
 
 ```bash
 npm exec --workspace=apps/server vitest -- run src/advertising/__tests__/advertising.module.wiring.spec.ts src/advertising/advertising-profitability-read.module.spec.ts
@@ -390,7 +393,7 @@ npm run check:operation-automation-cutover
 
 Expected: Advertising profitability references are gone from the scanner; remaining failures belong only to later legacy groups.
 
-- [ ] **Step 5: Commit Advertising composition**
+- [x] **Step 5: Commit Advertising composition**
 
 ```bash
 git add apps/server/src/advertising/advertising.module.ts apps/server/src/advertising/__tests__/advertising.module.wiring.spec.ts apps/server/src/advertising/advertising-profitability-read.module.ts apps/server/src/advertising/advertising-profitability-read.module.spec.ts apps/server/src/advertising/adapter/in/operation/advertising-profitability.operation-handler.ts apps/server/src/advertising/domain/operation/advertising.operations.ts apps/server/src/advertising/domain/operation/__tests__/advertising.operations.spec.ts

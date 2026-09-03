@@ -3,6 +3,7 @@
 export const SOURCE_OWNER_BY_PRODUCER = Object.freeze({
   "advertising.ad_keyword": "advertising",
   "advertising.ad_sync": "advertising",
+  "advertising.profitability_import": "advertising",
   "advertising.competitor_catalog": "advertising",
   "advertising.scrape_targets": "advertising",
   "advertising.wing_rank": "advertising",
@@ -22,4 +23,3 @@ export const SOURCE_OWNER_BY_PRODUCER = Object.freeze({
   "sourcing.tiktok_cc_trend": "sourcing",
   "sourcing.wing_catalog": "sourcing",
 });
-

@@ -6,6 +6,8 @@
   // `producer` 접두사가 그 세션을 만든 도메인을 가리키는 유일한 식별자다.
   const byProducerPrefix = new Map();
   const byExternalPortName = new Map();
+  const byExternalAction = new Map();
+  const byOperationKey = new Map();
   const capabilityMaps = [];
 
   function register(domain) {
@@ -25,6 +27,28 @@
       }
       byExternalPortName.set(portName, handler);
     }
+    for (const [action, contract] of Object.entries(domain.externalActions || {})) {
+      if (byExternalAction.has(action)) {
+        throw new Error(`Duplicate external action: ${action}`);
+      }
+      if (
+        !contract ||
+        typeof contract.validate !== "function" ||
+        typeof contract.handle !== "function"
+      ) {
+        throw new Error(`Invalid external action handler: ${action}`);
+      }
+      byExternalAction.set(action, contract);
+    }
+    for (const [operationKey, handler] of Object.entries(domain.operations || {})) {
+      if (byOperationKey.has(operationKey)) {
+        throw new Error(`Duplicate browser operation key: ${operationKey}`);
+      }
+      if (typeof handler !== "function") {
+        throw new Error(`Invalid browser operation handler: ${operationKey}`);
+      }
+      byOperationKey.set(operationKey, handler);
+    }
   }
 
   // ping 응답은 세 도메인의 capabilities 를 합친 것이다. 도메인마다 따로
@@ -43,9 +67,21 @@
     return byExternalPortName.get(portName) || null;
   }
 
+  function forExternalAction(action) {
+    if (typeof action !== "string") return null;
+    return byExternalAction.get(action) || null;
+  }
+
+  function runOperation(operationKey) {
+    if (typeof operationKey !== "string") return null;
+    return byOperationKey.get(operationKey) || null;
+  }
+
   function reset() {
     byProducerPrefix.clear();
     byExternalPortName.clear();
+    byExternalAction.clear();
+    byOperationKey.clear();
     capabilityMaps.length = 0;
   }
 
@@ -53,7 +89,9 @@
     register,
     capabilities,
     forProducer,
+    forExternalAction,
     forExternalPort,
+    runOperation,
     reset,
   });
 })(globalThis);

@@ -27,6 +27,10 @@ const collectionRunsSource = fs.readFileSync(
   path.join(extensionRoot, 'background/coupang/collection-runs.js'),
   'utf8',
 );
+const profitabilitySourceOwner = fs.readFileSync(
+  path.join(extensionRoot, 'background/coupang/profitability-source-owner.js'),
+  'utf8',
+);
 const manifest = JSON.parse(
   fs.readFileSync(path.join(extensionRoot, 'manifest.json'), 'utf8'),
 );
@@ -61,6 +65,7 @@ test('loads the canonical session manager and focus owners before collector runt
   assert.ok(at('interactive-tabs.js') > at('collection-session.js'));
   assert.ok(at('worker-globals.js') > at('interactive-tabs.js'));
   assert.ok(at('coupang/collection-window.js') > at('worker-globals.js'));
+  assert.ok(at('coupang/profitability-source-owner.js') > at('coupang/collection-window.js'));
   assert.ok(at('coupang/coupang-catalog-import.js') > at('coupang/collection-window.js'));
   assert.ok(at('coupang/worker.js') > at('coupang/coupang-catalog-import.js'));
   assert.doesNotMatch(worker, /^importScripts\(/m);
@@ -93,7 +98,6 @@ test('handles generic collection controls before producer actions', () => {
     'getCollectionSession',
     'cancelCollectionSession',
     'openCollectionAttentionTab',
-    'restartCollectionSession',
   ]) {
     assert.match(dispatchSource, new RegExp(`["']${action}["']`));
     assert.doesNotMatch(worker, new RegExp(`msg\\.action === ["']${action}["']`));
@@ -125,13 +129,14 @@ test('acknowledges scrape target runs before asynchronous session preparation', 
 });
 
 test('persists only allowlisted Coupang producers and advertises the capability', () => {
-  const producerSources = `${worker}\n${collectionRunsSource}`;
+  const producerSources = `${worker}\n${collectionRunsSource}\n${profitabilitySourceOwner}`;
   for (const producer of [
     'dashboard.wing_sales',
     'dashboard.coupang_ads',
     'dashboard.coupang_products',
     'dashboard.wing_kpi',
     'advertising.ad_sync',
+    'advertising.profitability_import',
     'advertising.scrape_targets',
     'advertising.wing_rank',
     'advertising.keyword_rank',

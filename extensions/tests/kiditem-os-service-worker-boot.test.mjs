@@ -224,7 +224,7 @@ test('ping 이 세 도메인의 capabilities 를 합쳐 한 번만 응답한다'
     'collectSellpiaManualMatchPortV1',
     'orderCollectionFailureEvidenceV1',
     // 쿠팡
-    'profitabilityAdvertisingRefreshV1',
+    'profitabilityAdvertisingSourceOwnerV1',
     'coupangCatalogSnapshot',
     'wingFormPortV1',
     'coupangKeywordRank',
@@ -291,13 +291,13 @@ test('승인된 KidItem web origin도 retired Coupang source bridge를 직접 �
   );
 });
 
-test('수익성 광고비 갱신은 정확한 브라우저 operation key로만 등록된다', () => {
+test('수익성 광고비 수집은 공용 dispatch의 직접 source-owner action으로만 등록된다', () => {
   const { context } = bootServiceWorker();
   assert.equal(
-    typeof context.KidItemDomains.runOperation('advertising.refresh_profitability_spend'),
+    typeof context.KidItemDomains.forExternalAction('collectAdvertisingProfitability')?.handle,
     'function',
   );
-  assert.equal(context.KidItemDomains.runOperation('advertising.generic'), null);
+  assert.equal(context.KidItemDomains.forExternalAction('advertising.refresh_profitability_spend'), null);
 });
 
 test('외부 장기 실행 포트를 공용 dispatch 하나가 소유 도메인으로 전달한다', () => {
@@ -335,8 +335,6 @@ test('수집 세션 공통 액션에 도메인 워커가 경쟁 응답하지 않
     'listCollectionSessions',
     'getCollectionSession',
     'cancelCollectionSession',
-    'restartCollectionSession',
-    'finalizeCollectionSession',
     'openCollectionAttentionTab',
   ]) {
     const responses = [];

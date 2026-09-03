@@ -1,7 +1,25 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ADVERTISING_OPERATIONS } from '../advertising.operations';
 
+const operationOwnerWorkerModuleSource = readFileSync(
+  path.resolve(__dirname, '../../../../operations/operation-owner-worker.module.ts'),
+  'utf8',
+);
+
 describe('advertising browser operation definitions', () => {
+  it('does not register profitability collection as an Operation', () => {
+    expect(
+      ADVERTISING_OPERATIONS.some(
+        (candidate) => candidate.key === 'advertising.refresh_profitability_spend',
+      ),
+    ).toBe(false);
+    expect(operationOwnerWorkerModuleSource).not.toContain(
+      'AdvertisingProfitabilityOperationHandler',
+    );
+  });
+
   it('registers the exact tracked-products Wing operation contract', () => {
     const definition = ADVERTISING_OPERATIONS.find(
       (candidate) => candidate.key === 'advertising.refresh_tracked_wing_products',

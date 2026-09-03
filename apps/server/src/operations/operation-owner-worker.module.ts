@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AiProductGenerationRuntimeModule } from '../ai/ai-product-generation-runtime.module';
 import { OperationAlertRuntimeModule } from '../automation/operation-alert-runtime.module';
-import { AdvertisingProfitabilityOperationHandler } from '../advertising/adapter/in/operation/advertising-profitability.operation-handler';
 import { AdvertisingTrackedWingProductsOperationHandler } from '../advertising/adapter/in/operation/advertising-tracked-wing-products.operation-handler';
 import { CoupangRocketPurchaseOrderOperationHandler } from '../channels/adapter/in/operation/coupang-rocket-purchase-order.operation-handler';
 import { CoupangShipmentSummaryOperationHandler } from '../inventory/adapter/in/operation/coupang-shipment-summary.operation-handler';
@@ -34,7 +33,6 @@ import { OperationsModule } from './operations.module';
     SourcingOperationWorkerModule,
   ],
   providers: [
-    AdvertisingProfitabilityOperationHandler,
     AdvertisingTrackedWingProductsOperationHandler,
     CoupangRocketPurchaseOrderOperationHandler,
     CoupangShipmentSummaryOperationHandler,

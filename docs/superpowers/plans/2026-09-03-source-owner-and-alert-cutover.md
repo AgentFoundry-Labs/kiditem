@@ -12,6 +12,8 @@
 
 ## Global Constraints
 
+- Each seam is implemented RED-to-GREEN with focused tests, then reviewed for
+  deletable Ponytail complexity before its commit.
 - Public source state is only `RUNNING`, `COMPLETE`, or `FAILED`; expiration is a read-time effective failure and a new begin terminalizes the expired attempt.
 - Begin is idempotent by authenticated organization plus `Idempotency-Key`; a changed normalized request returns conflict.
 - Source facts are immutable per attempt/generation and canonical readers select only the newest `completed` publication sequence.
@@ -234,7 +236,7 @@ npm run test:integration --workspace=apps/server -- src/analytics/sellpia-produc
 
 Expected: PASS for replay, failure fallback, frozen mapping, provider-backed zero, organization isolation, and no ABC mutation.
 
-- [ ] **Step 6: Commit the Sellpia owner**
+- [x] **Step 6: Commit the Sellpia owner**
 
 ```bash
 git add prisma/models/core.prisma prisma/models/channels.prisma prisma/models/inventory.prisma packages/shared/src/schemas/source-import.ts packages/shared/src/schemas/source-import.spec.ts apps/server/src/analytics/AGENTS.md apps/server/src/analytics/sellpia-product-sales
@@ -258,7 +260,7 @@ git commit -m "refactor: make Sellpia profitability source-owned"
 - Consumes: successful organization-scoped replacement of option recipes or canonical MasterProduct/Sellpia mapping.
 - Produces: a monotonic `mappingGeneration` read through Products state; no ABC call or dirty state.
 
-- [ ] **Step 1: Write failing PostgreSQL generation tests**
+- [x] **Step 1: Write failing PostgreSQL generation tests**
 
 ```ts
 it("increments mapping generation once with a committed recipe replacement", async () => {
@@ -276,23 +278,28 @@ it("does not increment generation when the mapping transaction rolls back", asyn
 });
 ```
 
-- [ ] **Step 2: Run the focused PG tests and verify red**
+- [x] **Step 2: Run the focused PG tests and verify red**
 
 Run: `npm run test:integration --workspace=apps/server -- src/products/__tests__/product-operations.repository.pg.integration.spec.ts src/channels/__tests__/channel-product-matching.pg.integration.spec.ts`
 
 Expected: FAIL because no single mapping-generation fence advances with both mutation paths.
 
-- [ ] **Step 3: Add one transaction-local mapping-generation mutation**
+- [x] **Step 3: Add one transaction-local mapping-generation mutation**
 
 Use `MasterProductAbcFormulaState.mappingGeneration` as the existing Products-owned generation column, initializing the fixed formula state when absent without publishing grades. Each successful canonical mapping transaction increments it exactly once. Do not add `markDirty`, requested/recalculated revisions, events, listeners, or an additional state model.
 
-- [ ] **Step 4: Run the focused PG tests**
+Writer inventory review expanded this step to every existing canonical mapping
+mutation in Products, Channels, and Inventory. All use the same organization
+advisory fence; no-op, rejected, and rolled-back mutations do not advance the
+generation.
+
+- [x] **Step 4: Run the focused PG tests**
 
 Run: `npm run test:integration --workspace=apps/server -- src/products/__tests__/product-operations.repository.pg.integration.spec.ts src/channels/__tests__/channel-product-matching.pg.integration.spec.ts`
 
 Expected: PASS, including rollback and organization isolation.
 
-- [ ] **Step 5: Commit mapping evidence**
+- [x] **Step 5: Commit mapping evidence**
 
 ```bash
 git add prisma/models/core.prisma apps/server/src/products/application/port/out/repository/product-operations.repository.port.ts apps/server/src/products/adapter/out/repository/product-operations.repository.adapter.ts apps/server/src/products/application/service/product-operations.service.ts apps/server/src/products/__tests__/product-operations.repository.pg.integration.spec.ts apps/server/src/channels/adapter/out/repository/channel-product-matching.repository.adapter.ts apps/server/src/channels/__tests__/channel-product-matching.pg.integration.spec.ts
@@ -305,6 +312,7 @@ git commit -m "refactor: version canonical product mappings"
 
 - Modify: `packages/shared/src/schemas/browser-collection-session.ts`
 - Modify: `packages/shared/src/schemas/browser-collection-session.spec.ts`
+- Modify: `packages/shared/src/schemas/browser-collection-session-adapter.integration.spec.ts`
 - Modify: `packages/shared/src/browser-collection-session.ts`
 - Modify: `extensions/shared/collection-session.js`
 - Modify: `extensions/kiditem-os/background/collection-session.js`
@@ -318,10 +326,13 @@ git commit -m "refactor: version canonical product mappings"
 
 **Interfaces:**
 
-- Consumes: an owner-issued `attemptId`, attempt token, producer, managed-tab metadata, progress, and human-attention detail.
+- Consumes: an owner-issued `attemptId`, producer, managed-tab metadata,
+  progress, and human-attention detail. The attempt token and plan stay in the
+  current worker scope and may be recovered only through the authenticated
+  exact-attempt control read.
 - Produces: get/list/cancel/open-attention session commands and direct upload to the Sellpia owner endpoint.
 
-- [ ] **Step 1: Write failing session-boundary tests**
+- [x] **Step 1: Write failing session-boundary tests**
 
 ```js
 test("session correlates owner attempt without mirroring terminal state", async () => {
@@ -339,7 +350,7 @@ test("page closure does not prevent direct owner submission", async () => {
 });
 ```
 
-- [ ] **Step 2: Run extension/shared tests and verify red**
+- [x] **Step 2: Run extension/shared tests and verify red**
 
 ```bash
 npm exec --workspace=packages/shared vitest -- run src/schemas/browser-collection-session.spec.ts
@@ -348,11 +359,19 @@ node --test extensions/tests/collection-session-adapters.test.mjs extensions/tes
 
 Expected: FAIL because the current session exposes terminal/restart/finalize protocol and the Sellpia worker posts to the legacy ingest path without an owner attempt.
 
-- [ ] **Step 3: Remove the second lifecycle and route uploads to the owner**
+- [x] **Step 3: Remove the second lifecycle and route uploads to the owner**
 
-Keep only `attemptId`, `producer`, bounded progress/attention, and managed-tab resume metadata. Delete restart/finalize session commands and retry counters. Cancel first submits an owner `FAILED` result and clears local control state only after the owner accepts it. The worker begins one attempt, stores its returned plan/token locally, and submits the result directly to `/api/sellpia-product-sales/attempts/:attemptId`.
+Keep only `attemptId`, `producer`, bounded progress/attention, and managed-tab
+resume metadata. Delete restart/finalize session commands and retry counters.
+Cancel first submits an owner `FAILED` result and clears local control state
+only after the owner accepts it. A new explicit start supplies one client
+idempotency key. The worker persists only the returned `attemptId`, keeps the
+plan/token transient while running, and after a service-worker restart
+rehydrates them only from `/api/sellpia-product-sales/attempts/:attemptId`.
+It submits the result directly to that owner attempt and never invents a new
+key for a terminal attempt.
 
-- [ ] **Step 4: Run extension/shared tests**
+- [x] **Step 4: Run extension/shared tests**
 
 ```bash
 npm exec --workspace=packages/shared vitest -- run src/schemas/browser-collection-session.spec.ts src/schemas/browser-collection-session-adapter.integration.spec.ts
@@ -361,7 +380,7 @@ node --test extensions/tests/collection-session-adapters.test.mjs extensions/tes
 
 Expected: PASS and no extension request contains an Operation run ID.
 
-- [ ] **Step 5: Commit the contracted session**
+- [x] **Step 5: Commit the contracted session**
 
 ```bash
 git add packages/shared/src/schemas/browser-collection-session.ts packages/shared/src/schemas/browser-collection-session.spec.ts packages/shared/src/browser-collection-session.ts extensions/shared/collection-session.js extensions/kiditem-os/background/collection-session.js extensions/kiditem-os/background/external-dispatch.js extensions/kiditem-os/background/orders/order-collection-lifecycle.js extensions/kiditem-os/background/orders/worker.js extensions/kiditem-os/background/domain-registry.js extensions/tests/collection-session-adapters.test.mjs extensions/tests/order-collector-collection-session.test.mjs extensions/tests/order-collector-action-coverage.test.mjs

@@ -14,7 +14,7 @@ const keywordContractSource = await readFile(
 
 function operationSource() {
   const start = source.indexOf('const SOURCING_WING_CATALOG_OPERATION_KEY');
-  const end = source.indexOf('async function runAdvertisingProfitabilityOperation', start);
+  const end = source.indexOf('async function collectAdvertisingProfitabilitySlice', start);
   assert.ok(start >= 0 && end > start);
   return source.slice(start, end);
 }

@@ -313,7 +313,6 @@ test("downloads the generated report body directly instead of reading the chart 
     },
   }]);
   assert.equal(result.reportId, "14606979");
-  assert.equal(result.expectedRowCount, 2);
   assert.equal(result.rows.length, 2);
   assert.equal(result.responseBytes, new TextEncoder().encode(body).length);
 });
@@ -445,4 +444,52 @@ test("reports identifier and date population without exposing report values", ()
     "date=dt:3/3,reportday:0/0,reportDay:0/0",
     "identifier=advertised_vendor_item_id:1,advertisedVendorItemId:0,vendor_item_id:1,vendoritemid:0,vendorItemId:0,externaloptionid:0,externalOptionId:0,adviid:0",
   ].join(";"));
+});
+
+test("switches to the server-planned account and proves the visible advertiser before collection", async () => {
+  let visibleAdvertiserId = "wrong-advertiser";
+  let clicks = 0;
+  const switchControl = {
+    isConnected: true,
+    getAttribute(name) {
+      return name === "data-advertiser-id" ? "advertiser-a" : null;
+    },
+    click() {
+      clicks += 1;
+      visibleAdvertiserId = "advertiser-a";
+    },
+  };
+  const accountCode = {
+    textContent: "업체코드",
+    nextElementSibling: {
+      get textContent() { return visibleAdvertiserId; },
+    },
+  };
+  const contract = loadContract({
+    document: {
+      querySelector() { return null; },
+      querySelectorAll(selector) {
+        if (selector === "dt") return [accountCode];
+        if (selector.includes("data-advertiser-id")) return [switchControl];
+        return [];
+      },
+    },
+  });
+
+  const visible = await contract.switchProfitabilityAccount({
+    externalAccountId: "coupang-account-a",
+    expectedAdvertiserId: "advertiser-a",
+  });
+
+  assert.equal(visible, "advertiser-a");
+  assert.equal(clicks, 1);
+  assert.doesNotMatch(source, /syncProfitabilityReportToServer/);
+});
+
+test("direct receipt proof counts only canonical product rows", () => {
+  assert.match(
+    source,
+    /expectedRowCount: rows\.length,\s*collectedRowCount: rows\.length,/,
+  );
+  assert.doesNotMatch(source, /expectedRowCount: detail\.expectedRowCount/);
 });

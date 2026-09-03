@@ -3802,7 +3802,6 @@
   const PROGRESS_KEY = "kiditem_ad_sweep_progress_v2";
   const LEGACY_RUN_KEY = "kiditem_ad_sweep_run_v1";
   const RUN_KEY = "kiditem_ad_sweep_run_v2";
-  const PROFITABILITY_SLICE_KEY = "kiditem_ad_profitability_slice_v1";
   const SWEEP_CONTRACT_VERSION = "daily-window-v2";
   // A complete roster can contain dozens of campaigns. Holding one
   // content-script response open for every campaign × 31 days exceeds the
@@ -3957,7 +3956,6 @@
       sessionStorage.removeItem(PROGRESS_KEY);
       sessionStorage.removeItem(LEGACY_RUN_KEY);
       sessionStorage.removeItem(RUN_KEY);
-      sessionStorage.removeItem(PROFITABILITY_SLICE_KEY);
       // The managed collection tab is reused across browser-collection runs.
       // Keep the lockout guard within one run, but do not let a completed or
       // abandoned run consume the next run's account-selector click budget.
@@ -4026,26 +4024,6 @@
     };
   }
 
-  function saveProfitabilitySlice(value) {
-    const slice = normalizeProfitabilitySlice(value);
-    if (!slice) return false;
-    try {
-      sessionStorage.setItem(PROFITABILITY_SLICE_KEY, JSON.stringify(slice));
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  function loadProfitabilitySlice() {
-    try {
-      return normalizeProfitabilitySlice(
-        JSON.parse(sessionStorage.getItem(PROFITABILITY_SLICE_KEY) || "null"),
-      );
-    } catch {
-      return null;
-    }
-  }
   function loadProgress() {
     try {
       const raw = sessionStorage.getItem(PROGRESS_KEY);
@@ -4313,11 +4291,8 @@
       };
     }
 
-    const profitabilitySlice = loadProfitabilitySlice();
-    const yesterday = profitabilitySlice?.endDate || getYesterdayYmd();
-    const campaignBusinessDates = profitabilitySlice
-      ? [...profitabilitySlice.businessDates].reverse()
-      : buildRollingCampaignBusinessDates(yesterday);
+    const yesterday = getYesterdayYmd();
+    const campaignBusinessDates = buildRollingCampaignBusinessDates(yesterday);
     const dailyWindowDays = campaignBusinessDates.length;
     const dailyCoverage = campaignDailyCoverage(
       campaignBusinessDates,
@@ -5173,7 +5148,11 @@
     return syncMode === "profitability_report";
   }
 
-  function runSyncOnce(syncMode = null, environmentId = null) {
+  function runSyncOnce(
+    syncMode = null,
+    environmentId = null,
+    profitabilityInput = null,
+  ) {
     if (!currentSync) {
       // 대시보드 hash뿐 아니라 href 없는 캠페인 클릭이 연 상세 document의
       // pending handoff도 같은 sweep이다. 후자는 상세 URL에 hash가 없으므로
@@ -5182,7 +5161,8 @@
       // campaign-detail handoff must not hijack an explicit keyword request.
       const job = shouldRunProfitabilityReport(syncMode)
         ? globalThis.KidItemProfitabilityReport.run({
-            profitabilitySlice: loadProfitabilitySlice(),
+            profitabilitySlice: profitabilityInput?.profitabilitySlice || null,
+            profitabilityAccount: profitabilityInput?.profitabilityAccount || null,
             collectionRunId: activeCollectionRunId,
             environmentId,
           })
@@ -5389,7 +5369,10 @@
         return false;
       }
       if (admission.shareCurrent) {
-        runSyncOnce(msg.syncMode, msg.environmentId)
+        runSyncOnce(msg.syncMode, msg.environmentId, {
+          profitabilitySlice: msg.profitabilitySlice,
+          profitabilityAccount: msg.profitabilityAccount,
+        })
           .then((result) => sendResponse(result))
           .catch((error) =>
             sendResponse({ success: false, error: error?.message || String(error) }),
@@ -5401,7 +5384,10 @@
         admission.runId,
         admission.attempt,
       );
-      if (msg.profitabilitySlice && !saveProfitabilitySlice(msg.profitabilitySlice)) {
+      if (
+        msg.syncMode === "profitability_report" &&
+        !normalizeProfitabilitySlice(msg.profitabilitySlice)
+      ) {
         sendResponse({
           success: false,
           error: "profitability_ad_slice_invalid",
@@ -5420,7 +5406,10 @@
       if (executionChanged) {
         lastReportedSweepProgress = { current: 0, total: 0 };
       }
-      runSyncOnce(msg.syncMode, msg.environmentId)
+      runSyncOnce(msg.syncMode, msg.environmentId, {
+        profitabilitySlice: msg.profitabilitySlice,
+        profitabilityAccount: msg.profitabilityAccount,
+      })
         .then((result) => sendResponse(result))
         .catch((error) =>
           sendResponse({ success: false, error: error?.message || String(error) }),

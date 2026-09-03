@@ -18,9 +18,9 @@ const operationRuntimeSource = await readFile(
 
 function operationSource() {
   const start = source.indexOf('const SOURCING_WING_CATALOG_OPERATION_KEY');
-  const end = source.indexOf('async function runAdvertisingProfitabilityOperation', start);
+  const end = source.indexOf('async function collectAdvertisingProfitabilitySlice', start);
   assert.ok(start >= 0, 'exact Wing catalog operation block must exist');
-  assert.ok(end > start, 'Wing operation block must precede profitability operation');
+  assert.ok(end > start, 'Wing operation block must precede direct profitability collection');
   return source.slice(start, end);
 }
 
