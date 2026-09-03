@@ -30,6 +30,7 @@ RUN npm ci \
       --fetch-retries=5 \
       --fetch-retry-mintimeout=20000 \
       --fetch-retry-maxtimeout=120000 \
+      --maxsockets=4 \
       --no-audit \
       --no-fund
 
@@ -81,6 +82,7 @@ RUN npm ci \
       --fetch-retries=5 \
       --fetch-retry-mintimeout=20000 \
       --fetch-retry-maxtimeout=120000 \
+      --maxsockets=4 \
       --no-audit \
       --no-fund \
     && npm cache clean --force \

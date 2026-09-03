@@ -728,7 +728,7 @@ function main() {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const absoluteFiles = [...new Set(contractionRoots(root).flatMap(productionFiles))];
   const files = absoluteFiles.map((absolutePath) => ({
-    path: path.relative(root, absolutePath),
+    path: path.relative(root, absolutePath).split(path.sep).join("/"),
     source: readFileSync(absolutePath, "utf8"),
   }));
   const findings = [

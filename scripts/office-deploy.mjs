@@ -87,8 +87,8 @@ export function powershellArgs(parsed, repoRoot) {
 
 function printHelp() {
   console.log(`Usage:
-  npm run deploy:office:local -- --ref origin/develop
-  npm run deploy:office:local -- --ref origin/develop --cutover --confirm ${APPLY_SCHEMA_DATA_CONFIRMATION}
+  npm run deploy:office:local -- --ref origin/release/office
+  npm run deploy:office:local -- --ref origin/release/office --cutover --confirm ${APPLY_SCHEMA_DATA_CONFIRMATION}
   npm run deploy:office:status
   npm run deploy:office:rollback`);
 }
@@ -120,4 +120,3 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     process.exit(1);
   }
 }
-

@@ -237,7 +237,6 @@ describe('AgentConversationSurface', () => {
   });
 
   it('keeps the shared empty guidance above one typable local draft and fills that same draft from a suggestion', async () => {
-    vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'suggestion-draft') });
     useConversationSurfaceState.getState().reset();
     const user = userEvent.setup();
     renderSurface();
@@ -247,8 +246,10 @@ describe('AgentConversationSurface', () => {
     expect(within(emptyState).getByText('일반 AI 챗')).toBeVisible();
     expect(within(emptyState).getAllByRole('button', { name: /이번 주|상품 후보|운영 이슈/ })).toHaveLength(3);
     expect(composer).toHaveValue('');
+    const draftId = useConversationSurfaceState.getState().pendingDraft?.draftId;
+    expect(draftId).toMatch(/^draft-\d+$/);
     expect(useConversationSurfaceState.getState().pendingDraft).toMatchObject({
-      conversationId: 'suggestion-draft',
+      draftId,
       agentKey: null,
       message: '',
     });
@@ -258,7 +259,7 @@ describe('AgentConversationSurface', () => {
 
     expect(composer).toHaveValue('이번 주 우선순위를 정리해 주세요');
     expect(useConversationSurfaceState.getState().pendingDraft).toMatchObject({
-      conversationId: 'suggestion-draft',
+      draftId,
       agentKey: null,
       message: '이번 주 우선순위를 정리해 주세요',
     });
@@ -267,7 +268,6 @@ describe('AgentConversationSurface', () => {
   });
 
   it('replaces a deleted selection with shared empty guidance and one new local composer draft', async () => {
-    vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'draft-after-delete') });
     const user = userEvent.setup();
     renderSurface();
 
@@ -278,7 +278,7 @@ describe('AgentConversationSurface', () => {
     expect(await screen.findByTestId('conversation-empty-state')).toBeVisible();
     expect(await screen.findByPlaceholderText('무엇을 도와드릴까요?')).toHaveValue('');
     expect(useConversationSurfaceState.getState().pendingDraft).toMatchObject({
-      conversationId: 'draft-after-delete',
+      draftId: expect.stringMatching(/^draft-\d+$/),
       agentKey: null,
       message: '',
     });
@@ -392,15 +392,11 @@ describe('AgentConversationSurface', () => {
   });
 
   it('opens the primary General draft without a conversation request and focuses its compact composer', async () => {
-    vi.stubGlobal('crypto', {
-      randomUUID: vi.fn()
-        .mockReturnValueOnce('initial-empty-draft')
-        .mockReturnValueOnce('general-draft'),
-    });
     useConversationSurfaceState.getState().reset();
     const user = userEvent.setup();
     renderSurface();
     await screen.findByPlaceholderText('무엇을 도와드릴까요?');
+    const initialDraftId = useConversationSurfaceState.getState().pendingDraft?.draftId;
     vi.clearAllMocks();
 
     await user.click(screen.getByRole('button', { name: '새 AI 대화' }));
@@ -408,8 +404,9 @@ describe('AgentConversationSurface', () => {
     const composer = screen.getByPlaceholderText('무엇을 도와드릴까요?');
     await waitFor(() => expect(composer).toHaveFocus());
     expect(screen.getByRole('button', { name: '대화 엔진 설정' })).toBeVisible();
+    expect(useConversationSurfaceState.getState().pendingDraft?.draftId).not.toBe(initialDraftId);
     expect(useConversationSurfaceState.getState().pendingDraft).toMatchObject({
-      conversationId: 'general-draft', agentKey: null, provider: null,
+      draftId: expect.stringMatching(/^draft-\d+$/), agentKey: null, provider: null,
     });
     expect(vi.mocked(apiClient.post)).not.toHaveBeenCalled();
     expect(vi.mocked(apiClient.get)).not.toHaveBeenCalled();
@@ -417,11 +414,6 @@ describe('AgentConversationSurface', () => {
   });
 
   it('opens an Agent-bound draft from its folder plus action without creating a conversation', async () => {
-    vi.stubGlobal('crypto', {
-      randomUUID: vi.fn()
-        .mockReturnValueOnce('initial-empty-draft')
-        .mockReturnValueOnce('sourcing-draft'),
-    });
     useConversationSurfaceState.getState().reset();
     const user = userEvent.setup();
     renderSurface();
@@ -433,7 +425,7 @@ describe('AgentConversationSurface', () => {
     const composer = await screen.findByPlaceholderText('소싱 Agent에게 무엇을 요청할까요?');
     await waitFor(() => expect(composer).toHaveFocus());
     expect(useConversationSurfaceState.getState().pendingDraft).toMatchObject({
-      conversationId: 'sourcing-draft', agentKey: 'sourcing', provider: null,
+      draftId: expect.stringMatching(/^draft-\d+$/), agentKey: 'sourcing', provider: null,
     });
     expect(vi.mocked(apiClient.post)).not.toHaveBeenCalled();
     expect(vi.mocked(apiClient.get)).not.toHaveBeenCalled();
@@ -459,14 +451,11 @@ describe('AgentConversationSurface', () => {
 
   it('clears the visible composer after a first General draft is promoted and its turn completes', async () => {
     vi.stubGlobal('crypto', {
-      randomUUID: vi.fn()
-        .mockReturnValueOnce('initial-empty-draft')
-        .mockReturnValueOnce('general-draft')
-        .mockReturnValueOnce('first-turn'),
+      randomUUID: vi.fn().mockReturnValue('first-turn'),
     });
     const promoted = {
       ...CONVERSATION,
-      id: 'general-draft',
+      id: 'server-general-conversation',
       title: 'KID-25 QA 연결 확인이라고 답해.',
     };
     vi.mocked(apiClient.post).mockImplementation((path: string) => {
@@ -487,8 +476,10 @@ describe('AgentConversationSurface', () => {
 
     await screen.findByPlaceholderText('무엇을 도와드릴까요?');
     await user.click(screen.getByRole('button', { name: '새 AI 대화' }));
+    const draftId = useConversationSurfaceState.getState().pendingDraft?.draftId;
+    expect(draftId).toMatch(/^draft-\d+$/);
     expect(useConversationSurfaceState.getState().pendingDraft).toMatchObject({
-      conversationId: 'general-draft',
+      draftId,
       agentKey: null,
     });
     const composer = await screen.findByPlaceholderText('무엇을 도와드릴까요?');
@@ -497,13 +488,13 @@ describe('AgentConversationSurface', () => {
     await user.click(screen.getByRole('button', { name: '보내기' }));
 
     await waitFor(() => expect(useConversationSurfaceState.getState()).toMatchObject({
-      activeConversationId: 'general-draft',
-      pendingDraft: { conversationId: 'general-draft' },
+      activeConversationId: promoted.id,
+      pendingDraft: { draftId },
     }));
     expect(screen.getByLabelText('일반 AI 챗 메시지')).toHaveValue('');
     await act(async () => resolveRun());
     await waitFor(() => expect(useConversationSurfaceState.getState()).toMatchObject({
-      activeConversationId: 'general-draft',
+      activeConversationId: promoted.id,
       pendingDraft: null,
     }));
     expect(runtimeMocks.coreRunAgent).toHaveBeenCalledTimes(1);

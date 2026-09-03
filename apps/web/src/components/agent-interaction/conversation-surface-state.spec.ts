@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   agentConversationKeys,
   openConversation,
@@ -11,18 +11,18 @@ describe('conversation surface state', () => {
     useConversationSurfaceState.getState().reset();
     useStore.setState({ activeRightSurface: null } as never);
   });
-  afterEach(() => vi.unstubAllGlobals());
 
-  it('uses General plus only the exact five fixed Agent keys and stores only a disposable reserved draft', () => {
-    vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'conversation-reserved') });
+  it('uses General plus only the exact five fixed Agent keys and stores only a disposable draft key', () => {
+    const draft = openConversation({ fixedAgentKey: null, draft: 'General question' });
+
     expect(agentConversationKeys).toEqual([
       'sourcing', 'merchandising', 'supply', 'channel_operations', 'advertising',
     ]);
-    openConversation({ fixedAgentKey: null, draft: 'General question' });
+    expect(draft.draftId).toMatch(/^draft-\d+$/);
     expect(useConversationSurfaceState.getState().selectedContext).toBeNull();
-    expect(useConversationSurfaceState.getState().activeConversationId).toBe('conversation-reserved');
+    expect(useConversationSurfaceState.getState().activeConversationId).toBeNull();
     expect(useConversationSurfaceState.getState().pendingDraft).toEqual({
-      conversationId: 'conversation-reserved',
+      draftId: draft.draftId,
       agentKey: null,
       provider: null,
       model: null,
@@ -38,6 +38,7 @@ describe('conversation surface state', () => {
       'openConversation',
       'openSettings',
       'pendingDraft',
+      'promoteDraft',
       'reset',
       'selectContext',
       'selectConversation',
@@ -57,49 +58,42 @@ describe('conversation surface state', () => {
     expect(useConversationSurfaceState.getState().activeConversationId).toBeNull();
   });
 
-  it('keeps a promoted reserved draft until explicit disposal, then gives the next draft a fresh opaque ID', () => {
-    const randomUUID = vi.fn()
-      .mockReturnValueOnce('conversation-reserved-1')
-      .mockReturnValueOnce('conversation-reserved-2');
-    vi.stubGlobal('crypto', { randomUUID });
-    openConversation({ fixedAgentKey: 'sourcing', draft: 'First message' });
-    useConversationSurfaceState.getState().selectConversation({
-      id: 'conversation-reserved-1', agentKey: 'sourcing',
+  it('retains a promoted draft until explicit disposal and gives the next draft a fresh key', () => {
+    const first = openConversation({ fixedAgentKey: 'sourcing', draft: 'First message' });
+    useConversationSurfaceState.getState().promoteDraft(first.draftId, {
+      id: 'server-conversation-1', agentKey: 'sourcing',
     });
-
-    expect(useConversationSurfaceState.getState().pendingDraft?.conversationId)
-      .toBe('conversation-reserved-1');
-    useConversationSurfaceState.getState().discardDraft();
-    openConversation({ fixedAgentKey: null });
-
-    expect(useConversationSurfaceState.getState().pendingDraft?.conversationId)
-      .toBe('conversation-reserved-2');
-    expect(randomUUID).toHaveBeenCalledTimes(2);
-  });
-
-  it('completes only the matching promoted draft while retaining its selected conversation', () => {
-    vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'conversation-promoted') });
-    openConversation({ fixedAgentKey: 'sourcing', draft: 'First message' });
-    useConversationSurfaceState.getState().selectConversation({
-      id: 'conversation-promoted', agentKey: 'sourcing',
-    });
-
-    useConversationSurfaceState.getState().completePromotedDraft('conversation-promoted');
 
     expect(useConversationSurfaceState.getState()).toMatchObject({
-      activeConversationId: 'conversation-promoted',
+      activeConversationId: 'server-conversation-1',
+      pendingDraft: { draftId: first.draftId },
+    });
+    useConversationSurfaceState.getState().discardDraft();
+    const second = openConversation({ fixedAgentKey: null });
+
+    expect(second.draftId).not.toBe(first.draftId);
+  });
+
+  it('completes only the matching promoted draft while retaining its server conversation', () => {
+    const draft = openConversation({ fixedAgentKey: 'sourcing', draft: 'First message' });
+    useConversationSurfaceState.getState().promoteDraft(draft.draftId, {
+      id: 'server-conversation-1', agentKey: 'sourcing',
+    });
+
+    useConversationSurfaceState.getState().completePromotedDraft(draft.draftId);
+
+    expect(useConversationSurfaceState.getState()).toMatchObject({
+      activeConversationId: 'server-conversation-1',
       pendingDraft: null,
       selectedContext: 'sourcing',
     });
   });
 
   it('opens the exact draft context in the global AI chat surface', () => {
-    vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'conversation-sourcing') });
-
     openConversation({ fixedAgentKey: 'sourcing', draft: '소싱 질문' });
 
     expect(useConversationSurfaceState.getState().pendingDraft).toMatchObject({
-      conversationId: 'conversation-sourcing',
+      draftId: expect.stringMatching(/^draft-\d+$/),
       agentKey: 'sourcing',
       message: '소싱 질문',
     });
@@ -107,7 +101,6 @@ describe('conversation surface state', () => {
   });
 
   it('keeps the AI chat surface selected when a new draft is started from the open panel', () => {
-    vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'conversation-advertising') });
     useStore.setState({ activeRightSurface: 'ai_chat' } as never);
 
     openConversation({ fixedAgentKey: 'advertising' });
@@ -117,7 +110,6 @@ describe('conversation surface state', () => {
   });
 
   it('clears an unsent draft and its navigation coordinates through reset', () => {
-    vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'conversation-private-draft') });
     openConversation({ fixedAgentKey: 'sourcing', draft: 'Keep this private' });
 
     useConversationSurfaceState.getState().reset();

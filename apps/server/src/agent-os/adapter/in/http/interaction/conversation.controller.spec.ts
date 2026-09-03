@@ -57,14 +57,13 @@ describe('ConversationController', () => {
     const controller = new ConversationController(conversations as never);
 
     await expect(controller.create(
-      { conversationId: 'conversation-1', runtime: 'codex_cli', agentKey: null, title: 'General' },
+      { runtime: 'codex_cli', agentKey: null, title: 'General' },
       ORGANIZATION_ID,
       { id: USER_ID } as never,
     )).resolves.toEqual({ id: 'conversation-1' });
     expect(conversations.create).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       userId: USER_ID,
-      conversationId: 'conversation-1',
       runtime: 'codex_cli',
       agentKey: null,
       title: 'General',
@@ -72,7 +71,7 @@ describe('ConversationController', () => {
 
     await expect(controller.create(
       {
-        conversationId: 'conversation-1',
+        conversationId: 'browser-must-not-choose-id',
         runtime: 'codex_cli',
         agentKey: null,
         title: 'General',
@@ -135,28 +134,19 @@ describe('ConversationController', () => {
   });
 
   it('exposes exact authenticated create and preference routes with strict browser payloads', async () => {
-    const canonicalCreates = new Map<string, string>();
+    let createSequence = 0;
     const conversations = {
       list: vi.fn().mockResolvedValue([]),
       create: vi.fn(async (input: {
         organizationId: string;
         userId: string;
-        conversationId: string;
         runtime: 'codex_cli' | 'claude_cli';
         agentKey: string | null;
         title: string;
       }) => {
-        const key = `${input.organizationId}\u0000${input.userId}\u0000${input.conversationId}`;
-        const canonical = JSON.stringify({
-          runtime: input.runtime,
-          agentKey: input.agentKey,
-          title: input.title,
-        });
-        const previous = canonicalCreates.get(key);
-        if (previous && previous !== canonical) throw new AgentOsRuntimeError('conversation_create_conflict');
-        canonicalCreates.set(key, canonical);
+        createSequence += 1;
         return {
-          id: input.conversationId,
+          id: `server-conversation-${createSequence}`,
           runtime: input.runtime,
           agentKey: input.agentKey,
           title: input.title,
@@ -177,7 +167,6 @@ describe('ConversationController', () => {
     };
     const server = await interactionApp(conversations);
     const create = {
-      conversationId: 'conversation-create-1',
       runtime: 'codex_cli',
       agentKey: null,
       title: 'General chat',
@@ -185,26 +174,18 @@ describe('ConversationController', () => {
 
     await request(server.getHttpServer())
       .post('/api/agent-os/conversations')
-      .send({ runtime: 'codex_cli', agentKey: null, title: 'Missing ID' })
+      .send({ ...create, conversationId: 'browser-must-not-assign-id' })
       .expect(400);
     await request(server.getHttpServer())
       .post('/api/agent-os/conversations')
-      .send({ conversationId: 'conversation-missing-title', runtime: 'codex_cli', agentKey: null })
+      .send({ runtime: 'codex_cli', agentKey: null })
       .expect(400);
 
     const first = await request(server.getHttpServer())
       .post('/api/agent-os/conversations')
       .send(create)
       .expect(201);
-    const replay = await request(server.getHttpServer())
-      .post('/api/agent-os/conversations')
-      .send(create)
-      .expect(201);
-    expect(first.body).toEqual(replay.body);
-    await request(server.getHttpServer())
-      .post('/api/agent-os/conversations')
-      .send({ ...create, title: 'Changed immutable title' })
-      .expect(409);
+    expect(first.body.id).toBe('server-conversation-1');
 
     for (const [field, value] of Object.entries({
       organizationId: 'forged-org',
@@ -218,7 +199,7 @@ describe('ConversationController', () => {
     })) {
       await request(server.getHttpServer())
         .post('/api/agent-os/conversations')
-        .send({ ...create, conversationId: `conversation-reject-${field}`, [field]: value })
+        .send({ ...create, [field]: value })
         .expect(400);
     }
 
@@ -270,7 +251,7 @@ describe('ConversationController', () => {
       setPreference: vi.fn(),
     };
     const controller = new ConversationController(conversations as never);
-    const create = { conversationId: 'conversation-1', runtime: 'codex_cli', agentKey: null, title: 'General' };
+    const create = { runtime: 'codex_cli', agentKey: null, title: 'General' };
 
     await expect(controller.create(create, ORGANIZATION_ID, { id: USER_ID } as never))
       .rejects.toMatchObject({ status: 409 });

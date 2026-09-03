@@ -79,12 +79,17 @@ export const ConversationSummarySchema = z.object({
 }).strict();
 export type ConversationSummary = z.infer<typeof ConversationSummarySchema>;
 
-/** Runtime and Agent binding exist only at creation; neither can be patched later. */
-export const CreateConversationCommandSchema = z.object({
-  conversationId: ConversationIdSchema,
+/** Browser request. The server owns the durable conversation identifier. */
+export const CreateConversationRequestSchema = z.object({
   runtime: ProviderRuntimeSchema,
   agentKey: AgentKeySchema.nullable(),
   title: ConversationTitleSchema,
+}).strict();
+export type CreateConversationRequest = z.infer<typeof CreateConversationRequestSchema>;
+
+/** Server-to-Gateway command. Runtime and Agent binding are immutable. */
+export const CreateConversationCommandSchema = CreateConversationRequestSchema.extend({
+  conversationId: ConversationIdSchema,
 }).strict();
 export type CreateConversationCommand = z.infer<typeof CreateConversationCommandSchema>;
 

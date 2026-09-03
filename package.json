@@ -32,8 +32,6 @@
     "check:agent-os-contraction": "node scripts/check-agent-os-contraction.mjs",
     "check:identifier-contracts": "node scripts/check-identifier-contracts.mjs",
     "check:copilotkit-train": "node scripts/check-copilotkit-train.mjs",
-    "skills:profile": "node tools/codex/skills/update-project-skills/scripts/manage-skill-profile.mjs",
-    "skills:hub": "node \"${AGENT_SKILL_HUB_ROOT:-$HOME/workspace/agent-skill-hub}/manage.mjs\"",
     "skills:update": "bash tools/codex/skills/update-project-skills/scripts/update-local-skills.sh",
     "skills:verify": "bash tools/codex/skills/update-project-skills/scripts/update-local-skills.sh --verify-only",
     "check:pr-reconstruction": "node scripts/check-pr-reconstruction-contract.mjs",
