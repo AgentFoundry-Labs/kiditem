@@ -1,5 +1,10 @@
 # Sellpia 재고 최신성·자동 동기화·운영 화면 통합 설계
 
+> **부분 대체 (2026-09-03):** 이 문서의 자동 스케줄, 브라우저 claim/lease,
+> heartbeat, Operation/Alert 실행 계약은
+> [Operation And Automation Hard Cutover Design](2026-09-03-operation-automation-hard-cutover-design.md)으로
+> 대체되었습니다. Sellpia 재고 소유권과 구매 차단 불변식은 유지됩니다.
+
 ## 구현 수정 사항 — 2026-07-16
 
 구현 중 사용자 확인에 따라 이 문서의 **화면 통합·기존 URL redirect·사이드바

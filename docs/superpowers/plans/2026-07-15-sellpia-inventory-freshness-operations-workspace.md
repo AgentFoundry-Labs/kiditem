@@ -1,5 +1,10 @@
 # Sellpia Inventory Freshness And Operations Workspace Implementation Plan
 
+> **Partially superseded (2026-09-03):** Do not resume this plan's scheduler,
+> browser claim/lease, heartbeat, or Operation/Alert tasks. Their current
+> execution contract is the
+> [Operation And Automation Hard Cutover Design](../specs/2026-09-03-operation-automation-hard-cutover-design.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 ## Implementation correction — 2026-07-16

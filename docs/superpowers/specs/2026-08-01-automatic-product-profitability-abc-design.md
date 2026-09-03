@@ -1,5 +1,11 @@
 # Automatic Product Profitability ABC Design
 
+> **Superseded (2026-09-03):** The grading, source-publication, and execution
+> contracts in this document are replaced by the
+> [Operation And Automation Hard Cutover Design](2026-09-03-operation-automation-hard-cutover-design.md).
+> This file remains historical source-domain context, not implementation
+> authority.
+
 **Date:** 2026-08-01
 **Status:** Approved in conversation; written specification pending review
 

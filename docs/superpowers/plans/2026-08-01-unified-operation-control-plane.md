@@ -1,5 +1,10 @@
 # Unified Operation Control Plane Implementation Plan
 
+> **Superseded (2026-09-03):** Do not extend or resume this control-plane plan.
+> Operations, schedules, browser claims, Workflow, and Panel projection are
+> removed by the
+> [Operation And Automation Hard Cutover Design](../specs/2026-09-03-operation-automation-hard-cutover-design.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 대시보드 Agent OS와 개별 업무 화면의 수동 버튼은 동일한 실행 액션을 사용하고, Agent·서버 예약 실행은 Operations 제어면에서 동일 도메인 capability를 호출하도록 정리한다.

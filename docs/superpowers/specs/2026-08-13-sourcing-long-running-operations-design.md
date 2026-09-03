@@ -1,5 +1,12 @@
 # Sourcing Long-Running Operations, API Lifecycle, and Snapshot-First UI Design
 
+> **Partial supersession (2026-09-03):** The OperationRun control plane,
+> browser claim/heartbeat/report, and run-status UI contracts are replaced by
+> the
+> [Operation And Automation Hard Cutover Design](2026-09-03-operation-automation-hard-cutover-design.md).
+> Sourcing payload, snapshot, and provider-specific rules remain historical
+> reference material.
+
 > Partial supersession notice (2026-08-23): deterministic Operations and
 > Sourcing business behavior remain authoritative. Generic Agent worker,
 > AgentRun, HMAC grant, conversation, artifact, and provider-runtime assumptions

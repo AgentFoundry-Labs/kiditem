@@ -1,5 +1,11 @@
 # Background Browser Collection Session Design
 
+> **Partial supersession (2026-09-03):** The server queue/claim, mirrored
+> terminal state, restart, and Operation Alert contracts are replaced by the
+> [Operation And Automation Hard Cutover Design](2026-09-03-operation-automation-hard-cutover-design.md).
+> Inactive-tab safety, credential isolation, and extension-local managed-tab
+> resume rules remain reference contracts.
+
 ## Status and Authority
 
 Approved by the user in the design conversation on 2026-07-14.

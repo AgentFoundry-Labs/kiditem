@@ -1,5 +1,9 @@
 # Automatic Product Profitability ABC Implementation Plan
 
+> **Superseded (2026-09-03):** Do not execute this plan. Its relative grading,
+> Operation workflow, and persistence contracts are replaced by the
+> [Operation And Automation Hard Cutover Design](../specs/2026-09-03-operation-automation-hard-cutover-design.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the unshipped cumulative-share ABC implementation with an automatically calibrated product profitability grade fed by Sellpia product-profit history, authoritative advertising spend, and paid-order evidence, while separating full Sellpia synchronization from inventory-only synchronization and presenting the same grade/status semantics on Dashboard, Product Management, and Product Outflow.

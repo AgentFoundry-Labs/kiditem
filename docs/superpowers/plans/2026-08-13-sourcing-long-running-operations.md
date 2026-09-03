@@ -1,5 +1,9 @@
 # Sourcing Long-Running Operations Implementation Plan
 
+> **Further superseded (2026-09-03):** The remaining deterministic Operations
+> execution contracts are replaced by the
+> [Operation And Automation Hard Cutover Design](../specs/2026-09-03-operation-automation-hard-cutover-design.md).
+
 > Superseded as an executable KID-25 plan (2026-08-23). Do not resume tasks from
 > this plan. Completed deterministic Operations contracts are reference-only;
 > use the
