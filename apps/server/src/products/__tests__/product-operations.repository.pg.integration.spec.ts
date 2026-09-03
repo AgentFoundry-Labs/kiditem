@@ -437,6 +437,125 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     })).toEqual({ id: product.id });
   });
 
+  it('increments mapping generation once for a committed recipe replacement', async () => {
+    const { product, options } = await linkedProductWithOptions('KI-MAPPING-GENERATION', 1);
+    const sku = await inventorySku('SP-MAPPING-GENERATION', 7, true, TEST_ORGANIZATION_ID, product.id);
+
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(0n);
+
+    await service.replaceChannelOptionInventory(
+      TEST_ORGANIZATION_ID,
+      options[0]!.id,
+      { components: [{ sellpiaInventorySkuId: sku.id, quantity: 2 }] },
+    );
+
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
+    await expect(prisma.masterProductAbcFormulaState.findUniqueOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      select: { activeFormulaVersionId: true, activatedAt: true, revision: true, mappingGeneration: true },
+    })).resolves.toEqual({
+      activeFormulaVersionId: null,
+      activatedAt: null,
+      revision: 0,
+      mappingGeneration: 1n,
+    });
+  });
+
+  it('does not increment mapping generation for an identical recipe replacement', async () => {
+    const { product, options } = await linkedProductWithOptions('KI-MAPPING-NOOP', 1);
+    const sku = await inventorySku('SP-MAPPING-NOOP', 7, true, TEST_ORGANIZATION_ID, product.id);
+    const replacement = { components: [{ sellpiaInventorySkuId: sku.id, quantity: 2 }] };
+
+    await service.replaceChannelOptionInventory(
+      TEST_ORGANIZATION_ID,
+      options[0]!.id,
+      replacement,
+    );
+    const first = await prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
+      where: { channelListingOptionId: options[0]!.id },
+      select: { id: true, createdAt: true, updatedAt: true },
+    });
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
+
+    await service.replaceChannelOptionInventory(
+      TEST_ORGANIZATION_ID,
+      options[0]!.id,
+      replacement,
+    );
+
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
+    await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
+      where: { channelListingOptionId: options[0]!.id },
+      select: { id: true, createdAt: true, updatedAt: true },
+    })).resolves.toEqual(first);
+  });
+
+  it('does not increment mapping generation for a rejected recipe replacement', async () => {
+    const { product, options } = await linkedProductWithOptions('KI-MAPPING-REJECTED', 1);
+    const foreignProduct = await prisma.masterProduct.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        code: 'KI-MAPPING-FOREIGN',
+        name: 'Foreign product',
+      },
+    });
+    const foreignSku = await inventorySku(
+      'SP-MAPPING-FOREIGN',
+      7,
+      true,
+      OTHER_ORGANIZATION_ID,
+      foreignProduct.id,
+    );
+
+    await expect(service.replaceChannelOptionInventory(
+      TEST_ORGANIZATION_ID,
+      options[0]!.id,
+      { components: [{ sellpiaInventorySkuId: foreignSku.id, quantity: 1 }] },
+    )).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(0n);
+    expect(await prisma.masterProductAbcFormulaState.findUnique({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).toBeNull();
+  });
+
+  it('rolls back the recipe and generation when the mapping transaction cannot advance', async () => {
+    const { product, options } = await linkedProductWithOptions('KI-MAPPING-ROLLBACK', 1);
+    const sku = await inventorySku('SP-MAPPING-ROLLBACK', 7, true, TEST_ORGANIZATION_ID, product.id);
+    const oldGeneration = 9_223_372_036_854_775_807n;
+    await prisma.masterProductAbcFormulaState.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, mappingGeneration: oldGeneration },
+    });
+
+    await expect(service.replaceChannelOptionInventory(
+      TEST_ORGANIZATION_ID,
+      options[0]!.id,
+      { components: [{ sellpiaInventorySkuId: sku.id, quantity: 2 }] },
+    )).rejects.toThrow();
+
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(oldGeneration);
+    expect(await prisma.channelListingOptionInventoryComponent.count({
+      where: { channelListingOptionId: options[0]!.id },
+    })).toBe(0);
+  });
+
+  it('does not increment mapping generation for product-operation reads', async () => {
+    const { product } = await linkedProductWithOptions('KI-MAPPING-READ', 1);
+
+    await service.getProduct(TEST_ORGANIZATION_ID, product.id);
+    await service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 50,
+      periodDays: 30,
+      activeStatus: 'all',
+    });
+
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(0n);
+    expect(await prisma.masterProductAbcFormulaState.findUnique({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).toBeNull();
+  });
+
   it('uses physical stock for option capacity without mutating it', async () => {
     const { product, options } = await linkedProductWithOptions('KI-COMMITTED', 1);
     const sku = await inventorySku('SP-COMMITTED', 100, true, TEST_ORGANIZATION_ID, product.id);
@@ -727,6 +846,13 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     return prisma.sellpiaInventorySku.create({
       data: { organizationId, masterProductId, code, name: code, currentStock, isActive },
     });
+  }
+
+  function readMappingGeneration(organizationId: string) {
+    return prisma.masterProductAbcFormulaState.findUnique({
+      where: { organizationId },
+      select: { mappingGeneration: true },
+    }).then((state) => state?.mappingGeneration ?? 0n);
   }
 
   function automaticEvaluationRow(

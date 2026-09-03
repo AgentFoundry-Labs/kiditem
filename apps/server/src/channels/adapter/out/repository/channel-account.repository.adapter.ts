@@ -23,6 +23,10 @@ import {
   type EncryptedCredentialEnvelope,
   isEncryptedCredentialEnvelope,
 } from '../../../domain/channel-credential-crypto';
+import {
+  advanceProductMappingGeneration,
+  lockProductMapping,
+} from '../../../../common/product-mapping-generation';
 
 const CHANNEL_ACCOUNT_LIST_SELECT = {
   id: true,
@@ -78,6 +82,36 @@ function stripLegacyCredentialKeys(
     next[key] = value as Prisma.InputJsonValue | null;
   }
   return next;
+}
+
+type CoupangAccountMappingBasis = Array<{
+  id: string;
+  externalAccountId: string | null;
+  vendorId: string | null;
+  status: string;
+}>;
+
+async function readCoupangAccountMappingBasis(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+): Promise<CoupangAccountMappingBasis> {
+  return tx.channelAccount.findMany({
+    where: { organizationId, channel: 'coupang' },
+    orderBy: { id: 'asc' },
+    select: {
+      id: true,
+      externalAccountId: true,
+      vendorId: true,
+      status: true,
+    },
+  });
+}
+
+function mappingBasisChanged(
+  before: CoupangAccountMappingBasis,
+  after: CoupangAccountMappingBasis,
+): boolean {
+  return JSON.stringify(before) !== JSON.stringify(after);
 }
 
 @Injectable()
@@ -137,6 +171,8 @@ export class ChannelAccountRepositoryAdapter
     const nextSecretKey = trimToOptional(input.secretKey);
 
     await this.prisma.$transaction(async (tx) => {
+      await lockProductMapping(tx, organizationId);
+      const mappingBefore = await readCoupangAccountMappingBasis(tx, organizationId);
       const sameVendor = await tx.channelAccount.findFirst({
         where: {
           organizationId,
@@ -208,30 +244,34 @@ export class ChannelAccountRepositoryAdapter
           },
           data: { isPrimary: false },
         });
-        return;
+      } else {
+        const created = await tx.channelAccount.create({
+          data: {
+            organizationId,
+            channel: 'coupang',
+            name: '쿠팡 Wing',
+            externalAccountId: vendorId,
+            vendorId,
+            status: 'active',
+            isPrimary: true,
+            config: nextConfig as Prisma.InputJsonObject,
+          },
+          select: { id: true },
+        });
+        await tx.channelAccount.updateMany({
+          where: {
+            organizationId,
+            channel: 'coupang',
+            id: { not: created.id },
+          },
+          data: { isPrimary: false },
+        });
       }
 
-      const created = await tx.channelAccount.create({
-        data: {
-          organizationId,
-          channel: 'coupang',
-          name: '쿠팡 Wing',
-          externalAccountId: vendorId,
-          vendorId,
-          status: 'active',
-          isPrimary: true,
-          config: nextConfig as Prisma.InputJsonObject,
-        },
-        select: { id: true },
-      });
-      await tx.channelAccount.updateMany({
-        where: {
-          organizationId,
-          channel: 'coupang',
-          id: { not: created.id },
-        },
-        data: { isPrimary: false },
-      });
+      const mappingAfter = await readCoupangAccountMappingBasis(tx, organizationId);
+      if (mappingBasisChanged(mappingBefore, mappingAfter)) {
+        await advanceProductMappingGeneration(tx, organizationId);
+      }
     });
 
     return this.getCoupangSettings(organizationId);

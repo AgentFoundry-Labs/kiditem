@@ -12,6 +12,7 @@ import { SellpiaInventoryImportService } from '../application/service/sellpia-in
 import { parseSellpiaInventoryWorkbook } from '../application/service/sellpia-inventory-workbook.parser';
 import {
   makeTestPrisma,
+  OTHER_ORGANIZATION_ID,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
@@ -101,6 +102,242 @@ describe('Sellpia unified import repositories (PG integration)', () => {
       activeSyncToken: null,
       lastCompletedImportRunId: result.run.id,
       lastAttemptStatus: 'completed',
+    });
+  });
+
+  it('advances mapping generation once when inventory ownership and a derived listing summary change', async () => {
+    const ownSku = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'SP-MAPPING-ISOLATION',
+        name: 'Own mapping SKU',
+      },
+    });
+    const foreignSku = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        code: 'SP-MAPPING-ISOLATION',
+        name: 'Foreign mapping SKU',
+      },
+    });
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Mapping account',
+        externalAccountId: 'SELLPIA-MAPPING',
+      },
+    });
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        externalId: 'SELLPIA-MAPPING-LISTING',
+      },
+    });
+    const option = await prisma.channelListingOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        externalOptionId: 'SELLPIA-MAPPING-OPTION',
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: option.id,
+        sellpiaInventorySkuId: ownSku.id,
+        quantity: 1,
+      },
+    });
+
+    await service.importInventory(browserInput(
+      workbook([row('SP-MAPPING-ISOLATION', 4)]),
+      await activateGeneration(1n, 'initial_snapshot'),
+    ));
+
+    const [mappingGeneration, state, ownAfter, foreignAfter, listingAfter] = await Promise.all([
+      readMappingGeneration(TEST_ORGANIZATION_ID),
+      prisma.masterProductAbcFormulaState.findUniqueOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+      }),
+      prisma.sellpiaInventorySku.findUniqueOrThrow({ where: { id: ownSku.id } }),
+      prisma.sellpiaInventorySku.findUniqueOrThrow({ where: { id: foreignSku.id } }),
+      prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }),
+    ]);
+    expect(mappingGeneration).toBe(1n);
+    expect(state).toMatchObject({
+      activeFormulaVersionId: null,
+      activatedAt: null,
+      revision: 0,
+      mappingGeneration: 1n,
+    });
+    expect(ownAfter.masterProductId).not.toBeNull();
+    expect(listingAfter.masterProductId).toBe(ownAfter.masterProductId);
+    expect(foreignAfter.masterProductId).toBeNull();
+    expect(await readMappingGeneration(OTHER_ORGANIZATION_ID)).toBeNull();
+  });
+
+  it('does not advance mapping generation when a later inventory snapshot changes stock only', async () => {
+    const first = await service.importInventory(browserInput(
+      workbook([row('SP-MAPPING-NOOP', 4)]),
+      await activateGeneration(1n, 'initial_snapshot'),
+    ));
+    expect(first.outcome).toBe('published');
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
+
+    await service.importInventory(browserInput(
+      workbook([rowWithDetails(
+        'SP-MAPPING-NOOP',
+        9,
+        'Updated name only',
+        barcodeFor('SP-MAPPING-NOOP'),
+        777,
+        888,
+      )]),
+      await activateGeneration(2n, 'manual_request'),
+    ));
+
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
+  });
+
+  it('treats a derived listing summary correction as a canonical mapping change', async () => {
+    const sku = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'SP-MAPPING-SUMMARY-ONLY',
+        name: 'Summary SKU',
+        barcode: barcodeFor('SP-MAPPING-SUMMARY-ONLY'),
+      },
+    });
+    const product = await prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: `INV-SELLPIA-${sku.id}`,
+        name: 'Summary owner',
+      },
+    });
+    await prisma.sellpiaInventorySku.update({
+      where: { id: sku.id },
+      data: { masterProductId: product.id },
+    });
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Summary account',
+        externalAccountId: 'SELLPIA-SUMMARY-ONLY',
+      },
+    });
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        externalId: 'SELLPIA-SUMMARY-ONLY-LISTING',
+      },
+    });
+    const option = await prisma.channelListingOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        externalOptionId: 'SELLPIA-SUMMARY-ONLY-OPTION',
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: option.id,
+        sellpiaInventorySkuId: sku.id,
+        quantity: 1,
+      },
+    });
+
+    await service.importInventory(browserInput(
+      workbook([row('SP-MAPPING-SUMMARY-ONLY', 4)]),
+      await activateGeneration(1n, 'initial_snapshot'),
+    ));
+
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
+    expect(await prisma.channelListing.findUniqueOrThrow({
+      where: { id: listing.id },
+      select: { masterProductId: true },
+    })).toMatchObject({ masterProductId: product.id });
+  });
+
+  it('advances mapping generation when an existing SKU is deactivated and reactivated', async () => {
+    const codes = [
+      'SP-MAPPING-ACTIVE-1',
+      'SP-MAPPING-ACTIVE-2',
+      'SP-MAPPING-ACTIVE-3',
+      'SP-MAPPING-ACTIVE-4',
+    ];
+    for (const code of codes) {
+      await seedCanonicalSku(code);
+    }
+
+    await service.importInventory(browserInput(
+      workbook(codes.slice(0, 3).map((code) => row(code, 4))),
+      await activateGeneration(1n, 'initial_snapshot'),
+    ));
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
+    await expect(prisma.sellpiaInventorySku.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, code: codes[3] },
+    })).resolves.toMatchObject({ isActive: false, currentStock: 0 });
+
+    await service.importInventory(browserInput(
+      workbook(codes.map((code) => row(code, 4))),
+      await activateGeneration(2n, 'manual_request'),
+    ));
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(2n);
+    await expect(prisma.sellpiaInventorySku.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, code: codes[3] },
+    })).resolves.toMatchObject({ isActive: true, currentStock: 4 });
+  });
+
+  it('advances mapping generation when a mapped SKU barcode identity changes', async () => {
+    const code = 'SP-MAPPING-BARCODE';
+    await service.importInventory(browserInput(
+      workbook([rowWithBarcode(code, 4, '8801234567890')]),
+      await activateGeneration(1n, 'initial_snapshot'),
+    ));
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
+
+    await service.importInventory(browserInput(
+      workbook([rowWithBarcode(code, 4, '8800987654321')]),
+      await activateGeneration(2n, 'manual_request'),
+    ));
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(2n);
+  });
+
+  it('rolls back inventory mapping and leaves the generation unchanged when increment overflows', async () => {
+    const maximum = 9_223_372_036_854_775_807n;
+    await prisma.masterProductAbcFormulaState.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        mappingGeneration: maximum,
+      },
+    });
+    const execution = await activateGeneration(1n, 'initial_snapshot');
+
+    await expect(service.importInventory(browserInput(
+      workbook([row('SP-MAPPING-ROLLBACK', 4)]),
+      execution,
+    ))).rejects.toThrow();
+
+    const [skuCount, masterProductCount, state] = await Promise.all([
+      prisma.sellpiaInventorySku.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
+      prisma.masterProduct.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
+      prisma.masterProductAbcFormulaState.findUniqueOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+      }),
+    ]);
+    expect(skuCount).toBe(0);
+    expect(masterProductCount).toBe(0);
+    expect(state).toMatchObject({
+      activeFormulaVersionId: null,
+      activatedAt: null,
+      revision: 0,
+      mappingGeneration: maximum,
     });
   });
 
@@ -744,6 +981,38 @@ describe('Sellpia unified import repositories (PG integration)', () => {
       sourceAccountKey: 'kiditem' as const,
     };
   }
+
+  async function readMappingGeneration(organizationId: string): Promise<bigint | null> {
+    const state = await prisma.masterProductAbcFormulaState.findUnique({
+      where: { organizationId },
+      select: { mappingGeneration: true },
+    });
+    return state?.mappingGeneration ?? null;
+  }
+
+  async function seedCanonicalSku(code: string) {
+    const sku = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code,
+        name: code,
+        barcode: `880${code.replace(/\D/g, '').padStart(10, '0').slice(-10)}`,
+        currentStock: 5,
+        isActive: true,
+      },
+    });
+    const product = await prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: `INV-SELLPIA-${sku.id}`,
+        name: code,
+      },
+    });
+    return prisma.sellpiaInventorySku.update({
+      where: { id: sku.id },
+      data: { masterProductId: product.id },
+    });
+  }
 });
 
 function browserInput(
@@ -775,8 +1044,27 @@ function workbook(rows: string[]): Buffer {
 }
 
 function row(code: string, stock: number): string {
+  return rowWithDetails(code, stock, `상품 ${code}`, barcodeFor(code), 100, 200);
+}
+
+function rowWithBarcode(code: string, stock: number, barcode: string): string {
+  return `${code},상품 ${code},${stock},${barcode},100,200`;
+}
+
+function rowWithDetails(
+  code: string,
+  stock: number,
+  name: string,
+  barcode: string,
+  purchasePrice: number,
+  salePrice: number,
+): string {
+  return `${code},${name},${stock},${barcode},${purchasePrice},${salePrice}`;
+}
+
+function barcodeFor(code: string): string {
   const digits = code.replace(/\D/g, '').padStart(10, '0').slice(-10);
-  return `${code},상품 ${code},${stock},880${digits},100,200`;
+  return `880${digits}`;
 }
 
 function sha256(buffer: Buffer): string {

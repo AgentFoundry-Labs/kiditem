@@ -25,6 +25,10 @@ import type {
   ProductOperationsRepositoryPort,
 } from '../../../application/port/out/repository/product-operations.repository.port';
 import { listSellingMasterProductIds } from './selling-master-product.query';
+import {
+  advanceProductMappingGeneration,
+  lockProductMapping,
+} from '../../../../common/product-mapping-generation';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
@@ -282,41 +286,56 @@ implements ProductOperationsRepositoryPort {
   ) {
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await lockProductMapping(tx, input.organizationId);
         const option = await tx.channelListingOption.findFirst({
           where: { id: input.channelListingOptionId, organizationId: input.organizationId },
           select: {
             id: true,
             listingId: true,
+            listing: { select: { masterProductId: true } },
+            inventoryComponents: {
+              where: { organizationId: input.organizationId },
+              select: { sellpiaInventorySkuId: true, quantity: true },
+            },
           },
         });
         if (!option) throw new NotFoundException('Channel listing option was not found');
         await validateRecipeSkus(tx, input.organizationId, input.components);
-        await tx.channelListingOptionInventoryComponent.deleteMany({
-          where: {
-            organizationId: input.organizationId,
-            channelListingOptionId: input.channelListingOptionId,
-          },
-        });
-        if (input.components.length > 0) {
-          await tx.channelListingOptionInventoryComponent.createMany({
-            data: input.components.map((component) => ({
+        const recipeChanged = !sameRecipe(option.inventoryComponents, input.components);
+        if (recipeChanged) {
+          await tx.channelListingOptionInventoryComponent.deleteMany({
+            where: {
               organizationId: input.organizationId,
               channelListingOptionId: input.channelListingOptionId,
-              sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-              quantity: component.quantity,
-            })),
+            },
           });
+          if (input.components.length > 0) {
+            await tx.channelListingOptionInventoryComponent.createMany({
+              data: input.components.map((component) => ({
+                organizationId: input.organizationId,
+                channelListingOptionId: input.channelListingOptionId,
+                sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+                quantity: component.quantity,
+              })),
+            });
+          }
         }
         const masterProductId = await resolveListingMasterProductId(
           tx,
           input.organizationId,
           option.listingId,
         );
-        const updated = await tx.channelListing.updateMany({
-          where: { id: option.listingId, organizationId: input.organizationId },
-          data: { masterProductId },
-        });
-        if (updated.count !== 1) throw new NotFoundException('Channel listing was not found');
+        const listingChanged = option.listing.masterProductId !== masterProductId;
+        if (listingChanged) {
+          const updated = await tx.channelListing.updateMany({
+            where: { id: option.listingId, organizationId: input.organizationId },
+            data: { masterProductId },
+          });
+          if (updated.count !== 1) throw new NotFoundException('Channel listing was not found');
+        }
+        if (recipeChanged || listingChanged) {
+          await advanceProductMappingGeneration(tx, input.organizationId);
+        }
         return { masterProductId };
       }, TRANSACTION_OPTIONS);
     } catch (error) {
@@ -391,6 +410,20 @@ async function validateRecipeSkus(
     throw new BadRequestException('Channel option inventory SKUs must be unique');
   }
   await validateActiveRecipeSkuIds(tx, organizationId, ids);
+}
+
+function sameRecipe(
+  current: readonly { sellpiaInventorySkuId: string; quantity: number }[],
+  replacement: readonly { sellpiaInventorySkuId: string; quantity: number }[],
+): boolean {
+  if (current.length !== replacement.length) return false;
+  const currentBySku = new Map(current.map((component) => [
+    component.sellpiaInventorySkuId,
+    component.quantity,
+  ]));
+  return replacement.every((component) =>
+    currentBySku.get(component.sellpiaInventorySkuId) === component.quantity,
+  );
 }
 
 async function validateActiveRecipeSkuIds(

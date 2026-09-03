@@ -22,6 +22,9 @@ describe('channel listings as the matching workspace source', () => {
     }]);
     const transaction = {
       $queryRaw: queryRaw,
+      masterProductAbcFormulaState: {
+        upsert: vi.fn().mockResolvedValue({ mappingGeneration: 1n }),
+      },
       channelListing: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       channelListingOptionInventoryComponent: {
         deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -37,7 +40,7 @@ describe('channel listings as the matching workspace source', () => {
       masterProductId: null,
     });
 
-    expect(queryRaw.mock.calls[0]![4]).toBe(false);
+    expect(queryRaw.mock.calls[1]![4]).toBe(false);
   });
 
   it('uses the active channel-listing state when explicit sale status is absent', async () => {

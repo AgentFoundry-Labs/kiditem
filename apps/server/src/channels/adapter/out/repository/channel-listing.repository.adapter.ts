@@ -17,6 +17,7 @@ import type {
   ChannelListingRepositoryPort,
   ChannelListingSummary,
 } from '../../../application/port/out/repository/channel-listing.repository.port';
+import { advanceProductMappingGeneration, lockProductMapping } from '../../../../common/product-mapping-generation';
 import { lockChannelListingRow } from './channel-listing-row-lock';
 
 const listingInclude = {
@@ -238,7 +239,9 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
     input: ChannelListingDeletionAuthorizationInput,
   ): Promise<ChannelListingDeletionOperationResult> {
     return this.prisma.$transaction(async (tx) => {
-      // Shared with registration finalization: listing always locks first.
+      // Authorization is a read/fence operation and only needs the listing
+      // row lock. Mapping-mutating completion acquires the mapping fence first
+      // (matching registration finalization) before taking this row lock.
       const locked = await lockChannelListingRow(tx, {
         organizationId: input.organizationId,
         channelListingId: input.listingId,
@@ -441,6 +444,7 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
     input: ChannelListingDeletionCompletionInput,
   ): Promise<ChannelListingDeletionUnresolvedResult> {
     return this.prisma.$transaction(async (tx) => {
+      await lockProductMapping(tx, input.organizationId);
       await assertLockedListing(tx, input.organizationId, input.listingId);
       await lockDeletionOperation(tx, input.organizationId, input.operationId);
       const operation = await tx.channelListingDeletionOperation.findFirst({
@@ -475,6 +479,7 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
       if (deactivated.count !== 1) {
         throw new ConflictException('Verified listing could not be deactivated exactly once.');
       }
+      await advanceProductMappingGeneration(tx, input.organizationId);
       await tx.channelListingDeletionOperation.update({
         where: { id: operation.id },
         data: {

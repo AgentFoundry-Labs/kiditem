@@ -19,9 +19,13 @@ function makeTx() {
     $queryRaw: vi.fn(),
     channelAccount: {
       findFirst: vi.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
       create: vi.fn(),
       update: vi.fn(),
       updateMany: vi.fn(),
+    },
+    masterProductAbcFormulaState: {
+      upsert: vi.fn().mockResolvedValue({ mappingGeneration: 1n }),
     },
   };
 }

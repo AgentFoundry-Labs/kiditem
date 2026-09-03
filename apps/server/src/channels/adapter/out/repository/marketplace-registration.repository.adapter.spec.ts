@@ -163,6 +163,9 @@ describe("MarketplaceRegistrationRepositoryAdapter preparation registration", ()
           .fn()
           .mockResolvedValue({ id: "account-1", channel: "coupang" }),
       },
+      masterProductAbcFormulaState: {
+        upsert: vi.fn().mockResolvedValue({ mappingGeneration: 1n }),
+      },
       $queryRaw: vi.fn().mockResolvedValue([{ id: "listing-1" }]),
       channelListingDeletionOperation: {
         findFirst: vi.fn().mockResolvedValue(null),
@@ -180,6 +183,7 @@ describe("MarketplaceRegistrationRepositoryAdapter preparation registration", ()
             channelAccount: { channel: "coupang" },
             externalId: "427011919",
             status: "inactive",
+            isActive: false,
           })
           .mockResolvedValueOnce({
             id: "listing-1",
@@ -188,6 +192,7 @@ describe("MarketplaceRegistrationRepositoryAdapter preparation registration", ()
             channelAccount: { channel: "coupang" },
             externalId: "427011919",
             status: "inactive",
+            isActive: false,
             masterProductId: null,
           })
           .mockResolvedValueOnce({

@@ -12,6 +12,10 @@ import type {
   ProductListingSyncResult,
 } from '../../../application/port/out/repository/channel-sync.repository.port';
 import { COUPANG_WING_ORDER_SOURCE_TYPE } from '../../../application/port/out/repository/channel-sync.repository.port';
+import {
+  advanceProductMappingGeneration,
+  lockProductMapping,
+} from '../../../../common/product-mapping-generation';
 
 type ListingForProductSync = {
   id: string;
@@ -29,7 +33,7 @@ async function reconcileProductDetailOption(
     itemName: string | null;
     salePrice: number | null;
   },
-): Promise<void> {
+): Promise<boolean> {
   const actual = await tx.channelListingOption.findFirst({
     where: {
       organizationId: input.organizationId,
@@ -38,6 +42,7 @@ async function reconcileProductDetailOption(
     },
     select: {
       id: true,
+      isActive: true,
       inventoryComponents: {
         select: { sellpiaInventorySkuId: true, quantity: true },
       },
@@ -54,6 +59,7 @@ async function reconcileProductDetailOption(
       },
       select: {
         id: true,
+        isActive: true,
         inventoryComponents: {
           select: { sellpiaInventorySkuId: true, quantity: true },
         },
@@ -92,7 +98,7 @@ async function reconcileProductDetailOption(
       if (promoted.count !== 1) {
         throw new BadRequestException('Provisional ChannelListingOption changed concurrently.');
       }
-      return;
+      return true;
     }
     const actualUpdated = await tx.channelListingOption.updateMany({
       where: {
@@ -107,11 +113,12 @@ async function reconcileProductDetailOption(
     if (actualUpdated.count !== 1) {
       throw new BadRequestException('ChannelListingOption changed concurrently.');
     }
+    let mappingChanged = !actual.isActive || provisional.isActive;
     if (
       actual.inventoryComponents.length === 0
       && provisional.inventoryComponents.length > 0
     ) {
-      await tx.channelListingOptionInventoryComponent.createMany({
+      const transferred = await tx.channelListingOptionInventoryComponent.createMany({
         data: provisional.inventoryComponents.map((component) => ({
           organizationId: input.organizationId,
           channelListingOptionId: actual.id,
@@ -120,6 +127,7 @@ async function reconcileProductDetailOption(
         })),
         skipDuplicates: true,
       });
+      mappingChanged ||= transferred.count > 0;
     }
     const provisionalRetired = await tx.channelListingOption.updateMany({
       where: {
@@ -134,7 +142,7 @@ async function reconcileProductDetailOption(
     if (provisionalRetired.count !== 1) {
       throw new BadRequestException('Provisional ChannelListingOption changed concurrently.');
     }
-    return;
+    return mappingChanged;
   }
   await tx.channelListingOption.upsert({
     where: {
@@ -151,6 +159,7 @@ async function reconcileProductDetailOption(
       ...commonData,
     },
   });
+  return !actual || !actual.isActive;
 }
 
 @Injectable()
@@ -214,6 +223,7 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
 
     await this.prisma.$transaction(
       async (tx) => {
+        await lockProductMapping(tx, input.organizationId);
         const [lockedListing] = await tx.$queryRaw<Array<{
           id: string;
           sourceCandidateId: string | null;
@@ -259,6 +269,7 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
         }
 
         const items = Array.isArray(input.detail.items) ? input.detail.items : [];
+        let mappingChanged = false;
         for (const item of items) {
           if (!item.vendorItemId) {
             throw new BadRequestException(
@@ -266,7 +277,7 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
             );
           }
           const externalOptionId = String(item.vendorItemId);
-          await reconcileProductDetailOption(tx, {
+          mappingChanged = (await reconcileProductDetailOption(tx, {
             organizationId: input.organizationId,
             listingId: existing.id,
             registrationSourceCandidateId: lockedListing.sourceCandidateId,
@@ -274,7 +285,10 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
             providerOptionKey: item.externalVendorSku?.trim() || null,
             itemName: item.itemName ?? null,
             salePrice: item.salePrice ?? null,
-          });
+          })) || mappingChanged;
+        }
+        if (mappingChanged) {
+          await advanceProductMappingGeneration(tx, input.organizationId);
         }
       },
       { timeout: 15_000 },

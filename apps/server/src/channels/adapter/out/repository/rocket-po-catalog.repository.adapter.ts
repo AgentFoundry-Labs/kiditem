@@ -6,6 +6,10 @@ import type {
 import type { RocketPoCatalogRow } from '@kiditem/shared/rocket-purchase-preview';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { RocketPoCatalogRepositoryPort } from '../../../application/port/out/repository/rocket-po-catalog.repository.port';
+import {
+  advanceProductMappingGeneration,
+  lockProductMapping,
+} from '../../../../common/product-mapping-generation';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
 import {
   ensureRocketPoCatalogSnapshot,
@@ -56,6 +60,7 @@ implements RocketPoCatalogRepositoryPort {
 
   publish(input: PublishInput) {
     return this.prisma.$transaction(async (tx) => {
+      await lockProductMapping(tx, input.organizationId);
       const lockKey = `rocket-po-catalog:${input.organizationId}:${input.channelAccountId}`;
       await tx.$queryRaw`
         SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
@@ -85,6 +90,7 @@ implements RocketPoCatalogRepositoryPort {
       });
       const persistedVendorId = account.vendorId?.trim() ?? '';
       const sharedCoupangVendorId = sharedCoupangAccount?.vendorId?.trim() ?? '';
+      let mappingChanged = false;
       if (
         (persistedVendorId.length > 0 && persistedVendorId !== input.vendorId)
         || (sharedCoupangVendorId.length > 0 && sharedCoupangVendorId !== input.vendorId)
@@ -120,6 +126,10 @@ implements RocketPoCatalogRepositoryPort {
         if (claimed.count !== 1) {
           throw new ConflictException('Rocket vendor identity changed before publication');
         }
+        mappingChanged = true;
+      }
+      if (mappingChanged) {
+        await advanceProductMappingGeneration(tx, input.organizationId);
       }
 
       const products = productsFromRows(input.rows);

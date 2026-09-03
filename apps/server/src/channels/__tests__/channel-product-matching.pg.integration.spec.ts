@@ -190,6 +190,10 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     })).rejects.toBeInstanceOf(BadRequestException);
     expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
       .toMatchObject({ masterProductId: null });
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(0n);
+    expect(await prisma.masterProductAbcFormulaState.findUnique({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).toBeNull();
   });
 
   it('clears option inventory recipes when the derived product link is removed', async () => {
@@ -213,6 +217,119 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     expect(await prisma.channelListingOptionInventoryComponent.count({
       where: { channelListingOptionId: option.id },
     })).toBe(0);
+  });
+
+  it('increments mapping generation once for a committed channel mapping change', async () => {
+    const product = await createProduct('KI-CHANNEL-MAPPING-GENERATION', 'Channel mapping');
+    const sku = await createInventorySku('SKU-CHANNEL-MAPPING-GENERATION', 9, product.id);
+    const listing = await createListing({ masterProductId: product.id });
+    const option = await createOption(listing.id, { itemName: 'Single' });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: option.id,
+        sellpiaInventorySkuId: sku.id,
+        quantity: 1,
+      },
+    });
+
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(0n);
+
+    await service.linkProduct(TEST_ORGANIZATION_ID, listing.id, { masterProductId: null });
+
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
+    await expect(prisma.masterProductAbcFormulaState.findUniqueOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      select: { activeFormulaVersionId: true, activatedAt: true, revision: true, mappingGeneration: true },
+    })).resolves.toEqual({
+      activeFormulaVersionId: null,
+      activatedAt: null,
+      revision: 0,
+      mappingGeneration: 1n,
+    });
+  });
+
+  it('does not increment mapping generation for an identical channel mapping', async () => {
+    const listing = await createListing({ masterProductId: null });
+    await createOption(listing.id, { itemName: 'Unconfigured' });
+
+    await service.linkProduct(TEST_ORGANIZATION_ID, listing.id, { masterProductId: null });
+
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(0n);
+    expect(await prisma.masterProductAbcFormulaState.findUnique({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).toBeNull();
+  });
+
+  it('isolates mapping generations by organization', async () => {
+    const testListing = await createListing({ masterProductId: (await createProduct(
+      'KI-ORG-TEST',
+      'Test organization product',
+    )).id });
+    await createOption(testListing.id, { itemName: 'Test option' });
+    const otherProduct = await prisma.masterProduct.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        code: 'KI-ORG-OTHER',
+        name: 'Other organization product',
+      },
+    });
+    const otherListing = await prisma.channelListing.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        channelAccountId: OTHER_ACCOUNT_ID,
+        externalId: `OTHER-${randomUUID()}`,
+        masterProductId: otherProduct.id,
+      },
+    });
+    await prisma.channelListingOption.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        listingId: otherListing.id,
+        externalOptionId: `OTHER-${randomUUID()}`,
+      },
+    });
+
+    await service.linkProduct(TEST_ORGANIZATION_ID, testListing.id, { masterProductId: null });
+    await service.linkProduct(OTHER_ORGANIZATION_ID, otherListing.id, { masterProductId: null });
+
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
+    expect(await readMappingGeneration(OTHER_ORGANIZATION_ID)).toBe(1n);
+
+    await service.linkProduct(TEST_ORGANIZATION_ID, testListing.id, { masterProductId: null });
+
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
+    expect(await readMappingGeneration(OTHER_ORGANIZATION_ID)).toBe(1n);
+  });
+
+  it('rolls back channel mapping writes when generation advancement fails', async () => {
+    const product = await createProduct('KI-CHANNEL-ROLLBACK', 'Channel rollback');
+    const sku = await createInventorySku('SKU-CHANNEL-ROLLBACK', 9, product.id);
+    const listing = await createListing({ masterProductId: product.id });
+    const option = await createOption(listing.id, { itemName: 'Single' });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: option.id,
+        sellpiaInventorySkuId: sku.id,
+        quantity: 1,
+      },
+    });
+    const oldGeneration = 9_223_372_036_854_775_807n;
+    await prisma.masterProductAbcFormulaState.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, mappingGeneration: oldGeneration },
+    });
+
+    await expect(service.linkProduct(TEST_ORGANIZATION_ID, listing.id, {
+      masterProductId: null,
+    })).rejects.toThrow();
+
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(oldGeneration);
+    expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
+      .toMatchObject({ masterProductId: product.id });
+    expect(await prisma.channelListingOptionInventoryComponent.count({
+      where: { channelListingOptionId: option.id },
+    })).toBe(1);
   });
 
   it('auto-matches one exact product and writes an exact manual-alias recipe directly to its option', async () => {
@@ -255,17 +372,30 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     });
     const target = await createListing({ displayName: 'Auto product' });
     const targetOption = await createOption(target.id, { itemName: 'Two pack' });
+    const secondTarget = await createListing({ displayName: 'Auto product' });
+    const secondTargetOption = await createOption(secondTarget.id, { itemName: 'Two pack' });
 
     await expect(service.autoMatch(TEST_ORGANIZATION_ID, {})).resolves.toEqual({
-      evaluatedListings: 2,
-      matchedListings: 1,
-      configuredOptions: 1,
+      evaluatedListings: 3,
+      matchedListings: 2,
+      configuredOptions: 2,
     });
     expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: target.id } }))
       .toMatchObject({ masterProductId: product.id });
     await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
       where: { channelListingOptionId: targetOption.id },
     })).resolves.toMatchObject({ sellpiaInventorySkuId: sku.id, quantity: 2 });
+    await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
+      where: { channelListingOptionId: secondTargetOption.id },
+    })).resolves.toMatchObject({ sellpiaInventorySkuId: sku.id, quantity: 2 });
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
+
+    await expect(service.autoMatch(TEST_ORGANIZATION_ID, {})).resolves.toEqual({
+      evaluatedListings: 3,
+      matchedListings: 0,
+      configuredOptions: 0,
+    });
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
   });
 
   it('configures a linked Wing option from its registered title and the stored Sellpia deduction quantity', async () => {
@@ -381,5 +511,12 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         isActive: true,
       },
     });
+  }
+
+  function readMappingGeneration(organizationId: string) {
+    return prisma.masterProductAbcFormulaState.findUnique({
+      where: { organizationId },
+      select: { mappingGeneration: true },
+    }).then((state) => state?.mappingGeneration ?? 0n);
   }
 });

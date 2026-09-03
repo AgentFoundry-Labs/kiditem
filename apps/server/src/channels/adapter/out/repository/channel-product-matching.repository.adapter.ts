@@ -8,6 +8,10 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { inferRecipeQuantity } from '../../../domain/channel-recipe-suggestion';
 import { lockChannelListingRow } from './channel-listing-row-lock';
 import { resolveChannelListingSaleStatus } from '@kiditem/shared/channel-listing';
+import {
+  advanceProductMappingGeneration,
+  lockProductMapping,
+} from '../../../../common/product-mapping-generation';
 import type {
   ChannelOptionMatchingRepositoryRow,
   ChannelProductMatchingQueueRow,
@@ -195,19 +199,22 @@ implements ChannelProductMatchingRepositoryPort {
     masterProductId: string | null;
   }): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      await lockProductMapping(tx, input.organizationId);
       const listing = await lockChannelListing(
         tx,
         input.organizationId,
         input.channelListingId,
       );
       if (!listing) throw new NotFoundException('ChannelListing was not found');
+      let mappingChanged = listing.masterProductId !== input.masterProductId;
       if (input.masterProductId === null) {
-        await tx.channelListingOptionInventoryComponent.deleteMany({
+        const deleted = await tx.channelListingOptionInventoryComponent.deleteMany({
           where: {
             organizationId: input.organizationId,
             channelListingOption: { listingId: listing.id },
           },
         });
+        mappingChanged ||= deleted.count > 0;
       } else {
         const resolvedMasterProductId = await resolveListingMasterProductId(
           tx,
@@ -220,11 +227,16 @@ implements ChannelProductMatchingRepositoryPort {
           );
         }
       }
-      const updated = await tx.channelListing.updateMany({
-        where: { id: listing.id, organizationId: input.organizationId },
-        data: { masterProductId: input.masterProductId },
-      });
-      if (updated.count !== 1) throw new NotFoundException('ChannelListing was not found');
+      if (listing.masterProductId !== input.masterProductId) {
+        const updated = await tx.channelListing.updateMany({
+          where: { id: listing.id, organizationId: input.organizationId },
+          data: { masterProductId: input.masterProductId },
+        });
+        if (updated.count !== 1) throw new NotFoundException('ChannelListing was not found');
+      }
+      if (mappingChanged) {
+        await advanceProductMappingGeneration(tx, input.organizationId);
+      }
     }, TRANSACTION_OPTIONS);
   }
 
@@ -233,6 +245,7 @@ implements ChannelProductMatchingRepositoryPort {
     channelAccountId?: string;
   }) {
     return this.prisma.$transaction(async (tx) => {
+      await lockProductMapping(tx, input.organizationId);
       const [listings, aliases] = await Promise.all([
         tx.channelListing.findMany({
           where: {
@@ -304,6 +317,7 @@ implements ChannelProductMatchingRepositoryPort {
       }
       let matchedListings = 0;
       let configuredOptions = 0;
+      let mappingChanged = false;
       for (const listing of listings) {
         const listingNames = listingAliasTitles(listing);
         const csvTargetSku = uniqueRocketCsvTargetSku(listing, activeSkusByBarcode);
@@ -348,6 +362,7 @@ implements ChannelProductMatchingRepositoryPort {
             if (updated.count !== 1) {
               throw new NotFoundException('ChannelListingOptionInventoryComponent was not found');
             }
+            mappingChanged = true;
             configuredOptions += 1;
             continue;
           }
@@ -384,6 +399,7 @@ implements ChannelProductMatchingRepositoryPort {
                 quantity,
               },
             });
+            mappingChanged = true;
             configuredOptions += 1;
             continue;
           }
@@ -399,6 +415,7 @@ implements ChannelProductMatchingRepositoryPort {
           if (updated.count !== 1) {
             throw new NotFoundException('ChannelListingOptionInventoryComponent was not found');
           }
+          mappingChanged = true;
           configuredOptions += 1;
         }
         const resolvedMasterProductId = await resolveListingMasterProductId(
@@ -406,13 +423,20 @@ implements ChannelProductMatchingRepositoryPort {
           input.organizationId,
           listing.id,
         );
-        await tx.channelListing.updateMany({
-          where: { id: listing.id, organizationId: input.organizationId },
-          data: { masterProductId: resolvedMasterProductId },
-        });
+        if (listing.masterProductId !== resolvedMasterProductId) {
+          const updated = await tx.channelListing.updateMany({
+            where: { id: listing.id, organizationId: input.organizationId },
+            data: { masterProductId: resolvedMasterProductId },
+          });
+          if (updated.count !== 1) throw new NotFoundException('ChannelListing was not found');
+          mappingChanged = true;
+        }
         if (listing.masterProductId === null && resolvedMasterProductId !== null) {
           matchedListings += 1;
         }
+      }
+      if (mappingChanged) {
+        await advanceProductMappingGeneration(tx, input.organizationId);
       }
       return {
         evaluatedListings: listings.length,

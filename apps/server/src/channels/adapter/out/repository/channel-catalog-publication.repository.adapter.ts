@@ -22,6 +22,10 @@ import type {
   ChannelCatalogPublicationResult,
 } from '../../../application/port/out/repository/channel-catalog-publication.port';
 import { resolveCoupangVendorId } from '../../../domain/coupang-account-identity';
+import {
+  advanceProductMappingGeneration,
+  lockProductMapping,
+} from '../../../../common/product-mapping-generation';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
 
 const CHANNEL = 'coupang';
@@ -58,6 +62,7 @@ implements ChannelCatalogPublicationPort {
     input: PublishChunkInput,
   ): Promise<ChannelCatalogChunkPublicationResult> {
     return this.prisma.$transaction(async (tx) => {
+      await lockProductMapping(tx, input.organizationId);
       await lockAccount(tx, input.organizationId, input.channelAccountId);
       const collectionRun = await lockCollectionRun(tx, input);
       if (collectionRun.status !== 'running') {
@@ -110,12 +115,16 @@ implements ChannelCatalogPublicationPort {
           publicationJson: publication,
         },
       });
+      if (upserted.mappingIdentityChanged) {
+        await advanceProductMappingGeneration(tx, input.organizationId);
+      }
       return { duplicate: false, changes: publication };
     }, TRANSACTION_OPTIONS);
   }
 
   publish(input: PublishInput): Promise<ChannelCatalogPublicationResult> {
     return this.prisma.$transaction(async (tx) => {
+      await lockProductMapping(tx, input.organizationId);
       const accountLockKey =
         `channel-catalog-publication:${input.organizationId}:${SOURCE_TYPE}:${input.channelAccountId}`;
       await tx.$queryRaw`
@@ -229,6 +238,14 @@ implements ChannelCatalogPublicationPort {
         data: { isActive: false, lastImportRunId: sourceRun.id },
       });
 
+      if (
+        upserted.mappingIdentityChanged
+        || deactivatedOptions.count > 0
+        || deactivatedListings.count > 0
+      ) {
+        await advanceProductMappingGeneration(tx, input.organizationId);
+      }
+
       const publicationSequence = await nextPublicationSequence(tx, input.organizationId);
       await tx.sourceImportRun.update({
         where: { id: sourceRun.id },
@@ -288,6 +305,7 @@ async function upsertCoupangCatalogRows(
     })),
   });
   return {
+    mappingIdentityChanged: identities.mappingIdentityChanged,
     externalProductIds: identities.externalProductIds,
     externalOptionIds: identities.externalOptionIds,
     changes: {

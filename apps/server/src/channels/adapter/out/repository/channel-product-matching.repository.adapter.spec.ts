@@ -43,6 +43,10 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const repository = new ChannelProductMatchingRepositoryAdapter({
       $transaction: vi.fn(async (callback) => callback({
+        $queryRaw: vi.fn().mockResolvedValue([]),
+        masterProductAbcFormulaState: {
+          upsert: vi.fn().mockResolvedValue({ mappingGeneration: 1n }),
+        },
         channelListing: {
           findMany: vi.fn().mockResolvedValue([{
             id: 'rocket-listing',
@@ -90,6 +94,10 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
     const create = vi.fn().mockResolvedValue({ id: 'component-1' });
     const repository = new ChannelProductMatchingRepositoryAdapter({
       $transaction: vi.fn(async (callback) => callback({
+        $queryRaw: vi.fn().mockResolvedValue([]),
+        masterProductAbcFormulaState: {
+          upsert: vi.fn().mockResolvedValue({ mappingGeneration: 1n }),
+        },
         channelListing: {
           findMany: vi.fn().mockResolvedValue([{
             id: 'rocket-listing',
@@ -137,6 +145,10 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const repository = new ChannelProductMatchingRepositoryAdapter({
       $transaction: vi.fn(async (callback) => callback({
+        $queryRaw: vi.fn().mockResolvedValue([]),
+        masterProductAbcFormulaState: {
+          upsert: vi.fn().mockResolvedValue({ mappingGeneration: 1n }),
+        },
         channelListing: {
           findMany: vi.fn().mockResolvedValue([{
             id: 'rocket-listing',
@@ -184,6 +196,10 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const repository = new ChannelProductMatchingRepositoryAdapter({
       $transaction: vi.fn(async (callback) => callback({
+        $queryRaw: vi.fn().mockResolvedValue([]),
+        masterProductAbcFormulaState: {
+          upsert: vi.fn().mockResolvedValue({ mappingGeneration: 1n }),
+        },
         channelListing: {
           findMany: vi.fn().mockResolvedValue([{
             id: 'legacy-listing',
@@ -225,6 +241,10 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
     const create = vi.fn().mockResolvedValue({ id: 'component-1' });
     const repository = new ChannelProductMatchingRepositoryAdapter({
       $transaction: vi.fn(async (callback) => callback({
+        $queryRaw: vi.fn().mockResolvedValue([]),
+        masterProductAbcFormulaState: {
+          upsert: vi.fn().mockResolvedValue({ mappingGeneration: 1n }),
+        },
         channelListing: {
           findMany: vi.fn().mockResolvedValue([{
             id: 'wing-listing',
@@ -270,6 +290,10 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
     const create = vi.fn().mockResolvedValue({ id: 'component-1' });
     const repository = new ChannelProductMatchingRepositoryAdapter({
       $transaction: vi.fn(async (callback) => callback({
+        $queryRaw: vi.fn().mockResolvedValue([]),
+        masterProductAbcFormulaState: {
+          upsert: vi.fn().mockResolvedValue({ mappingGeneration: 1n }),
+        },
         channelListing: {
           findMany: vi.fn().mockResolvedValue([{
             id: 'wing-listing',

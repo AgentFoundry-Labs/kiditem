@@ -19,6 +19,10 @@ import type {
 } from '../../../application/port/out/repository/sellpia-snapshot-publication.repository.port';
 import type { ParsedSellpiaInventoryRow } from '../../../application/service/sellpia-inventory-workbook.parser';
 import { evaluateSellpiaInventoryQuality } from '../../../domain/policy/sellpia-inventory-quality.policy';
+import {
+  advanceProductMappingGeneration,
+  lockProductMapping,
+} from '../../../../common/product-mapping-generation';
 import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
 
 const SOURCE_TYPE = 'sellpia_inventory';
@@ -37,6 +41,13 @@ type VerifyInput = Parameters<
 type PublicationResult =
   | { kind: 'completed'; response: SellpiaSnapshotPublicationResult }
   | { kind: 'blocked'; message: string };
+type MappingIdentityBasis = {
+  id: string;
+  isActive: boolean;
+  code: string;
+  barcode: string | null;
+  masterProductId: string | null;
+};
 
 @Injectable()
 export class SellpiaSnapshotPublicationRepositoryAdapter
@@ -48,6 +59,7 @@ implements SellpiaSnapshotPublicationRepositoryPort {
       throw new BadRequestException('Sellpia inventory snapshot has no valid rows');
     }
     const result = await this.prisma.$transaction(async (tx): Promise<PublicationResult> => {
+      await lockProductMapping(tx, input.organizationId);
       await lockSellpiaInventoryTransaction(tx, input.organizationId);
       const [state, run] = await Promise.all([
         lockedState(tx, input.organizationId),
@@ -272,6 +284,16 @@ async function replaceInventorySkus(
   tx: Prisma.TransactionClient,
   input: PublishInput,
 ): Promise<SellpiaSnapshotPublicationResult['changes']> {
+  const mappingIdentityBefore = await tx.sellpiaInventorySku.findMany({
+    where: { organizationId: input.organizationId },
+    select: {
+      id: true,
+      isActive: true,
+      code: true,
+      barcode: true,
+      masterProductId: true,
+    },
+  });
   const existing = await tx.sellpiaInventorySku.findMany({
     where: {
       organizationId: input.organizationId,
@@ -346,7 +368,29 @@ async function replaceInventorySkus(
     },
   });
   await ensureCanonicalInventoryProducts(tx, input.organizationId);
-  await rebuildChannelListingProductSummaries(tx, input.organizationId);
+  const listingSummaryChanged = await rebuildChannelListingProductSummaries(
+    tx,
+    input.organizationId,
+  );
+  const mappingIdentityAfter = await tx.sellpiaInventorySku.findMany({
+    where: { organizationId: input.organizationId },
+    select: {
+      id: true,
+      isActive: true,
+      code: true,
+      barcode: true,
+      masterProductId: true,
+    },
+  });
+  // The listing owner is a persisted canonical mapping summary used by
+  // Products and order reads. A correction is therefore mapping evidence even
+  // when the Sellpia resolver's SKU identity basis itself is unchanged.
+  if (
+    mappingIdentityChanged(mappingIdentityBefore, mappingIdentityAfter)
+    || listingSummaryChanged
+  ) {
+    await advanceProductMappingGeneration(tx, input.organizationId);
+  }
   return {
     createdSkuCount,
     updatedSkuCount,
@@ -398,8 +442,8 @@ async function ensureCanonicalInventoryProducts(
 async function rebuildChannelListingProductSummaries(
   tx: Prisma.TransactionClient,
   organizationId: string,
-): Promise<void> {
-  await tx.$executeRaw`
+): Promise<boolean> {
+  const updated = await tx.$executeRaw`
     WITH option_owners AS (
       SELECT
         option.listing_id,
@@ -440,6 +484,23 @@ async function rebuildChannelListingProductSummaries(
       AND listing.organization_id = ${organizationId}::uuid
       AND listing.master_product_id IS DISTINCT FROM listing_owners.owner_id
   `;
+  return updated > 0;
+}
+
+function mappingIdentityChanged(
+  before: MappingIdentityBasis[],
+  after: MappingIdentityBasis[],
+): boolean {
+  if (before.length !== after.length) return true;
+  const beforeById = new Map(before.map((basis) => [basis.id, basis]));
+  return after.some((basis) => {
+    const previous = beforeById.get(basis.id);
+    return !previous
+      || previous.isActive !== basis.isActive
+      || previous.code !== basis.code
+      || previous.barcode !== basis.barcode
+      || previous.masterProductId !== basis.masterProductId;
+  });
 }
 
 async function recordPublicationFailure(

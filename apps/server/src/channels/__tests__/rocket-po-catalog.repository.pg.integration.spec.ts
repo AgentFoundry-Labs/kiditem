@@ -180,10 +180,18 @@ describe('RocketPoCatalogRepositoryAdapter (PG integration)', () => {
     await expect(prisma.rocketPoCatalogSnapshot.count({
       where: { sourceImportRunId: published.run.id },
     })).resolves.toBe(1);
+    await expect(prisma.masterProductAbcFormulaState.findUniqueOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      select: { mappingGeneration: true },
+    })).resolves.toMatchObject({ mappingGeneration: 1n });
     await expect(repository.publish({
       ...publishInput('8'.repeat(64), row('P-CONFLICT')),
       vendorId: 'OTHER-VENDOR',
     })).rejects.toBeInstanceOf(ConflictException);
+    await expect(prisma.masterProductAbcFormulaState.findUniqueOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      select: { mappingGeneration: true },
+    })).resolves.toMatchObject({ mappingGeneration: 1n });
   });
 
   it('stores, lists, and reloads exact completed collection evidence inside the account boundary', async () => {

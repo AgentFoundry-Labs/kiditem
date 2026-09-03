@@ -824,6 +824,37 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     expect(await prisma.sourceImportRun.count()).toBe(1);
   });
 
+  it('advances mapping generation for active identity changes but not metadata-only or rejected import', async () => {
+    await importCatalog([makeRow(0, {
+      externalProductId: 'P-1',
+      externalSkuId: 'S-1',
+    })], fileHash('mapping-first'));
+    await expect(mappingGeneration()).resolves.toBe(1n);
+
+    await importCatalog([makeRow(0, {
+      externalProductId: 'P-1',
+      externalSkuId: 'S-1',
+      displayName: '메타데이터만 변경',
+    })], fileHash('mapping-metadata'));
+    await expect(mappingGeneration()).resolves.toBe(1n);
+
+    await importCatalog([makeRow(0, {
+      externalProductId: 'P-2',
+      externalSkuId: 'S-2',
+    })], fileHash('mapping-deactivate'));
+    await expect(mappingGeneration()).resolves.toBe(2n);
+
+    await expect(importCatalog([makeRow(0, {
+      externalProductId: 'P-3',
+      externalSkuId: 'S-2',
+    })], fileHash('mapping-rejected'))).rejects.toThrow('different parent');
+    await expect(mappingGeneration()).resolves.toBe(2n);
+    await expect(prisma.masterProductAbcFormulaState.findUnique({
+      where: { organizationId: OTHER_ORGANIZATION_ID },
+      select: { mappingGeneration: true },
+    })).resolves.toBeNull();
+  });
+
   it('keeps fresh runs running, reclaims stale/failed runs by CAS, and rotates tokens', async () => {
     const hash = fileHash('stale-running');
     const oldToken = randomUUID();
@@ -1105,6 +1136,14 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     return Object.fromEntries(
       rows.map((row) => [row.externalOptionId, row.isActive]),
     );
+  }
+
+  async function mappingGeneration(): Promise<bigint> {
+    const state = await prisma.masterProductAbcFormulaState.findUnique({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      select: { mappingGeneration: true },
+    });
+    return state?.mappingGeneration ?? 0n;
   }
 });
 

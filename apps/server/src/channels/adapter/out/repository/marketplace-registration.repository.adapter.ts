@@ -13,6 +13,10 @@ import {
   type KidItemFirstOptionLink,
   type KidItemFirstRegistrationLinks,
 } from "../../../domain/kiditem-first-registration-links";
+import {
+  advanceProductMappingGeneration,
+  lockProductMapping,
+} from "../../../../common/product-mapping-generation";
 import { lockChannelListingRow } from "./channel-listing-row-lock";
 
 const PROVIDER_RECONCILIATION_LEASE_MS = 5 * 60 * 1_000;
@@ -358,6 +362,7 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
           : "Invalid KidItem-first product links.",
       );
     }
+    await lockProductMapping(tx, input.organizationId);
     const [account, candidate] = await Promise.all([
       tx.channelAccount.findFirst({
         where: {
@@ -421,6 +426,7 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
             channelAccount: { select: { channel: true } },
             externalId: true,
             status: true,
+            isActive: true,
             masterProductId: true,
           },
         })
@@ -491,6 +497,9 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
         created.id,
         optionLinks,
       );
+      // Creating an active listing changes the frozen listing identity even
+      // when the registration carries no option links or MasterProduct link.
+      await advanceProductMappingGeneration(tx, input.organizationId);
       return {
         listingId: created.id,
         channelAccountId: created.channelAccountId!,
@@ -500,6 +509,12 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
       };
     }
 
+    const listingMappingChanged =
+      !existing.isActive
+      || Boolean(
+        exactLinks.masterProductId
+        && existing.masterProductId !== exactLinks.masterProductId,
+      );
     const updated = await tx.channelListing.updateMany({
       where: {
         id: existing.id,
@@ -530,12 +545,15 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
     });
     if (!listing?.channelAccountId)
       throw new ConflictException("Marketplace listing account is missing.");
-    await upsertExactOptionLinks(
+    const optionMappingChanged = await upsertExactOptionLinks(
       tx,
       input.organizationId,
       listing.id,
       optionLinks,
     );
+    if (listingMappingChanged || optionMappingChanged) {
+      await advanceProductMappingGeneration(tx, input.organizationId);
+    }
     return {
       listingId: listing.id,
       channelAccountId: listing.channelAccountId,
@@ -666,19 +684,23 @@ async function upsertExactOptionLinks(
   organizationId: string,
   listingId: string,
   links: KidItemFirstOptionLink[],
-): Promise<void> {
+): Promise<boolean> {
+  let mappingChanged = false;
   for (const link of links) {
     const externalOptionId = link.externalOptionId;
     const existing = await tx.channelListingOption.findMany({
       where: {
         organizationId,
         listingId,
-        isActive: true,
-        OR: [{ externalOptionId }, { sellerSku: link.providerOptionKey }],
+        OR: [
+          { externalOptionId },
+          { sellerSku: link.providerOptionKey, isActive: true },
+        ],
       },
       select: {
         id: true,
         externalOptionId: true,
+        isActive: true,
         inventoryComponents: {
           select: { sellpiaInventorySkuId: true, quantity: true },
         },
@@ -721,6 +743,7 @@ async function upsertExactOptionLinks(
           quantity: link.quantity,
         },
       });
+      mappingChanged = true;
       continue;
     }
     const updated = await tx.channelListingOption.updateMany({
@@ -728,7 +751,6 @@ async function upsertExactOptionLinks(
         id: target.id,
         organizationId,
         listingId,
-        isActive: true,
       },
       data: {
         sellerSku: link.providerOptionKey,
@@ -740,6 +762,7 @@ async function upsertExactOptionLinks(
         "Marketplace option changed while confirming its inventory recipe.",
       );
     }
+    mappingChanged ||= !target.isActive;
     if (target.inventoryComponents.length === 0) {
       await tx.channelListingOptionInventoryComponent.create({
         data: {
@@ -749,8 +772,10 @@ async function upsertExactOptionLinks(
           quantity: link.quantity,
         },
       });
+      mappingChanged = true;
     }
   }
+  return mappingChanged;
 }
 
 async function assertExactProductGraph(

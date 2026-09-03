@@ -633,6 +633,33 @@ describe("ChannelListingDeletionOperation (PG integration)", () => {
       status: "succeeded",
       providerOutcome: "succeeded",
     });
+    await expect(
+      prisma.masterProductAbcFormulaState.findUniqueOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+        select: { mappingGeneration: true },
+      }),
+    ).resolves.toMatchObject({ mappingGeneration: 1n });
+
+    await expect(
+      repository.completeDeletion({
+        organizationId: TEST_ORGANIZATION_ID,
+        userId: TEST_USER_ID,
+        listingId,
+        operationId: operation.operationId,
+        verifiedProviderAccountId: "A00012345",
+        verifiedExternalListingId: "16311428128",
+      }),
+    ).resolves.toEqual({
+      operationId: operation.operationId,
+      status: "succeeded",
+      providerOutcome: "succeeded",
+    });
+    await expect(
+      prisma.masterProductAbcFormulaState.findUniqueOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+        select: { mappingGeneration: true },
+      }),
+    ).resolves.toMatchObject({ mappingGeneration: 1n });
   });
 
   it("resumes an active reconciliation after the browser dialog is reopened with a new key", async () => {

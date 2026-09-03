@@ -224,6 +224,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
     expect(afterFirst.map((o) => o.externalOptionId)).toEqual(['9001', '9002']);
     expect(afterFirst[0].itemName).toBe('Pink');
     expect(afterFirst[0].salePrice).toBe(10000);
+    expect(await readMappingGeneration()).toBe(1n);
 
     const r2 = await service.syncProducts(organizationId);
     expect(r2.synced).toBe(1);
@@ -238,6 +239,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
     expect(afterSecond[1].id).toBe(afterFirst[1].id);
     expect(afterSecond[0].itemName).toBe('Pink (refreshed)');
     expect(afterSecond[0].salePrice).toBe(10500);
+    expect(await readMappingGeneration()).toBe(1n);
 
     const [deliveryInfoState] = await prisma.$queryRaw<Array<{ isNull: boolean }>>`
       SELECT delivery_info IS NULL AS "isNull"
@@ -245,6 +247,135 @@ describe('Product sync (PG integration, Wave C1)', () => {
        WHERE id = ${listing.id}::uuid
     `;
     expect(deliveryInfoState?.isNull).toBe(true);
+  });
+
+  it('advances mapping generation when a previously inactive provider option becomes active', async () => {
+    const listing = await seedListing('205');
+    const option = await prisma.channelListingOption.create({
+      data: {
+        organizationId,
+        listingId: listing.id,
+        externalOptionId: '9205',
+        isActive: false,
+      },
+    });
+    vi.mocked(coupangPort.getSellerProducts).mockResolvedValueOnce(
+      listOk([{ sellerProductId: 205, statusName: 'APPROVED' }]),
+    );
+    vi.mocked(coupangPort.getSellerProduct).mockResolvedValueOnce(detailOk({
+      sellerProductId: 205,
+      items: [{ vendorItemId: 9205, itemName: 'Reactivated', salePrice: 1_000 }],
+    }));
+
+    await expect(service.syncProducts(organizationId)).resolves.toMatchObject({
+      synced: 1,
+      errors: 0,
+    });
+    await expect(prisma.channelListingOption.findUniqueOrThrow({
+      where: { id: option.id },
+    })).resolves.toMatchObject({ isActive: true, itemName: 'Reactivated' });
+    expect(await readMappingGeneration()).toBe(1n);
+  });
+
+  it('advances listing identity generation when registration creates or reactivates a linkless listing', async () => {
+    const candidate = await prisma.sourcingCandidate.create({
+      data: {
+        organizationId,
+        sourceUrl: 'https://example.com/register-linkless',
+        sourcePlatform: 'test',
+        name: 'Linkless registration',
+      },
+    });
+    const registration = new MarketplaceRegistrationRepositoryAdapter(
+      prisma as unknown as PrismaService,
+    );
+    const input = {
+      organizationId,
+      sourceCandidateId: candidate.id,
+      channelAccountId,
+      submissionKey: 'registration-linkless-key',
+      externalListingId: '245',
+      displayName: 'Linkless registration',
+    };
+
+    const registered = await prisma.$transaction((tx) =>
+      registration.resolveProductRegistration(tx, input));
+    expect(await readMappingGeneration()).toBe(1n);
+
+    await prisma.$transaction((tx) =>
+      registration.resolveProductRegistration(tx, input));
+    expect(await readMappingGeneration()).toBe(1n);
+
+    await prisma.channelListing.update({
+      where: { id: registered.listingId },
+      data: { isActive: false },
+    });
+    await prisma.$transaction((tx) =>
+      registration.resolveProductRegistration(tx, input));
+    expect(await readMappingGeneration()).toBe(2n);
+  });
+
+  it('reactivates an inactive registration option and advances identity generation once', async () => {
+    const [product, sku, candidate] = await Promise.all([
+      prisma.masterProduct.create({
+        data: {
+          organizationId,
+          code: 'KI-REGISTER-INACTIVE-OPTION',
+          name: 'Inactive registration option',
+        },
+      }),
+      prisma.sellpiaInventorySku.create({
+        data: {
+          organizationId,
+          code: 'KI-REGISTER-INACTIVE-OPTION-SKU',
+          name: 'Inactive option SKU',
+        },
+      }),
+      prisma.sourcingCandidate.create({
+        data: {
+          organizationId,
+          sourceUrl: 'https://example.com/register-inactive-option',
+          sourcePlatform: 'test',
+          name: 'Inactive registration option',
+        },
+      }),
+    ]);
+    const registration = new MarketplaceRegistrationRepositoryAdapter(
+      prisma as unknown as PrismaService,
+    );
+    const input = {
+      organizationId,
+      sourceCandidateId: candidate.id,
+      channelAccountId,
+      submissionKey: 'registration-inactive-option-key',
+      externalListingId: '246',
+      displayName: 'Inactive registration option',
+      masterProductId: product.id,
+      optionLinks: [{
+        externalOptionId: 'INACTIVE-OPTION',
+        sellpiaInventorySkuId: sku.id,
+        quantity: 1,
+      }],
+    };
+
+    const registered = await prisma.$transaction((tx) =>
+      registration.resolveProductRegistration(tx, input));
+    const option = await prisma.channelListingOption.findFirstOrThrow({
+      where: { listingId: registered.listingId },
+    });
+    expect(await readMappingGeneration()).toBe(1n);
+
+    await prisma.channelListingOption.update({
+      where: { id: option.id },
+      data: { isActive: false },
+    });
+    await prisma.$transaction((tx) =>
+      registration.resolveProductRegistration(tx, input));
+
+    await expect(prisma.channelListingOption.findUniqueOrThrow({
+      where: { id: option.id },
+    })).resolves.toMatchObject({ isActive: true });
+    expect(await readMappingGeneration()).toBe(2n);
   });
 
   it('promotes the KidItem-first provisional option to vendorItemId without losing its direct inventory recipe', async () => {
@@ -288,6 +419,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
           quantity: 2,
         }],
       }));
+    expect(await readMappingGeneration()).toBe(1n);
     const provisional = await prisma.channelListingOption.findFirstOrThrow({
       where: { listingId: registered.listingId },
     });
@@ -298,6 +430,24 @@ describe('Product sync (PG integration, Wave C1)', () => {
     await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
       where: { channelListingOptionId: provisional.id },
     })).resolves.toMatchObject({ sellpiaInventorySkuId: sku.id, quantity: 2 });
+    expect(await readMappingGeneration()).toBe(1n);
+
+    await prisma.$transaction((tx) =>
+      registration.resolveProductRegistration(tx, {
+        organizationId,
+        sourceCandidateId: candidate.id,
+        channelAccountId,
+        submissionKey: 'registration-key',
+        externalListingId: '250',
+        displayName: 'Registered sync',
+        masterProductId: product.id,
+        optionLinks: [{
+          externalOptionId: 'BLUE-LOGICAL',
+          sellpiaInventorySkuId: sku.id,
+          quantity: 2,
+        }],
+      }));
+    expect(await readMappingGeneration()).toBe(1n);
 
     vi.mocked(coupangPort.getSellerProducts).mockResolvedValueOnce(
       listOk([{ sellerProductId: 250, statusName: 'APPROVED' }]),
@@ -330,9 +480,282 @@ describe('Product sync (PG integration, Wave C1)', () => {
     await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
       where: { channelListingOptionId: provisional.id },
     })).resolves.toMatchObject({ sellpiaInventorySkuId: sku.id, quantity: 2 });
+    expect(await readMappingGeneration()).toBe(2n);
   });
 
-  it('keeps an existing actual option recipe and retires the conflicting provisional option', async () => {
+  it('transfers a provisional recipe to the provider option once and advances mapping generation once', async () => {
+    const product = await prisma.masterProduct.create({
+      data: {
+        organizationId,
+        code: 'KI-REGISTER-TRANSFER',
+        name: 'Registered transfer',
+      },
+    });
+    const sku = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId,
+        code: 'KI-REGISTER-TRANSFER-BLUE',
+        name: 'Blue',
+      },
+    });
+    const candidate = await prisma.sourcingCandidate.create({
+      data: {
+        organizationId,
+        sourceUrl: 'https://example.com/register-transfer',
+        sourcePlatform: 'test',
+        name: 'Registered transfer',
+      },
+    });
+    const registration = new MarketplaceRegistrationRepositoryAdapter(
+      prisma as unknown as PrismaService,
+    );
+    const registered = await prisma.$transaction((tx) =>
+      registration.resolveProductRegistration(tx, {
+        organizationId,
+        sourceCandidateId: candidate.id,
+        channelAccountId,
+        submissionKey: 'registration-transfer-key',
+        externalListingId: '252',
+        displayName: 'Registered transfer',
+        masterProductId: product.id,
+        optionLinks: [{
+          externalOptionId: 'BLUE-LOGICAL',
+          sellpiaInventorySkuId: sku.id,
+          quantity: 2,
+        }],
+      }));
+    const provisional = await prisma.channelListingOption.findFirstOrThrow({
+      where: { listingId: registered.listingId },
+    });
+    const actual = await prisma.channelListingOption.create({
+      data: {
+        organizationId,
+        listingId: registered.listingId,
+        externalOptionId: '9252',
+        isActive: true,
+      },
+    });
+    expect(await readMappingGeneration()).toBe(1n);
+
+    const list = listOk([{ sellerProductId: 252, statusName: 'APPROVED' }]);
+    vi.mocked(coupangPort.getSellerProducts)
+      .mockResolvedValueOnce(list)
+      .mockResolvedValueOnce(list);
+    vi.mocked(coupangPort.getSellerProduct)
+      .mockResolvedValueOnce(detailOk({
+        sellerProductId: 252,
+        items: [{
+          vendorItemId: 9252,
+          externalVendorSku: 'registration-transfer-key',
+          itemName: 'Blue approved',
+          salePrice: 10_500,
+        }],
+      }))
+      .mockResolvedValueOnce(detailOk({
+        sellerProductId: 252,
+        items: [{
+          vendorItemId: 9252,
+          externalVendorSku: 'registration-transfer-key',
+          itemName: 'Blue approved again',
+          salePrice: 10_500,
+        }],
+      }));
+
+    await expect(service.syncProducts(organizationId)).resolves.toMatchObject({
+      synced: 1,
+      errors: 0,
+    });
+    await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
+      where: { channelListingOptionId: actual.id },
+    })).resolves.toMatchObject({ sellpiaInventorySkuId: sku.id, quantity: 2 });
+    await expect(prisma.channelListingOption.findUniqueOrThrow({
+      where: { id: provisional.id },
+    })).resolves.toMatchObject({ isActive: false });
+    expect(await readMappingGeneration()).toBe(2n);
+
+    await expect(service.syncProducts(organizationId)).resolves.toMatchObject({
+      synced: 1,
+      errors: 0,
+    });
+    expect(await readMappingGeneration()).toBe(2n);
+  });
+
+  it('keeps an earlier identity change when an inactive actual option has no recipe to transfer', async () => {
+    const product = await prisma.masterProduct.create({
+      data: {
+        organizationId,
+        code: 'KI-REGISTER-INACTIVE-ACTUAL',
+        name: 'Inactive actual',
+      },
+    });
+    const sku = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId,
+        code: 'KI-REGISTER-INACTIVE-ACTUAL-SKU',
+        name: 'Inactive actual SKU',
+      },
+    });
+    const candidate = await prisma.sourcingCandidate.create({
+      data: {
+        organizationId,
+        sourceUrl: 'https://example.com/register-inactive-actual',
+        sourcePlatform: 'test',
+        name: 'Inactive actual',
+      },
+    });
+    const registration = new MarketplaceRegistrationRepositoryAdapter(
+      prisma as unknown as PrismaService,
+    );
+    const registered = await prisma.$transaction((tx) =>
+      registration.resolveProductRegistration(tx, {
+        organizationId,
+        sourceCandidateId: candidate.id,
+        channelAccountId,
+        submissionKey: 'registration-inactive-actual-key',
+        externalListingId: '254',
+        displayName: 'Inactive actual',
+        masterProductId: product.id,
+        optionLinks: [{
+          externalOptionId: 'INACTIVE-ACTUAL-LOGICAL',
+          sellpiaInventorySkuId: sku.id,
+          quantity: 1,
+        }],
+      }));
+    const provisional = await prisma.channelListingOption.findFirstOrThrow({
+      where: { listingId: registered.listingId },
+    });
+    await prisma.channelListingOptionInventoryComponent.deleteMany({
+      where: { channelListingOptionId: provisional.id },
+    });
+    const actual = await prisma.channelListingOption.create({
+      data: {
+        organizationId,
+        listingId: registered.listingId,
+        externalOptionId: '9254',
+        isActive: false,
+      },
+    });
+
+    vi.mocked(coupangPort.getSellerProducts).mockResolvedValueOnce(
+      listOk([{ sellerProductId: 254, statusName: 'APPROVED' }]),
+    );
+    vi.mocked(coupangPort.getSellerProduct).mockResolvedValueOnce(detailOk({
+      sellerProductId: 254,
+      items: [{
+        vendorItemId: 9254,
+        externalVendorSku: 'registration-inactive-actual-key',
+        itemName: 'Inactive actual approved',
+        salePrice: 10_500,
+      }],
+    }));
+
+    await expect(service.syncProducts(organizationId)).resolves.toMatchObject({
+      synced: 1,
+      errors: 0,
+    });
+    await expect(prisma.channelListingOption.findUniqueOrThrow({
+      where: { id: actual.id },
+    })).resolves.toMatchObject({ isActive: true });
+    await expect(prisma.channelListingOption.findUniqueOrThrow({
+      where: { id: provisional.id },
+    })).resolves.toMatchObject({ isActive: false });
+    expect(await readMappingGeneration()).toBe(2n);
+  });
+
+  it('rolls back provisional recipe transfer and mapping generation when the increment overflows', async () => {
+    const product = await prisma.masterProduct.create({
+      data: {
+        organizationId,
+        code: 'KI-REGISTER-TRANSFER-ROLLBACK',
+        name: 'Registered transfer rollback',
+      },
+    });
+    const sku = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId,
+        code: 'KI-REGISTER-TRANSFER-ROLLBACK-BLUE',
+        name: 'Blue',
+      },
+    });
+    const candidate = await prisma.sourcingCandidate.create({
+      data: {
+        organizationId,
+        sourceUrl: 'https://example.com/register-transfer-rollback',
+        sourcePlatform: 'test',
+        name: 'Registered transfer rollback',
+      },
+    });
+    const registration = new MarketplaceRegistrationRepositoryAdapter(
+      prisma as unknown as PrismaService,
+    );
+    const registered = await prisma.$transaction((tx) =>
+      registration.resolveProductRegistration(tx, {
+        organizationId,
+        sourceCandidateId: candidate.id,
+        channelAccountId,
+        submissionKey: 'registration-transfer-rollback-key',
+        externalListingId: '253',
+        displayName: 'Registered transfer rollback',
+        masterProductId: product.id,
+        optionLinks: [{
+          externalOptionId: 'BLUE-LOGICAL',
+          sellpiaInventorySkuId: sku.id,
+          quantity: 2,
+        }],
+      }));
+    const provisional = await prisma.channelListingOption.findFirstOrThrow({
+      where: { listingId: registered.listingId },
+    });
+    const actual = await prisma.channelListingOption.create({
+      data: {
+        organizationId,
+        listingId: registered.listingId,
+        externalOptionId: '9253',
+        isActive: true,
+      },
+    });
+    const maximum = 9_223_372_036_854_775_807n;
+    await prisma.masterProductAbcFormulaState.upsert({
+      where: { organizationId },
+      create: { organizationId, mappingGeneration: maximum },
+      update: { mappingGeneration: maximum },
+    });
+
+    vi.mocked(coupangPort.getSellerProducts).mockResolvedValueOnce(
+      listOk([{ sellerProductId: 253, statusName: 'APPROVED' }]),
+    );
+    vi.mocked(coupangPort.getSellerProduct).mockResolvedValueOnce(detailOk({
+      sellerProductId: 253,
+      items: [{
+        vendorItemId: 9253,
+        externalVendorSku: 'registration-transfer-rollback-key',
+        itemName: 'Blue approved',
+        salePrice: 10_500,
+      }],
+    }));
+
+    const result = await service.syncProducts(organizationId);
+    expect(result).toMatchObject({ synced: 0, errors: 1 });
+    await expect(prisma.channelListingOptionInventoryComponent.findFirst({
+      where: { channelListingOptionId: actual.id },
+    })).resolves.toBeNull();
+    await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
+      where: { channelListingOptionId: provisional.id },
+    })).resolves.toMatchObject({ sellpiaInventorySkuId: sku.id, quantity: 2 });
+    await expect(prisma.channelListingOption.findUniqueOrThrow({
+      where: { id: provisional.id },
+    })).resolves.toMatchObject({ isActive: true });
+    await expect(prisma.masterProductAbcFormulaState.findUniqueOrThrow({
+      where: { organizationId },
+    })).resolves.toMatchObject({
+      activeFormulaVersionId: null,
+      activatedAt: null,
+      revision: 0,
+      mappingGeneration: maximum,
+    });
+  });
+
+  it('keeps an existing actual option recipe, retires the conflicting provisional option, and advances identity generation', async () => {
     const product = await prisma.masterProduct.create({
       data: {
         organizationId,
@@ -434,6 +857,75 @@ describe('Product sync (PG integration, Wave C1)', () => {
     await expect(prisma.channelListingOption.count({
       where: { listingId: registered.listingId, isActive: true },
     })).resolves.toBe(1);
+    expect(await readMappingGeneration()).toBe(2n);
+  });
+
+  it('rolls back initial registration links when mapping generation cannot advance', async () => {
+    const product = await prisma.masterProduct.create({
+      data: {
+        organizationId,
+        code: 'KI-REGISTER-ROLLBACK',
+        name: 'Registered rollback',
+      },
+    });
+    const sku = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId,
+        code: 'KI-REGISTER-ROLLBACK-BLUE',
+        name: 'Blue',
+      },
+    });
+    const candidate = await prisma.sourcingCandidate.create({
+      data: {
+        organizationId,
+        sourceUrl: 'https://example.com/register-rollback',
+        sourcePlatform: 'test',
+        name: 'Registered rollback',
+      },
+    });
+    const maximum = 9_223_372_036_854_775_807n;
+    await prisma.masterProductAbcFormulaState.create({
+      data: { organizationId, mappingGeneration: maximum },
+    });
+    const registration = new MarketplaceRegistrationRepositoryAdapter(
+      prisma as unknown as PrismaService,
+    );
+
+    await expect(prisma.$transaction((tx) =>
+      registration.resolveProductRegistration(tx, {
+        organizationId,
+        sourceCandidateId: candidate.id,
+        channelAccountId,
+        submissionKey: 'registration-rollback-key',
+        externalListingId: '254',
+        displayName: 'Registered rollback',
+        masterProductId: product.id,
+        optionLinks: [{
+          externalOptionId: 'BLUE-LOGICAL',
+          sellpiaInventorySkuId: sku.id,
+          quantity: 2,
+        }],
+      }))).rejects.toThrow();
+
+    const [listingCount, optionCount, state] = await Promise.all([
+      prisma.channelListing.count({
+        where: { organizationId, externalId: '254' },
+      }),
+      prisma.channelListingOption.count({
+        where: { organizationId, sellerSku: 'registration-rollback-key' },
+      }),
+      prisma.masterProductAbcFormulaState.findUniqueOrThrow({
+        where: { organizationId },
+      }),
+    ]);
+    expect(listingCount).toBe(0);
+    expect(optionCount).toBe(0);
+    expect(state).toMatchObject({
+      activeFormulaVersionId: null,
+      activatedAt: null,
+      revision: 0,
+      mappingGeneration: maximum,
+    });
   });
 
   it('skips and reports sellerProductId without an existing ChannelListing — does not create master', async () => {
@@ -536,6 +1028,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
     expect(after?.channelName).toBeNull();
     const options = await prisma.channelListingOption.findMany({ where: { listingId: listing.id } });
     expect(options).toHaveLength(0);
+    expect(await readMappingGeneration()).toBeNull();
   });
 
   it('throws inside transaction when Coupang item is missing vendorItemId; option upserts roll back, listing field changes do too', async () => {
@@ -583,4 +1076,12 @@ describe('Product sync (PG integration, Wave C1)', () => {
     expect(result.details?.[0]).toContain('invalid credentials');
     expect(coupangPort.getSellerProduct).not.toHaveBeenCalled();
   });
+
+  async function readMappingGeneration(): Promise<bigint | null> {
+    const state = await prisma.masterProductAbcFormulaState.findUnique({
+      where: { organizationId },
+      select: { mappingGeneration: true },
+    });
+    return state?.mappingGeneration ?? null;
+  }
 });

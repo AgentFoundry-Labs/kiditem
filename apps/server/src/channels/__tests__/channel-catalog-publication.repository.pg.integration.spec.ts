@@ -7,6 +7,7 @@ import { AiCatalogMediaPublicationRepositoryAdapter } from '../../ai/adapter/out
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
+  OTHER_ORGANIZATION_ID,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
@@ -204,6 +205,44 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     expect(await prisma.channelListingOption.count()).toBe(1);
   });
 
+  it('advances mapping generation for active identity changes but not metadata-only or rejected publication', async () => {
+    await publish(await createCollectionRun(prisma), '1'.repeat(64), [
+      product('P-1', 'S-1'),
+    ]);
+    await expect(mappingGeneration()).resolves.toBe(1n);
+
+    await publish(await createCollectionRun(prisma), '2'.repeat(64), [
+      product('P-1', 'S-1', { displayName: '메타데이터만 변경' }),
+    ]);
+    await expect(mappingGeneration()).resolves.toBe(1n);
+
+    await publish(await createCollectionRun(prisma), '3'.repeat(64), [
+      product('P-1', 'S-1'),
+      product('P-2', 'S-2'),
+    ]);
+    await expect(mappingGeneration()).resolves.toBe(2n);
+
+    await publish(await createCollectionRun(prisma), '4'.repeat(64), [
+      product('P-1', 'S-1'),
+    ]);
+    await expect(mappingGeneration()).resolves.toBe(3n);
+
+    await publish(await createCollectionRun(prisma), '5'.repeat(64), [
+      product('P-1', 'S-1'),
+      product('P-2', 'S-2'),
+    ]);
+    await expect(mappingGeneration()).resolves.toBe(4n);
+
+    await expect(publish(await createCollectionRun(prisma), '6'.repeat(64), [
+      product('P-3', 'S-1'),
+    ])).rejects.toBeInstanceOf(ConflictException);
+    await expect(mappingGeneration()).resolves.toBe(4n);
+    await expect(prisma.masterProductAbcFormulaState.findUnique({
+      where: { organizationId: OTHER_ORGANIZATION_ID },
+      select: { mappingGeneration: true },
+    })).resolves.toBeNull();
+  });
+
   it('rejects an external option moving to another parent and rolls back', async () => {
     await publish(await createCollectionRun(prisma), SNAPSHOT_A, [
       product('P-1', 'S-1'),
@@ -231,6 +270,14 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       snapshotHash,
       products: products.map((item, ordinal) => ({ ordinal, product: item })),
     });
+  }
+
+  async function mappingGeneration(): Promise<bigint> {
+    const state = await prisma.masterProductAbcFormulaState.findUnique({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      select: { mappingGeneration: true },
+    });
+    return state?.mappingGeneration ?? 0n;
   }
 });
 

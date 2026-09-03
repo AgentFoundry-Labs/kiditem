@@ -46,6 +46,7 @@ export type ChannelCatalogIdentityUpsertInput = {
 };
 
 export type ChannelCatalogIdentityUpsertResult = {
+  mappingIdentityChanged: boolean;
   changes: {
     createdProductCount: number;
     updatedProductCount: number;
@@ -82,7 +83,7 @@ export async function upsertChannelCatalogIdentities(
         channelAccountId: input.channelAccountId,
         externalId: { in: externalProductIds },
       },
-      select: { id: true, externalId: true },
+      select: { id: true, externalId: true, isActive: true },
     }),
     tx.channelListingOption.findMany({
       where: {
@@ -93,6 +94,7 @@ export async function upsertChannelCatalogIdentities(
       select: {
         id: true,
         externalOptionId: true,
+        isActive: true,
         listing: { select: { externalId: true } },
       },
     }),
@@ -100,6 +102,21 @@ export async function upsertChannelCatalogIdentities(
   const existingProductIds = new Set(existingListings.map(({ externalId }) => externalId));
   const existingOptionIds = new Set(existingOptions.map(({ externalOptionId }) =>
     externalOptionId));
+  const existingListingByExternalId = new Map(
+    existingListings.map((row) => [row.externalId, row]),
+  );
+  const existingOptionByExternalId = new Map(
+    existingOptions.map((row) => [row.externalOptionId, row]),
+  );
+  const mappingIdentityChanged =
+    input.products.some((product) => {
+      const existing = existingListingByExternalId.get(product.externalProductId);
+      return !existing || !existing.isActive;
+    })
+    || input.products.some((product) => product.options.some((option) => {
+      const existing = existingOptionByExternalId.get(option.externalOptionId);
+      return !existing || !existing.isActive;
+    }));
   const expectedOptionOwner = new Map<string, string>();
   for (const product of input.products) {
     for (const option of product.options) {
@@ -273,6 +290,7 @@ export async function upsertChannelCatalogIdentities(
   }));
 
   return {
+    mappingIdentityChanged,
     externalProductIds,
     externalOptionIds,
     listingIds,
