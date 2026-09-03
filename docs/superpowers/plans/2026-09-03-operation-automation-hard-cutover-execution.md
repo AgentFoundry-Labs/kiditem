@@ -20,7 +20,7 @@
 - No V2 path, compatibility DTO, Operation fallback, worker, scheduler, child workflow, outbox, dirty bit, requested/recalculated revision, population hash, calibration, reliability adjustment, or Orders eligibility remains.
 - Existing ABC state and grade cache are reset. The first full publication is a history-free baseline; later real grade transitions alone create history.
 - Operating data is inspected read-only before destructive work. No Office mutation occurs from this macOS checkout.
-- Main agent owns integration and tests. The existing advertising implementation agent may edit only the Advertising/extension slice. One independent final reviewer reports only new P0/P1 issues and deletable complexity.
+- Independent implementation slices may use `gpt-5.6-luna` at `max`; the main agent owns integration and verification. One `gpt-5.6-sol` reviewer at `max` performs the final diff review and reports only new P0/P1 issues and deletable complexity.
 
 ---
 
@@ -50,6 +50,8 @@ No later plan may start its destructive deletion task until all preceding focuse
 - Create: `scripts/__tests__/operation-automation-cutover.test.mjs`
 - Create: `extensions/kiditem-os/background/source-owner-manifest.js`
 - Modify: `package.json`
+- Modify: `scripts/README.md`
+- Modify: `scripts/check-script-inventory.mjs`
 - Modify: `docs/ARCHITECTURE.md`
 
 **Interfaces:**
@@ -57,7 +59,7 @@ No later plan may start its destructive deletion task until all preceding focuse
 - Consumes: the checked-in source tree and `SOURCE_OWNER_BY_PRODUCER` from the extension manifest.
 - Produces: `npm run check:operation-automation-cutover`, which fails on a missing producer disposition, a source-to-ABC call, an active ActionTask access, or any deleted runtime symbol/route.
 
-- [ ] **Step 1: Write the failing scanner tests**
+- [x] **Step 1: Write the failing scanner tests**
 
 ```js
 it("reports a production producer missing from the ownership table", async () => {
@@ -88,13 +90,13 @@ it("accepts a direct owner fixture with no legacy runtime", async () => {
 });
 ```
 
-- [ ] **Step 2: Run the scanner test and capture the expected failure inventory**
+- [x] **Step 2: Run the scanner test and capture the expected failure inventory**
 
 Run: `node --test scripts/__tests__/operation-automation-cutover.test.mjs`
 
 Expected: FAIL because the scanner module does not exist.
 
-- [ ] **Step 3: Add the explicit producer ownership table and scanner command**
+- [x] **Step 3: Add the explicit producer ownership table and scanner command**
 
 ```js
 export const SOURCE_OWNER_BY_PRODUCER = Object.freeze({
@@ -127,7 +129,7 @@ domain `worker.js` files, rejects values outside a fixed owner/`DELETE`
 allowlist, and scans production files while excluding tests and historical
 `docs/superpowers/` files.
 
-- [ ] **Step 4: Register and run the scanner**
+- [x] **Step 4: Register and run the scanner**
 
 Run: `node --test scripts/__tests__/operation-automation-cutover.test.mjs`
 
@@ -137,7 +139,7 @@ Then: `npm run check:operation-automation-cutover`
 
 Expected: FAIL only on the still-live legacy paths that the subordinate plans remove; the producer inventory itself is complete.
 
-- [ ] **Step 5: Commit the executable inventory**
+- [x] **Step 5: Commit the executable inventory**
 
 ```bash
 git add package.json scripts/check-operation-automation-cutover.mjs scripts/__tests__/operation-automation-cutover.test.mjs extensions/kiditem-os/background/source-owner-manifest.js docs/ARCHITECTURE.md
@@ -159,9 +161,9 @@ git commit -m "test: lock operation cutover inventory"
 
 Run every focused command in `2026-09-03-source-owner-and-alert-cutover.md`; do not begin Advertising until its PG terminal-publication tests pass.
 
-- [ ] **Step 2: Execute the Advertising tasks with the single designated implementation agent**
+- [ ] **Step 2: Execute the Advertising tasks after the source-owner dependencies are green**
 
-The agent may modify only files named in `2026-09-03-advertising-source-owner-cutover.md`. The main agent runs and fixes integration tests after the agent reports its focused green evidence.
+Any implementation agent may modify only files named in `2026-09-03-advertising-source-owner-cutover.md`. The main agent runs and fixes integration tests after focused green evidence is reported.
 
 - [ ] **Step 3: Execute explicit ABC publication tasks inline**
 

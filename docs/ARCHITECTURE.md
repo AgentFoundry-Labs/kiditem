@@ -148,6 +148,14 @@ and browser lease only. The Sourcing or Advertising owner handler writes its
 own canonical observations and exposes its own read model; no raw
 `OperationRun.result` becomes a canonical row.
 
+The hard-cutover boundary has an executable guard at
+`scripts/check-operation-automation-cutover.mjs`. It reads the checked-in
+extension producer declarations and source-owner manifest, then reports
+unowned producers, source-owner calls into Product ABC recalculation, and
+explicit legacy Operation/Automation runtime or ActionTask references. The
+guard is a regression contract for the staged removal plan; its presence does
+not claim that the legacy runtime has already been removed.
+
 ## Monorepo Shape
 
 ```

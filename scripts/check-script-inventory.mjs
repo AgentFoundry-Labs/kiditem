@@ -13,6 +13,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-directory-architecture.mjs',
   'check-frontend-db-boundary.sh',
   'check-identifier-contracts.mjs',
+  'check-operation-automation-cutover.mjs',
   'check-pr-reconstruction-contract.mjs',
   'check-pr-release-contract.mjs',
   'check-queryraw-tenancy.sh',
@@ -92,6 +93,12 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
     'node scripts/check-agent-os-contraction.mjs'
   ) {
     missingPackageHooks.push('check:agent-os-contraction');
+  }
+  if (
+    packageScripts['check:operation-automation-cutover'] !==
+    'node scripts/check-operation-automation-cutover.mjs'
+  ) {
+    missingPackageHooks.push('check:operation-automation-cutover');
   }
   if (
     packageScripts['qa:agent-os:clean-cutover'] !==

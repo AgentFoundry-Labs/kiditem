@@ -30,6 +30,7 @@
     "check:agents-hygiene": "node scripts/check-agents-hygiene.mjs",
     "check:agent-os-hexagonal": "node scripts/check-agent-os-hexagonal.mjs",
     "check:agent-os-contraction": "node scripts/check-agent-os-contraction.mjs",
+    "check:operation-automation-cutover": "node scripts/check-operation-automation-cutover.mjs",
     "check:identifier-contracts": "node scripts/check-identifier-contracts.mjs",
     "check:copilotkit-train": "node scripts/check-copilotkit-train.mjs",
     "skills:update": "bash tools/codex/skills/update-project-skills/scripts/update-local-skills.sh",

@@ -29,6 +29,7 @@ npm run test:scripts
 | `scripts/check-directory-architecture.mjs` | docs/ARCHITECTURE directory map drift gate | `npm run check:directory-architecture` |
 | `scripts/check-frontend-db-boundary.sh` | frontend must not import DB/Prisma clients | `npm run check:web-db-boundary` |
 | `scripts/check-identifier-contracts.mjs` | canonical resource-name and identifier-class boundary gate | `npm run check:identifier-contracts` |
+| `scripts/check-operation-automation-cutover.mjs` | production producer ownership, source-to-ABC, and Operation/Automation legacy-reference guard | `npm run check:operation-automation-cutover` |
 | `scripts/check-pr-reconstruction-contract.mjs` | high-risk reconstruction PR body gate | `npm run check:pr-reconstruction` |
 | `scripts/check-pr-release-contract.mjs` | persisted schema/data/release PR body and migration-version gate | `npm run check:pr-release-contract` |
 | `scripts/check-queryraw-tenancy.sh` | raw SQL organization-scope scanner | `npm run check:idor` |
