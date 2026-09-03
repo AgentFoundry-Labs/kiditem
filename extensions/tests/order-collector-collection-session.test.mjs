@@ -48,6 +48,7 @@ function createFakeChrome() {
   };
   let nextTabId = 100;
   const externalMessageListeners = [];
+  const storageChangeListeners = [];
   const chrome = {
     runtime: {
       lastError: null,
@@ -71,6 +72,15 @@ function createFakeChrome() {
         },
         async set(values) {
           Object.assign(storage, structuredClone(values));
+        },
+      },
+      onChanged: {
+        addListener(listener) {
+          storageChangeListeners.push(listener);
+        },
+        removeListener(listener) {
+          const index = storageChangeListeners.indexOf(listener);
+          if (index >= 0) storageChangeListeners.splice(index, 1);
         },
       },
     },
@@ -109,10 +119,15 @@ function createFakeChrome() {
 
 function loadWorker(globals = {}) {
   const fake = createFakeChrome();
+  fake.storage.kiditem_environment_profiles_v1 = {
+    local: { accessToken: 'web-token', updatedAt: Date.now() },
+  };
   let context;
   const sandbox = {
     URL,
     URLSearchParams,
+    Headers,
+    AbortController,
     TextDecoder,
     Blob,
     FormData,
@@ -157,6 +172,13 @@ function textResponse(text, { ok = true, status = 200, url = 'https://mallseller
       return new TextEncoder().encode(text).buffer;
     },
   };
+}
+
+function jsonResponse(value, options = {}) {
+  return textResponse(JSON.stringify(value), {
+    url: 'http://localhost:4000/api/sellpia-product-sales/attempts',
+    ...options,
+  });
 }
 
 function rowCheckbox(cells) {
@@ -341,8 +363,8 @@ test('automatic order actions publish safe domain-specific sessions from inactiv
       fileBase64: 'private-file',
     });
 
-    assert.equal(response.runId, runId, action);
-    assert.equal(response.collectionSession.status, 'succeeded', action);
+    assert.equal(response.attemptId, runId, action);
+    assert.equal(response.collectionSession.progress.completed, 1, action);
     assert.equal(
       response.collectionSession.producer,
       action === 'collectRocketPoRows' || action === 'listRocketPos'
@@ -350,11 +372,8 @@ test('automatic order actions publish safe domain-specific sessions from inactiv
         : 'orders.mall',
       action,
     );
-    assert.deepEqual(
-      JSON.parse(JSON.stringify(response.collectionSession.inputIdentity)),
-      { mallKey, date: input.date ?? input.to ?? input.endDate ?? null },
-      action,
-    );
+    assert.equal('status' in response.collectionSession, false, action);
+    assert.equal('inputIdentity' in response.collectionSession, false, action);
   }
 
   assert.equal(runtime.calls.tabsCreate.length, AUTOMATIC_ACTIONS.length);
@@ -394,15 +413,16 @@ test('shipment summary publishes one deferred shipment-specific session', async 
     deferTerminal: true,
   });
 
-  assert.equal(response.runId, runId);
-  assert.equal(response.collectionSession.status, 'running');
+  assert.equal(response.attemptId, runId);
+  assert.equal(response.collectionSession.progress.completed, 1);
+  assert.equal(response.collectionSession.progress.total, 2);
   assert.equal(
     response.collectionSession.producer,
     'orders.coupang_shipment_summary',
   );
   assert.deepEqual(
-    JSON.parse(JSON.stringify(response.collectionSession.inputIdentity)),
-    { source: 'coupang-shipment-summary' },
+    response.collectionSession.attention,
+    null,
   );
 });
 
@@ -420,8 +440,8 @@ test('every automatic mall access failure requires personal attention without fo
       ...input,
       runId: uuid(index + 100),
     });
-    assert.equal(response.collectionSession.status, 'attention_required', action);
     assert.equal(response.collectionSession.attention.reason, 'marketplace_login', action);
+    assert.equal('status' in response.collectionSession, false, action);
     assert.equal(response.collectionSession.attention.canOpenTab, true, action);
   }
 
@@ -444,69 +464,42 @@ test('structured operator authentication remains attention instead of a failed r
     runId: uuid(200),
   });
 
-  assert.equal(response.collectionSession.status, 'attention_required');
+  assert.equal(response.collectionSession.attention.reason, 'marketplace_login');
   assert.equal(response.collectionSession.attention.reason, 'marketplace_login');
   assert.equal(response.failure.code, 'operator_action_required');
   assert.equal(response.failure.operatorAction, 'complete_sms_auth');
 });
 
-test('web restart keeps the run, closes the old attention tab, and increments its attempt', async () => {
+test('rerunning a collection resumes the owner attempt without a second lifecycle', async () => {
   const runtime = loadWorker();
-  let attempt = 0;
+  let collectionCount = 0;
   installCollectorResult(runtime, 'collectKidsnoteOrders', () => {
-    attempt += 1;
-    return attempt === 1
+    collectionCount += 1;
+    return collectionCount === 1
       ? { success: false, pendingLogin: true, error: '로그인이 필요합니다.' }
       : { success: true, orders: [] };
   });
-  const runId = uuid(777);
+  const attemptId = uuid(777);
   const message = {
     action: 'collectKidsnoteOrders',
     from: '2026-07-15',
     to: '2026-07-15',
-    runId,
+    attemptId,
   };
 
   const attention = await dispatch(runtime.externalMessageListeners, message);
-  const restarted = await dispatch(runtime.externalMessageListeners, message);
+  const resumed = await dispatch(runtime.externalMessageListeners, message);
 
-  assert.equal(attention.runId, runId);
-  assert.equal(attention.collectionSession.status, 'attention_required');
-  assert.equal(restarted.runId, runId);
-  assert.equal(restarted.collectionSession.status, 'succeeded');
-  assert.equal(restarted.collectionSession.attempt, 2);
-  assert.deepEqual(runtime.calls.tabsRemove, [100]);
+  assert.equal(attention.attemptId, attemptId);
+  assert.equal(attention.collectionSession.attention.reason, 'marketplace_login');
+  assert.equal(resumed.attemptId, attemptId);
+  assert.equal(resumed.collectionSession.progress.completed, 1);
+  assert.equal('status' in resumed.collectionSession, false);
+  assert.deepEqual(runtime.calls.tabsRemove, []);
   assert.equal(Object.keys(runtime.storage.kiditem_collection_sessions).length, 1);
 });
 
-test('web restart preserves an existing user marketplace tab while replacing its attachment', async () => {
-  const runtime = loadWorker();
-  let attempt = 0;
-  runtime.context.collectKidsnoteOrders = async (...args) => {
-    const collection = args.at(-1);
-    const tab = { id: 55 + attempt, windowId: 7 };
-    await collection.attachTab(tab, { owned: false });
-    attempt += 1;
-    return attempt === 1
-      ? { success: false, pendingLogin: true, error: '로그인이 필요합니다.' }
-      : { success: true, orders: [] };
-  };
-  const runId = uuid(779);
-  const message = {
-    action: 'collectKidsnoteOrders',
-    from: '2026-07-15',
-    to: '2026-07-15',
-    runId,
-  };
-
-  await dispatch(runtime.externalMessageListeners, message);
-  const restarted = await dispatch(runtime.externalMessageListeners, message);
-
-  assert.equal(restarted.collectionSession.attempt, 2);
-  assert.deepEqual(runtime.calls.tabsRemove, []);
-});
-
-test('cancelling a deferred order run closes its tab and fences late completion', async () => {
+test('cancelling an active collection removes local control state and fences late completion', async () => {
   const runtime = loadWorker();
   let releaseOperation;
   const operationGate = new Promise((resolve) => {
@@ -527,190 +520,243 @@ test('cancelling a deferred order run closes its tab and fences late completion'
     await operationGate;
     return { success: true, orders: [{ orderNo: 'must-not-reach-web' }] };
   };
-  const runId = uuid(778);
+  const attemptId = uuid(778);
   const pending = dispatch(runtime.externalMessageListeners, {
     action: 'collectKidsnoteOrders',
     from: '2026-07-15',
     to: '2026-07-15',
-    runId,
+    attemptId,
   });
   await attached;
 
-  const cancelled = await dispatch(runtime.externalMessageListeners, {
-    action: 'cancelCollectionSession',
-    runId,
-  });
-  releaseOperation();
-  const completed = await pending;
-
-  assert.equal(cancelled.status, 'cancelled');
-  assert.deepEqual(runtime.calls.tabsRemove, [100]);
-  assert.equal(completed.success, false);
-  assert.equal(completed.cancelled, true);
-  assert.equal(completed.orders, undefined);
-  assert.equal(completed.collectionSession.status, 'cancelled');
-  assert.equal(runtime.storage.kiditem_collection_sessions[runId].status, 'cancelled');
-});
-
-test('cancelling a run on a user-owned tab preserves the tab but discards late data', async () => {
-  const runtime = loadWorker();
-  let releaseOperation;
-  const operationGate = new Promise((resolve) => {
-    releaseOperation = resolve;
-  });
-  let signalAttached;
-  const attached = new Promise((resolve) => {
-    signalAttached = resolve;
-  });
-  runtime.context.collectKidsnoteOrders = async (...args) => {
-    const collection = args.at(-1);
-    await collection.attachTab({ id: 55, windowId: 7 }, { owned: false });
-    signalAttached();
-    await operationGate;
-    return { success: true, orders: [{ orderNo: 'must-not-reach-web' }] };
-  };
-  const runId = uuid(780);
-  const pending = dispatch(runtime.externalMessageListeners, {
-    action: 'collectKidsnoteOrders',
-    from: '2026-07-15',
-    to: '2026-07-15',
-    runId,
-  });
-  await attached;
-
-  await dispatch(runtime.externalMessageListeners, {
-    action: 'cancelCollectionSession',
-    runId,
-  });
-  releaseOperation();
-  const completed = await pending;
-
-  assert.deepEqual(runtime.calls.tabsRemove, []);
-  assert.equal(completed.success, false);
-  assert.equal(completed.cancelled, true);
-  assert.equal(completed.orders, undefined);
-  assert.equal(completed.collectionSession.status, 'cancelled');
-});
-
-test('cancelling before an owned tab attaches closes the late orphan tab', async () => {
-  const runtime = loadWorker();
-  let releaseOperation;
-  const operationGate = new Promise((resolve) => {
-    releaseOperation = resolve;
-  });
-  let signalStarted;
-  const started = new Promise((resolve) => {
-    signalStarted = resolve;
-  });
-  runtime.context.collectKidsnoteOrders = async (...args) => {
-    const collection = args.at(-1);
-    signalStarted();
-    await operationGate;
-    const tab = await runtime.chrome.tabs.create({
-      url: 'https://shop.kidsnote.com/_manage/',
-      active: false,
+  let cancelled;
+  let completed;
+  try {
+    cancelled = await dispatch(runtime.externalMessageListeners, {
+      action: 'cancelCollectionSession',
+      attemptId,
     });
-    await collection.attachTab(tab, { owned: true });
-    return { success: true, orders: [{ orderNo: 'must-not-reach-web' }] };
-  };
-  const runId = uuid(781);
-  const pending = dispatch(runtime.externalMessageListeners, {
-    action: 'collectKidsnoteOrders',
-    from: '2026-07-15',
-    to: '2026-07-15',
-    runId,
-  });
-  await started;
+  } finally {
+    releaseOperation();
+    completed = await pending;
+  }
 
-  await dispatch(runtime.externalMessageListeners, {
-    action: 'cancelCollectionSession',
-    runId,
-  });
-  releaseOperation();
-  const completed = await pending;
-
+  assert.equal(cancelled.attemptId, attemptId);
   assert.deepEqual(runtime.calls.tabsRemove, [100]);
   assert.equal(completed.success, false);
   assert.equal(completed.cancelled, true);
   assert.equal(completed.orders, undefined);
+  assert.equal(completed.collectionSession, null);
+  assert.equal(runtime.storage.kiditem_collection_sessions[attemptId], undefined);
 });
 
-test('hostile date-shaped input cannot enter persisted order identity', async () => {
+test('invalid source identity never enters the owner-correlated session', async () => {
   const runtime = loadWorker();
   installCollectorResult(runtime, 'collectKkomangseOrders', () => ({
     success: true,
     xlsxBase64: 'private-xlsx',
   }));
-  const runId = uuid(782);
+  const attemptId = uuid(782);
 
   const response = await dispatch(runtime.externalMessageListeners, {
     action: 'collectKkomangseOrders',
     date: '010-password-secret',
-    runId,
+    attemptId,
   });
 
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(response.collectionSession.inputIdentity)),
-    { mallKey: 'kkomangse', date: null },
-  );
+  assert.equal(response.attemptId, attemptId);
+  assert.equal('inputIdentity' in response.collectionSession, false);
   assert.equal(
     JSON.stringify(runtime.storage.kiditem_collection_sessions).includes('010-password-secret'),
     false,
   );
 });
 
-test('web-finalized order runs stay active through conversion and then succeed', async () => {
+test('conversion progress stays in the owner session and updates on a later run', async () => {
   const runtime = loadWorker();
   installCollectorResult(runtime, 'collectCoupangDirectOrders', () => ({
     success: true,
     pos: [{ seq: 'PO-1', transport: 'SHIPMENT' }],
     centers: {},
   }));
-  const runId = uuid(783);
+  const attemptId = uuid(783);
 
   const collected = await dispatch(runtime.externalMessageListeners, {
     action: 'collectCoupangDirectOrders',
     date: '2026-07-15',
-    runId,
+    attemptId,
     deferTerminal: true,
   });
 
-  assert.equal(collected.collectionSession.status, 'running');
-  assert.equal(collected.collectionSession.progress.label, '브라우저 수집 완료 · 파일 생성 중');
+  assert.equal(collected.collectionSession.progress.completed, 1);
+  assert.equal(collected.collectionSession.progress.total, 2);
 
-  const finalized = await dispatch(runtime.externalMessageListeners, {
-    action: 'finalizeCollectionSession',
-    runId,
-    status: 'succeeded',
-    message: '쿠팡직배송 파일 생성 완료',
+  const completed = await dispatch(runtime.externalMessageListeners, {
+    action: 'collectCoupangDirectOrders',
+    date: '2026-07-15',
+    attemptId,
   });
 
-  assert.equal(finalized.status, 'succeeded');
-  assert.equal(finalized.progress.label, '쿠팡직배송 파일 생성 완료');
+  assert.equal(completed.collectionSession.progress.completed, 1);
+  assert.equal(completed.collectionSession.progress.total, 1);
+  assert.equal('status' in completed.collectionSession, false);
 });
 
-test('web-finalized order failures remain personal session failures', async () => {
-  const runtime = loadWorker();
-  installCollectorResult(runtime, 'collectCoupangDirectOrders', () => ({
+test('Sellpia inventory correlates one owner attempt and submits directly after collection', async () => {
+  const ownerRequests = [];
+  const attemptId = uuid(900);
+  const runtime = loadWorker({
+    async fetch(url, init = {}) {
+      const pathName = new URL(url).pathname;
+      ownerRequests.push({
+        path: pathName,
+        headers: Object.fromEntries(new Headers(init.headers || {}).entries()),
+        body: typeof init.body === 'string' ? JSON.parse(init.body) : null,
+      });
+      if (pathName === '/api/sellpia-product-sales/attempts') {
+        return jsonResponse({
+          attemptId,
+          attemptToken: 'owner-token',
+          state: 'RUNNING',
+          expiresAt: '2026-09-03T02:00:00.000Z',
+          plan: { from: '2025-08-01', to: '2026-08-31' },
+        });
+      }
+      if (pathName === `/api/sellpia-product-sales/attempts/${attemptId}`) {
+        return jsonResponse({
+          attemptId,
+          attemptToken: 'owner-token',
+          state: 'COMPLETE',
+          expiresAt: '2026-09-03T02:00:00.000Z',
+          plan: { from: '2025-08-01', to: '2026-08-31' },
+        });
+      }
+      return textResponse('', { ok: false, status: 404 });
+    },
+  });
+  runtime.context.collectSellpiaProductProfit = async (from, to) => ({
     success: true,
-    pos: [{ seq: 'PO-1', transport: 'SHIPMENT' }],
-    centers: {},
-  }));
-  const runId = uuid(784);
-  await dispatch(runtime.externalMessageListeners, {
-    action: 'collectCoupangDirectOrders',
-    runId,
-    deferTerminal: true,
+    payload: {
+      range: { from, to },
+      provenance: {
+        source: 'sellpia_stat_prd_profit',
+        costBasis: 'ORDER_TIME_SUPPLY_COST',
+        vatIncluded: true,
+      },
+      products: [],
+    },
   });
 
-  const finalized = await dispatch(runtime.externalMessageListeners, {
-    action: 'finalizeCollectionSession',
-    runId,
-    status: 'failed',
-    message: '쿠팡직배송 엑셀 생성 실패',
+  const response = await dispatch(runtime.externalMessageListeners, {
+    action: 'collectSellpiaInventory',
+    idempotencyKey: 'sellpia-owner-key-1',
   });
 
-  assert.equal(finalized.status, 'failed');
-  assert.equal(finalized.progress.failed, 1);
-  assert.equal(finalized.progress.label, '쿠팡직배송 엑셀 생성 실패');
+  assert.equal(response.success, true, JSON.stringify(response));
+  assert.equal(response.attemptId, attemptId);
+  assert.deepEqual(
+    ownerRequests.map(({ path }) => path),
+    [
+      '/api/sellpia-product-sales/attempts',
+      `/api/sellpia-product-sales/attempts/${attemptId}`,
+    ],
+  );
+  assert.equal(ownerRequests[0].headers['idempotency-key'], 'sellpia-owner-key-1');
+  assert.equal(ownerRequests[1].body.attemptToken, 'owner-token');
+  assert.equal(ownerRequests[1].body.providerBackedEmptyProof, true);
+  assert.equal(ownerRequests.some(({ path }) => path.endsWith('/ingest')), false);
+  assert.equal(ownerRequests.some(({ body }) => body?.runId), false);
+});
+
+test('Sellpia cancellation fails the owner before clearing its local session', async () => {
+  const ownerRequests = [];
+  const attemptId = uuid(901);
+  let releaseCollection;
+  const collectionGate = new Promise((resolve) => {
+    releaseCollection = resolve;
+  });
+  const runtime = loadWorker({
+    async fetch(url, init = {}) {
+      const pathName = new URL(url).pathname;
+      const body = typeof init.body === 'string' ? JSON.parse(init.body) : null;
+      ownerRequests.push({ path: pathName, body });
+      if (pathName === '/api/sellpia-product-sales/attempts') {
+        return jsonResponse({
+          attemptId,
+          attemptToken: 'owner-token',
+          state: 'RUNNING',
+          expiresAt: '2026-09-03T02:00:00.000Z',
+          plan: { from: '2025-08-01', to: '2026-08-31' },
+        });
+      }
+      if (pathName === '/api/sellpia-product-sales/status') {
+        assert.ok(runtime.storage.kiditem_collection_sessions[attemptId]);
+        return jsonResponse({
+          latestAttempt: {
+            attemptId,
+            attemptToken: 'fence-token',
+            state: 'RUNNING',
+          },
+          latestComplete: null,
+          status: 'RUNNING',
+        });
+      }
+      if (pathName.endsWith('/fail')) {
+        assert.ok(runtime.storage.kiditem_collection_sessions[attemptId]);
+        assert.equal(body.attemptToken, 'fence-token');
+        assert.equal(body.errorCode, 'COLLECTION_CANCELLED');
+        return jsonResponse({
+          attemptId,
+          attemptToken: 'owner-token',
+          state: 'FAILED',
+          expiresAt: '2026-09-03T02:00:00.000Z',
+          plan: { from: '2025-08-01', to: '2026-08-31' },
+        });
+      }
+      return jsonResponse({});
+    },
+  });
+  runtime.context.collectSellpiaProductProfit = async () => {
+    await collectionGate;
+    return {
+      success: true,
+      payload: {
+        range: { from: '2025-08-01', to: '2026-08-31' },
+        provenance: {
+          source: 'sellpia_stat_prd_profit',
+          costBasis: 'ORDER_TIME_SUPPLY_COST',
+          vatIncluded: true,
+        },
+        products: [],
+      },
+    };
+  };
+
+  const pending = dispatch(runtime.externalMessageListeners, {
+    action: 'collectSellpiaInventory',
+    idempotencyKey: 'sellpia-owner-key-cancel',
+  });
+  while (!(runtime.storage.kiditem_collection_sessions || {})[attemptId]) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  let cancelled;
+  try {
+    cancelled = await dispatch(runtime.externalMessageListeners, {
+      action: 'cancelCollectionSession',
+      attemptId,
+    });
+  } finally {
+    releaseCollection();
+    await pending;
+  }
+
+  assert.equal(cancelled.attemptId, attemptId);
+  assert.equal(runtime.storage.kiditem_collection_sessions[attemptId], undefined);
+  assert.deepEqual(ownerRequests.map(({ path }) => path), [
+    '/api/sellpia-product-sales/attempts',
+    '/api/sellpia-product-sales/status',
+    `/api/sellpia-product-sales/attempts/${attemptId}/fail`,
+  ]);
+  assert.equal(ownerRequests[2].body.attemptToken, 'fence-token');
 });

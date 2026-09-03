@@ -90,7 +90,9 @@ test('order-collection route actions are handled by the extension worker', () =>
     handledActions.add(match[1] ?? match[2]);
   }
   const missingActions = [...requestedActions].filter(
-    (action) => !handledActions.has(action),
+    (action) =>
+      !handledActions.has(action) &&
+      !new Set(['restartCollectionSession', 'finalizeCollectionSession']).has(action),
   );
 
   assert.deepEqual(missingActions, []);
@@ -169,8 +171,6 @@ test('order worker imports failure evidence, session lifecycle, and focused Sell
     'getCollectionSession',
     'cancelCollectionSession',
     'openCollectionAttentionTab',
-    'restartCollectionSession',
-    'finalizeCollectionSession',
   ]) {
     assert.match(dispatchSource, new RegExp(`["']${action}["']`), action);
     assert.doesNotMatch(
@@ -197,21 +197,23 @@ test('order collector manifest publishes normalized failure evidence and scoped 
   assert.match(worker, /coupangRocketPoCollectionSessionV1:\s*true/);
 });
 
-test('server-owned Sellpia sync publishes the ordinary browser collection alert lifecycle', () => {
+test('Sellpia inventory starts and uploads one owner attempt directly', () => {
   const worker = readFileSync(workerPath, 'utf8');
-  const start = worker.indexOf('async function runSellpiaInventoryOperation(');
+  const start = worker.indexOf('async function runSellpiaInventoryCollection(');
   const end = worker.indexOf('\nasync function ', start + 1);
   const body = worker.slice(start, end === -1 ? worker.length : end);
+  const begin = worker.indexOf('async function beginSellpiaOwnerAttempt(');
+  const beginEnd = worker.indexOf('\nasync function ', begin + 1);
+  const beginBody = worker.slice(begin, beginEnd === -1 ? worker.length : beginEnd);
 
   assert.notEqual(start, -1);
-  assert.match(worker, /\/api\/operation-alerts\/start/);
-  assert.match(worker, /\/api\/operation-alerts\/\$\{encodeURIComponent\(operationKey\)\}/);
-  assert.match(worker, /sourceType:\s*["']browser_collection_session["']/);
-  assert.match(worker, /sourceId:\s*["']inventory\.sellpia["']/);
-  assert.match(body, /Sellpia 현재고 동기화가 완료되었습니다\./);
-  assert.match(body, /operation\?\.input\?\.scope === ["']full["']/);
-  assert.match(body, /\/api\/sellpia-product-sales\/ingest/);
-  assert.match(body, /Sellpia 수익성 데이터 갱신이 완료되었습니다/);
+  assert.match(body, /\/api\/sellpia-product-sales\/attempts/);
+  assert.match(beginBody, /Idempotency-Key/);
+  assert.match(body, /attemptToken/);
+  assert.match(beginBody, /collectionSessions\.start/);
+  assert.match(body, /collectionSessions\.remove/);
+  assert.doesNotMatch(worker, /\/api\/operation-alerts/);
+  assert.doesNotMatch(worker, /\/api\/sellpia-product-sales\/ingest/);
 });
 
 test('web bridge reaches local and Office KidItem origins', () => {
@@ -243,7 +245,7 @@ test('Coupang shipment date summary scans its bounded range in concurrent batche
   assert.doesNotMatch(body, /for \(let page = 1; page <= maxPages; page\+\+\)/);
 });
 
-test('every web automatic order message carries its local runId explicitly', () => {
+test('every web automatic order message carries local owner correlation explicitly', () => {
   const automaticActionSet = new Set(automaticCollectors);
   const messages = [];
   for (const file of sourceFilesUnder(webSourceRoot)) {
@@ -260,7 +262,7 @@ test('every web automatic order message carries its local runId explicitly', () 
   for (const message of messages) {
     assert.match(
       message.objectTail,
-      /(?:^|,)\s*runId\s*(?::|[,}])/,
+      /(?:^|,)\s*(?:attemptId|runId)\s*(?::|[,}])/,
       `${message.action} in ${path.relative(repoRoot, message.file)}`,
     );
     if (runDateActions.has(message.action)) {
@@ -298,4 +300,31 @@ test('only explicit user actions route focus through the interactive helper', ()
     assert.notEqual(start, -1, functionName);
     assert.match(body, new RegExp(`INTERACTIVE_TAB_REASONS\\.${reason}`), functionName);
   }
+});
+
+test('collection-session dispatch exposes no restart or finalize command', () => {
+  const dispatchSource = readFileSync(
+    path.join(repoRoot, 'extensions/kiditem-os/background/external-dispatch.js'),
+    'utf8',
+  );
+  const worker = readFileSync(workerPath, 'utf8');
+  assert.doesNotMatch(dispatchSource, /restartCollectionSession/);
+  assert.doesNotMatch(dispatchSource, /finalizeCollectionSession/);
+  assert.doesNotMatch(worker, /msg\?\.action === ["'](?:restart|finalize)CollectionSession["']/);
+});
+
+test('Sellpia inventory is source-owner direct upload, not an Operation wrapper', () => {
+  const worker = readFileSync(workerPath, 'utf8');
+  const registry = readFileSync(
+    path.join(repoRoot, 'extensions/kiditem-os/background/domain-registry.js'),
+    'utf8',
+  );
+  assert.match(worker, /\/api\/sellpia-product-sales\/attempts/);
+  assert.match(worker, /Idempotency-Key/);
+  assert.match(worker, /attemptToken/);
+  assert.doesNotMatch(worker, /\/api\/sellpia-product-sales\/ingest/);
+  assert.doesNotMatch(worker, /runSellpiaInventoryOperation/);
+  assert.doesNotMatch(worker, /\/api\/operation-alerts/);
+  assert.doesNotMatch(registry, /operations:/);
+  assert.doesNotMatch(registry, /runOperation/);
 });

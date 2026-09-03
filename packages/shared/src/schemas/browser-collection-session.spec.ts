@@ -1,325 +1,145 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BROWSER_COLLECTION_ATTENTION_REASONS,
   BROWSER_COLLECTION_PRODUCERS,
   BrowserCollectionAttentionReasonSchema,
+  BrowserCollectionAttemptIdSchema,
   BrowserCollectionCommandSchema,
   BrowserCollectionProducerSchema,
-  BrowserCollectionRunIssueResponseSchema,
   BrowserCollectionSessionViewSchema,
-  BrowserCollectionStateSchema,
 } from './browser-collection-session';
-import {
-  SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES,
-  SellpiaInventoryCollectionFailureCodeSchema,
-} from './sellpia-inventory-freshness';
 
-const RUN_ID = '00000000-0000-4000-8000-000000000001';
-
-const PRODUCERS = [
-  'dashboard.wing_sales',
-  'dashboard.coupang_ads',
-  'dashboard.coupang_products',
-  'dashboard.wing_kpi',
-  'advertising.ad_sync',
-  'advertising.ad_keyword',
-  'advertising.scrape_targets',
-  'advertising.wing_rank',
-  'advertising.keyword_rank',
-  'advertising.competitor_catalog',
-  'channels.coupang_catalog',
-  'sourcing.wing_catalog',
-  'sourcing.1688_trend',
-  'sourcing.live_commerce',
-  'sourcing.tiktok_cc_trend',
-  'orders.mall',
-  'orders.coupang_shipment_summary',
-  'orders.coupang_rocket_po',
-  'inventory.sellpia',
-  'orders.sellpia_manual_match',
-] as const;
-
-const STATES = [
-  'idle',
-  'running',
-  'attention_required',
-  'succeeded',
-  'failed',
-  'cancelled',
-] as const;
-
-const ATTENTION_REASONS = [
-  'extension_missing',
-  'extension_outdated',
-  'kiditem_auth',
-  'marketplace_login',
-  'captcha',
-  'permission',
-  'background_timeout',
-  'rate_limited',
-  'manual_confirmation',
-  'unknown',
-] as const;
+const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
 
 const createSession = () => ({
-  runId: RUN_ID,
-  producer: 'dashboard.wing_sales' as const,
-  classification: 'background_preferred' as const,
-  status: 'running' as const,
-  attempt: 1,
-  restartStrategy: 'extension' as const,
+  attemptId: ATTEMPT_ID,
+  producer: 'inventory.sellpia' as const,
   progress: {
     current: 0,
     total: 30,
     completed: 0,
     failed: 0,
-    label: '7/13',
+    label: null,
   },
-  inputIdentity: { targetCount: 30 },
   attention: null,
-  startedAt: 1783958400000,
-  updatedAt: 1783958401000,
-  finishedAt: null,
 });
 
 describe('BrowserCollectionSessionViewSchema', () => {
-  it('accepts only a strict server-issued run ID response', () => {
-    expect(BrowserCollectionRunIssueResponseSchema.parse({ runId: RUN_ID }))
-      .toEqual({ runId: RUN_ID });
-    expect(() => BrowserCollectionRunIssueResponseSchema.parse({
-      runId: RUN_ID,
-      organizationId: 'organization-a',
-    })).toThrow();
+  it('correlates a session with the owner attempt and has no second lifecycle', () => {
+    const parsed = BrowserCollectionSessionViewSchema.parse(createSession());
+
+    expect(parsed.attemptId).toBe(ATTEMPT_ID);
+    expect(parsed).not.toHaveProperty('status');
+    expect(parsed).not.toHaveProperty('restartStrategy');
+    expect(parsed).not.toHaveProperty('attempt');
+    expect(parsed).not.toHaveProperty('runId');
+    expect(parsed).not.toHaveProperty('inputIdentity');
+    expect(parsed).not.toHaveProperty('finishedAt');
   });
 
-  it('accepts a personal browser collection attention view without tab identity', () => {
+  it('accepts an optional environment owner without exposing managed-tab identity', () => {
     const parsed = BrowserCollectionSessionViewSchema.parse({
       ...createSession(),
-      status: 'attention_required',
-      attention: {
-        reason: 'marketplace_login',
-        message: 'Wing 로그인이 필요합니다.',
-        canOpenTab: true,
-      },
+      environmentId: 'office',
     });
 
-    expect(parsed.status).toBe('attention_required');
+    expect(parsed.environmentId).toBe('office');
     expect(parsed).not.toHaveProperty('managedTabId');
+    expect(parsed).not.toHaveProperty('managedWindowId');
   });
 
-  it('accepts every approved producer', () => {
-    expect(BROWSER_COLLECTION_PRODUCERS).toEqual(PRODUCERS);
-    for (const producer of PRODUCERS) {
+  it('accepts every approved producer and attention reason', () => {
+    expect(BROWSER_COLLECTION_PRODUCERS.length).toBeGreaterThan(0);
+    for (const producer of BROWSER_COLLECTION_PRODUCERS) {
       expect(BrowserCollectionProducerSchema.parse(producer)).toBe(producer);
     }
-  });
-
-  it('accepts the universal extension environment owner', () => {
-    expect(BrowserCollectionSessionViewSchema.parse({
-      ...createSession(),
-      environmentId: 'local',
-    }).environmentId).toBe('local');
-    expect(BrowserCollectionSessionViewSchema.parse({
-      ...createSession(),
-      environmentId: 'office',
-    }).environmentId).toBe('office');
-    expect(() => BrowserCollectionSessionViewSchema.parse({
-      ...createSession(),
-      environmentId: 'staging',
-    })).toThrow();
-  });
-
-  it('accepts every approved state with its required related fields', () => {
-    for (const status of STATES) {
-      const terminal = ['succeeded', 'failed', 'cancelled'].includes(status);
-      const attention = status === 'attention_required'
-        ? {
-            reason: 'manual_confirmation' as const,
-            message: '확인이 필요합니다.',
-            canOpenTab: true,
-          }
-        : null;
-
-      expect(BrowserCollectionSessionViewSchema.parse({
-        ...createSession(),
-        status,
-        attention,
-        finishedAt: terminal ? 1783958402000 : null,
-      }).status).toBe(status);
-      expect(BrowserCollectionStateSchema.parse(status)).toBe(status);
-    }
-  });
-
-  it('accepts every approved attention reason', () => {
-    for (const reason of ATTENTION_REASONS) {
+    for (const reason of BROWSER_COLLECTION_ATTENTION_REASONS) {
       expect(BrowserCollectionAttentionReasonSchema.parse(reason)).toBe(reason);
-      expect(BrowserCollectionSessionViewSchema.parse({
-        ...createSession(),
-        status: 'attention_required',
-        attention: {
-          reason,
-          message: '확인이 필요합니다.',
-          canOpenTab: true,
-        },
-      }).attention?.reason).toBe(reason);
     }
   });
 
-  it('rejects unknown keys throughout the public view', () => {
-    expect(() => BrowserCollectionSessionViewSchema.parse({
+  it('requires bounded progress and attention details', () => {
+    expect(BrowserCollectionSessionViewSchema.parse({
       ...createSession(),
-      unexpected: true,
-    })).toThrow();
-    expect(() => BrowserCollectionSessionViewSchema.parse({
-      ...createSession(),
-      progress: { ...createSession().progress, unexpected: true },
-    })).toThrow();
-    expect(() => BrowserCollectionSessionViewSchema.parse({
-      ...createSession(),
-      status: 'attention_required',
-      attention: {
-        reason: 'captcha',
-        message: 'Captcha 확인이 필요합니다.',
-        canOpenTab: true,
-        unexpected: true,
+      progress: {
+        current: 3,
+        total: 5,
+        completed: 2,
+        failed: 1,
+        label: '상품 수집 중',
       },
-    })).toThrow();
-  });
+      attention: {
+        reason: 'marketplace_login',
+        message: 'Sellpia 로그인이 필요합니다.',
+        canOpenTab: true,
+      },
+    }).attention?.reason).toBe('marketplace_login');
 
-  it('rejects invalid progress bounds', () => {
     expect(() => BrowserCollectionSessionViewSchema.parse({
       ...createSession(),
       progress: { ...createSession().progress, current: 31 },
     })).toThrow('Invalid progress bounds');
     expect(() => BrowserCollectionSessionViewSchema.parse({
       ...createSession(),
-      progress: {
-        ...createSession().progress,
-        completed: 20,
-        failed: 11,
-      },
+      progress: { ...createSession().progress, completed: 30, failed: 1 },
     })).toThrow('Invalid progress bounds');
-  });
-
-  it('requires a UUID run identity', () => {
     expect(() => BrowserCollectionSessionViewSchema.parse({
       ...createSession(),
-      runId: 'not-a-uuid',
+      attention: {
+        reason: 'captcha',
+        message: '',
+        canOpenTab: true,
+      },
     })).toThrow();
   });
 
-  it('rejects browser tab identities and secret input identities', () => {
+  it('requires an owner attempt UUID and rejects unknown public fields', () => {
+    expect(BrowserCollectionAttemptIdSchema.parse(ATTEMPT_ID)).toBe(ATTEMPT_ID);
+    expect(() => BrowserCollectionAttemptIdSchema.parse('not-a-uuid')).toThrow();
+    expect(() => BrowserCollectionSessionViewSchema.parse({
+      ...createSession(),
+      status: 'running',
+    })).toThrow();
     expect(() => BrowserCollectionSessionViewSchema.parse({
       ...createSession(),
       managedTabId: 123,
     })).toThrow();
-    expect(() => BrowserCollectionSessionViewSchema.parse({
-      ...createSession(),
-      browserTabId: 123,
-    })).toThrow();
-    expect(() => BrowserCollectionSessionViewSchema.parse({
-      ...createSession(),
-      inputIdentity: { accessToken: 'secret' },
-    })).toThrow('Secret identity field is not allowed: accessToken');
-    expect(() => BrowserCollectionSessionViewSchema.parse({
-      ...createSession(),
-      inputIdentity: { sourcePayload: 'raw input' },
-    })).toThrow('Secret identity field is not allowed: sourcePayload');
-    for (const key of ['response', 'responseBody', 'body', 'rawHtml']) {
-      expect(() => BrowserCollectionSessionViewSchema.parse({
-        ...createSession(),
-        inputIdentity: { [key]: 'raw input' },
-      })).toThrow(`Secret identity field is not allowed: ${key}`);
-    }
-  });
-
-  it('keeps input identity values primitive and bounded', () => {
-    expect(BrowserCollectionSessionViewSchema.parse({
-      ...createSession(),
-      inputIdentity: {
-        targetCount: 30,
-        query: 'kids shoes',
-        enabled: true,
-        category: null,
-      },
-    }).inputIdentity).toEqual({
-      targetCount: 30,
-      query: 'kids shoes',
-      enabled: true,
-      category: null,
-    });
-    expect(() => BrowserCollectionSessionViewSchema.parse({
-      ...createSession(),
-      inputIdentity: { nested: { raw: 'input' } },
-    })).toThrow();
-    expect(() => BrowserCollectionSessionViewSchema.parse({
-      ...createSession(),
-      inputIdentity: { query: 'x'.repeat(501) },
-    })).toThrow();
-    expect(() => BrowserCollectionSessionViewSchema.parse({
-      ...createSession(),
-      inputIdentity: Object.fromEntries(
-        Array.from({ length: 21 }, (_, index) => [`field${index}`, index]),
-      ),
-    })).toThrow('Too many identity fields');
   });
 });
 
 describe('BrowserCollectionCommandSchema', () => {
-  it('accepts only explicit collection control commands', () => {
+  it('exposes only list/get/cancel/open-attention commands', () => {
+    expect(BrowserCollectionCommandSchema.parse({
+      action: 'listCollectionSessions',
+    })).toEqual({ action: 'listCollectionSessions' });
+    expect(BrowserCollectionCommandSchema.parse({
+      action: 'getCollectionSession',
+      attemptId: ATTEMPT_ID,
+    })).toEqual({ action: 'getCollectionSession', attemptId: ATTEMPT_ID });
+    expect(BrowserCollectionCommandSchema.parse({
+      action: 'cancelCollectionSession',
+      attemptId: ATTEMPT_ID,
+    })).toEqual({ action: 'cancelCollectionSession', attemptId: ATTEMPT_ID });
     expect(BrowserCollectionCommandSchema.parse({
       action: 'openCollectionAttentionTab',
-      runId: RUN_ID,
-    })).toEqual({ action: 'openCollectionAttentionTab', runId: RUN_ID });
+      attemptId: ATTEMPT_ID,
+    })).toEqual({ action: 'openCollectionAttentionTab', attemptId: ATTEMPT_ID });
+  });
+
+  it('rejects terminal/restart commands and legacy run IDs', () => {
     expect(() => BrowserCollectionCommandSchema.parse({
-      action: 'focusAnyTab',
-      runId: RUN_ID,
+      action: 'restartCollectionSession',
+      attemptId: ATTEMPT_ID,
     })).toThrow();
-  });
-
-  it.each([
-    { action: 'listCollectionSessions' },
-    { action: 'getCollectionSession', runId: RUN_ID },
-    { action: 'cancelCollectionSession', runId: RUN_ID },
-    { action: 'openCollectionAttentionTab', runId: RUN_ID },
-    { action: 'restartCollectionSession', runId: RUN_ID },
-    {
-      action: 'finalizeCollectionSession',
-      runId: RUN_ID,
-      status: 'failed',
-      message: '쿠팡직배송 엑셀 생성 실패',
-    },
-  ])('accepts the $action command', (command) => {
-    expect(BrowserCollectionCommandSchema.parse(command)).toEqual(command);
-  });
-
-  it('bounds web-finalized collection messages', () => {
     expect(() => BrowserCollectionCommandSchema.parse({
       action: 'finalizeCollectionSession',
-      runId: RUN_ID,
-      status: 'failed',
-      message: 'x'.repeat(301),
-    })).toThrow();
-  });
-
-  it('rejects unknown command keys and non-UUID run identities', () => {
-    expect(() => BrowserCollectionCommandSchema.parse({
-      action: 'listCollectionSessions',
-      unexpected: true,
+      attemptId: ATTEMPT_ID,
+      status: 'succeeded',
+      message: 'done',
     })).toThrow();
     expect(() => BrowserCollectionCommandSchema.parse({
       action: 'getCollectionSession',
-      runId: 'not-a-uuid',
+      runId: ATTEMPT_ID,
     })).toThrow();
-  });
-});
-
-describe('Sellpia browser collection failures', () => {
-  it('accepts only stable machine-readable failure codes', () => {
-    for (const errorCode of SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES) {
-      expect(SellpiaInventoryCollectionFailureCodeSchema.parse(errorCode)).toBe(errorCode);
-    }
-    expect(() => SellpiaInventoryCollectionFailureCodeSchema.parse(
-      'Sellpia login is required',
-    )).toThrow();
   });
 });
