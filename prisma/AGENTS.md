@@ -83,10 +83,6 @@ generic guidance.
   Drops, narrowing type changes, or `--accept-data-loss` require the explicit
   data/cutover decision in the deployment runbook; never use them as routine
   post-pull setup or against an operating database.
-- Shared development baselines follow
-  [`DEV_DATA_BUNDLES.md`](../docs/DEV_DATA_BUNDLES.md); keep bootstrap artifacts
-  and their lifecycle documented there.
-
 ## Verification
 
 After Prisma model or schema-consumer changes:

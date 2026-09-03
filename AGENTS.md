@@ -115,8 +115,8 @@ contract.
   rebase a shared branch.
 - Before opening or merging, stop on an unexpected base, commit count,
   duplicated messages, or unrelated diff.
-- Use [the PR template](.github/PULL_REQUEST_TEMPLATE.md), including
-  DB/backfill/dev-data decisions, and read the live body back after editing.
+- Use [the PR template](.github/PULL_REQUEST_TEMPLATE.md), including DB and
+  backfill decisions, and read the live body back after editing.
 - Before waiting for checks, run the reconstruction and release-contract guards
   against the intended base. Share PRs that change AGENTS.md or CLAUDE.md.
 
@@ -129,5 +129,4 @@ contract.
 | Design system | [DESIGN.md](DESIGN.md) |
 | Environment | [environment-variables.md](docs/runbooks/environment-variables.md) |
 | Codex skill profiles | [codex-skill-profiles.md](docs/runbooks/codex-skill-profiles.md) |
-| Dev data | [docs/DEV_DATA_BUNDLES.md](docs/DEV_DATA_BUNDLES.md) |
 | Prisma models | [prisma/models/](prisma/models/) |
