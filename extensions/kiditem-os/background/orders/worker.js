@@ -108,6 +108,8 @@ function runSellpiaManualMatchCollection(message) {
 }
 
 const SELLPIA_OWNER_PARSER_VERSION = "sellpia-profitability-v1";
+const sellpiaInventoryActiveRuns = new Map();
+const SELLPIA_OWNER_CONTROL_UNAVAILABLE = Symbol("sellpia-owner-control-unavailable");
 
 function sellpiaOwnerAttemptId(value) {
   return typeof value === "string" &&
@@ -224,9 +226,16 @@ async function sellpiaOwnerRequest(environmentId, path, options = {}) {
 
 async function beginSellpiaOwnerAttempt(message) {
   const environmentId = message.environmentId;
-  const idempotencyKey = typeof message.idempotencyKey === "string" && message.idempotencyKey.trim()
+  const idempotencyKey = typeof message.idempotencyKey === "string"
     ? message.idempotencyKey.trim()
-    : crypto.randomUUID();
+    : "";
+  if (!idempotencyKey) {
+    const error = new Error(
+      "Sellpia owner start requires an explicit idempotency key (new-start-key-required).",
+    );
+    error.code = "new-start-key-required";
+    throw error;
+  }
   const beginBody = {};
   if (typeof message.normalizedSourceAvailabilityDate === "string") {
     beginBody.normalizedSourceAvailabilityDate = message.normalizedSourceAvailabilityDate;
@@ -247,12 +256,69 @@ async function beginSellpiaOwnerAttempt(message) {
   }
   const attempt = sellpiaOwnerAttemptView(body);
   if (!attempt) throw new Error("Sellpia owner returned an invalid attempt");
+  if (!sellpiaOwnerAttemptIsLive(attempt)) {
+    const state = attempt.ownerAttempt?.state;
+    const error = new Error(
+      state === "RUNNING"
+        ? "Sellpia owner attempt is expired; provide a new idempotency key (new-start-key-required)."
+        : "Sellpia owner attempt is terminal; provide a new idempotency key (new-start-key-required).",
+    );
+    error.code = "new-start-key-required";
+    throw error;
+  }
   await collectionSessions.start({
     environmentId,
     attemptId: attempt.attemptId,
     producer: "inventory.sellpia",
   });
   return attempt;
+}
+
+function sellpiaOwnerAttemptIsLive(attempt) {
+  return attempt?.ownerAttempt?.state === "RUNNING" &&
+    Number.isFinite(Date.parse(String(attempt.ownerAttempt?.expiresAt || ""))) &&
+    Date.parse(attempt.ownerAttempt.expiresAt) > Date.now();
+}
+
+async function readSellpiaOwnerAttemptControl(environmentId, attemptId) {
+  if (!sellpiaOwnerAttemptId(attemptId)) return null;
+  let response;
+  try {
+    response = await sellpiaOwnerRequest(
+      environmentId,
+      `/api/sellpia-product-sales/attempts/${encodeURIComponent(attemptId)}`,
+      { method: "GET" },
+    );
+  } catch {
+    return SELLPIA_OWNER_CONTROL_UNAVAILABLE;
+  }
+  const body = await readSellpiaOwnerResponse(response);
+  if (!response?.ok) {
+    return response?.status === 404 || response?.status === 409
+      ? null
+      : SELLPIA_OWNER_CONTROL_UNAVAILABLE;
+  }
+  const attempt = sellpiaOwnerAttemptView(body);
+  if (!attempt || attempt.attemptId !== attemptId || !sellpiaOwnerAttemptIsLive(attempt)) {
+    return null;
+  }
+  return attempt;
+}
+
+async function rehydrateSellpiaOwnerAttempt(message) {
+  const sessions = await collectionSessions.list(message.environmentId);
+  const persisted = sessions.find((session) => session.producer === "inventory.sellpia");
+  if (!persisted) return null;
+  const attempt = await readSellpiaOwnerAttemptControl(
+    message.environmentId,
+    persisted.attemptId,
+  );
+  if (attempt === SELLPIA_OWNER_CONTROL_UNAVAILABLE) {
+    throw new Error("Sellpia owner control could not be read.");
+  }
+  if (attempt) return attempt;
+  await collectionSessions.remove(persisted.attemptId);
+  return null;
 }
 
 async function submitSellpiaOwnerFailure(
@@ -291,141 +357,163 @@ function sellpiaCollectionNeedsAttention(result) {
 }
 
 async function runSellpiaInventoryCollection(message) {
-  let attempt;
-  try {
-    attempt = await beginSellpiaOwnerAttempt(message);
-  } catch (error) {
-    return {
-      success: false,
-      error: error?.message || "Sellpia owner attempt could not be started.",
-    };
-  }
+  const environmentId = message.environmentId;
+  const existing = sellpiaInventoryActiveRuns.get(environmentId);
+  if (existing) return existing;
 
-  let collected;
-  try {
-    collected = await collectSellpiaProductProfit(attempt.plan.from, attempt.plan.to);
-  } catch (error) {
-    collected = {
-      success: false,
-      error: error?.message || "Sellpia product-profit collection failed.",
-    };
-  }
-  const session = await collectionSessions.get(attempt.attemptId);
-  if (!session) {
-    return {
-      success: false,
-      cancelled: true,
-      attemptId: attempt.attemptId,
-      error: "Sellpia collection was cancelled",
-    };
-  }
-  if (collected?.success !== true || !collected.payload) {
-    if (sellpiaCollectionNeedsAttention(collected)) {
-      const collectionSession = await collectionSessions.requireAttention(attempt.attemptId, {
-        reason: "marketplace_login",
-        message: sellpiaOwnerFailureMessage(collected?.error, "Sellpia login is required."),
-      });
-      return {
+  const execution = (async () => {
+    let attempt;
+    try {
+      attempt = await rehydrateSellpiaOwnerAttempt(message);
+      if (!attempt) {
+        attempt = await beginSellpiaOwnerAttempt(message);
+      }
+    } catch (error) {
+      const result = {
         success: false,
-        pendingLogin: true,
-        attemptId: attempt.attemptId,
-        error: collected?.error || "Sellpia login is required.",
-        collectionSession,
+        error: error?.message || "Sellpia owner attempt could not be started.",
+      };
+      if (typeof error?.code === "string") result.errorCode = error.code;
+      return result;
+    }
+
+    let collected;
+    try {
+      collected = await collectSellpiaProductProfit(attempt.plan.from, attempt.plan.to);
+    } catch (error) {
+      collected = {
+        success: false,
+        error: error?.message || "Sellpia product-profit collection failed.",
       };
     }
-    const failureResponse = await submitSellpiaOwnerFailure(
-      message.environmentId,
-      attempt.attemptId,
-      attempt.attemptToken,
-      "sellpia_collection_failed",
-      collected?.error || "Sellpia product-profit collection failed.",
-    ).catch(() => ({ accepted: false }));
-    if (failureResponse.accepted) await collectionSessions.remove(attempt.attemptId);
-    return {
-      success: false,
-      attemptId: attempt.attemptId,
-      error: collected?.error || "Sellpia product-profit collection failed.",
-    };
-  }
+    const session = await collectionSessions.get(attempt.attemptId);
+    if (!session) {
+      return {
+        success: false,
+        cancelled: true,
+        attemptId: attempt.attemptId,
+        error: "Sellpia collection was cancelled",
+      };
+    }
+    if (collected?.success !== true || !collected.payload) {
+      if (sellpiaCollectionNeedsAttention(collected)) {
+        const collectionSession = await collectionSessions.requireAttention(attempt.attemptId, {
+          reason: "marketplace_login",
+          message: sellpiaOwnerFailureMessage(collected?.error, "Sellpia login is required."),
+        });
+        return {
+          success: false,
+          pendingLogin: true,
+          attemptId: attempt.attemptId,
+          error: collected?.error || "Sellpia login is required.",
+          collectionSession,
+        };
+      }
+      const failureResponse = await submitSellpiaOwnerFailure(
+        message.environmentId,
+        attempt.attemptId,
+        attempt.attemptToken,
+        "sellpia_collection_failed",
+        collected?.error || "Sellpia product-profit collection failed.",
+      ).catch(() => ({ accepted: false }));
+      if (failureResponse.accepted) await collectionSessions.remove(attempt.attemptId);
+      return {
+        success: false,
+        attemptId: attempt.attemptId,
+        error: collected?.error || "Sellpia product-profit collection failed.",
+      };
+    }
 
-  const activeSession = await collectionSessions.get(attempt.attemptId);
-  if (!activeSession) {
-    return {
-      success: false,
-      cancelled: true,
-      attemptId: attempt.attemptId,
-      error: "Sellpia collection was cancelled",
+    const activeSession = await collectionSessions.get(attempt.attemptId);
+    if (!activeSession) {
+      return {
+        success: false,
+        cancelled: true,
+        attemptId: attempt.attemptId,
+        error: "Sellpia collection was cancelled",
+      };
+    }
+    const payload = collected.payload;
+    const products = Array.isArray(payload.products) ? payload.products : [];
+    const providerBackedEmptyProof = payload.providerBackedEmptyProof === true;
+    if (products.length === 0 && !providerBackedEmptyProof) {
+      const error = "Sellpia provider returned empty coverage without explicit proof.";
+      const failureResponse = await submitSellpiaOwnerFailure(
+        message.environmentId,
+        attempt.attemptId,
+        attempt.attemptToken,
+        "EMPTY_COVERAGE_NOT_PROVEN",
+        error,
+      ).catch(() => ({ accepted: false }));
+      if (failureResponse.accepted) await collectionSessions.remove(attempt.attemptId);
+      return {
+        success: false,
+        attemptId: attempt.attemptId,
+        error,
+      };
+    }
+    const submitBody = {
+      attemptToken: attempt.attemptToken,
+      parserVersion: SELLPIA_OWNER_PARSER_VERSION,
+      providerBackedEmptyProof,
+      coveredMonths: sellpiaOwnerCoveredMonths(attempt.plan, payload),
+      provenance: payload.provenance,
+      products,
     };
-  }
-  const payload = collected.payload;
-  const products = Array.isArray(payload.products) ? payload.products : [];
-  const submitBody = {
-    attemptToken: attempt.attemptToken,
-    parserVersion: SELLPIA_OWNER_PARSER_VERSION,
-    providerBackedEmptyProof: products.length === 0,
-    coveredMonths: sellpiaOwnerCoveredMonths(attempt.plan, payload),
-    provenance: payload.provenance,
-    products,
-  };
-  const submitResponse = await sellpiaOwnerRequest(
-    message.environmentId,
-    `/api/sellpia-product-sales/attempts/${encodeURIComponent(attempt.attemptId)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(submitBody),
-    },
-  );
-  const submitResult = await readSellpiaOwnerResponse(submitResponse);
-  if (!submitResponse.ok) {
-    const failureResponse = await submitSellpiaOwnerFailure(
+    const submitResponse = await sellpiaOwnerRequest(
       message.environmentId,
-      attempt.attemptId,
-      attempt.attemptToken,
-      "sellpia_owner_upload_failed",
-      submitResult?.message || `Sellpia owner upload failed (${submitResponse.status}).`,
-    ).catch(() => ({ accepted: false }));
-    if (failureResponse.accepted) await collectionSessions.remove(attempt.attemptId);
+      `/api/sellpia-product-sales/attempts/${encodeURIComponent(attempt.attemptId)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(submitBody),
+      },
+    );
+    const submitResult = await readSellpiaOwnerResponse(submitResponse);
+    if (!submitResponse.ok) {
+      const failureResponse = await submitSellpiaOwnerFailure(
+        message.environmentId,
+        attempt.attemptId,
+        attempt.attemptToken,
+        "sellpia_owner_upload_failed",
+        submitResult?.message || `Sellpia owner upload failed (${submitResponse.status}).`,
+      ).catch(() => ({ accepted: false }));
+      if (failureResponse.accepted) await collectionSessions.remove(attempt.attemptId);
+      return {
+        success: false,
+        attemptId: attempt.attemptId,
+        error: sellpiaOwnerFailureMessage(
+          submitResult?.message,
+          `Sellpia owner upload failed (${submitResponse.status}).`,
+        ),
+      };
+    }
+    await collectionSessions.remove(attempt.attemptId);
     return {
-      success: false,
+      success: true,
       attemptId: attempt.attemptId,
-      error: sellpiaOwnerFailureMessage(
-        submitResult?.message,
-        `Sellpia owner upload failed (${submitResponse.status}).`,
-      ),
+      productProfitCount: products.length,
     };
+  })();
+  sellpiaInventoryActiveRuns.set(environmentId, execution);
+  try {
+    return await execution;
+  } finally {
+    if (sellpiaInventoryActiveRuns.get(environmentId) === execution) {
+      sellpiaInventoryActiveRuns.delete(environmentId);
+    }
   }
-  await collectionSessions.remove(attempt.attemptId);
-  return {
-    success: true,
-    attemptId: attempt.attemptId,
-    productProfitCount: products.length,
-  };
 }
 
-async function failSellpiaOwnerAttemptFromStatus(environmentId, attemptId) {
-  const statusResponse = await sellpiaOwnerRequest(
-    environmentId,
-    "/api/sellpia-product-sales/status",
-    { method: "GET" },
-  );
-  const statusBody = await readSellpiaOwnerResponse(statusResponse);
-  if (!statusResponse.ok) return { accepted: false };
-
-  const latestAttempt = statusBody?.latestAttempt;
-  if (
-    sellpiaOwnerAttemptId(latestAttempt?.attemptId) !== attemptId ||
-    latestAttempt?.state !== "RUNNING" ||
-    typeof latestAttempt?.attemptToken !== "string" ||
-    latestAttempt.attemptToken.length === 0
-  ) {
+async function failSellpiaOwnerAttemptFromControl(environmentId, attemptId) {
+  const attempt = await readSellpiaOwnerAttemptControl(environmentId, attemptId);
+  if (!attempt || attempt === SELLPIA_OWNER_CONTROL_UNAVAILABLE) {
     return { accepted: false };
   }
-
   return submitSellpiaOwnerFailure(
     environmentId,
     attemptId,
-    latestAttempt.attemptToken,
+    attempt.attemptToken,
     "COLLECTION_CANCELLED",
     "Sellpia collection was cancelled by the operator.",
   );
@@ -437,7 +525,7 @@ async function cancelSellpiaInventoryCollection(attemptId, environmentId) {
   return collectionSessions.cancel(attemptId, {
     closeManagedTab: true,
     ownerFailure: ({ attemptId: ownerAttemptId }) =>
-      failSellpiaOwnerAttemptFromStatus(environmentId, ownerAttemptId),
+      failSellpiaOwnerAttemptFromControl(environmentId, ownerAttemptId),
   });
 }
 

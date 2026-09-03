@@ -618,7 +618,7 @@ test('Sellpia inventory correlates one owner attempt and submits directly after 
           attemptId,
           attemptToken: 'owner-token',
           state: 'RUNNING',
-          expiresAt: '2026-09-03T02:00:00.000Z',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
           plan: { from: '2025-08-01', to: '2026-08-31' },
         });
       }
@@ -627,7 +627,87 @@ test('Sellpia inventory correlates one owner attempt and submits directly after 
           attemptId,
           attemptToken: 'owner-token',
           state: 'COMPLETE',
-          expiresAt: '2026-09-03T02:00:00.000Z',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          plan: { from: '2025-08-01', to: '2026-08-31' },
+        });
+      }
+      return textResponse('', { ok: false, status: 404 });
+    },
+  });
+  runtime.context.collectSellpiaProductProfit = async (from, to) => ({
+    success: true,
+    payload: {
+      range: { from, to },
+      provenance: {
+        source: 'sellpia_stat_prd_profit',
+        costBasis: 'ORDER_TIME_SUPPLY_COST',
+        vatIncluded: true,
+      },
+      products: [{
+        productCode: 'SELLPIA-TEST-1',
+        productName: 'Test product',
+        quantity: 1,
+        supplyCost: 100,
+      }],
+    },
+  });
+
+  const response = await dispatch(runtime.externalMessageListeners, {
+    action: 'collectSellpiaInventory',
+    idempotencyKey: 'sellpia-owner-key-1',
+  });
+
+  assert.equal(response.success, true, JSON.stringify(response));
+  assert.equal(response.attemptId, attemptId);
+  assert.deepEqual(
+    ownerRequests.map(({ path }) => path),
+    [
+      '/api/sellpia-product-sales/attempts',
+      `/api/sellpia-product-sales/attempts/${attemptId}`,
+    ],
+  );
+  assert.equal(ownerRequests[0].headers['idempotency-key'], 'sellpia-owner-key-1');
+  assert.equal(ownerRequests[1].body.attemptToken, 'owner-token');
+  assert.equal(ownerRequests[1].body.providerBackedEmptyProof, false);
+  assert.equal(ownerRequests.some(({ path }) => path.endsWith('/ingest')), false);
+  assert.equal(ownerRequests.some(({ body }) => body?.runId), false);
+});
+
+test('Sellpia empty provider response fails the owner without uploading an unproven completion', async () => {
+  const ownerRequests = [];
+  const attemptId = uuid(902);
+  const runtime = loadWorker({
+    async fetch(url, init = {}) {
+      const pathName = new URL(url).pathname;
+      const body = typeof init.body === 'string' ? JSON.parse(init.body) : null;
+      ownerRequests.push({ path: pathName, body });
+      if (pathName === '/api/sellpia-product-sales/attempts') {
+        return jsonResponse({
+          attemptId,
+          attemptToken: 'owner-token',
+          state: 'RUNNING',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          plan: { from: '2025-08-01', to: '2026-08-31' },
+        });
+      }
+      if (pathName.endsWith('/fail')) {
+        assert.equal(body.attemptToken, 'owner-token');
+        assert.equal(body.errorCode, 'EMPTY_COVERAGE_NOT_PROVEN');
+        assert.match(body.errorMessage, /empty coverage|proof/i);
+        return jsonResponse({
+          attemptId,
+          attemptToken: 'owner-token',
+          state: 'FAILED',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          plan: { from: '2025-08-01', to: '2026-08-31' },
+        });
+      }
+      if (pathName === `/api/sellpia-product-sales/attempts/${attemptId}`) {
+        return jsonResponse({
+          attemptId,
+          attemptToken: 'owner-token',
+          state: 'COMPLETE',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
           plan: { from: '2025-08-01', to: '2026-08-31' },
         });
       }
@@ -649,23 +729,584 @@ test('Sellpia inventory correlates one owner attempt and submits directly after 
 
   const response = await dispatch(runtime.externalMessageListeners, {
     action: 'collectSellpiaInventory',
-    idempotencyKey: 'sellpia-owner-key-1',
+    idempotencyKey: 'sellpia-owner-key-empty',
+  });
+
+  assert.equal(response.success, false, JSON.stringify(response));
+  assert.equal(response.attemptId, attemptId);
+  assert.match(response.error, /empty coverage|proof/i);
+  assert.deepEqual(ownerRequests.map(({ path }) => path), [
+    '/api/sellpia-product-sales/attempts',
+    `/api/sellpia-product-sales/attempts/${attemptId}/fail`,
+  ]);
+  assert.equal(runtime.storage.kiditem_collection_sessions[attemptId], undefined);
+});
+
+test('Sellpia restart rehydrates a persisted session from the exact owner control route', async () => {
+  const ownerRequests = [];
+  const attemptId = uuid(903);
+  const runtime = loadWorker({
+    async fetch(url, init = {}) {
+      const pathName = new URL(url).pathname;
+      const method = init.method || 'GET';
+      const body = typeof init.body === 'string' ? JSON.parse(init.body) : null;
+      ownerRequests.push({ path: pathName, method, body });
+      if (
+        pathName === `/api/sellpia-product-sales/attempts/${attemptId}` &&
+        method === 'GET'
+      ) {
+        return jsonResponse({
+          attemptId,
+          attemptToken: 'rehydrated-token',
+          state: 'RUNNING',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          plan: {
+            from: '2025-08-01',
+            to: '2026-08-31',
+            coveredMonths: ['2025-08', '2025-09'],
+          },
+        });
+      }
+      if (
+        pathName === `/api/sellpia-product-sales/attempts/${attemptId}` &&
+        method === 'POST'
+      ) {
+        assert.equal(body.attemptToken, 'rehydrated-token');
+        return jsonResponse({
+          attemptId,
+          attemptToken: 'rehydrated-token',
+          state: 'COMPLETE',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          plan: { from: '2025-08-01', to: '2026-08-31' },
+        });
+      }
+      return textResponse('', { ok: false, status: 404 });
+    },
+  });
+  runtime.storage.kiditem_collection_sessions = {
+    [attemptId]: {
+      environmentId: 'local',
+      attemptId,
+      producer: 'inventory.sellpia',
+      progress: { current: 0, total: 0, completed: 0, failed: 0, label: null },
+      attention: null,
+      updatedAt: Date.now(),
+    },
+  };
+  runtime.context.collectSellpiaProductProfit = async (from, to) => ({
+    success: true,
+    payload: {
+      range: { from, to },
+      provenance: {
+        source: 'sellpia_stat_prd_profit',
+        costBasis: 'ORDER_TIME_SUPPLY_COST',
+        vatIncluded: true,
+      },
+      products: [{ productCode: 'SELLPIA-REHYDRATED-1', quantity: 1 }],
+    },
+  });
+
+  const response = await dispatch(runtime.externalMessageListeners, {
+    action: 'collectSellpiaInventory',
+    idempotencyKey: 'sellpia-owner-key-rehydrated',
   });
 
   assert.equal(response.success, true, JSON.stringify(response));
   assert.equal(response.attemptId, attemptId);
-  assert.deepEqual(
-    ownerRequests.map(({ path }) => path),
-    [
-      '/api/sellpia-product-sales/attempts',
-      `/api/sellpia-product-sales/attempts/${attemptId}`,
-    ],
-  );
-  assert.equal(ownerRequests[0].headers['idempotency-key'], 'sellpia-owner-key-1');
-  assert.equal(ownerRequests[1].body.attemptToken, 'owner-token');
-  assert.equal(ownerRequests[1].body.providerBackedEmptyProof, true);
-  assert.equal(ownerRequests.some(({ path }) => path.endsWith('/ingest')), false);
-  assert.equal(ownerRequests.some(({ body }) => body?.runId), false);
+  assert.deepEqual(ownerRequests, [
+    {
+      path: `/api/sellpia-product-sales/attempts/${attemptId}`,
+      method: 'GET',
+      body: null,
+    },
+    {
+      path: `/api/sellpia-product-sales/attempts/${attemptId}`,
+      method: 'POST',
+      body: {
+        attemptToken: 'rehydrated-token',
+        parserVersion: 'sellpia-profitability-v1',
+        providerBackedEmptyProof: false,
+        coveredMonths: ['2025-08', '2025-09'],
+        provenance: {
+          source: 'sellpia_stat_prd_profit',
+          costBasis: 'ORDER_TIME_SUPPLY_COST',
+          vatIncluded: true,
+        },
+        products: [{ productCode: 'SELLPIA-REHYDRATED-1', quantity: 1 }],
+      },
+    },
+  ]);
+  assert.equal(runtime.storage.kiditem_collection_sessions[attemptId], undefined);
+});
+
+test('Sellpia restart removes a terminal owner session before beginning a replacement attempt', async () => {
+  const ownerRequests = [];
+  const staleAttemptId = uuid(904);
+  const replacementAttemptId = uuid(905);
+  const runtime = loadWorker({
+    async fetch(url, init = {}) {
+      const pathName = new URL(url).pathname;
+      const method = init.method || 'GET';
+      const body = typeof init.body === 'string' ? JSON.parse(init.body) : null;
+      ownerRequests.push({ path: pathName, method, body });
+      if (
+        pathName === `/api/sellpia-product-sales/attempts/${staleAttemptId}` &&
+        method === 'GET'
+      ) {
+        return jsonResponse({ message: 'ATTEMPT_TERMINAL' }, { ok: false, status: 409 });
+      }
+      if (pathName === '/api/sellpia-product-sales/attempts' && method === 'POST') {
+        assert.equal(
+          new Headers(init.headers || {}).get('Idempotency-Key'),
+          'sellpia-owner-key-replacement',
+        );
+        assert.equal(runtime.storage.kiditem_collection_sessions[staleAttemptId], undefined);
+        return jsonResponse({
+          attemptId: replacementAttemptId,
+          attemptToken: 'replacement-token',
+          state: 'RUNNING',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          plan: { from: '2025-08-01', to: '2026-08-31' },
+        });
+      }
+      if (
+        pathName === `/api/sellpia-product-sales/attempts/${replacementAttemptId}` &&
+        method === 'POST'
+      ) {
+        assert.equal(body.attemptToken, 'replacement-token');
+        return jsonResponse({
+          attemptId: replacementAttemptId,
+          attemptToken: 'replacement-token',
+          state: 'COMPLETE',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          plan: { from: '2025-08-01', to: '2026-08-31' },
+        });
+      }
+      return textResponse('', { ok: false, status: 404 });
+    },
+  });
+  runtime.storage.kiditem_collection_sessions = {
+    [staleAttemptId]: {
+      environmentId: 'local',
+      attemptId: staleAttemptId,
+      producer: 'inventory.sellpia',
+      progress: { current: 0, total: 0, completed: 0, failed: 0, label: null },
+      attention: null,
+      updatedAt: Date.now(),
+    },
+  };
+  runtime.context.collectSellpiaProductProfit = async (from, to) => ({
+    success: true,
+    payload: {
+      range: { from, to },
+      provenance: {
+        source: 'sellpia_stat_prd_profit',
+        costBasis: 'ORDER_TIME_SUPPLY_COST',
+        vatIncluded: true,
+      },
+      products: [{ productCode: 'SELLPIA-REPLACEMENT-1', quantity: 1 }],
+    },
+  });
+
+  const response = await dispatch(runtime.externalMessageListeners, {
+    action: 'collectSellpiaInventory',
+    idempotencyKey: 'sellpia-owner-key-replacement',
+  });
+
+  assert.equal(response.success, true, JSON.stringify(response));
+  assert.equal(response.attemptId, replacementAttemptId);
+  assert.deepEqual(ownerRequests.map(({ path, method }) => ({ path, method })), [
+    {
+      path: `/api/sellpia-product-sales/attempts/${staleAttemptId}`,
+      method: 'GET',
+    },
+    { path: '/api/sellpia-product-sales/attempts', method: 'POST' },
+    {
+      path: `/api/sellpia-product-sales/attempts/${replacementAttemptId}`,
+      method: 'POST',
+    },
+  ]);
+  assert.equal(runtime.storage.kiditem_collection_sessions[staleAttemptId], undefined);
+  assert.equal(runtime.storage.kiditem_collection_sessions[replacementAttemptId], undefined);
+});
+
+test('Sellpia restart treats a missing owner attempt as stale before beginning with the caller key', async () => {
+  const ownerRequests = [];
+  const staleAttemptId = uuid(909);
+  const replacementAttemptId = uuid(910);
+  const replacementKey = 'sellpia-owner-key-missing-replacement';
+  const runtime = loadWorker({
+    async fetch(url, init = {}) {
+      const pathName = new URL(url).pathname;
+      const method = init.method || 'GET';
+      const body = typeof init.body === 'string' ? JSON.parse(init.body) : null;
+      ownerRequests.push({ path: pathName, method, body });
+      if (
+        pathName === `/api/sellpia-product-sales/attempts/${staleAttemptId}` &&
+        method === 'GET'
+      ) {
+        return textResponse('', { ok: false, status: 404 });
+      }
+      if (pathName === '/api/sellpia-product-sales/attempts' && method === 'POST') {
+        assert.equal(new Headers(init.headers || {}).get('Idempotency-Key'), replacementKey);
+        assert.equal(runtime.storage.kiditem_collection_sessions[staleAttemptId], undefined);
+        return jsonResponse({
+          attemptId: replacementAttemptId,
+          attemptToken: 'missing-replacement-token',
+          state: 'RUNNING',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          plan: { from: '2025-08-01', to: '2026-08-31' },
+        });
+      }
+      if (
+        pathName === `/api/sellpia-product-sales/attempts/${replacementAttemptId}` &&
+        method === 'POST'
+      ) {
+        assert.equal(body.attemptToken, 'missing-replacement-token');
+        return jsonResponse({
+          attemptId: replacementAttemptId,
+          attemptToken: 'missing-replacement-token',
+          state: 'COMPLETE',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          plan: { from: '2025-08-01', to: '2026-08-31' },
+        });
+      }
+      return textResponse('', { ok: false, status: 404 });
+    },
+  });
+  runtime.storage.kiditem_collection_sessions = {
+    [staleAttemptId]: {
+      environmentId: 'local',
+      attemptId: staleAttemptId,
+      producer: 'inventory.sellpia',
+      progress: { current: 0, total: 0, completed: 0, failed: 0, label: null },
+      attention: null,
+      updatedAt: Date.now(),
+    },
+  };
+  runtime.context.collectSellpiaProductProfit = async (from, to) => ({
+    success: true,
+    payload: {
+      range: { from, to },
+      provenance: {
+        source: 'sellpia_stat_prd_profit',
+        costBasis: 'ORDER_TIME_SUPPLY_COST',
+        vatIncluded: true,
+      },
+      products: [{ productCode: 'SELLPIA-MISSING-REPLACEMENT-1', quantity: 1 }],
+    },
+  });
+
+  const response = await dispatch(runtime.externalMessageListeners, {
+    action: 'collectSellpiaInventory',
+    idempotencyKey: replacementKey,
+  });
+
+  assert.equal(response.success, true, JSON.stringify(response));
+  assert.equal(response.attemptId, replacementAttemptId);
+  assert.deepEqual(ownerRequests.map(({ path, method }) => ({ path, method })), [
+    {
+      path: `/api/sellpia-product-sales/attempts/${staleAttemptId}`,
+      method: 'GET',
+    },
+    { path: '/api/sellpia-product-sales/attempts', method: 'POST' },
+    {
+      path: `/api/sellpia-product-sales/attempts/${replacementAttemptId}`,
+      method: 'POST',
+    },
+  ]);
+});
+
+test('Sellpia direct start reports a terminal owner attempt instead of silently creating another identity', async () => {
+  const ownerRequests = [];
+  const attemptId = uuid(911);
+  let collectionCalled = false;
+  const runtime = loadWorker({
+    async fetch(url, init = {}) {
+      const pathName = new URL(url).pathname;
+      const method = init.method || 'GET';
+      ownerRequests.push({ path: pathName, method });
+      if (pathName === '/api/sellpia-product-sales/attempts' && method === 'POST') {
+        return jsonResponse({
+          attemptId,
+          attemptToken: 'terminal-token',
+          state: 'COMPLETE',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          plan: { from: '2025-08-01', to: '2026-08-31' },
+        });
+      }
+      return textResponse('', { ok: false, status: 404 });
+    },
+  });
+  runtime.context.collectSellpiaProductProfit = async () => {
+    collectionCalled = true;
+    return {
+      success: true,
+      payload: {
+        provenance: {
+          source: 'sellpia_stat_prd_profit',
+          costBasis: 'ORDER_TIME_SUPPLY_COST',
+          vatIncluded: true,
+        },
+        products: [{ productCode: 'SELLPIA-TERMINAL-1', quantity: 1 }],
+      },
+    };
+  };
+
+  const response = await dispatch(runtime.externalMessageListeners, {
+    action: 'collectSellpiaInventory',
+    idempotencyKey: 'sellpia-owner-key-terminal',
+  });
+
+  assert.equal(response.success, false, JSON.stringify(response));
+  assert.equal(response.errorCode, 'new-start-key-required');
+  assert.match(response.error, /terminal|new-start-key-required/i);
+  assert.equal(collectionCalled, false);
+  assert.deepEqual(ownerRequests, [
+    { path: '/api/sellpia-product-sales/attempts', method: 'POST' },
+  ]);
+  assert.equal((runtime.storage.kiditem_collection_sessions || {})[attemptId], undefined);
+});
+
+test('Sellpia direct start rejects an expired owner attempt before collection', async () => {
+  const ownerRequests = [];
+  const attemptId = uuid(912);
+  let collectionCalled = false;
+  const runtime = loadWorker({
+    async fetch(url, init = {}) {
+      const pathName = new URL(url).pathname;
+      const method = init.method || 'GET';
+      ownerRequests.push({ path: pathName, method });
+      if (pathName === '/api/sellpia-product-sales/attempts' && method === 'POST') {
+        return jsonResponse({
+          attemptId,
+          attemptToken: 'expired-token',
+          state: 'RUNNING',
+          expiresAt: new Date(Date.now() - 1_000).toISOString(),
+          plan: { from: '2025-08-01', to: '2026-08-31' },
+        });
+      }
+      return textResponse('', { ok: false, status: 404 });
+    },
+  });
+  runtime.context.collectSellpiaProductProfit = async () => {
+    collectionCalled = true;
+    return { success: true, payload: { products: [{ productCode: 'SELLPIA-EXPIRED-1' }] } };
+  };
+
+  const response = await dispatch(runtime.externalMessageListeners, {
+    action: 'collectSellpiaInventory',
+    idempotencyKey: 'sellpia-owner-key-expired',
+  });
+
+  assert.equal(response.success, false, JSON.stringify(response));
+  assert.equal(response.errorCode, 'new-start-key-required');
+  assert.match(response.error, /expired|new-start-key-required|running/i);
+  assert.equal(collectionCalled, false);
+  assert.deepEqual(ownerRequests, [
+    { path: '/api/sellpia-product-sales/attempts', method: 'POST' },
+  ]);
+  assert.equal((runtime.storage.kiditem_collection_sessions || {})[attemptId], undefined);
+});
+
+test('Sellpia direct start requires an explicit idempotency key', async () => {
+  const ownerRequests = [];
+  let collectionCalled = false;
+  const runtime = loadWorker({
+    async fetch(url, init = {}) {
+      ownerRequests.push({ path: new URL(url).pathname, method: init.method || 'GET' });
+      return textResponse('', { ok: false, status: 500 });
+    },
+  });
+  runtime.context.collectSellpiaProductProfit = async () => {
+    collectionCalled = true;
+    return { success: true, payload: { products: [{ productCode: 'SELLPIA-NO-KEY-1' }] } };
+  };
+
+  const response = await dispatch(runtime.externalMessageListeners, {
+    action: 'collectSellpiaInventory',
+  });
+
+  assert.equal(response.success, false, JSON.stringify(response));
+  assert.match(response.error, /idempotency key|required|new-start-key-required/i);
+  assert.equal(collectionCalled, false);
+  assert.deepEqual(ownerRequests, []);
+});
+
+test('Sellpia restart keeps its local session when the owner control read is unavailable', async () => {
+  const ownerRequests = [];
+  const attemptId = uuid(907);
+  const replacementAttemptId = uuid(908);
+  const runtime = loadWorker({
+    async fetch(url, init = {}) {
+      const pathName = new URL(url).pathname;
+      const method = init.method || 'GET';
+      const body = typeof init.body === 'string' ? JSON.parse(init.body) : null;
+      ownerRequests.push({ path: pathName, method, body });
+      if (
+        pathName === `/api/sellpia-product-sales/attempts/${attemptId}` &&
+        method === 'GET'
+      ) {
+        return jsonResponse({ message: 'temporary owner control outage' }, { ok: false, status: 503 });
+      }
+      if (pathName === '/api/sellpia-product-sales/attempts' && method === 'POST') {
+        return jsonResponse({
+          attemptId: replacementAttemptId,
+          attemptToken: 'replacement-token',
+          state: 'RUNNING',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          plan: { from: '2025-08-01', to: '2026-08-31' },
+        });
+      }
+      if (
+        pathName === `/api/sellpia-product-sales/attempts/${replacementAttemptId}` &&
+        method === 'POST'
+      ) {
+        assert.equal(body.attemptToken, 'replacement-token');
+        return jsonResponse({
+          attemptId: replacementAttemptId,
+          attemptToken: 'replacement-token',
+          state: 'COMPLETE',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          plan: { from: '2025-08-01', to: '2026-08-31' },
+        });
+      }
+      return textResponse('', { ok: false, status: 404 });
+    },
+  });
+  runtime.storage.kiditem_collection_sessions = {
+    [attemptId]: {
+      environmentId: 'local',
+      attemptId,
+      producer: 'inventory.sellpia',
+      progress: { current: 0, total: 0, completed: 0, failed: 0, label: null },
+      attention: null,
+      updatedAt: Date.now(),
+    },
+  };
+  let collectionCalled = false;
+  runtime.context.collectSellpiaProductProfit = async () => {
+    collectionCalled = true;
+    return {
+      success: true,
+      payload: {
+        provenance: {
+          source: 'sellpia_stat_prd_profit',
+          costBasis: 'ORDER_TIME_SUPPLY_COST',
+          vatIncluded: true,
+        },
+        products: [{ productCode: 'SELLPIA-UNAVAILABLE-1', quantity: 1 }],
+      },
+    };
+  };
+
+  const response = await dispatch(runtime.externalMessageListeners, {
+    action: 'collectSellpiaInventory',
+    idempotencyKey: 'sellpia-owner-key-unavailable',
+  });
+
+  assert.equal(response.success, false, JSON.stringify(response));
+  assert.match(response.error, /owner control/i);
+  assert.equal(collectionCalled, false);
+  assert.deepEqual(ownerRequests.map(({ path, method }) => ({ path, method })), [
+    {
+      path: `/api/sellpia-product-sales/attempts/${attemptId}`,
+      method: 'GET',
+    },
+  ]);
+  assert.ok(runtime.storage.kiditem_collection_sessions[attemptId]);
+});
+
+test('Sellpia duplicate collection messages share the existing in-memory execution', async () => {
+  const ownerRequests = [];
+  const attemptId = uuid(906);
+  let collectionCalls = 0;
+  let releaseCollection;
+  const collectionGate = new Promise((resolve) => {
+    releaseCollection = resolve;
+  });
+  const runtime = loadWorker({
+    async fetch(url, init = {}) {
+      const pathName = new URL(url).pathname;
+      const method = init.method || 'GET';
+      const body = typeof init.body === 'string' ? JSON.parse(init.body) : null;
+      ownerRequests.push({ path: pathName, method, body });
+      if (pathName === '/api/sellpia-product-sales/attempts' && method === 'POST') {
+        return jsonResponse({
+          attemptId,
+          attemptToken: 'owner-token',
+          state: 'RUNNING',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          plan: { from: '2025-08-01', to: '2026-08-31' },
+        });
+      }
+      if (
+        pathName === `/api/sellpia-product-sales/attempts/${attemptId}` &&
+        method === 'POST'
+      ) {
+        assert.equal(body.attemptToken, 'owner-token');
+        return jsonResponse({
+          attemptId,
+          attemptToken: 'owner-token',
+          state: 'COMPLETE',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          plan: { from: '2025-08-01', to: '2026-08-31' },
+        });
+      }
+      return textResponse('', { ok: false, status: 404 });
+    },
+  });
+  runtime.context.collectSellpiaProductProfit = async (from, to) => {
+    collectionCalls += 1;
+    await collectionGate;
+    return {
+      success: true,
+      payload: {
+        range: { from, to },
+        provenance: {
+          source: 'sellpia_stat_prd_profit',
+          costBasis: 'ORDER_TIME_SUPPLY_COST',
+          vatIncluded: true,
+        },
+        products: [{ productCode: 'SELLPIA-DUPLICATE-1', quantity: 1 }],
+      },
+    };
+  };
+
+  const first = dispatch(runtime.externalMessageListeners, {
+    action: 'collectSellpiaInventory',
+    idempotencyKey: 'sellpia-owner-key-duplicate-1',
+  });
+  const second = dispatch(runtime.externalMessageListeners, {
+    action: 'collectSellpiaInventory',
+    idempotencyKey: 'sellpia-owner-key-duplicate-2',
+  });
+  try {
+    while (!(runtime.storage.kiditem_collection_sessions || {})[attemptId]) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    releaseCollection();
+    const responses = await Promise.all([first, second]);
+    assert.deepEqual(responses.map(({ success, attemptId: responseAttemptId }) => ({
+      success,
+      attemptId: responseAttemptId,
+    })), [
+      { success: true, attemptId },
+      { success: true, attemptId },
+    ]);
+  } finally {
+    releaseCollection();
+    await Promise.allSettled([first, second]);
+  }
+
+  assert.equal(collectionCalls, 1);
+  assert.deepEqual(ownerRequests.map(({ path, method }) => ({ path, method })), [
+    { path: '/api/sellpia-product-sales/attempts', method: 'POST' },
+    {
+      path: `/api/sellpia-product-sales/attempts/${attemptId}`,
+      method: 'POST',
+    },
+  ]);
 });
 
 test('Sellpia cancellation fails the owner before clearing its local session', async () => {
@@ -685,20 +1326,25 @@ test('Sellpia cancellation fails the owner before clearing its local session', a
           attemptId,
           attemptToken: 'owner-token',
           state: 'RUNNING',
-          expiresAt: '2026-09-03T02:00:00.000Z',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
           plan: { from: '2025-08-01', to: '2026-08-31' },
         });
       }
-      if (pathName === '/api/sellpia-product-sales/status') {
+      if (
+        pathName === `/api/sellpia-product-sales/attempts/${attemptId}` &&
+        init.method === 'GET'
+      ) {
         assert.ok(runtime.storage.kiditem_collection_sessions[attemptId]);
         return jsonResponse({
-          latestAttempt: {
-            attemptId,
-            attemptToken: 'fence-token',
-            state: 'RUNNING',
+          attemptId,
+          attemptToken: 'fence-token',
+          state: 'RUNNING',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          plan: {
+            from: '2025-08-01',
+            to: '2026-08-31',
+            coveredMonths: ['2025-08', '2025-09'],
           },
-          latestComplete: null,
-          status: 'RUNNING',
         });
       }
       if (pathName.endsWith('/fail')) {
@@ -709,7 +1355,7 @@ test('Sellpia cancellation fails the owner before clearing its local session', a
           attemptId,
           attemptToken: 'owner-token',
           state: 'FAILED',
-          expiresAt: '2026-09-03T02:00:00.000Z',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
           plan: { from: '2025-08-01', to: '2026-08-31' },
         });
       }
@@ -755,7 +1401,7 @@ test('Sellpia cancellation fails the owner before clearing its local session', a
   assert.equal(runtime.storage.kiditem_collection_sessions[attemptId], undefined);
   assert.deepEqual(ownerRequests.map(({ path }) => path), [
     '/api/sellpia-product-sales/attempts',
-    '/api/sellpia-product-sales/status',
+    `/api/sellpia-product-sales/attempts/${attemptId}`,
     `/api/sellpia-product-sales/attempts/${attemptId}/fail`,
   ]);
   assert.equal(ownerRequests[2].body.attemptToken, 'fence-token');
