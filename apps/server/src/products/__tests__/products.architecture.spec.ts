@@ -12,6 +12,9 @@ import { AnalyticsModule } from '../../analytics/analytics.module';
 import { AiModule } from '../../ai/ai.module';
 import { FinanceModule } from '../../finance/finance.module';
 import { OperationsModule } from '../../operations/operations.module';
+import { ProductAbcController } from '../adapter/in/http/product-abc.controller';
+import { MASTER_PRODUCT_ABC_RECALCULATION_PORT } from '../application/port/in/master-product-abc-recalculation.port';
+import { MasterProductAbcService } from '../application/service/master-product-abc.service';
 
 describe('Products architecture', () => {
   it('publishes the organization-scoped WING category suggestion route', () => {
@@ -40,6 +43,19 @@ describe('Products architecture', () => {
       expect(Reflect.getMetadata('path', handler)).toBe(path);
       expect(Reflect.getMetadata('method', handler)).toBe(method);
     }
+  });
+
+  it('keeps the explicit ABC command inside the Products HTTP boundary', () => {
+    const controllers = Reflect.getMetadata('controllers', ProductsModule) ?? [];
+    const providers = Reflect.getMetadata('providers', ProductsModule) ?? [];
+    const exports = Reflect.getMetadata('exports', ProductsModule) ?? [];
+
+    expect(controllers).toContain(ProductAbcController);
+    expect(providers).toContainEqual({
+      provide: MASTER_PRODUCT_ABC_RECALCULATION_PORT,
+      useExisting: MasterProductAbcService,
+    });
+    expect(exports).not.toContain(MASTER_PRODUCT_ABC_RECALCULATION_PORT);
   });
 
   it('owns the Categories compatibility module', () => {

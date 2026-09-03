@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
 import {
   CreateMasterProductInputSchema,
   MasterProductOperationsListQuerySchema,
+  type MasterProductOperationsListItem,
   type ProductOperationsChannelProductCount,
   type ProductOperationsInventoryFocus,
   ReplaceChannelOptionInventoryInputSchema,
@@ -9,6 +10,14 @@ import {
   type ProductDepletionProjection,
   type ProductOperationsListSummary,
 } from '@kiditem/shared/product-operations';
+import {
+  ProductAbcReadModelSchema,
+  type ProductAbcContributionAnalytics,
+  type ProductAbcContributionOverview,
+  type ProductAbcContributionProduct,
+  type ProductAbcDisplayStatus,
+  type ProductAbcEvaluation,
+} from '@kiditem/shared/product-abc';
 import {
   PRODUCT_OPERATIONS_REPOSITORY_PORT,
   type ProductOperationsRepositoryPort,
@@ -33,7 +42,14 @@ import type { ProductOperationsPort } from '../port/in/product-operations.port';
 import {
   PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT,
   type ProductOperationsDataStatusRepositoryPort,
+  type ProductOperationsDataStatusFacts,
+  type ProductOperationsAbcSourceManifest,
 } from '../port/out/repository/product-operations-data-status.repository.port';
+import {
+  MASTER_PRODUCT_CONTRIBUTION_READ_PORT,
+  type MasterProductContributionReadPort,
+} from '../../../finance/application/port/in/master-product-contribution-read.port';
+import { kstMonthEnd } from '../../../common/kst';
 
 @Injectable()
 export class ProductOperationsService implements ProductOperationsPort {
@@ -50,6 +66,8 @@ export class ProductOperationsService implements ProductOperationsPort {
     private readonly catalogDisplayMedia: CatalogDisplayMediaPort,
     @Inject(PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT)
     private readonly dataStatusRepository: ProductOperationsDataStatusRepositoryPort,
+    @Inject(MASTER_PRODUCT_CONTRIBUTION_READ_PORT)
+    private readonly contribution: MasterProductContributionReadPort,
   ) {}
 
   async listProducts(organizationId: string, rawQuery: unknown) {
@@ -62,17 +80,38 @@ export class ProductOperationsService implements ProductOperationsPort {
       this.repository.listProducts(organizationId, query),
       this.dataStatusRepository.read(organizationId, query.periodDays),
     ]);
-    const inventoryBySkuId = await this.loadInventory(
-      organizationId,
-      raw.items.flatMap(({ inventorySkuIds }) => inventorySkuIds),
-    );
+    const [inventoryBySkuId, contribution] = await Promise.all([
+      this.loadInventory(
+        organizationId,
+        raw.items.flatMap(({ inventorySkuIds }) => inventorySkuIds),
+      ),
+      this.loadContribution(
+        organizationId,
+        dataStatus,
+        raw.items.map(({ id }) => id),
+      ),
+    ]);
     const placeholder = noDirectSales();
-    const hydrated = raw.items.map((item) =>
-      mapProductOperationsListItem(item, inventoryBySkuId, placeholder));
-    const inventoryFiltered = query.inventoryStatus
-      ? hydrated.filter(({ inventoryStatus }) =>
-        inventoryStatus === query.inventoryStatus)
+    const createdAtById = new Map(raw.items.map(({ id, abcCreatedAt }) => [id, abcCreatedAt]));
+    const contributionById = new Map(
+      contribution?.products.map((product) => [product.masterProductId, product]) ?? [],
+    );
+    const hydrated = raw.items.map((item) => {
+      const mapped = mapProductOperationsListItem(item, inventoryBySkuId, placeholder);
+      return enrichAbc(
+        mapped,
+        dataStatus,
+        contributionById.get(item.id) ?? null,
+        createdAtById.get(item.id)!,
+      );
+    });
+    const abcFiltered = query.abcCalculationStatus
+      ? hydrated.filter(({ abc }) => abc.displayStatus === query.abcCalculationStatus)
       : hydrated;
+    const inventoryFiltered = query.inventoryStatus
+      ? abcFiltered.filter(({ inventoryStatus }) =>
+        inventoryStatus === query.inventoryStatus)
+      : abcFiltered;
     const summaryMasterProductIds = inventoryFiltered.map(({ id }) => id);
     const depletionByMasterProductId = await this.depletion.findByMasterProductIds({
       organizationId,
@@ -96,14 +135,23 @@ export class ProductOperationsService implements ProductOperationsPort {
         ...summarizeProducts(
           items,
           summarizeChannelProducts(raw.sellingChannelProducts ?? []),
+          contributionOverview(contribution),
+          dataStatus.displayDataAsOf,
         ),
-        displayDataAsOf: dataStatus.displayDataAsOf,
       },
     };
   }
 
   async getProduct(organizationId: string, masterProductId: string) {
-    const product = await this.repository.getProduct(organizationId, masterProductId);
+    const [product, dataStatus] = await Promise.all([
+      this.repository.getProduct(organizationId, masterProductId),
+      this.dataStatusRepository.read(organizationId, 30),
+    ]);
+    const contribution = await this.loadContribution(
+      organizationId,
+      dataStatus,
+      [masterProductId],
+    );
     const mapped = mapProductOperationsDetail(
       product,
       await this.loadInventory(
@@ -111,7 +159,13 @@ export class ProductOperationsService implements ProductOperationsPort {
         product.inventorySkuIds,
       ),
     );
-    return (await this.applyDisplayImages(organizationId, [mapped]))[0]!;
+    const withAbc = enrichAbc(
+      mapped,
+      dataStatus,
+      contribution?.products[0] ?? null,
+      product.createdAt,
+    );
+    return (await this.applyDisplayImages(organizationId, [withAbc]))[0]!;
   }
 
   async createProduct(
@@ -128,11 +182,7 @@ export class ProductOperationsService implements ProductOperationsPort {
       organizationId,
       product: input,
     });
-    const mapped = mapProductOperationsDetail(
-      product,
-      new Map(),
-    );
-    return (await this.applyDisplayImages(organizationId, [mapped]))[0]!;
+    return this.hydrateProductRead(organizationId, product, new Map());
   }
 
   async updateProduct(
@@ -150,14 +200,14 @@ export class ProductOperationsService implements ProductOperationsPort {
       masterProductId,
       input,
     );
-    const mapped = mapProductOperationsDetail(
+    return this.hydrateProductRead(
+      organizationId,
       product,
       await this.loadInventory(
         organizationId,
         product.inventorySkuIds,
       ),
     );
-    return (await this.applyDisplayImages(organizationId, [mapped]))[0]!;
   }
 
   async replaceChannelOptionInventory(
@@ -192,6 +242,43 @@ export class ProductOperationsService implements ProductOperationsPort {
       item.sellpiaInventorySkuId,
       item,
     ]));
+  }
+
+  private async hydrateProductRead(
+    organizationId: string,
+    product: Awaited<ReturnType<ProductOperationsRepositoryPort['getProduct']>>,
+    inventoryBySkuId: Awaited<ReturnType<ProductOperationsService['loadInventory']>>,
+  ) {
+    const dataStatus = await this.dataStatusRepository.read(organizationId, 30);
+    const contribution = await this.loadContribution(
+      organizationId,
+      dataStatus,
+      [product.id],
+    );
+    const mapped = enrichAbc(
+      mapProductOperationsDetail(product, inventoryBySkuId),
+      dataStatus,
+      contribution?.products[0] ?? null,
+      product.createdAt,
+    );
+    return (await this.applyDisplayImages(organizationId, [mapped]))[0]!;
+  }
+
+  private loadContribution(
+    organizationId: string,
+    dataStatus: ProductOperationsDataStatusFacts,
+    masterProductIds: readonly string[],
+  ): Promise<ProductAbcContributionAnalytics | null> {
+    const basis = fullMonthContributionBasis(dataStatus.sourceVector);
+    if (!basis) return Promise.resolve(null);
+    return this.contribution.readContribution({
+      organizationId,
+      ...basis,
+      sellpiaSourceImportRunId: dataStatus.sourceVector.sellpia!.sourceImportRunId,
+      advertisingSourceImportRunId:
+        dataStatus.sourceVector.advertising!.sourceImportRunId,
+      masterProductIds,
+    });
   }
 
   private async applyDisplayImages<
@@ -258,8 +345,10 @@ function noDirectSales(): ProductDepletionProjection {
 }
 
 function summarizeProducts(
-  products: Array<ReturnType<typeof mapProductOperationsListItem>>,
+  products: MasterProductOperationsListItem[],
   channelProductCounts: ProductOperationsChannelProductCount[],
+  contributionOverviewValue: ProductAbcContributionOverview | null,
+  displayDataAsOf: string | null,
 ): ProductOperationsListSummary {
   const counts = products.reduce<ProductOperationsListSummary>((counts, product) => {
     const abcGrade = product.abcGrade;
@@ -268,23 +357,13 @@ function summarizeProducts(
     } else {
       counts.abcGradeCounts.unclassified += 1;
     }
+    counts.abcStatusCounts[product.abc.displayStatus] += 1;
     const evaluation = product.abcEvaluation;
-    if (evaluation) {
-      const calculationStatus = evaluation.calculationStatus === 'CALIBRATION_PENDING'
-        ? 'INSUFFICIENT_EVIDENCE'
-        : evaluation.calculationStatus;
-      counts.abcStatusCounts[calculationStatus] += 1;
-      if (abcGrade && evaluation.weightedContributionProfit !== null) {
-        counts.abcContributionProfitByGrade[abcGrade] += Math.round(
-          evaluation.weightedContributionProfit,
-        );
-      }
-      if (!counts.abcFormula && evaluation.formula) counts.abcFormula = evaluation.formula;
-    }
+    if (!counts.abcFormula && evaluation?.formula) counts.abcFormula = evaluation.formula;
     counts.inventoryStatusCounts[product.inventoryStatus] += 1;
-    if (evaluation?.weightedContributionProfit !== null
-      && evaluation?.weightedContributionProfit !== undefined
-      && evaluation.weightedContributionProfit < 0) {
+    if (product.contribution?.operatingProfit !== null
+      && product.contribution?.operatingProfit !== undefined
+      && product.contribution.operatingProfit < 0) {
       counts.negativeProfitCount += 1;
     }
     if (matchesInventoryFocus(product, 'imminent')) {
@@ -301,20 +380,16 @@ function summarizeProducts(
   }, {
     abcGradeCounts: { A: 0, B: 0, C: 0, unclassified: 0 },
     abcStatusCounts: {
+      NEW: 0,
       READY: 0,
       INSUFFICIENT_EVIDENCE: 0,
       SOURCE_UNMAPPED: 0,
-      CALIBRATION_PENDING: 0,
-      RECALCULATING: 0,
       SELLPIA_SOURCE_STALE: 0,
       AD_SOURCE_STALE: 0,
-      ORDERS_SOURCE_STALE: 0,
-      CALCULATION_ERROR: 0,
     },
-    abcContributionProfitByGrade: { A: 0, B: 0, C: 0 },
-    abcContributionProfitShareByGrade: { A: 0, B: 0, C: 0 },
+    contributionOverview: contributionOverviewValue,
     abcFormula: null,
-    displayDataAsOf: conservativeDisplayDataAsOf(products),
+    displayDataAsOf,
     channelProductCounts,
     inventoryStatusCounts: {
       sellable: 0,
@@ -329,15 +404,136 @@ function summarizeProducts(
     depletionCoveredProductCount: 0,
     sharedDepletionProductCount: 0,
   });
-  const contributionTotal = Object.values(counts.abcContributionProfitByGrade)
-    .reduce((sum, value) => sum + value, 0);
-  if (contributionTotal !== 0) {
-    for (const grade of ['A', 'B', 'C'] as const) {
-      counts.abcContributionProfitShareByGrade[grade] =
-        counts.abcContributionProfitByGrade[grade] / contributionTotal;
-    }
-  }
   return counts;
+}
+
+function enrichAbc<T extends {
+  id: string;
+  abcGrade: 'A' | 'B' | 'C' | null;
+  abcEvaluation: ProductAbcEvaluation | null;
+}>(
+  product: T,
+  status: ProductOperationsDataStatusFacts,
+  contribution: ProductAbcContributionProduct | null,
+  createdAt: string | Date,
+) {
+  const current = status.products.find(({ masterProductId }) =>
+    masterProductId === product.id);
+  const mappingStatus = current?.mappingValid === false
+    ? 'UNMAPPED' as const
+    : sourceVectorMatchesMapping(status)
+      ? 'READY' as const
+      : 'STALE' as const;
+  const displayStatus = abcDisplayStatus(
+    product.abcEvaluation,
+    current?.mappingValid !== false,
+    status,
+    createdAt,
+  );
+  return {
+    ...product,
+    abc: ProductAbcReadModelSchema.parse({
+      abcGrade: product.abcGrade,
+      evaluation: product.abcEvaluation,
+      displayStatus,
+      formulaRevision: status.formulaState.formulaRevision,
+      publicationRevision: status.formulaState.publicationRevision,
+      officialCutoffDate: status.formulaState.officialCutoff,
+      publishedAt: status.formulaState.publishedAt,
+      actualCutoffDate: status.actualCutoff,
+      sources: {
+        sellpia: abcSource(status.sellpia, status.sourceVector.sellpia),
+        advertising: abcSource(
+          status.advertising,
+          status.sourceVector.advertising,
+        ),
+        mapping: {
+          status: mappingStatus,
+          mappingGeneration: status.formulaState.mappingGeneration,
+        },
+      },
+    }),
+    contribution,
+  };
+}
+
+function abcDisplayStatus(
+  evaluation: ProductAbcEvaluation | null,
+  mappingValid: boolean,
+  status: ProductOperationsDataStatusFacts,
+  createdAt: string | Date,
+): ProductAbcDisplayStatus {
+  if (!mappingValid) return 'SOURCE_UNMAPPED';
+  if (status.sellpia.status !== 'READY') return 'SELLPIA_SOURCE_STALE';
+  if (status.advertising.status !== 'READY') return 'AD_SOURCE_STALE';
+  if (evaluation) return 'READY';
+  if (status.formulaState.publishedAt
+    && new Date(createdAt) > new Date(status.formulaState.publishedAt)) return 'NEW';
+  return 'INSUFFICIENT_EVIDENCE';
+}
+
+function abcSource(
+  status: ProductOperationsDataStatusFacts['sellpia'],
+  manifest: ProductOperationsAbcSourceManifest | null,
+) {
+  return {
+    status: status.status,
+    sourceImportRunId: manifest?.sourceImportRunId ?? null,
+    generation: manifest?.generation ?? null,
+    coverageStartDate: manifest?.coverageStartDate ?? null,
+    coverageEndDate: manifest?.coverageEndDate ?? null,
+    actualCutoffDate: status.actualCutoff,
+    capturedAt: status.capturedAt,
+    latestAttemptState: status.latestAttemptState,
+    errorCode: status.errorCode,
+  };
+}
+
+function sourceVectorMatchesMapping(status: ProductOperationsDataStatusFacts): boolean {
+  return [status.sourceVector.sellpia, status.sourceVector.advertising].every(
+    (source) => source?.mappingGeneration === status.formulaState.mappingGeneration,
+  );
+}
+
+function contributionOverview(
+  analytics: ProductAbcContributionAnalytics | null,
+): ProductAbcContributionOverview | null {
+  if (!analytics) return null;
+  const { products: _products, ...overview } = analytics;
+  return overview;
+}
+
+function fullMonthContributionBasis(sourceVector: ProductOperationsDataStatusFacts['sourceVector']) {
+  const sellpia = sourceVector.sellpia;
+  const advertising = sourceVector.advertising;
+  if (!sellpia || !advertising) return null;
+  const advertisingMonths = new Set(fullMonths(advertising));
+  const common = fullMonths(sellpia)
+    .filter((month) => advertisingMonths.has(month))
+    .sort();
+  if (common.length === 0) return null;
+  let first = common.length - 1;
+  while (first > 0 && nextMonth(common[first - 1]!) === common[first]) first -= 1;
+  const fromMonth = common[first]!;
+  const cutoffMonth = common[common.length - 1]!;
+  return {
+    basisFromDate: `${fromMonth}-01`,
+    basisCutoffDate: kstMonthEnd(cutoffMonth),
+  };
+}
+
+function fullMonths(source: ProductOperationsAbcSourceManifest): string[] {
+  return source.coveredMonths.filter((month) => {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return false;
+    return `${month}-01` >= source.coverageStartDate
+      && kstMonthEnd(month) <= source.coverageEndDate;
+  });
+}
+
+function nextMonth(month: string): string {
+  const date = new Date(`${month}-01T00:00:00.000Z`);
+  date.setUTCMonth(date.getUTCMonth() + 1);
+  return date.toISOString().slice(0, 7);
 }
 
 const IMMINENT_STOCK_MIN_MONTHS_EXCLUSIVE = 1.5;
@@ -375,17 +571,6 @@ function summarizeChannelProducts(
   return [...counts.values()].sort((left, right) =>
     left.channelAccountName.localeCompare(right.channelAccountName)
     || left.channelAccountId.localeCompare(right.channelAccountId));
-}
-
-function conservativeDisplayDataAsOf(
-  products: Array<ReturnType<typeof mapProductOperationsListItem>>,
-): string | null {
-  const dates = products.flatMap((product) => [
-    product.metricsFreshness.traffic.coverageEndDate,
-    product.metricsFreshness.advertising.coverageEndDate,
-    product.abcEvaluation?.sourceFreshness.evaluationCutoffDate ?? null,
-  ]).filter((date): date is string => date !== null);
-  return dates.length > 0 ? dates.reduce((earliest, date) => date < earliest ? date : earliest) : null;
 }
 
 function parseOrBadRequest<T>(

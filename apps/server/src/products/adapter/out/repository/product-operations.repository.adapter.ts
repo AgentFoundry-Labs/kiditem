@@ -11,7 +11,7 @@ import type {
 } from '@kiditem/shared/product-operations';
 import {
   ProductAbcEvaluationSchema,
-  ProductAbcFormulaSummarySchema,
+  ProductAbcFormulaPayloadSchema,
   type ProductAbcEvaluation,
 } from '@kiditem/shared/product-abc';
 import {
@@ -388,9 +388,6 @@ function productListWhere(
       : query.abcGrade
         ? { abcGrade: query.abcGrade }
         : {}),
-    ...(query.abcCalculationStatus ? {
-      abcEvaluation: { is: { calculationStatus: query.abcCalculationStatus } },
-    } : {}),
     ...(query.adStatus === 'active' ? { adTier: { not: null } } : {}),
     ...(query.adStatus === 'inactive' ? { adTier: 'inactive' } : {}),
     ...(query.adStatus === 'unconfigured' ? { adTier: null } : {}),
@@ -526,6 +523,7 @@ function toListItem(
   const adSpend = nullableSum(advertisingFacts, (fact) => fact.adSpend);
   return {
     ...metadata(row),
+    abcCreatedAt: row.createdAt,
     isSelling,
     updatedAt: row.updatedAt,
     inventorySkuIds: row.inventorySkus.map(({ id }) => id),
@@ -557,8 +555,6 @@ function toListItem(
       traffic: dailyMetricFreshness(trafficFacts, 'traffic'),
       advertising: dailyMetricFreshness(advertisingFacts, 'advertising'),
     },
-    contributionProfitVelocity30: decimalToFinite(row.abcEvaluation?.profitVelocity30 ?? null),
-    contributionMargin: decimalToFinite(row.abcEvaluation?.weightedContributionMargin ?? null),
   };
 }
 
@@ -629,6 +625,7 @@ function hasAdvertisingEvidence(
 }
 
 function metadata(row: ProductRow) {
+  const abcEvaluation = productAbcEvaluation(row.abcEvaluation);
   return {
     id: row.id,
     code: row.code,
@@ -649,8 +646,8 @@ function metadata(row: ProductRow) {
     brand: row.brand,
     tags: row.tags,
     imageUrls: row.imageUrls,
-    abcGrade: productAbcGrade(row.abcGrade),
-    abcEvaluation: productAbcEvaluation(row.abcEvaluation, row.abcGrade),
+    abcGrade: abcEvaluation?.abcGrade ?? null,
+    abcEvaluation,
     profitTag: row.profitTag,
     adTier: row.adTier,
     adBudgetLimit: row.adBudgetLimit,
@@ -666,71 +663,34 @@ function productAbcGrade(value: string | null): 'A' | 'B' | 'C' | null {
 
 function productAbcEvaluation(
   row: ProductRow['abcEvaluation'],
-  abcGrade: string | null,
 ) : ProductAbcEvaluation | null {
   if (!row) return null;
-  const cutoff = row.evaluationCutoffDate ?? row.sourceCoverageEndDate ?? row.calculatedAt;
-  if (!cutoff || !row.costComponentsJson) return null;
   const formula = row.formulaVersion
-    ? ProductAbcFormulaSummarySchema.safeParse(row.formulaVersion.formulaJson)
+    ? ProductAbcFormulaPayloadSchema.safeParse(row.formulaVersion.formulaJson)
     : null;
   const parsed = ProductAbcEvaluationSchema.safeParse({
-    abcGrade: productAbcGrade(abcGrade),
-    calculationStatus: row.calculationStatus,
-    rawScore: decimalToFinite(row.rawScore),
-    adjustedScore: decimalToFinite(row.adjustedScore),
-    reliability: decimalToFinite(row.reliability),
+    abcGrade: productAbcGrade(row.abcGrade),
     weightedRevenue: decimalToFinite(row.weightedRevenue),
-    weightedOrderTimeCogs: decimalToFinite(row.weightedOrderTimeCogs),
-    weightedAdSpend: decimalToFinite(row.weightedAdSpend),
-    weightedContributionProfit: decimalToFinite(row.weightedContributionProfit),
-    profitVelocity30: decimalToFinite(row.profitVelocity30),
-    weightedContributionMargin: decimalToFinite(row.weightedContributionMargin),
-    lossRecurrence: decimalToFinite(row.lossRecurrence),
-    paidOrderCount: row.paidOrderCount,
-    observationDays: row.observationDays,
-    firstValidPaidSaleAt: row.firstValidPaidSaleAt,
+    weightedOrderTimeSupplyCost: decimalToFinite(row.weightedOrderTimeSupplyCost),
+    weightedAdvertisingSpend: decimalToFinite(row.weightedAdvertisingSpend),
+    weightedOperatingProfit: decimalToFinite(row.weightedOperatingProfit),
+    operatingProfitVelocity30: decimalToFinite(row.operatingProfitVelocity30),
+    operatingMargin: decimalToFinite(row.operatingMargin),
+    lossPersistence: decimalToFinite(row.lossPersistence),
+    profitScore: decimalToFinite(row.profitScore),
+    marginScore: decimalToFinite(row.marginScore),
+    consistencyScore: decimalToFinite(row.consistencyScore),
+    economicScore: decimalToFinite(row.economicScore),
+    validObservationDays: row.validObservationDays,
     formula: formula?.success ? formula.data : null,
-    sourceFreshness: {
-      evaluationCutoffDate: calendarDate(cutoff),
-      sellpia: {
-        status: row.sellpiaSourceStatus,
-        coverageStartDate: row.sellpiaCoverageStartDate ?? row.sourceCoverageStartDate
-          ? calendarDate((row.sellpiaCoverageStartDate ?? row.sourceCoverageStartDate)!)
-          : null,
-        coverageEndDate: row.sellpiaCoverageEndDate ?? row.sourceCoverageEndDate
-          ? calendarDate((row.sellpiaCoverageEndDate ?? row.sourceCoverageEndDate)!)
-          : null,
-        capturedAt: row.sellpiaSourceCapturedAt,
-      },
-      advertising: {
-        status: row.advertisingSourceStatus,
-        coverageStartDate: row.advertisingCoverageStartDate
-          ? calendarDate(row.advertisingCoverageStartDate)
-          : null,
-        coverageEndDate: row.advertisingCoverageEndDate
-          ? calendarDate(row.advertisingCoverageEndDate)
-          : null,
-        capturedAt: row.advertisingSourceCapturedAt,
-      },
-      orders: {
-        status: row.ordersSourceStatus,
-        coverageStartDate: row.ordersCoverageStartDate
-          ? calendarDate(row.ordersCoverageStartDate)
-          : null,
-        coverageEndDate: row.ordersCoverageEndDate
-          ? calendarDate(row.ordersCoverageEndDate)
-          : null,
-        capturedAt: row.ordersSourceCapturedAt,
-      },
-      mapping: {
-        status: row.mappingSourceStatus,
-        inventoryGeneration: row.mappingInventoryGeneration?.toString() ?? null,
-        verifiedAt: row.mappingVerifiedAt,
-      },
-    },
-    costBreakdown: row.costComponentsJson,
-    statusDetail: row.statusDetail,
+    formulaRevision: row.formulaRevision,
+    publicationRevision: row.publicationRevision,
+    gradeBasisCutoffDate: calendarDate(row.gradeBasisCutoffDate),
+    sellpiaSourceImportRunId: row.sellpiaSourceImportRunId,
+    advertisingSourceImportRunId: row.advertisingSourceImportRunId,
+    sellpiaGeneration: row.sellpiaGeneration.toString(),
+    advertisingGeneration: row.advertisingGeneration.toString(),
+    mappingGeneration: row.mappingGeneration.toString(),
     calculatedAt: row.calculatedAt,
   });
   return parsed.success ? parsed.data : null;

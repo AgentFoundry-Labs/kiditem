@@ -49,6 +49,34 @@ function evaluation(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function sourceFreshness() {
+  return {
+    sellpia: {
+      status: 'READY',
+      sourceImportRunId: UUID,
+      generation: '11',
+      coverageStartDate: '2026-01-01',
+      coverageEndDate: '2026-08-31',
+      actualCutoffDate: '2026-08-31',
+      capturedAt: ISO,
+      latestAttemptState: 'COMPLETE',
+      errorCode: null,
+    },
+    advertising: {
+      status: 'STALE',
+      sourceImportRunId: UUID_2,
+      generation: '7',
+      coverageStartDate: '2026-01-01',
+      coverageEndDate: '2026-08-31',
+      actualCutoffDate: '2026-08-31',
+      capturedAt: ISO,
+      latestAttemptState: 'FAILED',
+      errorCode: 'marketplace_login',
+    },
+    mapping: { status: 'READY', mappingGeneration: '4' },
+  };
+}
+
 describe('absolute product profitability ABC contracts', () => {
   it('locks the canonical V1 payload, anchors, policy hash, and precision', () => {
     expect(ProductAbcFormulaPayloadSchema.parse(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD))
@@ -113,13 +141,14 @@ describe('absolute product profitability ABC contracts', () => {
     }
   });
 
-  it('requires absolute Evaluation provenance and derives five read statuses', () => {
+  it('requires absolute Evaluation provenance and exposes official and live read state', () => {
     const parsed = ProductAbcEvaluationSchema.parse(evaluation());
     expect(parsed.abcGrade).toBe('A');
     expect(parsed.sellpiaGeneration).toBe('11');
     expect(parsed.formula.formulaKey).toBe('PRODUCT_ABC_ABSOLUTE');
 
     expect(ProductAbcDisplayStatusSchema.options).toEqual([
+      'NEW',
       'SOURCE_UNMAPPED',
       'SELLPIA_SOURCE_STALE',
       'AD_SOURCE_STALE',
@@ -131,22 +160,30 @@ describe('absolute product profitability ABC contracts', () => {
       abcGrade: 'A',
       evaluation: parsed,
       displayStatus: 'AD_SOURCE_STALE',
-      recalculationPending: true,
-      recalculationRequestedRevision: 4,
-      recalculatedRevision: 3,
-      gradeBasisCutoffDate: '2026-07-31',
+      formulaRevision: 2,
+      publicationRevision: 4,
+      officialCutoffDate: '2026-07-31',
+      publishedAt: ISO,
       actualCutoffDate: '2026-08-31',
+      sources: sourceFreshness(),
     });
     expect(stale.evaluation?.abcGrade).toBe('A');
+    expect(stale.publicationRevision).toBe(4);
+    expect(stale.sources.advertising.capturedAt).toBe(ISO);
+    expect(ProductAbcReadModelSchema.safeParse({
+      ...stale,
+      recalculationPending: false,
+    }).success).toBe(false);
     expect(() => ProductAbcReadModelSchema.parse({
       abcGrade: null,
       evaluation: null,
       displayStatus: 'READY',
-      recalculationPending: false,
-      recalculationRequestedRevision: 1,
-      recalculatedRevision: 1,
-      gradeBasisCutoffDate: null,
+      formulaRevision: 2,
+      publicationRevision: 4,
+      officialCutoffDate: '2026-07-31',
+      publishedAt: ISO,
       actualCutoffDate: '2026-07-31',
+      sources: sourceFreshness(),
     })).toThrow();
     expect(() => ProductAbcEvaluationSchema.parse(evaluation({
       weightedOperatingProfit: -1,
@@ -161,20 +198,21 @@ describe('absolute product profitability ABC contracts', () => {
     expect(() => ProductAbcEvaluationSchema.parse(evaluation({
       sourceFreshness: {},
     }))).toThrow();
-    for (const displayStatus of ['SOURCE_UNMAPPED', 'INSUFFICIENT_EVIDENCE'] as const) {
-      expect(() => ProductAbcReadModelSchema.parse({
-        ...stale,
-        displayStatus,
-      })).toThrow();
+    expect(() => ProductAbcReadModelSchema.parse({
+      ...stale,
+      displayStatus: 'SOURCE_UNMAPPED',
+    })).not.toThrow();
+    for (const displayStatus of ['NEW', 'INSUFFICIENT_EVIDENCE'] as const) {
       expect(() => ProductAbcReadModelSchema.parse({
         abcGrade: null,
         evaluation: null,
         displayStatus,
-        recalculationPending: false,
-        recalculationRequestedRevision: 1,
-        recalculatedRevision: 1,
-        gradeBasisCutoffDate: null,
+        formulaRevision: 2,
+        publicationRevision: 4,
+        officialCutoffDate: '2026-07-31',
+        publishedAt: ISO,
         actualCutoffDate: '2026-07-31',
+        sources: sourceFreshness(),
       })).not.toThrow();
     }
   });
@@ -213,14 +251,13 @@ describe('absolute product profitability ABC contracts', () => {
       publishedAdvertisingSourceImportRunId: UUID_2,
       publishedMappingGeneration: '3',
       mappingGeneration: '4',
-      recalculationRequestedRevision: 5,
-      recalculatedRevision: 4,
+      publishedAt: ISO,
     });
     expect(state.mappingGeneration).toBe('4');
-    expect(() => ProductAbcFormulaStateSchema.parse({
+    expect(ProductAbcFormulaStateSchema.safeParse({
       ...state,
-      recalculatedRevision: 6,
-    })).toThrow();
+      recalculationRequestedRevision: 5,
+    }).success).toBe(false);
   });
 
   it('keeps grade history and contribution denominators independent', () => {

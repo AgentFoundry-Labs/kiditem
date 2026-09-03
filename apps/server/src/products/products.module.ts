@@ -5,12 +5,14 @@ import { FinanceModule } from '../finance/finance.module';
 import { AiModule } from '../ai/ai.module';
 import { OperationsModule } from '../operations/operations.module';
 import { ProductOperationsController } from './adapter/in/http/product-operations.controller';
+import { ProductAbcController } from './adapter/in/http/product-abc.controller';
 import { ProductOperationsRepositoryAdapter } from './adapter/out/repository/product-operations.repository.adapter';
 import { PRODUCT_OPERATIONS_REPOSITORY_PORT } from './application/port/out/repository/product-operations.repository.port';
 import { ProductOperationsService } from './application/service/product-operations.service';
 import { ProductRecipeComponentCandidateService } from './application/service/product-recipe-component-candidate.service';
 import { CategoriesModule } from './categories/categories.module';
 import { MasterProductAbcService } from './application/service/master-product-abc.service';
+import { MASTER_PRODUCT_ABC_RECALCULATION_PORT } from './application/port/in/master-product-abc-recalculation.port';
 import { MasterProductAbcRepositoryAdapter } from './adapter/out/repository/master-product-abc.repository.adapter';
 import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from './application/port/out/repository/master-product-abc.repository.port';
 import { ProductOperationsDataStatusService } from './application/service/product-operations-data-status.service';
@@ -24,7 +26,7 @@ import { ProductsListingGenerationOperationHandler } from './adapter/in/operatio
 
 @Module({
   imports: [CategoriesModule, InventoryModule, AnalyticsModule, FinanceModule, AiModule, OperationsModule],
-  controllers: [ProductOperationsController],
+  controllers: [ProductAbcController, ProductOperationsController],
   providers: [
     ProductOperationsService,
     ProductOperationsDataStatusService,
@@ -47,6 +49,10 @@ import { ProductsListingGenerationOperationHandler } from './adapter/in/operatio
     {
       provide: MASTER_PRODUCT_ABC_REPOSITORY_PORT,
       useExisting: MasterProductAbcRepositoryAdapter,
+    },
+    {
+      provide: MASTER_PRODUCT_ABC_RECALCULATION_PORT,
+      useExisting: MasterProductAbcService,
     },
     { provide: PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT, useExisting: ProductsListingGenerationCapabilityAdapter },
     { provide: PRODUCTS_CAPABILITY_COMPOSITION_PORT, useExisting: ProductsCapabilityCompositionAdapter },

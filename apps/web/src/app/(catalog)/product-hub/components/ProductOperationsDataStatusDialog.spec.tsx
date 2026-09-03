@@ -1,129 +1,99 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { OperationRun } from '@kiditem/shared/operations';
+import type { ProductOperationsDataStatus } from '@kiditem/shared/product-operations';
 import { ProductOperationsDataStatusDialog } from './ProductOperationsDataStatusDialog';
 
 describe('ProductOperationsDataStatusDialog', () => {
-  it('keeps source freshness in one modal and exposes the single profitability refresh action', () => {
+  it('shows live source readiness and exposes one explicit ABC recalculation action', () => {
     const onRefresh = vi.fn();
-    render(<ProductOperationsDataStatusDialog
-      open
-      onOpenChange={() => {}}
-      loading={false}
-      error={false}
-      refreshing={false}
-      cancelling={false}
-      onRefresh={onRefresh}
-      onCancel={vi.fn().mockResolvedValue(undefined)}
-      data={{
-        displayDataAsOf: '2026-08-01',
-        lastCompletedRefreshAt: '2026-08-02T00:00:00.000Z',
-        activeRun: null,
-        sources: {
-          traffic: source('CURRENT'),
-          advertising: source('OUTDATED'),
-          sellpiaProfit: source('CURRENT'),
-          abc: source('CURRENT'),
-        },
-        abcSummary: {
-          classifiedProductCount: 7,
-          unclassifiedProductCount: 3,
-          mappingRequiredProductCount: 1,
-          orderEvidenceRequiredProductCount: 1,
-          otherPendingProductCount: 1,
-        },
-      }}
-    />);
+    renderDialog(readyStatus(), { onRefresh });
 
     expect(screen.getByRole('dialog', { name: '상품 운영 데이터 현황' })).toBeInTheDocument();
-    for (const label of ['판매 지표', '광고비', '상품별 이익', 'ABC 등급']) {
+    for (const label of ['판매 지표', '광고비', 'Sellpia 이익', '상품 매핑']) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
-    expect(screen.getByText('매핑 확인 필요')).toBeInTheDocument();
-    expect(screen.queryByText('주문 근거 필요')).not.toBeInTheDocument();
-    expect(screen.queryByText('주문 수집 확인')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '수익성 데이터 갱신' }));
+
+    fireEvent.click(screen.getByRole('button', { name: '등급 새로고침' }));
     expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: /중단/ })).not.toBeInTheDocument();
   });
 
-  it('offers a confirmed cancellation action for the active profitability run', async () => {
-    const onCancel = vi.fn().mockResolvedValue(undefined);
-    render(<ProductOperationsDataStatusDialog
-      open
-      onOpenChange={() => {}}
-      loading={false}
-      error={false}
-      refreshing={false}
-      cancelling={false}
-      onRefresh={vi.fn()}
-      onCancel={onCancel}
-      data={{
-        displayDataAsOf: '2026-08-01',
-        lastCompletedRefreshAt: null,
-        activeRun: operationRun('running'),
-        sources: {
-          traffic: source('CURRENT'),
-          advertising: source('UPDATING'),
-          sellpiaProfit: source('CURRENT'),
-          abc: source('CURRENT'),
-        },
-        abcSummary: {
-          classifiedProductCount: 7,
-          unclassifiedProductCount: 3,
-          mappingRequiredProductCount: 1,
-          orderEvidenceRequiredProductCount: 1,
-          otherPendingProductCount: 1,
-        },
-      }}
-    />);
+  it('keeps the official publication visible while labeling stale live data and both cutoffs', () => {
+    const data = readyStatus();
+    data.sources.sellpia.status = 'STALE';
+    data.sources.sellpia.actualCutoff = '2026-08-31';
+    data.actualCutoff = '2026-08-31';
 
-    fireEvent.click(screen.getByRole('button', { name: '수익성 데이터 갱신 중단' }));
-    expect(screen.getByRole('dialog', { name: '수익성 데이터 갱신을 중단할까요?' }))
+    renderDialog(data);
+
+    expect(screen.getByText('공식 등급 기준일 2026-07-31')).toBeInTheDocument();
+    expect(screen.getByText('표시 데이터 기준일 2026-08-31')).toBeInTheDocument();
+    expect(screen.getByText(/기존 공식 등급은 유지됩니다/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '등급 새로고침' })).toBeDisabled();
+  });
+
+  it('renders the command outcome as an inline message without dismissing the dialog', () => {
+    renderDialog(readyStatus(), {
+      feedback: {
+        tone: 'warning',
+        message: '원천이 준비되지 않아 기존 공식 등급을 유지합니다.',
+      },
+    });
+
+    expect(screen.getByText('원천이 준비되지 않아 기존 공식 등급을 유지합니다.'))
       .toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '중단' }));
-
-    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('dialog', { name: '상품 운영 데이터 현황' }))
+      .toBeInTheDocument();
   });
 });
 
-function source(status: 'CURRENT' | 'OUTDATED' | 'UPDATING') {
-  return {
-    status,
-    coverageEndDate: '2026-08-01',
-    capturedAt: '2026-08-02T00:00:00.000Z',
-    lastErrorAt: null,
-  } as const;
+function renderDialog(
+  data: ProductOperationsDataStatus,
+  overrides: Partial<React.ComponentProps<typeof ProductOperationsDataStatusDialog>> = {},
+) {
+  return render(
+    <ProductOperationsDataStatusDialog
+      open
+      onOpenChange={() => {}}
+      loading={false}
+      error={false}
+      refreshing={false}
+      onRefresh={vi.fn()}
+      data={data}
+      {...overrides}
+    />,
+  );
 }
 
-function operationRun(status: OperationRun['status']): OperationRun {
+function readyStatus(): ProductOperationsDataStatus {
   return {
-    id: '11111111-1111-4111-8111-111111111111',
-    operationKey: 'products.refresh_profitability_evidence',
-    definitionVersion: 1,
-    title: '수익성 데이터 갱신',
-    ownerDomain: 'products',
-    engineType: 'composite',
-    resourceClass: 'default',
-    executionTimeoutMs: 900_000,
+    displayDataAsOf: '2026-08-31',
+    formulaRevision: 2,
+    publicationRevision: 4,
+    officialCutoff: '2026-07-31',
+    publishedAt: '2026-08-01T00:00:00.000Z',
+    actualCutoff: '2026-08-31',
+    sources: {
+      traffic: source('READY'),
+      advertising: source('READY'),
+      sellpia: source('READY'),
+      mapping: { status: 'READY', generation: '7' },
+    },
+    abcSummary: {
+      classifiedProductCount: 7,
+      unclassifiedProductCount: 3,
+      mappingRequiredProductCount: 0,
+      otherPendingProductCount: 3,
+    },
+  };
+}
+
+function source(status: 'READY' | 'STALE' | 'MISSING') {
+  return {
     status,
-    triggerSource: 'domain_screen',
-    parentRunId: null,
-    scheduleId: null,
-    nativeRunType: null,
-    nativeRunId: null,
-    progress: 0.5,
-    stage: null,
-    stageUpdatedAt: null,
-    progressCurrent: null,
-    progressTotal: null,
-    deadlineAt: null,
-    result: null,
-    error: null,
-    requestedBy: null,
-    scheduledFor: null,
-    startedAt: '2026-08-02T00:00:00.000Z',
-    finishedAt: null,
-    createdAt: '2026-08-02T00:00:00.000Z',
-    updatedAt: '2026-08-02T00:00:00.000Z',
+    actualCutoff: status === 'MISSING' ? null : '2026-08-31',
+    capturedAt: status === 'MISSING' ? null : '2026-09-01T00:00:00.000Z',
+    latestAttemptState: status === 'MISSING' ? null : 'COMPLETE' as const,
+    errorCode: null,
   };
 }

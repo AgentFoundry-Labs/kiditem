@@ -35,9 +35,9 @@ export function ProductAbcBadge({
       )}>
         {displayLabel}
       </span>
-      {showConfidence && evaluation?.reliability != null ? (
+      {showConfidence && evaluation ? (
         <span className={cn('text-[11px] font-medium text-[var(--text-secondary)]', compact && 'text-[10px]')}>
-          신뢰도 {Math.round(evaluation.reliability * 100)}%
+          경제점수 {Math.round(evaluation.economicScore)}
         </span>
       ) : null}
     </span>

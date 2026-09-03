@@ -150,6 +150,10 @@ export function useProductHubPageState() {
     refetchInterval: 30_000,
     refetchIntervalInBackground: false,
   });
+  const refetch = useCallback(
+    () => Promise.all([listQuery.refetch(), overviewQuery.refetch()]),
+    [listQuery.refetch, overviewQuery.refetch],
+  );
 
   const handleSearch = (event: FormEvent) => {
     event.preventDefault();
@@ -184,7 +188,7 @@ export function useProductHubPageState() {
       : null,
     page,
     periodDays,
-    refetch: listQuery.refetch,
+    refetch,
     search,
     setAbcGrade: (value: string) => {
       updateListParams({

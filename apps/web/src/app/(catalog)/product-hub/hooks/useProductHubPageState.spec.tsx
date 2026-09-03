@@ -4,6 +4,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useProductHubPageState } from './useProductHubPageState';
 
 const pushMock = vi.hoisted(() => vi.fn());
+const refetchMocks = vi.hoisted(() => ({
+  list: vi.fn(),
+  overview: vi.fn(),
+}));
 const navigation = vi.hoisted(() => ({
   pathname: '/product-hub',
   params: new URLSearchParams(),
@@ -16,14 +20,7 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('@tanstack/react-query', () => ({
-  useQuery: vi.fn(() => ({
-    data: undefined,
-    error: null,
-    isFetching: false,
-    isLoading: false,
-    isPlaceholderData: false,
-    refetch: vi.fn(),
-  })),
+  useQuery: vi.fn(),
 }));
 
 describe('useProductHubPageState', () => {
@@ -31,7 +28,20 @@ describe('useProductHubPageState', () => {
     pushMock.mockReset();
     navigation.pathname = '/product-hub';
     navigation.params = new URLSearchParams();
-    vi.mocked(useQuery).mockClear();
+    refetchMocks.list.mockReset();
+    refetchMocks.overview.mockReset();
+    vi.mocked(useQuery).mockReset();
+    vi.mocked(useQuery).mockImplementation((options) => {
+      const params = options.queryKey.at(-1) as Record<string, string>;
+      return {
+        data: undefined,
+        error: null,
+        isFetching: false,
+        isLoading: false,
+        isPlaceholderData: false,
+        refetch: params.limit === '1' ? refetchMocks.overview : refetchMocks.list,
+      } as unknown as ReturnType<typeof useQuery>;
+    });
   });
 
   it('hydrates list filters and pagination from URL state', () => {
@@ -153,5 +163,16 @@ describe('useProductHubPageState', () => {
     navigation.params = new URLSearchParams('view=list&dataStatus=abc&page=4');
     act(() => result.current.setAbcGrade('unclassified'));
     expect(pushMock).toHaveBeenLastCalledWith('/product-hub?view=list&abcGrade=unclassified&page=1');
+  });
+
+  it('refetches both the visible list and the independent overview after publication', async () => {
+    refetchMocks.list.mockResolvedValue(undefined);
+    refetchMocks.overview.mockResolvedValue(undefined);
+    const { result } = renderHook(() => useProductHubPageState());
+
+    await act(() => result.current.refetch());
+
+    expect(refetchMocks.list).toHaveBeenCalledTimes(1);
+    expect(refetchMocks.overview).toHaveBeenCalledTimes(1);
   });
 });

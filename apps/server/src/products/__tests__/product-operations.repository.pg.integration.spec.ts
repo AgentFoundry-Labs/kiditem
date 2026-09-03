@@ -5,6 +5,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
+  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH,
+} from '@kiditem/shared/product-abc';
 import { CatalogDisplayMediaRepositoryAdapter } from '../../ai/adapter/out/repository/catalog-display-media.repository.adapter';
 import { CatalogDisplayMediaService } from '../../ai/application/service/catalog-display-media.service';
 import {
@@ -44,6 +49,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         new CatalogDisplayMediaRepositoryAdapter(prismaService),
       ),
       new ProductOperationsDataStatusRepositoryAdapter(prismaService),
+      { readContribution: async () => null } as never,
     );
   });
 
@@ -297,14 +303,11 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       code: 'GRADE-NULL-1',
       name: 'Unclassified grade',
     });
-    await prisma.masterProduct.updateMany({
-      where: { organizationId: TEST_ORGANIZATION_ID, id: { in: [first.id, second.id] } },
-      data: { abcGrade: 'A' },
-    });
-    await prisma.masterProduct.updateMany({
-      where: { organizationId: TEST_ORGANIZATION_ID, id: third.id },
-      data: { abcGrade: 'B' },
-    });
+    await seedOfficialAbcEvaluations(prisma, [
+      { masterProductId: first.id, abcGrade: 'A' },
+      { masterProductId: second.id, abcGrade: 'A' },
+      { masterProductId: third.id, abcGrade: 'B' },
+    ]);
 
     const page = await service.listProducts(TEST_ORGANIZATION_ID, {
       page: 1,
@@ -337,21 +340,25 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(unclassifiedPage.items.map((item) => item.id)).toEqual([unclassified.id]);
   });
 
-  it('hydrates automatic ABC statuses and keeps status, grade, and organization filters distinct', async () => {
+  it('derives ABC display statuses from current source snapshots and keeps status, grade, and organization filters distinct', async () => {
     const observing = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-OBSERVING', name: 'Observing' });
-    const mapping = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-MAPPING', name: 'Mapping' });
-    const orderStale = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-ORDER-STALE', name: 'Order stale' });
+    const ready = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-READY', name: 'Ready' });
     const unpublished = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-UNPUBLISHED', name: 'Unpublished' });
     const foreign = await service.createProduct(OTHER_ORGANIZATION_ID, OTHER_USER_ID, { code: 'ABC-FOREIGN', name: 'Foreign' });
-    await prisma.masterProduct.update({ where: { id: orderStale.id }, data: { abcGrade: 'B' } });
-    const calculatedAt = new Date('2026-07-24T00:00:00.000Z');
-    await prisma.masterProductAbcEvaluation.createMany({
-      data: [
-        automaticEvaluationRow(observing.id, 'INSUFFICIENT_EVIDENCE', calculatedAt),
-        automaticEvaluationRow(mapping.id, 'SOURCE_UNMAPPED', calculatedAt, TEST_ORGANIZATION_ID, 'UNMAPPED'),
-        automaticEvaluationRow(orderStale.id, 'ORDERS_SOURCE_STALE', calculatedAt, TEST_ORGANIZATION_ID, 'READY', 'STALE'),
-        automaticEvaluationRow(foreign.id, 'INSUFFICIENT_EVIDENCE', calculatedAt, OTHER_ORGANIZATION_ID),
-      ],
+    await inventorySku('SP-ABC-OBSERVING', 1, true, TEST_ORGANIZATION_ID, observing.id);
+    await inventorySku('SP-ABC-READY', 1, true, TEST_ORGANIZATION_ID, ready.id);
+    await inventorySku('SP-ABC-UNPUBLISHED', 1, true, TEST_ORGANIZATION_ID, unpublished.id);
+    await seedOfficialAbcEvaluations(
+      prisma,
+      [{ masterProductId: ready.id, abcGrade: 'B' }],
+    );
+    await prisma.masterProduct.update({
+      where: { id: observing.id },
+      data: { createdAt: new Date('2026-08-01T00:00:00.000Z') },
+    });
+    await prisma.masterProduct.update({
+      where: { id: unpublished.id },
+      data: { createdAt: new Date('2026-09-02T00:00:00.000Z') },
     });
 
     const all = await service.listProducts(TEST_ORGANIZATION_ID, {
@@ -360,18 +367,30 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       periodDays: 30,
       activeStatus: 'all',
     });
-    expect(all.total).toBe(4);
-    expect(all.items.find((item) => item.id === observing.id)).toMatchObject({
+    expect(all.total).toBe(3);
+    expect(all.items.find((item) => item.id === observing.id)?.abc).toMatchObject({
       abcGrade: null,
-      abcEvaluation: { calculationStatus: 'INSUFFICIENT_EVIDENCE' },
+      evaluation: null,
+      displayStatus: 'INSUFFICIENT_EVIDENCE',
+    });
+    expect(all.items.find((item) => item.id === ready.id)?.abc).toMatchObject({
+      abcGrade: 'B',
+      displayStatus: 'READY',
+    });
+    expect(all.items.find((item) => item.id === unpublished.id)?.abc).toMatchObject({
+      abcGrade: null,
+      evaluation: null,
+      displayStatus: 'NEW',
     });
     expect(all.summary).toMatchObject({
-      abcGradeCounts: { A: 0, B: 1, C: 0, unclassified: 3 },
+      abcGradeCounts: { A: 0, B: 1, C: 0, unclassified: 2 },
       abcStatusCounts: {
+        NEW: 1,
+        READY: 1,
         INSUFFICIENT_EVIDENCE: 1,
-        SOURCE_UNMAPPED: 1,
-        ORDERS_SOURCE_STALE: 1,
-        CALIBRATION_PENDING: 0,
+        SOURCE_UNMAPPED: 0,
+        SELLPIA_SOURCE_STALE: 0,
+        AD_SOURCE_STALE: 0,
       },
     });
 
@@ -379,13 +398,13 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       page: 1, limit: 50, periodDays: 30, activeStatus: 'all', abcCalculationStatus: 'INSUFFICIENT_EVIDENCE',
     })).resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: observing.id })] });
     await expect(service.listProducts(TEST_ORGANIZATION_ID, {
-      page: 1, limit: 50, periodDays: 30, activeStatus: 'all', abcCalculationStatus: 'SOURCE_UNMAPPED',
-    })).resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: mapping.id })] });
+      page: 1, limit: 50, periodDays: 30, activeStatus: 'all', abcCalculationStatus: 'READY',
+    })).resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: ready.id })] });
     await expect(service.listProducts(TEST_ORGANIZATION_ID, {
-      page: 1, limit: 50, periodDays: 30, activeStatus: 'all', abcCalculationStatus: 'ORDERS_SOURCE_STALE',
-    })).resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: orderStale.id })] });
+      page: 1, limit: 50, periodDays: 30, activeStatus: 'all', abcCalculationStatus: 'NEW',
+    })).resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: unpublished.id })] });
     await expect(service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30, activeStatus: 'all', abcGrade: 'unclassified' }))
-      .resolves.toMatchObject({ total: 3 });
+      .resolves.toMatchObject({ total: 2 });
     expect(all.items.map((item) => item.id)).not.toContain(foreign.id);
     expect(all.items.map((item) => item.id)).toContain(unpublished.id);
   });
@@ -452,11 +471,16 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
     await expect(prisma.masterProductAbcFormulaState.findUniqueOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID },
-      select: { activeFormulaVersionId: true, activatedAt: true, revision: true, mappingGeneration: true },
+      select: {
+        activeFormulaVersionId: true,
+        formulaRevision: true,
+        publicationRevision: true,
+        mappingGeneration: true,
+      },
     })).resolves.toEqual({
       activeFormulaVersionId: null,
-      activatedAt: null,
-      revision: 0,
+      formulaRevision: 0,
+      publicationRevision: 0,
       mappingGeneration: 1n,
     });
   });
@@ -757,21 +781,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         adSpend: 5_000,
       },
     });
-    await prisma.masterProductAbcEvaluation.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        masterProductId: withFacts.id,
-        calculationStatus: 'INSUFFICIENT_EVIDENCE',
-        weightedContributionProfit: -12_000,
-        evaluationCutoffDate: now,
-        sellpiaSourceStatus: 'READY',
-        advertisingSourceStatus: 'READY',
-        ordersSourceStatus: 'NOT_APPLIED',
-        mappingSourceStatus: 'READY',
-        costComponentsJson: automaticCostComponents(),
-        calculatedAt: now,
-      },
-    });
 
     const page = await service.listProducts(TEST_ORGANIZATION_ID, {
       page: 1,
@@ -797,9 +806,9 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       salesQuantity: null,
       salesAmount: 40_000,
       adSpend: 5_000,
-      abcEvaluation: { weightedContributionProfit: -12_000 },
+      abcEvaluation: null,
     });
-    expect(page.summary.negativeProfitCount).toBe(1);
+    expect(page.summary.negativeProfitCount).toBe(0);
   });
 
   async function linkedProductWithOptions(code: string, optionCount: number) {
@@ -855,38 +864,114 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     }).then((state) => state?.mappingGeneration ?? 0n);
   }
 
-  function automaticEvaluationRow(
-    masterProductId: string,
-    calculationStatus: 'INSUFFICIENT_EVIDENCE' | 'SOURCE_UNMAPPED' | 'ORDERS_SOURCE_STALE',
-    calculatedAt: Date,
-    organizationId = TEST_ORGANIZATION_ID,
-    mappingSourceStatus: 'READY' | 'UNMAPPED' = 'READY',
-    ordersSourceStatus: 'READY' | 'STALE' = 'READY',
+  async function seedOfficialAbcEvaluations(
+    prisma: PrismaClient,
+    evaluations: readonly { masterProductId: string; abcGrade: 'A' | 'B' | 'C' }[],
   ) {
-    return {
-      organizationId,
-      masterProductId,
-      calculationStatus,
-      evaluationCutoffDate: calculatedAt,
-      sellpiaSourceStatus: 'READY',
-      advertisingSourceStatus: 'READY',
-      ordersSourceStatus,
-      mappingSourceStatus,
-      costComponentsJson: automaticCostComponents(),
-      calculatedAt,
-    };
-  }
-
-  function automaticCostComponents() {
-    return {
-      recognizedRevenue: { amount: 0, status: 'OBSERVED' },
-      orderTimeCogs: { amount: 0, status: 'OBSERVED' },
-      advertisingSpend: { amount: 0, status: 'OBSERVED' },
-      marketplaceCommission: { amount: 0, status: 'NOT_APPLIED' },
-      outboundFulfillment: { amount: 0, status: 'NOT_APPLIED' },
-      returnLoss: { amount: 0, status: 'NOT_APPLIED' },
-      otherVariableCost: { amount: 0, status: 'NOT_APPLIED' },
-    };
+    const calculatedAt = new Date('2026-09-01T00:00:00.000Z');
+    const coverageStartDate = new Date('2026-01-01T00:00:00.000Z');
+    const coverageEndDate = new Date('2026-08-31T00:00:00.000Z');
+    const formulaVersion = await prisma.masterProductAbcFormulaVersion.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        formulaKey: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.formulaKey,
+        version: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.version,
+        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD)),
+        formulaChecksum: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH,
+      },
+    });
+    const [sellpiaSource, advertisingSource] = await Promise.all([
+      prisma.sourceImportRun.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceType: 'sellpia_product_profitability',
+          status: 'completed',
+          publicationSequence: 1n,
+          mappingGeneration: 0n,
+          coverageStartDate,
+          coverageEndDate,
+          coveredMonths: [
+            '2026-01', '2026-02', '2026-03', '2026-04',
+            '2026-05', '2026-06', '2026-07', '2026-08',
+          ],
+          importedAt: calculatedAt,
+        },
+      }),
+      prisma.sourceImportRun.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceType: 'coupang_ad_profitability',
+          status: 'completed',
+          publicationSequence: 1n,
+          mappingGeneration: 0n,
+          adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
+          coverageStartDate,
+          coverageEndDate,
+          coveredMonths: [
+            '2026-01', '2026-02', '2026-03', '2026-04',
+            '2026-05', '2026-06', '2026-07', '2026-08',
+          ],
+          importedAt: calculatedAt,
+        },
+      }),
+    ]);
+    await prisma.$transaction(async (tx) => {
+      await tx.masterProductAbcFormulaState.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          activeFormulaVersionId: formulaVersion.id,
+          formulaRevision: 1,
+          publicationRevision: 1,
+          officialCutoffDate: coverageEndDate,
+          publishedSellpiaSourceImportRunId: sellpiaSource.id,
+          publishedAdvertisingSourceImportRunId: advertisingSource.id,
+          publishedMappingGeneration: 0n,
+          mappingGeneration: 0n,
+          publishedAt: calculatedAt,
+        },
+      });
+      await tx.masterProductAbcEvaluation.createMany({
+        data: evaluations.map(({ masterProductId, abcGrade }) => ({
+          organizationId: TEST_ORGANIZATION_ID,
+          masterProductId,
+          formulaVersionId: formulaVersion.id,
+          abcGrade,
+          weightedRevenue: 1_000_000,
+          weightedOrderTimeSupplyCost: 200_000,
+          weightedAdvertisingSpend: 100_000,
+          weightedOperatingProfit: 700_000,
+          operatingProfitVelocity30: 700_000,
+          operatingMargin: 0.7,
+          lossPersistence: 0,
+          profitScore: 70,
+          marginScore: 100,
+          consistencyScore: 100,
+          economicScore: abcGrade === 'A' ? 85 : abcGrade === 'B' ? 75 : 20,
+          validObservationDays: 30,
+          formulaRevision: 1,
+          publicationRevision: 1,
+          gradeBasisCutoffDate: coverageEndDate,
+          sellpiaSourceImportRunId: sellpiaSource.id,
+          advertisingSourceImportRunId: advertisingSource.id,
+          sellpiaGeneration: 1n,
+          advertisingGeneration: 1n,
+          mappingGeneration: 0n,
+          calculatedAt,
+        })),
+      });
+      for (const grade of ['A', 'B', 'C'] as const) {
+        const ids = evaluations
+          .filter((evaluation) => evaluation.abcGrade === grade)
+          .map((evaluation) => evaluation.masterProductId);
+        if (ids.length > 0) {
+          await tx.masterProduct.updateMany({
+            where: { organizationId: TEST_ORGANIZATION_ID, id: { in: ids } },
+            data: { abcGrade: grade },
+          });
+        }
+      }
+    });
+    return { formulaVersion, sellpiaSource, advertisingSource };
   }
 
   async function attachCatalogPrimaryImage(

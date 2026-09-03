@@ -33,7 +33,12 @@ export type ProductOperationsRepositoryListing = Omit<
 
 export type ProductOperationsRepositoryDetail = Omit<
   MasterProductOperationsDetail,
-  'displayImageUrls' | 'inventoryStatus' | 'inventoryUnits' | 'channelListings'
+  | 'abc'
+  | 'contribution'
+  | 'displayImageUrls'
+  | 'inventoryStatus'
+  | 'inventoryUnits'
+  | 'channelListings'
 > & {
   inventorySkuIds: string[];
   channelListings: ProductOperationsRepositoryListing[];
@@ -41,6 +46,8 @@ export type ProductOperationsRepositoryDetail = Omit<
 
 export type ProductOperationsRepositoryListItem = Omit<
   MasterProductOperationsListItem,
+  | 'abc'
+  | 'contribution'
   | 'depletion'
   | 'displayImageUrls'
   | 'channelOptionSummary'
@@ -48,6 +55,7 @@ export type ProductOperationsRepositoryListItem = Omit<
   | 'inventoryStatus'
   | 'activeChannels'
 > & {
+  abcCreatedAt: Date;
   activeChannelProducts: Array<Omit<ProductOperationsChannelProductCount, 'count'>>;
   inventorySkuIds: string[];
   inventoryOptions: ProductOperationsRepositoryOption[];

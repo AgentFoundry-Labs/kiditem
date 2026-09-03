@@ -15,6 +15,7 @@ export type ProductAbcGrade = z.infer<typeof ProductAbcGradeSchema>;
 
 /** The API derives these labels; no label is persisted on an Evaluation. */
 export const ProductAbcDisplayStatusSchema = z.enum([
+  'NEW',
   'SOURCE_UNMAPPED',
   'SELLPIA_SOURCE_STALE',
   'AD_SOURCE_STALE',
@@ -306,25 +307,16 @@ export const PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH =
 
 export const ProductAbcFormulaStateSchema = z.object({
   organizationId: UuidSchema,
-  activeFormulaVersionId: UuidSchema,
-  formulaRevision: z.number().int().positive(),
+  activeFormulaVersionId: UuidSchema.nullable(),
+  formulaRevision: z.number().int().nonnegative(),
   publicationRevision: z.number().int().nonnegative(),
   officialCutoffDate: CalendarDateSchema.nullable(),
   publishedSellpiaSourceImportRunId: UuidSchema.nullable(),
   publishedAdvertisingSourceImportRunId: UuidSchema.nullable(),
   publishedMappingGeneration: GenerationSchema.nullable(),
   mappingGeneration: GenerationSchema,
-  recalculationRequestedRevision: z.number().int().nonnegative(),
-  recalculatedRevision: z.number().int().nonnegative(),
-}).strict().superRefine((state, context) => {
-  if (state.recalculatedRevision > state.recalculationRequestedRevision) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['recalculatedRevision'],
-      message: 'recalculated revision cannot exceed requested revision',
-    });
-  }
-});
+  publishedAt: zIsoDate.nullable(),
+}).strict();
 export type ProductAbcFormulaState = z.infer<typeof ProductAbcFormulaStateSchema>;
 
 const SourceFreshnessSchema = z.object({
@@ -334,6 +326,9 @@ const SourceFreshnessSchema = z.object({
   coverageStartDate: CalendarDateSchema.nullable(),
   coverageEndDate: CalendarDateSchema.nullable(),
   actualCutoffDate: CalendarDateSchema.nullable(),
+  capturedAt: zIsoDate.nullable(),
+  latestAttemptState: z.enum(['RUNNING', 'COMPLETE', 'FAILED']).nullable(),
+  errorCode: z.string().trim().min(1).max(120).nullable(),
 }).strict().superRefine((source, context) => {
   if ((source.coverageStartDate === null) !== (source.coverageEndDate === null)) {
     context.addIssue({
@@ -442,42 +437,19 @@ export const ProductAbcReadModelSchema = z.object({
   abcGrade: ProductAbcGradeSchema.nullable(),
   evaluation: ProductAbcEvaluationSchema.nullable(),
   displayStatus: ProductAbcDisplayStatusSchema,
-  recalculationPending: z.boolean(),
-  recalculationRequestedRevision: z.number().int().nonnegative(),
-  recalculatedRevision: z.number().int().nonnegative(),
-  gradeBasisCutoffDate: CalendarDateSchema.nullable(),
+  formulaRevision: z.number().int().nonnegative(),
+  publicationRevision: z.number().int().nonnegative(),
+  officialCutoffDate: CalendarDateSchema.nullable(),
+  publishedAt: zIsoDate.nullable(),
   actualCutoffDate: CalendarDateSchema.nullable(),
+  sources: ProductAbcSourceFreshnessSchema.omit({ evaluationCutoffDate: true }),
 }).strict().superRefine((projection, context) => {
-  if (projection.recalculatedRevision > projection.recalculationRequestedRevision) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['recalculatedRevision'],
-      message: 'recalculated revision cannot exceed requested revision',
-    });
-  }
-  if (
-    projection.recalculationPending
-    !== (projection.recalculationRequestedRevision > projection.recalculatedRevision)
-  ) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['recalculationPending'],
-      message: 'recalculationPending must be derived from FormulaState revisions',
-    });
-  }
   if (projection.evaluation === null) {
     if (projection.abcGrade !== null) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['abcGrade'],
         message: 'a missing Evaluation cannot expose an official grade',
-      });
-    }
-    if (projection.gradeBasisCutoffDate !== null) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['gradeBasisCutoffDate'],
-        message: 'a missing Evaluation cannot expose a grade basis cutoff',
       });
     }
   } else {
@@ -488,10 +460,10 @@ export const ProductAbcReadModelSchema = z.object({
         message: 'grade cache must match the retained Evaluation',
       });
     }
-    if (projection.gradeBasisCutoffDate !== projection.evaluation.gradeBasisCutoffDate) {
+    if (projection.officialCutoffDate !== projection.evaluation.gradeBasisCutoffDate) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['gradeBasisCutoffDate'],
+        path: ['officialCutoffDate'],
         message: 'grade basis cutoff must match the retained Evaluation',
       });
     }
@@ -503,13 +475,10 @@ export const ProductAbcReadModelSchema = z.object({
       message: 'READY requires an Evaluation',
     });
   }
-  if (
-    (projection.displayStatus === 'SOURCE_UNMAPPED'
-      || projection.displayStatus === 'INSUFFICIENT_EVIDENCE')
-    && (
+  if ((projection.displayStatus === 'NEW'
+      || projection.displayStatus === 'INSUFFICIENT_EVIDENCE') && (
       projection.abcGrade !== null
       || projection.evaluation !== null
-      || projection.gradeBasisCutoffDate !== null
     )
   ) {
     context.addIssue({
@@ -546,41 +515,6 @@ export const ProductAbcGradeHistorySchema = z.object({
   }
 });
 export type ProductAbcGradeHistory = z.infer<typeof ProductAbcGradeHistorySchema>;
-
-export const ProductAbcGradeResultSchema = z.object({
-  masterProductId: UuidSchema,
-  abcGrade: ProductAbcGradeSchema.nullable(),
-  evaluation: ProductAbcEvaluationSchema.nullable(),
-}).strict().superRefine((result, context) => {
-  if (result.evaluation && result.evaluation.abcGrade !== result.abcGrade) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['abcGrade'],
-      message: 'grade result must match its Evaluation',
-    });
-  }
-});
-export type ProductAbcGradeResult = z.infer<typeof ProductAbcGradeResultSchema>;
-
-export const ProductAbcRecalculationResultSchema = z.object({
-  changedProductCount: z.number().int().nonnegative(),
-  classifiedProductCount: z.number().int().nonnegative(),
-  unclassifiedProductCount: z.number().int().nonnegative(),
-  formulaRevision: z.number().int().positive(),
-  publicationRevision: z.number().int().nonnegative(),
-  recalculationRequestedRevision: z.number().int().nonnegative(),
-  recalculatedRevision: z.number().int().nonnegative(),
-  grades: z.array(ProductAbcGradeResultSchema),
-}).strict().superRefine((result, context) => {
-  if (result.recalculatedRevision > result.recalculationRequestedRevision) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['recalculatedRevision'],
-      message: 'recalculated revision cannot exceed requested revision',
-    });
-  }
-});
-export type ProductAbcRecalculationResult = z.infer<typeof ProductAbcRecalculationResultSchema>;
 
 export const ProductAbcContributionMetricStatusSchema = z.enum([
   'READY',

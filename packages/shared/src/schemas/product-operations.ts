@@ -7,8 +7,8 @@ import {
   ProductAbcEvaluationSchema,
   ProductAbcFormulaPayloadSchema,
   ProductAbcGradeSchema,
+  ProductAbcReadModelSchema,
 } from './product-abc.js';
-import { OperationRunSchema } from './operations.js';
 
 export const ProductInventoryStatusSchema = z.enum([
   'sellable',
@@ -148,6 +148,7 @@ export const MasterProductOperationsMetadataSchema = z.object({
   displayImageUrls: z.array(z.string().min(1)),
   abcGrade: ProductAbcGradeSchema.nullable(),
   abcEvaluation: ProductAbcEvaluationSchema.nullable(),
+  abc: ProductAbcReadModelSchema,
   contribution: ProductAbcContributionProductSchema.nullable(),
   profitTag: z.string().nullable(),
   adTier: z.string().nullable(),
@@ -186,17 +187,17 @@ const ProductOperationsMetricFreshnessSchema = z.object({
 }).strict();
 
 export const ProductOperationsDataSourceStatusSchema = z.object({
-  status: z.enum(['CURRENT', 'OUTDATED', 'NOT_COLLECTED', 'UPDATING', 'ACTION_REQUIRED', 'FAILED']),
-  coverageEndDate: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
+  status: z.enum(['READY', 'STALE', 'MISSING']),
+  actualCutoff: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   capturedAt: zIsoDate.nullable(),
-  lastErrorAt: zIsoDate.nullable(),
-  attentionReason: z.string().trim().min(1).max(120).nullable().optional(),
+  latestAttemptState: z.enum(['RUNNING', 'COMPLETE', 'FAILED']).nullable(),
+  errorCode: z.string().trim().min(1).max(120).nullable(),
 }).strict().superRefine((source, context) => {
-  if (source.status === 'NOT_COLLECTED' && (source.coverageEndDate !== null || source.capturedAt !== null)) {
+  if (source.status === 'MISSING' && source.actualCutoff !== null) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ['coverageEndDate'],
-      message: 'not-collected sources cannot claim coverage or capture time',
+      path: ['actualCutoff'],
+      message: 'missing sources cannot claim an actual cutoff',
     });
   }
 });
@@ -206,13 +207,19 @@ export type ProductOperationsDataSourceStatus = z.infer<
 
 export const ProductOperationsDataStatusSchema = z.object({
   displayDataAsOf: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
-  lastCompletedRefreshAt: zIsoDate.nullable(),
-  activeRun: OperationRunSchema.nullable(),
+  formulaRevision: z.number().int().nonnegative(),
+  publicationRevision: z.number().int().nonnegative(),
+  officialCutoff: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
+  publishedAt: zIsoDate.nullable(),
+  actualCutoff: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   sources: z.object({
     traffic: ProductOperationsDataSourceStatusSchema,
     advertising: ProductOperationsDataSourceStatusSchema,
-    sellpiaProfit: ProductOperationsDataSourceStatusSchema,
-    abc: ProductOperationsDataSourceStatusSchema,
+    sellpia: ProductOperationsDataSourceStatusSchema,
+    mapping: z.object({
+      status: z.enum(['READY', 'STALE', 'MISSING']),
+      generation: z.string().regex(/^\d+$/).nullable(),
+    }).strict(),
   }).strict(),
   abcSummary: z.object({
     classifiedProductCount: z.number().int().nonnegative(),
@@ -282,6 +289,7 @@ export const ProductOperationsListSummarySchema = z.object({
     unclassified: z.number().int().nonnegative(),
   }).strict(),
   abcStatusCounts: z.object({
+    NEW: z.number().int().nonnegative(),
     READY: z.number().int().nonnegative(),
     INSUFFICIENT_EVIDENCE: z.number().int().nonnegative(),
     SOURCE_UNMAPPED: z.number().int().nonnegative(),

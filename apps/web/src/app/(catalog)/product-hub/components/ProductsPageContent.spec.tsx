@@ -21,8 +21,44 @@ const state = vi.hoisted(() => ({
       tags: ['핵심'],
       imageUrls: [],
       displayImageUrls: [],
-      abcGrade: 'A',
+      abcGrade: null,
       abcEvaluation: null,
+      abc: {
+        abcGrade: null,
+        evaluation: null,
+        displayStatus: 'INSUFFICIENT_EVIDENCE' as const,
+        formulaRevision: 2,
+        publicationRevision: 4,
+        officialCutoffDate: null,
+        publishedAt: '2026-08-01T00:00:00.000Z',
+        actualCutoffDate: null,
+        sources: {
+          sellpia: {
+            status: 'MISSING' as const,
+            sourceImportRunId: null,
+            generation: null,
+            coverageStartDate: null,
+            coverageEndDate: null,
+            actualCutoffDate: null,
+            capturedAt: null,
+            latestAttemptState: null,
+            errorCode: null,
+          },
+          advertising: {
+            status: 'MISSING' as const,
+            sourceImportRunId: null,
+            generation: null,
+            coverageStartDate: null,
+            coverageEndDate: null,
+            actualCutoffDate: null,
+            capturedAt: null,
+            latestAttemptState: null,
+            errorCode: null,
+          },
+          mapping: { status: 'UNMAPPED' as const, mappingGeneration: null },
+        },
+      },
+      contribution: null,
       profitTag: null,
       adTier: null,
       adBudgetLimit: null,
@@ -59,8 +95,6 @@ const state = vi.hoisted(() => ({
         traffic: { status: 'MISSING' as const, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
         advertising: { status: 'MISSING' as const, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       },
-      contributionProfitVelocity30: null,
-      contributionMargin: null,
     }],
     total: 126,
     page: 2,
@@ -68,18 +102,14 @@ const state = vi.hoisted(() => ({
     summary: {
       abcGradeCounts: { A: 37, B: 29, C: 50, unclassified: 10 },
       abcStatusCounts: {
+        NEW: 8,
         READY: 104,
         INSUFFICIENT_EVIDENCE: 4,
         SOURCE_UNMAPPED: 0,
-        CALIBRATION_PENDING: 8,
-        RECALCULATING: 0,
         SELLPIA_SOURCE_STALE: 0,
         AD_SOURCE_STALE: 0,
-        ORDERS_SOURCE_STALE: 0,
-        CALCULATION_ERROR: 0,
       },
-      abcContributionProfitByGrade: { A: 12_000, B: 2_000, C: -500 },
-      abcContributionProfitShareByGrade: { A: 0.89, B: 0.15, C: -0.04 },
+      contributionOverview: null,
       abcFormula: null,
       displayDataAsOf: '2026-07-31',
       channelProductCounts: [{
@@ -106,7 +136,7 @@ const state = vi.hoisted(() => ({
       depletionCoveredProductCount: 54,
       sharedDepletionProductCount: 7,
     },
-  },
+  } as unknown as MasterProductOperationsListResponse,
   overviewData: undefined as MasterProductOperationsListResponse | undefined,
   overviewErrorMessage: null as string | null,
   errorMessage: null as string | null,
@@ -145,7 +175,7 @@ vi.mock('./ProductAbcDetailDialog', () => ({
 }));
 
 vi.mock('./ProductOperationsDataStatusAction', () => ({
-  ProductOperationsDataStatusAction: () => <button type="button">데이터 갱신</button>,
+  ProductOperationsDataStatusAction: () => <button type="button">ABC 등급 현황</button>,
 }));
 
 describe('<ProductsPageContent>', () => {
@@ -189,9 +219,9 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getAllByText('발주 필요').length).toBeGreaterThan(0);
     expect(screen.getByText('손익점검')).toBeInTheDocument();
     expect(screen.getByText('점검 대상')).toBeInTheDocument();
-    expect(screen.getByText('A등급 이익')).toBeInTheDocument();
-    expect(screen.getByText('B등급 이익')).toBeInTheDocument();
-    expect(screen.getByText('데이터 갱신')).toBeInTheDocument();
+    expect(screen.getByText('기간 매출')).toBeInTheDocument();
+    expect(screen.getByText('순영업이익')).toBeInTheDocument();
+    expect(screen.getByText('ABC 등급 현황')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '전체 카테고리' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '완구/놀이' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '상품' })).toBeInTheDocument();
@@ -234,7 +264,7 @@ describe('<ProductsPageContent>', () => {
   it('keeps the staged header focused on period and data controls without manual product creation', () => {
     render(<ProductsPageContent headingLevel={1} />);
 
-    expect(screen.getByRole('button', { name: '데이터 갱신' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'ABC 등급 현황' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: '트래픽 업로드' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '7일' }));

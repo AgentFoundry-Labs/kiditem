@@ -5,7 +5,7 @@ import { productAbcEvaluation } from '@/test/fixtures/product-abc';
 import { ProductAbcDetailDialog } from './ProductAbcDetailDialog';
 
 describe('ProductAbcDetailDialog', () => {
-  it('explains automatic profitability ABC evidence and temporary zero cost components', () => {
+  it('shows the retained official evaluation beside live source and contribution data', () => {
     render(
       <ProductAbcDetailDialog
         open
@@ -14,17 +14,17 @@ describe('ProductAbcDetailDialog', () => {
       />,
     );
 
-    expect(screen.getByText('상품 이익 = 매출 − 주문 시점 매입액 − 광고비 − 판매 수수료 − 출고물류비 − 반품손실 − 기타 변동비')).toBeInTheDocument();
-    expect(screen.getByText(/원천 연결 전까지 0원\(미적용\)/)).toBeInTheDocument();
+    expect(screen.getByText('공식 등급 기준일')).toBeInTheDocument();
+    expect(screen.getByText('표시 데이터 기준일')).toBeInTheDocument();
     expect(screen.getByText('수익 데이터 관찰')).toBeInTheDocument();
     expect(screen.queryByText('주문 원천')).not.toBeInTheDocument();
-    expect(screen.getAllByText(/0원 · NOT_APPLIED/)).toHaveLength(4);
-    expect(screen.getByText(/ABC_V1 · v1 · 반감기 90일 · 학습 표본 100개/)).toBeInTheDocument();
+    expect(screen.getByText(/PRODUCT_ABC_ABSOLUTE · v1 · 반감기 90일/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '상품 상세 보기' })).toHaveAttribute('href', '/product-hub/11111111-1111-4111-8111-111111111111');
   });
 });
 
 function product(): MasterProductOperationsMetadata {
+  const evaluation = productAbcEvaluation();
   return {
     id: '11111111-1111-4111-8111-111111111111',
     code: 'KI-1',
@@ -37,12 +37,56 @@ function product(): MasterProductOperationsMetadata {
     imageUrls: [],
     displayImageUrls: [],
     abcGrade: 'A',
-    abcEvaluation: productAbcEvaluation(),
+    abcEvaluation: evaluation,
+    abc: {
+      abcGrade: 'A',
+      evaluation,
+      displayStatus: 'READY',
+      formulaRevision: 2,
+      publicationRevision: 4,
+      officialCutoffDate: '2026-07-31',
+      publishedAt: '2026-08-01T00:00:00.000Z',
+      actualCutoffDate: '2026-08-31',
+      sources: {
+        sellpia: source('READY'),
+        advertising: source('READY'),
+        mapping: { status: 'READY', mappingGeneration: '7' },
+      },
+    },
+    contribution: {
+      masterProductId: '11111111-1111-4111-8111-111111111111',
+      revenue: 220_000,
+      operatingProfit: 125_000,
+      salesContribution: 1,
+      positiveOperatingProfitContribution: 1,
+      lossImpact: null,
+      salesRank: 1,
+      positiveOperatingProfitRank: 1,
+      lossRank: null,
+      cumulativeSalesContribution: 1,
+      cumulativePositiveOperatingProfitContribution: 1,
+      cumulativeLossImpact: null,
+      metricCompleteness: { sales: true, operatingProfit: true },
+    },
     profitTag: null,
     adTier: null,
     adBudgetLimit: null,
     healthScore: null,
     healthUpdatedAt: null,
     isActive: true,
+  };
+}
+
+function source(status: 'READY') {
+  return {
+    status,
+    sourceImportRunId: '11111111-1111-4111-8111-111111111112',
+    generation: '7',
+    coverageStartDate: '2026-01-01',
+    coverageEndDate: '2026-08-31',
+    actualCutoffDate: '2026-08-31',
+    capturedAt: '2026-09-01T00:00:00.000Z',
+    latestAttemptState: 'COMPLETE' as const,
+    errorCode: null,
   };
 }

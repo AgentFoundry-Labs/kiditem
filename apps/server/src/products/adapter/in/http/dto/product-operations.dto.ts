@@ -26,6 +26,14 @@ const INVENTORY_FOCUSES = [
 ] as const;
 const AD_STATUSES = ['all', 'active', 'inactive', 'unconfigured'] as const;
 const PERIOD_DAYS = [7, 14, 30] as const;
+const ABC_STATUSES = [
+  'NEW',
+  'READY',
+  'INSUFFICIENT_EVIDENCE',
+  'SOURCE_UNMAPPED',
+  'SELLPIA_SOURCE_STALE',
+  'AD_SOURCE_STALE',
+] as const;
 
 export class ProductOperationsDataStatusQueryDto {
   @Type(() => Number)
@@ -75,25 +83,8 @@ export class ProductOperationsListQueryDto {
   abcGrade?: 'A' | 'B' | 'C' | 'unclassified';
 
   @IsOptional()
-  @IsIn([
-    'READY',
-    'INSUFFICIENT_EVIDENCE',
-    'SOURCE_UNMAPPED',
-    'CALIBRATION_PENDING',
-    'RECALCULATING',
-    'SELLPIA_SOURCE_STALE',
-    'AD_SOURCE_STALE',
-    'CALCULATION_ERROR',
-  ])
-  abcCalculationStatus?:
-    | 'READY'
-    | 'INSUFFICIENT_EVIDENCE'
-    | 'SOURCE_UNMAPPED'
-    | 'CALIBRATION_PENDING'
-    | 'RECALCULATING'
-    | 'SELLPIA_SOURCE_STALE'
-    | 'AD_SOURCE_STALE'
-    | 'CALCULATION_ERROR';
+  @IsIn(ABC_STATUSES)
+  abcCalculationStatus?: (typeof ABC_STATUSES)[number];
 
   @IsIn(AD_STATUSES)
   adStatus: (typeof AD_STATUSES)[number] = 'all';
