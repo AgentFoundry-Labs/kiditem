@@ -523,10 +523,10 @@ Advertising `MISSING` or `STALE` is never treated as zero. Source abnormality
 follows the Coherent Source Snapshot contract and never creates another grade
 or Evaluation.
 
-Products with fewer than 30 valid days show the UI label `NEW`, store the
-evaluation reason `INSUFFICIENT_EVIDENCE`, and have no official A/B/C. Revenue,
-operating profit, and separate contribution metrics still display for the
-evidence that exists.
+Products with fewer than 30 valid days show the UI label `NEW` with the
+read-time reason `INSUFFICIENT_EVIDENCE`, create no normal Evaluation row, and
+have no official A/B/C. Revenue, operating profit, and separate contribution
+metrics still display for the evidence that exists.
 
 Valid observation days count only closed collectible periods where Sellpia,
 advertising (including confirmed zero), and mapping evidence are all valid.
