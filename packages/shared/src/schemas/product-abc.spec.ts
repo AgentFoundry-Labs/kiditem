@@ -1,165 +1,312 @@
 import { describe, expect, it } from 'vitest';
 
-const modulePath = './product-abc.js';
-const CHECKSUM = 'a'.repeat(64);
+import {
+  PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
+  PRODUCT_ABC_ABSOLUTE_V1_ANCHORS,
+  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH,
+  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_JSON,
+  ProductAbcContributionAnalyticsSchema,
+  ProductAbcCostComponentSchema,
+  ProductAbcDisplayStatusSchema,
+  ProductAbcEvaluationSchema,
+  ProductAbcFormulaPayloadSchema,
+  ProductAbcFormulaStateSchema,
+  ProductAbcGradeHistorySchema,
+  ProductAbcReadModelSchema,
+} from './product-abc.js';
 
-async function contracts() {
-  return import(modulePath);
+const UUID = '00000000-0000-4000-8000-000000000001';
+const UUID_2 = '00000000-0000-4000-8000-000000000002';
+const ISO = '2026-08-01T00:00:00.000Z';
+
+function evaluation(overrides: Record<string, unknown> = {}) {
+  return {
+    abcGrade: 'A',
+    weightedRevenue: 1_000_000,
+    weightedOrderTimeSupplyCost: 100_000,
+    weightedAdvertisingSpend: 50_000,
+    weightedOperatingProfit: 850_000,
+    operatingProfitVelocity30: 825_000,
+    operatingMargin: 0.85,
+    lossPersistence: 0,
+    profitScore: 66,
+    marginScore: 100,
+    consistencyScore: 100,
+    economicScore: 86.5,
+    validObservationDays: 31,
+    formula: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+    formulaRevision: 1,
+    publicationRevision: 1,
+    gradeBasisCutoffDate: '2026-07-31',
+    sellpiaSourceImportRunId: UUID,
+    advertisingSourceImportRunId: UUID_2,
+    sellpiaGeneration: '11',
+    advertisingGeneration: '7',
+    mappingGeneration: '4',
+    calculatedAt: ISO,
+    ...overrides,
+  };
 }
 
-const formula = {
-  formulaKey: 'ABC_V1',
-  version: 1,
-  calculationCodeChecksum: CHECKSUM,
-  formulaChecksum: CHECKSUM,
-  activatedAt: '2026-08-01T00:00:00.000Z',
-  halfLifeDays: 90,
-  weights: { profit: 0.5, margin: 0.3, persistence: 0.2 },
-  dayShrinkK: 30,
-  cutoffs: { cToB: 40, bToA: 70 },
-  normalizationKnots: {
-    profitVelocity: [{ value: 0, score: 0 }, { value: 100_000, score: 100 }],
-    contributionMargin: [{ value: -1, score: 0 }, { value: 0.5, score: 100 }],
-    lossRecurrence: [{ value: 0, score: 0 }, { value: 1, score: 100 }],
-  },
-  trainingRange: { from: '2025-07-01', to: '2026-07-31' },
-  sampleCount: 48,
-  foldCount: 3,
-  calibrationMetrics: {
-    meanSpearmanRankCorrelation: 0.72,
-    meanExplainedVariance: 0.41,
-    gradeChurnRate: 0.08,
-  },
-};
-
-const costBreakdown = {
-  recognizedRevenue: { amount: 500_000, status: 'OBSERVED' },
-  orderTimeCogs: { amount: 220_000, status: 'OBSERVED' },
-  advertisingSpend: { amount: 30_000, status: 'OBSERVED' },
-  marketplaceCommission: { amount: 0, status: 'NOT_APPLIED' },
-  outboundFulfillment: { amount: 0, status: 'NOT_APPLIED' },
-  returnLoss: { amount: 0, status: 'NOT_APPLIED' },
-  otherVariableCost: { amount: 0, status: 'NOT_APPLIED' },
-};
-
-describe('automatic product profitability ABC contracts', () => {
-  it('defines an immutable formula summary without a manual policy mutation', async () => {
-    const { ProductAbcFormulaSummarySchema, ProductAbcCalculationStatusSchema } = await contracts();
-
-    expect(ProductAbcFormulaSummarySchema.parse(formula)).toMatchObject({
-      formulaKey: 'ABC_V1', version: 1, halfLifeDays: 90,
+describe('absolute product profitability ABC contracts', () => {
+  it('locks the canonical V1 payload, anchors, policy hash, and precision', () => {
+    expect(ProductAbcFormulaPayloadSchema.parse(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD))
+      .toEqual(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD);
+    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.formulaKey).toBe('PRODUCT_ABC_ABSOLUTE');
+    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.version).toBe(1);
+    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.anchors).toEqual(PRODUCT_ABC_ABSOLUTE_V1_ANCHORS);
+    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.minimumObservationDays).toBe(30);
+    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.velocityPeriodDays).toBe(30);
+    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.maxCompleteMonths).toBe(12);
+    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.excludeCurrentKstMonth).toBe(true);
+    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.hardC).toEqual({
+      weightedOperatingProfitLte: 0,
+      operatingMarginLte: 0,
+      lossPersistenceGte: 0.5,
     });
-    expect(ProductAbcCalculationStatusSchema.options).toEqual([
-      'READY', 'INSUFFICIENT_EVIDENCE', 'SOURCE_UNMAPPED', 'CALIBRATION_PENDING',
-      'RECALCULATING', 'SELLPIA_SOURCE_STALE', 'AD_SOURCE_STALE', 'ORDERS_SOURCE_STALE',
-      'CALCULATION_ERROR',
+    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.gradeThresholds).toEqual({
+      aEconomicScoreGte: 80,
+      aMarginScoreGte: 60,
+      aConsistencyScoreGte: 60,
+      bEconomicScoreGte: 50,
+    });
+    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.precision).toEqual({
+      arithmetic: 'IEEE-754_BINARY64',
+      persistedScale: 6,
+      rounding: 'ROUND_HALF_UP',
+      thresholdComparison: 'UNROUNDED',
+    });
+    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.adSourcePolicyHash)
+      .toBe(PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH);
+    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH).toMatch(/^[a-f0-9]{64}$/);
+    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH).not.toContain('TODO');
+    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_JSON).toContain('PRODUCT_ABC_ABSOLUTE');
+  });
+
+  it('does not accept drifted anchors, policy hash, or removed compatibility fields', () => {
+    expect(() => ProductAbcFormulaPayloadSchema.parse({
+      ...PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+      anchors: {
+        ...PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.anchors,
+        profitVelocity30: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.anchors.profitVelocity30.map(
+          (point, index) => index === 1 ? { ...point, score: 21 } : point,
+        ),
+      },
+    })).toThrow();
+    expect(() => ProductAbcFormulaPayloadSchema.parse({
+      ...PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+      adSourcePolicyHash: 'a'.repeat(64),
+    })).toThrow();
+    for (const field of [
+      'calculationStatus',
+      'rawScore',
+      'adjustedScore',
+      'reliability',
+      'ordersSourceStatus',
+      'populationHash',
+    ]) {
+      expect(ProductAbcFormulaPayloadSchema.safeParse({
+        ...PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+        [field]: null,
+      }).success).toBe(false);
+    }
+  });
+
+  it('requires absolute Evaluation provenance and derives five read statuses', () => {
+    const parsed = ProductAbcEvaluationSchema.parse(evaluation());
+    expect(parsed.abcGrade).toBe('A');
+    expect(parsed.sellpiaGeneration).toBe('11');
+    expect(parsed.formula.formulaKey).toBe('PRODUCT_ABC_ABSOLUTE');
+
+    expect(ProductAbcDisplayStatusSchema.options).toEqual([
+      'SOURCE_UNMAPPED',
+      'SELLPIA_SOURCE_STALE',
+      'AD_SOURCE_STALE',
+      'INSUFFICIENT_EVIDENCE',
+      'READY',
     ]);
 
-    const module = await contracts();
-    expect(module).not.toHaveProperty('MasterProductAbcPolicySchema');
-    expect(module).not.toHaveProperty('UpdateMasterProductAbcPolicySchema');
-    expect(module).not.toHaveProperty('MasterProductAbcMetricSchema');
-    expect(module).not.toHaveProperty('MasterProductAbcPeriodDaysSchema');
-  });
-
-  it('publishes explainable profitability evidence and all seven cost components', async () => {
-    const { ProductAbcEvaluationSchema } = await contracts();
-    const evaluation = ProductAbcEvaluationSchema.parse({
+    const stale = ProductAbcReadModelSchema.parse({
       abcGrade: 'A',
-      calculationStatus: 'READY',
-      rawScore: 82.5,
-      adjustedScore: 75.2,
-      reliability: 0.74,
-      weightedRevenue: 500_000,
-      weightedOrderTimeCogs: 220_000,
-      weightedAdSpend: 30_000,
-      weightedContributionProfit: 250_000,
-      profitVelocity30: 120_000,
-      weightedContributionMargin: 0.5,
-      lossRecurrence: 0,
-      paidOrderCount: 31,
-      observationDays: 61,
-      firstValidPaidSaleAt: '2026-06-01T00:00:00.000Z',
-      formula,
-      sourceFreshness: {
-        evaluationCutoffDate: '2026-07-31',
-        sellpia: {
-          status: 'READY', coverageStartDate: '2025-06-28', coverageEndDate: '2026-07-31', capturedAt: '2026-08-01T00:00:00.000Z',
-        },
-        advertising: {
-          status: 'READY', coverageStartDate: '2025-06-28', coverageEndDate: '2026-07-31', capturedAt: '2026-08-01T00:00:00.000Z',
-        },
-        orders: {
-          status: 'READY', coverageStartDate: '2025-06-28', coverageEndDate: '2026-07-31', capturedAt: '2026-08-01T00:00:00.000Z',
-        },
-        mapping: {
-          status: 'READY', inventoryGeneration: '77', verifiedAt: '2026-08-01T00:00:00.000Z',
-        },
-      },
-      costBreakdown,
-      statusDetail: null,
-      calculatedAt: '2026-08-01T00:00:00.000Z',
+      evaluation: parsed,
+      displayStatus: 'AD_SOURCE_STALE',
+      recalculationPending: true,
+      recalculationRequestedRevision: 4,
+      recalculatedRevision: 3,
+      gradeBasisCutoffDate: '2026-07-31',
+      actualCutoffDate: '2026-08-31',
     });
-
-    expect(evaluation.costBreakdown.marketplaceCommission).toEqual({ amount: 0, status: 'NOT_APPLIED' });
-    expect(evaluation.abcGrade).toBe('A');
-    expect(evaluation.formula?.formulaChecksum).toBe(CHECKSUM);
-  });
-
-  it('keeps grade absence and stale-grade retention distinct', async () => {
-    const { ProductAbcEvaluationSchema } = await contracts();
-    const base = {
+    expect(stale.evaluation?.abcGrade).toBe('A');
+    expect(() => ProductAbcReadModelSchema.parse({
       abcGrade: null,
-      rawScore: null,
-      adjustedScore: null,
-      reliability: null,
-      weightedRevenue: null,
-      weightedOrderTimeCogs: null,
-      weightedAdSpend: null,
-      weightedContributionProfit: null,
-      profitVelocity30: null,
-      weightedContributionMargin: null,
-      lossRecurrence: null,
-      paidOrderCount: 3,
-      observationDays: 12,
-      firstValidPaidSaleAt: '2026-07-20T00:00:00.000Z',
-      formula: null,
-      sourceFreshness: {
-        evaluationCutoffDate: '2026-07-31',
-        sellpia: { status: 'READY', coverageStartDate: '2025-06-28', coverageEndDate: '2026-07-31', capturedAt: '2026-08-01T00:00:00.000Z' },
-        advertising: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
-        orders: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
-        mapping: { status: 'STALE', inventoryGeneration: null, verifiedAt: null },
-      },
-      costBreakdown,
-      statusDetail: null,
-      calculatedAt: '2026-08-01T00:00:00.000Z',
-    };
-
-    expect(ProductAbcEvaluationSchema.parse({ ...base, calculationStatus: 'INSUFFICIENT_EVIDENCE' }).abcGrade).toBeNull();
-    expect(ProductAbcEvaluationSchema.parse({
-      ...base,
-      abcGrade: 'B',
-      calculationStatus: 'AD_SOURCE_STALE',
-      statusDetail: '광고 일별 원천 범위가 완전하지 않습니다.',
-    }).abcGrade).toBe('B');
-    expect(ProductAbcEvaluationSchema.parse({
-      ...base,
-      abcGrade: 'B',
-      calculationStatus: 'ORDERS_SOURCE_STALE',
-      statusDetail: '결제 주문 원천 범위가 완전하지 않습니다.',
-    }).abcGrade).toBe('B');
-    expect(() => ProductAbcEvaluationSchema.parse({ ...base, abcGrade: 'A', calculationStatus: 'CALIBRATION_PENDING' })).toThrow();
+      evaluation: null,
+      displayStatus: 'READY',
+      recalculationPending: false,
+      recalculationRequestedRevision: 1,
+      recalculatedRevision: 1,
+      gradeBasisCutoffDate: null,
+      actualCutoffDate: '2026-07-31',
+    })).toThrow();
+    expect(() => ProductAbcEvaluationSchema.parse(evaluation({
+      weightedOperatingProfit: -1,
+      operatingMargin: null,
+    }))).not.toThrow();
+    expect(() => ProductAbcEvaluationSchema.parse(evaluation({
+      advertisingSourceImportRunId: null,
+    }))).toThrow();
+    expect(() => ProductAbcEvaluationSchema.parse(evaluation({
+      advertisingGeneration: null,
+    }))).toThrow();
+    expect(() => ProductAbcEvaluationSchema.parse(evaluation({
+      sourceFreshness: {},
+    }))).toThrow();
+    for (const displayStatus of ['SOURCE_UNMAPPED', 'INSUFFICIENT_EVIDENCE'] as const) {
+      expect(() => ProductAbcReadModelSchema.parse({
+        ...stale,
+        displayStatus,
+      })).toThrow();
+      expect(() => ProductAbcReadModelSchema.parse({
+        abcGrade: null,
+        evaluation: null,
+        displayStatus,
+        recalculationPending: false,
+        recalculationRequestedRevision: 1,
+        recalculatedRevision: 1,
+        gradeBasisCutoffDate: null,
+        actualCutoffDate: '2026-07-31',
+      })).not.toThrow();
+    }
   });
 
-  it('records grade changes with formula and source-cutoff provenance', async () => {
-    const { ProductAbcGradeHistorySchema } = await contracts();
-    expect(ProductAbcGradeHistorySchema.parse({
-      oldGrade: 'B', newGrade: 'A', calculationStatus: 'READY', formulaKey: 'ABC_V1',
-      formulaVersion: 1, formulaChecksum: CHECKSUM, adjustedScore: 75.2,
-      weightedContributionProfit: 250_000, weightedContributionMargin: 0.5,
-      sourceCutoffDate: '2026-07-31', reason: 'AUTOMATIC_PROFITABILITY_EVALUATION',
-      calculatedAt: '2026-08-01T00:00:00.000Z',
-    }).newGrade).toBe('A');
+  it('keeps zero-cost states unambiguous', () => {
+    expect(ProductAbcCostComponentSchema.parse({
+      amount: 0,
+      status: 'CONFIRMED_ZERO',
+    })).toEqual({ amount: 0, status: 'CONFIRMED_ZERO' });
+    expect(ProductAbcCostComponentSchema.parse({
+      amount: 0,
+      status: 'NOT_APPLIED',
+    })).toEqual({ amount: 0, status: 'NOT_APPLIED' });
+    expect(() => ProductAbcCostComponentSchema.parse({
+      amount: null,
+      status: 'CONFIRMED_ZERO',
+    })).toThrow();
+    expect(() => ProductAbcCostComponentSchema.parse({
+      amount: 1,
+      status: 'CONFIRMED_ZERO',
+    })).toThrow();
+    expect(() => ProductAbcCostComponentSchema.parse({
+      amount: 1,
+      status: 'NOT_APPLIED',
+    })).toThrow();
+  });
+
+  it('keeps current and published formula/mapping revisions in one state contract', () => {
+    const state = ProductAbcFormulaStateSchema.parse({
+      organizationId: UUID,
+      activeFormulaVersionId: UUID_2,
+      formulaRevision: 2,
+      publicationRevision: 4,
+      officialCutoffDate: '2026-07-31',
+      publishedSellpiaSourceImportRunId: UUID,
+      publishedAdvertisingSourceImportRunId: UUID_2,
+      publishedMappingGeneration: '3',
+      mappingGeneration: '4',
+      recalculationRequestedRevision: 5,
+      recalculatedRevision: 4,
+    });
+    expect(state.mappingGeneration).toBe('4');
+    expect(() => ProductAbcFormulaStateSchema.parse({
+      ...state,
+      recalculatedRevision: 6,
+    })).toThrow();
+  });
+
+  it('keeps grade history and contribution denominators independent', () => {
+    const history = ProductAbcGradeHistorySchema.parse({
+      oldGrade: 'B',
+      newGrade: 'A',
+      formulaKey: 'PRODUCT_ABC_ABSOLUTE',
+      formulaVersion: 1,
+      formulaRevision: 2,
+      publicationRevision: 3,
+      economicScore: 86.5,
+      sourceCutoffDate: '2026-07-31',
+      previousSellpiaSourceImportRunId: UUID,
+      nextSellpiaSourceImportRunId: UUID_2,
+      previousAdvertisingSourceImportRunId: null,
+      nextAdvertisingSourceImportRunId: UUID_2,
+      reason: 'AUTOMATIC_PROFITABILITY_EVALUATION',
+      calculatedAt: ISO,
+    });
+    expect(history.newGrade).toBe('A');
+
+    const metric = {
+      amount: 100,
+      denominator: 1_000,
+      share: 0.1,
+      cumulativeShare: 0.1,
+      rank: 1,
+      status: 'READY',
+    } as const;
+    const analytics = ProductAbcContributionAnalyticsSchema.parse({
+      basisCutoffDate: '2026-07-31',
+      rows: [{
+        masterProductId: UUID,
+        sales: metric,
+        operatingProfit: {
+          ...metric,
+          amount: -100,
+          denominator: -1_000,
+          share: 0.1,
+          cumulativeShare: 0.1,
+        },
+        lossImpact: { ...metric, amount: 100, share: 1, cumulativeShare: 1 },
+      }],
+      sales: {
+        basisCutoffDate: '2026-07-31',
+        sourceCutoffDate: '2026-07-31',
+        includedProductCount: 1,
+        excludedProductCount: 0,
+        denominator: 1_000,
+        sourceStatusSummary: { sellpia: 'READY', advertising: 'READY', mapping: 'READY' },
+      },
+      operatingProfit: {
+        basisCutoffDate: '2026-07-31',
+        sourceCutoffDate: '2026-07-30',
+        includedProductCount: 1,
+        excludedProductCount: 0,
+        denominator: -1_000,
+        sourceStatusSummary: { sellpia: 'READY', advertising: 'STALE', mapping: 'READY' },
+      },
+      lossImpact: {
+        basisCutoffDate: '2026-07-31',
+        sourceCutoffDate: '2026-07-29',
+        includedProductCount: 1,
+        excludedProductCount: 0,
+        denominator: 100,
+        sourceStatusSummary: { sellpia: 'READY', advertising: 'MISSING', mapping: 'READY' },
+      },
+    });
+    expect(analytics.operatingProfit.rows).toBeUndefined();
+    expect(analytics.rows[0]?.operatingProfit.denominator).toBe(-1_000);
+    expect(analytics.rows[0]?.operatingProfit.share).toBe(0.1);
+    const zeroDenominator = ProductAbcContributionAnalyticsSchema.parse({
+      ...analytics,
+      rows: [{
+        ...analytics.rows[0]!,
+        sales: {
+          amount: 0,
+          denominator: null,
+          share: null,
+          cumulativeShare: null,
+          rank: null,
+          status: 'NO_DENOMINATOR',
+        },
+      }],
+      sales: { ...analytics.sales, denominator: null },
+    });
+    expect(zeroDenominator.sales.includedProductCount).toBe(1);
   });
 });

@@ -1,58 +1,48 @@
 import { describe, expect, it } from 'vitest';
-import type { ProductAbcFormulaSummary } from '@kiditem/shared/product-abc';
-import { evaluateMasterProductAbc } from './master-product-abc';
+import { PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD } from '@kiditem/shared/product-abc';
+import {
+  evaluateMasterProductAbc,
+  type MasterProductAbcFormulaReadyFacts,
+} from './master-product-abc';
 
-const formula: ProductAbcFormulaSummary = {
-  formulaKey: 'ABC_V1', version: 1,
-  calculationCodeChecksum: 'a'.repeat(64), formulaChecksum: 'b'.repeat(64),
-  activatedAt: new Date('2026-08-01T00:00:00.000Z'), halfLifeDays: 90,
-  weights: { profit: 0.5, margin: 0.3, persistence: 0.2 }, dayShrinkK: 30,
-  cutoffs: { cToB: 40, bToA: 70 },
-  normalizationKnots: {
-    profitVelocity: [{ value: 0, score: 0 }, { value: 100, score: 100 }],
-    contributionMargin: [{ value: 0, score: 0 }, { value: 1, score: 100 }],
-    lossRecurrence: [{ value: 0, score: 0 }, { value: 1, score: 100 }],
-  },
-  trainingRange: { from: '2025-07-01', to: '2026-07-01' }, sampleCount: 30, foldCount: 3,
-  calibrationMetrics: { meanSpearmanRankCorrelation: 0.5, meanExplainedVariance: 0.2, gradeChurnRate: 0.1 },
-};
+describe('absolute ABC QA regressions', () => {
+  it('uses the canonical shared V1 payload reference', () => {
+    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD).toMatchObject({
+      formulaKey: 'PRODUCT_ABC_ABSOLUTE',
+      version: 1,
+      halfLifeDays: 90,
+      weights: { profit: 0.5, margin: 0.3, consistency: 0.2 },
+      minimumObservationDays: 30,
+    });
+  });
 
-function evaluate(masterProductId: string) {
-  const start = new Date('2026-06-01T00:00:00.000Z');
-  const end = new Date('2026-06-30T00:00:00.000Z');
-  return evaluateMasterProductAbc({
-    formula, calculatedAt: new Date('2026-08-01T00:00:00.000Z'),
-    evidence: {
-      masterProductId, asOfDate: new Date('2026-07-31T00:00:00.000Z'), firstValidPaidSaleAt: start,
-      validPaidOrderDates: [], paidOrderCount: 30, observationDays: 61, eligibilityReached: true,
-      sellpiaStatus: 'READY', adStatus: 'READY',
-      sellpiaCapturedAt: new Date('2026-08-01T00:00:00.000Z'), advertisingCapturedAt: new Date('2026-08-01T00:00:00.000Z'),
-      advertisingCoverageStartDate: start, advertisingCoverageEndDate: end,
-      ordersStatus: 'READY', ordersCoverageStartDate: start, ordersCoverageEndDate: end,
-      ordersCapturedAt: new Date('2026-08-01T00:00:00.000Z'),
-      orderLinkedLineCount: 30, orderUnlinkedLineCount: 0,
-      mappingStatus: 'READY', mappingInventoryGeneration: '7',
-      mappingVerifiedAt: new Date('2026-08-01T00:00:00.000Z'),
+  it('has no cohort input or persistence side effect in its public evaluator', () => {
+    const input: MasterProductAbcFormulaReadyFacts = {
+      masterProductId: 'product-a',
+      cutoffDate: '2026-07-31',
       monthlyFacts: [{
-        yearMonth: '2026-06', coverageStartDate: start, coverageEndDate: end, coveredDays: 30,
-        coverageMidpointEpochDay: 0, revenue: 1_000, sellpiaInAmount: 200, adSpend: 100,
-        contributionProfit: 700, negativeCoveredDays: 0, lossGranularity: 'MONTH_INFERRED',
-        sourceProductCodes: [], sourceOptionCodes: [],
-        costBreakdown: {
-          recognizedRevenue: { amount: 1_000, status: 'OBSERVED' }, orderTimeCogs: { amount: 200, status: 'OBSERVED' },
-          advertisingSpend: { amount: 100, status: 'OBSERVED' }, marketplaceCommission: { amount: 0, status: 'NOT_APPLIED' },
-          outboundFulfillment: { amount: 0, status: 'NOT_APPLIED' }, returnLoss: { amount: 0, status: 'NOT_APPLIED' },
-          otherVariableCost: { amount: 0, status: 'NOT_APPLIED' },
+        yearMonth: '2026-07',
+        coverageStartDate: '2026-07-01',
+        coverageEndDate: '2026-07-31',
+        coveredDays: 31,
+        recognizedRevenue: 1_000_000,
+        orderTimeSupplyCost: 100_000,
+        advertisingSpend: 0,
+        provenance: {
+          costBasis: 'ORDER_TIME_SUPPLY_COST',
+          vatIncluded: true,
+          advertisingEvidence: 'CONFIRMED_ZERO',
         },
       }],
-    },
-  });
-}
+    };
+    const candidate = evaluateMasterProductAbc({
+      facts: input,
+      formula: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+    });
 
-describe('MasterProduct ABC QA regressions', () => {
-  // Regression: identical product evidence must not be split by a portfolio tie.
-  it('assigns equal evidence the same formula-derived grade without a cumulative portfolio boundary', () => {
-    expect(evaluate('master-a')).toMatchObject({ abcGrade: 'A', calculationStatus: 'READY' });
-    expect(evaluate('master-b')).toMatchObject({ abcGrade: 'A', calculationStatus: 'READY' });
+    expect(candidate).toHaveProperty('abcGrade');
+    expect(candidate).not.toHaveProperty('rank');
+    expect(candidate).not.toHaveProperty('cohort');
+    expect(candidate).not.toHaveProperty('repository');
   });
 });

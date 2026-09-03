@@ -1,381 +1,447 @@
-import type {
-  ProductAbcCalculationStatus,
-  ProductAbcCostBreakdown,
-  ProductAbcCostComponent,
-  ProductAbcEvaluation,
-  ProductAbcFormulaSummary,
-  ProductAbcSourceFreshness,
-} from '@kiditem/shared/product-abc';
-import type { MasterProductProfitabilityEvidence } from '../../finance/application/port/in/master-product-profitability-read.port';
 import {
-  calculateProfitabilityScore,
-  type ProfitabilityContributionFact,
-  type ProfitabilityFormulaParameters,
-} from './master-product-profitability-score';
+  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+  type ProductAbcFormulaPayload,
+} from '@kiditem/shared/product-abc';
 
-export type MasterProductAbcEvaluationInput = Readonly<{
-  evidence: MasterProductProfitabilityEvidence;
-  formula: ProductAbcFormulaSummary | null;
-  calculatedAt: Date;
-  recalculating?: boolean;
-  previousNormalEvaluation?: ProductAbcEvaluation | null;
+/**
+ * A source-owned, already eligible set of facts for one product.
+ *
+ * The calculation boundary deliberately contains no source freshness or
+ * publication state. Those decisions belong to the caller that assembles this
+ * value. Every monthly row still carries the provenance needed to prove that
+ * the amounts are safe for the fixed formula.
+ */
+export type MasterProductAbcFormulaReadyMonthlyFact = Readonly<{
+  yearMonth: string;
+  coverageStartDate: Date | string;
+  coverageEndDate: Date | string;
+  coveredDays: number;
+  recognizedRevenue: number;
+  orderTimeSupplyCost: number;
+  advertisingSpend: number | null;
+  provenance: Readonly<{
+    costBasis: 'ORDER_TIME_SUPPLY_COST';
+    vatIncluded: true;
+    advertisingEvidence: 'OBSERVED' | 'CONFIRMED_ZERO' | 'NOT_APPLIED';
+  }>;
+}>;
+
+export type MasterProductAbcFormulaReadyFacts = Readonly<{
+  masterProductId: string;
+  /** The final day of the latest complete KST month in the source snapshot. */
+  cutoffDate: Date | string;
+  monthlyFacts: readonly MasterProductAbcFormulaReadyMonthlyFact[];
+}>;
+
+export type MasterProductAbcCandidateInput = Readonly<{
+  facts: MasterProductAbcFormulaReadyFacts;
+  formula: ProductAbcFormulaPayload;
+}>;
+
+export type MasterProductAbcCandidate = Readonly<{
+  masterProductId: string;
+  abcGrade: 'A' | 'B' | 'C';
+  validObservationDays: number;
+  gradeBasisCutoffDate: string;
+  weightedRevenue: number;
+  weightedOrderTimeSupplyCost: number;
+  weightedAdvertisingSpend: number;
+  weightedOperatingProfit: number;
+  operatingProfitVelocity30: number;
+  operatingMargin: number | null;
+  lossPersistence: number;
+  profitScore: number;
+  marginScore: number | null;
+  consistencyScore: number;
+  economicScore: number;
+}>;
+
+export type MasterProductAbcAnchor = Readonly<{
+  value: number;
+  score: number;
 }>;
 
 /**
- * Products owns the grade decision. Finance supplies evidence only. This
- * function calculates one product's ready score; the service assigns the
- * fixed A/B/C quantiles across the current active positive-profit cohort.
- * Finance keeps unavailable advertising provenance while supplying its
- * calculation-only 0 KRW treatment.
+ * The canonical payload is shared by source readers and Products. Exporting
+ * this reference keeps fixtures and callers on the same immutable definition;
+ * the evaluator never maintains a second copy of its literals.
+ */
+export { PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD };
+
+/**
+ * Evaluate exactly one product from formula-ready monthly facts.
+ *
+ * This is intentionally a pure function. It does not assign any portfolio
+ * context or perform persistence. A malformed source row is an exception:
+ * callers must not turn a contract failure into a grade.
  */
 export function evaluateMasterProductAbc(
-  input: MasterProductAbcEvaluationInput,
-): ProductAbcEvaluation {
-  const { evidence } = input;
-  const sourceFreshness = sourceFreshnessFor(evidence);
-  const costBreakdown = aggregateCostBreakdown(evidence);
-  const base = {
-    paidOrderCount: evidence.paidOrderCount,
-    observationDays: evidence.observationDays,
-    firstValidPaidSaleAt: evidence.firstValidPaidSaleAt,
-    sourceFreshness,
-    costBreakdown,
-    calculatedAt: input.calculatedAt,
-  } as const;
+  input: MasterProductAbcCandidateInput,
+): MasterProductAbcCandidate {
+  const formula = input.formula;
+  const formulaReadyFacts = input.facts;
+  const facts = selectFacts(formulaReadyFacts, formula);
+  const metrics = calculateMetrics(facts, formulaReadyFacts.cutoffDate, formula);
 
-  if (evidence.sellpiaStatus === 'UNMAPPED'
-    || evidence.mappingStatus === 'UNMAPPED'
-    || evidence.mappingStatus === 'AMBIGUOUS'
-    || evidence.mappingStatus === 'STALE') {
-    return unavailableEvaluation(base, 'SOURCE_UNMAPPED', '셀피아 상품·옵션 매핑이 확인되지 않았습니다.');
-  }
-  if (evidence.sellpiaStatus !== 'READY') {
-    return retainOrUnavailable({
-      base,
-      status: 'SELLPIA_SOURCE_STALE',
-      detail: '셀피아 상품별 이익현황 원천이 최신 전체 범위를 충족하지 않습니다.',
-      previous: input.previousNormalEvaluation,
-    });
-  }
-  if (!input.formula) {
-    return unavailableEvaluation(
-      base,
-      'INSUFFICIENT_EVIDENCE',
-      '자동 ABC 수식에 필요한 수익성 이력 표본을 수집 중입니다.',
-    );
-  }
-  if (input.recalculating) {
-    return retainOrUnavailable({
-      base,
-      status: 'RECALCULATING',
-      detail: '새 수식 버전으로 재계산 중입니다.',
-      previous: input.previousNormalEvaluation,
-      fallbackFormula: input.formula,
-    });
+  const profitScore = interpolateMasterProductAbcAnchor(
+    metrics.operatingProfitVelocity30,
+    formula.anchors.profitVelocity30,
+  );
+  const marginScore = metrics.operatingMargin === null
+    ? null
+    : interpolateMasterProductAbcAnchor(metrics.operatingMargin, formula.anchors.operatingMargin);
+  // The persistence anchors are already a decreasing score table. There is
+  // no second inversion here.
+  const consistencyScore = interpolateMasterProductAbcAnchor(
+    metrics.lossPersistence,
+    formula.anchors.lossPersistence,
+  );
+
+  if (
+    metrics.operatingMargin === null
+    && metrics.weightedOperatingProfit > formula.hardC.weightedOperatingProfitLte
+  ) {
+    throw new Error('positive operating profit with zero revenue');
   }
 
-  try {
-    const facts = scoreFacts(evidence);
-    const score = calculateProfitabilityScore({
-      facts,
-      asOfDate: evidence.asOfDate,
-      formula: formulaParameters(input.formula),
-      observationDays: evidence.observationDays,
-    });
-    if (
-      score.metrics.weightedContributionProfit <= 0
-      || score.adjustedScore === null
-      || score.rawScore === null
-      || score.normalizedContributionMargin === null
-    ) {
-      return readyEvaluation({
-        base,
-        formula: input.formula,
-        grade: 'C',
-        score,
-      });
-    }
-    return readyEvaluation({
-      base,
-      formula: input.formula,
-      grade: score.adjustedScore >= input.formula.cutoffs.bToA
-        ? 'A'
-        : score.adjustedScore >= input.formula.cutoffs.cToB ? 'B' : 'C',
-      score,
-    });
-  } catch (error) {
-    return retainOrUnavailable({
-      base,
-      status: 'CALCULATION_ERROR',
-      detail: error instanceof Error ? `ABC 계산 오류: ${error.message}` : 'ABC 계산 중 알 수 없는 오류가 발생했습니다.',
-      previous: input.previousNormalEvaluation,
-      fallbackFormula: input.formula,
-    });
-  }
-}
+  const economicScore = profitScore * formula.weights.profit
+    + (marginScore ?? 0) * formula.weights.margin
+    + consistencyScore * formula.weights.consistency;
+  const hardC = metrics.weightedOperatingProfit
+      <= formula.hardC.weightedOperatingProfitLte
+    || (metrics.operatingMargin !== null
+      && metrics.operatingMargin <= formula.hardC.operatingMarginLte)
+    || metrics.lossPersistence >= formula.hardC.lossPersistenceGte;
 
-const ABC_QUANTILE_POLICY = {
-  aTopShare: 0.2,
-  bTopShare: 0.7,
-} as const;
-
-/**
- * Assigns the fixed operating distribution after every product has an
- * independently calculated score. Equal scores at a boundary stay together,
- * so input order cannot split equivalent products across grades.
- */
-export function applyMasterProductAbcQuantiles(
-  evaluations: ReadonlyMap<string, ProductAbcEvaluation>,
-): ReadonlyMap<string, ProductAbcEvaluation> {
-  const ranked = [...evaluations.entries()]
-    .filter(([, evaluation]) => (
-      evaluation.calculationStatus === 'READY'
-      && evaluation.adjustedScore !== null
-      && (evaluation.weightedContributionProfit ?? 0) > 0
-    ))
-    .sort(([leftId, left], [rightId, right]) => (
-      right.adjustedScore! - left.adjustedScore! || leftId.localeCompare(rightId)
-    ));
-  const aCutoff = scoreAtShare(ranked, ABC_QUANTILE_POLICY.aTopShare);
-  const bCutoff = scoreAtShare(ranked, ABC_QUANTILE_POLICY.bTopShare);
-
-  return new Map([...evaluations.entries()].map(([masterProductId, evaluation]) => {
-    if (evaluation.calculationStatus !== 'READY') return [masterProductId, evaluation] as const;
-    if ((evaluation.weightedContributionProfit ?? 0) <= 0 || evaluation.adjustedScore === null) {
-      return [masterProductId, { ...evaluation, abcGrade: 'C' }] as const;
-    }
-    const abcGrade = aCutoff !== null && evaluation.adjustedScore >= aCutoff
+  const abcGrade = hardC
+    ? 'C'
+    : economicScore >= formula.gradeThresholds.aEconomicScoreGte
+      && marginScore !== null
+      && marginScore >= formula.gradeThresholds.aMarginScoreGte
+      && consistencyScore >= formula.gradeThresholds.aConsistencyScoreGte
       ? 'A'
-      : bCutoff !== null && evaluation.adjustedScore >= bCutoff ? 'B' : 'C';
-    return [masterProductId, { ...evaluation, abcGrade }] as const;
-  }));
-}
+      : economicScore >= formula.gradeThresholds.bEconomicScoreGte
+        ? 'B'
+        : 'C';
 
-function scoreAtShare(
-  ranked: readonly (readonly [string, ProductAbcEvaluation])[],
-  topShare: number,
-): number | null {
-  if (ranked.length === 0) return null;
-  const index = Math.min(ranked.length - 1, Math.max(0, Math.ceil(ranked.length * topShare) - 1));
-  return ranked[index]![1].adjustedScore;
-}
-
-function readyEvaluation(input: {
-  base: EvaluationBase;
-  formula: ProductAbcFormulaSummary;
-  grade: 'A' | 'B' | 'C';
-  score: ReturnType<typeof calculateProfitabilityScore>;
-}): ProductAbcEvaluation {
-  const metrics = input.score.metrics;
   return {
-    abcGrade: input.grade,
-    calculationStatus: 'READY',
-    // Zero revenue cannot produce a margin ratio. It is nevertheless a
-    // deterministic hard-C outcome when its weighted contribution is
-    // non-positive, so persist a bounded score instead of an invalid READY row.
-    rawScore: input.score.rawScore ?? 0,
-    adjustedScore: input.score.adjustedScore ?? 0,
-    reliability: input.score.reliability,
-    weightedRevenue: metrics.weightedRevenue,
-    weightedOrderTimeCogs: metrics.weightedOrderTimeCogs,
-    weightedAdSpend: metrics.weightedAdSpend,
-    weightedContributionProfit: metrics.weightedContributionProfit,
-    profitVelocity30: metrics.profitVelocity30,
-    weightedContributionMargin: metrics.contributionMargin,
-    lossRecurrence: metrics.lossRecurrence,
-    formula: input.formula,
-    statusDetail: null,
-    ...input.base,
+    masterProductId: formulaReadyFacts.masterProductId,
+    abcGrade,
+    validObservationDays: metrics.validObservationDays,
+    gradeBasisCutoffDate: calendarDate(formulaReadyFacts.cutoffDate),
+    weightedRevenue: roundPersisted(metrics.weightedRevenue, formula),
+    weightedOrderTimeSupplyCost: roundPersisted(metrics.weightedOrderTimeSupplyCost, formula),
+    weightedAdvertisingSpend: roundPersisted(metrics.weightedAdvertisingSpend, formula),
+    weightedOperatingProfit: roundPersisted(metrics.weightedOperatingProfit, formula),
+    operatingProfitVelocity30: roundPersisted(metrics.operatingProfitVelocity30, formula),
+    operatingMargin: roundPersisted(metrics.operatingMargin, formula),
+    lossPersistence: roundPersisted(metrics.lossPersistence, formula),
+    profitScore: roundPersisted(profitScore, formula),
+    marginScore: roundPersisted(marginScore, formula),
+    consistencyScore: roundPersisted(consistencyScore, formula),
+    economicScore: roundPersisted(economicScore, formula),
   };
 }
 
-type EvaluationBase = Readonly<{
-  paidOrderCount: number;
-  observationDays: number;
-  firstValidPaidSaleAt: Date | null;
-  sourceFreshness: ProductAbcSourceFreshness;
-  costBreakdown: ProductAbcCostBreakdown;
-  calculatedAt: Date;
+type NormalizedFact = Readonly<{
+  yearMonth: string;
+  coverageStartDay: number;
+  coverageEndDay: number;
+  coverageMidpointDay: number;
+  coveredDays: number;
+  recognizedRevenue: number;
+  orderTimeSupplyCost: number;
+  advertisingSpend: number;
 }>;
 
-function unavailableEvaluation(
-  base: EvaluationBase,
-  calculationStatus: Extract<
-    ProductAbcCalculationStatus,
-    'INSUFFICIENT_EVIDENCE' | 'SOURCE_UNMAPPED'
-  >,
-  statusDetail: string,
-): ProductAbcEvaluation {
-  return {
-    abcGrade: null,
-    calculationStatus,
-    rawScore: null,
-    adjustedScore: null,
-    reliability: null,
-    weightedRevenue: null,
-    weightedOrderTimeCogs: null,
-    weightedAdSpend: null,
-    weightedContributionProfit: null,
-    profitVelocity30: null,
-    weightedContributionMargin: null,
-    lossRecurrence: null,
-    formula: null,
-    statusDetail,
-    ...base,
-  };
-}
+type Metrics = Readonly<{
+  validObservationDays: number;
+  weightedRevenue: number;
+  weightedOrderTimeSupplyCost: number;
+  weightedAdvertisingSpend: number;
+  weightedOperatingProfit: number;
+  operatingProfitVelocity30: number;
+  operatingMargin: number | null;
+  lossPersistence: number;
+}>;
 
-function retainOrUnavailable(input: {
-  base: EvaluationBase;
-  status: Extract<
-    ProductAbcCalculationStatus,
-    'RECALCULATING' | 'SELLPIA_SOURCE_STALE' | 'AD_SOURCE_STALE' | 'CALCULATION_ERROR'
-  >;
-  detail: string;
-  previous: ProductAbcEvaluation | null | undefined;
-  fallbackFormula?: ProductAbcFormulaSummary | null;
-}): ProductAbcEvaluation {
-  const prior = input.previous;
-  if (prior?.calculationStatus === 'READY' && prior.abcGrade !== null) {
-    return {
-      ...prior,
-      calculationStatus: input.status,
-      formula: prior.formula ?? input.fallbackFormula ?? null,
-      sourceFreshness: input.base.sourceFreshness,
-      costBreakdown: input.base.costBreakdown,
-      paidOrderCount: input.base.paidOrderCount,
-      observationDays: input.base.observationDays,
-      firstValidPaidSaleAt: input.base.firstValidPaidSaleAt,
-      calculatedAt: input.base.calculatedAt,
-      statusDetail: input.detail,
-    };
+function selectFacts(
+  input: MasterProductAbcFormulaReadyFacts,
+  formula: ProductAbcFormulaPayload,
+): readonly NormalizedFact[] {
+  if (formula.excludeCurrentKstMonth !== true) {
+    throw new Error('formula must exclude the current KST month');
   }
-  return {
-    abcGrade: null,
-    calculationStatus: input.status,
-    rawScore: null,
-    adjustedScore: null,
-    reliability: null,
-    weightedRevenue: null,
-    weightedOrderTimeCogs: null,
-    weightedAdSpend: null,
-    weightedContributionProfit: null,
-    profitVelocity30: null,
-    weightedContributionMargin: null,
-    lossRecurrence: null,
-    formula: input.fallbackFormula ?? null,
-    statusDetail: input.detail,
-    ...input.base,
-  };
-}
+  if (!Number.isFinite(formula.halfLifeDays) || formula.halfLifeDays <= 0) {
+    throw new Error('formula half-life is invalid');
+  }
+  if (!Number.isInteger(formula.maxCompleteMonths) || formula.maxCompleteMonths <= 0) {
+    throw new Error('formula month window is invalid');
+  }
+  if (!input || typeof input.masterProductId !== 'string' || input.masterProductId.length === 0) {
+    throw new Error('formula-ready product identity is required');
+  }
+  const cutoffDay = kstEpochDay(input.cutoffDate);
+  const cutoffMonth = yearMonthForEpochDay(cutoffDay);
+  if (cutoffDay !== kstEpochDay(`${cutoffMonth}-${String(daysInMonth(cutoffMonth)).padStart(2, '0')}`)) {
+    throw new Error('cutoff must be the final day of a complete KST month');
+  }
+  const firstMonth = shiftYearMonth(
+    cutoffMonth,
+    -(formula.maxCompleteMonths - 1),
+  );
+  const rawFacts = input.monthlyFacts;
+  if (!Array.isArray(rawFacts)) throw new Error('formula-ready monthly facts are required');
 
-function formulaParameters(formula: ProductAbcFormulaSummary): ProfitabilityFormulaParameters {
-  return {
-    halfLifeDays: formula.halfLifeDays,
-    weights: formula.weights,
-    dayShrinkK: formula.dayShrinkK,
-    normalizationKnots: formula.normalizationKnots,
-  };
-}
+  const selected: NormalizedFact[] = [];
+  const seenMonths = new Set<string>();
+  for (const rawFact of rawFacts) {
+    const month = validateYearMonth(rawFact.yearMonth);
+    // Current and older-than-window rows are intentionally ignored before
+    // validating their amounts. They are outside this calculation's basis.
+    if (month > cutoffMonth || month < firstMonth) continue;
+    if (seenMonths.has(month)) throw new Error(`duplicate monthly fact ${month}`);
+    seenMonths.add(month);
 
-function scoreFacts(evidence: MasterProductProfitabilityEvidence): ProfitabilityContributionFact[] {
-  if (evidence.monthlyFacts.length === 0) throw new Error('수익성 월별 증거가 없습니다');
-  return evidence.monthlyFacts.map((fact) => {
-    if (fact.contributionProfit === null || fact.adSpend === null || fact.negativeCoveredDays === null) {
-      throw new Error(`${fact.yearMonth} 월의 비용 증거가 완전하지 않습니다`);
+    const coverageStartDay = kstEpochDay(rawFact.coverageStartDate);
+    const coverageEndDay = kstEpochDay(rawFact.coverageEndDate);
+    const monthStartDay = kstEpochDay(`${month}-01`);
+    const monthEndDay = monthStartDay + daysInMonth(month) - 1;
+    if (coverageStartDay > coverageEndDay) throw new Error(`invalid coverage ${month}`);
+    if (coverageStartDay < monthStartDay || coverageEndDay > monthEndDay) {
+      throw new Error(`coverage outside month ${month}`);
     }
-    return {
-      coverageStartDate: fact.coverageStartDate,
-      coverageEndDate: fact.coverageEndDate,
-      coveredDays: fact.coveredDays,
-      revenue: fact.revenue,
-      orderTimeCogs: fact.sellpiaInAmount,
-      adSpend: fact.adSpend,
-      contributionProfit: fact.contributionProfit,
-      negativeCoveredDays: fact.negativeCoveredDays,
-    };
-  });
+    if (coverageEndDay > cutoffDay) throw new Error(`coverage after cutoff ${month}`);
+
+    const coveredDays = rawFact.coveredDays;
+    if (!finiteNumber(coveredDays) || !Number.isInteger(coveredDays) || coveredDays <= 0) {
+      throw new Error(`invalid covered days ${month}`);
+    }
+    const spanDays = coverageEndDay - coverageStartDay + 1;
+    if (coveredDays > spanDays) throw new Error(`covered days exceed coverage ${month}`);
+
+    validateProvenance(rawFact.provenance, month);
+    const recognizedRevenue = finiteAmount(rawFact.recognizedRevenue, `recognized revenue ${month}`);
+    const orderTimeSupplyCost = finiteAmount(rawFact.orderTimeSupplyCost, `order-time supply cost ${month}`);
+    const advertisingSpend = advertisingAmount(rawFact, month);
+
+    selected.push({
+      yearMonth: month,
+      coverageStartDay,
+      coverageEndDay,
+      coverageMidpointDay: (coverageStartDay + coverageEndDay) / 2,
+      coveredDays,
+      recognizedRevenue,
+      orderTimeSupplyCost,
+      advertisingSpend,
+    });
+  }
+
+  selected.sort((left, right) => left.yearMonth.localeCompare(right.yearMonth));
+  const validObservationDays = selected.reduce((sum, fact) => sum + fact.coveredDays, 0);
+  if (validObservationDays < formula.minimumObservationDays) {
+    throw new Error('insufficient complete observation days');
+  }
+  return selected;
 }
 
-function sourceFreshnessFor(evidence: MasterProductProfitabilityEvidence): ProductAbcSourceFreshness {
-  const coverageStartDate = minCalendarDate(evidence.monthlyFacts.map((fact) => fact.coverageStartDate));
-  const coverageEndDate = maxCalendarDate(evidence.monthlyFacts.map((fact) => fact.coverageEndDate));
+function calculateMetrics(
+  facts: readonly NormalizedFact[],
+  cutoffDate: Date | string,
+  formula: ProductAbcFormulaPayload,
+): Metrics {
+  if (facts.length === 0) throw new Error('formula-ready monthly facts are empty');
+  const finalDay = kstEpochDay(cutoffDate);
+  let validObservationDays = 0;
+  let weightedRevenue = 0;
+  let weightedOrderTimeSupplyCost = 0;
+  let weightedAdvertisingSpend = 0;
+  let weightedOperatingProfit = 0;
+  let weightedCoveredDays = 0;
+  let weightedNegativeDays = 0;
+
+  for (const fact of facts) {
+    const ageDays = finalDay - fact.coverageMidpointDay;
+    if (ageDays < 0) throw new Error(`coverage midpoint after cutoff ${fact.yearMonth}`);
+    const weight = 2 ** (-ageDays / formula.halfLifeDays);
+    const operatingProfit = fact.recognizedRevenue
+      - fact.orderTimeSupplyCost
+      - fact.advertisingSpend;
+    const weightedDays = weight * fact.coveredDays;
+
+    validObservationDays += fact.coveredDays;
+    weightedCoveredDays += weightedDays;
+    weightedNegativeDays += operatingProfit < 0 ? weightedDays : 0;
+    weightedRevenue += weight * fact.recognizedRevenue;
+    weightedOrderTimeSupplyCost += weight * fact.orderTimeSupplyCost;
+    weightedAdvertisingSpend += weight * fact.advertisingSpend;
+    weightedOperatingProfit += weight * operatingProfit;
+  }
+
+  if (!(weightedCoveredDays > 0) || !Number.isFinite(weightedCoveredDays)) {
+    throw new Error('weighted observation days are invalid');
+  }
+  if (!Number.isFinite(weightedRevenue)
+    || !Number.isFinite(weightedOrderTimeSupplyCost)
+    || !Number.isFinite(weightedAdvertisingSpend)
+    || !Number.isFinite(weightedOperatingProfit)) {
+    throw new Error('weighted amounts are invalid');
+  }
+  if (facts.some((fact) => fact.recognizedRevenue < 0
+    || fact.orderTimeSupplyCost < 0
+    || fact.advertisingSpend < 0)) {
+    if (weightedRevenue === 0 && weightedOperatingProfit > 0) {
+      throw new Error('positive operating profit with zero revenue');
+    }
+    throw new Error('source amount is negative');
+  }
+  if (weightedRevenue === 0 && weightedOperatingProfit > 0) {
+    throw new Error('positive operating profit with zero revenue');
+  }
+  const operatingMargin = weightedRevenue === 0
+    ? null
+    : weightedOperatingProfit / weightedRevenue;
+  if (operatingMargin !== null && !Number.isFinite(operatingMargin)) {
+    throw new Error('operating margin is invalid');
+  }
   return {
-    evaluationCutoffDate: calendarDate(evidence.asOfDate),
-    sellpia: {
-      status: evidence.sellpiaStatus,
-      coverageStartDate,
-      coverageEndDate,
-      capturedAt: evidence.sellpiaCapturedAt,
-    },
-    advertising: {
-      status: evidence.adStatus,
-      coverageStartDate: evidence.advertisingCoverageStartDate
-        ? calendarDate(evidence.advertisingCoverageStartDate)
-        : null,
-      coverageEndDate: evidence.advertisingCoverageEndDate
-        ? calendarDate(evidence.advertisingCoverageEndDate)
-        : null,
-      capturedAt: evidence.advertisingCapturedAt,
-    },
-    orders: {
-      status: evidence.ordersStatus,
-      coverageStartDate: evidence.ordersCoverageStartDate
-        ? calendarDate(evidence.ordersCoverageStartDate)
-        : null,
-      coverageEndDate: evidence.ordersCoverageEndDate
-        ? calendarDate(evidence.ordersCoverageEndDate)
-        : null,
-      capturedAt: evidence.ordersCapturedAt ?? null,
-    },
-    mapping: {
-      status: evidence.mappingStatus,
-      inventoryGeneration: evidence.mappingInventoryGeneration,
-      verifiedAt: evidence.mappingVerifiedAt,
-    },
+    validObservationDays,
+    weightedRevenue,
+    weightedOrderTimeSupplyCost,
+    weightedAdvertisingSpend,
+    weightedOperatingProfit,
+    operatingProfitVelocity30: weightedOperatingProfit / weightedCoveredDays * formula.velocityPeriodDays,
+    operatingMargin,
+    lossPersistence: weightedNegativeDays / weightedCoveredDays,
   };
 }
 
-function aggregateCostBreakdown(evidence: MasterProductProfitabilityEvidence): ProductAbcCostBreakdown {
-  const facts = evidence.monthlyFacts;
-  return {
-    recognizedRevenue: aggregateComponents(facts.map((fact) => fact.costBreakdown.recognizedRevenue)),
-    orderTimeCogs: aggregateComponents(facts.map((fact) => fact.costBreakdown.orderTimeCogs)),
-    advertisingSpend: aggregateComponents(facts.map((fact) => fact.costBreakdown.advertisingSpend)),
-    marketplaceCommission: aggregateComponents(facts.map((fact) => fact.costBreakdown.marketplaceCommission)),
-    outboundFulfillment: aggregateComponents(facts.map((fact) => fact.costBreakdown.outboundFulfillment)),
-    returnLoss: aggregateComponents(facts.map((fact) => fact.costBreakdown.returnLoss)),
-    otherVariableCost: aggregateComponents(facts.map((fact) => fact.costBreakdown.otherVariableCost)),
-  };
-}
-
-function aggregateComponents(components: readonly ProductAbcCostComponent[]): ProductAbcCostComponent {
-  const amount = components.reduce((sum, component) => sum + (component.amount ?? 0), 0);
-  const unavailableAmount = components.length > 0
-    && components.every((component) => component.amount === 0)
-    ? 0
-    : null;
-  if (components.some((component) => component.status === 'STALE')) {
-    return { amount: unavailableAmount, status: 'STALE' };
+function validateProvenance(
+  provenance: MasterProductAbcFormulaReadyMonthlyFact['provenance'],
+  month: string,
+): void {
+  if (!provenance || provenance.costBasis !== 'ORDER_TIME_SUPPLY_COST') {
+    throw new Error(`ineligible cost provenance ${month}`);
   }
-  if (components.length === 0 || components.some((component) => component.status === 'MISSING')) {
-    return { amount: unavailableAmount, status: 'MISSING' };
+  if (provenance.vatIncluded !== true) {
+    throw new Error(`VAT inclusion is not verified ${month}`);
   }
-  if (components.some((component) => component.status === 'OBSERVED')) return { amount, status: 'OBSERVED' };
-  if (components.some((component) => component.status === 'CONFIRMED_ZERO')) return { amount, status: 'CONFIRMED_ZERO' };
-  return { amount, status: 'NOT_APPLIED' };
+  if (
+    provenance.advertisingEvidence !== 'OBSERVED'
+    && provenance.advertisingEvidence !== 'CONFIRMED_ZERO'
+    && provenance.advertisingEvidence !== 'NOT_APPLIED'
+  ) {
+    throw new Error(`ineligible advertising evidence ${month}`);
+  }
 }
 
-function minCalendarDate(dates: readonly Date[]): string | null {
-  if (dates.length === 0) return null;
-  return calendarDate(new Date(Math.min(...dates.map((date) => date.getTime()))));
+function advertisingAmount(
+  fact: MasterProductAbcFormulaReadyMonthlyFact,
+  month: string,
+): number {
+  const amount = fact.advertisingSpend;
+  switch (fact.provenance.advertisingEvidence) {
+    case 'NOT_APPLIED':
+      if (amount !== null && amount !== 0) throw new Error(`advertising amount is not applied ${month}`);
+      return 0;
+    case 'CONFIRMED_ZERO':
+      if (amount !== 0) throw new Error(`confirmed-zero advertising must be literal zero ${month}`);
+      return 0;
+    case 'OBSERVED':
+      return finiteAmount(amount, `advertising spend ${month}`);
+  }
 }
 
-function maxCalendarDate(dates: readonly Date[]): string | null {
-  if (dates.length === 0) return null;
-  return calendarDate(new Date(Math.max(...dates.map((date) => date.getTime()))));
+export function interpolateMasterProductAbcAnchor(
+  value: number,
+  anchors: readonly MasterProductAbcAnchor[],
+): number {
+  if (!Number.isFinite(value) || anchors.length < 2) throw new Error('invalid anchor input');
+  for (let index = 0; index < anchors.length; index += 1) {
+    const anchor = anchors[index]!;
+    if (!Number.isFinite(anchor.value) || !Number.isFinite(anchor.score)) {
+      throw new Error('invalid anchor');
+    }
+    if (index > 0 && anchor.value <= anchors[index - 1]!.value) {
+      throw new Error('anchors must be strictly increasing');
+    }
+    if (value === anchor.value) return anchor.score;
+  }
+  if (value <= anchors[0]!.value) return anchors[0]!.score;
+  for (let index = 1; index < anchors.length; index += 1) {
+    const upper = anchors[index]!;
+    const lower = anchors[index - 1]!;
+    if (value <= upper.value) {
+      return lower.score + (value - lower.value)
+        * (upper.score - lower.score) / (upper.value - lower.value);
+    }
+  }
+  return anchors[anchors.length - 1]!.score;
 }
 
-function calendarDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
+function roundPersisted(value: number | null, formula: ProductAbcFormulaPayload): number | null {
+  if (value === null) return null;
+  const scale = formula.precision.persistedScale;
+  const factor = 10 ** scale;
+  const scaled = value * factor;
+  const rounded = scaled < 0 ? Math.ceil(scaled - 0.5) : Math.floor(scaled + 0.5);
+  const result = rounded / factor;
+  return Object.is(result, -0) ? 0 : result;
+}
+
+function finiteAmount(value: unknown, label: string): number {
+  if (!finiteNumber(value)) throw new Error(`${label} is invalid`);
+  return value;
+}
+
+function finiteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function validateYearMonth(value: unknown): string {
+  if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) {
+    throw new Error(`invalid year-month ${String(value)}`);
+  }
+  return value;
+}
+
+function calendarDate(value: Date | string): string {
+  const day = kstEpochDay(value);
+  return new Date(day * 86_400_000).toISOString().slice(0, 10);
+}
+
+function kstEpochDay(value: Date | string): number {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split('-').map(Number);
+    const parsed = Date.UTC(year!, month! - 1, day);
+    const date = new Date(parsed);
+    if (
+      !Number.isFinite(parsed)
+      || date.getUTCFullYear() !== year
+      || date.getUTCMonth() !== month! - 1
+      || date.getUTCDate() !== day
+    ) throw new Error(`invalid calendar date ${value}`);
+    return Math.floor(parsed / 86_400_000);
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) throw new Error(`invalid calendar date ${String(value)}`);
+  const shifted = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  return Math.floor(Date.UTC(
+    shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate(),
+  ) / 86_400_000);
+}
+
+function yearMonthForEpochDay(epochDay: number): string {
+  return new Date(epochDay * 86_400_000).toISOString().slice(0, 7);
+}
+
+function shiftYearMonth(yearMonth: string, amount: number): string {
+  const [year, month] = yearMonth.split('-').map(Number);
+  const date = new Date(Date.UTC(year!, month! - 1 + amount, 1));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function daysInMonth(yearMonth: string): number {
+  const [year, month] = yearMonth.split('-').map(Number);
+  return new Date(Date.UTC(year!, month!, 0)).getUTCDate();
 }

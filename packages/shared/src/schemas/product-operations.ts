@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
 import {
-  ProductAbcCalculationStatusSchema,
+  ProductAbcDisplayStatusSchema,
   ProductAbcEvaluationSchema,
-  ProductAbcFormulaSummarySchema,
+  ProductAbcFormulaPayloadSchema,
   ProductAbcGradeSchema,
 } from './product-abc.js';
 import { OperationRunSchema } from './operations.js';
@@ -71,7 +71,7 @@ export type ProductOperationsAbcGradeFilter = z.infer<
 >;
 
 export const ProductOperationsAbcCalculationStatusFilterSchema =
-  ProductAbcCalculationStatusSchema;
+  ProductAbcDisplayStatusSchema;
 export type ProductOperationsAbcCalculationStatusFilter = z.infer<
   typeof ProductOperationsAbcCalculationStatusFilterSchema
 >;
@@ -215,8 +215,6 @@ export const ProductOperationsDataStatusSchema = z.object({
     classifiedProductCount: z.number().int().nonnegative(),
     unclassifiedProductCount: z.number().int().nonnegative(),
     mappingRequiredProductCount: z.number().int().nonnegative(),
-    orderEvidenceRequiredProductCount: z.number().int().nonnegative()
-      .describe('Legacy compatibility field; new profitability evaluations always return zero'),
     otherPendingProductCount: z.number().int().nonnegative(),
   }).strict(),
 }).strict();
@@ -286,12 +284,9 @@ export const ProductOperationsListSummarySchema = z.object({
     READY: z.number().int().nonnegative(),
     INSUFFICIENT_EVIDENCE: z.number().int().nonnegative(),
     SOURCE_UNMAPPED: z.number().int().nonnegative(),
-    CALIBRATION_PENDING: z.number().int().nonnegative(),
-    RECALCULATING: z.number().int().nonnegative(),
     SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
     AD_SOURCE_STALE: z.number().int().nonnegative(),
-    ORDERS_SOURCE_STALE: z.number().int().nonnegative(),
-    CALCULATION_ERROR: z.number().int().nonnegative(),
+
   }).strict(),
   abcContributionProfitByGrade: z.object({
     A: z.number().int(),
@@ -303,7 +298,7 @@ export const ProductOperationsListSummarySchema = z.object({
     B: z.number().finite(),
     C: z.number().finite(),
   }).strict(),
-  abcFormula: ProductAbcFormulaSummarySchema.nullable(),
+  abcFormula: ProductAbcFormulaPayloadSchema.nullable(),
   displayDataAsOf: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   channelProductCounts: z.array(ProductOperationsChannelProductCountSchema),
   inventoryStatusCounts: z.object({

@@ -3,7 +3,7 @@ import { AlertKindSchema, AlertStatusSchema } from './alerts.js';
 import { zIsoDate } from './common.js';
 import {
   ProductAbcEvaluationSchema,
-  ProductAbcFormulaSummarySchema,
+  ProductAbcFormulaPayloadSchema,
   ProductAbcGradeSchema,
 } from './product-abc.js';
 
@@ -284,12 +284,8 @@ export const DashboardInventorySummarySchema = z.object({
     READY: z.number().int().nonnegative(),
     INSUFFICIENT_EVIDENCE: z.number().int().nonnegative(),
     SOURCE_UNMAPPED: z.number().int().nonnegative(),
-    CALIBRATION_PENDING: z.number().int().nonnegative(),
-    RECALCULATING: z.number().int().nonnegative(),
     SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
     AD_SOURCE_STALE: z.number().int().nonnegative(),
-    ORDERS_SOURCE_STALE: z.number().int().nonnegative(),
-    CALCULATION_ERROR: z.number().int().nonnegative(),
   }).strict(),
   abcContributionProfit: z.object({
     amountByGrade: z.object({
@@ -303,7 +299,7 @@ export const DashboardInventorySummarySchema = z.object({
       C: z.number().finite(),
     }).strict(),
   }).strict(),
-  abcFormula: ProductAbcFormulaSummarySchema.nullable(),
+  abcFormula: ProductAbcFormulaPayloadSchema.nullable(),
   classifiedProductCount: z.number().int().nonnegative(),
   unclassifiedProductCount: z.number().int().nonnegative(),
   mappingStatusCounts: z.object({
@@ -612,12 +608,8 @@ export const SellpiaProductSalesSummarySchema = z.object({
     READY: z.number().int().nonnegative(),
     INSUFFICIENT_EVIDENCE: z.number().int().nonnegative(),
     SOURCE_UNMAPPED: z.number().int().nonnegative(),
-    CALIBRATION_PENDING: z.number().int().nonnegative(),
-    RECALCULATING: z.number().int().nonnegative(),
     SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
     AD_SOURCE_STALE: z.number().int().nonnegative(),
-    ORDERS_SOURCE_STALE: z.number().int().nonnegative(),
-    CALCULATION_ERROR: z.number().int().nonnegative(),
   }).strict(),
   abcContributionProfitByGrade: z.object({
     A: z.number().int(),
