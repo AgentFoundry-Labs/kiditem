@@ -1,21 +1,17 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { Prisma } from '@prisma/client';
 import {
   ConflictException,
   Injectable,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { createHash, randomUUID } from 'node:crypto';
-import type {
-  SellpiaProfitabilityAttempt,
-  SellpiaProfitabilityCompleteGeneration,
-  SellpiaProfitabilitySourceStatus,
-} from '@kiditem/shared/source-import';
+import {
+  type SellpiaProfitabilityGenerationFacts,
+  type SellpiaProfitabilitySourceCatalog,
+  type SellpiaProfitabilitySourceReadPort,
+} from '../application/port/in/sellpia-profitability-source-read.port';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import type {
-  SellpiaProfitabilityFailureBodyDto,
-  SellpiaProfitabilitySubmitBodyDto,
-} from './dto/sellpia-product-sales.dto';
 import {
   ALERT_DEDUPE_KEY,
   ATTEMPT_TTL_MS,
@@ -28,29 +24,44 @@ import {
   assertMappingGeneration,
   assertStagedReplay,
   buildSellpiaProfitabilityPlan,
+  boundedCatalogLimit,
   dateOnly,
   failureAlert,
   findAttempt,
   freezeFacts,
+  generationMetadata,
   hashJson,
   insertFacts,
   isExpiredRunning,
   lockMapping,
   lockSource,
+  MAX_GENERATION_FACT_ROWS,
   normalizeIdempotencyKey,
   normalizeSubmission,
   parsePlan,
   readMappingGeneration,
+  toAttemptSummary,
   toAttemptView,
   toCompleteGeneration,
   type InventoryCandidate,
   type SourceAttemptRecord,
 } from './sellpia-profitability-source.internal';
+import type {
+  SellpiaProfitabilityAttempt,
+  SellpiaProfitabilityAttemptControl,
+  SellpiaProfitabilityCompleteGeneration,
+  SellpiaProfitabilitySourceStatus,
+} from '@kiditem/shared/source-import';
+import type {
+  SellpiaProfitabilityFailureBodyDto,
+  SellpiaProfitabilitySubmitBodyDto,
+} from './dto/sellpia-product-sales.dto';
 
 export { buildSellpiaProfitabilityPlan } from './sellpia-profitability-source.internal';
 
 @Injectable()
-export class SellpiaProfitabilitySourceService {
+export class SellpiaProfitabilitySourceService
+  implements SellpiaProfitabilitySourceReadPort {
   constructor(
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
@@ -203,6 +214,13 @@ export class SellpiaProfitabilitySourceService {
           qualityReport: {
             contract: 'sellpia-profitability-v1',
             parserVersion: PARSER_VERSION,
+            provenance: {
+              source: 'sellpia_stat_prd_profit',
+              costBasis: 'ORDER_TIME_SUPPLY_COST',
+              vatIncluded: true,
+            },
+            contentChecksum: checksum,
+            contentByteCount: byteCount,
             mappingGeneration: attempt.mappingGeneration?.toString() ?? '0',
             includedRowCount: facts.length,
             excludedRowCount: 0,
@@ -329,6 +347,190 @@ export class SellpiaProfitabilitySourceService {
     }, { timeout: TRANSACTION_TIMEOUT_MS });
   }
 
+  /**
+   * Owner-control rehydration for an extension restart.  This is intentionally
+   * separate from every status/read capability: only an exact, same-org,
+   * effective RUNNING attempt can disclose its write fence.
+   */
+  async readAttemptControl(
+    organizationId: string,
+    attemptId: string,
+  ): Promise<SellpiaProfitabilityAttemptControl> {
+    const now = new Date();
+    return this.prisma.$transaction(async (tx) => {
+      await lockSource(tx, organizationId);
+      const attempt = await findAttempt(tx, organizationId, attemptId);
+      if (isExpiredRunning(attempt, now)) {
+        throw new ConflictException('ATTEMPT_EXPIRED');
+      }
+      if (attempt.status !== 'running') {
+        throw new ConflictException('ATTEMPT_TERMINAL');
+      }
+      const plan = parsePlan(attempt.plan);
+      return {
+        attemptId: attempt.id,
+        attemptToken: attempt.attemptToken,
+        state: 'RUNNING' as const,
+        expiresAt: attempt.expiresAt?.toISOString() ?? attempt.createdAt.toISOString(),
+        plan: {
+          from: plan.from,
+          to: plan.to,
+          coveredMonths: [...plan.coveredMonths],
+        },
+      };
+    }, {
+      timeout: TRANSACTION_TIMEOUT_MS,
+      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+    });
+  }
+
+  /**
+   * Finance-facing read seam. The attempt and completed catalog are read from
+   * one repeatable snapshot so a new publication cannot be mixed into an
+   * in-flight evidence load.
+   */
+  async readGenerationCatalog(input: {
+    organizationId: string;
+    limit?: number;
+  }): Promise<SellpiaProfitabilitySourceCatalog> {
+    const limit = boundedCatalogLimit(input.limit);
+    return this.prisma.$transaction(async (tx) => {
+      const [latestAttempt, completed] = await Promise.all([
+        tx.sourceImportRun.findFirst({
+          where: { organizationId: input.organizationId, sourceType: SOURCE_TYPE },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        }),
+        tx.sourceImportRun.findMany({
+          where: {
+            organizationId: input.organizationId,
+            sourceType: SOURCE_TYPE,
+            status: 'completed',
+            publicationSequence: { not: null },
+          },
+          orderBy: { publicationSequence: 'desc' },
+          take: limit,
+        }),
+      ]);
+      const boundedCompleted = completed.slice(0, limit);
+      return {
+        latestAttempt: latestAttempt
+          ? toAttemptSummary(latestAttempt as SourceAttemptRecord, new Date())
+          : null,
+        completeGenerations: boundedCompleted.map((run) =>
+          generationMetadata(run as SourceAttemptRecord)),
+      };
+    }, {
+      timeout: TRANSACTION_TIMEOUT_MS,
+      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+    });
+  }
+
+  /** Reads only the immutable facts belonging to the exact published run ID. */
+  async readGenerationFacts(input: {
+    organizationId: string;
+    sourceImportRunId: string;
+    masterProductIds?: readonly string[];
+    yearMonths?: readonly string[];
+  }): Promise<SellpiaProfitabilityGenerationFacts> {
+    return this.prisma.$transaction(async (tx) => {
+      const run = await tx.sourceImportRun.findFirst({
+        where: {
+          id: input.sourceImportRunId,
+          organizationId: input.organizationId,
+          sourceType: SOURCE_TYPE,
+          status: 'completed',
+          publicationSequence: { not: null },
+        },
+      }) as SourceAttemptRecord | null;
+      if (!run) throw new UnprocessableEntityException('SOURCE_GENERATION_NOT_FOUND');
+      const generation = generationMetadata(run);
+      const rows = await tx.sellpiaProductMonthlySales.findMany({
+        where: {
+          organizationId: input.organizationId,
+          sourceImportRunId: input.sourceImportRunId,
+        },
+        orderBy: [
+          { productCode: 'asc' },
+          { optionCode: 'asc' },
+          { yearMonth: 'asc' },
+        ],
+        take: MAX_GENERATION_FACT_ROWS + 1,
+        select: {
+          sourceImportRunId: true,
+          sellpiaInventorySkuId: true,
+          masterProductId: true,
+          productCode: true,
+          optionCode: true,
+          yearMonth: true,
+          orderAmount: true,
+          inAmount: true,
+          costBasis: true,
+          vatIncluded: true,
+          coverageStartDate: true,
+          coverageEndDate: true,
+          capturedAt: true,
+        },
+      });
+      if (rows.length > MAX_GENERATION_FACT_ROWS) {
+        throw new UnprocessableEntityException('SOURCE_FACTS_OVERFLOW');
+      }
+      if (rows.length !== generation.quality.includedRowCount) {
+        throw new UnprocessableEntityException('SOURCE_QUALITY_REPORT_MALFORMED');
+      }
+      const facts = [] as SellpiaProfitabilityGenerationFacts['facts'][number][];
+      const unmappedFacts = [] as SellpiaProfitabilityGenerationFacts['unmappedFacts'][number][];
+      const requestedMasterProductIds = input.masterProductIds
+        ? new Set(input.masterProductIds)
+        : null;
+      const requestedYearMonths = input.yearMonths
+        ? new Set(input.yearMonths)
+        : null;
+      for (const row of rows) {
+        assertFactProvenance(row);
+        if (row.sourceImportRunId !== input.sourceImportRunId) {
+          throw new UnprocessableEntityException('SOURCE_GENERATION_MISMATCH');
+        }
+        if (!row.coverageStartDate || !row.coverageEndDate) {
+          throw new UnprocessableEntityException('SOURCE_COVERAGE_MALFORMED');
+        }
+        const coverageStartDate = row.coverageStartDate.toISOString().slice(0, 10);
+        const coverageEndDate = row.coverageEndDate.toISOString().slice(0, 10);
+        const base = {
+          sourceImportRunId: row.sourceImportRunId ?? input.sourceImportRunId,
+          productCode: row.productCode,
+          optionCode: row.optionCode,
+          yearMonth: row.yearMonth,
+          coverageStartDate,
+          coverageEndDate,
+          revenue: row.orderAmount,
+          orderTimeSupplyCost: row.inAmount,
+          costBasis: 'ORDER_TIME_SUPPLY_COST' as const,
+          vatIncluded: true as const,
+          capturedAt: row.capturedAt.toISOString(),
+        };
+        if (requestedYearMonths && !requestedYearMonths.has(row.yearMonth)) continue;
+        if (row.masterProductId === null || row.sellpiaInventorySkuId === null) {
+          unmappedFacts.push({
+            ...base,
+            sellpiaInventorySkuId: row.sellpiaInventorySkuId,
+            masterProductId: row.masterProductId,
+            reason: 'SOURCE_UNMAPPED',
+          });
+        } else if (!requestedMasterProductIds || requestedMasterProductIds.has(row.masterProductId)) {
+          facts.push({
+            ...base,
+            sellpiaInventorySkuId: row.sellpiaInventorySkuId,
+            masterProductId: row.masterProductId,
+          });
+        }
+      }
+      return { generation, facts, unmappedFacts };
+    }, {
+      timeout: TRANSACTION_TIMEOUT_MS,
+      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+    });
+  }
+
   async readCanonicalGeneration(
     organizationId: string,
   ): Promise<SellpiaProfitabilityCompleteGeneration | null> {
@@ -365,7 +567,7 @@ export class SellpiaProfitabilitySourceService {
         ? toCompleteGeneration(latestCompleteRun)
         : null;
       const attemptView = latestAttempt
-        ? toAttemptView(latestAttempt, new Date())
+        ? toAttemptSummary(latestAttempt, new Date())
         : null;
       if (!latestComplete) {
         return { latestAttempt: attemptView, latestComplete: null, status: 'MISSING' };
@@ -419,5 +621,14 @@ export class SellpiaProfitabilitySourceService {
       errorMessage: message,
       updatedAt: new Date(),
     };
+  }
+}
+
+function assertFactProvenance(row: {
+  costBasis: string;
+  vatIncluded: boolean | null;
+}): void {
+  if (row.costBasis !== 'ORDER_TIME_SUPPLY_COST' || row.vatIncluded !== true) {
+    throw new UnprocessableEntityException('SOURCE_PROVENANCE_MALFORMED');
   }
 }

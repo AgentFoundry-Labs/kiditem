@@ -37,4 +37,50 @@ describe('SellpiaProductSalesController', () => {
     expect(source.submitAttempt).toHaveBeenCalledWith(ORGANIZATION_ID, ATTEMPT_ID, complete);
     expect(source.failAttempt).toHaveBeenCalledWith(ORGANIZATION_ID, ATTEMPT_ID, failure);
   });
+
+  it('rehydrates the owner token only through the exact authenticated attempt control read', async () => {
+    const source = {
+      readAttemptControl: vi.fn().mockResolvedValue({
+        attemptId: ATTEMPT_ID,
+        attemptToken: 'token',
+        state: 'RUNNING',
+        expiresAt: '2026-09-03T01:30:00.000Z',
+        plan: { from: '2026-01-01', to: '2026-08-31', coveredMonths: ['2026-01'] },
+      }),
+    };
+    const controller = new SellpiaProductSalesController({} as never, source as never);
+
+    await expect(controller.readAttemptControl(ATTEMPT_ID, ORGANIZATION_ID)).resolves.toEqual({
+      attemptId: ATTEMPT_ID,
+      attemptToken: 'token',
+      state: 'RUNNING',
+      expiresAt: '2026-09-03T01:30:00.000Z',
+      plan: { from: '2026-01-01', to: '2026-08-31', coveredMonths: ['2026-01'] },
+    });
+    expect(source.readAttemptControl).toHaveBeenCalledWith(ORGANIZATION_ID, ATTEMPT_ID);
+  });
+
+  it('keeps the general status response token-free', async () => {
+    const source = {
+      readSourceStatus: vi.fn().mockResolvedValue({
+        latestAttempt: {
+          attemptId: ATTEMPT_ID,
+          state: 'RUNNING',
+          expiresAt: '2026-09-03T01:30:00.000Z',
+          capturedAt: '2026-09-03T01:00:00.000Z',
+          generation: null,
+          errorCode: null,
+          errorMessage: null,
+          plan: { from: '2026-01-01', to: '2026-08-31', coveredMonths: ['2026-01'] },
+        },
+        latestComplete: null,
+        status: 'MISSING',
+      }),
+    };
+    const controller = new SellpiaProductSalesController({} as never, source as never);
+
+    const response = await controller.readSourceStatus(ORGANIZATION_ID);
+    expect(response.latestAttempt).not.toHaveProperty('attemptToken');
+    expect(source.readSourceStatus).toHaveBeenCalledWith(ORGANIZATION_ID);
+  });
 });

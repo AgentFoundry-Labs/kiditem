@@ -97,6 +97,24 @@ export const SellpiaProfitabilityAttemptSchema = z.object({
 }).strict();
 export type SellpiaProfitabilityAttempt = z.infer<typeof SellpiaProfitabilityAttemptSchema>;
 
+export const SellpiaProfitabilityAttemptSummarySchema =
+  SellpiaProfitabilityAttemptSchema.omit({ attemptToken: true });
+export type SellpiaProfitabilityAttemptSummary = z.infer<
+  typeof SellpiaProfitabilityAttemptSummarySchema
+>;
+
+export const SellpiaProfitabilityAttemptControlSchema =
+  SellpiaProfitabilityAttemptSchema.pick({
+    attemptId: true,
+    attemptToken: true,
+    state: true,
+    expiresAt: true,
+    plan: true,
+  }).extend({ state: z.literal('RUNNING') }).strict();
+export type SellpiaProfitabilityAttemptControl = z.infer<
+  typeof SellpiaProfitabilityAttemptControlSchema
+>;
+
 export const SellpiaProfitabilityCompleteGenerationSchema = z.object({
   sourceImportRunId: z.string().uuid(),
   generation: PositiveGenerationSchema,
@@ -109,7 +127,7 @@ export type SellpiaProfitabilityCompleteGeneration = z.infer<
 >;
 
 export const SellpiaProfitabilitySourceStatusSchema = z.object({
-  latestAttempt: SellpiaProfitabilityAttemptSchema.nullable(),
+  latestAttempt: SellpiaProfitabilityAttemptSummarySchema.nullable(),
   latestComplete: SellpiaProfitabilityCompleteGenerationSchema.nullable(),
   status: z.enum(['READY', 'STALE', 'MISSING']),
 }).strict();

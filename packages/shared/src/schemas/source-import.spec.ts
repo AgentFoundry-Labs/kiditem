@@ -7,6 +7,8 @@ import {
   SellpiaInventoryImportOutcomeSchema,
   SellpiaInventoryImportResponseSchema,
   SellpiaProfitabilityAttemptSchema,
+  SellpiaProfitabilityAttemptControlSchema,
+  SellpiaProfitabilityAttemptSummarySchema,
   SellpiaProfitabilitySourceStatusSchema,
   SourceImportRunSchema,
   SourceImportTypeSchema,
@@ -401,7 +403,7 @@ describe('source import contracts', () => {
     );
   });
 
-  it('keeps Sellpia profitability attempt and source status bounded', () => {
+  it('keeps Sellpia profitability control and token-free status bounded', () => {
     const attempt = SellpiaProfitabilityAttemptSchema.parse({
       attemptId: '00000000-0000-4000-8000-000000000010',
       attemptToken: '00000000-0000-4000-8000-000000000011',
@@ -419,8 +421,28 @@ describe('source import contracts', () => {
     });
     expect(attempt.generation).toBe('7');
 
+    expect(SellpiaProfitabilityAttemptControlSchema.parse({
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      state: 'RUNNING',
+      expiresAt: attempt.expiresAt,
+      plan: attempt.plan,
+    })).toMatchObject({ state: 'RUNNING' });
+
+    const summary = SellpiaProfitabilityAttemptSummarySchema.parse({
+      attemptId: attempt.attemptId,
+      state: attempt.state,
+      expiresAt: attempt.expiresAt,
+      capturedAt: attempt.capturedAt,
+      generation: attempt.generation,
+      errorCode: attempt.errorCode,
+      errorMessage: attempt.errorMessage,
+      plan: attempt.plan,
+    });
+    expect(summary).not.toHaveProperty('attemptToken');
+
     expect(SellpiaProfitabilitySourceStatusSchema.parse({
-      latestAttempt: attempt,
+      latestAttempt: summary,
       latestComplete: {
         sourceImportRunId: attempt.attemptId,
         generation: '7',
@@ -430,5 +452,10 @@ describe('source import contracts', () => {
       },
       status: 'READY',
     }).status).toBe('READY');
+    expect(() => SellpiaProfitabilitySourceStatusSchema.parse({
+      latestAttempt: attempt,
+      latestComplete: null,
+      status: 'MISSING',
+    })).toThrow();
   });
 });

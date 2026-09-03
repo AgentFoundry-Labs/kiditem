@@ -1,10 +1,14 @@
-import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
-import type { SellpiaProductSalesSummary } from '@kiditem/shared/dashboard';
-import type {
-  SellpiaProfitabilityAttempt,
-  SellpiaProfitabilitySourceStatus,
-} from '@kiditem/shared/source-import';
 import { SellpiaProductSalesService } from './sellpia-product-sales.service';
 import { SellpiaProfitabilitySourceService } from './sellpia-profitability-source.service';
 import {
@@ -13,6 +17,12 @@ import {
   SellpiaProfitabilitySubmitBodyDto,
   SellpiaProductSalesQueryDto,
 } from './dto/sellpia-product-sales.dto';
+import type {
+  SellpiaProfitabilityAttempt,
+  SellpiaProfitabilityAttemptControl,
+  SellpiaProfitabilitySourceStatus,
+} from '@kiditem/shared/source-import';
+import type { SellpiaProductSalesSummary } from '@kiditem/shared/dashboard';
 
 @Controller('sellpia-product-sales')
 export class SellpiaProductSalesController {
@@ -46,6 +56,14 @@ export class SellpiaProductSalesController {
     @CurrentOrganization() organizationId: string,
   ): Promise<SellpiaProfitabilityAttempt> {
     return this.source.failAttempt(organizationId, attemptId, body);
+  }
+
+  @Get('attempts/:attemptId')
+  readAttemptControl(
+    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
+    @CurrentOrganization() organizationId: string,
+  ): Promise<SellpiaProfitabilityAttemptControl> {
+    return this.source.readAttemptControl(organizationId, attemptId);
   }
 
   @Get('status')

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -5,22 +6,27 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { createHash } from 'node:crypto';
+import { createSellpiaProductInventoryResolver } from './sellpia-product-inventory-resolver';
 import type {
+  SellpiaProfitabilityAttemptSummary,
   SellpiaProfitabilityAttempt,
   SellpiaProfitabilityCompleteGeneration,
   SellpiaProfitabilityPlan,
 } from '@kiditem/shared/source-import';
 import type {
+  SellpiaProfitabilityGenerationMetadata,
+  SellpiaProfitabilityQuality,
+} from '../application/port/in/sellpia-profitability-source-read.port';
+import type {
   SellpiaProfitabilitySubmitBodyDto,
 } from './dto/sellpia-product-sales.dto';
-import { createSellpiaProductInventoryResolver } from './sellpia-product-inventory-resolver';
 
 export const SOURCE_TYPE = 'sellpia_product_profitability';
 export const PARSER_VERSION = 'sellpia-profitability-v1';
 export const ATTEMPT_TTL_MS = 30 * 60_000;
 export const TRANSACTION_TIMEOUT_MS = 30_000;
 export const INSERT_CHUNK_SIZE = 5_000;
+export const MAX_GENERATION_FACT_ROWS = 20_000 * 24;
 export const INT4_MAX = 2_147_483_647;
 export const ALERT_DEDUPE_KEY = 'source:sellpia-product-profitability';
 
@@ -38,6 +44,8 @@ export type SourceAttemptRecord = Readonly<{
   contentChecksum: string | null;
   contentByteCount: number | null;
   rowCount: number;
+  qualityReport: unknown;
+  coveredMonths: string[];
   mappingGeneration: bigint | null;
   publicationSequence: bigint | null;
   coverageStartDate: Date | null;
@@ -357,6 +365,27 @@ export function toAttemptView(
   };
 }
 
+export function toAttemptSummary(
+  attempt: SourceAttemptRecord,
+  now = new Date(0),
+): SellpiaProfitabilityAttemptSummary {
+  const view = toAttemptView(attempt, now);
+  return {
+    attemptId: view.attemptId,
+    state: view.state,
+    expiresAt: new Date(view.expiresAt).toISOString(),
+    capturedAt: new Date(view.capturedAt).toISOString(),
+    generation: view.generation,
+    errorCode: view.errorCode,
+    errorMessage: view.errorMessage,
+    plan: {
+      from: view.plan.from,
+      to: view.plan.to,
+      coveredMonths: [...view.plan.coveredMonths],
+    },
+  };
+}
+
 export function toCompleteGeneration(
   attempt: SourceAttemptRecord,
 ): SellpiaProfitabilityCompleteGeneration {
@@ -494,6 +523,110 @@ export function parseDate(value: string): Date | null {
   return isoDate(parsed) === value ? parsed : null;
 }
 
+export function boundedCatalogLimit(value: number | undefined): number {
+  const limit = value ?? 12;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    throw new UnprocessableEntityException('SOURCE_GENERATION_CATALOG_OVERFLOW');
+  }
+  return limit;
+}
+
 export function isoDate(value: Date): string {
   return value.toISOString().slice(0, 10);
+}
+
+export function generationMetadata(
+  attempt: SourceAttemptRecord,
+): SellpiaProfitabilityGenerationMetadata {
+  if (attempt.status !== 'completed'
+    || attempt.publicationSequence === null
+    || attempt.mappingGeneration === null
+    || attempt.coverageStartDate === null
+    || attempt.coverageEndDate === null
+    || attempt.importedAt === null) {
+    throw new UnprocessableEntityException('SOURCE_GENERATION_PROVENANCE_MISSING');
+  }
+  const quality = parseQualityReport(attempt.qualityReport);
+  if (attempt.contentChecksum !== quality.contentChecksum
+    || attempt.contentByteCount !== quality.contentByteCount
+    || attempt.rowCount !== quality.includedRowCount
+    || attempt.mappingGeneration.toString() !== quality.mappingGeneration) {
+    throw new UnprocessableEntityException('SOURCE_QUALITY_REPORT_MALFORMED');
+  }
+  const coveredMonths = attempt.coveredMonths;
+  if (!Array.isArray(coveredMonths) || coveredMonths.length === 0
+    || coveredMonths.some((month) => !/^\d{4}-(0[1-9]|1[0-2])$/.test(month))) {
+    throw new UnprocessableEntityException('SOURCE_COVERAGE_MALFORMED');
+  }
+  return {
+    sourceImportRunId: attempt.id,
+    publicationSequence: attempt.publicationSequence.toString(),
+    mappingGeneration: attempt.mappingGeneration.toString(),
+    coverage: {
+      from: isoDate(attempt.coverageStartDate),
+      to: isoDate(attempt.coverageEndDate),
+      coveredMonths: [...coveredMonths],
+    },
+    capturedAt: attempt.importedAt.toISOString(),
+    quality,
+  };
+}
+
+function parseQualityReport(value: unknown): SellpiaProfitabilityQuality {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new UnprocessableEntityException('SOURCE_QUALITY_REPORT_MALFORMED');
+  }
+  const report = value as Record<string, unknown>;
+  const provenance = report.provenance;
+  if (!provenance || typeof provenance !== 'object' || Array.isArray(provenance)) {
+    throw new UnprocessableEntityException('SOURCE_PROVENANCE_MALFORMED');
+  }
+  const source = provenance as Record<string, unknown>;
+  if (source.source !== 'sellpia_stat_prd_profit'
+    || source.costBasis !== 'ORDER_TIME_SUPPLY_COST'
+    || source.vatIncluded !== true) {
+    throw new UnprocessableEntityException('SOURCE_PROVENANCE_MALFORMED');
+  }
+  const checksum = report.contentChecksum;
+  const byteCount = report.contentByteCount;
+  const mappingGeneration = report.mappingGeneration;
+  if (typeof checksum !== 'string' || !/^[a-f0-9]{64}$/i.test(checksum)
+    || !Number.isSafeInteger(byteCount) || (byteCount as number) <= 0
+    || typeof mappingGeneration !== 'string' || !/^\d+$/.test(mappingGeneration)) {
+    throw new UnprocessableEntityException('SOURCE_QUALITY_REPORT_MALFORMED');
+  }
+  const numbers = [
+    report.includedRowCount,
+    report.excludedRowCount,
+    report.mappedRowCount,
+    report.unmappedRowCount,
+    report.warningCount,
+  ];
+  if (numbers.some((count) => !Number.isSafeInteger(count) || (count as number) < 0)) {
+    throw new UnprocessableEntityException('SOURCE_QUALITY_REPORT_MALFORMED');
+  }
+  if (report.contract !== 'sellpia-profitability-v1'
+    || report.parserVersion !== 'sellpia-profitability-v1'
+    || (report.mappedRowCount as number) + (report.unmappedRowCount as number)
+      !== (report.includedRowCount as number)
+    || (report.warningCount as number) > (report.includedRowCount as number)) {
+    throw new UnprocessableEntityException('SOURCE_QUALITY_REPORT_MALFORMED');
+  }
+  return {
+    contract: 'sellpia-profitability-v1',
+    parserVersion: 'sellpia-profitability-v1',
+    contentChecksum: checksum,
+    contentByteCount: byteCount as number,
+    includedRowCount: report.includedRowCount as number,
+    excludedRowCount: report.excludedRowCount as number,
+    mappedRowCount: report.mappedRowCount as number,
+    unmappedRowCount: report.unmappedRowCount as number,
+    warningCount: report.warningCount as number,
+    mappingGeneration,
+    provenance: {
+      source: 'sellpia_stat_prd_profit',
+      costBasis: 'ORDER_TIME_SUPPLY_COST',
+      vatIncluded: true,
+    },
+  };
 }

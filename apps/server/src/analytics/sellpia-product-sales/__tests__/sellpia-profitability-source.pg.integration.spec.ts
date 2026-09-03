@@ -131,6 +131,52 @@ describe('Sellpia profitability source owner (PostgreSQL)', () => {
     }
   });
 
+  it('exposes token-free status/catalog and exact-generation facts with running control rehydration', async () => {
+    const attempt = await service.beginAttempt(TEST_ORGANIZATION_ID, ATTEMPT_KEY);
+    await expect(service.readAttemptControl(
+      TEST_ORGANIZATION_ID,
+      attempt.attemptId,
+    )).resolves.toMatchObject({
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      state: 'RUNNING',
+      plan: attempt.plan,
+    });
+
+    await service.submitAttempt(
+      TEST_ORGANIZATION_ID,
+      attempt.attemptId,
+      completePayload(attempt),
+    );
+    const catalog = await service.readGenerationCatalog({
+      organizationId: TEST_ORGANIZATION_ID,
+      limit: 1,
+    });
+    expect(catalog.latestAttempt).not.toHaveProperty('attemptToken');
+    expect(catalog.completeGenerations).toHaveLength(1);
+
+    await expect(service.readGenerationFacts({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceImportRunId: attempt.attemptId,
+    })).resolves.toMatchObject({
+      generation: { sourceImportRunId: attempt.attemptId, publicationSequence: '1' },
+      facts: [{
+        masterProductId: expect.any(String),
+        costBasis: 'ORDER_TIME_SUPPLY_COST',
+        vatIncluded: true,
+      }],
+      unmappedFacts: [],
+    });
+    await expect(service.readAttemptControl(
+      TEST_ORGANIZATION_ID,
+      attempt.attemptId,
+    )).rejects.toThrow('ATTEMPT_TERMINAL');
+    await expect(service.readGenerationFacts({
+      organizationId: OTHER_ORGANIZATION_ID,
+      sourceImportRunId: attempt.attemptId,
+    })).rejects.toThrow('SOURCE_GENERATION_NOT_FOUND');
+  });
+
   it('freezes organization-scoped mapping and never mutates ABC publication tables', async () => {
     const before = await abcState(prisma);
     const attempt = await service.beginAttempt(TEST_ORGANIZATION_ID, ATTEMPT_KEY);

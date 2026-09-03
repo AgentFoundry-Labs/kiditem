@@ -6,8 +6,9 @@ import { SellpiaProductSalesModule } from '../sellpia-product-sales.module';
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
 import { SELLPIA_PRODUCT_DEPLETION_READ_PORT } from '../sellpia-product-depletion-read.port';
 import { MASTER_PRODUCT_PROFIT_FACT_READ_PORT } from '../../application/port/in/master-product-profit-fact-read.port';
-import { AlertsModule } from '../../../alerts/alerts.module';
+import { SELLPIA_PROFITABILITY_SOURCE_READ_PORT } from '../../application/port/in/sellpia-profitability-source-read.port';
 import { SellpiaProfitabilitySourceService } from '../sellpia-profitability-source.service';
+import { AlertsModule } from '../../../alerts/alerts.module';
 
 describe('SellpiaProductSalesModule wiring', () => {
   it('imports Inventory and AI owner ports, and exports the depletion read port through the service', () => {
@@ -45,5 +46,19 @@ describe('SellpiaProductSalesModule wiring', () => {
     expect(abcBinding?.useExisting).not.toBe(SellpiaProductSalesService);
     expect(exports).toContain(MASTER_PRODUCT_PROFIT_FACT_READ_PORT);
     expect(exports).not.toContain(abcBinding?.useExisting);
+  });
+
+  it('exports the typed deep source read capability through the owner service', () => {
+    const providers: unknown[] = Reflect.getMetadata('providers', SellpiaProductSalesModule) ?? [];
+    const exports: unknown[] = Reflect.getMetadata('exports', SellpiaProductSalesModule) ?? [];
+    const binding = providers.find((provider) =>
+      typeof provider === 'object'
+      && provider !== null
+      && (provider as { provide?: unknown }).provide === SELLPIA_PROFITABILITY_SOURCE_READ_PORT) as {
+        useExisting?: unknown;
+      } | undefined;
+
+    expect(binding?.useExisting).toBe(SellpiaProfitabilitySourceService);
+    expect(exports).toContain(SELLPIA_PROFITABILITY_SOURCE_READ_PORT);
   });
 });
