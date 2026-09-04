@@ -69,22 +69,20 @@ model BusinessRule {
 }
 
 /// @namespace System
-/// @describe Exactly-once Rules result-application receipt for one organization-scoped Operation run.
+/// @describe Exactly-once Rules result-application receipt for one organization-scoped request.
 model RulesEvaluationApplication {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
-  operationRunId String   @map("operation_run_id") @db.Uuid
+  requestId      String   @map("request_id") @db.VarChar(64)
   productCount   Int      @map("product_count")
   violationCount Int      @map("violation_count")
   criticalCount  Int      @map("critical_count")
   appliedAt      DateTime @default(now()) @map("applied_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  operationRun OperationRun @relation(fields: [operationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@unique([operationRunId, organizationId], map: "rules_evaluation_applications_run_org_key")
+  @@unique([organizationId, requestId], map: "rules_evaluation_applications_request_org_key")
   @@index([organizationId, appliedAt])
-  @@index([operationRunId, organizationId])
   @@map("rules_evaluation_applications")
 }
 
@@ -273,7 +271,6 @@ model OperationRun {
   childRuns                                        OperationRun[]                          @relation("OperationRunHierarchy")
   schedule                                         OperationSchedule?                      @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
   checkpoints                                      OperationRunCheckpoint[]                @relation("OperationRunCheckpoints")
-  rulesEvaluationApplications                      RulesEvaluationApplication[]
 
   @@unique([id, organizationId], map: "operation_runs_id_org_key")
   @@unique([organizationId, operationKey, idempotencyKey], map: "operation_runs_idempotency_key", where: raw("idempotency_key IS NOT NULL"))

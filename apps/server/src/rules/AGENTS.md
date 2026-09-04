@@ -1,31 +1,31 @@
 # rules — Business Policy Rules
 
-`src/rules/` owns business rule definitions, thresholds, evaluation result
-post-processing, activity events, critical alerts, and panel emits. Actual rule
-evaluation is deterministic Operations work.
+`src/rules/` owns business rule definitions, thresholds, deterministic
+evaluation, result post-processing, activity events, and critical alerts.
 
-Current deterministic evaluation runs through the Rules-owned Operation and
-applies health-score updates plus user-facing projections through the Rules
-result boundary. Keep removed schedule and threshold-suggestion routes absent;
-new scheduling requires a scoped plan.
+Current deterministic evaluation runs synchronously through the Rules service
+and applies health-score updates plus user-facing projections in one
+organization-scoped transaction. Keep removed schedule and threshold-suggestion
+routes absent; new scheduling requires a scoped plan.
 
 ## Cross-Domain Ports
 
-- Rules evaluation starts through `OPERATION_RUNNER_PORT`; status reads use the
-  same organization-scoped owner Operation.
-- Rules result application is published as `APPLY_RULES_EVALUATION_PORT` and
-  receives the owner Operation identity, never legacy run/request identity.
-- Operation-alert lifecycle writes go through `RULES_OPERATION_ALERT_PORT`.
-- Alerts HTTP/API ownership is automation, not rules.
+- Rules evaluation consumes the authenticated organization/user and HTTP
+  idempotency key; `RulesEvaluationApplication.requestId` is the stable
+  Rules-owned receipt identity.
+- Rules writes critical Alert projections in the same transaction as its receipt;
+  the focused Alerts owner remains responsible for the Alert HTTP surface and
+  source-failure lifecycle. Rules does not create an Operation, operation
+  alert, Panel event, outbox, or worker.
+- Alerts HTTP/API ownership is the focused `alerts/` owner, not rules.
 
 ## Boundary Rules
 
 - Rules application services must not import Agent OS, generic runner ports,
-  legacy execution types, or finalized-event bridges.
-- `healthScore` updates use tenant-scoped `updateMany` inside a transaction.
+  legacy execution types, Operation runtime types, or finalized-event bridges.
+- `healthScore` updates use organization-scoped `updateMany` inside a transaction.
 - Unsafe raw SQL APIs are forbidden.
 - Critical violations create alerts; all violations create activity events.
-- Panel emit failures are caught so alert/result persistence still completes.
 - Rule logic lives in `BusinessRule` definitions plus agent prompt behavior, not
   hardcoded service branches.
 

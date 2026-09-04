@@ -133,7 +133,7 @@ git commit -m "test: add operation cutover preflight"
 - Consumes: authenticated organization/user and an HTTP idempotency key.
 - Produces: synchronous `RulesService.evaluateAll({ organizationId, requestedByUserId, idempotencyKey })` with a Rules-owned `requestId` and an idempotent `RulesEvaluationApplication` receipt.
 
-- [ ] **Step 1: Write failing direct Rules tests**
+- [x] **Step 1: Write failing direct Rules tests**
 
 ```ts
 it("evaluates and applies without creating an OperationRun", async () => {
@@ -157,7 +157,7 @@ it("replays the same Rules request without duplicating alerts or applications", 
 });
 ```
 
-- [ ] **Step 2: Run Rules tests and verify red**
+- [x] **Step 2: Run Rules tests and verify red**
 
 Run: `npm exec --workspace=apps/server vitest -- run src/rules/__tests__/rules.controller.spec.ts`
 
@@ -165,11 +165,11 @@ Then: `npm run test:integration --workspace=apps/server -- src/rules/__tests__/r
 
 Expected: FAIL because Rules currently starts and reads an OperationRun.
 
-- [ ] **Step 3: Replace the Operation foreign key**
+- [x] **Step 3: Replace the Operation foreign key**
 
 Rename `RulesEvaluationApplication.operationRunId` to `requestId`, unique by `(organizationId, requestId)`. Derive one stable request ID from the authenticated actor plus idempotency key or create it once in an owner receipt. Execute the existing deterministic evaluation transaction directly, insert Rules Alerts in that transaction, and return the stored result on replay.
 
-- [ ] **Step 4: Remove handler/module dependencies and run Rules tests**
+- [x] **Step 4: Remove handler/module dependencies and run Rules tests**
 
 ```bash
 npm exec --workspace=apps/server vitest -- run src/rules/__tests__/rules.controller.spec.ts
@@ -178,7 +178,7 @@ npm run test:integration --workspace=apps/server -- src/rules/__tests__/rules-ev
 
 Expected: PASS with organization isolation, replay idempotency, and no Operation/Panel/OperationAlert reference.
 
-- [ ] **Step 5: Commit the Rules seam**
+- [x] **Step 5: Commit the Rules seam**
 
 ```bash
 git add prisma/models/system.prisma apps/server/src/rules
