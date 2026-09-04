@@ -919,13 +919,11 @@ test('automatic collectors clean up owned tabs and replace a missing shared Wing
   assert.deepEqual(rankCalls, []);
 });
 
-test('retires the web-origin competitor seller collector while preserving the exact operation handler', () => {
+test('retires the web-origin competitor seller collector and routes direct collection to its source owner', () => {
   assert.doesNotMatch(worker, /runCoupangCompetitorSellerCatalog/);
   assert.doesNotMatch(worker, /startCoupangCompetitorSellerCatalogCollection/);
-  assert.match(
-    worker,
-    /"advertising\.collect_competitor_catalog": runAdvertisingCompetitorCatalogOperation/,
-  );
+  assert.match(worker, /collectAdvertisingCompetitorCatalog:\s*\{/);
+  assert.doesNotMatch(worker, /advertising\.collect_competitor_catalog/);
 });
 
 test('interactive focus helper requires a deliberate user-action reason', async () => {

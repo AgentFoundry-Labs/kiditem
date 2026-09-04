@@ -50,9 +50,6 @@ function makeServices() {
       markScraped: vi.fn(),
       deleteScrapeTarget: vi.fn(),
     },
-    competitorCatalogOperation: {
-      ingest: vi.fn(),
-    },
     action: {
       getActions: vi.fn(),
       generateActions: vi.fn(),
@@ -83,7 +80,6 @@ function makeControllers(svcs = makeServices()) {
   const ingestCtrl = new AdvertisingIngestController(
     svcs.collect as any,
     svcs.sync as any,
-    svcs.competitorCatalogOperation as any,
   );
   const actionCtrl = new AdvertisingActionsController(svcs.action as any);
   const executionCtrl = new AdvertisingExecutionController(svcs.execution as any);
@@ -259,63 +255,6 @@ describe('AdvertisingController — POST /scrape-targets dispatch', () => {
       'C',
       COMPANY,
     );
-  });
-});
-
-describe('AdvertisingController — competitor catalog operation sink', () => {
-  it('passes only the authenticated organization and exact attempt token', async () => {
-    const { ctrl, svcs } = makeIngestController();
-    const runId = '00000000-0000-4000-8000-000000000010';
-    const attemptToken = '00000000-0000-4000-8000-000000000011';
-    const body = {
-      catalogs: [{
-        keyword: '노루잡화점 크런치 슬랑이',
-        sellerId: 'A00219251',
-        sellerName: '도그블랑',
-        sellerStoreUrl: 'https://shop.coupang.com/A00219251',
-        totalProductCount: 1,
-        collectedProductCount: 1,
-        isTruncated: false,
-        sort: 'newest',
-        capturedAt: '2026-08-14T00:00:30.000Z',
-        products: [{
-          sourceRank: 1,
-          productId: '123',
-          itemId: null,
-          vendorItemId: '456',
-          name: '슬랑이',
-          priceKrw: 12_000,
-          reviewCount: 4,
-          imageUrl: null,
-          link: 'https://www.coupang.com/vp/products/123',
-        }],
-      }],
-    };
-
-    await ctrl.ingestCompetitorCatalogOperation(
-      runId,
-      attemptToken,
-      body,
-      COMPANY,
-    );
-    expect(svcs.competitorCatalogOperation.ingest).toHaveBeenCalledWith({
-      organizationId: COMPANY,
-      operationRunId: runId,
-      attemptToken,
-      batch: body,
-    });
-    expect(() => ctrl.ingestCompetitorCatalogOperation(
-      runId,
-      attemptToken,
-      { ...body, organizationId: 'forged' },
-      COMPANY,
-    )).toThrow('invalid_competitor_catalog_batch');
-    expect(() => ctrl.ingestCompetitorCatalogOperation(
-      runId,
-      undefined,
-      body,
-      COMPANY,
-    )).toThrow('invalid_operation_attempt_token');
   });
 });
 

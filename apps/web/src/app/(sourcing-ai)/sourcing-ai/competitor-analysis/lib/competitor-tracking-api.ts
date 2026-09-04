@@ -124,6 +124,31 @@ export interface AutoConfigureCompetitorTrackersResponse {
   storefrontProductCount: number;
 }
 
+export type CompetitorCatalogAttemptInput =
+  | { target: 'all' }
+  | { target: 'seller_id'; sellerId: string };
+
+export interface CompetitorCatalogSourceStatus {
+  status: 'READY' | 'STALE' | 'MISSING';
+  latestAttempt: {
+    attemptId: string;
+    state: 'RUNNING' | 'COMPLETE' | 'FAILED';
+    startedAt: string;
+    capturedAt: string | null;
+    expiresAt: string;
+    errorCode: string | null;
+    errorMessage: string | null;
+  } | null;
+  latestComplete: {
+    sourceImportRunId: string;
+    coveredThrough: string;
+    capturedAt: string;
+    expectedTargetCount: number;
+    capturedTargetCount: number;
+    ignoredTargetCount: number;
+  } | null;
+}
+
 export function fetchCompetitorTrackingOverview(
   days: number,
 ): Promise<CompetitorTrackingOverview> {
@@ -138,5 +163,11 @@ export function autoConfigureCompetitorTrackers(
   return apiClient.post<AutoConfigureCompetitorTrackersResponse>(
     "/api/ads/competitors/trackers/auto",
     { maxKeywords },
+  );
+}
+
+export function fetchCompetitorCatalogSourceStatus(): Promise<CompetitorCatalogSourceStatus> {
+  return apiClient.get<CompetitorCatalogSourceStatus>(
+    '/api/ads/competitor-catalogs/attempts/current',
   );
 }

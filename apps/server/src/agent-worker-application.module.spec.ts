@@ -2,7 +2,6 @@ import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { MODULE_METADATA } from '@nestjs/common/constants';
 import { Test } from '@nestjs/testing';
-import { ADVERTISING_OPERATIONS } from './advertising/domain/operation/advertising.operations';
 import { AgentOsWorkerModule } from './agent-os/agent-os-worker.module';
 import { AgentWorkerApplicationModule } from './agent-worker-application.module';
 import { CHANNELS_OPERATIONS } from './channels/domain/operation/channels.operations';
@@ -19,7 +18,6 @@ import { RULES_EVALUATION_OPERATION } from './rules/domain/operation/rules.opera
 import { SOURCING_OPERATIONS } from './sourcing/domain/operation/sourcing.operations';
 
 const operationDefinitionsRequiredByWorker = [
-  ...ADVERTISING_OPERATIONS,
   ...CHANNELS_OPERATIONS,
   ...INVENTORY_OPERATIONS,
   ...ORDERS_OPERATIONS,

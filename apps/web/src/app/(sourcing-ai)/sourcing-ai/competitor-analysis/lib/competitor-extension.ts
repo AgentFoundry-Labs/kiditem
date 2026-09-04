@@ -4,6 +4,7 @@ import {
   sendToExtension,
 } from "@/lib/extension-bridge";
 import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
+import type { CompetitorCatalogAttemptInput } from './competitor-tracking-api';
 
 // 통합 확장(kiditem-os)은 세 확장을 합치며 버전을 1.0.0 으로 리셋했다. 개별
 // 기능 판정은 아래 ping capability 가 하고, 버전은 병합 이전 설치만 걸러낸다.
@@ -64,6 +65,54 @@ export function competitorExtensionGateMessage(
     return `chrome://extensions 에서 KIDITEM 쿠팡 확장프로그램을 새로고침해 주세요. (필요 버전 ${COMPETITOR_EXTENSION_MIN_VERSION}+)`;
   }
   return null;
+}
+
+export interface CompetitorCatalogCollectionReply {
+  success: boolean;
+  attemptId: string;
+  terminalState: 'RUNNING' | 'COMPLETE' | 'FAILED';
+  retryRequired?: boolean;
+  attentionRequired?: boolean;
+  capturedTargetCount?: number;
+  errorCode?: string;
+  error?: string;
+}
+
+export async function requireCompetitorCatalogExtension(): Promise<string> {
+  const gate = await detectCompetitorExtensionGate();
+  if (gate.status === 'ready') return gate.extensionId;
+  throw new Error(
+    competitorExtensionGateMessage(gate)
+      ?? 'KIDITEM 쿠팡 확장프로그램을 연결한 뒤 다시 시도해주세요.',
+  );
+}
+
+export async function collectCompetitorCatalogFromExtension(input: {
+  extensionId: string;
+  idempotencyKey: string;
+  input: CompetitorCatalogAttemptInput;
+}): Promise<CompetitorCatalogCollectionReply> {
+  const response = await sendToExtension<unknown>(
+    input.extensionId,
+    {
+      action: 'collectAdvertisingCompetitorCatalog',
+      idempotencyKey: input.idempotencyKey,
+      ...input.input,
+    },
+    null,
+  );
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    throw new Error('KIDITEM 쿠팡 확장프로그램이 경쟁 판매자 수집 결과를 올바르게 반환하지 않았습니다.');
+  }
+  const reply = response as Record<string, unknown>;
+  if (
+    typeof reply.success !== 'boolean'
+    || typeof reply.attemptId !== 'string'
+    || !['RUNNING', 'COMPLETE', 'FAILED'].includes(reply.terminalState as string)
+  ) {
+    throw new Error('KIDITEM 쿠팡 확장프로그램이 경쟁 판매자 수집 결과를 올바르게 반환하지 않았습니다.');
+  }
+  return reply as CompetitorCatalogCollectionReply;
 }
 
 export function isVersionAtLeast(current: string, minimum: string): boolean {

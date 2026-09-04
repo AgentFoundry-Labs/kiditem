@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  AdvertisingCompetitorCatalogInputSchema,
   AdvertisingCompetitorCatalogBatchSchema,
   AdvertisingTrackedWingProductsInputSchema,
   SourcingKeywordSuggestionInputSchema,
@@ -246,29 +245,6 @@ describe('keyword and competitor browser-operation contracts', () => {
       })),
       productNameTokens: [],
     }).success).toBe(false);
-  });
-
-  it('allows only a configured watchlist or one validated seller ID', () => {
-    expect(AdvertisingCompetitorCatalogInputSchema.parse({
-      target: 'configured_watchlist',
-    })).toEqual({ target: 'configured_watchlist' });
-    expect(AdvertisingCompetitorCatalogInputSchema.parse({
-      target: 'seller_id',
-      sellerId: ' A00219251 ',
-    })).toEqual({ target: 'seller_id', sellerId: 'A00219251' });
-
-    for (const invalid of [
-      {},
-      { target: 'seller_id' },
-      { target: 'seller_id', sellerId: 'https://shop.coupang.com/A00219251' },
-      { target: 'seller_id', sellerId: 'seller id' },
-      { target: 'configured_watchlist', sellerId: 'A00219251' },
-      { target: 'url', url: 'https://shop.coupang.com/A00219251' },
-      { target: 'configured_watchlist', action: 'collect' },
-    ]) {
-      expect(AdvertisingCompetitorCatalogInputSchema.safeParse(invalid).success)
-        .toBe(false);
-    }
   });
 
   it('bounds exact competitor catalog owner rows without permitting generic payloads', () => {

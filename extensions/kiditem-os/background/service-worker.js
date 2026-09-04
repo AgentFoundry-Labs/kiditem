@@ -32,6 +32,7 @@ importScripts(
   "coupang/wing-keyword-contract.js",
   "coupang/profitability-source-owner.js",
   "coupang/tracked-wing-products-source-owner.js",
+  "coupang/competitor-catalog-source-owner.js",
   "coupang/wing-image-fetch.js",
   "coupang/wing-form-runtime-compat.js",
   "coupang/wing-form-readiness.js",
