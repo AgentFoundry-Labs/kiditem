@@ -3,6 +3,7 @@ import { ThumbnailGenerationLedgerRepositoryAdapter } from '../thumbnail-generat
 
 const helperMocks = vi.hoisted(() => ({
   createPendingEditJob: vi.fn(),
+  createPendingCandidateJob: vi.fn(),
   persistPendingInputImages: vi.fn(),
   lockGenerationForProcessing: vi.fn(),
   applyDirectSuccessResult: vi.fn(),
@@ -10,6 +11,7 @@ const helperMocks = vi.hoisted(() => ({
 
 vi.mock('../thumbnail-generation-ledger.persistence', () => ({
   createPendingEditJob: helperMocks.createPendingEditJob,
+  createPendingCandidateJob: helperMocks.createPendingCandidateJob,
   persistPendingInputImages: helperMocks.persistPendingInputImages,
   lockGenerationForProcessing: helperMocks.lockGenerationForProcessing,
   applyDirectSuccessResult: helperMocks.applyDirectSuccessResult,
@@ -78,7 +80,12 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
           scheduledFor: new Date('2026-07-19T00:00:00.000Z'),
         },
       }),
-    ).resolves.toEqual({ generationId: 'generation-1', directJobId: 'direct-job-1' });
+    ).resolves.toEqual({
+      status: 'created',
+      generationId: 'generation-1',
+      directJobId: 'direct-job-1',
+      releaseRequired: true,
+    });
 
     expect(helperMocks.createPendingEditJob).toHaveBeenCalledWith(
       tx,
@@ -97,6 +104,175 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
         status: 'held',
       }),
     );
+  });
+
+  it('reuses a deterministic product-generation thumbnail and does not release a pending job again', async () => {
+    const existing = {
+      id: '11111111-1111-4111-8111-111111111111',
+      isDeleted: false,
+      inputMeta: { productGenerationRequestHash: 'a'.repeat(64) },
+    };
+    const tx = {
+      thumbnailGeneration: {
+        findFirst: vi.fn().mockResolvedValue(existing),
+      },
+      aiDirectJob: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'direct-job-1', status: 'pending' }),
+      },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (callback: (scope: typeof tx) => Promise<unknown>) => callback(tx)),
+    };
+    const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never, {} as never);
+
+    await expect(
+      repository.openPendingDirectGeneration({
+        subject: 'candidate',
+        organizationId: 'org-1',
+        sourceCandidateId: 'candidate-1',
+        contentWorkspaceId: 'workspace-1',
+        originalUrl: 'https://cdn.example.com/source.jpg',
+        method: 'generate',
+        inputMeta: { mode: 'edit', productGenerationRequestHash: 'a'.repeat(64) },
+        triggeredByUserId: 'user-1',
+        inputImages: [],
+        productGenerationIdentity: {
+          generationId: existing.id,
+          requestHash: 'a'.repeat(64),
+        },
+        directJob: {
+          jobType: 'thumbnail_generate',
+          payload: {
+            jobType: 'thumbnail_generate',
+            models: { image: 'gemini-image-model' },
+            input: { inputs: [], productName: '상품' },
+          } as never,
+          status: 'held',
+          scheduledFor: new Date('2026-07-19T00:00:00.000Z'),
+        },
+      }),
+    ).resolves.toEqual({
+      status: 'existing',
+      generationId: existing.id,
+      directJobId: 'direct-job-1',
+      releaseRequired: false,
+    });
+
+    expect(tx.thumbnailGeneration.findFirst).toHaveBeenCalledWith({
+      where: { id: existing.id, organizationId: 'org-1' },
+      select: { id: true, isDeleted: true, inputMeta: true },
+    });
+  });
+
+  it('persists a new product-generation thumbnail at its deterministic child id', async () => {
+    const generationId = '11111111-1111-4111-8111-111111111111';
+    const tx = {
+      thumbnailGeneration: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (callback: (scope: typeof tx) => Promise<unknown>) => callback(tx)),
+    };
+    const directJobs = {
+      createInScope: vi.fn().mockResolvedValue({ id: 'direct-job-1' }),
+    };
+    helperMocks.createPendingCandidateJob.mockResolvedValueOnce({ id: generationId });
+    helperMocks.persistPendingInputImages.mockResolvedValueOnce(undefined);
+    const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never, directJobs as never);
+
+    await expect(repository.openPendingDirectGeneration({
+      subject: 'candidate',
+      organizationId: 'org-1',
+      sourceCandidateId: 'candidate-1',
+      contentWorkspaceId: 'workspace-1',
+      originalUrl: 'https://cdn.example.com/source.jpg',
+      method: 'generate',
+      inputMeta: { productGenerationRequestHash: 'a'.repeat(64) },
+      triggeredByUserId: 'user-1',
+      inputImages: [],
+      productGenerationIdentity: { generationId, requestHash: 'a'.repeat(64) },
+      directJob: {
+        jobType: 'thumbnail_generate',
+        payload: {
+          jobType: 'thumbnail_generate',
+          models: { image: 'gemini-image-model' },
+          input: { inputs: [], productName: '상품' },
+        } as never,
+        status: 'held',
+        scheduledFor: new Date('2026-07-19T00:00:00.000Z'),
+      },
+    })).resolves.toMatchObject({ status: 'created', generationId });
+
+    expect(helperMocks.createPendingCandidateJob).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ id: generationId }),
+    );
+  });
+
+  it('re-reads the committed deterministic thumbnail child after a create race', async () => {
+    const identity = {
+      generationId: '11111111-1111-4111-8111-111111111111',
+      requestHash: 'a'.repeat(64),
+    };
+    const tx = {
+      thumbnailGeneration: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (callback: (scope: typeof tx) => Promise<unknown>) => callback(tx)),
+      thumbnailGeneration: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: identity.generationId,
+          isDeleted: false,
+          inputMeta: { productGenerationRequestHash: identity.requestHash },
+        }),
+      },
+      aiDirectJob: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'direct-job-1', status: 'held' }),
+      },
+    };
+    const directJobs = { createInScope: vi.fn() };
+    helperMocks.createPendingCandidateJob.mockRejectedValueOnce({ code: 'P2002' });
+    const repository = new ThumbnailGenerationLedgerRepositoryAdapter(
+      prisma as never,
+      directJobs as never,
+    );
+
+    await expect(repository.openPendingDirectGeneration({
+      subject: 'candidate',
+      organizationId: 'org-1',
+      sourceCandidateId: 'candidate-1',
+      contentWorkspaceId: 'workspace-1',
+      originalUrl: 'https://cdn.example.com/source.jpg',
+      method: 'generate',
+      inputMeta: { productGenerationRequestHash: identity.requestHash },
+      triggeredByUserId: 'user-1',
+      inputImages: [],
+      productGenerationIdentity: identity,
+      directJob: {
+        jobType: 'thumbnail_generate',
+        payload: {
+          jobType: 'thumbnail_generate',
+          models: { image: 'gemini-image-model' },
+          input: { inputs: [], productName: '상품' },
+        } as never,
+        status: 'held',
+        scheduledFor: new Date('2026-07-19T00:00:00.000Z'),
+      },
+    })).resolves.toEqual({
+      status: 'existing',
+      generationId: identity.generationId,
+      directJobId: 'direct-job-1',
+      releaseRequired: true,
+    });
+
+    expect(prisma.thumbnailGeneration.findFirst).toHaveBeenCalledWith({
+      where: { id: identity.generationId, organizationId: 'org-1' },
+      select: { id: true, isDeleted: true, inputMeta: true },
+    });
+    expect(directJobs.createInScope).not.toHaveBeenCalled();
   });
 
   it('claims and projects direct output through use-case-level methods', async () => {
@@ -145,41 +321,6 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
         inputMeta: { aiJobId: 'request-1' },
       }),
     );
-  });
-
-  it('reads parent alert metadata with organization scope', async () => {
-    const prisma = {
-      thumbnailGeneration: {
-        findFirst: vi.fn().mockResolvedValue({
-          inputMeta: {
-            productGeneration: {
-              mode: 'parent',
-              productGenerationBatchId: 'batch-1',
-              parentOperationKey: 'product-generation:batch-1',
-              childKind: 'thumbnail',
-            },
-          },
-        }),
-      },
-    };
-    const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never, {} as never);
-
-    await expect(
-      repository.readParentAlertLink({
-        organizationId: 'org-1',
-        generationId: 'generation-1',
-      }),
-    ).resolves.toEqual({
-      mode: 'parent',
-      batchId: 'batch-1',
-      parentOperationKey: 'product-generation:batch-1',
-      childKind: 'thumbnail',
-    });
-
-    expect(prisma.thumbnailGeneration.findFirst).toHaveBeenCalledWith({
-      where: { id: 'generation-1', organizationId: 'org-1', isDeleted: false },
-      select: { inputMeta: true },
-    });
   });
 
   it('reads sourcing candidate job context with organization scope', async () => {

@@ -1,9 +1,4 @@
 import { Module } from '@nestjs/common';
-import { OperationOwnerWorkerModule } from '../operations/operation-owner-worker.module';
-import { OperationsWorkerModule } from '../operations/operations.module';
-
-@Module({
-  imports: [OperationsWorkerModule, OperationOwnerWorkerModule],
-  exports: [OperationsWorkerModule],
-})
+/** Agent OS admits capabilities synchronously; it has no worker runtime. */
+@Module({})
 export class AgentOsWorkerModule {}

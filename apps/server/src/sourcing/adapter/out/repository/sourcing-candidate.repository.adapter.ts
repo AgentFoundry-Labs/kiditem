@@ -99,6 +99,47 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
     throw new Error('sourcing_owner_idempotency_receipt_retry_exhausted');
   }
 
+  async claimQuickProcessCandidate(input: {
+    organizationId: string;
+    candidateId: string;
+    idempotencyKey: string;
+    requestHash: string;
+  }): Promise<{ candidateId: string }> {
+    const capabilityKey = 'sourcing.quick_process';
+    return this.prisma.$transaction(async (tx) => {
+      await advisoryLock(
+        tx,
+        `sourcing-owner-receipt:${input.organizationId}:${capabilityKey}:${input.idempotencyKey}`,
+      );
+      const receipt = await tx.sourcingOwnerIdempotencyReceipt.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          capabilityKey,
+          idempotencyKey: input.idempotencyKey,
+        },
+        select: { requestHash: true, result: true },
+      });
+      if (receipt) {
+        if (receipt.requestHash !== input.requestHash) {
+          throw new Error('owner_idempotency_input_conflict');
+        }
+        return receiptCandidateResult(receipt.result);
+      }
+
+      const result = { candidateId: input.candidateId };
+      await tx.sourcingOwnerIdempotencyReceipt.create({
+        data: {
+          organizationId: input.organizationId,
+          capabilityKey,
+          idempotencyKey: input.idempotencyKey,
+          requestHash: input.requestHash,
+          result,
+        },
+      });
+      return result;
+    });
+  }
+
   async mergeDescription(input: {
     organizationId: string;
     sourceUrl: string;

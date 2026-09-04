@@ -1,6 +1,3 @@
-import { apiClient } from '@/lib/api-client';
-import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
-import type { OperationRunName } from '@kiditem/shared/identifiers';
 import {
   CreateProductPreparationInputSchema,
   ProductPreparationCommandResultSchema,
@@ -11,6 +8,9 @@ import {
   type ProductPreparationProjection,
   type SourcingCandidateStatus,
 } from '@kiditem/shared/sourcing';
+import { apiClient } from '@/lib/api-client';
+import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
+import type { OperationRunName } from '@kiditem/shared/identifiers';
 
 export type ProductStatus = SourcingCandidateStatus;
 
@@ -701,7 +701,6 @@ export interface QuickProcessCandidateResponse {
   ok: true;
   candidateId: string;
   href: string;
-  parentOperationKey: string;
   detailGenerationId: string | null;
   thumbnailGenerationId: string | null;
   contentWorkspaceId: string | null;
@@ -795,8 +794,16 @@ export const candidatesApi = {
     `/api/sourcing/candidates/${candidateId}/registration/executions/${executionId}/not-submitted`,
     { evidence },
   ),
-  quickProcess: (id: string, task: QuickProcessTask = 'all') =>
-    apiClient.post<QuickProcessCandidateResponse>(`/api/sourcing/candidates/${id}/quick-process`, { task }),
+  quickProcess: (
+    id: string,
+    task: QuickProcessTask,
+    idempotencyKey: string,
+  ) =>
+    apiClient.post<QuickProcessCandidateResponse>(
+      `/api/sourcing/candidates/${id}/quick-process`,
+      { task },
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    ),
   /**
    * `ProductPreparation` 이 없는 후보의 기본정보를 후보 자체에 저장한다.
    * 채널 계정 선택 없이도 저장 가능하며, 준비가 생기면 registrationInput 이 이어받는다.

@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { parseRequiredIdempotencyKey } from '../../../../common/http/required-idempotency-key';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
-import type { AuthUser } from '../../../../auth/auth.types';
 import { SourcingExtensionIngestService } from '../../../application/service/sourcing-extension-ingest.service';
 import { SourcingService } from '../../../application/service/sourcing.service';
 import {
@@ -15,6 +15,7 @@ import {
   ScrapeUrlBodyDto,
   ScrapeUrlStatusQueryDto,
 } from './dto';
+import type { AuthUser } from '../../../../auth/auth.types';
 
 @Controller('sourcing')
 export class SourcingExtensionIngestController {
@@ -76,8 +77,14 @@ export class SourcingExtensionIngestController {
     @Body() body: CreateProductGenerationDto,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
   ) {
-    return this.sourcingService.createProductGeneration(body, organizationId, user.id ?? null);
+    return this.sourcingService.createProductGeneration(
+      body,
+      organizationId,
+      user.id ?? null,
+      parseRequiredIdempotencyKey(idempotencyKey),
+    );
   }
 
   @Post('scrape-url')

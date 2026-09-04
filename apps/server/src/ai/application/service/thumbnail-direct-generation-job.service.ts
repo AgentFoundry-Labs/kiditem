@@ -67,19 +67,6 @@ export class ThumbnailDirectGenerationJobService {
     await this.repository.cancel(input);
   }
 
-  async cancelByGeneration(input: {
-    organizationId: string;
-    generationId: string;
-    reason: string;
-  }): Promise<number> {
-    return this.repository.cancelBySource({
-      organizationId: input.organizationId,
-      sourceResourceId: input.generationId,
-      jobTypes: ['thumbnail_generate', 'thumbnail_reedit'],
-      reason: input.reason,
-    });
-  }
-
   async schedule(input: {
     organizationId: string;
     generationId: string;

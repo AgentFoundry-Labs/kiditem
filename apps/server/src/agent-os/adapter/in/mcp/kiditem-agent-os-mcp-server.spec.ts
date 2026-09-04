@@ -23,7 +23,6 @@ import {
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = '00000000-0000-4000-8000-000000000002';
 const INVOCATION_ID = '00000000-0000-4000-8000-000000000003';
-const OPERATION_ID = '00000000-0000-4000-8000-000000000004';
 const READ_CAPABILITY = 'analytics.readOverview';
 const MUTATION_CAPABILITY = 'supply.create_purchase_order_draft';
 const MUTATION_RESULT_CAPABILITY = 'channels.submit_wing_thumbnail';
@@ -60,7 +59,7 @@ describe('KidItem stateless capability MCP server', () => {
         name: 'capability_catalog_search',
         arguments: {},
       });
-      expect(catalog.result.structuredContent.capabilities).toHaveLength(17);
+      expect(catalog.result.structuredContent.capabilities).toHaveLength(14);
 
       await call(handler, 'tools/call', {
         name: 'capability_invoke',
@@ -75,7 +74,7 @@ describe('KidItem stateless capability MCP server', () => {
     }
   });
 
-  it('serves exactly five modern tools from independent request handlers and advertises 2020-12 strict contracts', async () => {
+  it('serves exactly four modern tools from independent request handlers and advertises 2020-12 strict contracts', async () => {
     const { handler, dependencies } = makeHandler();
     try {
       const toolList = await call(handler, 'tools/list', {});
@@ -100,13 +99,13 @@ describe('KidItem stateless capability MCP server', () => {
         arguments: {},
       });
       const entries = catalog.result.structuredContent.capabilities;
-      expect(entries).toHaveLength(17);
+      expect(entries).toHaveLength(14);
       expect(entries.map((entry: { key: string }) => entry.key)).toEqual(
         FINAL_CAPABILITY_DEFINITIONS.map(({ key }) => key),
       );
       expect(entries.filter((entry: { key: string }) => entry.key.startsWith('sourcing.')))
-        .toHaveLength(10);
-      expect(entries.find((entry: { key: string }) => entry.key === 'sourcing.collect_shadow_signals'))
+        .toHaveLength(7);
+      expect(entries.find((entry: { key: string }) => entry.key === 'sourcing.ingestCandidate'))
         .toMatchObject({
           inputSchema: expect.objectContaining({
             $schema: MCP_JSON_SCHEMA_DIALECT,
@@ -123,7 +122,7 @@ describe('KidItem stateless capability MCP server', () => {
     }
   });
 
-  it('maps read results, Operation refs, current status reads, and publishes approval locators from the authoritative active turn', async () => {
+  it('maps read results and publishes approval locators from the authoritative active turn', async () => {
     const { handler, dependencies } = makeHandler();
     try {
       const read = await call(handler, 'tools/call', {
@@ -136,9 +135,8 @@ describe('KidItem stateless capability MCP server', () => {
       expect(read.result.structuredContent).toMatchObject({
         kind: 'completed',
         invocation: null,
-        result: { operationRefs: [{ kind: 'operation_run', id: OPERATION_ID }] },
+        result: { operationRefs: [] },
       });
-      expect(dependencies.operations.get).not.toHaveBeenCalled();
 
       const pending = await call(handler, 'tools/call', {
         name: 'capability_invoke',
@@ -212,19 +210,6 @@ describe('KidItem stateless capability MCP server', () => {
         retryWithSameRequestKey: true,
       });
 
-      const operation = await call(handler, 'tools/call', {
-        name: 'operation_status',
-        arguments: { operationId: OPERATION_ID },
-      });
-      expect(operation.result.structuredContent.operation).toMatchObject({
-        id: OPERATION_ID,
-        status: 'queued',
-      });
-      expect(operation.result.structuredContent.operation.error).toMatchObject({
-        code: 'E'.repeat(128),
-        message: 'M'.repeat(1_000),
-      });
-      expect(dependencies.operations.get).toHaveBeenCalledWith(ORGANIZATION_ID, OPERATION_ID);
     } finally {
       await handler.close();
     }
@@ -346,7 +331,6 @@ describe('KidItem stateless capability MCP server', () => {
         listDefinitions: () => FINAL_CAPABILITY_DEFINITIONS.slice(),
         resolveDefinition: () => null,
       },
-      operations: { get: vi.fn() },
       readiness: {
         probe: () => ({
           protocolVersion: MCP_PROTOCOL_VERSION,
@@ -449,7 +433,6 @@ function makeHandler(): {
   handler: ReturnType<typeof createRequestScopedCapabilityMcpHandler>;
   dependencies: CapabilityMcpDependencies & {
     invocations: { invoke: ReturnType<typeof vi.fn>; get: ReturnType<typeof vi.fn> };
-    operations: { get: ReturnType<typeof vi.fn> };
     approvalEvents: { publish: ReturnType<typeof vi.fn> };
   };
 } {
@@ -493,7 +476,7 @@ function makeHandler(): {
           result: {
             summary: 'Overview read.',
             resourceRefs: [],
-            operationRefs: [{ kind: 'operation_run', id: OPERATION_ID }],
+            operationRefs: [],
             output: { period: 'month' },
           },
         };
@@ -503,16 +486,6 @@ function makeHandler(): {
     capabilities: {
       listDefinitions: () => FINAL_CAPABILITY_DEFINITIONS.slice(),
       resolveDefinition: (key: string) => FINAL_CAPABILITY_DEFINITIONS.find((item) => item.key === key) ?? null,
-    },
-    operations: {
-      get: vi.fn(async () => ({
-        id: OPERATION_ID,
-        operationKey: 'sourcing.refresh_collection',
-        status: 'queued',
-        stage: null,
-        progress: null,
-        error: { code: 'E'.repeat(150), message: 'M'.repeat(1_100) },
-      })),
     },
     approvalEvents: {
       publish: vi.fn(),
@@ -527,7 +500,6 @@ function makeHandler(): {
     },
   } as unknown as CapabilityMcpDependencies & {
     invocations: { invoke: ReturnType<typeof vi.fn>; get: ReturnType<typeof vi.fn> };
-    operations: { get: ReturnType<typeof vi.fn> };
     approvalEvents: { publish: ReturnType<typeof vi.fn> };
   };
   return {

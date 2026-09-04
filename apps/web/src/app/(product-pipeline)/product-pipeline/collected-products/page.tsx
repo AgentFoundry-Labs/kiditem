@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, RefreshCw, Store, Wand2, X } from 'lucide-react';
@@ -12,6 +12,7 @@ import {
 import { Pagination } from '@/components/ui/Pagination';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
   collectedProductDetailHref,
   collectedProductEditorHref,
@@ -63,6 +64,7 @@ export default function SourcingPage() {
   const [quickProcessModalOpen, setQuickProcessModalOpen] = useState(false);
   const [quickProcessTargetIds, setQuickProcessTargetIds] = useState<string[]>([]);
   const [quickProcessingIds, setQuickProcessingIds] = useState<Set<string>>(() => new Set());
+  const pendingQuickProcessKeys = useRef(new Map<string, string>());
   const [wingGenerating, setWingGenerating] = useState(false);
   // 등록 확인 모달의 초안. `null` 이면 모달이 닫혀 있다. 초안이 있다는 것은
   // 카테고리 추론과 상세설명 렌더가 이미 성공했다는 뜻이다.
@@ -160,7 +162,13 @@ export default function SourcingPage() {
     mutationFn: async ({ ids, task }: { ids: string[]; task: QuickProcessTask }) => {
       const uniqueIds = [...new Set(ids)];
       const results = await Promise.allSettled(
-        uniqueIds.map((id) => candidatesApi.quickProcess(id, task).then(() => id)),
+        uniqueIds.map((id) => {
+          const requestKey = `${task}:${id}`;
+          const idempotencyKey = pendingQuickProcessKeys.current.get(requestKey)
+            ?? createSecureRandomUuid();
+          pendingQuickProcessKeys.current.set(requestKey, idempotencyKey);
+          return candidatesApi.quickProcess(id, task, idempotencyKey).then(() => id);
+        }),
       );
       const succeededIds = results
         .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
@@ -174,6 +182,7 @@ export default function SourcingPage() {
     onSuccess: ({ succeededIds, failedIds }, { task }) => {
       const taskLabel = quickProcessTaskLabel(task);
       if (succeededIds.length > 0) {
+        succeededIds.forEach((id) => pendingQuickProcessKeys.current.delete(`${task}:${id}`));
         setSelectedIds((prev) => {
           const next = new Set(prev);
           succeededIds.forEach((id) => next.delete(id));

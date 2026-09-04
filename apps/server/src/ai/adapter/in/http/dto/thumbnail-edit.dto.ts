@@ -1,4 +1,12 @@
-import { IsArray, IsBoolean, IsEmpty, IsIn, IsOptional, IsString } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsEmpty,
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 
 export class EditJobsDto {
   @IsEmpty({
@@ -42,6 +50,13 @@ export class SelectCandidateDto {
 export class DeleteCandidateDto {
   @IsString()
   url!: string;
+}
+
+export class CancelThumbnailGenerationDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
 }
 
 export class WingRegisterBatchDto {

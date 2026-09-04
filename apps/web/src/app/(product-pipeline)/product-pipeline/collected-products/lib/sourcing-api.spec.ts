@@ -191,11 +191,12 @@ describe('sourcing candidate API', () => {
   it('starts AI quick processing for an existing collected candidate', async () => {
     vi.mocked(apiClient.post).mockResolvedValueOnce({ ok: true });
 
-    await candidatesApi.quickProcess('cand-1');
+    await candidatesApi.quickProcess('cand-1', 'all', 'quick-process-key');
 
     expect(apiClient.post).toHaveBeenCalledWith(
       '/api/sourcing/candidates/cand-1/quick-process',
       { task: 'all' },
+      { headers: { 'Idempotency-Key': 'quick-process-key' } },
     );
   });
 

@@ -3,18 +3,15 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 import { SOURCING_CAPABILITIES } from '../domain/capability/sourcing.capabilities';
 
 describe('sourcing final capability definitions', () => {
-  it('publishes all ten Agent-facing Sourcing capabilities', () => {
+  it('publishes all seven direct Agent-facing Sourcing capabilities', () => {
     expect(SOURCING_CAPABILITIES.map((capability) => capability.key)).toEqual([
       'sourcing.duplicateCheck',
       'sourcing.scrapeProductUrl',
       'sourcing.ingestCandidate',
-      'sourcing.scrapeUrlWorkflow',
       'sourcing.retrieveWorkspaceEvidence',
       'sourcing.inspectRecommendationRun',
-      'sourcing.refreshCollection',
       'sourcing.refreshValidation',
       'sourcing.createReviewBatch',
-      'sourcing.collect_shadow_signals',
     ]);
     expect(SOURCING_CAPABILITIES.map((capability) => capability.key)).not.toEqual(
       expect.arrayContaining([
@@ -54,18 +51,15 @@ describe('sourcing final capability definitions', () => {
       { key: 'sourcing.duplicateCheck', effects: ['read'], approvalRisk: 'none', idempotency: 'recommended' },
       { key: 'sourcing.scrapeProductUrl', effects: ['browser', 'external_io'], approvalRisk: 'none', idempotency: 'recommended' },
       { key: 'sourcing.ingestCandidate', effects: ['db_write'], approvalRisk: 'medium', idempotency: 'required' },
-      { key: 'sourcing.scrapeUrlWorkflow', effects: ['read', 'browser', 'external_io', 'db_write', 'job_enqueue'], approvalRisk: 'low', idempotency: 'required' },
       { key: 'sourcing.retrieveWorkspaceEvidence', effects: ['read'], approvalRisk: 'none', idempotency: 'recommended' },
       { key: 'sourcing.inspectRecommendationRun', effects: ['read'], approvalRisk: 'none', idempotency: 'recommended' },
-      { key: 'sourcing.refreshCollection', effects: ['external_io', 'job_enqueue'], approvalRisk: 'low', idempotency: 'required' },
       { key: 'sourcing.refreshValidation', effects: ['db_write'], approvalRisk: 'low', idempotency: 'required' },
       { key: 'sourcing.createReviewBatch', effects: ['db_write'], approvalRisk: 'low', idempotency: 'required' },
-      { key: 'sourcing.collect_shadow_signals', effects: ['external_io', 'job_enqueue'], approvalRisk: 'low', idempotency: 'required' },
     ]);
   });
 
   it('accepts only canonical supplier URLs for public supplier capability inputs', () => {
-    for (const key of ['sourcing.duplicateCheck', 'sourcing.scrapeProductUrl', 'sourcing.scrapeUrlWorkflow'] as const) {
+    for (const key of ['sourcing.duplicateCheck', 'sourcing.scrapeProductUrl'] as const) {
       const definition = SOURCING_CAPABILITIES.find((item) => item.key === key)!;
       expect(definition.inputSchema.safeParse({ sourceUrl: 'https://detail.1688.com/offer/123.html#fragment' }).success).toBe(true);
       expect(definition.inputSchema.safeParse({ sourceUrl: 'HTTPS://DETAIL.1688.COM/offer/123.html#fragment' }).success).toBe(true);
@@ -77,7 +71,7 @@ describe('sourcing final capability definitions', () => {
   });
 
   it('projects the supplier HTTPS host boundary into the actual catalog JSON Schema', () => {
-    const definition = SOURCING_CAPABILITIES.find((item) => item.key === 'sourcing.scrapeUrlWorkflow')!;
+    const definition = SOURCING_CAPABILITIES.find((item) => item.key === 'sourcing.scrapeProductUrl')!;
     const schema = zodToJsonSchema(definition.inputSchema as never) as {
       properties?: Record<string, { type?: unknown; format?: unknown; maxLength?: unknown; pattern?: unknown }>;
     };

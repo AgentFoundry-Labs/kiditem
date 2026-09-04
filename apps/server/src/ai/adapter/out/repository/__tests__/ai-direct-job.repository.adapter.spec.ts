@@ -187,4 +187,27 @@ describe('AiDirectJobRepositoryAdapter', () => {
       },
     });
   });
+
+  it('accepts an already released job but rejects held, terminal, and missing jobs', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const findFirst = vi.fn()
+      .mockResolvedValueOnce({ status: 'pending' })
+      .mockResolvedValueOnce({ status: 'held' })
+      .mockResolvedValueOnce({ status: 'cancelled' })
+      .mockResolvedValueOnce({ status: 'failed' })
+      .mockResolvedValueOnce(null);
+    const repository = new AiDirectJobRepositoryAdapter({
+      aiDirectJob: { updateMany, findFirst },
+    } as never);
+    const input = {
+      organizationId: record().organizationId,
+      jobId: record().id,
+    };
+
+    await expect(repository.release(input)).resolves.toBe(true);
+    await expect(repository.release(input)).resolves.toBe(false);
+    await expect(repository.release(input)).resolves.toBe(false);
+    await expect(repository.release(input)).resolves.toBe(false);
+    await expect(repository.release(input)).resolves.toBe(false);
+  });
 });

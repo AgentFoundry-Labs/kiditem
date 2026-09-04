@@ -69,19 +69,6 @@ export class DetailPageDirectGenerationJobService {
     await this.repository.cancel(input);
   }
 
-  async cancelByGeneration(input: {
-    organizationId: string;
-    generationId: string;
-    reason: string;
-  }): Promise<number> {
-    return this.repository.cancelBySource({
-      organizationId: input.organizationId,
-      sourceResourceId: input.generationId,
-      jobTypes: ['detail_page_generate'],
-      reason: input.reason,
-    });
-  }
-
   async schedule(input: {
     organizationId: string;
     generationId: string;

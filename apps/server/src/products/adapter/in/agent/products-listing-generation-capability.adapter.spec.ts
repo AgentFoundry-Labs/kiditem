@@ -11,7 +11,6 @@ describe('ProductsListingGenerationCapabilityAdapter', () => {
     const productGeneration = {
       startForCandidate: vi.fn().mockResolvedValue({
         candidateId,
-        parentOperationKey: 'product-generation:legacy-only',
         detailGenerationId: '00000000-0000-4000-8000-000000000004',
         thumbnailGenerationId: '00000000-0000-4000-8000-000000000005',
         contentWorkspaceId: '00000000-0000-4000-8000-000000000006',

@@ -31,7 +31,6 @@ const identifiers = {
   candidateId: '00000000-0000-4000-8000-000000000009',
   recommendationRunId: '00000000-0000-4000-8000-000000000010',
   purchaseOrderId: '00000000-0000-4000-8000-000000000011',
-  operationRunId: '00000000-0000-4000-8000-000000000012',
 };
 
 const context = {
@@ -87,8 +86,10 @@ function ownerCompositions() {
   const products: ProductsListingGenerationCapabilityPort = {
     createListingGenerationPackage: vi.fn(async () => ({
       candidateId: identifiers.candidateId,
-      operationRunId: identifiers.operationRunId,
-      status: 'queued',
+      detailGenerationId: identifiers.candidateId,
+      thumbnailGenerationId: identifiers.candidateId,
+      contentWorkspaceId: identifiers.candidateId,
+      href: `/product-pipeline/collected-products/${identifiers.candidateId}`,
     })),
   };
   const sourcing: SourcingFinalCapabilityPort = {
@@ -108,10 +109,6 @@ function ownerCompositions() {
       warningCodes: [],
       validation: { itemCount: 1, missingCount: 0 },
     })),
-    refreshCollection: vi.fn(async () => ({
-      operationRunId: identifiers.operationRunId,
-      status: 'queued',
-    })),
     refreshValidation: vi.fn(async () => ({
       recommendationRunId: identifiers.recommendationRunId,
       validationEpisodeIds: [],
@@ -122,15 +119,6 @@ function ownerCompositions() {
       documentCount: 0,
       documents: [],
       dataGaps: [],
-    })),
-    scrapeUrlWorkflow: vi.fn(async () => ({
-      kind: 'enqueued' as const,
-      operationRunId: identifiers.operationRunId,
-      status: 'queued',
-    })),
-    collectShadowSignals: vi.fn(async () => ({
-      operationRunId: identifiers.operationRunId,
-      status: 'queued',
     })),
   };
   const supply: SupplyPurchaseOrderCapabilityPort = {
@@ -157,14 +145,36 @@ function ownerCompositions() {
 }
 
 describe('owner capability composition', () => {
-  it('registers the exact 17 owner-local units and invokes their actual typed owner ports', async () => {
+  it('binds the seven direct Sourcing definitions to their matching keys', () => {
+    const { providers } = ownerCompositions();
+    const sourcing = providers.find(
+      (provider) => provider instanceof SourcingCapabilityCompositionAdapter,
+    );
+    if (!sourcing) throw new Error('sourcing_capability_composition_missing');
+
+    expect(sourcing.compositions.map(({ definition }) => definition.key)).toEqual([
+      'sourcing.duplicateCheck',
+      'sourcing.scrapeProductUrl',
+      'sourcing.ingestCandidate',
+      'sourcing.retrieveWorkspaceEvidence',
+      'sourcing.inspectRecommendationRun',
+      'sourcing.refreshValidation',
+      'sourcing.createReviewBatch',
+    ]);
+    for (const { definition, implementation } of sourcing.compositions) {
+      expect(implementation.capabilityKey).toBe(definition.key);
+      expect(implementation.ownerInputPort).toBe(definition.ownerInputPort);
+    }
+  });
+
+  it('registers the exact 14 owner-local units and invokes their actual typed owner ports', async () => {
     const { ports, providers } = ownerCompositions();
     const registry = new AgentCapabilityRegistry();
 
     expect(providers.map((provider) => provider.compositions)).toHaveLength(5);
     expect(
       providers.flatMap((provider) => provider.compositions),
-    ).toHaveLength(17);
+    ).toHaveLength(14);
 
     registerFinalCapabilityCatalog(registry, providers);
     expect(registry.listDefinitions().map((definition) => definition.key)).toEqual(

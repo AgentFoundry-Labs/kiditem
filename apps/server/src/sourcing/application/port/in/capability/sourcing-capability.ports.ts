@@ -128,7 +128,6 @@ export interface SourcingListingPrepCapabilityInput {
 export interface SourcingListingPrepCapabilityResult {
   candidateId: string;
   href: string;
-  parentOperationKey: string;
   detailGenerationId: string | null;
   thumbnailGenerationId: string | null;
   contentWorkspaceId: string | null;

@@ -59,13 +59,10 @@ const CAPABILITY_FILES = [
       "sourcing.duplicate_check",
       "sourcing.scrape_product_url",
       "sourcing.ingest_candidate",
-      "sourcing.scrape_url_workflow",
       "sourcing.retrieve_workspace_evidence",
       "sourcing.inspect_recommendation_run",
-      "sourcing.refresh_collection",
       "sourcing.refresh_validation",
       "sourcing.create_review_batch",
-      "sourcing.collect_shadow_signals",
     ],
   ],
   [
@@ -112,7 +109,6 @@ function finalContractFiles() {
         "  'capability_catalog_search',",
         "  'capability_invoke',",
         "  'invocation_status',",
-        "  'operation_status',",
         "  'readiness_probe',",
         "];",
       ].join("\n"),
@@ -325,7 +321,7 @@ test("enforces final Agent, domain, capability, and MCP cardinalities", () => {
   const findings = collectAgentOsContractionFindings(files);
   expectFinding(findings, "exactly five Agents");
   expectFinding(findings, "exactly fourteen domains");
-  expectFinding(findings, "exactly five MCP tools");
+  expectFinding(findings, "exactly four MCP tools");
   expectFinding(findings, "MCP protocol must be 2026-07-28");
 });
 

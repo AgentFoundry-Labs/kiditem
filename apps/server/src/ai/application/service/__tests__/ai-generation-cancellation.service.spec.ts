@@ -5,18 +5,16 @@ const ORG = '11111111-1111-1111-1111-111111111111';
 
 function makeService() {
   const detailPages = {
-    cancelForOperation: vi.fn().mockResolvedValue({
+    cancelGeneration: vi.fn().mockResolvedValue({
       status: 'cancelled',
       generationId: 'cg-1',
-      operationKey: 'detail-page:cg-1',
       preserved: false,
     }),
   };
   const thumbnails = {
-    cancelForOperation: vi.fn().mockResolvedValue({
+    cancelGeneration: vi.fn().mockResolvedValue({
       status: 'cancelled',
       generationId: 'tg-1',
-      operationKey: 'thumbnail-edit:tg-1',
       preserved: false,
     }),
   };
@@ -24,7 +22,6 @@ function makeService() {
     cancelEditTask: vi.fn().mockResolvedValue({
       status: 'cancelled',
       jobId: 'image-job-1',
-      operationKey: 'image-edit:image-job-1',
       preserved: false,
     }),
   };
@@ -51,7 +48,7 @@ describe('AiGenerationCancellationService', () => {
       reason: '사용자 요청',
     });
 
-    expect(detailPages.cancelForOperation).toHaveBeenCalledWith({
+    expect(detailPages.cancelGeneration).toHaveBeenCalledWith({
       organizationId: ORG,
       generationId: 'cg-1',
       actorUserId: 'user-1',
@@ -70,7 +67,7 @@ describe('AiGenerationCancellationService', () => {
       reason: '사용자 요청',
     });
 
-    expect(thumbnails.cancelForOperation).toHaveBeenCalledWith({
+    expect(thumbnails.cancelGeneration).toHaveBeenCalledWith({
       organizationId: ORG,
       generationId: 'tg-1',
       actorUserId: 'user-1',

@@ -1,5 +1,4 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
-import { AI_OPERATION_ALERT_PORT, type OperationAlertPort } from '../port/out/cross-domain/operation-alert.port';
 import { ThumbnailEditorAiService } from './thumbnail-editor-ai.service';
 import type { ThumbnailEditorCandidate, ThumbnailEditorInputImage } from '../../domain/model/thumbnail-editor';
 import { resolveWorkspaceThumbnailSource } from '../../domain/thumbnail-workspace-source';
@@ -20,20 +19,10 @@ import {
   THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
   type ThumbnailGenerationLedgerRepositoryPort,
 } from '../port/out/repository/thumbnail-generation-ledger.repository.port';
-import {
-  type GenerationAlertLink,
-  STANDALONE_GENERATION_ALERT,
-  isParentProductGenerationAlertLink,
-  productGenerationMetadata,
-} from './product-generation-alert-link';
-import { ProductGenerationAlertService } from './product-generation-alert.service';
 import { ThumbnailGenerationLifecycleService } from './thumbnail-generation-lifecycle.service';
 import { ThumbnailDirectGenerationJobService } from './thumbnail-direct-generation-job.service';
 import { resolveAiDirectJobModels } from './ai-direct-job.config';
-
-function jsonObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
+import type { ProductGenerationChildIdentity } from './product-generation-child-identity';
 
 export interface ThumbnailEditorGenerationEnqueueInput {
   organizationId: string;
@@ -58,7 +47,7 @@ export interface ThumbnailCandidateGenerationEnqueueInput {
   method: 'generate' | 'creative';
   originalUrl: string;
   directPayload: Record<string, unknown>;
-  operationAlert?: GenerationAlertLink;
+  productGenerationIdentity?: ProductGenerationChildIdentity;
 }
 
 export interface ThumbnailStandaloneGenerationEnqueueInput {
@@ -78,9 +67,6 @@ type ThumbnailGenerationEnqueueResult = {
   status: 'pending' | 'cancelled';
 };
 
-const THUMBNAIL_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE =
-  'Parent product generation was cancelled before thumbnail request execution.';
-
 @Injectable()
 export class ThumbnailGenerationJobService {
   private readonly logger = new Logger(ThumbnailGenerationJobService.name);
@@ -89,10 +75,7 @@ export class ThumbnailGenerationJobService {
     @Inject(THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT)
     private readonly ledger: ThumbnailGenerationLedgerRepositoryPort,
     private readonly editorAiService: ThumbnailEditorAiService,
-    @Inject(AI_OPERATION_ALERT_PORT)
-    private readonly operationAlerts: OperationAlertPort,
     private readonly directGenerationJobs: ThumbnailDirectGenerationJobService,
-    private readonly productGenerationAlerts: ProductGenerationAlertService,
     private readonly lifecycle: ThumbnailGenerationLifecycleService,
   ) {}
 
@@ -115,49 +98,29 @@ export class ThumbnailGenerationJobService {
     });
     const generation = { id: opened.generationId };
 
-    await this.lifecycle.recordStatusChange({
-      organizationId: input.organizationId,
-      generationId: generation.id,
-      fromStatus: null,
-      toStatus: 'pending',
-      fromPhase: null,
-      toPhase: null,
-      actorUserId: input.triggeredByUserId,
-      payload: {
-        method: input.method,
-        contentWorkspaceId: input.contentWorkspaceId,
-        inputCount: input.inputs.length,
-      },
-    });
+    if (opened.status === 'created') {
+      await this.lifecycle.recordStatusChange({
+        organizationId: input.organizationId,
+        generationId: generation.id,
+        fromStatus: null,
+        toStatus: 'pending',
+        fromPhase: null,
+        toPhase: null,
+        actorUserId: input.triggeredByUserId,
+        payload: {
+          method: input.method,
+          contentWorkspaceId: input.contentWorkspaceId,
+          inputCount: input.inputs.length,
+        },
+      });
+    }
 
-    const alertTarget = this.alertTarget({
-      contentWorkspaceId: input.contentWorkspaceId,
-      fallbackTargetType: 'content_workspace',
-      fallbackTargetId: input.contentWorkspaceId,
-      fallbackHref: this.thumbnailGenerationHref(generation.id),
-    });
-    await this.operationAlerts.start({
-      organizationId: input.organizationId,
-      operationKey: this.editJobOperationKey(generation.id),
-      type: 'thumbnail_edit_job',
-      title: `썸네일 ${input.method === 'creative' ? 'AI 연출' : '편집'}: ${input.productName}`,
-      sourceType: 'thumbnail_generation',
-      sourceId: generation.id,
-      actorUserId: input.triggeredByUserId,
-      targetType: alertTarget.targetType,
-      targetId: alertTarget.targetId,
-      href: alertTarget.href,
-      metadata: {
-        method: input.method,
-        inputCount: input.inputs.length,
-        contentWorkspaceId: input.contentWorkspaceId,
-      },
-    });
-
-    await this.directGenerationJobs.release({
-      organizationId: input.organizationId,
-      jobId: opened.directJobId,
-    });
+    if (opened.releaseRequired) {
+      await this.directGenerationJobs.release({
+        organizationId: input.organizationId,
+        jobId: opened.directJobId,
+      });
+    }
 
     return { generationId: generation.id, status: 'pending' };
   }
@@ -171,16 +134,6 @@ export class ThumbnailGenerationJobService {
       throw new BadRequestException('sourceCandidateId 에 해당하는 소싱 후보를 찾을 수 없습니다');
     }
 
-    const operationAlert = input.operationAlert ?? STANDALONE_GENERATION_ALERT;
-    const inputMeta = isParentProductGenerationAlertLink(operationAlert)
-      ? {
-          ...jsonObject(input.inputMeta),
-          productGeneration: {
-            mode: 'parent',
-            ...productGenerationMetadata(operationAlert),
-          },
-        }
-      : input.inputMeta;
     const inputImages = this.attachCandidateImageRefs(input.inputs, candidate.images);
     const directJob = this.directGenerationJobs.prepareGenerate({ payload: input.directPayload, models });
     const opened = await this.ledger.openPendingDirectGeneration({
@@ -189,75 +142,25 @@ export class ThumbnailGenerationJobService {
       sourceCandidateId: input.sourceCandidateId,
       originalUrl: input.originalUrl,
       method: input.method,
-      inputMeta,
+      inputMeta: input.inputMeta,
       contentWorkspaceId: input.contentWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
       inputImages,
+      productGenerationIdentity: input.productGenerationIdentity,
       directJob,
     });
     const generation = { id: opened.generationId };
 
-    await this.lifecycle.recordStatusChange({
-      organizationId: input.organizationId,
-      generationId: generation.id,
-      fromStatus: null,
-      toStatus: 'pending',
-      fromPhase: null,
-      toPhase: null,
-      actorUserId: input.triggeredByUserId,
-      payload: {
-        method: input.method,
-        sourceCandidateId: input.sourceCandidateId,
-        contentWorkspaceId: input.contentWorkspaceId ?? null,
-        inputCount: inputImages.length,
-      },
-    });
-
-    if (isParentProductGenerationAlertLink(operationAlert)) {
-      const childStart = await this.productGenerationAlerts.recordChildStarted({
+    if (opened.status === 'created') {
+      await this.lifecycle.recordStatusChange({
         organizationId: input.organizationId,
-        parentOperationKey: operationAlert.parentOperationKey,
-        childKind: 'thumbnail',
-        childId: generation.id,
-      });
-      if (childStart.status !== 'started') {
-        await this.directGenerationJobs.cancelHeld({
-          organizationId: input.organizationId,
-          jobId: opened.directJobId,
-          reason: 'Parent product generation is not accepting thumbnail child jobs.',
-        });
-        await this.lifecycle.markCancelled({
-          organizationId: input.organizationId,
-          generationId: generation.id,
-          actorUserId: input.triggeredByUserId,
-          payload: {
-            reason:
-              childStart.alert?.status === 'cancelled'
-                ? 'Parent product generation was cancelled before thumbnail child enqueue.'
-                : 'Parent product generation is not accepting thumbnail child jobs.',
-          },
-        });
-        return { generationId: generation.id, status: 'cancelled' };
-      }
-    } else {
-      const alertTarget = this.alertTarget({
-        contentWorkspaceId: input.contentWorkspaceId ?? null,
-        fallbackTargetType: 'sourcing_candidate',
-        fallbackTargetId: input.sourceCandidateId,
-        fallbackHref: `/product-pipeline/collected-products/${encodeURIComponent(input.sourceCandidateId)}`,
-      });
-      await this.operationAlerts.start({
-        organizationId: input.organizationId,
-        operationKey: this.editJobOperationKey(generation.id),
-        type: 'thumbnail_edit_job',
-        title: `소싱 썸네일 ${input.method === 'creative' ? 'AI 연출' : '편집'}: ${(input.productName ?? candidate.name ?? '소싱 후보').slice(0, 40)}`,
-        sourceType: 'thumbnail_generation',
-        sourceId: generation.id,
+        generationId: generation.id,
+        fromStatus: null,
+        toStatus: 'pending',
+        fromPhase: null,
+        toPhase: null,
         actorUserId: input.triggeredByUserId,
-        targetType: alertTarget.targetType,
-        targetId: alertTarget.targetId,
-        href: alertTarget.href,
-        metadata: {
+        payload: {
           method: input.method,
           sourceCandidateId: input.sourceCandidateId,
           contentWorkspaceId: input.contentWorkspaceId ?? null,
@@ -266,54 +169,14 @@ export class ThumbnailGenerationJobService {
       });
     }
 
-    if (
-      isParentProductGenerationAlertLink(operationAlert) &&
-      (await this.shouldCancelParentThumbnailRequestBeforeExecution({
-        organizationId: input.organizationId,
-        parentOperationKey: operationAlert.parentOperationKey,
-        generationId: generation.id,
-      }))
-    ) {
-      await this.directGenerationJobs.cancelHeld({
+    if (opened.releaseRequired) {
+      await this.directGenerationJobs.release({
         organizationId: input.organizationId,
         jobId: opened.directJobId,
-        reason: THUMBNAIL_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
       });
-      await this.lifecycle.markCancelled({
-        organizationId: input.organizationId,
-        generationId: generation.id,
-        actorUserId: input.triggeredByUserId,
-        payload: {
-          reason: THUMBNAIL_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
-        },
-      });
-      return { generationId: generation.id, status: 'cancelled' };
     }
 
-    await this.directGenerationJobs.release({
-      organizationId: input.organizationId,
-      jobId: opened.directJobId,
-    });
-
     return { generationId: generation.id, status: 'pending' };
-  }
-
-  private async shouldCancelParentThumbnailRequestBeforeExecution(input: {
-    organizationId: string;
-    parentOperationKey: string;
-    generationId: string;
-  }): Promise<boolean> {
-    const [parentAcceptsChildren, generation] = await Promise.all([
-      this.productGenerationAlerts.canStartChild({
-        organizationId: input.organizationId,
-        parentOperationKey: input.parentOperationKey,
-      }),
-      this.ledger.findGenerationProjectionStatus({
-        generationId: input.generationId,
-        organizationId: input.organizationId,
-      }),
-    ]);
-    return !parentAcceptsChildren || !generation || !['pending', 'running'].includes(generation.status);
   }
 
   async enqueueStandaloneGeneration(
@@ -334,51 +197,30 @@ export class ThumbnailGenerationJobService {
     });
     const generation = { id: opened.generationId };
 
-    await this.lifecycle.recordStatusChange({
-      organizationId: input.organizationId,
-      generationId: generation.id,
-      fromStatus: null,
-      toStatus: 'pending',
-      fromPhase: null,
-      toPhase: null,
-      actorUserId: input.triggeredByUserId,
-      payload: {
-        method: input.method,
-        inputCount: input.inputs.length,
-        contentWorkspaceId: input.contentWorkspaceId ?? null,
-        standalone: !input.contentWorkspaceId,
-      },
-    });
+    if (opened.status === 'created') {
+      await this.lifecycle.recordStatusChange({
+        organizationId: input.organizationId,
+        generationId: generation.id,
+        fromStatus: null,
+        toStatus: 'pending',
+        fromPhase: null,
+        toPhase: null,
+        actorUserId: input.triggeredByUserId,
+        payload: {
+          method: input.method,
+          inputCount: input.inputs.length,
+          contentWorkspaceId: input.contentWorkspaceId ?? null,
+          standalone: !input.contentWorkspaceId,
+        },
+      });
+    }
 
-    const alertTarget = this.alertTarget({
-      contentWorkspaceId: input.contentWorkspaceId ?? null,
-      fallbackTargetType: 'thumbnail_generation',
-      fallbackTargetId: generation.id,
-      fallbackHref: this.thumbnailGenerationHref(generation.id),
-    });
-    await this.operationAlerts.start({
-      organizationId: input.organizationId,
-      operationKey: this.editJobOperationKey(generation.id),
-      type: 'thumbnail_edit_job',
-      title: `썸네일 ${input.method === 'creative' ? 'AI 연출' : '편집'}: ${(input.productName ?? '직접 업로드').slice(0, 40)}`,
-      sourceType: 'thumbnail_generation',
-      sourceId: generation.id,
-      actorUserId: input.triggeredByUserId,
-      targetType: alertTarget.targetType,
-      targetId: alertTarget.targetId,
-      href: alertTarget.href,
-      metadata: {
-        method: input.method,
-        inputCount: input.inputs.length,
-        contentWorkspaceId: input.contentWorkspaceId ?? null,
-        standalone: !input.contentWorkspaceId,
-      },
-    });
-
-    await this.directGenerationJobs.release({
-      organizationId: input.organizationId,
-      jobId: opened.directJobId,
-    });
+    if (opened.releaseRequired) {
+      await this.directGenerationJobs.release({
+        organizationId: input.organizationId,
+        jobId: opened.directJobId,
+      });
+    }
 
     return { generationId: generation.id, status: 'pending' };
   }
@@ -396,19 +238,6 @@ export class ThumbnailGenerationJobService {
       purpose,
       variantKey: variantKey ?? 'auto',
       models,
-    });
-  }
-
-  async cancelAgentRequestForGeneration(input: {
-    organizationId: string;
-    generationId: string;
-    reason: string;
-    actorUserId?: string | null;
-  }): Promise<void> {
-    await this.directGenerationJobs.cancelByGeneration({
-      organizationId: input.organizationId,
-      generationId: input.generationId,
-      reason: input.reason,
     });
   }
 
@@ -511,7 +340,7 @@ export class ThumbnailGenerationJobService {
         editCase,
         variantKey: variantKey ?? 'auto',
       };
-      const completed = await this.lifecycle.completeLegacyEdit({
+      await this.lifecycle.completeLegacyEdit({
         generationId: id,
         organizationId,
         candidates,
@@ -520,11 +349,6 @@ export class ThumbnailGenerationJobService {
         editAnalysis: toEditAnalysis(analysis),
         payload: completionPayload,
       });
-      if (completed) {
-        await this.operationAlerts.succeed(organizationId, this.editJobOperationKey(id), {
-          metadata: { candidateCount: candidates.length },
-        });
-      }
     } catch (err) {
       if (signal?.aborted) throw err;
       const message = err instanceof Error ? err.message : String(err);
@@ -535,12 +359,7 @@ export class ThumbnailGenerationJobService {
         errorMessage: message,
         payload: { purpose, variantKey: variantKey ?? 'auto' },
       });
-      await this.operationAlerts.fail(organizationId, this.editJobOperationKey(id), { message });
     }
-  }
-
-  private editJobOperationKey(generationId: string): string {
-    return `thumbnail-edit:${generationId}`;
   }
 
   private attachCandidateImageRefs(
@@ -571,35 +390,4 @@ export class ThumbnailGenerationJobService {
     });
   }
 
-  private thumbnailGenerationHref(generationId: string): string {
-    return `/product-pipeline/thumbnail-generation/edit?generationId=${encodeURIComponent(generationId)}`;
-  }
-
-  private contentWorkspaceHref(contentWorkspaceId: string): string {
-    return `/product-pipeline/registered-products/${encodeURIComponent(contentWorkspaceId)}`;
-  }
-
-  private alertTarget(input: {
-    contentWorkspaceId: string | null;
-    fallbackTargetType: string;
-    fallbackTargetId: string;
-    fallbackHref: string;
-  }): {
-    targetType: string;
-    targetId: string;
-    href: string;
-  } {
-    if (input.contentWorkspaceId) {
-      return {
-        targetType: 'content_workspace',
-        targetId: input.contentWorkspaceId,
-        href: this.contentWorkspaceHref(input.contentWorkspaceId),
-      };
-    }
-    return {
-      targetType: input.fallbackTargetType,
-      targetId: input.fallbackTargetId,
-      href: input.fallbackHref,
-    };
-  }
 }

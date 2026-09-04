@@ -47,15 +47,8 @@ function makeProcessor() {
   const detailPageSink = { applySuccess: vi.fn(), applyFailure: vi.fn() };
   const thumbnailLedger = {
     findGenerationProjectionStatus: vi.fn(),
-    readParentAlertLink: vi.fn().mockResolvedValue(null),
   };
   const detailPageRepository = { findCancellableGeneration: vi.fn() };
-  const operationAlerts = {
-    findByOperationKey: vi.fn().mockResolvedValue({ status: 'running' }),
-    succeed: vi.fn(),
-    fail: vi.fn(),
-  };
-  const productGenerationAlerts = { canStartChild: vi.fn().mockResolvedValue(true) };
   return {
     processor: new AiDirectJobProcessorService(
       hydrator as never,
@@ -67,23 +60,18 @@ function makeProcessor() {
       detailPageSink as never,
       thumbnailLedger as never,
       detailPageRepository as never,
-      operationAlerts as never,
-      productGenerationAlerts as never,
     ),
     imageEditExecutor,
-    operationAlerts,
+    thumbnailSink,
+    detailPageSink,
   };
 }
 
 describe('AiDirectJobProcessorService', () => {
-  it('preflights image-edit work against its operation alert', async () => {
-    const { processor, operationAlerts } = makeProcessor();
+  it('preflights image-edit work from the durable direct job owner', async () => {
+    const { processor } = makeProcessor();
 
     await expect(processor.preflight(imageJob())).resolves.toBe('runnable');
-    expect(operationAlerts.findByOperationKey).toHaveBeenCalledWith(
-      imageJob().organizationId,
-      `image-edit:${imageJob().id}`,
-    );
   });
 
   it('routes image-edit execution with the captured model plan', async () => {
@@ -100,22 +88,15 @@ describe('AiDirectJobProcessorService', () => {
     });
   });
 
-  it('validates and projects a checkpointed image-edit result', async () => {
-    const { processor, operationAlerts } = makeProcessor();
+  it('validates and projects a checkpointed image-edit result without a second status owner', async () => {
+    const { processor, thumbnailSink, detailPageSink } = makeProcessor();
 
     await processor.project(imageJob(), {
       image_url: 'https://storage.example.com/output.png',
     });
 
-    expect(operationAlerts.succeed).toHaveBeenCalledWith(
-      imageJob().organizationId,
-      `image-edit:${imageJob().id}`,
-      expect.objectContaining({
-        metadata: expect.objectContaining({
-          imageUrl: 'https://storage.example.com/output.png',
-        }),
-      }),
-    );
+    expect(thumbnailSink.applySuccess).not.toHaveBeenCalled();
+    expect(detailPageSink.applySuccess).not.toHaveBeenCalled();
   });
 
 });

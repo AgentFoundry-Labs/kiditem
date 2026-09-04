@@ -1,12 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { isApiError } from '@/lib/api-error';
 import { apiClient } from '@/lib/api-client';
-import { cancelOperation } from '@/lib/operation-cancellation';
 import { queryKeys } from '@/lib/query-keys';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
   collectedProductDetailHref,
   COLLECTED_PRODUCTS_ROOT,
@@ -18,10 +18,29 @@ interface ProductGenerationResponse {
   ok: boolean;
   candidateId: string;
   href: string;
-  parentOperationKey: string;
   detailGenerationId: string | null;
   thumbnailGenerationId: string | null;
   contentWorkspaceId: string | null;
+}
+
+export async function cancelProductGenerationChildren(input: {
+  detailGenerationId: string | null;
+  thumbnailGenerationId: string | null;
+}): Promise<void> {
+  const cancellations: Promise<unknown>[] = [];
+  if (input.detailGenerationId) {
+    cancellations.push(apiClient.post(
+      `/api/ai/detail-page/${encodeURIComponent(input.detailGenerationId)}/cancel`,
+      { reason: '사용자 요청' },
+    ));
+  }
+  if (input.thumbnailGenerationId) {
+    cancellations.push(apiClient.post(
+      `/api/thumbnail-analysis/generations/${encodeURIComponent(input.thumbnailGenerationId)}/cancel`,
+      { reason: '사용자 요청' },
+    ));
+  }
+  await Promise.all(cancellations);
 }
 
 export function useProductGenerateWorkflow() {
@@ -30,6 +49,7 @@ export function useProductGenerateWorkflow() {
   const [templateId, setTemplateId] = useState<GenerateTemplateId>('bold-vertical');
   const [isRegisteringCandidate, setIsRegisteringCandidate] = useState(false);
   const [createdCandidateId, setCreatedCandidateId] = useState<string | null>(null);
+  const pendingRequest = useRef<{ fingerprint: string; idempotencyKey: string } | null>(null);
   const form = useGenerateForm({
     successDescription: '생성 요청 후 수집 상품 화면에서 진행 상태를 확인할 수 있습니다.',
   });
@@ -49,36 +69,43 @@ export function useProductGenerateWorkflow() {
     setIsRegisteringCandidate(true);
     form.setError(null);
     try {
+      const payload = buildProductGenerationPayload({
+        title,
+        category: form.rawCategory,
+        keyword: form.keyword,
+        target: form.target,
+        description: form.rawDescription,
+        thumbnailUrls,
+        imageUrls: form.images,
+        rawOptions: form.rawOptions,
+        templateId: selectedTemplateId,
+        ageGroup: form.ageGroup,
+        detailImageCount: form.detailImageCount,
+        usageSectionMode: form.usageSectionMode,
+        kcCertificationStatus: form.kcCertificationStatus,
+        kcCertificationNumber: form.kcCertificationNumber,
+        productSize: form.productSize,
+        colorVariantStatus: form.colorVariantStatus,
+        colorVariantNames: form.colorVariantNames,
+        boxSetStatus: form.boxSetStatus,
+        boxSetQuantity: form.boxSetQuantity,
+      });
+      const fingerprint = JSON.stringify(payload);
+      const idempotencyKey = pendingRequest.current?.fingerprint === fingerprint
+        ? pendingRequest.current.idempotencyKey
+        : createSecureRandomUuid();
+      pendingRequest.current = { fingerprint, idempotencyKey };
       const response = await apiClient.post<ProductGenerationResponse>(
         '/api/sourcing/product-generation',
-        buildProductGenerationPayload({
-          title,
-          category: form.rawCategory,
-          keyword: form.keyword,
-          target: form.target,
-          description: form.rawDescription,
-          thumbnailUrls,
-          imageUrls: form.images,
-          rawOptions: form.rawOptions,
-          templateId: selectedTemplateId,
-          ageGroup: form.ageGroup,
-          detailImageCount: form.detailImageCount,
-          usageSectionMode: form.usageSectionMode,
-          kcCertificationStatus: form.kcCertificationStatus,
-          kcCertificationNumber: form.kcCertificationNumber,
-          productSize: form.productSize,
-          colorVariantStatus: form.colorVariantStatus,
-          colorVariantNames: form.colorVariantNames,
-          boxSetStatus: form.boxSetStatus,
-          boxSetQuantity: form.boxSetQuantity,
-        }),
+        payload,
+        { headers: { 'Idempotency-Key': idempotencyKey } },
       );
+      pendingRequest.current = null;
       setCreatedCandidateId(response.candidateId);
       await queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
       form.openGenerationDialog({
         productName: title,
         templateId: selectedTemplateId,
-        operationKey: response.parentOperationKey,
         detailGenerationId: response.detailGenerationId,
         thumbnailGenerationId: response.thumbnailGenerationId,
         editorUrl: collectedProductDetailHref(response.candidateId),
@@ -120,12 +147,11 @@ export function useProductGenerateWorkflow() {
 
   const handleGenerationDialogCancel = async () => {
     const state = generationDialog;
-    if (!state?.operationKey) return;
+    if (!state || (!state.detailGenerationId && !state.thumbnailGenerationId)) return;
     try {
-      await cancelOperation({
-        targetType: 'operation_key',
-        operationKey: state.operationKey,
-        reason: '사용자 요청',
+      await cancelProductGenerationChildren({
+        detailGenerationId: state.detailGenerationId ?? null,
+        thumbnailGenerationId: state.thumbnailGenerationId ?? null,
       });
       form.markGenerationDialogCancelled();
       await Promise.all([

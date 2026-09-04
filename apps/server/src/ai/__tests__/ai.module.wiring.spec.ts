@@ -1,8 +1,8 @@
 import 'reflect-metadata';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { AgentOsCapabilityModule } from '../../agent-os/agent-os-capability.module';
 import { PrismaModule } from '../../prisma/prisma.module';
-import { OperationAlertRuntimeModule } from '../../automation/operation-alert-runtime.module';
 import { StorageModule } from '../../common/storage/storage.module';
 import { AiAgentRuntimeModule, AiModule } from '../ai.module';
 import { AiProductGenerationRuntimeModule } from '../ai-product-generation-runtime.module';
@@ -12,7 +12,6 @@ import { AiDirectJobRepositoryAdapter } from '../adapter/out/repository/ai-direc
 import { CATALOG_MEDIA_PUBLICATION_PORT } from '../../channels/application/port/out/cross-domain/catalog-media-publication.port';
 import { DetailPageContentGenerationSinkAdapter } from '../adapter/out/direct-output/detail-page-content-generation-sink.adapter';
 import { ThumbnailGenerationSinkAdapter } from '../adapter/out/direct-output/thumbnail-generation-sink.adapter';
-import { AiOperationAlertAdapter } from '../adapter/out/automation/operation-alert.adapter';
 import { GeminiThumbnailVisionAdapter } from '../adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import { ThumbnailImageGenerationAdapter } from '../adapter/out/gemini/thumbnail-image-generation.adapter';
 import { ThumbnailReferenceImagesService } from '../adapter/out/gemini/thumbnail-reference-images.adapter';
@@ -26,7 +25,6 @@ import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/re
 import { DetailPageGenerationRepositoryAdapter } from '../adapter/out/repository/detail-page-generation.repository.adapter';
 import { DetailPageQueryRepositoryAdapter } from '../adapter/out/repository/detail-page-query.repository.adapter';
 import { DetailPageImageRepositoryAdapter } from '../adapter/out/repository/detail-page-image.repository.adapter';
-import { ProductGenerationChildLedgerRepositoryAdapter } from '../adapter/out/repository/product-generation-child-ledger.repository.adapter';
 import { ProductGenerationContextRepositoryAdapter } from '../adapter/out/repository/product-generation-context.repository.adapter';
 import { SourcingWorkspaceArchiveRepositoryAdapter } from '../adapter/out/repository/sourcing-workspace-archive.repository.adapter';
 import { ThumbnailAnalysisRepositoryAdapter } from '../adapter/out/repository/thumbnail-analysis.repository.adapter';
@@ -49,7 +47,6 @@ import {
 import { AI_WORKSPACE_ARCHIVE_PORT } from '../application/port/in/workspace';
 import { REGISTRATION_CONTENT_WORKSPACE_PORT } from '../application/port/in/workspace/registration-content-workspace.port';
 import { CANDIDATE_CONTENT_ASSET_PORT } from '../application/port/in/workspace/candidate-content-asset.port';
-import { AI_OPERATION_ALERT_PORT } from '../application/port/out/cross-domain';
 import {
   GENERATED_IMAGE_VALIDATOR_PORT,
   THUMBNAIL_IMAGE_GENERATION_PORT,
@@ -65,7 +62,6 @@ import {
   DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
   DETAIL_PAGE_IMAGE_REPOSITORY_PORT,
   DETAIL_PAGE_QUERY_REPOSITORY_PORT,
-  PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT,
   PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
   REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT,
   SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT,
@@ -123,12 +119,19 @@ describe('AiModule hexagonal wiring contract', () => {
     expect(imports).toEqual([AiAgentRuntimeModule]);
     expect(runtimeImports).toEqual([
       PrismaModule,
-      OperationAlertRuntimeModule,
       AgentOsCapabilityModule,
       StorageModule,
       AiProductGenerationRuntimeModule,
     ]);
     expect(Reflect.getMetadata('controllers', AiAgentRuntimeModule) ?? []).toEqual([]);
+  });
+
+  it('keeps AI direct generation independent from OperationAlert and panel runtime', () => {
+    const moduleSources = [
+      readFileSync(new URL('../ai.module.ts', import.meta.url), 'utf8'),
+      readFileSync(new URL('../ai-product-generation-runtime.module.ts', import.meta.url), 'utf8'),
+    ].join('\n');
+    expect(moduleSources).not.toMatch(/OperationAlert|OperationRun|Panel/);
   });
 
   it('re-exports the product-generation owner module instead of a port it does not provide', () => {
@@ -151,12 +154,10 @@ describe('AiModule hexagonal wiring contract', () => {
 
     [
       [AI_DIRECT_JOB_REPOSITORY_PORT, AiDirectJobRepositoryAdapter],
-      [AI_OPERATION_ALERT_PORT, AiOperationAlertAdapter],
       [CONTENT_ASSET_LIBRARY_REPOSITORY_PORT, ContentAssetLibraryRepositoryAdapter],
       [CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT, ContentWorkspaceLifecycleRepositoryAdapter],
       [DETAIL_PAGE_GENERATION_REPOSITORY_PORT, DetailPageGenerationRepositoryAdapter],
       [DETAIL_PAGE_QUERY_REPOSITORY_PORT, DetailPageQueryRepositoryAdapter],
-      [PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT, ProductGenerationChildLedgerRepositoryAdapter],
       [PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT, ProductGenerationContextRepositoryAdapter],
       [THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT, ThumbnailGenerationLedgerRepositoryAdapter],
       [GENERATED_IMAGE_VALIDATOR_PORT, SharpGeneratedImageValidatorAdapter],

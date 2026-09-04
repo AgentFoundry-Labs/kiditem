@@ -339,16 +339,16 @@ function capabilityCatalogFindings(files) {
   const keys = capabilityFiles.flatMap(capabilityKeys);
   const sourcingCount = keys.filter((key) => key.startsWith("sourcing.")).length;
   const findings = [];
-  if (keys.length !== 17) {
+  if (keys.length !== 14) {
     findings.push(
-      "apps/server/src: Capability catalog must define exactly seventeen definitions (found " +
+      "apps/server/src: Capability catalog must define exactly fourteen definitions (found " +
         keys.length +
         ")",
     );
   }
-  if (sourcingCount !== 10) {
+  if (sourcingCount !== 7) {
     findings.push(
-      "apps/server/src: Sourcing capability catalog must define exactly ten definitions (found " +
+      "apps/server/src: Sourcing capability catalog must define exactly seven definitions (found " +
         sourcingCount +
         ")",
     );
@@ -380,10 +380,10 @@ function mcpCatalogFindings(file) {
     /\bMCP_PROTOCOL_VERSION\s*=\s*["']([^"']+)["']/,
   )?.[1];
   const findings = [];
-  if (toolCount !== 5) {
+  if (toolCount !== 4) {
     findings.push(
       file.path +
-        ": MCP surface must define exactly five MCP tools (found " +
+        ": MCP surface must define exactly four MCP tools (found " +
         toolCount +
         ")",
     );

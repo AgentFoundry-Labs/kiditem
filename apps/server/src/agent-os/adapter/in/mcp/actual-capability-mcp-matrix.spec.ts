@@ -10,6 +10,21 @@ import { ChannelsCapabilityCompositionAdapter } from '../../../../channels/adapt
 import { ProductsCapabilityCompositionAdapter } from '../../../../products/adapter/in/agent/products-capability-composition.adapter';
 import { SourcingCapabilityCompositionAdapter } from '../../../../sourcing/adapter/in/agent/sourcing-capability-composition.adapter';
 import { SupplyCapabilityCompositionAdapter } from '../../../../supply/adapter/in/agent/supply-capability-composition.adapter';
+import { AGENT_DEFINITIONS } from '../../../domain/agent-definition.registry';
+import { FINAL_CAPABILITY_DEFINITIONS } from '../../../domain/catalog/final-capability.catalog';
+import { CapabilityApprovalService } from '../../../application/service/capability-approval.service';
+import { AgentCapabilityRegistry } from '../../../application/service/agent-capability-registry.service';
+import { CapabilityInvocationService } from '../../../application/service/capability-invocation.service';
+import { CapabilityMutationDispatcher } from '../../../application/service/capability-mutation-dispatcher.service';
+import { registerFinalCapabilityCatalog } from '../../../application/service/final-capability-catalog-registrar.service';
+import {
+  CAPABILITY_MCP_TOOL_NAMES,
+  MCP_PROTOCOL_VERSION,
+} from './capability-mcp-wire-contract';
+import {
+  createRequestScopedCapabilityMcpHandler,
+  type CapabilityMcpDependencies,
+} from './kiditem-agent-os-mcp-server';
 import type { AnalyticsAgentOverviewCapabilityPort } from '../../../../analytics/dashboard/application/port/in/analytics-overview-capability.port';
 import type { ChannelsFinalCapabilityPort } from '../../../../channels/application/port/in/capability/channels-final-capability.port';
 import type { ChannelsWingThumbnailCapabilityPort } from '../../../../channels/application/port/in/capability/wing-thumbnail.port';
@@ -19,13 +34,6 @@ import type {
   SourcingSourceSnapshot,
 } from '../../../../sourcing/application/port/in/capability/sourcing-final-capability.port';
 import type { SupplyPurchaseOrderCapabilityPort } from '../../../../supply/application/port/in/capability/purchase-order.port';
-import { AGENT_DEFINITIONS } from '../../../domain/agent-definition.registry';
-import { FINAL_CAPABILITY_DEFINITIONS } from '../../../domain/catalog/final-capability.catalog';
-import { CapabilityApprovalService } from '../../../application/service/capability-approval.service';
-import { AgentCapabilityRegistry } from '../../../application/service/agent-capability-registry.service';
-import { CapabilityInvocationService } from '../../../application/service/capability-invocation.service';
-import { CapabilityMutationDispatcher } from '../../../application/service/capability-mutation-dispatcher.service';
-import { registerFinalCapabilityCatalog } from '../../../application/service/final-capability-catalog-registrar.service';
 import type {
   AdmitCapabilityInvocation,
   CapabilityInvocationRecord,
@@ -34,14 +42,6 @@ import type {
   RecordInvocationFailure,
   RecordInvocationSucceeded,
 } from '../../../application/port/out/capability-invocation.repository.port';
-import {
-  CAPABILITY_MCP_TOOL_NAMES,
-  MCP_PROTOCOL_VERSION,
-} from './capability-mcp-wire-contract';
-import {
-  createRequestScopedCapabilityMcpHandler,
-  type CapabilityMcpDependencies,
-} from './kiditem-agent-os-mcp-server';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = '00000000-0000-4000-8000-000000000002';
@@ -89,12 +89,10 @@ const scenarios: readonly InvocationScenario[] = [
   }),
   scenario('products.create_listing_generation_package', 'products.createListingGenerationPackage', 'medium', { candidateId: CANDIDATE_ID }, {
     candidateId: CANDIDATE_ID,
-    operationRunId: OPERATION_ID,
-    status: 'queued',
-  }),
-  scenario('sourcing.collect_shadow_signals', 'sourcing.collectShadowSignals', 'low', {}, {
-    operationRunId: OPERATION_ID,
-    status: 'queued',
+    detailGenerationId: CANDIDATE_ID,
+    thumbnailGenerationId: CANDIDATE_ID,
+    contentWorkspaceId: CANDIDATE_ID,
+    href: `/product-pipeline/collected-products/${CANDIDATE_ID}`,
   }),
   scenario('sourcing.createReviewBatch', 'sourcing.createReviewBatch', 'low', {
     recommendationRunId: RECOMMENDATION_RUN_ID,
@@ -116,10 +114,6 @@ const scenarios: readonly InvocationScenario[] = [
     warningCodes: [],
     validation: { itemCount: 1, missingCount: 0 },
   }),
-  scenario('sourcing.refreshCollection', 'sourcing.refreshCollection', 'low', { sources: ['naver'] }, {
-    operationRunId: OPERATION_ID,
-    status: 'queued',
-  }),
   scenario('sourcing.refreshValidation', 'sourcing.refreshValidation', 'low', {
     recommendationRunId: RECOMMENDATION_RUN_ID,
   }, {
@@ -134,11 +128,6 @@ const scenarios: readonly InvocationScenario[] = [
     dataGaps: [],
   }),
   scenario('sourcing.scrapeProductUrl', 'sourcing.scrapeProductUrl', 'none', { sourceUrl: SOURCE_URL }, { snapshot }),
-  scenario('sourcing.scrapeUrlWorkflow', 'sourcing.scrapeUrlWorkflow', 'low', { sourceUrl: SOURCE_URL }, {
-    kind: 'enqueued',
-    operationRunId: OPERATION_ID,
-    status: 'queued',
-  }),
   scenario('supply.create_purchase_order_draft', 'supply.createPurchaseOrderDraft', 'low', {
     sellpiaInventorySkuId: CANDIDATE_ID,
     productName: 'Toy',
@@ -153,14 +142,17 @@ const scenarios: readonly InvocationScenario[] = [
 ];
 
 describe('actual capability MCP wire matrix', () => {
-  it('discovers and invokes all 17 owner compositions with active-turn authority and code-owned responsibility profiles', async () => {
+  it('discovers and invokes all 14 owner compositions with active-turn authority and code-owned responsibility profiles', async () => {
     const runtime = matrixRuntime();
     try {
       const catalog = await call(runtime.handler, 'tools/call', {
         name: 'capability_catalog_search',
         arguments: {},
       });
-      expect(catalog.result.structuredContent.capabilities.map((entry: { key: string }) => entry.key))
+      const catalogContent = catalog.result.structuredContent as unknown as {
+        capabilities: Array<{ key: string }>;
+      };
+      expect(catalogContent.capabilities.map((entry) => entry.key))
         .toEqual(FINAL_CAPABILITY_DEFINITIONS.map((definition) => definition.key));
       expect(scenarios.map((entry) => entry.definition.key))
         .toEqual(FINAL_CAPABILITY_DEFINITIONS.map((definition) => definition.key));
@@ -172,7 +164,7 @@ describe('actual capability MCP wire matrix', () => {
         expect.any(SupplyCapabilityCompositionAdapter),
       ]);
       expect(runtime.compositionProviders.flatMap((provider) => provider.compositions))
-        .toHaveLength(17);
+        .toHaveLength(14);
 
       for (const entry of scenarios) {
         expect(entry.definition.ownerInputPort).toBe(entry.expectedOwnerInputPort);
@@ -208,7 +200,7 @@ describe('actual capability MCP wire matrix', () => {
         };
         expect(runtime.invocationCalls).toHaveBeenLastCalledWith(expectedInvocation);
 
-        const content = response.result.structuredContent as InvocationWireResult;
+        const content = response.result.structuredContent as unknown as InvocationWireResult;
         let invocationId: string | undefined;
         if (requiresApproval(entry.definition)) {
           expect(content).toMatchObject({
@@ -362,9 +354,6 @@ function matrixRuntime() {
       getReceipt: (input) => invocationService.getReceipt(input),
     },
     capabilities: registry,
-    operations: {
-      get: vi.fn(),
-    },
     readiness: {
       probe: () => ({
         protocolVersion: MCP_PROTOCOL_VERSION,
@@ -421,7 +410,13 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
     createListingGenerationPackage: typedOwnerPortMethod(
       typedOwnerPortCalls,
       'products.create_listing_generation_package',
-      { candidateId: CANDIDATE_ID, operationRunId: OPERATION_ID, status: 'queued' },
+      {
+        candidateId: CANDIDATE_ID,
+        detailGenerationId: CANDIDATE_ID,
+        thumbnailGenerationId: CANDIDATE_ID,
+        contentWorkspaceId: CANDIDATE_ID,
+        href: `/product-pipeline/collected-products/${CANDIDATE_ID}`,
+      },
     ),
   };
   const sourcing: SourcingFinalCapabilityPort = {
@@ -457,11 +452,6 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
         validation: { itemCount: 1, missingCount: 0 },
       },
     ),
-    refreshCollection: typedOwnerPortMethod(
-      typedOwnerPortCalls,
-      'sourcing.refreshCollection',
-      { operationRunId: OPERATION_ID, status: 'queued' },
-    ),
     refreshValidation: typedOwnerPortMethod(
       typedOwnerPortCalls,
       'sourcing.refreshValidation',
@@ -475,16 +465,6 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
       typedOwnerPortCalls,
       'sourcing.retrieveWorkspaceEvidence',
       { inputHash: 'b'.repeat(64), documentCount: 0, documents: [], dataGaps: [] },
-    ),
-    scrapeUrlWorkflow: typedOwnerPortMethod(
-      typedOwnerPortCalls,
-      'sourcing.scrapeUrlWorkflow',
-      { kind: 'enqueued' as const, operationRunId: OPERATION_ID, status: 'queued' },
-    ),
-    collectShadowSignals: typedOwnerPortMethod(
-      typedOwnerPortCalls,
-      'sourcing.collect_shadow_signals',
-      { operationRunId: OPERATION_ID, status: 'queued' },
     ),
   };
   const supply: SupplyPurchaseOrderCapabilityPort = {
@@ -582,11 +562,8 @@ function expectedTypedOwnerPortCall(
         input,
       };
     case 'sourcing.ingestCandidate':
-    case 'sourcing.scrapeUrlWorkflow':
-    case 'sourcing.refreshCollection':
     case 'sourcing.refreshValidation':
     case 'sourcing.createReviewBatch':
-    case 'sourcing.collect_shadow_signals':
       return { context: mutationContext(), input };
     case 'supply.create_purchase_order_draft':
     case 'supply.submit_purchase_order': {

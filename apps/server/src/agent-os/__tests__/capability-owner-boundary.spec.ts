@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 const serverRoot = resolve(__dirname, '../..');
 
 const requiredOwners = [
-  ['sourcing.collect_shadow_signals', 'sourcing', 'sourcing.collectShadowSignals'],
+  ['sourcing.ingestCandidate', 'sourcing', 'sourcing.ingestCandidate'],
   ['products.create_listing_generation_package', 'products', 'products.createListingGenerationPackage'],
   ['channels.submit_wing_thumbnail', 'channels', 'channels.submitWingThumbnail'],
   ['analytics.readOverview', 'analytics', 'analytics.readOverview'],
@@ -46,7 +46,6 @@ describe('KID-25 owner capability boundary', () => {
 
   it('keeps business capability execution out of Agent and AgentRun wrappers', () => {
     const ownerAdapters = [
-      'sourcing/adapter/in/agent/market-shadow-signal-capability.adapter.ts',
       'products/adapter/in/agent/products-listing-generation-capability.adapter.ts',
       'channels/adapter/in/agent/channels-wing-thumbnail-capability.adapter.ts',
       'supply/adapter/in/agent/supply-agent-capability.adapter.ts',

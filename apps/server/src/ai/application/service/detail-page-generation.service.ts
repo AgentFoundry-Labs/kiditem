@@ -6,10 +6,6 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  AI_OPERATION_ALERT_PORT,
-  type OperationAlertPort,
-} from '../port/out/cross-domain/operation-alert.port';
 import type { GenerateDetailPageInput } from './detail-page-requests';
 import {
   IMAGE_STORAGE_PORT,
@@ -34,28 +30,14 @@ import type {
   DetailPageSourceReference,
   DetailPageTemplateId,
 } from './detail-page-ai.types';
+import type { ProductGenerationChildIdentity } from './product-generation-child-identity';
 import { DetailPageQueryService } from './detail-page-query.service';
 import {
-  detailPageResultHref,
-  detailPageOperationKey,
   toDetailPageStoredJson,
 } from './detail-page-stored.helpers';
 import {
-  registeredWorkspaceEditorHref,
   ContentWorkspaceService,
 } from './content-workspace.service';
-import {
-  type GenerationAlertLink,
-  STANDALONE_GENERATION_ALERT,
-  isParentProductGenerationAlertLink,
-  productGenerationMetadata,
-  readProductGenerationAlertLink,
-} from './product-generation-alert-link';
-import { ProductGenerationAlertService } from './product-generation-alert.service';
-import {
-  asPlainRecord,
-  operationCancellationAudit,
-} from '../../../common/operation-cancellation-audit';
 import {
   DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
   type DetailPageGenerationRepositoryPort,
@@ -63,24 +45,7 @@ import {
 import { DetailPageDirectGenerationJobService } from './detail-page-direct-generation-job.service';
 import { resolveAiDirectJobModels } from './ai-direct-job.config';
 
-const DETAIL_PAGE_PROCESSING_STATUSES = [
-  'PENDING',
-  'PROCESSING',
-  'generating',
-  'pending',
-  'processing',
-];
-const DETAIL_PAGE_TERMINAL_STATUSES = new Set([
-  'READY',
-  'FAILED',
-  'CANCELLED',
-  'completed',
-  'failed',
-  'cancelled',
-]);
 const DETAIL_PAGE_CANCELLED_MESSAGE = '사용자 요청으로 생성이 중단되었습니다.';
-const DETAIL_PAGE_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE =
-  'Parent product generation was cancelled before detail request execution.';
 const DETAIL_PAGE_IMAGE_REQUIRED_MESSAGE = '상세페이지 생성에는 상품 이미지가 최소 1장 필요합니다.';
 
 @Injectable()
@@ -92,12 +57,9 @@ export class DetailPageGenerationService {
     private readonly repository: DetailPageGenerationRepositoryPort,
     @Inject(IMAGE_STORAGE_PORT)
     private readonly imageStorage: ImageStoragePort,
-    @Inject(AI_OPERATION_ALERT_PORT)
-    private readonly operationAlerts: OperationAlertPort,
     private readonly query: DetailPageQueryService,
     private readonly directGenerationJobs: DetailPageDirectGenerationJobService,
     private readonly contentWorkspaces: ContentWorkspaceService,
-    private readonly productGenerationAlerts: ProductGenerationAlertService,
   ) {}
 
   async uploadInputImage(
@@ -124,7 +86,7 @@ export class DetailPageGenerationService {
     dto: GenerateDetailPageInput,
     organizationId: string,
     triggeredByUserId: string | null,
-    options: { operationAlert?: GenerationAlertLink } = {},
+    productGenerationIdentity?: ProductGenerationChildIdentity,
   ): Promise<DetailPageGenerationDto> {
     const heroImageMode = dto.heroImageMode ?? 'llm-pick';
     const templateId = dto.templateId ?? 'kids-playful';
@@ -152,14 +114,10 @@ export class DetailPageGenerationService {
       usageSectionMode,
       kcCertificationStatus,
       kcCertificationNumber,
+      ...(productGenerationIdentity
+        ? { productGenerationRequestHash: productGenerationIdentity.requestHash }
+        : {}),
     };
-    const operationAlert = options.operationAlert ?? STANDALONE_GENERATION_ALERT;
-    if (isParentProductGenerationAlertLink(operationAlert)) {
-      rawInput.productGeneration = {
-        mode: 'parent',
-        ...productGenerationMetadata(operationAlert),
-      };
-    }
     const requestedContentWorkspace = dto.contentWorkspaceId
       ? await this.resolveContentWorkspace(organizationId, dto.contentWorkspaceId)
       : null;
@@ -219,8 +177,7 @@ export class DetailPageGenerationService {
       sourceCandidateId: primarySourceCandidateId,
       existingResult: imageOnlyBase?.result,
       contentWorkspaceId: contentWorkspace.id,
-      preferContentWorkspaceAlert: Boolean(dto.contentWorkspaceId),
-      operationAlert,
+      productGenerationIdentity,
     });
   }
 
@@ -254,8 +211,7 @@ export class DetailPageGenerationService {
     existingResult?: unknown;
     generationGroupId?: string | null;
     contentWorkspaceId: string;
-    preferContentWorkspaceAlert?: boolean;
-    operationAlert: GenerationAlertLink;
+    productGenerationIdentity?: ProductGenerationChildIdentity;
   }): Promise<DetailPageGenerationDto> {
     const models = resolveAiDirectJobModels('detail_page_generate');
     const primarySourceCandidateId =
@@ -295,113 +251,19 @@ export class DetailPageGenerationService {
       imageUrls: input.imageUrls,
       rawTitle: input.rawTitle,
       sourceReferences: input.sourceReferences,
+      productGenerationIdentity: input.productGenerationIdentity,
       directJob,
     });
     const row = opened.row;
 
-    if (isParentProductGenerationAlertLink(input.operationAlert)) {
-      const childStart = await this.productGenerationAlerts.recordChildStarted({
-        organizationId: input.organizationId,
-        parentOperationKey: input.operationAlert.parentOperationKey,
-        childKind: 'detail_page',
-        childId: row.id,
-      });
-      if (childStart.status !== 'started') {
-        await this.directGenerationJobs.cancelHeld({
-          organizationId: input.organizationId,
-          jobId: opened.directJobId,
-          reason: 'Parent product generation is not accepting detail child jobs.',
-        });
-        await this.repository.markGenerationRejectedByParent({
-          organizationId: input.organizationId,
-          generationId: row.id,
-          status: childStart.alert?.status === 'cancelled' ? 'CANCELLED' : 'FAILED',
-          errorMessage:
-            childStart.alert?.status === 'cancelled'
-              ? 'Parent product generation was cancelled before detail child enqueue.'
-              : 'Parent product generation is not accepting detail child jobs.',
-        });
-        return this.query.getById(row.id, input.organizationId);
-      }
-    } else {
-      const alertTargetsContentWorkspace = input.preferContentWorkspaceAlert || !primarySourceCandidateId;
-      await this.operationAlerts.start({
-        organizationId: input.organizationId,
-        operationKey: detailPageOperationKey(row.id),
-        type: 'detail_page_generation',
-        title: `상세페이지 생성: ${input.rawTitle.slice(0, 40)}`,
-        sourceType: 'content_generation',
-        sourceId: row.id,
-        actorUserId: input.triggeredByUserId,
-        targetType: alertTargetsContentWorkspace ? 'content_workspace' : 'sourcing_candidate',
-        targetId: alertTargetsContentWorkspace ? input.contentWorkspaceId : primarySourceCandidateId,
-        href: alertTargetsContentWorkspace
-          ? registeredWorkspaceEditorHref(input.contentWorkspaceId, row.id)
-          : detailPageResultHref({
-            productId: null,
-            sourceCandidateId: primarySourceCandidateId,
-            contentGenerationId: row.id,
-            templateId: input.templateId,
-          }),
-        metadata: {
-          templateId: input.templateId,
-          imageCount: input.imageUrls.length,
-          sourceCandidateId: primarySourceCandidateId,
-          contentWorkspaceId: input.contentWorkspaceId,
-        },
-      });
-    }
-
-    if (
-      isParentProductGenerationAlertLink(input.operationAlert) &&
-      await this.shouldCancelParentDetailRequestBeforeExecution({
-        organizationId: input.organizationId,
-        parentOperationKey: input.operationAlert.parentOperationKey,
-        generationId: row.id,
-      })
-    ) {
-      await this.directGenerationJobs.cancelHeld({
+    if (opened.releaseRequired) {
+      await this.directGenerationJobs.release({
         organizationId: input.organizationId,
         jobId: opened.directJobId,
-        reason: DETAIL_PAGE_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
       });
-      await this.repository.markGenerationCancelledIfProcessing({
-        organizationId: input.organizationId,
-        generationId: row.id,
-        processingStatuses: DETAIL_PAGE_PROCESSING_STATUSES,
-        errorMessage: DETAIL_PAGE_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
-      });
-      return this.query.getById(row.id, input.organizationId);
     }
 
-    await this.directGenerationJobs.release({
-      organizationId: input.organizationId,
-      jobId: opened.directJobId,
-    });
-
     return this.query.getById(row.id, input.organizationId);
-  }
-
-  private async shouldCancelParentDetailRequestBeforeExecution(input: {
-    organizationId: string;
-    parentOperationKey: string;
-    generationId: string;
-  }): Promise<boolean> {
-    const [parentAcceptsChildren, child] = await Promise.all([
-      this.productGenerationAlerts.canStartChild({
-        organizationId: input.organizationId,
-        parentOperationKey: input.parentOperationKey,
-      }),
-      this.repository.findGenerationStatus({
-        organizationId: input.organizationId,
-        generationId: input.generationId,
-      }),
-    ]);
-    return (
-      !parentAcceptsChildren ||
-      !child ||
-      !DETAIL_PAGE_PROCESSING_STATUSES.includes(child.status)
-    );
   }
 
   async rerunSameInput(
@@ -465,7 +327,6 @@ export class DetailPageGenerationService {
       sourceCandidateId: base.sourceCandidateId,
       generationGroupId,
       contentWorkspaceId,
-      operationAlert: STANDALONE_GENERATION_ALERT,
     });
   }
 
@@ -576,7 +437,7 @@ export class DetailPageGenerationService {
   }
 
   async cancel(id: string, organizationId: string): Promise<DetailPageGenerationDto> {
-    const result = await this.cancelForOperation({
+    const result = await this.cancelGeneration({
       organizationId,
       generationId: id,
       actorUserId: null,
@@ -588,100 +449,21 @@ export class DetailPageGenerationService {
     return this.query.getById(id, organizationId);
   }
 
-  async cancelForOperation(input: {
+  async cancelGeneration(input: {
     organizationId: string;
     generationId: string;
     actorUserId: string | null;
     reason: string;
-    notifyProductGenerationParent?: boolean;
   }): Promise<{
     status: 'cancelled' | 'already_terminal' | 'not_found';
     generationId: string;
-    operationKey: string | null;
     preserved: boolean;
   }> {
-    const row = await this.repository.findCancellableGeneration({
+    return this.repository.cancelDirectGeneration({
       organizationId: input.organizationId,
       generationId: input.generationId,
-    });
-    if (!row) {
-      return {
-        status: 'not_found',
-        generationId: input.generationId,
-        operationKey: null,
-        preserved: false,
-      };
-    }
-
-    if (DETAIL_PAGE_TERMINAL_STATUSES.has(row.status)) {
-      return {
-        status: 'already_terminal',
-        generationId: row.id,
-        operationKey: detailPageOperationKey(row.id),
-        preserved: row.status === 'READY' || row.status === 'completed',
-      };
-    }
-
-    await this.directGenerationJobs.cancelByGeneration({
-      organizationId: input.organizationId,
-      generationId: row.id,
       reason: input.reason,
     });
-    const updated = await this.repository.cancelProcessingGeneration({
-      organizationId: input.organizationId,
-      generationId: row.id,
-      processingStatuses: DETAIL_PAGE_PROCESSING_STATUSES,
-      reason: input.reason,
-      generationResult: {
-        ...asPlainRecord(row.generationResult),
-        operationCancellation: operationCancellationAudit({
-          requestedByUserId: input.actorUserId,
-          reason: input.reason,
-          target: { targetType: 'content_generation', generationId: row.id },
-          affected: { contentGenerationIds: [row.id] },
-          result: 'cancelled',
-        }),
-      },
-    });
-
-    if (updated === 0) {
-      return {
-        status: 'already_terminal',
-        generationId: row.id,
-        operationKey: detailPageOperationKey(row.id),
-        preserved: false,
-      };
-    }
-
-    await this.operationAlerts.cancel(input.organizationId, detailPageOperationKey(row.id), {
-      message: input.reason,
-      metadata: {
-        errorCode: 'user_cancelled',
-        cancel: {
-          requestedByUserId: input.actorUserId,
-          requestedAt: new Date().toISOString(),
-          reason: input.reason,
-        },
-      },
-    });
-    const parentLink = readProductGenerationAlertLink(row.generationInput);
-    if (parentLink && input.notifyProductGenerationParent !== false) {
-      await this.productGenerationAlerts.markChildFinished({
-        organizationId: input.organizationId,
-        parentOperationKey: parentLink.parentOperationKey,
-        childKind: parentLink.childKind,
-        status: 'failed',
-        childId: row.id,
-        errorMessage: input.reason,
-      });
-    }
-
-    return {
-      status: 'cancelled',
-      generationId: row.id,
-      operationKey: detailPageOperationKey(row.id),
-      preserved: false,
-    };
   }
 
   private normalizeTemplateId(value: string | null): DetailPageTemplateId {

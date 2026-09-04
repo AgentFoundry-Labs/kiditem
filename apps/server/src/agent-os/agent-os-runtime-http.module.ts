@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { OperationsModule } from '../operations/operations.module';
 import { AgentMcpHttpController } from './adapter/in/http/runtime/agent-mcp-http.controller';
 import { McpHttpResponseAdapter } from './adapter/in/http/runtime/mcp-http-response.adapter';
 import { KidItemAgentOsMcpServer } from './adapter/in/mcp/kiditem-agent-os-mcp-server';
@@ -12,7 +11,7 @@ import { AgentOsInvocationModule } from './agent-os-invocation.module';
 
 /** Private, stateless MCP v2 ingress composed only from current application ports. */
 @Module({
-  imports: [AgentOsInvocationModule, OperationsModule, GatewayControlSessionModule],
+  imports: [AgentOsInvocationModule, GatewayControlSessionModule],
   controllers: [AgentMcpHttpController],
   providers: [
     McpHttpResponseAdapter,

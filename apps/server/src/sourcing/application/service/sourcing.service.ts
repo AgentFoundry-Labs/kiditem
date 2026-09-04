@@ -1,10 +1,17 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   OperationRunIdSchema,
   OrganizationIdSchema,
   formatOperationRunName,
 } from '@kiditem/shared/identifiers';
 import { paginationParams } from '../../../common/pagination';
+import { canonicalOwnerInputHash } from '../../../common/owner-idempotency-key';
 import {
   SOURCING_AGENT_GATEWAY_PORT,
   type SourcingAgentGatewayPort,
@@ -25,12 +32,10 @@ import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
   type RegistrationContentWorkspacePort,
 } from '../port/out/cross-domain/registration-content-workspace.port';
-import type {
-  CreateProductGenerationCommand,
-  ReceiveExtensionDataInput,
-  RegisterManualProductCommand,
-} from '../port/in/sourcing.commands';
-import type { ProductGenerationTask } from '../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
+import {
+  SOURCING_SCRAPE_OPERATION_PORT,
+  type SourcingScrapeOperationPort,
+} from '../port/out/cross-domain/sourcing-scrape-operation.port';
 import { detectSourcingScrapePlatform } from '../../domain/sourcing-url';
 import {
   extractSupplierOfferId,
@@ -43,10 +48,12 @@ import {
 } from '../../domain/sourcing-candidate-identity';
 import { buildProductBasics } from './product-basics.presenter';
 import { SourcingAgentCommandService } from './sourcing-agent-command.service';
-import {
-  SOURCING_SCRAPE_OPERATION_PORT,
-  type SourcingScrapeOperationPort,
-} from '../port/out/cross-domain/sourcing-scrape-operation.port';
+import type {
+  CreateProductGenerationCommand,
+  ReceiveExtensionDataInput,
+  RegisterManualProductCommand,
+} from '../port/in/sourcing.commands';
+import type { ProductGenerationTask } from '../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
 
 const PLATFORM_MAP: Record<string, string> = {
   '1688': 'ALIBABA_1688',
@@ -192,18 +199,52 @@ export class SourcingService {
     data: CreateProductGenerationCommand,
     organizationId: string,
     triggeredByUserId: string | null,
+    idempotencyKey: string,
   ) {
-    return this.agentCommands.createProductGeneration(data, organizationId, triggeredByUserId);
+    return this.agentCommands.createProductGeneration(
+      data,
+      organizationId,
+      triggeredByUserId,
+      {
+        idempotencyKey,
+        requestHash: canonicalOwnerInputHash({
+          kind: 'sourcing.product_generation',
+          command: definedCommandFields(data),
+        }),
+      },
+    );
   }
 
   async quickProcessCandidate(
     candidateId: string,
     organizationId: string,
     triggeredByUserId: string | null,
-    task: ProductGenerationTask = 'all',
+    task: ProductGenerationTask,
+    idempotencyKey: string,
   ) {
+    const requestHash = canonicalOwnerInputHash({
+      kind: 'sourcing.quick_process',
+      candidateId,
+      task,
+    });
     const candidate = await this.candidates.findById(candidateId, organizationId);
     if (!candidate) throw new NotFoundException('Sourcing candidate not found');
+    try {
+      const receipt = await this.candidates.claimQuickProcessCandidate({
+        organizationId,
+        candidateId,
+        idempotencyKey,
+        requestHash,
+      });
+      if (receipt.candidateId !== candidate.id) {
+        throw new ConflictException('product_generation_idempotency_conflict');
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === 'owner_idempotency_input_conflict') {
+        throw new ConflictException('product_generation_idempotency_conflict');
+      }
+      throw error;
+    }
 
     const rawData = this.plainRecord(candidate.rawData);
     const candidateImageUrls = candidate.images
@@ -228,6 +269,8 @@ export class SourcingService {
     const ai = await this.agentGateway.startProductGeneration({
       organizationId,
       triggeredByUserId,
+      idempotencyKey,
+      requestHash,
       candidateId,
       productName: candidate.name,
       category: candidate.category,
@@ -256,7 +299,6 @@ export class SourcingService {
       product_count: 1,
       candidateId: ai.candidateId,
       href: ai.href,
-      parentOperationKey: ai.parentOperationKey,
       detailGenerationId: ai.detailGenerationId,
       thumbnailGenerationId: ai.thumbnailGenerationId,
       contentWorkspaceId: ai.contentWorkspaceId,
@@ -544,6 +586,12 @@ export class SourcingService {
       (data as Record<string, unknown>).variant_key,
     );
   }
+}
+
+function definedCommandFields(data: CreateProductGenerationCommand): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(data).filter(([, value]) => value !== undefined),
+  );
 }
 
 function quickProcessMessage(task: ProductGenerationTask): string {

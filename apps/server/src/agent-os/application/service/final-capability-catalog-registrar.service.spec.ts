@@ -18,16 +18,13 @@ const expectedKeys = [
   'channels.submit_coupang_listing',
   'channels.submit_wing_thumbnail',
   'products.create_listing_generation_package',
-  'sourcing.collect_shadow_signals',
   'sourcing.createReviewBatch',
   'sourcing.duplicateCheck',
   'sourcing.ingestCandidate',
   'sourcing.inspectRecommendationRun',
-  'sourcing.refreshCollection',
   'sourcing.refreshValidation',
   'sourcing.retrieveWorkspaceEvidence',
   'sourcing.scrapeProductUrl',
-  'sourcing.scrapeUrlWorkflow',
   'supply.create_purchase_order_draft',
   'supply.submit_purchase_order',
 ] as const;
@@ -39,16 +36,13 @@ const expectedOwnerInputPorts = {
   'channels.submit_wing_thumbnail': 'channels.submitWingThumbnail',
   'products.create_listing_generation_package':
     'products.createListingGenerationPackage',
-  'sourcing.collect_shadow_signals': 'sourcing.collectShadowSignals',
   'sourcing.createReviewBatch': 'sourcing.createReviewBatch',
   'sourcing.duplicateCheck': 'sourcing.duplicateCheck',
   'sourcing.ingestCandidate': 'sourcing.ingestCandidate',
   'sourcing.inspectRecommendationRun': 'sourcing.inspectRecommendationRun',
-  'sourcing.refreshCollection': 'sourcing.refreshCollection',
   'sourcing.refreshValidation': 'sourcing.refreshValidation',
   'sourcing.retrieveWorkspaceEvidence': 'sourcing.retrieveWorkspaceEvidence',
   'sourcing.scrapeProductUrl': 'sourcing.scrapeProductUrl',
-  'sourcing.scrapeUrlWorkflow': 'sourcing.scrapeUrlWorkflow',
   'supply.create_purchase_order_draft': 'supply.createPurchaseOrderDraft',
   'supply.submit_purchase_order': 'supply.submitPurchaseOrder',
 } as const satisfies Record<(typeof expectedKeys)[number], string>;
@@ -86,7 +80,7 @@ function compositionProvider(
 }
 
 describe('FinalCapabilityCatalogRegistrar', () => {
-  it('keeps the sorted 17-key catalog and its owner input ports exact', () => {
+  it('keeps the sorted 14-key catalog and its owner input ports exact', () => {
     expect(FINAL_CAPABILITY_DEFINITIONS.map((definition) => definition.key)).toEqual(
       expectedKeys,
     );
@@ -215,18 +209,18 @@ describe('FinalCapabilityCatalogRegistrar', () => {
     ).toThrow('definition differs');
   });
 
-  it('keeps all ten Sourcing capabilities Agent-facing', () => {
+  it('keeps the seven direct Sourcing capabilities Agent-facing', () => {
     const sourcingKeys = FINAL_CAPABILITY_DEFINITIONS.filter(
       (definition) => definition.ownerDomain === 'sourcing',
     ).map((definition) => definition.key);
 
-    expect(sourcingKeys).toHaveLength(10);
+    expect(sourcingKeys).toHaveLength(7);
     expect(sourcingKeys).toEqual(
       expect.arrayContaining([
         'sourcing.duplicateCheck',
         'sourcing.scrapeProductUrl',
         'sourcing.ingestCandidate',
-        'sourcing.collect_shadow_signals',
+        'sourcing.refreshValidation',
       ]),
     );
   });
