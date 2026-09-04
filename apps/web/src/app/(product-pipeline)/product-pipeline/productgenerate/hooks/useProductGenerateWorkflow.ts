@@ -1,9 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import { usePanelStore } from '@/components/panel/lib/panel-store';
 import { isApiError } from '@/lib/api-error';
 import { apiClient } from '@/lib/api-client';
 import { cancelOperation } from '@/lib/operation-cancellation';
@@ -14,7 +13,6 @@ import {
 } from '../../_shared/lib/product-pipeline-routes';
 import { useGenerateForm, type GenerateTemplateId } from '../../detail-template-generation/hooks/useGenerateForm';
 import { buildProductGenerationPayload } from '../lib/product-generation-payload';
-import { projectProductGenerationDialog } from '../lib/product-generation-progress';
 
 interface ProductGenerationResponse {
   ok: boolean;
@@ -32,14 +30,10 @@ export function useProductGenerateWorkflow() {
   const [templateId, setTemplateId] = useState<GenerateTemplateId>('bold-vertical');
   const [isRegisteringCandidate, setIsRegisteringCandidate] = useState(false);
   const [createdCandidateId, setCreatedCandidateId] = useState<string | null>(null);
-  const panelItemsById = usePanelStore((state) => state.byId);
   const form = useGenerateForm({
     successDescription: '생성 요청 후 수집 상품 화면에서 진행 상태를 확인할 수 있습니다.',
   });
-  const generationDialog = useMemo(
-    () => projectProductGenerationDialog(form.generationDialog, panelItemsById),
-    [form.generationDialog, panelItemsById],
-  );
+  const generationDialog = form.generationDialog;
 
   const handleSubmit = async (selectedTemplateId: GenerateTemplateId, thumbnailUrls: string[]) => {
     const title = form.rawTitle.trim();

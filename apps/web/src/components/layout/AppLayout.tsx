@@ -5,8 +5,6 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { PanelErrorBoundary } from '@/components/panel/PanelErrorBoundary';
-import { usePanelStream } from '@/components/panel/hooks/usePanelStream';
 import ReadinessModal from '@/components/ReadinessModal';
 import GlobalConfirmDialog from '@/components/GlobalConfirmDialog';
 import GenerationCompletionWatcher from '@/components/GenerationCompletionWatcher';
@@ -24,11 +22,6 @@ import { RightAuxiliaryPanel } from './RightAuxiliaryPanel';
 import { RightSurfaceLauncherProvider } from './right-surface-launcher-context';
 import Sidebar from './Sidebar';
 import { useDesktopAiChatWidth } from './useDesktopAiChatWidth';
-
-function NotificationDataMount() {
-  usePanelStream();
-  return null;
-}
 
 function ConversationRuntimeShell({
   children,
@@ -228,7 +221,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <ConversationRuntimeShell key={authenticatedIdentityKey} identity={authenticatedIdentity!}>
-      <NotificationDataMount />
       <RightSurfaceLauncherProvider openConversationFromLauncher={openConversationFromLauncher}>
         <div
           data-testid="authenticated-work-surface"
@@ -243,14 +235,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {isAgentWorkspace ? children : content}
         </div>
       </RightSurfaceLauncherProvider>
-      <PanelErrorBoundary>
-        <RightAuxiliaryPanel
-          activeRightSurface={visibleRightSurface}
-          onClose={closeRightSurface}
-          launcherRef={launcherRef}
-          desktopAiChatWidth={desktopAiChatWidth}
-        />
-      </PanelErrorBoundary>
+      <RightAuxiliaryPanel
+        activeRightSurface={visibleRightSurface}
+        onClose={closeRightSurface}
+        launcherRef={launcherRef}
+        desktopAiChatWidth={desktopAiChatWidth}
+      />
     </ConversationRuntimeShell>
   );
 }

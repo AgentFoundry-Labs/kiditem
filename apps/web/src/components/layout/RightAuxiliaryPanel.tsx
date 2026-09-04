@@ -12,7 +12,7 @@ import {
   type RefObject,
 } from 'react';
 import { ConversationPanel } from '@/components/agent-interaction/ConversationPanel';
-import { NotificationPanelContent } from '@/components/panel/NotificationPanelContent';
+import { AlertsPopover } from '@/components/alerts/AlertsPopover';
 import type { ActiveRightSurface } from '@/store/useStore';
 import {
   clampDesktopAiChatWidth,
@@ -248,7 +248,7 @@ function PanelBody({
       >
         <X aria-hidden="true" size={18} />
       </button>
-      <NotificationPanelContent />
+      <AlertsPopover />
     </div>
   );
 }

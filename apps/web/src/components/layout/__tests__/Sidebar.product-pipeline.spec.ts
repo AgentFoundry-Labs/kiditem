@@ -11,7 +11,6 @@ describe('Sidebar product pipeline navigation', () => {
     ])).toEqual([
       ['', [
         ['/dashboard', '대시보드'],
-        ['/action-board', '액션 보드'],
       ]],
       ['소싱 에이전트', [
         ['/sourcing-ai', '소싱 홈'],

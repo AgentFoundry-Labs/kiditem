@@ -31,11 +31,8 @@ vi.mock('@/store/useStore', () => ({
     selector ? selector(appStoreState) : appStoreState,
 }));
 
-vi.mock('@/components/panel/lib/panel-store', () => ({
-  usePanelStore: (selector: (state: {
-    unreadCount(): number;
-    runningCount(): number;
-  }) => unknown) => selector({ unreadCount: () => 0, runningCount: () => 0 }),
+vi.mock('@/lib/alerts-api', () => ({
+  useAlertsQuery: () => ({ data: [] }),
 }));
 
 vi.mock('@/hooks/useAuth', () => ({

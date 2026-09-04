@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
-import { usePanelStore } from "@/components/panel/lib/panel-store";
+import { useAlertsQuery } from "@/lib/alerts-api";
 import { useAuth } from "@/hooks/useAuth";
 import { CollapsibleSidebarShell } from "./CollapsibleSidebarShell";
 import { SidebarBrandLink } from "./SidebarBrandLink";
@@ -20,11 +20,7 @@ import { menuSections } from "./sidebar-menu";
 function isItemActive(href: string, pathname: string): boolean {
   if (href === "/dashboard") return pathname === "/dashboard";
   if (href === "/agents")
-    return (
-      pathname.startsWith("/agents") ||
-      pathname.startsWith("/workflows") ||
-      pathname.startsWith("/marketplace")
-    );
+    return pathname.startsWith("/agents");
   if (href === "/agent-os") return pathname.startsWith("/agent-os");
   const matchesRoute = pathname === href || pathname.startsWith(href + "/");
   if (!matchesRoute) return false;
@@ -79,9 +75,9 @@ export default function Sidebar({
   const editorDirty = useStore((s) => s.editorDirty);
   const setEditorDirty = useStore((s) => s.setEditorDirty);
   const showConfirm = useStore((s) => s.showConfirm);
-  const unreadAlertCount = usePanelStore((s) => s.unreadCount());
-  const runningCount = usePanelStore((s) => s.runningCount());
   const { user, logout } = useAuth();
+  const { data: alerts = [] } = useAlertsQuery(Boolean(user));
+  const unreadAlertCount = alerts.filter((alert) => !alert.isRead && isOpenAlert(alert)).length;
 
   const handleNavClick = useCallback(
     (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
@@ -363,9 +359,6 @@ export default function Sidebar({
                   {unreadAlertCount > 99 ? "99+" : unreadAlertCount}
                 </span>
               )}
-              {runningCount > 0 && (
-                <span className="absolute -bottom-1 -right-1 w-2 h-2 rounded-full bg-[var(--primary)] animate-pulse" />
-              )}
             </div>
             {sidebarOpen && <span className="font-medium">알림</span>}
           </button>
@@ -430,4 +423,8 @@ export default function Sidebar({
       }
     />
   );
+}
+
+function isOpenAlert(alert: { status: string }): boolean {
+  return alert.status === "OPEN" || alert.status === "open";
 }

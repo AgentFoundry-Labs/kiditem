@@ -14,77 +14,21 @@ import {
   detailPageEditorHref,
   registeredProductDetailHref,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/product-pipeline-routes';
-import { usePanelStore } from '@/components/panel/lib/panel-store';
 import { queryKeys } from '@/lib/query-keys';
-import type { PanelAlertItem } from '@kiditem/shared/panel';
 
 const IN_PROGRESS_STATUSES = new Set(['pending', 'processing']);
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
-const PANEL_IN_PROGRESS_STATUSES = new Set(['pending', 'running']);
-const PANEL_TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled']);
-const DETAIL_PAGE_OPERATION_KEY_PREFIX = 'detail-page:';
 
 type DetailGenerationToastStatus = 'completed' | 'failed' | 'cancelled';
 
 export default function GenerationCompletionWatcher() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const panelItemsById = usePanelStore((s) => s.byId);
   const { data: kpList = [] } = useKidsPlayfulGenerationList(null);
   const { data: boldList = [] } = useBoldVerticalGenerationList(null);
   const prevStatusRef = useRef<Map<string, string>>(new Map());
-  const prevPanelStatusRef = useRef<Map<string, string>>(new Map());
   const initializedRef = useRef(false);
-  const panelInitializedRef = useRef(false);
   const notifiedGenerationIdsRef = useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    const detailPageAlerts = Object.values(panelItemsById).filter(isDetailPageOperationAlert);
-    const currentStatus = new Map<string, string>();
-    for (const alert of detailPageAlerts) currentStatus.set(alert.id, alert.status);
-
-    if (!panelInitializedRef.current) {
-      prevPanelStatusRef.current = currentStatus;
-      panelInitializedRef.current = true;
-      return;
-    }
-
-    const prev = prevPanelStatusRef.current;
-    for (const alert of detailPageAlerts) {
-      const prevStatus = prev.get(alert.id);
-      if (
-        prevStatus &&
-        PANEL_IN_PROGRESS_STATUSES.has(prevStatus) &&
-        PANEL_TERMINAL_STATUSES.has(alert.status)
-      ) {
-        const generationId = generationIdFromDetailPageAlert(alert);
-        if (generationId) {
-          void queryClient.invalidateQueries({
-            queryKey: queryKeys.productContent.detailGenerationsAll('kids-playful'),
-          });
-          void queryClient.invalidateQueries({
-            queryKey: queryKeys.productContent.detailGenerationsAll('bold-vertical'),
-          });
-          void queryClient.invalidateQueries({
-            queryKey: queryKeys.productContent.detailGeneration(generationId),
-          });
-        }
-        if (generationId && notifiedGenerationIdsRef.current.has(generationId)) continue;
-        if (generationId) notifiedGenerationIdsRef.current.add(generationId);
-
-        showDetailGenerationToast({
-          status: panelStatusToGenerationStatus(alert.status),
-          productLabel: labelFromDetailPageAlert(alert),
-          templateLabel: templateLabelFromDetailPageAlert(alert),
-          errorMessage: alert.message,
-          editorUrl: alert.href,
-          routerPush: router.push,
-        });
-      }
-    }
-
-    prevPanelStatusRef.current = currentStatus;
-  }, [panelItemsById, queryClient, router.push]);
 
   useEffect(() => {
     const all: KidsPlayfulGenerationItem[] = [...kpList, ...boldList].filter(
@@ -138,50 +82,6 @@ export default function GenerationCompletionWatcher() {
   }, [kpList, boldList, router]);
 
   return null;
-}
-
-function isDetailPageOperationAlert(item: unknown): item is PanelAlertItem {
-  if (!item || typeof item !== 'object') return false;
-  const maybeItem = item as Partial<PanelAlertItem>;
-  return (
-    maybeItem.kind === 'alert' &&
-    maybeItem.alertKind === 'operation' &&
-    typeof maybeItem.operationKey === 'string' &&
-    maybeItem.operationKey.startsWith(DETAIL_PAGE_OPERATION_KEY_PREFIX)
-  );
-}
-
-function generationIdFromDetailPageAlert(alert: PanelAlertItem): string | null {
-  if (alert.sourceType === 'content_generation' && alert.sourceId) return alert.sourceId;
-  return alert.operationKey?.slice(DETAIL_PAGE_OPERATION_KEY_PREFIX.length) || null;
-}
-
-function labelFromDetailPageAlert(alert: PanelAlertItem): string {
-  const generatedTitle = metadataString(alert, 'generatedTitle');
-  if (generatedTitle) return generatedTitle;
-  const titlePrefix = '상세페이지 생성: ';
-  if (alert.title.startsWith(titlePrefix)) {
-    const label = alert.title.slice(titlePrefix.length).trim();
-    if (label) return label;
-  }
-  return '상세페이지';
-}
-
-function templateLabelFromDetailPageAlert(alert: PanelAlertItem): string {
-  return metadataString(alert, 'templateId') === 'bold-vertical'
-    ? 'KIDITEM DESIGN'
-    : 'Trend Vertical';
-}
-
-function metadataString(alert: PanelAlertItem, key: string): string | null {
-  const value = alert.metadata[key];
-  return typeof value === 'string' && value.trim() ? value : null;
-}
-
-function panelStatusToGenerationStatus(status: PanelAlertItem['status']): DetailGenerationToastStatus {
-  if (status === 'cancelled') return 'cancelled';
-  if (status === 'failed') return 'failed';
-  return 'completed';
 }
 
 function showDetailGenerationToast(input: {
