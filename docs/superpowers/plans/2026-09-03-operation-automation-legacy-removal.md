@@ -15,6 +15,16 @@
 ## Global Constraints
 
 - This is the declared platform-boundary reconstruction exception to the one-domain-per-session rule; unrelated domain cleanup remains excluded.
+- Classify agent work before dispatch. Use Luna/max for mechanical deletion,
+  import/module wiring, and local DTO changes. Mark work that protects
+  invariants across two or more boundaries as `경계 불변식 작업`
+  (`boundary-invariant work`) and use Terra/max; this includes database
+  transaction/CAS/idempotency, durable
+  state transitions, retry/stale handling, AI job lifecycle,
+  extension-to-server contracts, and schema/data cutover.
+- The root agent owns integration and tests. Run one Sol/max final review only
+  after implementation and focused tests; that review reports only new P0/P1
+  findings and deletable complexity through the Ponytail lens.
 - A business action is removed only after its owner/capability acceptance test passes, or the ownership manifest names it `DELETE` and operating preflight confirms no required schedule/workflow.
 - ActionBoard application code is removed; `ActionTask` table and rows remain dormant and no production code reads or writes them.
 - Database Alerts retain only source/rules human notifications. Existing unreliable Operation alerts are reset rather than migrated into a compatibility shape.
