@@ -243,6 +243,16 @@ git commit -m "refactor: make rules evaluation directly owned"
 - Consumes: owner services/capabilities that already persist their own result: `CapabilityInvocation`, `AiDirectJob`, source import attempt, purchase-order transmission, listing mutation receipt, and sourcing owner records.
 - Produces: the same surviving HTTP/Agent OS business result without OperationRun creation or OperationAlert emission.
 
+**Approved sequencing deviation:** The retained 1688, live-commerce, TikTok,
+and Wing Sourcing collectors cannot be moved by renaming their current
+Operation routes. Their existing `SourcingEvidenceIngestionRun` lifecycle must
+first be hard-reshaped to the three-state source-attempt contract, including
+fixed expiry, frozen plan, terminal checksum/current COMPLETE pointer, and
+owner-transaction Alert handling. Implement and verify that scoped schema/data
+cutover with Terra/max after the Advertising slice and before deleting the
+generic backend runtime. Do not add a temporary route, compatibility layer, or
+generic source-attempt model.
+
 - [ ] **Step 1: Add failing no-Operation assertions to existing owner acceptance tests**
 
 ```ts
