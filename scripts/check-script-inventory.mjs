@@ -29,6 +29,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'generate-prisma-erd.mjs',
   'local-agent-gateway.mjs',
   'office-deploy.mjs',
+  'operation-automation-cutover-preflight.mjs',
   'manage-extension-release.mjs',
   'qa-agent-os-clean-cutover.mjs',
   'run-data-migrations.ts',

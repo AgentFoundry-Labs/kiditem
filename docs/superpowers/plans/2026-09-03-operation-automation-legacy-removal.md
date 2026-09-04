@@ -61,7 +61,7 @@ type CutoverPreflight = Readonly<{
 }>;
 ```
 
-- [ ] **Step 1: Write failing safety and output tests**
+- [x] **Step 1: Write failing safety and output tests**
 
 ```js
 it("uses only SELECT and rejects a writable execution mode", async () => {
@@ -78,17 +78,17 @@ it("prints counts and bounded names without row payloads or secrets", async () =
 });
 ```
 
-- [ ] **Step 2: Run the script test and verify red**
+- [x] **Step 2: Run the script test and verify red**
 
 Run: `node --test scripts/__tests__/operation-automation-cutover-preflight.test.mjs`
 
 Expected: FAIL because the preflight command does not exist.
 
-- [ ] **Step 3: Implement the read-only preflight and runbook**
+- [x] **Step 3: Implement the read-only preflight and runbook**
 
 The command requires `--database-url`, `--deployed-sha`, and `--release-office-sha`; opens a read-only transaction; queries table existence before counts; reports only counts and bounded catalog keys/names; and refuses URLs that do not parse. The runbook executes it from the Windows Office host before writer shutdown and stores output outside Git.
 
-- [ ] **Step 4: Run local fixture tests**
+- [x] **Step 4: Run local fixture tests**
 
 Run: `node --test scripts/__tests__/operation-automation-cutover-preflight.test.mjs`
 
@@ -103,7 +103,7 @@ node scripts/operation-automation-cutover-preflight.mjs --database-url "$env:DAT
 
 Expected: the report identifies zero active runs and zero enabled schedules at the agreed writer-stop window. If not, the cutover stops and the named work is completed or cancelled manually before rerunning the same read-only command.
 
-- [ ] **Step 6: Commit preflight tooling**
+- [x] **Step 6: Commit preflight tooling**
 
 ```bash
 git add package.json scripts/operation-automation-cutover-preflight.mjs scripts/__tests__/operation-automation-cutover-preflight.test.mjs docs/runbooks/operation-automation-cutover.md
