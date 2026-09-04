@@ -11,7 +11,7 @@ preview workflows. KidItem has no second mutable stock balance.
   `currentStock` is its physical quantity authority.
 - `SourceImportRun` owns source provenance, idempotency, and attempt fencing.
 - Public physical availability is exactly `availableStock === currentStock`.
-- Transfer, return-transfer, and warehouse rows are operation records;
+- Transfer, return-transfer, and warehouse rows are inventory workflow records;
   completing them does not change `currentStock`.
 - Commitment, Picking, Unshipped, and Sellpia receipt-batch capabilities are
   retired and their persistence models are absent.
@@ -27,6 +27,9 @@ executable in [the Inventory tests](__tests__/).
   replaces one organization/source snapshot under an import attempt fence,
   marks absent known codes inactive with zero stock, and preserves identity and
   component references.
+- The import owner writes source-failure Alerts in the same transaction as
+  terminal source state and resolves the same deduplicated alert on successful
+  publication.
 - Automatic JSON collection and manual recovery uploads enter the same hash,
   generation, quality, and publication path.
 - Publication may update only Inventory-owned source facts and the one-to-one
@@ -68,7 +71,7 @@ component relations; never infer them from codes, names, or barcodes.
   event may write physical stock. No active logical-hold path reduces public
   availability.
 - Route order keeps static paths before parameter routes.
-- Product operations enter through Products APIs. Ordinary Inventory reads and
+- Product mutations enter through Products APIs. Ordinary Inventory reads and
   operation records do not mutate MasterProduct rows.
-- Shipment bulk persistence remains tenant-bound, deduplicated, and
+- Shipment bulk persistence remains organization-scoped, deduplicated, and
   last-write-wins rather than row-by-row.

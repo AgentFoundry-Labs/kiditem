@@ -57,9 +57,11 @@ sync, registration, matching, and capacity behavior is executable in
 
 ## Ports And Boundaries
 
-- Provider access, operation alerts, Orders writes, Inventory evidence, and
-  registration use their named ports. Consumers import the published
-  capability, never the concrete service.
+- Provider access, Orders writes, Inventory evidence, and registration use their
+  named ports. Consumers import the published capability, never the concrete
+  service.
+- Catalog imports use a fenced `SourceImportRun` attempt and publish only a
+  complete source snapshot; stale or post-terminal submissions are rejected.
 - New sync/matching paths carry `channelAccountId` and preserve
   parent/child/account consistency atomically.
 - Wing and Rocket account rows remain distinct. Shared vendor identity may be

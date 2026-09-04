@@ -57,8 +57,8 @@ lives in [docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
 
 - Controllers schedule image edit, thumbnail, and detail-page work through
   direct-job application services; they never call providers directly.
-- Sourcing, operation alerts, Inventory display media, provider/media/fetch,
-  and storage integrations use their named incoming or outgoing ports.
+- Sourcing, Alerts, Inventory display media, provider/media/fetch, and storage
+  integrations use their named incoming or outgoing ports.
 - Model selection is explicit. Asset deletion/GC rejects active generation
   usage and current-thumbnail references.
 - Generation-control changes update shared type/tuple, HTTP DTO, web payload,

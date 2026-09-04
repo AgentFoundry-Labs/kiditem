@@ -15,19 +15,19 @@ routes absent; new scheduling requires a scoped plan.
   Rules-owned receipt identity.
 - Rules writes critical Alert projections in the same transaction as its receipt;
   the focused Alerts owner remains responsible for the Alert HTTP surface and
-  source-failure lifecycle. Rules does not create an Operation, operation
-  alert, Panel event, outbox, or worker.
+  source-failure lifecycle.
 - Alerts HTTP/API ownership is the focused `alerts/` owner, not rules.
 
 ## Boundary Rules
 
-- Rules application services must not import Agent OS, generic runner ports,
-  legacy execution types, Operation runtime types, or finalized-event bridges.
+- Keep Rules application services synchronous and use the Rules evaluator,
+  persistence, and Alerts capabilities for their respective responsibilities.
 - `healthScore` updates use organization-scoped `updateMany` inside a transaction.
-- Unsafe raw SQL APIs are forbidden.
+- Raw SQL uses tagged templates with whitelisted identifiers; prefer Prisma
+  queries for ordinary persistence.
 - Critical violations create alerts; all violations create activity events.
-- Rule logic lives in `BusinessRule` definitions plus agent prompt behavior, not
-  hardcoded service branches.
+- Rule logic lives in `BusinessRule` definitions and the pure evaluator; keep
+  HTTP and persistence orchestration in the application service.
 
 ## Transitional Exceptions
 

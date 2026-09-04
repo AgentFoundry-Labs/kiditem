@@ -27,7 +27,6 @@ in Supply, but the backend capability owner is finance.
 
 ## Cross-Domain Ports
 
-- Finance operation alerts go through `FINANCE_OPERATION_ALERT_PORT`.
 - Supplier-payment capability lives here even though supplier identity is owned
   by supply.
 - Settlement reconciliation reads order-owned settlement tables through finance
@@ -47,8 +46,6 @@ in Supply, but the backend capability owner is finance.
   reads.
 - Add date-range support only as one coordinated DTO, service, test, and
   contract change.
-- Reach the current alert lifecycle through `FINANCE_OPERATION_ALERT_PORT`
-  rather than its concrete service; remove this seam with the Operation cutover.
 
 ## Transitional Exceptions
 
