@@ -1,22 +1,5 @@
+import { AdvertisingCompetitorCatalogInputSchema } from '@kiditem/shared/sourcing';
 import type { OperationDefinition } from '../../../common/operation-definition';
-import {
-  AdvertisingCompetitorCatalogInputSchema,
-  AdvertisingTrackedWingProductsInputSchema,
-} from '@kiditem/shared/sourcing';
-
-export const ADVERTISING_TRACKED_WING_PRODUCTS_OPERATION = {
-  key: 'advertising.refresh_tracked_wing_products',
-  version: 1,
-  title: 'Wing 추적 상품 지표 갱신',
-  ownerDomain: 'advertising',
-  engineType: 'browser',
-  allowedTriggers: ['dashboard', 'domain_screen'],
-  scheduleSupported: false,
-  maxAttempts: 3,
-  resourceClass: 'extension_coupang',
-  executionTimeoutMs: 15 * 60_000,
-  inputSchema: AdvertisingTrackedWingProductsInputSchema,
-} as const satisfies OperationDefinition;
 
 export const ADVERTISING_COMPETITOR_CATALOG_OPERATION = {
   key: 'advertising.collect_competitor_catalog',
@@ -33,6 +16,5 @@ export const ADVERTISING_COMPETITOR_CATALOG_OPERATION = {
 } as const satisfies OperationDefinition;
 
 export const ADVERTISING_OPERATIONS = [
-  ADVERTISING_TRACKED_WING_PRODUCTS_OPERATION,
   ADVERTISING_COMPETITOR_CATALOG_OPERATION,
 ] as const satisfies readonly OperationDefinition[];

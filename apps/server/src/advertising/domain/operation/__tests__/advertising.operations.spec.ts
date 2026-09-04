@@ -9,39 +9,13 @@ const operationOwnerWorkerModuleSource = readFileSync(
 );
 
 describe('advertising browser operation definitions', () => {
-  it('does not register profitability collection as an Operation', () => {
-    expect(
-      ADVERTISING_OPERATIONS.some(
-        (candidate) => candidate.key === 'advertising.refresh_profitability_spend',
-      ),
-    ).toBe(false);
+  it('retains only the bounded competitor catalog operation while tracked Wing uses its source owner', () => {
+    expect(ADVERTISING_OPERATIONS.map((definition) => definition.key)).toEqual([
+      'advertising.collect_competitor_catalog',
+    ]);
     expect(operationOwnerWorkerModuleSource).not.toContain(
-      'AdvertisingProfitabilityOperationHandler',
+      'AdvertisingTrackedWingProductsOperationHandler',
     );
-  });
-
-  it('registers the exact tracked-products Wing operation contract', () => {
-    const definition = ADVERTISING_OPERATIONS.find(
-      (candidate) => candidate.key === 'advertising.refresh_tracked_wing_products',
-    );
-    expect(definition).toMatchObject({
-      engineType: 'browser',
-      ownerDomain: 'advertising',
-      resourceClass: 'extension_coupang',
-      maxAttempts: 3,
-      executionTimeoutMs: 15 * 60_000,
-    });
-    expect(definition?.inputSchema.parse({
-      keywords: ['  Ａ   Pencil  '],
-      maxPages: 2,
-      purpose: 'tracked_metrics',
-      trackedProductIds: ['wing-1'],
-    })).toEqual({
-      keywords: ['A Pencil'],
-      maxPages: 2,
-      purpose: 'tracked_metrics',
-      trackedProductIds: ['wing-1'],
-    });
   });
 
   it('registers the exact bounded competitor catalog operation contract', () => {

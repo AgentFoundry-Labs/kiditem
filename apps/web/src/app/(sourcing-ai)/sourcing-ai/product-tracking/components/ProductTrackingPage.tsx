@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -21,10 +21,15 @@ import { cn, formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import {
+  beginWingTrackedProductAttempt,
+  collectWingTrackedProductsFromExtension,
   deleteWingTrackedProduct,
   fetchWingTrackedHistories,
+  fetchWingTrackedProductSourceStatus,
   listWingTrackedProducts,
+  requireWingTrackedProductExtension,
   type WingTrackedProduct,
+  type WingTrackedProductSourceStatus,
   type WingTrackedSnapshot,
 } from '../../lib/wing-tracking-api';
 import {
@@ -38,12 +43,11 @@ import {
   type TrackingWindow,
   type WindowTrend,
 } from '../lib/wing-tracking-score';
-import { WingTrackedHistoryChart, TrendSparkline } from './WingTrackedHistoryChart';
-import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
-import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
 import { normalizeWingOperationKeywords } from '../../lib/wing-operation-input';
+import { WingTrackedHistoryChart, TrendSparkline } from './WingTrackedHistoryChart';
 
 const TRACKED_QUERY_KEY = queryKeys.sourcing.wingTrackedProducts();
+const TRACKED_SOURCE_STATUS_QUERY_KEY = queryKeys.sourcing.wingTrackedSourceStatus();
 
 interface RankedProduct {
   product: WingTrackedProduct;
@@ -56,6 +60,7 @@ export function ProductTrackingPage() {
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [windowDays, setWindowDays] = useState<TrackingWindow>(7);
+  const retryKeysByRequestFingerprint = useRef(new Map<string, string>());
 
   const { data: products = [], isLoading } = useQuery({
     queryKey: TRACKED_QUERY_KEY,
@@ -65,6 +70,13 @@ export function ProductTrackingPage() {
   const { data: histories, isLoading: historyLoading } = useQuery({
     queryKey: queryKeys.sourcing.wingTrackedHistories(30),
     queryFn: () => fetchWingTrackedHistories(30),
+  });
+  const { data: sourceStatus } = useQuery({
+    queryKey: TRACKED_SOURCE_STATUS_QUERY_KEY,
+    queryFn: fetchWingTrackedProductSourceStatus,
+    refetchInterval: (query) => (
+      query.state.data?.latestAttempt?.state === 'RUNNING' ? 5_000 : false
+    ),
   });
   const historyByTrackedProductId = useMemo(
     () => new Map(
@@ -97,36 +109,88 @@ export function ProductTrackingPage() {
     () => products.filter((product) => product.enabled),
     [products],
   );
-  const operationKeywords = useMemo(
+  const refreshKeywords = useMemo(
     () => normalizeWingOperationKeywords(
       enabledProducts.map((product) => product.sourceKeyword),
-      12,
+      13,
     ),
     [enabledProducts],
   );
-  const operationInput = useMemo(() => ({
-    keywords: operationKeywords,
-    maxPages: 2,
-    purpose: 'tracked_metrics' as const,
-    trackedProductIds: enabledProducts.map((product) => product.productId).slice(0, 200),
-  }), [enabledProducts, operationKeywords]);
-  const operation = useSourcingOperationAction({
-    operationKey: 'advertising.refresh_tracked_wing_products',
-    input: operationInput,
-    snapshotQueryKey: TRACKED_QUERY_KEY,
-    snapshotQueryKeys: [
-      TRACKED_QUERY_KEY,
-      queryKeys.sourcing.wingTrackedHistories(30),
-    ],
+  const refreshMutation = useMutation({
+    mutationFn: async (keywords: string[]) => {
+      const requestFingerprint = JSON.stringify(keywords);
+      const idempotencyKey = retryKeysByRequestFingerprint.current.get(requestFingerprint)
+        ?? crypto.randomUUID();
+      retryKeysByRequestFingerprint.current.set(requestFingerprint, idempotencyKey);
+      const clearRetryKey = () => {
+        if (retryKeysByRequestFingerprint.current.get(requestFingerprint) === idempotencyKey) {
+          retryKeysByRequestFingerprint.current.delete(requestFingerprint);
+        }
+      };
+      const plan = await beginWingTrackedProductAttempt({ idempotencyKey, keywords });
+      if (plan.state === 'COMPLETE') {
+        clearRetryKey();
+        return;
+      }
+      if (plan.state === 'FAILED') {
+        clearRetryKey();
+        throw new Error('이전 추적 상품 수집이 실패했습니다. 새로고침을 다시 시도해주세요.');
+      }
+      await queryClient.invalidateQueries({ queryKey: TRACKED_SOURCE_STATUS_QUERY_KEY });
+      const extensionId = await requireWingTrackedProductExtension();
+      const result = await collectWingTrackedProductsFromExtension({
+        extensionId,
+        idempotencyKey,
+        keywords,
+      });
+      if (result.attemptId !== plan.attemptId) {
+        throw new Error('KidItem OS 익스텐션이 다른 추적 수집 attempt를 반환했습니다.');
+      }
+      if (result.terminalState === 'COMPLETE') {
+        if (!result.success) {
+          throw new Error('KidItem OS 익스텐션이 완료 상태와 충돌하는 결과를 반환했습니다.');
+        }
+        clearRetryKey();
+        return;
+      }
+      if (result.terminalState === 'FAILED') {
+        clearRetryKey();
+        throw new Error(result.error ?? '추적 상품 지표 수집에 실패했습니다.');
+      }
+      if (!result.success) {
+        throw new Error(result.error ?? '추적 상품 지표 수집에 실패했습니다.');
+      }
+      throw new Error('KidItem OS 익스텐션이 완료되지 않은 추적 수집 결과를 반환했습니다.');
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: TRACKED_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.wingTrackedHistories(30) });
+      void queryClient.invalidateQueries({ queryKey: TRACKED_SOURCE_STATUS_QUERY_KEY });
+      toast.success('추적 상품 지표를 새로고침했습니다');
+    },
+    onError: (error) => {
+      toast.error(isApiError(error) ? error.message : (
+        error instanceof Error ? error.message : '추적 상품 지표 수집에 실패했습니다'
+      ));
+      void queryClient.invalidateQueries({ queryKey: TRACKED_SOURCE_STATUS_QUERY_KEY });
+    },
   });
-  const refreshing = operation.isStarting || isActiveOperation(operation.run?.status);
+  const refreshing = refreshMutation.isPending || sourceStatus?.latestAttempt?.state === 'RUNNING';
 
   const handleRefresh = () => {
-    if (operationKeywords.length === 0 || operationInput.trackedProductIds.length === 0) {
-      toast.error('갱신할 키워드가 있는 활성 추적 상품이 없습니다');
+    if (enabledProducts.length === 0) {
+      toast.error('갱신할 활성 추적 상품이 없습니다');
       return;
     }
-    void operation.start();
+    if (refreshKeywords.length === 0) {
+      toast.error('활성 추적 상품에 수집 키워드를 설정한 뒤 다시 시도해주세요');
+      return;
+    }
+    if (refreshKeywords.length > 12) {
+      toast.error('한 번에 수집할 수 있는 추적 키워드는 최대 12개입니다');
+      return;
+    }
+    refreshMutation.mutate(refreshKeywords);
   };
 
   const keywordCount = useMemo(
@@ -166,13 +230,7 @@ export function ProductTrackingPage() {
           </div>
         </header>
 
-        <SourcingOperationRunPanel
-          run={operation.run}
-          onCancel={() => { void operation.cancel(); }}
-          onRetryAttention={() => { void operation.retryAttention(); }}
-          isCancelling={operation.isCancelling}
-          isRetrying={operation.isRetrying}
-        />
+        <TrackedWingSourceStatus source={sourceStatus} />
 
         {isLoading ? (
           <div className="flex h-64 items-center justify-center text-[var(--text-tertiary)]">
@@ -521,10 +579,35 @@ function shortDate(businessDate: string): string {
   return businessDate.slice(5, 10);
 }
 
-function isActiveOperation(status: string | undefined): boolean {
-  return status === 'queued'
-    || status === 'waiting_runtime'
-    || status === 'waiting_dependency'
-    || status === 'running'
-    || status === 'attention_required';
+function TrackedWingSourceStatus({
+  source,
+}: {
+  source: WingTrackedProductSourceStatus | undefined;
+}) {
+  if (!source) return null;
+  const summary = source.status === 'READY'
+    ? '최신 스냅샷 준비됨'
+    : source.status === 'STALE'
+      ? '이전 완료 스냅샷 표시 중'
+      : '완료된 추적 스냅샷 없음';
+  const latest = source.latestAttempt;
+  return (
+    <section
+      aria-label="추적 Wing 수집 상태"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-xs font-bold text-[var(--text-tertiary)]"
+    >
+      <span className="text-[var(--text-secondary)]">{summary}</span>
+      {latest?.state === 'RUNNING' && <span>새 수집 진행 중</span>}
+      {latest?.state === 'FAILED' && (
+        <span role="alert" className="text-rose-600">
+          마지막 수집 실패: {latest.errorCode ?? 'UNKNOWN'}{latest.errorMessage ? ` — ${latest.errorMessage}` : ''}
+        </span>
+      )}
+      {source.latestComplete && (
+        <span>
+          마지막 완료 {formatDateTime(source.latestComplete.capturedAt)}
+        </span>
+      )}
+    </section>
+  );
 }

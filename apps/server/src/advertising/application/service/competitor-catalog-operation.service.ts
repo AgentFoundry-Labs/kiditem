@@ -1,5 +1,5 @@
-import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import {
   AdvertisingCompetitorCatalogBatchSchema,
   AdvertisingCompetitorCatalogInputSchema,

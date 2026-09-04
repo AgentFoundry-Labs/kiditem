@@ -1,20 +1,17 @@
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
+import {
+  OPERATION_HANDLER_REGISTRY_PORT,
+  type OperationHandlerRegistryPort,
+} from '../../../../operations/application/port/in/operation-handler-registry.port';
+import { ADVERTISING_COMPETITOR_CATALOG_OPERATION } from '../../../domain/operation/advertising.operations';
 import type {
   OperationHandler,
   OperationHandlerContext,
   OperationHandlerResult,
 } from '../../../../common/operation-definition';
-import {
-  OPERATION_HANDLER_REGISTRY_PORT,
-  type OperationHandlerRegistryPort,
-} from '../../../../operations/application/port/in/operation-handler-registry.port';
-import {
-  ADVERTISING_COMPETITOR_CATALOG_OPERATION,
-  ADVERTISING_TRACKED_WING_PRODUCTS_OPERATION,
-} from '../../../domain/operation/advertising.operations';
 
 @Injectable()
-export class AdvertisingTrackedWingProductsOperationHandler
+export class AdvertisingCompetitorCatalogOperationHandler
 implements OperationHandler, OnModuleInit {
   constructor(
     @Inject(OPERATION_HANDLER_REGISTRY_PORT)
@@ -22,7 +19,6 @@ implements OperationHandler, OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    this.registry.register(ADVERTISING_TRACKED_WING_PRODUCTS_OPERATION, this);
     this.registry.register(ADVERTISING_COMPETITOR_CATALOG_OPERATION, this);
   }
 

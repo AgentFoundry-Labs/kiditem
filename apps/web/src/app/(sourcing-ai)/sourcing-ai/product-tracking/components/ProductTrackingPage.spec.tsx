@@ -14,6 +14,8 @@ vi.mock('@/lib/api-client', () => ({
 
 vi.mock('@/lib/extension-bridge', () => ({
   isChromeExtensionRuntimeAvailable: () => false,
+  detectExtensionId: vi.fn(),
+  sendToExtension: vi.fn(),
 }));
 
 vi.mock('./WingTrackedHistoryChart', () => ({
@@ -60,6 +62,9 @@ describe('ProductTrackingPage bulk history', () => {
             points: [],
           })),
         };
+      }
+      if (path === `${BASE}/attempts/current`) {
+        return { status: 'MISSING', latestAttempt: null, latestComplete: null };
       }
       if (/\/[^/]+\/history\?days=30$/.test(path)) {
         return { trackedProductId: 'unexpected', productName: 'unexpected', points: [] };

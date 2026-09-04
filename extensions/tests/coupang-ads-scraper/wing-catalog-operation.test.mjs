@@ -18,10 +18,49 @@ const operationRuntimeSource = await readFile(
 
 function operationSource() {
   const start = source.indexOf('const SOURCING_WING_CATALOG_OPERATION_KEY');
-  const end = source.indexOf('async function collectAdvertisingProfitabilitySlice', start);
+  const end = source.indexOf('async function collectAdvertisingTrackedWingProductsKeyword', start);
   assert.ok(start >= 0, 'exact Wing catalog operation block must exist');
   assert.ok(end > start, 'Wing operation block must precede direct profitability collection');
   return source.slice(start, end);
+}
+
+function trackedWingKeywordCollectionSource() {
+  const start = source.indexOf('async function collectAdvertisingTrackedWingProductsKeyword');
+  const end = source.indexOf('function parseAdvertisingTrackedWingProductsStart', start);
+  assert.ok(start >= 0, 'tracked Wing keyword collection must exist');
+  assert.ok(end > start, 'tracked Wing keyword collection must end before request parsing');
+  return source.slice(start, end);
+}
+
+function createTrackedWingKeywordHarness(rows) {
+  const context = vm.createContext({
+    Array,
+    Error,
+    Number,
+    Set,
+    String,
+    ADVERTISING_TRACKED_WING_PRODUCTS_PRODUCER: 'advertising.wing_tracked_products',
+    ADVERTISING_TRACKED_WING_PRODUCTS_MAX_ITEMS: 300,
+    SOURCING_WING_CATALOG_MAX_ITEMS: 100,
+    WING_CATALOG_MAX_PAGES: 5,
+    collectionSessions: {
+      async getOwned() {
+        return { producer: 'advertising.wing_tracked_products' };
+      },
+    },
+    async searchWingCatalogProducts() {
+      return { success: true, rows };
+    },
+    toAdvertisingTrackedWingSnapshot(row, sourceKeyword) {
+      return { productId: String(row.productId), sourceKeyword };
+    },
+  });
+  context.globalThis = context;
+  vm.runInContext(
+    `${trackedWingKeywordCollectionSource()}\nglobalThis.collectTrackedWingKeyword = collectAdvertisingTrackedWingProductsKeyword;`,
+    context,
+  );
+  return context;
 }
 
 function row(keyword, id) {
@@ -133,7 +172,7 @@ function createHarness(options = {}) {
   });
   context.globalThis = context;
   vm.runInContext(
-    `${keywordContractSource}\n${operationSource()}\nglobalThis.runWingCatalogOperation = runSourcingWingCatalogOperation;\nglobalThis.runTrackedWingOperation = runAdvertisingTrackedWingProductsOperation;`,
+    `${keywordContractSource}\n${operationSource()}\nglobalThis.runWingCatalogOperation = runSourcingWingCatalogOperation;`,
     context,
   );
   const operation = {
@@ -161,78 +200,26 @@ test('registers only the exact Wing catalog browser operation key', () => {
   assert.doesNotMatch(source, /sourcing\.(?:generic|url|action).*runSourcingWingCatalogOperation/);
 });
 
-test('registers the exact Ads tracked-products browser operation without generic aliases', () => {
-  assert.match(
-    source,
-    /"advertising\.refresh_tracked_wing_products": runAdvertisingTrackedWingProductsOperation/,
-  );
-  assert.doesNotMatch(
-    source,
-    /advertising\.(?:generic|url|action).*runAdvertisingTrackedWingProductsOperation/,
-  );
-});
+test('filters tracked Wing rows to the frozen plan before applying the 300-item owner bound', async () => {
+  const targetId = 'frozen-target-after-search-row-100';
+  const rows = [
+    ...Array.from({ length: 101 }, (_value, index) => ({
+      productId: `unplanned-${index}`,
+    })),
+    { productId: targetId },
+  ];
+  const context = createTrackedWingKeywordHarness(rows);
 
-test('tracked-products operation posts only matched rows to the token-fenced Ads sink and returns no rows', async () => {
-  const harness = createHarness({
-    search: async ({ keyword }) => ({
-      success: true,
-      tabId: 77,
-      rows: [row(keyword, 'wing-1'), row(keyword, 'outside-tracker')],
-    }),
-    fetchResponse: ({ path, body }) => {
-      assert.match(path, /\/api\/ads\/wing-tracked-products\/browser-operations\/.+\/snapshots$/);
-      return new Response(JSON.stringify({ captured: body.items.length, ignored: 0 }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    },
+  const result = await context.collectTrackedWingKeyword({
+    environmentId: 'office',
+    attemptId: 'attempt-1',
+    keyword: '블록',
+    plannedProducts: [targetId],
   });
-  harness.operation.input = {
-    keywords: ['  Ａ   Pencil  ', '키워드'],
-    maxPages: 2,
-    purpose: 'tracked_metrics',
-    trackedProductIds: ['wing-1'],
-  };
 
-  const outcome = await harness.context.runTrackedWingOperation(harness.operation);
-
-  assert.equal(harness.searches.length, 2);
-  assert.equal(harness.sessionCalls.filter(([name]) => name === 'start').length, 1);
-  assert.deepEqual(harness.requests.map(({ body }) => body.items.map(({ productId }) => productId)), [
-    ['wing-1'],
-    ['wing-1'],
+  assert.deepEqual(JSON.parse(JSON.stringify(result.items)), [
+    { productId: targetId, sourceKeyword: '블록' },
   ]);
-  assert.ok(harness.requests.every(({ init }) =>
-    init.headers['x-operation-attempt-token'] === harness.operation.attemptToken));
-  assert.equal(outcome.status, 'succeeded');
-  assert.equal(outcome.result.outcome, 'complete');
-  assert.equal(outcome.result.summary.accepted, 2);
-  assert.equal(JSON.stringify(outcome).includes('A Pencil 상품'), false);
-});
-
-test('tracked-products operation reports all-failed and abort suppresses stale Ads writes', async () => {
-  const allFailed = createHarness({ search: async () => ({ success: false, error: 'boom' }) });
-  allFailed.operation.input = {
-    keywords: ['A', 'B'], maxPages: 2, purpose: 'tracked_metrics', trackedProductIds: ['wing-1'],
-  };
-  const failed = await allFailed.context.runTrackedWingOperation(allFailed.operation);
-  assert.equal(failed.status, 'failed');
-  assert.equal(allFailed.requests.length, 0);
-
-  const controller = new AbortController();
-  const aborted = createHarness({
-    search: async () => {
-      controller.abort(new Error('cancelled'));
-      return { success: true, tabId: 77, rows: [row('A', 'wing-1')] };
-    },
-  });
-  aborted.operation.signal = controller.signal;
-  aborted.operation.input = {
-    keywords: ['A', 'B'], maxPages: 2, purpose: 'tracked_metrics', trackedProductIds: ['wing-1'],
-  };
-  await assert.rejects(aborted.context.runTrackedWingOperation(aborted.operation), /cancelled/);
-  assert.equal(aborted.requests.length, 0);
-  assert.equal(aborted.searches.length, 1);
 });
 
 test('uses one focused keyword contract helper loaded before the Coupang worker', async () => {

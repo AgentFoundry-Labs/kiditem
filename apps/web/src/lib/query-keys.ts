@@ -335,6 +335,8 @@ export const queryKeys = {
       [...queryKeys.sourcing.all, 'wing-tracked-products'] as const,
     wingTrackedHistories: (days: number) =>
       [...queryKeys.sourcing.all, 'wing-tracked-products', 'history', days] as const,
+    wingTrackedSourceStatus: () =>
+      [...queryKeys.sourcing.all, 'wing-tracked-products', 'source-status'] as const,
     wingCatalog: (keyword: string) =>
       [...queryKeys.sourcing.all, 'wing-catalog', keyword.trim()] as const,
     keywordSuggestions: (keyword: string) =>

@@ -2,8 +2,6 @@
 // (`CoupangWingTrackedProduct`, `CoupangWingTrackedProductDailySnapshot`).
 // WingTrackedProductService depends on this contract; the Prisma-backed adapter
 // lives in `adapter/out/repository/wing-tracked-product.repository.adapter.ts`.
-import type { ActiveBrowserAttemptTransaction } from '../../../../../operations/application/port/active-browser-attempt-transaction';
-
 export const WING_TRACKED_PRODUCT_REPOSITORY_PORT = Symbol(
   'WingTrackedProductRepositoryPort',
 );
@@ -70,12 +68,57 @@ export interface UpsertWingSnapshotByProductIdInput extends WingTrackedSnapshotV
   capturedAt: Date;
 }
 
+export type WingTrackedProductAttemptPlan = Readonly<{
+  attemptId: string;
+  attemptToken: string;
+  state: 'RUNNING' | 'COMPLETE' | 'FAILED';
+  expiresAt: string;
+  businessDate: string;
+  sourceKeywordFallback: 'any_requested_keyword_for_unassigned_product';
+  keywords: readonly string[];
+  products: readonly {
+    productId: string;
+    sourceKeyword: string | null;
+  }[];
+}>;
+
+export type WingTrackedProductAttemptUpload = Readonly<{
+  organizationId: string;
+  attemptId: string;
+  attemptToken: string;
+  items: readonly (WingTrackedSnapshotValues & {
+    productId: string;
+    sourceKeyword: string | null;
+  })[];
+}>;
+
+export type WingTrackedProductSourceView = Readonly<{
+  latestAttempt: {
+    attemptId: string;
+    state: 'RUNNING' | 'COMPLETE' | 'FAILED';
+    startedAt: string;
+    capturedAt: string | null;
+    expiresAt: string;
+    errorCode: string | null;
+    errorMessage: string | null;
+  } | null;
+  latestComplete: {
+    sourceImportRunId: string;
+    businessDate: string;
+    capturedAt: string;
+    expectedProductCount: number;
+    capturedProductCount: number;
+    failedProductCount: number;
+  } | null;
+  status: 'READY' | 'STALE' | 'MISSING';
+}>;
+
 export interface WingTrackedProductRepositoryPort {
   /** 추적상품 목록(각 상품의 최신 스냅샷 포함). */
   list(organizationId: string): Promise<WingTrackedProductWithLatest[]>;
-  /** (org, productId) upsert — 이미 있으면 전달 필드만 갱신하고 enabled=true 로 되살린다. */
-  upsertByProductId(
-    input: UpsertWingTrackedProductInput,
+  /** 추적 등록/재활성화와 최초 당일 스냅샷을 한 owner transaction으로 저장한다. */
+  registerWithInitialSnapshot(
+    input: UpsertWingTrackedProductInput & WingTrackedSnapshotValues,
     organizationId: string,
   ): Promise<WingTrackedProductRow>;
   /** `{ id, organizationId }` 스코프 hard delete(스냅샷 cascade); 없으면 throws. */
@@ -85,20 +128,6 @@ export interface WingTrackedProductRepositoryPort {
     id: string,
     organizationId: string,
   ): Promise<WingTrackedProductRow | null>;
-  /**
-   * productId 로 org 의 추적상품을 매칭해 당일(businessDate) 스냅샷을 upsert 하고
-   * 매칭된 추적상품의 lastCapturedAt 을 갱신한다. 매칭 안 된 입력은 무시. 처리 수 반환.
-   */
-  upsertSnapshotsByProductId(
-    rows: UpsertWingSnapshotByProductIdInput[],
-    organizationId: string,
-  ): Promise<number>;
-  /** Browser owner publication under the Operations-owned active-attempt transaction. */
-  upsertSnapshotsByProductIdInAttempt(
-    transaction: ActiveBrowserAttemptTransaction,
-    rows: UpsertWingSnapshotByProductIdInput[],
-    organizationId: string,
-  ): Promise<{ captured: number; ignored: number }>;
   /** 한 추적상품(id, org 스코프)의 최근 days 일 스냅샷 — businessDate asc. */
   findHistory(
     id: string,

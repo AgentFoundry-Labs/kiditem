@@ -23,7 +23,6 @@ import type { ChannelOptionDailyRepositoryPort } from '../../application/port/ou
 import type { ChannelTargetDailyRepositoryPort } from '../../application/port/out/repository/channel-target-daily.repository.port';
 import type { ScrapeTargetRepositoryPort } from '../../application/port/out/repository/scrape-target.repository.port';
 import type { KeywordRankRepositoryPort } from '../../application/port/out/repository/keyword-rank.repository.port';
-import type { OperationAlertPort } from '../../application/port/out/cross-domain/operation-alert.port';
 
 /** Vitest mock variant of every method on `AdBenchmarkRepositoryPort`. */
 export type MockAdBenchmarkRepo = {
@@ -223,15 +222,5 @@ export function buildMockKeywordRankRepo(): MockKeywordRankRepo {
     findWingSalesRankSnapshots: vi.fn(),
     findLatestSerp: vi.fn(),
     findRecentSerpSnapshots: vi.fn(),
-  };
-}
-
-export type MockOperationAlertPort = {
-  [K in keyof OperationAlertPort]: ReturnType<typeof vi.fn>;
-};
-
-export function buildMockOperationAlertPort(): MockOperationAlertPort {
-  return {
-    start: vi.fn(),
   };
 }

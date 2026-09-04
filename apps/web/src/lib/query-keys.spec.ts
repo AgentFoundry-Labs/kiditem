@@ -146,6 +146,11 @@ describe('advertising query keys', () => {
       'history',
       30,
     ]);
+    expect(queryKeys.sourcing.wingTrackedSourceStatus()).toEqual([
+      'sourcing',
+      'wing-tracked-products',
+      'source-status',
+    ]);
   });
 });
 

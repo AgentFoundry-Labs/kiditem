@@ -28,29 +28,71 @@ describe('WingTrackedProductController bulk history', () => {
   });
 });
 
-describe('WingTrackedProductController browser operation snapshots', () => {
-  it('exposes the exact run-scoped route and forwards current organization plus attempt token', async () => {
+describe('WingTrackedProductController source owner', () => {
+  it('exposes the owner route and forwards current organization scope', async () => {
     const service = {
-      ingestBrowserSnapshots: vi.fn().mockResolvedValue({ captured: 1, ignored: 0 }),
+      beginAttempt: vi.fn().mockResolvedValue({ attemptId: 'attempt-1' }),
     };
     const controller = new WingTrackedProductController(service as never);
     expect(Reflect.getMetadata(
       PATH_METADATA,
-      WingTrackedProductController.prototype.ingestBrowserSnapshots,
-    )).toBe('browser-operations/:runId/snapshots');
+      WingTrackedProductController.prototype.beginAttempt,
+    )).toBe('attempts');
 
-    const body = { items: [{ productId: 'wing-1', sourceKeyword: 'A Pencil' }] };
-    await expect(controller.ingestBrowserSnapshots(
-      '22222222-2222-4222-8222-222222222222',
-      '33333333-3333-4333-8333-333333333333',
-      body as never,
+    await expect(controller.beginAttempt(
+      { keywords: [' A   Pencil '] },
+      ' retry-key ',
       ORGANIZATION_ID,
-    )).resolves.toEqual({ captured: 1, ignored: 0 });
-    expect(service.ingestBrowserSnapshots).toHaveBeenCalledWith({
+    )).resolves.toEqual({ attemptId: 'attempt-1' });
+    expect(service.beginAttempt).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
-      operationRunId: '22222222-2222-4222-8222-222222222222',
-      attemptToken: '33333333-3333-4333-8333-333333333333',
-      items: [expect.objectContaining({ productId: 'wing-1', sourceKeyword: 'A Pencil' })],
+      idempotencyKey: 'retry-key',
+      keywords: ['A   Pencil'],
     });
+  });
+
+  it('requires the owner token and forwards a complete snapshot envelope', async () => {
+    const service = {
+      submitAttempt: vi.fn().mockResolvedValue({ status: 'READY' }),
+    };
+    const controller = new WingTrackedProductController(service as never);
+    const attemptId = '22222222-2222-4222-8222-222222222222';
+    const attemptToken = '33333333-3333-4333-8333-333333333333';
+    const body = {
+      items: [{ productId: 'wing-1', sourceKeyword: 'A Pencil' }],
+    };
+
+    await expect(controller.submitAttempt(
+      attemptId,
+      attemptToken,
+      body,
+      ORGANIZATION_ID,
+    )).resolves.toEqual({ status: 'READY' });
+    expect(service.submitAttempt).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      attemptId,
+      attemptToken,
+      items: [expect.objectContaining({ productId: 'wing-1' })],
+    });
+  });
+
+  it('rejects a partial terminal envelope instead of accepting per-product failures as complete', () => {
+    const controller = new WingTrackedProductController({} as never);
+    const attemptId = '22222222-2222-4222-8222-222222222222';
+    const attemptToken = '33333333-3333-4333-8333-333333333333';
+
+    expect(() => controller.submitAttempt(
+      attemptId,
+      attemptToken,
+      {
+        items: [],
+        failures: [{
+          productId: 'wing-1',
+          code: 'TRACKED_PRODUCT_NOT_FOUND',
+          message: 'Product was not found.',
+        }],
+      },
+      ORGANIZATION_ID,
+    )).toThrow('INVALID_WING_TRACKED_SNAPSHOT');
   });
 });

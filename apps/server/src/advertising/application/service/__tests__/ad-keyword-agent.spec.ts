@@ -5,7 +5,6 @@ import type {
   LatestTargetRow,
 } from '../../port/out/repository/ad-action.repository.port';
 import type { KeywordRelevanceJudgePort } from '../../port/out/cross-domain/keyword-relevance-judge.port';
-import type { OperationAlertPort } from '../../port/out/cross-domain/operation-alert.port';
 
 function keywordRow(overrides: Partial<LatestTargetRow> = {}): LatestTargetRow {
   return {
@@ -40,7 +39,6 @@ describe('AdKeywordAgentService', () => {
     createAdActionsFromCandidates: ReturnType<typeof vi.fn>;
   };
   let judge: { judge: ReturnType<typeof vi.fn> };
-  let alerts: { start: ReturnType<typeof vi.fn> };
   let service: AdKeywordAgentService;
 
   beforeEach(() => {
@@ -51,11 +49,9 @@ describe('AdKeywordAgentService', () => {
         .mockImplementation(async (_org, candidates) => candidates),
     };
     judge = { judge: vi.fn() };
-    alerts = { start: vi.fn().mockResolvedValue(undefined) };
     service = new AdKeywordAgentService(
       actionRepo as unknown as AdActionRepositoryPort,
       judge as unknown as KeywordRelevanceJudgePort,
-      alerts as unknown as OperationAlertPort,
     );
   });
 
@@ -87,7 +83,6 @@ describe('AdKeywordAgentService', () => {
       targetLabel: '콩순이 비눗방울',
     });
     // Proposals are queued for review; nothing is paused here.
-    expect(alerts.start).toHaveBeenCalledTimes(1);
   });
 
   it('asks about one product per call, with that product in the prompt', async () => {
@@ -209,18 +204,4 @@ describe('AdKeywordAgentService', () => {
     expect(judge.judge).not.toHaveBeenCalled();
   });
 
-  it('keeps proposals when the alert fails', async () => {
-    judge.judge.mockResolvedValue({
-      text: '{"verdicts":[{"ref":"p1k1","verdict":"irrelevant","reason":"다른 브랜드"}]}',
-    });
-    alerts.start.mockRejectedValue(new Error('alert down'));
-
-    const result = await service.run({
-      organizationId: 'org-1',
-      triggeredByUserId: null,
-    });
-
-    expect(result.ok).toBe(true);
-    expect(result.created).toBe(1);
-  });
 });

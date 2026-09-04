@@ -1,10 +1,10 @@
-import { Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { runWithAdIngestTransaction } from './ad-ingest-transaction-context';
 import type { AdIngestTransactionPort } from '../../../application/port/out/transaction/ad-ingest-transaction.port';
 import type { ActiveBrowserAttemptTransaction } from '../../../../operations/application/port/active-browser-attempt-transaction';
-import { runWithAdIngestTransaction } from './ad-ingest-transaction-context';
 
 const SETTING_PREFIX = 'advertising.extension-sync.idempotency.';
 

@@ -1,10 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
-
-vi.mock('../../../../application/service/ad-strategy.service', () => ({
-  AdStrategyService: class AdStrategyService {},
-}));
-
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AdvertisingActionsController } from '../advertising-actions.controller';
 import { AdvertisingCampaignsController } from '../advertising-campaigns.controller';
 import { AdvertisingConfigController } from '../advertising-config.controller';
@@ -13,6 +8,10 @@ import { AdvertisingExecutionController } from '../advertising-execution.control
 import { AdvertisingIngestController } from '../advertising-ingest.controller';
 import { AdvertisingOverviewController } from '../advertising-overview.controller';
 import { AdvertisingStrategyController } from '../advertising-strategy.controller';
+
+vi.mock('../../../../application/service/ad-strategy.service', () => ({
+  AdStrategyService: class AdStrategyService {},
+}));
 
 // Controller wiring: this spec keeps the cases where the controller does
 // real work — defaults, body→service transformations, command/sub-action
