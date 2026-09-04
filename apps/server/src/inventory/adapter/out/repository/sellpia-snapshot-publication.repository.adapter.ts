@@ -9,7 +9,18 @@ import {
   VerifiedSellpiaSourceImportRunSchema,
   type SellpiaInventoryImportResponse,
 } from '@kiditem/shared/source-import';
+import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { evaluateSellpiaInventoryQuality } from '../../../domain/policy/sellpia-inventory-quality.policy';
+import {
+  advanceProductMappingGeneration,
+  lockProductMapping,
+} from '../../../../common/product-mapping-generation';
+import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
+import {
+  SELLPIA_INVENTORY_ALERT_DEDUPE_KEY,
+  sellpiaInventorySourceFailureAlert,
+} from './sellpia-inventory-source-failure-alert';
 import type {
   SellpiaPublicationExecution,
 } from '../../../application/port/out/repository/sellpia-import-run.repository.port';
@@ -18,12 +29,6 @@ import type {
   SellpiaSnapshotPublicationResult,
 } from '../../../application/port/out/repository/sellpia-snapshot-publication.repository.port';
 import type { ParsedSellpiaInventoryRow } from '../../../application/service/sellpia-inventory-workbook.parser';
-import { evaluateSellpiaInventoryQuality } from '../../../domain/policy/sellpia-inventory-quality.policy';
-import {
-  advanceProductMappingGeneration,
-  lockProductMapping,
-} from '../../../../common/product-mapping-generation';
-import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
 
 const SOURCE_TYPE = 'sellpia_inventory';
 const SOURCE_ORIGIN = 'https://kiditem.sellpia.com';
@@ -52,7 +57,10 @@ type MappingIdentityBasis = {
 @Injectable()
 export class SellpiaSnapshotPublicationRepositoryAdapter
 implements SellpiaSnapshotPublicationRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly alerts: SourceFailureAlerts,
+  ) {}
 
   async publishSnapshot(input: PublishInput): Promise<SellpiaSnapshotPublicationResult> {
     if (input.rows.length === 0) {
@@ -96,7 +104,7 @@ implements SellpiaSnapshotPublicationRepositoryPort {
       });
       if (quality.blocked) {
         const message = 'Sellpia inventory snapshot failed quality thresholds';
-        await recordPublicationFailure(tx, state, input, generation, {
+        await recordPublicationFailure(tx, this.alerts, state, input, generation, {
           qualityReport: quality.report as Prisma.InputJsonValue,
           errorCode: 'sellpia_invalid_workbook',
           errorMessage: message,
@@ -138,6 +146,11 @@ implements SellpiaSnapshotPublicationRepositoryPort {
         throw new ConflictException('Sellpia inventory publication lost its run fence');
       }
       await completeGeneration(tx, state, input, generation, now, input.runId);
+      await this.alerts.resolveSourceFailure(tx, {
+        organizationId: input.organizationId,
+        dedupeKey: SELLPIA_INVENTORY_ALERT_DEDUPE_KEY,
+        attemptId: run.id,
+      });
       const completedRun = await tx.sourceImportRun.findFirstOrThrow({
         where: {
           id: input.runId,
@@ -261,6 +274,11 @@ implements SellpiaSnapshotPublicationRepositoryPort {
         throw new ConflictException('Sellpia same-hash verification lost its run fence');
       }
       await completeGeneration(tx, state, input, generation, now, run.id);
+      await this.alerts.resolveSourceFailure(tx, {
+        organizationId: input.organizationId,
+        dedupeKey: SELLPIA_INVENTORY_ALERT_DEDUPE_KEY,
+        attemptId: run.id,
+      });
       const verified = await tx.sourceImportRun.findFirstOrThrow({
         where: {
           id: run.id,
@@ -505,6 +523,7 @@ function mappingIdentityChanged(
 
 async function recordPublicationFailure(
   tx: Prisma.TransactionClient,
+  alerts: SourceFailureAlerts,
   state: SellpiaInventoryState,
   input: PublishInput,
   generation: bigint,
@@ -551,6 +570,15 @@ async function recordPublicationFailure(
     lastErrorMessage: failure.errorMessage,
     freshnessFence: randomUUID(),
   });
+  await alerts.upsertSourceFailure(
+    tx,
+    sellpiaInventorySourceFailureAlert({
+      organizationId: input.organizationId,
+      attemptId: input.runId,
+      errorCode: failure.errorCode,
+      errorMessage: failure.errorMessage,
+    }),
+  );
 }
 
 async function completeGeneration(

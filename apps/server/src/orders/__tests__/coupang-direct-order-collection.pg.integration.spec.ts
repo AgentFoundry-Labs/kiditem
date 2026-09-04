@@ -126,6 +126,8 @@ describe('Coupang direct final-order collection (PG integration)', () => {
         matchedLineCount: 1,
       }),
     ]);
+    expect(await prisma.operationRun.count()).toBe(0);
+    expect(await prisma.alert.count({ where: { kind: 'operation' } })).toBe(0);
   });
 
   it('collects without an active confirmation and keeps the row as a Sellpia candidate', async () => {

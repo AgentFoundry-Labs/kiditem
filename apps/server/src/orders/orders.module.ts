@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { ChannelsModule } from '../channels/channels.module';
-import { OperationsModule } from '../operations/operations.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SupplyModule } from '../supply/supply.module';
 import { OrdersController } from './controllers/orders.controller';
@@ -27,10 +26,9 @@ import { SellpiaOrderTransmissionService } from './application/service/sellpia-o
 import { SellpiaOrderTransmissionRepositoryAdapter } from './adapter/out/repository/sellpia-order-transmission.repository.adapter';
 import { SELLPIA_ORDER_TRANSMISSION_PORT } from './application/port/in/sellpia-order-transmission.port';
 import { SELLPIA_ORDER_TRANSMISSION_REPOSITORY_PORT } from './application/port/out/repository/sellpia-order-transmission.repository.port';
-import { MarketplaceOrderCollectionOperationHandler } from './adapter/in/operation/marketplace-order-collection.operation-handler';
 
 @Module({
-  imports: [ChannelsModule, OperationsModule, PrismaModule, SupplyModule],
+  imports: [ChannelsModule, PrismaModule, SupplyModule],
   controllers: [
     OrdersController,
     OrderCollectionController,
@@ -54,7 +52,6 @@ import { MarketplaceOrderCollectionOperationHandler } from './adapter/in/operati
     CoupangDirectOrderCollectionTransactionAdapter,
     SellpiaOrderTransmissionService,
     SellpiaOrderTransmissionRepositoryAdapter,
-    MarketplaceOrderCollectionOperationHandler,
     {
       provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
       useExisting: CoupangDirectOrderCollectionService,

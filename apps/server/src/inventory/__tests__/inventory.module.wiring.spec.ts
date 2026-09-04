@@ -2,10 +2,9 @@ import 'reflect-metadata';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { OperationsModule } from '../../operations/operations.module';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { AlertsModule } from '../../alerts/alerts.module';
 import { CoupangShipmentsController } from '../adapter/in/http/coupang-shipments.controller';
-import { CoupangShipmentSummaryOperationHandler } from '../adapter/in/operation/coupang-shipment-summary.operation-handler';
 import { InventorySkuSnapshotController } from '../adapter/in/http/inventory-sku-snapshot.controller';
 import { SellpiaInventoryImportController } from '../adapter/in/http/sellpia-inventory-import.controller';
 import { SellpiaInventoryFreshnessController } from '../adapter/in/http/sellpia-inventory-freshness.controller';
@@ -69,16 +68,48 @@ const FORBIDDEN_LEGACY_FILES = [
   'adapter/out/repository/audits.repository.adapter.ts',
   'adapter/out/repository/sellpia-master-import.repository.adapter.ts',
   'application/port/out/repository/sellpia-master-import.repository.port.ts',
+  'adapter/in/operation/coupang-shipment-summary.operation-handler.ts',
+  'adapter/in/operation/sellpia-inventory.operation-handler.ts',
+  'adapter/out/automation/operation-alert.adapter.ts',
 ] as const;
 
 describe('InventoryModule authoritative capability wiring', () => {
-  it('imports Prisma plus the controller-free freshness runtime and Operations', () => {
+  it('imports Prisma, focused Alerts, and the controller-free freshness runtime', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, InventoryModule) ?? [];
     expect(new Set(imports)).toEqual(new Set([
       InventoryFreshnessRuntimeModule,
-      OperationsModule,
+      AlertsModule,
       PrismaModule,
     ]));
+  });
+
+  it('keeps the freshness runtime free of legacy Operation and alert adapters', () => {
+    const imports: unknown[] = Reflect.getMetadata(
+      IMPORTS_KEY,
+      InventoryFreshnessRuntimeModule,
+    ) ?? [];
+    const providers: unknown[] = Reflect.getMetadata(
+      PROVIDERS_KEY,
+      InventoryFreshnessRuntimeModule,
+    ) ?? [];
+
+    expect(imports).toEqual([PrismaModule, AlertsModule]);
+    expect(providers).toEqual([
+      SellpiaInventoryFreshnessRepositoryAdapter,
+      SellpiaInventoryFreshnessService,
+      {
+        provide: SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT,
+        useExisting: SellpiaInventoryFreshnessRepositoryAdapter,
+      },
+      {
+        provide: SELLPIA_INVENTORY_FRESHNESS_PORT,
+        useExisting: SellpiaInventoryFreshnessService,
+      },
+      {
+        provide: SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
+        useExisting: SellpiaInventoryFreshnessService,
+      },
+    ]);
   });
 
   it('mounts only snapshot/import and record-only capability controllers', () => {
@@ -116,7 +147,6 @@ describe('InventoryModule authoritative capability wiring', () => {
       SellpiaInventoryImportService,
       SellpiaInventoryFileValidator,
       SellpiaInventoryFreshnessService,
-      CoupangShipmentSummaryOperationHandler,
       WarehousesService,
       TransfersService,
     ]) {

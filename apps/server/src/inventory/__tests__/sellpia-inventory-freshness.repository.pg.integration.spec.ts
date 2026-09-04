@@ -1,6 +1,8 @@
 import { AppException } from '@kiditem/shared/server-errors';
 import { ConflictException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { AlertsRepository } from '../../alerts/alerts.repository';
+import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -27,8 +29,8 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
     service = new SellpiaInventoryFreshnessService(
       new SellpiaInventoryFreshnessRepositoryAdapter(
         prisma as unknown as PrismaService,
+        new SourceFailureAlerts(new AlertsRepository(prisma as never)),
       ),
-      { fail: async () => null },
     );
   });
 
@@ -139,7 +141,7 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
     await service.fail(failureInput);
     await service.fail(failureInput);
 
-    const [state, failedRuns] = await Promise.all([
+    const [state, failedRuns, alert] = await Promise.all([
       prisma.sellpiaInventoryState.findUniqueOrThrow({
         where: { organizationId: TEST_ORGANIZATION_ID },
       }),
@@ -149,6 +151,14 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
           sourceType: 'sellpia_inventory',
           status: 'failed',
           freshnessGeneration: 10n,
+        },
+      }),
+      prisma.alert.findUniqueOrThrow({
+        where: {
+          organizationId_dedupeKey: {
+            organizationId: TEST_ORGANIZATION_ID,
+            dedupeKey: 'source:sellpia-inventory',
+          },
         },
       }),
     ]);
@@ -171,6 +181,12 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
       attemptToken: winner.claimToken,
       createdBy: TEST_USER_ID,
       errorMessage: 'sanitized network failure',
+    });
+    expect(alert).toMatchObject({
+      attemptId: failedRuns[0]?.id,
+      sourceType: 'sellpia_inventory',
+      status: 'OPEN',
+      isRead: false,
     });
   });
 

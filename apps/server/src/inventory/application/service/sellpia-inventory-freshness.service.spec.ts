@@ -1,10 +1,7 @@
 import { AppException } from '@kiditem/shared/server-errors';
 import { ConflictException } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE,
-  type SellpiaInventoryFreshnessState,
-} from '../../domain/policy/sellpia-inventory-freshness.policy';
+import type { SellpiaInventoryFreshnessState } from '../../domain/policy/sellpia-inventory-freshness.policy';
 import { SellpiaInventoryFreshnessService } from './sellpia-inventory-freshness.service';
 import type {
   FailedSellpiaInventoryAttempt,
@@ -23,15 +20,13 @@ const FOREIGN_SKU_ID = '00000000-0000-4000-8000-000000000006';
 
 describe('SellpiaInventoryFreshnessService', () => {
   let repository: MemoryFreshnessRepository;
-  let operationAlerts: { fail: ReturnType<typeof vi.fn> };
   let service: SellpiaInventoryFreshnessService;
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-15T00:00:00.000Z'));
     repository = new MemoryFreshnessRepository();
-    operationAlerts = { fail: vi.fn().mockResolvedValue(null) };
-    service = new SellpiaInventoryFreshnessService(repository, operationAlerts as never);
+    service = new SellpiaInventoryFreshnessService(repository);
   });
 
   afterEach(() => {
@@ -311,33 +306,8 @@ describe('SellpiaInventoryFreshnessService', () => {
       createdBy: USER_ID,
       errorCode: 'sellpia_background_timeout',
     }));
-    expect(operationAlerts.fail).toHaveBeenCalledWith(
-      ORG_ID,
-      `browser-collection:${first.claimToken}`,
-      {
-        message: SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE,
-        severity: 'error',
-        metadata: {
-          staleReconciled: true,
-          staleReconciledReason: 'sellpia_lease_expired',
-        },
-      },
-    );
-
     await expect(service.claimDue({ organizationId: ORG_ID, userId: OTHER_USER_ID }))
       .resolves.toMatchObject({ claimed: false, state: { status: 'failed' } });
-  });
-
-  it('keeps an expired lease failed when alert cleanup fails', async () => {
-    repository.seedPendingState();
-    const first = await service.claimDue({ organizationId: ORG_ID, userId: USER_ID });
-    if (!first.claimed) throw new Error('expected winning claim');
-    operationAlerts.fail.mockRejectedValueOnce(new Error('alerts unavailable'));
-
-    vi.setSystemTime(new Date('2026-07-15T00:01:30.000Z'));
-    await expect(service.claimDue({ organizationId: ORG_ID, userId: OTHER_USER_ID }))
-      .resolves.toMatchObject({ claimed: false, state: { status: 'failed' } });
-    expect(operationAlerts.fail).toHaveBeenCalledOnce();
   });
 
   it('requires an explicit retry before claiming after lease expiry', async () => {

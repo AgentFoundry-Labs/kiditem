@@ -1,10 +1,8 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { ChannelsModule } from '../../channels/channels.module';
-import { OperationsModule } from '../../operations/operations.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { SupplyModule } from '../../supply/supply.module';
-import { MarketplaceOrderCollectionOperationHandler } from '../adapter/in/operation/marketplace-order-collection.operation-handler';
 import { SellpiaOrderTransmissionRepositoryAdapter } from '../adapter/out/repository/sellpia-order-transmission.repository.adapter';
 import { CoupangDirectOrderCollectionTransactionAdapter } from '../adapter/out/transaction/coupang-direct-order-collection.transaction.adapter';
 import { COUPANG_DIRECT_ORDER_COLLECTION_PORT } from '../application/port/in/coupang-direct-order-collection.port';
@@ -40,7 +38,6 @@ describe('OrdersModule owner wiring', () => {
 
     expect(imports).toEqual([
       ChannelsModule,
-      OperationsModule,
       PrismaModule,
       SupplyModule,
     ]);
@@ -67,7 +64,6 @@ describe('OrdersModule owner wiring', () => {
       CoupangDirectOrderCollectionTransactionAdapter,
       SellpiaOrderTransmissionService,
       SellpiaOrderTransmissionRepositoryAdapter,
-      MarketplaceOrderCollectionOperationHandler,
       {
         provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
         useExisting: CoupangDirectOrderCollectionService,

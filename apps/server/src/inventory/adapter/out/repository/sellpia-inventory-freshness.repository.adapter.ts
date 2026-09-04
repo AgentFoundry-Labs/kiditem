@@ -6,7 +6,10 @@ import {
   SellpiaInventoryRefreshReasonSchema,
   SellpiaSyncScopeSchema,
 } from '@kiditem/shared/sellpia-inventory-freshness';
+import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
+import { sellpiaInventorySourceFailureAlert } from './sellpia-inventory-source-failure-alert';
 import type {
   FailedSellpiaInventoryAttempt,
   SellpiaInventoryFreshnessRepositoryPort,
@@ -17,7 +20,6 @@ import type {
 import type {
   SellpiaInventoryFreshnessState,
 } from '../../../domain/policy/sellpia-inventory-freshness.policy';
-import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
 
 const SOURCE_TYPE = 'sellpia_inventory';
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
@@ -25,7 +27,10 @@ const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 @Injectable()
 export class SellpiaInventoryFreshnessRepositoryAdapter
 implements SellpiaInventoryFreshnessRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly alerts: SourceFailureAlerts,
+  ) {}
 
   readState(
     organizationId: string,
@@ -65,7 +70,11 @@ implements SellpiaInventoryFreshnessRepositoryPort {
         WHERE organization_id = ${input.organizationId}::uuid
         FOR UPDATE
       `;
-      return operation(new LockedFreshnessTransaction(tx, input.organizationId));
+      return operation(new LockedFreshnessTransaction(
+        tx,
+        input.organizationId,
+        this.alerts,
+      ));
     }, TRANSACTION_OPTIONS);
   }
 }
@@ -75,6 +84,7 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
   constructor(
     private readonly tx: Prisma.TransactionClient,
     private readonly organizationId: string,
+    private readonly alerts: SourceFailureAlerts,
   ) {}
 
   async getState(): Promise<SellpiaInventoryFreshnessState> {
@@ -175,6 +185,28 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
         error_message = EXCLUDED.error_message,
         updated_at = EXCLUDED.updated_at
     `;
+    const run = await this.tx.sourceImportRun.findFirstOrThrow({
+      where: {
+        organizationId: this.organizationId,
+        sourceType: SOURCE_TYPE,
+        channelAccountId: null,
+        fileHash: null,
+        status: 'failed',
+        freshnessGeneration: input.generation,
+        attemptToken: input.claimToken,
+        createdBy: input.createdBy,
+      },
+      select: { id: true },
+    });
+    await this.alerts.upsertSourceFailure(
+      this.tx,
+      sellpiaInventorySourceFailureAlert({
+        organizationId: this.organizationId,
+        attemptId: run.id,
+        errorCode: input.errorCode,
+        errorMessage: input.errorMessage,
+      }),
+    );
   }
 
   findInventorySkus(

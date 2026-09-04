@@ -1,13 +1,11 @@
 import { Module } from '@nestjs/common';
-import { OperationsModule } from '../operations/operations.module';
+import { AlertsModule } from '../alerts/alerts.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { InventoryFreshnessRuntimeModule } from './inventory-freshness-runtime.module';
 import { CoupangShipmentsController } from './adapter/in/http/coupang-shipments.controller';
 import { InventorySkuSnapshotController } from './adapter/in/http/inventory-sku-snapshot.controller';
 import { SellpiaInventoryImportController } from './adapter/in/http/sellpia-inventory-import.controller';
 import { SellpiaInventoryFreshnessController } from './adapter/in/http/sellpia-inventory-freshness.controller';
-import { SellpiaInventoryOperationHandler } from './adapter/in/operation/sellpia-inventory.operation-handler';
-import { CoupangShipmentSummaryOperationHandler } from './adapter/in/operation/coupang-shipment-summary.operation-handler';
 import { TransfersController } from './adapter/in/http/transfers.controller';
 import { WarehousesController } from './adapter/in/http/warehouses.controller';
 import { ConfirmedChannelComponentReferenceRepositoryAdapter } from './adapter/out/repository/confirmed-channel-component-reference.repository.adapter';
@@ -101,7 +99,7 @@ const APPLICATION_PORT_BINDINGS = [
 ];
 
 @Module({
-  imports: [InventoryFreshnessRuntimeModule, OperationsModule, PrismaModule],
+  imports: [InventoryFreshnessRuntimeModule, AlertsModule, PrismaModule],
   controllers: [
     InventorySkuSnapshotController,
     SellpiaInventoryImportController,
@@ -128,8 +126,6 @@ const APPLICATION_PORT_BINDINGS = [
     SellpiaInventorySkuReadService,
     SellpiaInventoryImportService,
     SellpiaInventoryFileValidator,
-    SellpiaInventoryOperationHandler,
-    CoupangShipmentSummaryOperationHandler,
     WarehousesService,
     TransfersService,
     CoupangShipmentsService,

@@ -7,7 +7,9 @@ import {
 import { Prisma, type SellpiaInventoryState, type SourceImportRun } from '@prisma/client';
 import { SellpiaInventoryRefreshReasonSchema } from '@kiditem/shared/sellpia-inventory-freshness';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
+import { sellpiaInventorySourceFailureAlert } from './sellpia-inventory-source-failure-alert';
 import type {
   ClaimedSellpiaImportExecution,
   SellpiaFileRunClaim,
@@ -26,7 +28,10 @@ type FailureInput = Parameters<SellpiaImportRunRepositoryPort['markRunFailed']>[
 @Injectable()
 export class SellpiaImportRunRepositoryAdapter
 implements SellpiaImportRunRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly alerts: SourceFailureAlerts,
+  ) {}
 
   claimFileRun(input: ClaimInput): Promise<SellpiaFileRunClaim> {
     return this.prisma.$transaction(async (tx) => {
@@ -109,6 +114,15 @@ implements SellpiaImportRunRepositoryPort {
           freshnessFence: randomUUID(),
         },
       });
+      await this.alerts.upsertSourceFailure(
+        tx,
+        sellpiaInventorySourceFailureAlert({
+          organizationId: input.organizationId,
+          attemptId: input.runId,
+          errorCode: input.errorCode,
+          errorMessage: sanitizeErrorMessage(input.errorMessage),
+        }),
+      );
     }, TRANSACTION_OPTIONS);
   }
 }

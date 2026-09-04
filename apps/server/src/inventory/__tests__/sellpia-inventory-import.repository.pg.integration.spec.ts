@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { AlertsRepository } from '../../alerts/alerts.repository';
+import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ConfirmedChannelComponentReferenceRepositoryAdapter } from '../adapter/out/repository/confirmed-channel-component-reference.repository.adapter';
 import { SellpiaInventoryFreshnessRepositoryAdapter } from '../adapter/out/repository/sellpia-inventory-freshness.repository.adapter';
 import { SellpiaImportRunRepositoryAdapter } from '../adapter/out/repository/sellpia-import-run.repository.adapter';
@@ -33,18 +34,17 @@ describe('Sellpia unified import repositories (PG integration)', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
-    runRepository = new SellpiaImportRunRepositoryAdapter(prismaService);
-    publication = new SellpiaSnapshotPublicationRepositoryAdapter(prismaService);
+    const alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    runRepository = new SellpiaImportRunRepositoryAdapter(prismaService, alerts);
+    publication = new SellpiaSnapshotPublicationRepositoryAdapter(prismaService, alerts);
     freshnessService = new SellpiaInventoryFreshnessService(
-      new SellpiaInventoryFreshnessRepositoryAdapter(prismaService),
-      { fail: async () => null },
+      new SellpiaInventoryFreshnessRepositoryAdapter(prismaService, alerts),
     );
     service = new SellpiaInventoryImportService(
       runRepository,
       publication,
       new ConfirmedChannelComponentReferenceRepositoryAdapter(prismaService),
       new SellpiaInventoryFileValidator(),
-      new EventEmitter2(),
     );
   });
 
@@ -103,6 +103,8 @@ describe('Sellpia unified import repositories (PG integration)', () => {
       lastCompletedImportRunId: result.run.id,
       lastAttemptStatus: 'completed',
     });
+    expect(await prisma.operationRun.count()).toBe(0);
+    expect(await prisma.alert.count({ where: { kind: 'operation' } })).toBe(0);
   });
 
   it('advances mapping generation once when inventory ownership and a derived listing summary change', async () => {
@@ -168,8 +170,8 @@ describe('Sellpia unified import repositories (PG integration)', () => {
     expect(mappingGeneration).toBe(1n);
     expect(state).toMatchObject({
       activeFormulaVersionId: null,
-      activatedAt: null,
-      revision: 0,
+      formulaRevision: 0,
+      publicationRevision: 0,
       mappingGeneration: 1n,
     });
     expect(ownAfter.masterProductId).not.toBeNull();
@@ -335,8 +337,8 @@ describe('Sellpia unified import repositories (PG integration)', () => {
     expect(masterProductCount).toBe(0);
     expect(state).toMatchObject({
       activeFormulaVersionId: null,
-      activatedAt: null,
-      revision: 0,
+      formulaRevision: 0,
+      publicationRevision: 0,
       mappingGeneration: maximum,
     });
   });
@@ -641,7 +643,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
       secondExecution,
     ))).rejects.toThrow('quality thresholds');
 
-    const [after, runs, state] = await Promise.all([
+    const [after, runs, state, alert] = await Promise.all([
       prisma.sellpiaInventorySku.findMany({
         where: { organizationId: TEST_ORGANIZATION_ID },
         orderBy: { code: 'asc' },
@@ -652,6 +654,14 @@ describe('Sellpia unified import repositories (PG integration)', () => {
       }),
       prisma.sellpiaInventoryState.findUniqueOrThrow({
         where: { organizationId: TEST_ORGANIZATION_ID },
+      }),
+      prisma.alert.findUniqueOrThrow({
+        where: {
+          organizationId_dedupeKey: {
+            organizationId: TEST_ORGANIZATION_ID,
+            dedupeKey: 'source:sellpia-inventory',
+          },
+        },
       }),
     ]);
     expect(after).toEqual(before);
@@ -666,6 +676,12 @@ describe('Sellpia unified import repositories (PG integration)', () => {
       verifiedGeneration: 1n,
       failedGeneration: 2n,
       lastCompletedImportRunId: runs[0]?.id,
+    });
+    expect(alert).toMatchObject({
+      attemptId: runs[1]?.id,
+      sourceType: 'sellpia_inventory',
+      status: 'OPEN',
+      isRead: false,
     });
   });
 

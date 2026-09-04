@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   type ImportSellpiaInventoryInput,
   type SellpiaInventoryImportPort,
@@ -22,10 +21,6 @@ import {
 import { SellpiaInventoryFileValidator } from './sellpia-inventory-file.validator';
 import { parseSellpiaInventoryArtifact } from './sellpia-inventory-workbook.parser';
 import type { SellpiaInventoryImportResponse } from '@kiditem/shared/source-import';
-import {
-  SELLPIA_INVENTORY_EVENTS,
-  type SellpiaInventorySnapshotVerifiedEvent,
-} from '../event/sellpia-inventory.events';
 
 @Injectable()
 export class SellpiaInventoryImportService implements SellpiaInventoryImportPort {
@@ -37,7 +32,6 @@ export class SellpiaInventoryImportService implements SellpiaInventoryImportPort
     @Inject(CONFIRMED_CHANNEL_COMPONENT_REFERENCE_PORT)
     private readonly references: ConfirmedChannelComponentReferencePort,
     private readonly fileValidator: SellpiaInventoryFileValidator,
-    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async importInventory(
@@ -92,7 +86,6 @@ export class SellpiaInventoryImportService implements SellpiaInventoryImportPort
         fileHash,
         execution,
       });
-      await this.emitVerifiedSnapshot(input.organizationId, result);
       return toHttpResponse(result);
     }
 
@@ -113,23 +106,7 @@ export class SellpiaInventoryImportService implements SellpiaInventoryImportPort
       qualityFacts: parsed.qualityFacts,
       confirmedReferencedProductCodes,
     });
-    await this.emitVerifiedSnapshot(input.organizationId, result);
     return toHttpResponse(result);
-  }
-
-  private async emitVerifiedSnapshot(
-    organizationId: string,
-    result: Awaited<ReturnType<SellpiaSnapshotPublicationRepositoryPort['publishSnapshot']>>,
-  ): Promise<void> {
-    if (result.outcome !== 'published' && result.outcome !== 'same_hash_verified') return;
-    await this.eventEmitter.emitAsync(
-      SELLPIA_INVENTORY_EVENTS.SNAPSHOT_VERIFIED,
-      {
-        organizationId,
-        runId: result.run.id,
-        generation: result.run.freshnessGeneration,
-      } satisfies SellpiaInventorySnapshotVerifiedEvent,
-    );
   }
 }
 
