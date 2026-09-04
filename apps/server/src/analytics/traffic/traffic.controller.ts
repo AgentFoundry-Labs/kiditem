@@ -3,7 +3,6 @@ import {
   Get,
   Post,
   Query,
-  Body,
   UploadedFile,
   UseInterceptors,
   BadRequestException,
@@ -11,8 +10,6 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { TrafficService } from './traffic.service';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
-import { CurrentUser } from '../../auth/decorators/current-user.decorator';
-import type { AuthUser } from '../../auth/auth.types';
 
 interface MulterFile {
   fieldname: string;
@@ -92,16 +89,11 @@ export class TrafficController {
   )
   async upload(
     @UploadedFile() file: MulterFile,
-    @Body('source') source: string | undefined,
     @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
   ) {
     if (!file) {
       throw new BadRequestException('파일이 필요합니다.');
     }
-    return this.trafficService.uploadTrafficStats(file, organizationId, {
-      actorUserId: user.id,
-      source,
-    });
+    return this.trafficService.uploadTrafficStats(file, organizationId);
   }
 }

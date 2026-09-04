@@ -2,8 +2,6 @@ import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common
 import { SettlementsService } from './settlements.service';
 import { ListSettlementsQueryDto, CreateSettlementDto, UpdateSettlementDto, ReconcileSettlementDto } from './dto';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
-import { CurrentUser } from '../../auth/decorators/current-user.decorator';
-import type { AuthUser } from '../../auth/auth.types';
 
 @Controller('settlements')
 export class SettlementsController {
@@ -28,9 +26,8 @@ export class SettlementsController {
   async reconcile(
     @Body() dto: ReconcileSettlementDto,
     @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
   ) {
-    return this.settlementsService.reconcile(organizationId, dto.period, user.id);
+    return this.settlementsService.reconcile(organizationId, dto.period);
   }
 
   @Patch(':id')

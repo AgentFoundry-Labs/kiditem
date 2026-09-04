@@ -80,14 +80,6 @@ function makePrisma() {
   return { prisma, tx };
 }
 
-function makeOperationAlerts() {
-  return {
-    start: vi.fn(async () => ({})),
-    succeed: vi.fn(async () => ({})),
-    fail: vi.fn(async () => ({})),
-  };
-}
-
 describe('TrafficService — scrape-run tenant-scoped writes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -256,45 +248,6 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
     ]);
   });
 
-  it('opens and closes an operation alert for product-list traffic uploads', async () => {
-    const { prisma } = makePrisma();
-    const operationAlerts = makeOperationAlerts();
-    const service = new TrafficService(prisma as never, operationAlerts as never);
-
-    const result = await service.uploadTrafficStats(makeUploadFile(), ORGANIZATION_ID, {
-      actorUserId: 'user-1',
-      source: 'products',
-    });
-
-    expect(result.success).toBe(true);
-    expect(operationAlerts.start).toHaveBeenCalledWith(
-      expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
-        actorUserId: 'user-1',
-        operationKey: 'traffic-upload:products',
-        type: 'traffic_upload',
-        title: '트래픽 데이터 업로드',
-        sourceType: 'traffic_upload',
-        sourceId: 'products',
-        href: '/product-hub',
-      }),
-    );
-    expect(operationAlerts.succeed).toHaveBeenCalledWith(
-      ORGANIZATION_ID,
-      'traffic-upload:products',
-      expect.objectContaining({
-        href: '/product-hub',
-        metadata: expect.objectContaining({
-          fileName: 'traffic-upload.xlsx',
-          source: 'products',
-          upserted: 1,
-          skipped: 0,
-        }),
-      }),
-    );
-    expect(operationAlerts.fail).not.toHaveBeenCalled();
-  });
-
   it('detects Korean headers in UTF-8 CSV uploads', async () => {
     const { prisma } = makePrisma();
     const service = new TrafficService(prisma as never);
@@ -310,29 +263,4 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
     expect(result.detectedColumns.visitors).toBe('방문자');
   });
 
-  it('fails the operation alert when upload normalization fails', async () => {
-    const { prisma } = makePrisma();
-    prisma.$transaction.mockRejectedValueOnce(new Error('daily upsert failed'));
-    const operationAlerts = makeOperationAlerts();
-    const service = new TrafficService(prisma as never, operationAlerts as never);
-
-    await expect(
-      service.uploadTrafficStats(makeUploadFile(), ORGANIZATION_ID, {
-        actorUserId: 'user-1',
-        source: 'settings',
-      }),
-    ).rejects.toThrow('daily upsert failed');
-
-    expect(operationAlerts.fail).toHaveBeenCalledWith(
-      ORGANIZATION_ID,
-      'traffic-upload:settings',
-      expect.objectContaining({
-        href: '/settings',
-        metadata: expect.objectContaining({
-          error: 'daily upsert failed',
-          source: 'settings',
-        }),
-      }),
-    );
-  });
 });

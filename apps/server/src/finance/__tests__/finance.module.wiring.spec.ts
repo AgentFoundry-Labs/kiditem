@@ -1,11 +1,8 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { AnalyticsModule } from '../../analytics/analytics.module';
-import { AutomationModule } from '../../automation/automation.module';
-import { FinanceOperationAlertAdapter } from '../adapter/out/automation/operation-alert.adapter';
 import { MasterProductContributionRepositoryAdapter } from '../adapter/out/repository/master-product-contribution.repository.adapter';
 import { MASTER_PRODUCT_CONTRIBUTION_READ_PORT } from '../application/port/in/master-product-contribution-read.port';
-import { FINANCE_OPERATION_ALERT_PORT } from '../application/port/out/cross-domain/operation-alert.port';
 import { MASTER_PRODUCT_CONTRIBUTION_REPOSITORY_PORT } from '../application/port/out/repository/master-product-contribution.repository.port';
 import { MasterProductContributionReadService } from '../application/service/master-product-contribution-read.service';
 import { ProfitLossController } from '../controllers/profit-loss.controller';
@@ -30,7 +27,6 @@ describe('FinanceModule capability wiring', () => {
     const exports: unknown[] = Reflect.getMetadata('exports', FinanceModule) ?? [];
 
     expect(imports).toEqual([
-      AutomationModule,
       AnalyticsModule,
       ProfitabilityEvidenceModule,
     ]);
@@ -50,7 +46,6 @@ describe('FinanceModule capability wiring', () => {
       SettlementsService,
       MasterProductContributionRepositoryAdapter,
       MasterProductContributionReadService,
-      FinanceOperationAlertAdapter,
       {
         provide: MASTER_PRODUCT_CONTRIBUTION_REPOSITORY_PORT,
         useExisting: MasterProductContributionRepositoryAdapter,
@@ -58,10 +53,6 @@ describe('FinanceModule capability wiring', () => {
       {
         provide: MASTER_PRODUCT_CONTRIBUTION_READ_PORT,
         useExisting: MasterProductContributionReadService,
-      },
-      {
-        provide: FINANCE_OPERATION_ALERT_PORT,
-        useExisting: FinanceOperationAlertAdapter,
       },
     ]);
     expect(exports).toEqual([

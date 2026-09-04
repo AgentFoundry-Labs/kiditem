@@ -1,15 +1,10 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { MulterFile } from '../../common/types';
 import { kstDayStart } from '../../common/kst';
 import {
   uploadTrafficStats as uploadTrafficStatsIngest,
-  type TrafficUploadOptions,
 } from './traffic-upload';
-import {
-  TRAFFIC_OPERATION_ALERT_PORT,
-  type OperationAlertPort,
-} from './application/port/out/cross-domain/operation-alert.port';
 
 interface DayRevenue {
   date: string;
@@ -75,24 +70,16 @@ const LISTING_PRICING_SELECT = {
  */
 @Injectable()
 export class TrafficService {
-  constructor(
-    private readonly prisma: PrismaService,
-    @Optional()
-    @Inject(TRAFFIC_OPERATION_ALERT_PORT)
-    private readonly operationAlerts?: OperationAlertPort,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async uploadTrafficStats(
     file: MulterFile,
     organizationId: string,
-    options: TrafficUploadOptions = {},
   ) {
     return uploadTrafficStatsIngest({
       file,
       organizationId,
-      options,
       prisma: this.prisma,
-      operationAlerts: this.operationAlerts,
     });
   }
 
