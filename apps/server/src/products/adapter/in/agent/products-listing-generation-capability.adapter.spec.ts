@@ -7,14 +7,18 @@ const candidateId = '00000000-0000-4000-8000-000000000002';
 const userId = '00000000-0000-4000-8000-000000000003';
 
 describe('ProductsListingGenerationCapabilityAdapter', () => {
-  it('enqueues one Products-owned durable operation for an existing candidate', async () => {
-    const operations = {
-      start: vi.fn().mockResolvedValue({
-        id: '00000000-0000-4000-8000-000000000004',
-        status: 'queued',
+  it('delegates directly to the AI-owned generation job for an existing candidate', async () => {
+    const productGeneration = {
+      startForCandidate: vi.fn().mockResolvedValue({
+        candidateId,
+        parentOperationKey: 'product-generation:legacy-only',
+        detailGenerationId: '00000000-0000-4000-8000-000000000004',
+        thumbnailGenerationId: '00000000-0000-4000-8000-000000000005',
+        contentWorkspaceId: '00000000-0000-4000-8000-000000000006',
+        href: `/product-pipeline/collected-products/${candidateId}`,
       }),
     };
-    const adapter = new ProductsListingGenerationCapabilityAdapter(operations as never);
+    const adapter = new ProductsListingGenerationCapabilityAdapter(productGeneration as never);
     const businessInput = {
       candidateId,
       productName: 'Wooden blocks',
@@ -40,26 +44,23 @@ describe('ProductsListingGenerationCapabilityAdapter', () => {
 
     await expect(adapter.createListingGenerationPackage(input)).resolves.toEqual({
       candidateId,
-      operationRunId: '00000000-0000-4000-8000-000000000004',
-      status: 'queued',
+      detailGenerationId: '00000000-0000-4000-8000-000000000004',
+      thumbnailGenerationId: '00000000-0000-4000-8000-000000000005',
+      contentWorkspaceId: '00000000-0000-4000-8000-000000000006',
+      href: `/product-pipeline/collected-products/${candidateId}`,
     });
     await adapter.createListingGenerationPackage(input);
 
-    expect(operations.start).toHaveBeenCalledTimes(2);
-    expect(operations.start).toHaveBeenCalledWith(expect.objectContaining({
+    expect(productGeneration.startForCandidate).toHaveBeenCalledTimes(2);
+    expect(productGeneration.startForCandidate).toHaveBeenCalledWith(expect.objectContaining({
       organizationId,
-      operationKey: 'products.generate_listing_package',
-      triggerSource: 'agent',
-      requestedByUserId: userId,
       idempotencyKey: input.idempotencyKey,
-      input: expect.objectContaining({
-        candidateId,
-        idempotencyKey: input.idempotencyKey,
-        requestHash: input.inputHash,
-      }),
+      requestHash: input.inputHash,
+      triggeredByUserId: userId,
+      candidateId,
     }));
-    expect(operations.start.mock.calls[0][0].input).toEqual(
-      operations.start.mock.calls[1][0].input,
+    expect(productGeneration.startForCandidate.mock.calls[0][0]).toEqual(
+      productGeneration.startForCandidate.mock.calls[1][0],
     );
   });
 });

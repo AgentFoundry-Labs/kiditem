@@ -1,8 +1,7 @@
 import { Module } from '@nestjs/common';
-import { AutomationModule } from '../automation/automation.module';
-import { OperationsModule } from '../operations/operations.module';
 import { AiModule } from '../ai/ai.module';
 import { InventoryModule } from '../inventory/inventory.module';
+import { OrganizationsModule } from '../organizations/organizations.module';
 import { ChannelRegistrationCapabilityAdapter } from './adapter/in/agent/channel-registration-capability.adapter';
 import { ChannelSyncController } from './adapter/in/http/channel-sync.controller';
 import { ChannelDashboardController } from './adapter/in/http/channel-dashboard.controller';
@@ -35,7 +34,6 @@ import { ChannelListingQueryService } from './application/service/channel-listin
 import { ChannelListingDeletionService } from './application/service/channel-listing-deletion.service';
 import { ChannelsDeletionPasswordAdapter } from './adapter/out/organizations/deletion-password.adapter';
 import { CHANNELS_DELETION_PASSWORD_PORT } from './application/port/out/cross-domain/deletion-password.port';
-import { OrganizationsModule } from '../organizations/organizations.module';
 import { ChannelAccountQueryService } from './application/service/channel-account-query.service';
 import { MarketplaceRegistrationService } from './application/service/marketplace-registration.service';
 import { ChannelAccountService } from './application/service/channel-account.service';
@@ -51,8 +49,6 @@ import { RocketPoCatalogRepositoryAdapter } from './adapter/out/repository/rocke
 import { ROCKET_PO_CATALOG_PORT } from './application/port/in/rocket-po-catalog.port';
 import { ROCKET_PO_CATALOG_REPOSITORY_PORT } from './application/port/out/repository/rocket-po-catalog.repository.port';
 import { COUPANG_PROVIDER_PORT } from './application/port/out/provider/coupang-provider.port';
-import { ChannelsOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
-import { CHANNELS_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
 import { CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT } from './application/port/in/capability/marketplace-registration.port';
 import { CHANNEL_CATALOG_IMPORT_PORT } from './application/port/in/channel-catalog-import.port';
 import { ROCKET_SELLPIA_MATCHING_CSV_IMPORT_PORT } from './application/port/in/rocket-sellpia-matching-csv-import.port';
@@ -76,12 +72,11 @@ import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku
 import { SELLPIA_RECIPE_EVIDENCE_PORT } from './application/port/out/cross-domain/sellpia-recipe-evidence.port';
 import { CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT } from './application/port/out/repository/channel-recipe-suggestion-context.repository.port';
 import { SELLPIA_MANUAL_MATCH_REPOSITORY_PORT } from './application/port/out/repository/sellpia-manual-match.repository.port';
-import { CoupangRocketPurchaseOrderOperationHandler } from './adapter/in/operation/coupang-rocket-purchase-order.operation-handler';
 import { ChannelsWingThumbnailCapabilityAdapter } from './adapter/in/agent/channels-wing-thumbnail-capability.adapter';
 import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/capability/wing-thumbnail.port';
 
 @Module({
-  imports: [AutomationModule, AiModule, InventoryModule, OperationsModule, OrganizationsModule],
+  imports: [AiModule, InventoryModule, OrganizationsModule],
   controllers: [
     ChannelSyncController,
     ChannelDashboardController,
@@ -115,7 +110,6 @@ import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/c
     ChannelRegistrationCapabilityAdapter,
     ChannelsWingThumbnailCapabilityAdapter,
     CoupangProviderAdapter,
-    ChannelsOperationAlertAdapter,
     ChannelAccountRepositoryAdapter,
     ChannelDashboardRepositoryAdapter,
     ChannelListingRepositoryAdapter,
@@ -130,9 +124,7 @@ import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/c
     SellpiaManualMatchRepositoryAdapter,
     SellpiaRecipeEvidenceAdapter,
     RocketPoCatalogRepositoryAdapter,
-    CoupangRocketPurchaseOrderOperationHandler,
     { provide: COUPANG_PROVIDER_PORT, useExisting: CoupangProviderAdapter },
-    { provide: CHANNELS_OPERATION_ALERT_PORT, useExisting: ChannelsOperationAlertAdapter },
     { provide: CHANNEL_ACCOUNT_REPOSITORY_PORT, useExisting: ChannelAccountRepositoryAdapter },
     { provide: COUPANG_CREDENTIALS_PORT, useExisting: ChannelAccountRepositoryAdapter },
     { provide: CHANNEL_DASHBOARD_REPOSITORY_PORT, useExisting: ChannelDashboardRepositoryAdapter },

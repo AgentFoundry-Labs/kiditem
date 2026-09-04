@@ -1,9 +1,7 @@
 import { Controller, Get, Post, Body } from '@nestjs/common';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { ChannelSyncService } from '../../../application/service/channel-sync.service';
 import { SyncOrdersBodyDto } from './dto';
-import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
-import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
-import type { AuthUser } from '../../../../auth/auth.types';
 
 @Controller('coupang-sync')
 export class ChannelSyncController {
@@ -17,20 +15,18 @@ export class ChannelSyncController {
   @Post('products')
   async syncProducts(
     @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
   ) {
-    return this.syncService.syncProductsWithAlert(organizationId, user.id);
+    return this.syncService.syncProducts(organizationId);
   }
 
   @Post('orders')
   async syncOrders(
     @Body() body: SyncOrdersBodyDto,
     @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
   ) {
     const from = body.from ? new Date(body.from) : undefined;
     const to = body.to ? new Date(body.to) : undefined;
-    return this.syncService.syncOrdersWithAlert(organizationId, user.id, from, to);
+    return this.syncService.syncOrders(organizationId, from, to);
   }
 
   @Post('inventory')

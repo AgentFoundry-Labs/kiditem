@@ -3,7 +3,6 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { FinanceModule } from '../finance/finance.module';
 import { AiModule } from '../ai/ai.module';
-import { OperationsModule } from '../operations/operations.module';
 import { ProductOperationsController } from './adapter/in/http/product-operations.controller';
 import { ProductAbcController } from './adapter/in/http/product-abc.controller';
 import { ProductOperationsRepositoryAdapter } from './adapter/out/repository/product-operations.repository.adapter';
@@ -22,10 +21,9 @@ import { ProductsListingGenerationCapabilityAdapter } from './adapter/in/agent/p
 import { ProductsCapabilityCompositionAdapter } from './adapter/in/agent/products-capability-composition.adapter';
 import { PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT } from './application/port/in/capability/listing-generation.port';
 import { PRODUCTS_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capability/products-capability-composition.port';
-import { ProductsListingGenerationOperationHandler } from './adapter/in/operation/listing-generation.operation-handler';
 
 @Module({
-  imports: [CategoriesModule, InventoryModule, AnalyticsModule, FinanceModule, AiModule, OperationsModule],
+  imports: [CategoriesModule, InventoryModule, AnalyticsModule, FinanceModule, AiModule],
   controllers: [ProductAbcController, ProductOperationsController],
   providers: [
     ProductOperationsService,
@@ -35,7 +33,6 @@ import { ProductsListingGenerationOperationHandler } from './adapter/in/operatio
     MasterProductAbcService,
     ProductsListingGenerationCapabilityAdapter,
     ProductsCapabilityCompositionAdapter,
-    ProductsListingGenerationOperationHandler,
     MasterProductAbcRepositoryAdapter,
     ProductOperationsRepositoryAdapter,
     {
