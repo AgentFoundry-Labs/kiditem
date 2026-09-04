@@ -22,7 +22,17 @@
 - No V2 path, compatibility DTO, Operation fallback, worker, scheduler, child workflow, outbox, dirty bit, requested/recalculated revision, population hash, calibration, reliability adjustment, or Orders eligibility remains.
 - Existing ABC state and grade cache are reset. The first full publication is a history-free baseline; later real grade transitions alone create history.
 - Operating data is inspected read-only before destructive work. No Office mutation occurs from this macOS checkout.
-- Independent implementation slices may use `gpt-5.6-luna` at `max`; the main agent owns integration and verification. One `gpt-5.6-sol` reviewer at `max` performs the final diff review and reports only new P0/P1 issues and deletable complexity.
+- Classify each implementation slice before dispatch. Use `gpt-5.6-luna` at
+  `max` for mechanical deletion, import/module wiring, and local DTO changes.
+  Classify work spanning two or more boundaries as `경계 불변식 작업`
+  (`boundary-invariant work`) and use `gpt-5.6-terra` at `max`; this includes
+  database transaction/CAS/idempotency, durable state transitions,
+  retry/stale handling, AI job lifecycle, extension-to-server contracts, and
+  schema/data cutover.
+- The main agent owns integration and verification. One `gpt-5.6-sol`
+  reviewer at `max` performs the final diff review, after all implementation
+  and focused tests, and reports only new P0/P1 issues and deletable
+  complexity through the Ponytail lens.
 
 ---
 
@@ -165,7 +175,11 @@ Run every focused command in `2026-09-03-source-owner-and-alert-cutover.md`; do 
 
 - [ ] **Step 2: Execute the Advertising tasks after the source-owner dependencies are green**
 
-Any implementation agent may modify only files named in `2026-09-03-advertising-source-owner-cutover.md`. The main agent runs and fixes integration tests after focused green evidence is reported.
+The assigned Terra/max agent may modify only files named in
+`2026-09-03-advertising-source-owner-cutover.md`, plus an explicit
+main-agent-approved named-interface exception when the extension-to-server
+contract requires one. The main agent runs and fixes integration tests after
+focused green evidence is reported.
 
 - [ ] **Step 3: Execute explicit ABC publication tasks inline**
 
