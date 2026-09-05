@@ -15,6 +15,7 @@ import { AdvertisingStrategyController } from "./adapter/in/http/advertising-str
 import { AdKeywordAgentController } from "./adapter/in/http/ad-keyword-agent.controller";
 import { KeywordRankController } from "./adapter/in/http/keyword-rank.controller";
 import { KeywordSerpSourceController } from "./adapter/in/http/keyword-serp-source.controller";
+import { WingRankSourceController } from "./adapter/in/http/wing-rank-source.controller";
 import { CompetitorTrackingController } from "./adapter/in/http/competitor-tracking.controller";
 import { CompetitorCatalogSourceController } from "./adapter/in/http/competitor-catalog-source.controller";
 import { WingTrackedProductController } from "./adapter/in/http/wing-tracked-product.controller";
@@ -34,6 +35,7 @@ import { ChannelOptionDailyRepositoryAdapter } from "./adapter/out/repository/ch
 import { ChannelTargetDailyRepositoryAdapter } from "./adapter/out/repository/channel-target-daily.repository.adapter";
 import { KeywordRankRepositoryAdapter } from "./adapter/out/repository/keyword-rank.repository.adapter";
 import { KeywordSerpSourceRepository } from "./adapter/out/repository/keyword-serp-source.repository";
+import { WingRankSourceRepository } from "./adapter/out/repository/wing-rank-source.repository";
 import { WingTrackedProductRepositoryAdapter } from "./adapter/out/repository/wing-tracked-product.repository.adapter";
 import { WingTrackedProductSourceAttemptRepositoryAdapter } from "./adapter/out/repository/wing-tracked-product-source-attempt.repository.adapter";
 import { CompetitorCatalogSourceAttemptRepositoryAdapter } from "./adapter/out/repository/competitor-catalog-source-attempt.repository.adapter";
@@ -195,6 +197,7 @@ const REPOSITORY_PORT_BINDINGS = [
     AdKeywordAgentController,
     KeywordRankController,
     KeywordSerpSourceController,
+    WingRankSourceController,
     CompetitorTrackingController,
     CompetitorCatalogSourceController,
     WingTrackedProductController,
@@ -216,6 +219,7 @@ const REPOSITORY_PORT_BINDINGS = [
     ChannelTargetDailyRepositoryAdapter,
     KeywordRankRepositoryAdapter,
     KeywordSerpSourceRepository,
+    WingRankSourceRepository,
     WingTrackedProductRepositoryAdapter,
     WingTrackedProductSourceAttemptRepositoryAdapter,
     CompetitorCatalogSourceAttemptRepositoryAdapter,

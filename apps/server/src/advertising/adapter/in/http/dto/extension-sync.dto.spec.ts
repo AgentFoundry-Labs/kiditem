@@ -3,9 +3,9 @@ import { validate } from 'class-validator';
 import { describe, expect, it } from 'vitest';
 import { ExtensionSyncDto } from './extension-sync.dto';
 
-it('rejects public SERP captures at the unfenced extension sync boundary', async () => {
+it.each(['keyword_rank', 'wing_sales_rank'])('rejects %s captures at the unfenced extension sync boundary', async (type) => {
   const dto = plainToInstance(ExtensionSyncDto, {
-    type: 'keyword_rank',
+    type,
     data: [{ keyword: '문구', items: [] }],
   });
   expect((await validate(dto, { whitelist: true })).map((error) => error.property))

@@ -89,7 +89,6 @@ export class ExtensionSyncDto {
     'coupang_ads_daily',
     'competitor_seller_catalog',
     'competitor_seller_identity',
-    'wing_sales_rank',
   ])
   type: string;
 

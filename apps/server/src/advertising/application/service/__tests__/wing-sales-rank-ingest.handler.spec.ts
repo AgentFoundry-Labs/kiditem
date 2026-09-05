@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { ExtensionSyncDto } from '../../../adapter/in/http/dto';
 import type { KeywordRankRepositoryPort } from '../../port/out/repository/keyword-rank.repository.port';
 import {
   buildMockKeywordRankRepo,
@@ -32,44 +31,37 @@ describe('WingSalesRankIngestHandler', () => {
         category: '완구 > 촉감완구 > 슬라임',
       },
     ]);
-    repo.replaceWingSalesRankSnapshots.mockResolvedValue(2);
   });
 
-  it('persists a sales rank hit and an out-of-range row for every matching own product', async () => {
-    const payload: ExtensionSyncDto = {
-      type: 'wing_sales_rank',
-      source: 'wing-pre-matching',
-      timestamp: '2026-07-13T03:00:00.000Z',
-      data: [
+  it('normalizes the original sales-rank hit, 28-day metrics and out-of-range row for each frozen assignment', async () => {
+    const payload = {
+      keyword: '슬라임',
+      capturedAt: '2026-07-13T03:00:00.000Z',
+      pagesScanned: 5,
+      collectedCount: 100,
+      totalResults: 340,
+      items: [
         {
-          keyword: '슬라임',
-          capturedAt: '2026-07-13T03:00:00.000Z',
-          pagesScanned: 5,
-          collectedCount: 100,
-          totalResults: 340,
-          items: [
-            {
-              salesRank: 7,
-              productId: 'P1',
-              itemId: 'I1',
-              vendorItemId: 'V-OWN',
-              productName: 'Wing 투명 슬라임',
-              categoryHierarchy: '완구 > 촉감완구 > 슬라임',
-              salePrice: 10000,
-              salesLast28d: 120,
-              pvLast28Day: 1000,
-              estimatedRevenue28d: 1200000,
-              conversionRate28d: 0.12,
-              ratingCount: 45,
-            },
-          ],
+          salesRank: 7,
+          productId: 'P1',
+          itemId: 'I1',
+          vendorItemId: 'V-OWN',
+          productName: 'Wing 투명 슬라임',
+          categoryHierarchy: '완구 > 촉감완구 > 슬라임',
+          salePrice: 10000,
+          salesLast28d: 120,
+          pvLast28Day: 1000,
+          estimatedRevenue28d: 1200000,
+          conversionRate28d: 0.12,
+          ratingCount: 45,
         },
       ],
     };
 
-    const result = await handler.execute(payload, 'organization-1');
+    const targets = await handler.resolveTargets('organization-1', '슬라임');
+    const result = handler.normalizeCapture(payload, targets, 'organization-1');
 
-    const rows = repo.replaceWingSalesRankSnapshots.mock.calls[0][0];
+    const rows = result.rows;
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({
       organizationId: 'organization-1',
@@ -89,10 +81,10 @@ describe('WingSalesRankIngestHandler', () => {
       salesRank: null,
       productName: '치즈 슬라임 4개',
     });
-    expect(result.results[0]).toMatchObject({
-      productCount: 2,
+    expect(result).toMatchObject({
       rankedCount: 1,
       outOfRangeCount: 1,
     });
+    expect(repo.replaceWingSalesRankSnapshots).not.toHaveBeenCalled();
   });
 });

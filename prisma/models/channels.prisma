@@ -176,7 +176,7 @@ model ChannelScrapeSnapshot {
   accountKpiSnapshots    ChannelAccountDailyKpiSnapshot[]    @relation("AccountKpiRawSnapshot")
 
   @@unique([id, organizationId], map: "channel_scrape_snapshots_id_org_key")
-  @@unique([sourceImportRunId, organizationId], map: "channel_scrape_snapshots_serp_capture_key", where: raw("source_import_run_id IS NOT NULL AND source = 'coupang_keyword_serp'"))
+  @@unique([sourceImportRunId, organizationId], map: "channel_scrape_snapshots_serp_capture_key", where: raw("source_import_run_id IS NOT NULL AND source IN ('coupang_keyword_serp', 'coupang_wing_rank')"))
   @@index([sourceImportRunId, organizationId])
   @@index([organizationId, channel, source, businessDate])
   @@index([organizationId, channel, pageType, businessDate])
@@ -633,6 +633,7 @@ model CoupangKeywordSerpDailySnapshot {
 model CoupangWingSalesRankDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
+  sourceImportRunId String? @map("source_import_run_id") @db.Uuid
   keyword        String
   vendorItemId   String   @map("vendor_item_id")
   businessDate   DateTime @map("business_date") @db.Date
@@ -669,6 +670,9 @@ model CoupangWingSalesRankDailySnapshot {
   @@index([organizationId, businessDate])
   @@index([organizationId, keyword, businessDate])
   @@index([organizationId, vendorItemId, businessDate])
+  sourceImportRun SourceImportRun? @relation("WingRankSource", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@index([sourceImportRunId, organizationId])
   @@map("coupang_wing_sales_rank_daily_snapshots")
 }
 

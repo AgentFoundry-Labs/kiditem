@@ -43,7 +43,6 @@ import { CoupangAdsDailyIngestHandler } from "./coupang-ads-daily-ingest.handler
 import { KeywordRankIngestHandler } from "./keyword-rank-ingest.handler";
 import { RawScrapeIngestHandler } from "./raw-scrape-ingest.handler";
 import { TrafficIngestHandler } from "./traffic-ingest.handler";
-import { WingSalesRankIngestHandler } from "./wing-sales-rank-ingest.handler";
 import {
   AD_INGEST_TRANSACTION_PORT,
   type AdIngestTransactionPort,
@@ -68,7 +67,6 @@ export class AdSyncService {
     private readonly trafficHandler: TrafficIngestHandler,
     private readonly coupangAdsDailyHandler: CoupangAdsDailyIngestHandler,
     private readonly keywordRankHandler: KeywordRankIngestHandler,
-    private readonly wingSalesRankHandler: WingSalesRankIngestHandler,
     @Inject(AD_INGEST_TRANSACTION_PORT)
     private readonly ingestTransaction: AdIngestTransactionPort,
   ) {}
@@ -105,8 +103,6 @@ export class AdSyncService {
             payload,
             organizationId,
           );
-        case "wing_sales_rank":
-          return this.wingSalesRankHandler.execute(payload, organizationId);
         default:
           throw new BadRequestException(
             `알 수 없는 type: ${(payload as { type?: string }).type ?? "undefined"}`,

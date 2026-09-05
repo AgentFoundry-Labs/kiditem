@@ -106,6 +106,7 @@ export interface RankOverviewSnapshotRow {
 }
 
 export interface ReplaceWingSalesRankSnapshotInput {
+  sourceImportRunId: string;
   organizationId: string;
   keyword: string;
   vendorItemId: string;

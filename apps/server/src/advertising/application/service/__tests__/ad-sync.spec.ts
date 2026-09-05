@@ -14,7 +14,6 @@ import type { RawScrapeIngestHandler } from "../raw-scrape-ingest.handler";
 import type { TrafficIngestHandler } from "../traffic-ingest.handler";
 import type { CoupangAdsDailyIngestHandler } from "../coupang-ads-daily-ingest.handler";
 import type { KeywordRankIngestHandler } from "../keyword-rank-ingest.handler";
-import type { WingSalesRankIngestHandler } from "../wing-sales-rank-ingest.handler";
 import type { AdIngestTransactionPort } from "../../port/out/transaction/ad-ingest-transaction.port";
 import {
   buildMockAdListingRepo,
@@ -56,7 +55,6 @@ describe("AdSyncService", () => {
       {} as TrafficIngestHandler,
       {} as CoupangAdsDailyIngestHandler,
       {} as KeywordRankIngestHandler,
-      {} as WingSalesRankIngestHandler,
       ingestTransaction as unknown as AdIngestTransactionPort,
     );
   });
@@ -93,7 +91,6 @@ describe("AdSyncService", () => {
       {} as TrafficIngestHandler,
       {} as CoupangAdsDailyIngestHandler,
       {} as KeywordRankIngestHandler,
-      {} as WingSalesRankIngestHandler,
       ingestTransaction as unknown as AdIngestTransactionPort,
     );
     const payload = {
@@ -155,7 +152,6 @@ describe("AdSyncService", () => {
         {} as TrafficIngestHandler,
         {} as CoupangAdsDailyIngestHandler,
         {} as KeywordRankIngestHandler,
-        {} as WingSalesRankIngestHandler,
         ingestTransaction as unknown as AdIngestTransactionPort,
       );
 

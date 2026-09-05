@@ -188,7 +188,9 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
   }
 
   listRepresentativeKeywordOverrides(organizationId: string) {
-    return this.prisma.coupangRepresentativeKeywordOverride.findMany({
+    return adIngestRepositoryClient(
+      this.prisma,
+    ).coupangRepresentativeKeywordOverride.findMany({
       where: { organizationId },
       orderBy: { updatedAt: "desc" },
     });
@@ -530,14 +532,22 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     if (rows.length === 0) return 0;
     const { organizationId, keyword, businessDate } = rows[0];
 
-    return this.prisma.$transaction(async (tx) => {
+    return withAdIngestRepositoryTransaction(this.prisma, async (tx) => {
       await this.acquireSnapshotLock(
         tx,
         organizationId,
         `wing-sales-rank:${organizationId}:${keyword}:${businessDate.toISOString().slice(0, 10)}`,
       );
       const latest = await tx.coupangWingSalesRankDailySnapshot.findFirst({
-        where: { organizationId, keyword, businessDate },
+        where: {
+          organizationId,
+          keyword,
+          businessDate,
+          sourceImportRun: {
+            ...completeWingRankSource(organizationId),
+            rankKeyword: keyword,
+          },
+        },
         orderBy: { capturedAt: "desc" },
         select: { capturedAt: true },
       });
@@ -557,6 +567,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
       const created = await tx.coupangWingSalesRankDailySnapshot.createMany({
         data: rows.map((row) => ({
           organizationId: row.organizationId,
+          sourceImportRunId: row.sourceImportRunId,
           keyword: row.keyword,
           vendorItemId: row.vendorItemId,
           businessDate: row.businessDate,
@@ -590,8 +601,14 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
   ): Promise<WingSalesRankSnapshotRow[]> {
     const since = currentBusinessDate();
     since.setUTCDate(since.getUTCDate() - (days - 1));
-    const rows = await this.prisma.coupangWingSalesRankDailySnapshot.findMany({
-      where: { organizationId, businessDate: { gte: since } },
+    const rows = await adIngestRepositoryClient(
+      this.prisma,
+    ).coupangWingSalesRankDailySnapshot.findMany({
+      where: {
+        organizationId,
+        businessDate: { gte: since },
+        sourceImportRun: completeWingRankSource(organizationId),
+      },
       orderBy: [
         { keyword: "asc" },
         { vendorItemId: "asc" },
@@ -731,4 +748,13 @@ function matchingCompleteSource(
     source.parserVersion === "keyword-serp-v1" &&
     source.status === "completed"
   );
+}
+
+function completeWingRankSource(organizationId: string) {
+  return {
+    organizationId,
+    sourceType: "coupang_wing_rank",
+    parserVersion: "wing-rank-v1",
+    status: "completed",
+  };
 }
