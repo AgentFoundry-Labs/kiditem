@@ -55,6 +55,7 @@ export class SourcingEvidenceLedgerRepositoryAdapter implements SourcingEvidence
       where: {
         id: { in: input.observationIds },
         organizationId: input.organizationId,
+        ingestionRun: { status: 'COMPLETE' },
       },
       include: observationInclude,
     });
@@ -78,6 +79,7 @@ export class SourcingEvidenceLedgerRepositoryAdapter implements SourcingEvidence
         platform: input.platform.toLowerCase(),
         sourceEntityKey: { in: Array.from(new Set(input.sourceEntityIds)) },
         supportsCandidate: true,
+        ingestionRun: { status: 'COMPLETE', isCurrentComplete: true, completedAt: { lte: input.cutoffAt } },
         // 시점 고정: cutoff 이후에 도착한 관측치는 이 배치가 보지 못한 것으로 둔다.
         availableAt: { lte: input.cutoffAt },
         ingestedAt: { lte: input.cutoffAt },
@@ -105,6 +107,7 @@ export class SourcingEvidenceLedgerRepositoryAdapter implements SourcingEvidence
       where: {
         organizationId: input.organizationId,
         observationKey: { in: keys },
+        ingestionRun: { status: 'COMPLETE', isCurrentComplete: true, completedAt: { lte: input.cutoffAt } },
         availableAt: { lte: input.cutoffAt },
         ingestedAt: { lte: input.cutoffAt },
       },
@@ -206,18 +209,7 @@ function toObservationRecord(
 }
 
 function fromDatabaseRunStatus(status: string): SourcingEvidenceRunStatus {
-  if (status === 'collecting') return 'collecting';
-  if (status === 'cancel_requested') return 'cancel_requested';
-  if (
-    status === 'complete' ||
-    status === 'partial' ||
-    status === 'failed' ||
-    status === 'quarantined' ||
-    status === 'cancelled' ||
-    status === 'superseded'
-  ) {
-    return status;
-  }
+  if (status === 'RUNNING' || status === 'COMPLETE' || status === 'FAILED') return status;
   throw new Error(`Unsupported evidence run status: ${status}`);
 }
 

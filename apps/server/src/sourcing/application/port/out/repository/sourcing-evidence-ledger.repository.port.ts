@@ -1,3 +1,5 @@
+import type { SourcingBrowserSourceAttempt } from './sourcing-browser-source-attempt.repository.port';
+
 export const SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT = Symbol(
   'SourcingEvidenceLedgerRepositoryPort',
 );
@@ -26,19 +28,7 @@ export const SOURCING_EVIDENCE_SIGNAL_ROLES = [
 export type SourcingEvidenceSignalRole =
   (typeof SOURCING_EVIDENCE_SIGNAL_ROLES)[number];
 
-export const SOURCING_EVIDENCE_RUN_STATUSES = [
-  'collecting',
-  'cancel_requested',
-  'complete',
-  'partial',
-  'failed',
-  'quarantined',
-  'cancelled',
-  'superseded',
-] as const;
-
-export type SourcingEvidenceRunStatus =
-  (typeof SOURCING_EVIDENCE_RUN_STATUSES)[number];
+export type SourcingEvidenceRunStatus = SourcingBrowserSourceAttempt['state'];
 
 export interface SourcingEvidenceIngestionRunRecord {
   id: string;
@@ -138,9 +128,9 @@ export interface SourcingEvidenceLedgerRepositoryPort {
   }): Promise<SourcingEvidenceObservationRecord[]>;
 
   /**
-   * Returns the absolute latest revision visible at the point-in-time cutoff.
-   * Terminal run admissibility is evaluated separately so a quarantined newer
-   * correction cannot silently revive an older positive observation.
+   * Returns the latest revision in the current COMPLETE publication that was
+   * visible at the cutoff. Historical IDs remain available through the exact
+   * provenance lookup but cannot silently become current supporting evidence.
    */
   findLatestObservationRevisions(input: {
     organizationId: string;
