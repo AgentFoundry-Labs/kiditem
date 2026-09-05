@@ -4,6 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { JSDOM } from 'jsdom';
 
 // 주문수집 / 쿠팡 / 소싱 세 확장을 kiditem-os 하나로 합치면서 세 도메인 워커가
 // 하나의 서비스워커 전역 스코프를 공유하게 됐다. 이 조합은 아래 세 가지로
@@ -161,6 +162,174 @@ function bootServiceWorker() {
   vm.runInContext(readFileSync(entryPath, 'utf8'), context, { filename: entryPath });
   return { fake, context };
 }
+
+// Exercise the production collector from the fully loaded worker. Only Chrome
+// browser IO and time are simulated; capture, pagination and normalization run.
+function bootRankCollector(pages, { loadFailureAt, redirectAt } = {}) {
+  const { fake, context } = bootServiceWorker();
+  const urls = [], delays = [];
+  let tab;
+  fake.chrome.tabs.create = (properties, callback) => {
+    urls.push(properties.url);
+    tab = { id: 41, windowId: 7, status: 'complete', ...properties };
+    callback?.(tab);
+    return Promise.resolve(tab);
+  };
+  fake.chrome.tabs.get = (_id, callback) => {
+    callback?.(tab);
+    return Promise.resolve(tab);
+  };
+  fake.chrome.tabs.update = (_id, properties, callback) => {
+    urls.push(properties.url);
+    if (urls.length === loadFailureAt) {
+      fake.chrome.runtime.lastError = { message: 'navigation failed' };
+      callback?.();
+      fake.chrome.runtime.lastError = null;
+    } else {
+      tab = { ...tab, ...properties,
+        url: urls.length === redirectAt ? 'https://login.coupang.com/' : properties.url };
+      callback?.(tab);
+    }
+    return Promise.resolve(tab);
+  };
+  fake.chrome.scripting.executeScript = async ({ func }) => {
+    const page = pages[urls.length - 1];
+    if (page instanceof Error) throw page;
+    if (typeof page === 'string') {
+      const dom = new JSDOM(page, { url: tab.url, runScripts: 'outside-only' });
+      try {
+        return [{ result: vm.runInContext(`(${func.toString()})()`, dom.getInternalVMContext()) }];
+      } finally { dom.window.close(); }
+    }
+    return [{ result: page }];
+  };
+  context.setTimeout = (callback, ms) => {
+    if (ms < 10_000) {
+      delays.push(ms);
+      queueMicrotask(callback);
+    }
+    return 1;
+  };
+  context.clearTimeout = () => {};
+  vm.runInContext('Math.random = () => 0;', context);
+  return {
+    urls, delays,
+    capture: async (maxPages = 2) => JSON.parse(JSON.stringify(
+      await context.captureCoupangKeywordSerp('연필 세트', maxPages, { environmentId: 'local' }),
+    )),
+  };
+}
+
+test('SERP capture preserves URLs, DOM order and normalized fields while proving the page limit', async () => {
+  const h = bootRankCollector([
+    { items: [{ productId: '1', vendorItemId: '10', name: '연필', isAd: true,
+      priceKrw: 1200, reviewCount: 0, ratingScore: 4.5, link: 'https://www.coupang.com/vp/products/1' }] },
+    { items: [{ productId: '1', itemId: '2', vendorItemId: '10', name: '연필' }], usedFallback: true },
+  ]);
+  const capture = await h.capture();
+  assert.deepEqual(capture, {
+    success: true, tabId: 41, keyword: '연필 세트', pagesScanned: 2,
+    items: [
+      { rank: 1, page: 1, positionInPage: 1, isAd: true, productId: '1', itemId: null,
+        vendorItemId: '10', name: '연필', priceKrw: 1200, reviewCount: 0,
+        ratingScore: 4.5, link: 'https://www.coupang.com/vp/products/1' },
+      { rank: 2, page: 2, positionInPage: 1, isAd: false, productId: '1', itemId: '2',
+        vendorItemId: '10', name: '연필', priceKrw: null, reviewCount: null,
+        ratingScore: null, link: null },
+    ],
+    usedFallback: true, wall: null,
+    pagination: { requestedMaxPages: 2, stoppedAtPage: 2, stopReason: 'page_limit' },
+  });
+  assert.deepEqual(h.urls, [
+    'https://www.coupang.com/np/search?q=%EC%97%B0%ED%95%84%20%EC%84%B8%ED%8A%B8&channel=user&page=1&listSize=36',
+    'https://www.coupang.com/np/search?q=%EC%97%B0%ED%95%84%20%EC%84%B8%ED%8A%B8&channel=user&page=2&listSize=36',
+  ]);
+  assert.deepEqual(h.delays, [1200, 1500, 1200]);
+});
+
+test('SERP capture distinguishes an observed last empty page without changing first-page-empty failure', async () => {
+  const later = bootRankCollector([{ items: [{ productId: '1' }] }, { items: [], resultListObserved: true }]);
+  const capture = await later.capture(3);
+  assert.equal(capture.success, true);
+  assert.equal(capture.items.length, 1);
+  assert.equal(capture.pagesScanned, 1);
+  assert.deepEqual(capture.pagination, {
+    requestedMaxPages: 3, stoppedAtPage: 2, stopReason: 'empty_page',
+  });
+  assert.equal(later.urls.length, 2);
+  const first = bootRankCollector([{ items: [] }]);
+  const missing = await first.capture(3);
+  assert.equal(missing.success, false);
+  assert.match(missing.error, /검색 결과가 비어/);
+  assert.equal(first.urls.length, 1);
+});
+
+test('SERP capture reports interrupted pagination without changing the previously collected rows or retries', async () => {
+  const first = { items: [{ productId: '1' }] };
+  const scenarios = [
+    { pages: [first, null], reason: 'extraction_failed' },
+    { pages: [first, new Error('script failed')], reason: 'extraction_failed' },
+    { pages: [first, {}], reason: 'invalid_result' },
+    { pages: [first, { items: 'not an array' }], reason: 'invalid_result' },
+    { pages: [first, { items: [], wall: 'captcha' }], reason: 'provider_wall' },
+    { pages: [first, { items: [], wall: 'login' }], reason: 'provider_wall' },
+    { pages: [first], loadFailureAt: 2, reason: 'load_failed' },
+    { pages: [first], redirectAt: 2, reason: 'redirect' },
+  ];
+  for (const scenario of scenarios) {
+    const h = bootRankCollector(scenario.pages, scenario);
+    const capture = await h.capture(3);
+    assert.equal(capture.success, true, 'capture retains its original artifact result');
+    assert.equal(capture.items.length, 1);
+    assert.equal(capture.items[0].productId, '1');
+    assert.equal(capture.pagesScanned, 1);
+    assert.deepEqual(capture.pagination, {
+      requestedMaxPages: 3, stoppedAtPage: 2, stopReason: scenario.reason,
+    });
+    assert.equal(h.urls.length, 2, 'proof must not add navigation or retries');
+  }
+});
+
+test('SERP capture cannot prove completion from product rows rendered with an access wall', async () => {
+  for (const pages of [
+    [{ items: [{ productId: '1' }], wall: 'captcha' }],
+    [{ items: [{ productId: '1' }], wall: 'login' }, { items: [{ productId: '2' }] }],
+  ]) {
+    const h = bootRankCollector(pages);
+    const capture = await h.capture(pages.length);
+    assert.equal(capture.success, true);
+    assert.equal(capture.items.length, pages.length);
+    assert.deepEqual(capture.pagination, {
+      requestedMaxPages: pages.length, stoppedAtPage: pages.length, stopReason: 'provider_wall',
+    });
+    assert.equal(h.urls.length, pages.length);
+  }
+});
+
+test('SERP capture does not certify the live Access Denied page as an empty result', async () => {
+  // Observed in isolated Chrome/CDP on 2026-09-06; edge reference IDs redacted.
+  const denied = `<html><head><title>Access Denied</title></head><body>
+    <h1>Access Denied</h1>
+    You don't have permission to access "http://www.coupang.com/np/search?" on this server.
+    <p>Reference [redacted]</p><p>https://errors.edgesuite.net/[redacted]</p>
+    </body></html>`;
+  for (const [html, expectedReason] of [
+    [denied, 'invalid_result'],
+    ['<html><body><main>Unrecognized page</main></body></html>', 'invalid_result'],
+    ['<html><body><ul id="productList"></ul></body></html>', 'empty_page'],
+  ]) {
+    const h = bootRankCollector([{ items: [{ productId: '1' }] }, html]);
+    const capture = await h.capture(3);
+    assert.equal(capture.success, true, 'source proof does not rewrite collector success');
+    assert.equal(capture.items.length, 1);
+    assert.equal(capture.pagesScanned, 1);
+    assert.equal(capture.usedFallback, true);
+    assert.deepEqual(capture.pagination, {
+      requestedMaxPages: 3, stoppedAtPage: 2, stopReason: expectedReason,
+    });
+    assert.equal(h.urls.length, 2);
+  }
+});
 
 test('통합 서비스워커가 세 도메인을 모두 싣고 부팅한다', () => {
   const { fake, context } = bootServiceWorker();

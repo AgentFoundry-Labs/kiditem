@@ -2759,6 +2759,8 @@ async function captureCoupangKeywordSerp(keyword, maxPages, options = {}) {
   const items = [];
   let tabId = options.tabId || null;
   let pagesScanned = 0;
+  let stoppedAtPage = 0;
+  let stopReason = "invalid_result";
   let usedFallback = false;
   let wall = null;
 
@@ -2768,6 +2770,7 @@ async function captureCoupangKeywordSerp(keyword, maxPages, options = {}) {
   }
 
   for (let page = 1; page <= maxPages; page++) {
+    stoppedAtPage = page;
     const pageUrl = buildCoupangRankSearchUrl(keyword, page);
 
     if (!tabId) {
@@ -2786,6 +2789,7 @@ async function captureCoupangKeywordSerp(keyword, maxPages, options = {}) {
       if (!loaded) {
         if (items.length === 0)
           return { success: false, tabId, error: "쿠팡 검색 페이지 로딩 실패" };
+        stopReason = "load_failed";
         break;
       }
     }
@@ -2801,6 +2805,7 @@ async function captureCoupangKeywordSerp(keyword, maxPages, options = {}) {
             "쿠팡 검색 페이지가 아닌 화면으로 이동했습니다 — 열린 탭에서 로그인/보안문자 여부를 확인하세요.",
         };
       }
+      stopReason = "redirect";
       break;
     }
 
@@ -2817,11 +2822,13 @@ async function captureCoupangKeywordSerp(keyword, maxPages, options = {}) {
           error: error?.message || "쿠팡 검색 결과 파싱 실패",
         };
       }
+      stopReason = "extraction_failed";
       break;
     }
     if (!extraction) {
       if (items.length === 0)
         return { success: false, tabId, error: "쿠팡 검색 결과 파싱 실패" };
+      stopReason = "extraction_failed";
       break;
     }
 
@@ -2844,6 +2851,11 @@ async function captureCoupangKeywordSerp(keyword, maxPages, options = {}) {
           error: `쿠팡 검색 결과가 비어 있습니다 — ${hint} 열린 탭에서 화면을 확인하세요.`,
         };
       }
+      stopReason = wall
+        ? "provider_wall"
+        : Array.isArray(extraction.items) && extraction.resultListObserved === true
+          ? "empty_page"
+          : "invalid_result";
       break; // 마지막 페이지 도달
     }
 
@@ -2865,6 +2877,7 @@ async function captureCoupangKeywordSerp(keyword, maxPages, options = {}) {
       });
     }
     pagesScanned = page;
+    if (page === maxPages) stopReason = wall ? "provider_wall" : "page_limit";
 
     if (page < maxPages) await sleep(randomDelayMs(1500, 3000));
   }
@@ -2886,6 +2899,7 @@ async function captureCoupangKeywordSerp(keyword, maxPages, options = {}) {
     items,
     usedFallback,
     wall,
+    pagination: { requestedMaxPages: maxPages, stoppedAtPage, stopReason },
   };
 }
 
@@ -3292,13 +3306,15 @@ async function executeCoupangSerpExtraction(tabId) {
           const found = Array.prototype.slice
             .call(document.querySelectorAll(selector))
             .filter((el) => el.querySelector('a[href*="/vp/products/"]'));
-          if (found.length > 0) return { elements: found, usedFallback: false };
+          if (found.length > 0)
+            return { elements: found, usedFallback: false, resultListObserved: true };
         }
 
-        const container =
+        const resultList =
           document.querySelector("#productList") ||
           document.querySelector("#product-list") ||
-          document.querySelector('[class*="product-list" i]') ||
+          document.querySelector('[class*="product-list" i]');
+        const container = resultList ||
           document.querySelector("main") ||
           document.body;
         const seen = new Set();
@@ -3311,7 +3327,7 @@ async function executeCoupangSerpExtraction(tabId) {
           seen.add(item);
           elements.push(item);
         }
-        return { elements, usedFallback: true };
+        return { elements, usedFallback: true, resultListObserved: Boolean(resultList) };
       }
 
       function parseProductLink(anchor) {
@@ -3437,7 +3453,7 @@ async function executeCoupangSerpExtraction(tabId) {
       }
 
       const wall = detectAccessWall();
-      const { elements, usedFallback } = findProductElements();
+      const { elements, usedFallback, resultListObserved } = findProductElements();
       const items = [];
       for (const element of elements) {
         const anchor =
@@ -3460,7 +3476,7 @@ async function executeCoupangSerpExtraction(tabId) {
         });
       }
 
-      return { items, usedFallback, wall };
+      return { items, usedFallback, wall, resultListObserved };
     },
   });
   return result?.result || null;
