@@ -100,25 +100,6 @@ export interface SourcingLatestObservationRevisionRecord {
   revision: number;
 }
 
-export interface StartSourcingEvidenceRunCommand {
-  organizationId: string;
-  sourceKey: string;
-  runKey: string;
-  requestHash: string;
-  scopeKey: string;
-  collectorVersion: string;
-  triggeredByUserId: string;
-  windowStartAt: Date | null;
-  windowEndAt: Date | null;
-  expectedCount: number | null;
-  startedAt: Date;
-}
-
-export type StartSourcingEvidenceRunResult =
-  | { kind: 'created'; duplicate: false; record: SourcingEvidenceIngestionRunRecord }
-  | { kind: 'existing'; duplicate: true; record: SourcingEvidenceIngestionRunRecord }
-  | { kind: 'idempotency_conflict' };
-
 export interface AppendSourcingEvidenceObservationCommand {
   organizationId: string;
   ingestionRunId: string;
@@ -144,52 +125,12 @@ export interface AppendSourcingEvidenceObservationCommand {
   ingestedAt: Date;
 }
 
-export type AppendSourcingEvidenceObservationsResult =
-  | {
-      kind: 'appended';
-      records: SourcingEvidenceObservationRecord[];
-      duplicateCount: number;
-    }
-  | { kind: 'run_not_found' }
-  | { kind: 'run_not_collecting'; status: SourcingEvidenceRunStatus }
-  | { kind: 'observation_revision_gap'; observationKey: string; revision: number }
-  | { kind: 'observation_series_mismatch'; observationKey: string; revision: number }
-  | { kind: 'observation_conflict'; observationKey: string; revision: number };
-
-export interface FinalizeSourcingEvidenceRunCommand {
-  organizationId: string;
-  runId: string;
-  status: Exclude<SourcingEvidenceRunStatus, 'collecting' | 'cancel_requested'>;
-  coverageBps: number | null;
-  watermarkEventAt: Date | null;
-  errorCode: string | null;
-  errorMessage: string | null;
-  completedAt: Date;
-}
-
-export type FinalizeSourcingEvidenceRunResult =
-  | { kind: 'finalized'; record: SourcingEvidenceIngestionRunRecord }
-  | { kind: 'not_found' }
-  | { kind: 'coverage_mismatch'; derivedCoverageBps: number | null }
-  | { kind: 'already_terminal'; record: SourcingEvidenceIngestionRunRecord };
-
 export interface SourcingEvidenceLedgerRepositoryPort {
-  startRun(
-    command: StartSourcingEvidenceRunCommand,
-  ): Promise<StartSourcingEvidenceRunResult>;
 
   getRun(input: {
     organizationId: string;
     runId: string;
   }): Promise<SourcingEvidenceIngestionRunRecord | null>;
-
-  appendObservations(
-    commands: AppendSourcingEvidenceObservationCommand[],
-  ): Promise<AppendSourcingEvidenceObservationsResult>;
-
-  finalizeRun(
-    command: FinalizeSourcingEvidenceRunCommand,
-  ): Promise<FinalizeSourcingEvidenceRunResult>;
 
   findObservationsByIds(input: {
     organizationId: string;

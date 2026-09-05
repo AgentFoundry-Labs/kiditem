@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -8,21 +7,17 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import type { PrismaService } from '../../prisma/prisma.service';
-import { SourcingEvidenceLedgerRepositoryAdapter } from '../adapter/out/repository/sourcing-evidence-ledger.repository.adapter';
 import { SourcingCollectionRepositoryAdapter } from '../adapter/out/repository/sourcing-collection.repository.adapter';
+import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaClient } from '@prisma/client';
 
 describe('Sourcing durable data invariants (PG integration)', () => {
   let prisma: PrismaClient;
-  let evidenceRepository: SourcingEvidenceLedgerRepositoryAdapter;
   let collectionRepository: SourcingCollectionRepositoryAdapter;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    evidenceRepository = new SourcingEvidenceLedgerRepositoryAdapter(
-      prisma as unknown as PrismaService,
-    );
     collectionRepository = new SourcingCollectionRepositoryAdapter(
       prisma as unknown as PrismaService,
     );
@@ -58,33 +53,6 @@ describe('Sourcing durable data invariants (PG integration)', () => {
         },
       }),
     ).toBe(1);
-  });
-
-  it('rejects a retry whose immutable source provenance changed', async () => {
-    const run = await prisma.sourcingEvidenceIngestionRun.create({
-      data: {
-        ...runData('append-run'),
-        status: 'collecting',
-      },
-    });
-    const command = observationCommand(run.id);
-
-    await expect(
-      evidenceRepository.appendObservations([command]),
-    ).resolves.toMatchObject({ kind: 'appended', duplicateCount: 0 });
-
-    await expect(
-      evidenceRepository.appendObservations([
-        {
-          ...command,
-          sourceUrl: 'https://detail.1688.com/offer/changed.html',
-        },
-      ]),
-    ).resolves.toEqual({
-      kind: 'observation_conflict',
-      observationKey: command.observationKey,
-      revision: command.revision,
-    });
   });
 
   it('claims one provider lane and discards commit after the source is disabled', async () => {
@@ -320,34 +288,6 @@ function runData(runKey: string) {
     triggerKind: 'test',
     status: 'collecting',
     startedAt: now,
-  };
-}
-
-function observationCommand(ingestionRunId: string) {
-  const capturedAt = new Date('2026-08-08T00:00:00.000Z');
-  return {
-    organizationId: TEST_ORGANIZATION_ID,
-    ingestionRunId,
-    sourceKey: '1688.hot_product',
-    platform: '1688',
-    evidenceFamily: 'china_supply',
-    signalRole: 'supply' as const,
-    granularity: 'supply_catalog' as const,
-    conceptKey: 'pencil-case',
-    sourceEntityType: 'offer',
-    sourceEntityId: 'offer-1',
-    schemaVersion: '1688-offer/v1',
-    observationKey: sha256('offer-1:1'),
-    revision: 1,
-    supportsCandidate: true,
-    sourceUrl: 'https://detail.1688.com/offer/1.html',
-    eventAt: capturedAt,
-    observedAt: capturedAt,
-    availableAt: capturedAt,
-    revisionAt: null,
-    payloadHash: sha256('pencil-case'),
-    rawPayload: { title: '연필통' },
-    ingestedAt: capturedAt,
   };
 }
 
