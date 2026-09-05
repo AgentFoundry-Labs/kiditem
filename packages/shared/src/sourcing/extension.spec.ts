@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   SourcingExtensionV1ProductSchema,
-  SourcingExtensionV2ProductSchema,
 } from './extension';
 
 describe('sourcing extension contracts', () => {
@@ -27,26 +26,4 @@ describe('sourcing extension contracts', () => {
     });
   });
 
-  it('requires a complete and immutable v2 collection payload', () => {
-    expect(() => SourcingExtensionV2ProductSchema.parse({
-      schemaVersion: '2',
-      collectionSessionId: '00000000-0000-4000-8000-000000000001',
-      sourcePlatform: '1688',
-      sourceUrl: 'https://detail.1688.com/offer/607635921546.html',
-      externalOfferId: '607635921546',
-      variantKey: '',
-      title: '어린이 실리콘 식판',
-      capturedAt: '2026-08-08T01:00:00.000Z',
-      extractorVersion: '1688/v2',
-      priceMin: 12.5,
-      priceMax: null,
-      minOrderQuantity: 2,
-      supplierName: '샘플 공급사',
-      skuAttributes: [],
-      skuItems: [],
-      priceTiers: [],
-      rawPayloadHash: 'a'.repeat(64),
-      ignoredByContract: true,
-    })).toThrow();
-  });
 });

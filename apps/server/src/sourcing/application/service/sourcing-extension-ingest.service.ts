@@ -1,15 +1,8 @@
-import { randomUUID } from 'node:crypto';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import {
   SourcingExtensionV1ProductSchema,
-  SourcingExtensionV2ProductSchema,
   type SourcingExtensionV1Product,
 } from '@kiditem/shared/sourcing';
-import type {
-  AuthorizedCollectionOutput,
-  SourcingExtensionCandidateProjection,
-  SourcingCollectionPermit,
-} from '../port/out/repository/sourcing-collection.repository.port';
 import { parseAllowedSupplierUrl, extractSupplierOfferId } from '../../domain/supplier-source-url-policy';
 import { canonicalSourcingCandidateIdentity } from '../../domain/sourcing-candidate-identity';
 import { SourcingCollectionCoordinator } from './sourcing-collection-coordinator.service';
@@ -17,6 +10,11 @@ import {
   hashCollectionRequest,
   normalizeCollectionTarget,
 } from './sourcing-collection-mappers';
+import type {
+  AuthorizedCollectionOutput,
+  SourcingExtensionCandidateProjection,
+  SourcingCollectionPermit,
+} from '../port/out/repository/sourcing-collection.repository.port';
 
 const EXTENSION_LEASE_MS = 2 * 60_000;
 
@@ -31,17 +29,8 @@ export interface ExtensionV1Response {
   product_count: number;
 }
 
-export interface CreateExtensionV2CollectionSessionInput {
-  sourcePlatform: '1688' | 'alibaba';
-  sourceUrl: string;
-  externalOfferId: string;
-  variantKey: string;
-}
-
 /**
- * Owns the compatibility translation for browser extension product payloads.
- * The legacy controller path remains stable, while every durable write is
- * preceded by the same allowed-source/lease gate used by provider collectors.
+ * Maps the deployed extension wire payload into Sourcing candidate evidence.
  */
 @Injectable()
 export class SourcingExtensionIngestService {
@@ -62,100 +51,12 @@ export class SourcingExtensionIngestService {
       };
     }
     const command = toV1Command(product);
-    return this.commitAndPersist(context, command, 'v1');
-  }
-
-  async ingestV2(
-    context: AuthenticatedSourcingContext,
-    raw: unknown,
-  ): Promise<ExtensionV1Response> {
-    const parsed = SourcingExtensionV2ProductSchema.safeParse(raw);
-    if (!parsed.success) throw new BadRequestException('v2 확장 수집 payload 형식이 올바르지 않습니다.');
-    const product = parsed.data;
-    const supplier = parseSupplierUrl(product.sourceUrl);
-    if (supplier.platform !== product.sourcePlatform) {
-      throw new BadRequestException('공급사 URL과 sourcePlatform이 일치하지 않습니다.');
-    }
-    const command: ExtensionProductCommand = {
-      pageType: 'detail',
-      sourceUrl: supplier.normalizedUrl,
-      sourcePlatform: product.sourcePlatform,
-      externalOfferId: product.externalOfferId.trim(),
-      variantKeyNormalized: normalizedVariantKey(product.variantKey),
-      title: product.title.trim(),
-      capturedAt: new Date(product.capturedAt),
-      payload: {
-        page_type: 'detail',
-        source_url: supplier.normalizedUrl,
-        source_platform: product.sourcePlatform,
-        product_id: product.externalOfferId.trim(),
-        title: product.title.trim(),
-        price_min: product.priceMin ?? undefined,
-        price_max: product.priceMax ?? undefined,
-        moq: product.minOrderQuantity ?? undefined,
-        supplier_name: product.supplierName ?? undefined,
-        sku_attrs: product.skuAttributes,
-        sku_list: product.skuItems,
-        price_tiers: product.priceTiers.map((tier) => ({
-          beginAmount: tier.minQuantity,
-          price: tier.unitPriceCny,
-        })),
-      },
-      requestHash: extensionSessionRequestHash({
-        collectionSessionId: product.collectionSessionId,
-        sourcePlatform: supplier.platform,
-        sourceUrl: supplier.normalizedUrl,
-        externalOfferId: product.externalOfferId.trim(),
-        variantKey: product.variantKey,
-      }),
-      idempotencyKey: `extension:v2:${product.collectionSessionId}`,
-      collectorVersion: product.extractorVersion,
-    };
-    return this.commitAndPersist(context, command, 'v2');
-  }
-
-  async issueV2CollectionSession(
-    context: AuthenticatedSourcingContext,
-    input: CreateExtensionV2CollectionSessionInput,
-  ): Promise<{ collectionSessionId: string; expiresAt: string }> {
-    const supplier = parseSupplierUrl(input.sourceUrl);
-    if (supplier.platform !== input.sourcePlatform) {
-      throw new BadRequestException('공급사 URL과 sourcePlatform이 일치하지 않습니다.');
-    }
-    const externalOfferId = input.externalOfferId.trim();
-    if (!externalOfferId) throw new BadRequestException('공급사 상품 식별자가 필요합니다.');
-    const collectionSessionId = randomUUID();
-    const variantKeyNormalized = normalizedVariantKey(input.variantKey);
-    const requestHash = extensionSessionRequestHash({
-      collectionSessionId,
-      sourcePlatform: supplier.platform,
-      sourceUrl: supplier.normalizedUrl,
-      externalOfferId,
-      variantKey: variantKeyNormalized,
-    });
-    const permit = await this.collections.issuePermit({
-      organizationId: context.organizationId,
-      sourceKey: `${supplier.platform}.product_extension`,
-      scopeKey: 'detail',
-      targetKey: `${externalOfferId}:${variantKeyNormalized}`,
-      idempotencyKey: `extension:v2:${collectionSessionId}`,
-      requestHash,
-      collectorKey: 'kiditem-os-product-extension',
-      collectorVersion: 'kiditem-os/v2',
-      triggerKind: 'extension',
-      triggeredByUserId: context.userId,
-      leaseDurationMs: EXTENSION_LEASE_MS,
-    });
-    return {
-      collectionSessionId,
-      expiresAt: permit.leaseExpiresAt.toISOString(),
-    };
+    return this.commitAndPersist(context, command);
   }
 
   private async commitAndPersist(
     context: AuthenticatedSourcingContext,
     command: ExtensionProductCommand,
-    schemaVersion: 'v1' | 'v2',
   ): Promise<ExtensionV1Response> {
     const sourceKey = `${command.sourcePlatform}.product_extension`;
     const result = await this.collections.execute({
@@ -170,11 +71,9 @@ export class SourcingExtensionIngestService {
       triggerKind: 'extension',
       triggeredByUserId: context.userId,
       leaseDurationMs: EXTENSION_LEASE_MS,
-      requireExistingPermit: schemaVersion === 'v2',
     }, async ({ permit }) => buildExtensionOutput(
       permit,
       command,
-      schemaVersion,
       extensionCandidateProjection(command, context),
     ));
 
@@ -292,7 +191,6 @@ function sanitizeV1(
 function buildExtensionOutput(
   permit: SourcingCollectionPermit,
   command: ExtensionProductCommand,
-  schemaVersion: 'v1' | 'v2',
   projection: SourcingExtensionCandidateProjection,
 ): AuthorizedCollectionOutput {
   const rawPayload = {
@@ -314,7 +212,7 @@ function buildExtensionOutput(
       conceptKey: command.title ? normalizeCollectionTarget(command.title) : null,
       sourceEntityType: 'supplier_offer',
       sourceEntityId: command.externalOfferId,
-      schemaVersion: `supplier-extension/${schemaVersion}`,
+      schemaVersion: 'supplier-extension/v1',
       observationKey: hashCollectionRequest({
         platform: command.sourcePlatform,
         externalOfferId: command.externalOfferId,
@@ -335,7 +233,7 @@ function buildExtensionOutput(
     typedRecords: [{ kind: 'extension_candidate', row: projection }],
     discoveredCount: 1,
     rejectedCount: 0,
-    qualityReport: { schemaVersion, externalOfferId: command.externalOfferId },
+    qualityReport: { schemaVersion: 'v1', externalOfferId: command.externalOfferId },
   };
 }
 
@@ -436,20 +334,4 @@ function normalizedVariantKey(value: unknown): string {
 
 function omitUndefined(value: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined));
-}
-
-function extensionSessionRequestHash(input: {
-  collectionSessionId: string;
-  sourcePlatform: string;
-  sourceUrl: string;
-  externalOfferId: string;
-  variantKey: string;
-}): string {
-  return hashCollectionRequest({
-    collectionSessionId: input.collectionSessionId,
-    sourcePlatform: input.sourcePlatform,
-    sourceUrl: input.sourceUrl,
-    externalOfferId: input.externalOfferId,
-    variantKey: normalizedVariantKey(input.variantKey),
-  });
 }
