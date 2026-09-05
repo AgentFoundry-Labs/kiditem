@@ -2,6 +2,7 @@ import {
   IsArray,
   IsBoolean,
   IsInt,
+  IsIn,
   IsNumber,
   IsObject,
   IsOptional,
@@ -80,6 +81,16 @@ export class ExtensionSyncDto {
   campaignDailyTo?: string;
 
   @IsString()
+  @IsIn([
+    'ad_campaign',
+    'ad_keyword',
+    'raw_scrape',
+    'traffic',
+    'coupang_ads_daily',
+    'competitor_seller_catalog',
+    'competitor_seller_identity',
+    'wing_sales_rank',
+  ])
   type: string;
 
   @IsOptional()

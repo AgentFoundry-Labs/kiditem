@@ -14,6 +14,7 @@ import { AdvertisingOverviewController } from "./adapter/in/http/advertising-ove
 import { AdvertisingStrategyController } from "./adapter/in/http/advertising-strategy.controller";
 import { AdKeywordAgentController } from "./adapter/in/http/ad-keyword-agent.controller";
 import { KeywordRankController } from "./adapter/in/http/keyword-rank.controller";
+import { KeywordSerpSourceController } from "./adapter/in/http/keyword-serp-source.controller";
 import { CompetitorTrackingController } from "./adapter/in/http/competitor-tracking.controller";
 import { CompetitorCatalogSourceController } from "./adapter/in/http/competitor-catalog-source.controller";
 import { WingTrackedProductController } from "./adapter/in/http/wing-tracked-product.controller";
@@ -32,6 +33,7 @@ import { ChannelListingDailyRepositoryAdapter } from "./adapter/out/repository/c
 import { ChannelOptionDailyRepositoryAdapter } from "./adapter/out/repository/channel-option-daily.repository.adapter";
 import { ChannelTargetDailyRepositoryAdapter } from "./adapter/out/repository/channel-target-daily.repository.adapter";
 import { KeywordRankRepositoryAdapter } from "./adapter/out/repository/keyword-rank.repository.adapter";
+import { KeywordSerpSourceRepository } from "./adapter/out/repository/keyword-serp-source.repository";
 import { WingTrackedProductRepositoryAdapter } from "./adapter/out/repository/wing-tracked-product.repository.adapter";
 import { WingTrackedProductSourceAttemptRepositoryAdapter } from "./adapter/out/repository/wing-tracked-product-source-attempt.repository.adapter";
 import { CompetitorCatalogSourceAttemptRepositoryAdapter } from "./adapter/out/repository/competitor-catalog-source-attempt.repository.adapter";
@@ -192,6 +194,7 @@ const REPOSITORY_PORT_BINDINGS = [
     AdvertisingExecutionController,
     AdKeywordAgentController,
     KeywordRankController,
+    KeywordSerpSourceController,
     CompetitorTrackingController,
     CompetitorCatalogSourceController,
     WingTrackedProductController,
@@ -212,6 +215,7 @@ const REPOSITORY_PORT_BINDINGS = [
     ChannelOptionDailyRepositoryAdapter,
     ChannelTargetDailyRepositoryAdapter,
     KeywordRankRepositoryAdapter,
+    KeywordSerpSourceRepository,
     WingTrackedProductRepositoryAdapter,
     WingTrackedProductSourceAttemptRepositoryAdapter,
     CompetitorCatalogSourceAttemptRepositoryAdapter,

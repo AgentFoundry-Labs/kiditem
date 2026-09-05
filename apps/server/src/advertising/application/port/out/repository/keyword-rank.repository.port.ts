@@ -39,7 +39,7 @@ export interface OwnVendorItem {
   productName: string;
   category: string | null;
   /** 연결된 MasterProduct의 자동 ABC 등급. */
-  abcGrade: 'A' | 'B' | 'C' | null;
+  abcGrade: "A" | "B" | "C" | null;
 }
 
 export interface RepresentativeKeywordOverrideRow {
@@ -52,6 +52,7 @@ export interface RepresentativeKeywordOverrideRow {
 }
 
 export interface UpsertRankSnapshotInput {
+  sourceImportRunId: string;
   organizationId: string;
   keyword: string;
   vendorItemId: string;
@@ -71,6 +72,7 @@ export interface UpsertRankSnapshotInput {
 }
 
 export interface UpsertSerpSnapshotInput {
+  sourceImportRunId: string;
   organizationId: string;
   keyword: string;
   businessDate: Date;

@@ -142,6 +142,7 @@ model ChannelScrapeSnapshot {
   id             String  @id @default(uuid()) @db.Uuid
   organizationId String  @map("organization_id") @db.Uuid
   scrapeRunId    String? @map("scrape_run_id") @db.Uuid
+  sourceImportRunId String? @map("source_import_run_id") @db.Uuid
 
   channel      String
   source       String
@@ -165,6 +166,7 @@ model ChannelScrapeSnapshot {
 
   organization  Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   scrapeRun     ChannelScrapeRun?     @relation(fields: [scrapeRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceImportRun SourceImportRun?    @relation("KeywordSerpCapture", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   listing       ChannelListing?       @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Restrict)
   listingOption ChannelListingOption? @relation(fields: [listingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
@@ -174,6 +176,8 @@ model ChannelScrapeSnapshot {
   accountKpiSnapshots    ChannelAccountDailyKpiSnapshot[]    @relation("AccountKpiRawSnapshot")
 
   @@unique([id, organizationId], map: "channel_scrape_snapshots_id_org_key")
+  @@unique([sourceImportRunId, organizationId], map: "channel_scrape_snapshots_serp_capture_key", where: raw("source_import_run_id IS NOT NULL AND source = 'coupang_keyword_serp'"))
+  @@index([sourceImportRunId, organizationId])
   @@index([organizationId, channel, source, businessDate])
   @@index([organizationId, channel, pageType, businessDate])
   @@index([scrapeRunId])
@@ -503,6 +507,7 @@ model CoupangKeywordTracker {
 model CoupangKeywordRankDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
+  sourceImportRunId String? @map("source_import_run_id") @db.Uuid
   keyword        String
   vendorItemId   String   @map("vendor_item_id")
   businessDate   DateTime @map("business_date") @db.Date
@@ -526,8 +531,10 @@ model CoupangKeywordRankDailySnapshot {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceImportRun SourceImportRun? @relation("KeywordRankSource", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, keyword, vendorItemId, businessDate])
+  @@index([sourceImportRunId, organizationId])
   @@index([organizationId, keyword, businessDate])
   @@index([organizationId, vendorItemId, businessDate])
   @@map("coupang_keyword_rank_daily_snapshots")
@@ -599,6 +606,7 @@ model CoupangWingTrackedProductDailySnapshot {
 model CoupangKeywordSerpDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
+  sourceImportRunId String? @map("source_import_run_id") @db.Uuid
   keyword        String
   businessDate   DateTime @map("business_date") @db.Date
 
@@ -612,8 +620,10 @@ model CoupangKeywordSerpDailySnapshot {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceImportRun SourceImportRun? @relation("KeywordSerpSource", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, keyword, businessDate])
+  @@index([sourceImportRunId, organizationId])
   @@index([organizationId, businessDate])
   @@map("coupang_keyword_serp_daily_snapshots")
 }

@@ -3,6 +3,15 @@ import { validate } from 'class-validator';
 import { describe, expect, it } from 'vitest';
 import { ExtensionSyncDto } from './extension-sync.dto';
 
+it('rejects public SERP captures at the unfenced extension sync boundary', async () => {
+  const dto = plainToInstance(ExtensionSyncDto, {
+    type: 'keyword_rank',
+    data: [{ keyword: '문구', items: [] }],
+  });
+  expect((await validate(dto, { whitelist: true })).map((error) => error.property))
+    .toContain('type');
+});
+
 async function scopeErrors(scope: unknown) {
   const dto = plainToInstance(ExtensionSyncDto, {
     type: 'ad_campaign',

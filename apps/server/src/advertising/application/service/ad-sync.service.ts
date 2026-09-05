@@ -3,8 +3,7 @@
 //
 // This service is intentionally thin: it dispatches to per-source ingest
 // handlers (`AdCampaignIngestHandler`, `RawScrapeIngestHandler`,
-// `TrafficIngestHandler`, `CoupangAdsDailyIngestHandler`,
-// `KeywordRankIngestHandler`), exposes a
+// `TrafficIngestHandler`, `CoupangAdsDailyIngestHandler`), exposes a
 // current-state extension status read, and proxies tenant-scoped
 // scrape-target CRUD through the scrape-target repository port.
 // Domain helpers (business-date, listing-match, scrape-row-normalizers),
@@ -96,8 +95,6 @@ export class AdSyncService {
             organizationId,
             map,
           );
-        case "keyword_rank":
-          return this.keywordRankHandler.execute(payload, organizationId);
         case "competitor_seller_catalog":
           return this.keywordRankHandler.executeSellerCatalogs(
             payload,

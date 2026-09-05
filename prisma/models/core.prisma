@@ -359,6 +359,7 @@ model SourceImportRun {
   id                           String    @id @default(uuid()) @db.Uuid
   organizationId               String    @map("organization_id") @db.Uuid
   sourceType                   String    @map("source_type")
+  rankKeyword                  String?   @map("rank_keyword")
   channelAccountId             String?   @map("channel_account_id") @db.Uuid
   fileName                     String?   @map("file_name")
   fileHash                     String?   @map("file_hash")
@@ -401,6 +402,9 @@ model SourceImportRun {
   channelProducts                         ChannelListing[]                         @relation("ChannelProductLastImport")
   channelSkus                             ChannelListingOption[]                   @relation("ChannelSkuLastImport")
   channelScrapeRuns                       ChannelScrapeRun[]
+  keywordSerpCaptures                     ChannelScrapeSnapshot[]                 @relation("KeywordSerpCapture")
+  keywordRankDailyProjections             CoupangKeywordRankDailySnapshot[]       @relation("KeywordRankSource")
+  keywordSerpDailyProjections             CoupangKeywordSerpDailySnapshot[]       @relation("KeywordSerpSource")
   adListingProductMonthlyFacts            ChannelAdListingProductMonthlyFact[]       @relation("AdListingProductMonthlyFacts")
   adTargetDailySnapshots                  ChannelAdTargetDailySnapshot[]             @relation("AdTargetSourceImport")
   lastCompletedSellpiaInventoryStates     SellpiaInventoryState[]                  @relation("SellpiaInventoryStateLastCompletedRun")
@@ -422,6 +426,8 @@ model SourceImportRun {
   @@unique([organizationId, sourceType, fileHash], map: "source_import_runs_org_source_hash_null_account_key", where: raw("channel_account_id IS NULL AND file_hash IS NOT NULL"))
   @@unique([organizationId, sourceType, freshnessGeneration], map: "source_import_runs_org_source_failed_generation_key", where: raw("file_hash IS NULL AND source_type = 'sellpia_inventory' AND status = 'failed' AND freshness_generation IS NOT NULL"))
   @@unique([organizationId, sourceType, idempotencyKey], map: "source_import_runs_source_idempotency_key", where: raw("idempotency_key IS NOT NULL"))
+  @@unique([organizationId, sourceType, rankKeyword], map: "source_import_runs_keyword_serp_running_key", where: raw("source_type = 'coupang_keyword_serp' AND status = 'running'"))
+  @@unique([organizationId, sourceType, rankKeyword, freshnessGeneration], map: "source_import_runs_keyword_serp_generation_key", where: raw("source_type = 'coupang_keyword_serp' AND freshness_generation IS NOT NULL"))
   @@unique([organizationId, sourceType], map: "source_import_runs_sellpia_profitability_running_key", where: raw("source_type = 'sellpia_product_profitability' AND status = 'running'"))
   @@unique([organizationId, sourceType], map: "source_import_runs_coupang_ad_profitability_running_key", where: raw("source_type = 'coupang_ad_profitability' AND status = 'running'"))
   @@unique([organizationId, sourceType, publicationSequence], map: "source_import_runs_org_source_publication_key", where: raw("publication_sequence IS NOT NULL"))
