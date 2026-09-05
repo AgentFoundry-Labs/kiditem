@@ -2,13 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
 import type {
-  SourcingEvidenceIngestionRunRecord,
   SourcingEvidenceLedgerRepositoryPort,
   SourcingEvidenceObservationRecord,
   SourcingEvidenceRunStatus,
 } from '../../../application/port/out/repository/sourcing-evidence-ledger.repository.port';
-
-const runInclude = {} satisfies Prisma.SourcingEvidenceIngestionRunInclude;
 
 const observationInclude = {
   ingestionRun: {
@@ -17,15 +14,10 @@ const observationInclude = {
       targetKey: true,
       coverageNumerator: true,
       coverageDenominator: true,
-      qualityReport: true,
       completedAt: true,
     },
   },
 } satisfies Prisma.SourcingEvidenceObservationInclude;
-
-type RunRow = Prisma.SourcingEvidenceIngestionRunGetPayload<{
-  include: typeof runInclude;
-}>;
 
 type ObservationRow = Prisma.SourcingEvidenceObservationGetPayload<{
   include: typeof observationInclude;
@@ -34,17 +26,6 @@ type ObservationRow = Prisma.SourcingEvidenceObservationGetPayload<{
 @Injectable()
 export class SourcingEvidenceLedgerRepositoryAdapter implements SourcingEvidenceLedgerRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
-
-  async getRun(input: {
-    organizationId: string;
-    runId: string;
-  }): Promise<SourcingEvidenceIngestionRunRecord | null> {
-    const row = await this.prisma.sourcingEvidenceIngestionRun.findFirst({
-      where: { id: input.runId, organizationId: input.organizationId },
-      include: runInclude,
-    });
-    return row ? toRunRecord(row) : null;
-  }
 
   async findObservationsByIds(input: {
     organizationId: string;
@@ -143,32 +124,6 @@ export class SourcingEvidenceLedgerRepositoryAdapter implements SourcingEvidence
   }
 }
 
-function toRunRecord(row: RunRow): SourcingEvidenceIngestionRunRecord {
-  return {
-    id: row.id,
-    organizationId: row.organizationId,
-    sourceKey: row.sourceKey,
-    runKey: row.idempotencyKey,
-    requestHash: row.requestHash,
-    scopeKey: row.targetKey,
-    collectorVersion: row.collectorVersion,
-    triggeredByUserId: row.triggeredByUserId,
-    status: fromDatabaseRunStatus(row.status),
-    windowStartAt: row.sourceWindowStartAt,
-    windowEndAt: row.sourceWindowEndAt,
-    expectedCount: row.coverageDenominator,
-    observedCount: row.acceptedCount,
-    coverageBps: coverageBps(row),
-    watermarkEventAt: parseOptionalDate(row.watermarkAfter),
-    errorCode: row.errorCode,
-    errorMessage: row.errorMessage,
-    startedAt: row.startedAt,
-    completedAt: row.completedAt,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
 function toObservationRecord(
   row: ObservationRow,
 ): SourcingEvidenceObservationRecord {
@@ -180,7 +135,7 @@ function toObservationRecord(
     organizationId: row.organizationId,
     ingestionRunId: row.ingestionRunId,
     ingestionRunStatus: fromDatabaseRunStatus(row.ingestionRun.status),
-    ingestionRunCoverageBps: runCoverageBps(row.ingestionRun),
+    ingestionRunCoverageBps: calculateRunCoverageBps(row.ingestionRun),
     ingestionRunCompletedAt: row.ingestionRun.completedAt,
     sourceKey: row.sourceKey,
     sourceScopeKey: row.ingestionRun.targetKey,
@@ -213,18 +168,6 @@ function fromDatabaseRunStatus(status: string): SourcingEvidenceRunStatus {
   throw new Error(`Unsupported evidence run status: ${status}`);
 }
 
-function coverageBps(row: RunRow): number | null {
-  return calculateRunCoverageBps(row);
-}
-
-function runCoverageBps(row: {
-  qualityReport: Prisma.JsonValue | null;
-  coverageNumerator: number | null;
-  coverageDenominator: number | null;
-}): number | null {
-  return calculateRunCoverageBps(row);
-}
-
 function calculateRunCoverageBps(row: {
   coverageNumerator: number | null;
   coverageDenominator: number | null;
@@ -241,12 +184,6 @@ function calculateRunCoverageBps(row: {
     return null;
   }
   return Math.round((row.coverageNumerator / row.coverageDenominator) * 10_000);
-}
-
-function parseOptionalDate(value: string | null): Date | null {
-  if (!value) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function requiredJsonObject(

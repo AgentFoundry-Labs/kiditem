@@ -30,30 +30,6 @@ export type SourcingEvidenceSignalRole =
 
 export type SourcingEvidenceRunStatus = SourcingBrowserSourceAttempt['state'];
 
-export interface SourcingEvidenceIngestionRunRecord {
-  id: string;
-  organizationId: string;
-  sourceKey: string;
-  runKey: string;
-  requestHash: string;
-  scopeKey: string;
-  collectorVersion: string;
-  triggeredByUserId: string | null;
-  status: SourcingEvidenceRunStatus;
-  windowStartAt: Date | null;
-  windowEndAt: Date | null;
-  expectedCount: number | null;
-  observedCount: number;
-  coverageBps: number | null;
-  watermarkEventAt: Date | null;
-  errorCode: string | null;
-  errorMessage: string | null;
-  startedAt: Date;
-  completedAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
 export interface SourcingEvidenceObservationRecord {
   id: string;
   organizationId: string;
@@ -116,11 +92,6 @@ export interface AppendSourcingEvidenceObservationCommand {
 }
 
 export interface SourcingEvidenceLedgerRepositoryPort {
-
-  getRun(input: {
-    organizationId: string;
-    runId: string;
-  }): Promise<SourcingEvidenceIngestionRunRecord | null>;
 
   findObservationsByIds(input: {
     organizationId: string;

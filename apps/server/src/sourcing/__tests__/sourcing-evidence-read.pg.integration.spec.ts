@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../test-helpers/real-prisma';
@@ -20,6 +20,7 @@ describe('Sourcing evidence reads from source owner publications (PostgreSQL)', 
 
   beforeAll(async () => { prisma = makeTestPrisma(); await prisma.$connect(); });
   afterAll(async () => prisma?.$disconnect());
+  afterEach(() => vi.useRealTimers());
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
@@ -29,7 +30,7 @@ describe('Sourcing evidence reads from source owner publications (PostgreSQL)', 
     writer = new SourcingBrowserSourceAttemptController(new SourcingBrowserSourceAttemptService(owner,
       { list1688Targets: async () => [{ label: '연필', keyword: '铅笔' }] } as unknown as TrendCollectService));
     observations = new SourcingEvidenceLedgerRepositoryAdapter(db);
-    evidence = new SourcingEvidenceLedgerService(observations);
+    evidence = new SourcingEvidenceLedgerService(owner);
   });
 
   it('returns COMPLETE provenance for a source-owner publication', async () => {
@@ -38,7 +39,17 @@ describe('Sourcing evidence reads from source owner publications (PostgreSQL)', 
       { keywords: [{ keyword: '铅笔', items: [] }] }, TEST_ORGANIZATION_ID);
 
     await expect(evidence.getRun(TEST_ORGANIZATION_ID, attempt.attemptId)).resolves.toMatchObject({
-      id: attempt.attemptId, sourceKey: '1688.hot_product', status: 'COMPLETE', observedCount: 0,
+      attemptId: attempt.attemptId, sourceKey: '1688.hot_product', state: 'COMPLETE', acceptedCount: 0,
+    });
+  });
+
+  it('reports expired evidence attempts through the same owner state contract', async () => {
+    const attempt = await writer.begin1688(TEST_ORGANIZATION_ID, { id: TEST_USER_ID } as AuthUser, 'evidence-expired');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(attempt.expiresAt).getTime() + 1);
+
+    await expect(evidence.getRun(TEST_ORGANIZATION_ID, attempt.attemptId)).resolves.toMatchObject({
+      attemptId: attempt.attemptId, state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED',
     });
   });
 
