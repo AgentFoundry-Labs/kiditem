@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 const SOURCE_OWNER_MANIFEST =
   "extensions/kiditem-os/background/source-owner-manifest.js";
@@ -300,74 +301,44 @@ function matchingBracket(source, start, opening = "[", closing = "]") {
   return -1;
 }
 
-function stringLiteralsInRange(source, start, end) {
-  const values = [];
-  for (let index = start; index < end; index += 1) {
-    if (source[index] !== "'" && source[index] !== '"' && source[index] !== "`") {
-      continue;
-    }
-    const string = readStringAt(source, index);
-    if (!string || string.end > end) continue;
-    values.push(string.value);
-    index = string.end - 1;
-  }
-  return values;
-}
-
 function addProducerValue(values, value) {
   if (typeof value === "string" && PRODUCER_VALUE.test(value.trim())) {
     values.add(value.trim());
   }
 }
 
-function producerValuesFromFile(source) {
-  const masked = withoutComments(source);
-  const ranges = stringRanges(masked);
+function producerValuesFromFile(source, fileName) {
+  const ast = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
   const values = new Set();
 
-  const singular =
-    /\b(?:const|let|var)\s+[A-Za-z_$][\w$]*_PRODUCER\s*(?::\s*[^=\n]+)?=\s*/g;
-  let match;
-  while ((match = singular.exec(masked))) {
-    if (positionInStringRanges(match.index, ranges)) continue;
-    const literalStart = skipWhitespace(masked, singular.lastIndex);
-    const literal = readStringAt(masked, literalStart);
-    if (literal) addProducerValue(values, literal.value);
+  function addLiteral(node) {
+    if (node && ts.isStringLiteralLike(node)) addProducerValue(values, node.text);
+  }
+  function addInitializerLiterals(node) {
+    addLiteral(node);
+    ts.forEachChild(node, addInitializerLiterals);
   }
 
-  const plural =
-    /\b(?:const|let|var)\s+[A-Za-z_$][\w$]*_PRODUCERS\s*(?::\s*[^=\n]+)?=\s*/g;
-  while ((match = plural.exec(masked))) {
-    if (positionInStringRanges(match.index, ranges)) continue;
-    const arrayStart = masked.indexOf("[", plural.lastIndex);
-    if (
-      arrayStart < 0 ||
-      arrayStart - plural.lastIndex > 400 ||
-      positionInStringRanges(arrayStart, ranges)
-    ) continue;
-    const arrayEnd = matchingBracket(masked, arrayStart);
-    if (arrayEnd < 0) continue;
-    for (const value of stringLiteralsInRange(masked, arrayStart + 1, arrayEnd)) {
-      addProducerValue(values, value);
+  function visit(node) {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      if (node.name.text.endsWith("_PRODUCER")) addLiteral(node.initializer);
+      if (node.name.text.endsWith("_PRODUCERS")) addInitializerLiterals(node.initializer);
     }
+    if (ts.isPropertyAssignment(node) &&
+        (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name)) && node.name.text === "producer") {
+      addLiteral(node.initializer);
+    }
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const { expression: receiver, name } = node.expression;
+      if (name.text === "beginWebCollection" ||
+          (name.text === "add" && ts.isIdentifier(receiver) && receiver.text.endsWith("_PRODUCERS"))) {
+        addLiteral(node.arguments[0]);
+      }
+    }
+    ts.forEachChild(node, visit);
   }
 
-  const setMember =
-    /\b[A-Za-z_$][\w$]*_PRODUCERS\s*\.\s*add\s*\(\s*/g;
-  while ((match = setMember.exec(masked))) {
-    if (positionInStringRanges(match.index, ranges)) continue;
-    const literal = readStringAt(masked, skipWhitespace(masked, setMember.lastIndex));
-    if (literal) addProducerValue(values, literal.value);
-  }
-
-  const property = /\bproducer\s*:\s*/g;
-  while ((match = property.exec(masked))) {
-    if (positionInStringRanges(match.index, ranges)) continue;
-    const literalStart = skipWhitespace(masked, property.lastIndex);
-    const literal = readStringAt(masked, literalStart);
-    if (literal) addProducerValue(values, literal.value);
-  }
-
+  visit(ast);
   return values;
 }
 
@@ -447,7 +418,7 @@ function collectUnownedProducers(root, owners) {
   )) {
     if (relativePath(root, absolutePath) === SOURCE_OWNER_MANIFEST) continue;
     const source = readFileSync(absolutePath, "utf8");
-    for (const producer of producerValuesFromFile(source)) declared.add(producer);
+    for (const producer of producerValuesFromFile(source, absolutePath)) declared.add(producer);
   }
 
   return [...declared]

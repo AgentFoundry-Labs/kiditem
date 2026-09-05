@@ -61,6 +61,47 @@ test("reports a source owner that calls product ABC", async () => {
   );
 });
 
+test("checks producer literals passed to the retained browser collection entrypoint", async () => {
+  await withFixture(
+    {
+      "extensions/kiditem-os/background/coupang/worker.js": [
+        'collectionRuns.beginWebCollection("advertising.keyword_rank", input);',
+        '// collectionRuns.beginWebCollection("advertising.comment", input);',
+        '`collectionRuns.beginWebCollection("advertising.example", input)`;',
+      ].join("\n"),
+    },
+    { "advertising.wing_rank": "advertising" },
+    async (root) => {
+      const result = await scanOperationAutomationCutover(root);
+      assert.deepEqual(result.unownedProducers, ["advertising.keyword_rank"]);
+    },
+  );
+});
+
+test("finds producer declarations after regex literals and ignores example text", async () => {
+  await withFixture(
+    {
+      "extensions/kiditem-os/background/coupang/worker.js": [
+        'const quote = /"/g;',
+        'collectionRuns.beginWebCollection("advertising.keyword_rank", input);',
+        'const ORDER_PRODUCER = "orders.mall";',
+        'const SOURCE_PRODUCERS = new Set(["sourcing.trend"]);',
+        'SOURCE_PRODUCERS.add("sourcing.product");',
+        'const session = { producer: "inventory.sellpia" };',
+        '// const COMMENT_PRODUCER = "orders.comment";',
+        '`const EXAMPLE_PRODUCER = "orders.example";`;',
+      ].join("\n"),
+    },
+    { "orders.mall": "orders", "inventory.sellpia": "inventory" },
+    async (root) => {
+      const result = await scanOperationAutomationCutover(root);
+      assert.deepEqual(result.unownedProducers, [
+        "advertising.keyword_rank", "sourcing.product", "sourcing.trend",
+      ]);
+    },
+  );
+});
+
 test("reports active legacy runtime references", async () => {
   await withFixture(
     {
