@@ -3,7 +3,7 @@
   const SOURCES = {
     serp: { action: "collectAdvertisingKeywordSerp", producer: "advertising.keyword_rank",
       type: "coupang_keyword_serp", parser: "keyword-serp-v1", maxPages: 3, errorPrefix: "SERP" },
-    wing: { action: "collectAdvertisingWingRank", producer: "advertising.wing_sales_rank",
+    wing: { action: "collectAdvertisingWingRank", producer: "advertising.wing_rank",
       type: "coupang_wing_rank", parser: "wing-rank-v1", maxPages: 5, errorPrefix: "WING_RANK" },
   };
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -122,32 +122,37 @@
       }
       return inFlight.get(key);
     }
+    async function fail({ environmentId, attemptId, code, message }) {
+      const session = await sessions.getOwned(attemptId, environmentId);
+      if (session && session.producer !== source.producer) throw new Error("RANK_SOURCE_SESSION_MISMATCH");
+      const owner = connection(environmentId, attemptId);
+      let terminal;
+      const ownerFailure = async () => {
+        const attempt = await owner.read();
+        if (attempt.plan?.sourceType !== source.type || attempt.plan.parserVersion !== source.parser) {
+          throw new Error("RANK_SOURCE_PLAN_MISMATCH");
+        }
+        terminal = attempt;
+        if (attempt.state === "RUNNING") {
+          try {
+            terminal = await owner.submit(attempt, { method: "POST", suffix: "/fail", body: { code, message } });
+          } catch (error) {
+            terminal = await owner.read().catch(() => null);
+            if (!terminal || terminal.state === "RUNNING") throw error;
+          }
+        }
+        return { accepted: terminal.state !== "RUNNING" };
+      };
+      if (session) await sessions.cancel(attemptId, { closeManagedTab: true, ownerFailure });
+      else await ownerFailure();
+      return result(terminal);
+    }
     async function cancel({ environmentId, attemptId }) {
       const session = await sessions.getOwned(attemptId, environmentId);
       if (session?.producer !== source.producer) return null;
-      const owner = connection(environmentId, attemptId);
-      let terminal;
-      await sessions.cancel(attemptId, {
-        closeManagedTab: true,
-        ownerFailure: async () => {
-          const attempt = await owner.read();
-          terminal = attempt;
-          if (attempt.state === "RUNNING") {
-            try {
-              terminal = await owner.submit(attempt, { method: "POST", suffix: "/fail", body: {
-                code: "COLLECTION_CANCELLED", message: "키워드 순위 수집이 취소되었습니다.",
-              } });
-            } catch (error) {
-              terminal = await owner.read().catch(() => null);
-              if (!terminal || terminal.state === "RUNNING") throw error;
-            }
-          }
-          return { accepted: terminal.state !== "RUNNING" };
-        },
-      });
-      return result(terminal);
+      return fail({ environmentId, attemptId, code: "COLLECTION_CANCELLED", message: "키워드 순위 수집이 취소되었습니다." });
     }
-    return Object.freeze({ run, cancel });
+    return Object.freeze({ run, cancel, fail });
   }
   root.KidItemKeywordRankSourceOwner = Object.freeze({ create, parseStart });
 })(globalThis);

@@ -1684,6 +1684,84 @@ async function executeCoupangKeywordSuggestionSearch(
 
 // ═══ Wing 상품분석 최근 28일 판매량순 × 자사 카탈로그 전체 ═══
 
+// A batch is only a frozen list of owner attempts. Dispatch acknowledgement is
+// not completion; callers read the owner receipt for every result.
+const wingRankBatchDispatches = new Map();
+
+function parseWingRankBatchMessage(message, action) {
+  if (message?.action !== action || typeof message.idempotencyKey !== "string"
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(message.idempotencyKey)
+    || Object.keys(message).some((key) => key !== "action" && key !== "idempotencyKey")) {
+    throw new Error("Invalid Wing rank batch request");
+  }
+  return { idempotencyKey: message.idempotencyKey };
+}
+
+async function readWingRankBatch(environmentId, idempotencyKey) {
+  const response = await authedFetch(environmentId, "/api/ads/keyword-rank/wing/batch-attempts", {
+    method: "GET", headers: { "Idempotency-Key": idempotencyKey },
+  });
+  if (!response.ok) throw new Error(`Wing 순위 수집 대상 조회 실패 (${response.status})`);
+  const batch = await response.json();
+  if (!Array.isArray(batch?.attempts)) throw new Error("Invalid Wing rank batch response");
+  const ids = new Set();
+  for (const attempt of batch.attempts) {
+    KidItemKeywordRankSourceOwner.parseStart({ action: "collectAdvertisingWingRank", attemptId: attempt?.attemptId }, "wing");
+    if (ids.has(attempt.attemptId) || !["RUNNING", "COMPLETE", "FAILED"].includes(attempt.state)) {
+      throw new Error("Invalid Wing rank batch member");
+    }
+    ids.add(attempt.attemptId);
+  }
+  return batch;
+}
+
+function startWingRankSourceBatch({ environmentId, idempotencyKey }) {
+  const key = `${environmentId}:${idempotencyKey}`;
+  if (wingRankBatchDispatches.has(key)) return wingRankBatchDispatches.get(key).started;
+  const dispatch = { cancelled: false, started: null };
+  wingRankBatchDispatches.set(key, dispatch);
+  dispatch.started = readWingRankBatch(environmentId, idempotencyKey).then((batch) => {
+    const pending = batch.attempts.filter((attempt) => attempt.state === "RUNNING");
+    if (!pending.length) {
+      wingRankBatchDispatches.delete(key);
+      return { success: true, started: false };
+    }
+    KidItemWorkerKeepAlive.during((async () => {
+      let next = 0;
+      try {
+        while (next < pending.length && !dispatch.cancelled) {
+          const attemptId = pending[next++].attemptId;
+          const outcome = await wingRankSourceOwner.run({ environmentId, attemptId });
+          if (outcome.terminalState === "RUNNING" || outcome.errorCode === "WING_RANK_PROVIDER_WALL"
+            || outcome.errorCode === "COLLECTION_CANCELLED") break;
+          if (next < pending.length) await sleep(randomDelayMs(1200, 2500));
+        }
+      } finally {
+        // Do not contradict the current unconfirmed submission. Only members
+        // that never reached collection are explicitly marked interrupted.
+        if (!dispatch.cancelled) for (const attempt of pending.slice(next)) {
+          await wingRankSourceOwner.fail({ environmentId, attemptId: attempt.attemptId,
+            code: "COLLECTION_INTERRUPTED", message: "앞선 키워드 수집이 중단되어 실행하지 못했습니다." });
+        }
+      }
+    })()).catch((error) => console.error("[KIDITEM] Wing rank transport:", error?.message))
+      .finally(() => wingRankBatchDispatches.delete(key));
+    return { success: true, started: true };
+  }).catch((error) => { wingRankBatchDispatches.delete(key); throw error; });
+  return dispatch.started;
+}
+
+async function cancelWingRankSourceBatch({ environmentId, idempotencyKey }) {
+  const dispatch = wingRankBatchDispatches.get(`${environmentId}:${idempotencyKey}`);
+  if (dispatch) dispatch.cancelled = true;
+  const batch = await readWingRankBatch(environmentId, idempotencyKey);
+  for (const attempt of batch.attempts) {
+    await wingRankSourceOwner.fail({ environmentId, attemptId: attempt.attemptId,
+      code: "COLLECTION_CANCELLED", message: "키워드 순위 수집이 취소되었습니다." });
+  }
+  return { success: true };
+}
+
 async function startWingSalesRankCheck(options = {}) {
   const environmentId = options.environmentId;
   if (typeof adsEnvironmentContext !== "undefined") {
@@ -5146,6 +5224,16 @@ KidItemDomains.register({
     [WING_FORM_PORT_NAME]: (port) => handleWingFormPort(port),
   },
   externalActions: {
+    collectAdvertisingWingRankBatch: {
+      validate: (message) => parseWingRankBatchMessage(message, "collectAdvertisingWingRankBatch"),
+      handle: ({ idempotencyKey }, environmentId) => startWingRankSourceBatch({ environmentId, idempotencyKey }),
+    },
+    cancelAdvertisingWingRankBatch: {
+      validate: (message) => parseWingRankBatchMessage(message, "cancelAdvertisingWingRankBatch"),
+      handle: ({ idempotencyKey }, environmentId) => KidItemWorkerKeepAlive.during(
+        cancelWingRankSourceBatch({ environmentId, idempotencyKey }),
+      ),
+    },
     collectAdvertisingKeywordSerp: {
       validate: (message) => KidItemKeywordRankSourceOwner.parseStart(message, "serp"),
       handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
@@ -5237,7 +5325,7 @@ KidItemDomains.register({
     if (session?.producer === "advertising.keyword_rank") {
       return keywordSerpSourceOwner.cancel({ environmentId, attemptId: runId });
     }
-    if (session?.producer === "advertising.wing_sales_rank") {
+    if (session?.producer === "advertising.wing_rank") {
       return wingRankSourceOwner.cancel({ environmentId, attemptId: runId });
     }
     if (session?.producer === "advertising.profitability_import") {

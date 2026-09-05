@@ -5,6 +5,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
+import { BrowserCollectionSessionViewSchema } from '@kiditem/shared/browser-collection-session';
 
 // 주문수집 / 쿠팡 / 소싱 세 확장을 kiditem-os 하나로 합치면서 세 도메인 워커가
 // 하나의 서비스워커 전역 스코프를 공유하게 됐다. 이 조합은 아래 세 가지로
@@ -257,7 +258,7 @@ function bootWingSearch(responses, { fetch } = {}) {
     }) }];
   };
   context.setTimeout = (callback, ms) => {
-    if ([1000, 2000, 4000, 7000, 8000, 16000, 2200].includes(ms)) { delays.push(ms); queueMicrotask(callback); }
+    if ([1000, 1850, 2000, 4000, 7000, 8000, 16000, 2200].includes(ms)) { delays.push(ms); queueMicrotask(callback); }
     return 1;
   };
   context.clearTimeout = () => {};
@@ -265,7 +266,7 @@ function bootWingSearch(responses, { fetch } = {}) {
   return { requests, delays, urls, fake, context, search: async (maxPages = 5) => {
     // The collector receives an already-started progress session from its caller.
     await vm.runInContext(`collectionSessions.start({environmentId: 'local',
-      attemptId: '11111111-1111-4111-8111-111111111111', producer: 'advertising.wing_sales_rank'})`, context);
+      attemptId: '11111111-1111-4111-8111-111111111111', producer: 'advertising.wing_rank'})`, context);
     return JSON.parse(JSON.stringify(await context.searchWingCatalogProducts({
       keyword: '연필 세트', maxPages, environmentId: 'local',
       collectionRunId: '11111111-1111-4111-8111-111111111111',
@@ -343,6 +344,137 @@ test('Wing rank source retains the existing two keyword tries on a failed browse
   assert.deepEqual(h.delays, [7000]);
   assert.equal(h.urls.length, 2);
   assert.equal(h.requests.length, 1);
+});
+
+test('Wing rank batch dispatch reads frozen owner membership and continues after page acknowledgement', async () => {
+  const idempotencyKey = '33333333-3333-4333-8333-333333333333';
+  const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
+  const states = ['RUNNING', 'RUNNING'];
+  const uploads = [];
+  let releaseFirst;
+  const firstUpload = new Promise((resolve) => { releaseFirst = resolve; });
+  const h = bootWingSearch([
+    { status: 200, body: { result: [], nextSearchPage: null } },
+    { status: 200, body: { result: [], nextSearchPage: null } },
+  ], { fetch: async (url, init) => {
+    if (!String(url).includes('/keyword-rank/')) return { ok: true, status: 200, json: async () => ({}) };
+    if (String(url).endsWith('/wing/batch-attempts')) {
+      assert.equal(new Headers(init.headers).get('Idempotency-Key'), idempotencyKey);
+      return { ok: true, status: 200, json: async () => ({ attempts: ids.map((attemptId, i) => ({ attemptId, state: states[i] })) }) };
+    }
+    const index = ids.findIndex((id) => String(url).endsWith(`/attempts/${id}`));
+    assert.notEqual(index, -1);
+    if (init.method === 'PUT') {
+      uploads.push(JSON.parse(init.body));
+      if (index === 0) await firstUpload;
+      states[index] = 'COMPLETE';
+    }
+    return { ok: true, status: 200, json: async () => ({
+      attemptId: ids[index], attemptToken: '44444444-4444-4444-8444-444444444444',
+      state: states[index], itemCount: 0, expiresAt: new Date(Date.now() + 3_000_000).toISOString(),
+      plan: { sourceType: 'coupang_wing_rank', parserVersion: 'wing-rank-v1',
+        keyword: ['연필 세트', '색연필'][index], maxPages: 5 },
+    }) };
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  const action = h.context.KidItemDomains.forExternalAction('collectAdvertisingWingRankBatch');
+  assert.equal(typeof action?.handle, 'function');
+  for (const extra of [{ targets: [] }, { runId: ids[0] }, { environmentId: 'office' }]) {
+    assert.throws(() => action.validate({ action: 'collectAdvertisingWingRankBatch', idempotencyKey, ...extra }));
+  }
+  const reply = await externalRequest(h.fake, { action: 'collectAdvertisingWingRankBatch', idempotencyKey });
+  assert.deepEqual(JSON.parse(JSON.stringify(reply)), { success: true, started: true });
+  const duplicate = await externalRequest(h.fake, { action: 'collectAdvertisingWingRankBatch', idempotencyKey });
+  assert.deepEqual(duplicate, reply);
+  assert.equal(states[0], 'RUNNING', 'dispatch ACK is not a source result');
+  releaseFirst();
+  for (let tick = 0; tick < 100 && states[1] !== 'COMPLETE'; tick++) await new Promise(setImmediate);
+  assert.deepEqual(states, ['COMPLETE', 'COMPLETE']);
+  assert.deepEqual(uploads.map((body) => body.keyword), ['연필 세트', '색연필']);
+  assert.deepEqual(h.requests.map(({ body }) => body.keyword), ['연필 세트', '색연필']);
+  assert.ok(h.delays.includes(1850), 'original1.2–2.5s between-keyword pacing');
+});
+
+test('Wing rank batch cancellation fails queued owners before returning and prevents their provider IO', async () => {
+  const idempotencyKey = '33333333-3333-4333-8333-333333333333';
+  const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
+  const states = ['RUNNING', 'RUNNING'];
+  const failures = [];
+  let releaseUpload, uploadStarted;
+  const uploaded = new Promise((resolve) => { uploadStarted = resolve; });
+  const release = new Promise((resolve) => { releaseUpload = resolve; });
+  const h = bootWingSearch([{ status: 200, body: { result: [], nextSearchPage: null } }], { fetch: async (url, init) => {
+    if (!String(url).includes('/keyword-rank/')) return { ok: true, status: 200, json: async () => ({}) };
+    if (String(url).endsWith('/batch-attempts')) return {
+      ok: true, status: 200, json: async () => ({ attempts: ids.map((attemptId, i) => ({ attemptId, state: states[i] })) }),
+    };
+    const index = ids.findIndex((id) => String(url).includes(`/attempts/${id}`));
+    assert.notEqual(index, -1);
+    if (init.method === 'PUT') { uploadStarted(); await release; }
+    if (String(url).endsWith('/fail')) {
+      assert.equal(new Headers(init.headers).get('x-source-attempt-token'), '44444444-4444-4444-8444-444444444444');
+      failures.push({ attemptId: ids[index], ...JSON.parse(init.body) });
+      states[index] = 'FAILED';
+    }
+    return { ok: true, status: 200, json: async () => ({
+      attemptId: ids[index], attemptToken: '44444444-4444-4444-8444-444444444444', state: states[index],
+      errorCode: states[index] === 'FAILED' ? 'COLLECTION_CANCELLED' : null,
+      expiresAt: new Date(Date.now() + 3_000_000).toISOString(),
+      plan: { sourceType: 'coupang_wing_rank', parserVersion: 'wing-rank-v1', keyword: ['연필', '색연필'][index], maxPages: 5 },
+    }) };
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  const cancelAction = h.context.KidItemDomains.forExternalAction('cancelAdvertisingWingRankBatch');
+  assert.equal(typeof cancelAction?.handle, 'function');
+  await externalRequest(h.fake, { action: 'collectAdvertisingWingRankBatch', idempotencyKey });
+  await uploaded;
+  const cancelled = await externalRequest(h.fake, { action: 'cancelAdvertisingWingRankBatch', idempotencyKey });
+  assert.equal(cancelled.success, true);
+  assert.deepEqual(states, ['FAILED', 'FAILED']);
+  assert.deepEqual(failures.map(({ attemptId, code }) => ({ attemptId, code })), ids.map((attemptId) => ({ attemptId, code: 'COLLECTION_CANCELLED' })));
+  releaseUpload();
+  for (let tick = 0; tick < 10; tick++) await new Promise(setImmediate);
+  assert.equal(h.requests.length, 1);
+  assert.equal(await vm.runInContext(`collectionSessions.get('${ids[0]}')`, h.context), null);
+});
+
+for (const reason of ['provider wall', 'missing terminal ACK']) test(`Wing rank batch stops on ${reason} and explicitly fails only unstarted members`, async () => {
+  const idempotencyKey = '33333333-3333-4333-8333-333333333333';
+  const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
+  const states = ['RUNNING', 'RUNNING'];
+  const failures = [];
+  const h = bootWingSearch([{ status: reason === 'provider wall' ? 401 : 200, body: { result: [], nextSearchPage: null } }], { fetch: async (url, init) => {
+    if (!String(url).includes('/keyword-rank/')) return { ok: true, status: 200, json: async () => ({}) };
+    if (String(url).endsWith('/batch-attempts')) return {
+      ok: true, status: 200, json: async () => ({ attempts: ids.map((attemptId, i) => ({ attemptId, state: states[i] })) }),
+    };
+    const index = ids.findIndex((id) => String(url).includes(`/attempts/${id}`));
+    assert.notEqual(index, -1);
+    if (init.method === 'PUT') throw new Error('connection lost before ACK');
+    if (String(url).endsWith('/fail')) {
+      failures.push({ attemptId: ids[index], ...JSON.parse(init.body) });
+      states[index] = 'FAILED';
+    }
+    return { ok: true, status: 200, json: async () => ({
+      attemptId: ids[index], attemptToken: '44444444-4444-4444-8444-444444444444', state: states[index],
+      errorCode: failures.find((failure) => failure.attemptId === ids[index])?.code,
+      expiresAt: new Date(Date.now() + 3_000_000).toISOString(),
+      plan: { sourceType: 'coupang_wing_rank', parserVersion: 'wing-rank-v1', keyword: ['연필', '색연필'][index], maxPages: 5 },
+    }) };
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  await externalRequest(h.fake, { action: 'collectAdvertisingWingRankBatch', idempotencyKey });
+  for (let tick = 0; tick < 100 && states[1] !== 'FAILED'; tick++) await new Promise(setImmediate);
+  assert.deepEqual(states, [reason === 'provider wall' ? 'FAILED' : 'RUNNING', 'FAILED']);
+  assert.equal(failures.find((failure) => failure.attemptId === ids[1])?.code, 'COLLECTION_INTERRUPTED');
+  assert.equal(h.requests.length, 1, 'no next keyword after blocked or unconfirmed result');
+  if (reason === 'missing terminal ACK') assert.equal(failures.length, 1, 'never contradict the uncertain current submission');
+  else {
+    const session = await externalRequest(h.fake, { action: 'getCollectionSession', attemptId: ids[0] });
+    assert.equal(session.attention.reason, 'marketplace_login');
+    assert.equal(BrowserCollectionSessionViewSchema.safeParse(session).success, true,
+      'owner attention must remain readable through the shared page contract');
+  }
 });
 
 test('Wing rank source cancellation is owner-confirmed and stops the next page or HTTP retry', async (t) => {
