@@ -40,11 +40,19 @@ function request() {
   };
 }
 
+function reference(source: ReturnType<typeof request> & { previewScope?: 'confirmation_requested'; clampEditedQuantities?: boolean }) {
+  return { channelAccountId, sourceImportRunId: '66666666-6666-4666-8666-666666666666',
+    editedQuantities: source.editedQuantities, ...(source.previewScope && { previewScope: source.previewScope }),
+    ...(source.clampEditedQuantities !== undefined && { clampEditedQuantities: source.clampEditedQuantities }) };
+}
+function publication() {
+  return { sourceImportRunId: '66666666-6666-4666-8666-666666666666', channelAccountId, generation: '1', actualCutoffAt: '2026-07-16T00:00:00.000Z', rowCount: 1 };
+}
 function dependencies() {
   const catalog = {
-    publishAndResolve: vi.fn().mockResolvedValue({
-      blockingReason: null,
-      catalog: { run: { id: 'run-1' }, duplicate: false, changes: {} },
+    readComplete: vi.fn().mockResolvedValue({
+      ...request(), sourceImportRunId: '66666666-6666-4666-8666-666666666666',
+      catalog: publication(),
       identities: [{ poLineId, channelSkuId }],
     }),
   } as unknown as RocketPoCatalogPort;
@@ -93,7 +101,7 @@ function previewService(deps: ReturnType<typeof dependencies>) {
 }
 
 describe('RocketPurchasePreviewService', () => {
-  it('publishes identities, gates active components, and returns a read-time preview', async () => {
+  it('reads complete identities, gates active components, and returns a read-time preview', async () => {
     const deps = dependencies();
     const service = previewService(deps);
 
@@ -101,13 +109,13 @@ describe('RocketPurchasePreviewService', () => {
       organizationId,
       userId,
       inventoryRequirement: 'fresh',
-      request: request(),
+      request: reference(request()),
     });
 
-    expect(deps.catalog.publishAndResolve).toHaveBeenCalledWith({
+    expect(deps.catalog.readComplete).toHaveBeenCalledWith({
       organizationId,
-      userId,
-      request: request(),
+      channelAccountId,
+      sourceImportRunId: '66666666-6666-4666-8666-666666666666',
     });
     expect(deps.availability.findByChannelSkuIds).toHaveBeenCalledWith(
       organizationId,
@@ -147,7 +155,7 @@ describe('RocketPurchasePreviewService', () => {
       organizationId,
       userId,
       inventoryRequirement: 'advisory',
-      request: request(),
+      request: reference(request()),
     });
 
     expect(result).toMatchObject({
@@ -183,7 +191,7 @@ describe('RocketPurchasePreviewService', () => {
       organizationId,
       userId,
       inventoryRequirement: 'advisory',
-      request: request(),
+      request: reference(request()),
     });
 
     if (result.status !== 'ready') throw new Error('Expected ready preview');
@@ -194,12 +202,12 @@ describe('RocketPurchasePreviewService', () => {
     });
   });
 
-  it('publishes the full monthly archive but previews only confirmation-requested rows', async () => {
+  it('reads the full monthly archive but previews only confirmation-requested rows', async () => {
     const deps = dependencies();
     const completedLineId = '1002:P-2:8801234567891:1';
-    vi.mocked(deps.catalog.publishAndResolve).mockResolvedValue({
-      blockingReason: null,
-      catalog: { run: { id: 'run-1' }, duplicate: false, changes: {} },
+    vi.mocked(deps.catalog.readComplete).mockResolvedValue({
+      ...request(), sourceImportRunId: '66666666-6666-4666-8666-666666666666',
+      catalog: publication(),
       identities: [
         { poLineId, channelSkuId },
         { poLineId: completedLineId, channelSkuId },
@@ -221,108 +229,24 @@ describe('RocketPurchasePreviewService', () => {
         },
       ],
     };
+    vi.mocked(deps.catalog.readComplete).mockResolvedValue({ ...input, sourceImportRunId: reference(input).sourceImportRunId, catalog: publication(), identities: input.rows.map(row => ({ poLineId: row.poLineId, channelSkuId })) });
     const service = previewService(deps);
 
     const result = await service.preview({
       organizationId,
       userId,
       inventoryRequirement: 'fresh',
-      request: input,
+      request: reference(input),
     });
 
     if (result.status !== 'ready') throw new Error('Expected ready preview');
-    expect(deps.catalog.publishAndResolve).toHaveBeenCalledWith({
+    expect(deps.catalog.readComplete).toHaveBeenCalledWith({
       organizationId,
-      userId,
-      request: input,
+      channelAccountId,
+      sourceImportRunId: '66666666-6666-4666-8666-666666666666',
     });
     expect(result.rows.map(({ poLineId: resultLineId }) => resultLineId)).toEqual([poLineId]);
   });
-
-  it.each(['collection_incomplete', 'vendor_mismatch'] as const)(
-    'blocks %s before capacity or freshness reads',
-    async (blockingReason) => {
-      const deps = dependencies();
-      vi.mocked(deps.catalog.publishAndResolve).mockResolvedValue({
-        blockingReason,
-        catalog: null,
-        identities: [],
-      });
-      const service = previewService(deps);
-
-      const result = await service.preview({
-        organizationId,
-        userId,
-        inventoryRequirement: 'fresh',
-        request: request(),
-      });
-
-      if (result.status !== 'ready') throw new Error('Expected ready preview');
-      expect(result.rows[0]?.reason).toBe(blockingReason);
-      expect(result.rows[0]?.plannedDeliveryDate).toBe('2026-07-20');
-      expect(deps.availability.findByChannelSkuIds).not.toHaveBeenCalled();
-      expect((deps.freshness as unknown as {
-        readFreshCapacityOrRequest: ReturnType<typeof vi.fn>;
-      }).readFreshCapacityOrRequest).not.toHaveBeenCalled();
-    },
-  );
-
-  it.each(['collection_incomplete', 'vendor_mismatch'] as const)(
-    'rejects a positive edited quantity before returning a %s blocked row',
-    async (blockingReason) => {
-      const deps = dependencies();
-      vi.mocked(deps.catalog.publishAndResolve).mockResolvedValue({
-        blockingReason,
-        catalog: null,
-        identities: [],
-      });
-      const service = previewService(deps);
-      const edited = request();
-      edited.editedQuantities = { [poLineId]: 1 };
-
-      await expect(service.preview({
-        organizationId,
-        userId,
-        inventoryRequirement: 'fresh',
-        request: edited,
-      }))
-        .rejects.toBeInstanceOf(BadRequestException);
-      expect(deps.availability.findByChannelSkuIds).not.toHaveBeenCalled();
-    },
-  );
-
-  it.each(['collection_incomplete', 'vendor_mismatch'] as const)(
-    'clamps a retained edit to zero for a %s blocked row when explicitly requested',
-    async (blockingReason) => {
-      const deps = dependencies();
-      vi.mocked(deps.catalog.publishAndResolve).mockResolvedValue({
-        blockingReason,
-        catalog: null,
-        identities: [],
-      });
-      const service = previewService(deps);
-
-      const result = await service.preview({
-        organizationId,
-        userId,
-        inventoryRequirement: 'fresh',
-        request: {
-          ...request(),
-          editedQuantities: { [poLineId]: 1 },
-          clampEditedQuantities: true,
-        } as never,
-      });
-
-      if (result.status !== 'ready') throw new Error('Expected ready preview');
-      expect(result.rows[0]).toMatchObject({
-        maxQuantity: 0,
-        editedQuantity: 0,
-        recommendedQuantity: 0,
-        reason: blockingReason,
-      });
-      expect(deps.availability.findByChannelSkuIds).not.toHaveBeenCalled();
-    },
-  );
 
   it('returns advisory rows while fresh inventory collection is pending', async () => {
     const deps = dependencies();
@@ -338,9 +262,9 @@ describe('RocketPurchasePreviewService', () => {
       organizationId,
       userId,
       inventoryRequirement: 'fresh',
-      request: request(),
+      request: reference(request()),
     });
-    const published = await vi.mocked(deps.catalog.publishAndResolve)
+    const published = await vi.mocked(deps.catalog.readComplete)
       .mock.results[0]!.value;
 
     expect(result).toEqual({
@@ -353,7 +277,7 @@ describe('RocketPurchasePreviewService', () => {
         recommendedQuantity: 4,
       })],
     });
-    expect(vi.mocked(deps.catalog.publishAndResolve).mock.invocationCallOrder[0])
+    expect(vi.mocked(deps.catalog.readComplete).mock.invocationCallOrder[0])
       .toBeLessThan(
       (deps.freshness as unknown as {
         readFreshCapacityOrRequest: ReturnType<typeof vi.fn>;
@@ -379,7 +303,7 @@ describe('RocketPurchasePreviewService', () => {
       organizationId,
       userId,
       inventoryRequirement: 'fresh',
-      request: request(),
+      request: reference(request()),
     });
 
     if (result.status !== 'ready') throw new Error('Expected ready preview');
@@ -414,7 +338,7 @@ describe('RocketPurchasePreviewService', () => {
       organizationId,
       userId,
       inventoryRequirement: 'fresh',
-      request: request(),
+      request: reference(request()),
     });
 
     if (result.status !== 'ready') throw new Error('Expected ready preview');
@@ -427,9 +351,9 @@ describe('RocketPurchasePreviewService', () => {
   it('deduplicates a physical component shared by multiple PO lines before freshness read', async () => {
     const deps = dependencies();
     const secondLineId = '1002:P-1:8801234567890:1';
-    vi.mocked(deps.catalog.publishAndResolve).mockResolvedValue({
-      blockingReason: null,
-      catalog: null,
+    vi.mocked(deps.catalog.readComplete).mockResolvedValue({
+      ...request(), sourceImportRunId: '66666666-6666-4666-8666-666666666666',
+      catalog: publication(),
       identities: [
         { poLineId, channelSkuId },
         { poLineId: secondLineId, channelSkuId },
@@ -441,13 +365,14 @@ describe('RocketPurchasePreviewService', () => {
       poLineId: secondLineId,
       poNumber: '1002',
     });
+    vi.mocked(deps.catalog.readComplete).mockResolvedValue({ ...input, sourceImportRunId: reference(input).sourceImportRunId, catalog: publication(), identities: input.rows.map(row => ({ poLineId: row.poLineId, channelSkuId })) });
     const service = previewService(deps);
 
     await service.preview({
       organizationId,
       userId,
       inventoryRequirement: 'fresh',
-      request: input,
+      request: reference(input),
     });
 
     expect((deps.freshness as unknown as {
@@ -478,12 +403,13 @@ describe('RocketPurchasePreviewService', () => {
     const service = previewService(deps);
     const input = request();
     input.rows[0]!.orderQty = 100;
+    vi.mocked(deps.catalog.readComplete).mockResolvedValue({ ...input, sourceImportRunId: reference(input).sourceImportRunId, catalog: publication(), identities: [{ poLineId, channelSkuId }] });
 
     const result = await service.preview({
       organizationId,
       userId,
       inventoryRequirement: 'fresh',
-      request: input,
+      request: reference(input),
     });
 
     if (result.status !== 'ready') throw new Error('Expected ready preview');

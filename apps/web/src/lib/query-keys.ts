@@ -180,12 +180,14 @@ export const queryKeys = {
     pipeline: (params?: Record<string, string>) => [...queryKeys.orders.all, 'pipeline', params] as const,
     scheduledSync: (dateHour: string) => [...queryKeys.orders.all, 'scheduledSync', dateHour] as const,
     action: (action: string) => [...queryKeys.orders.all, 'action', action] as const,
+    rocketPoSource: (channelAccountId: string) => [...queryKeys.orders.all, 'rocket-po-source', channelAccountId] as const,
+    rocketSavedPoLists: () => [...queryKeys.orders.all, 'rocket-saved-po-list'] as const,
     rocketSavedPoList: (params: {
       channelAccountId: string;
       from: string;
       to: string;
       status: string;
-    }) => [...queryKeys.orders.all, 'rocket-saved-po-list', params] as const,
+    }) => [...queryKeys.orders.rocketSavedPoLists(), params] as const,
     collectionMalls: () => [...queryKeys.orders.all, 'collection', 'malls'] as const,
     collectionMallAction: (action: string) =>
       [...queryKeys.orders.collectionMalls(), action] as const,

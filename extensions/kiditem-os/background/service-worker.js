@@ -49,6 +49,7 @@ importScripts(
   "orders/sellpia-post-processing.js",
   "orders/coupang-po-session.js",
   "orders/rocket-po-collection.js",
+  "orders/rocket-po-source-owner.js",
   "orders/coupang-shipment-summary-source-owner.js",
   // 소싱 도메인 모듈
   "sourcing/url-policy.js",

@@ -28,6 +28,7 @@ export const ORDERS_WORKER_MODULES = [
   'sellpia-post-processing.js',
   'coupang-po-session.js',
   'rocket-po-collection.js',
+  'rocket-po-source-owner.js',
   'coupang-shipment-summary-source-owner.js',
 ];
 

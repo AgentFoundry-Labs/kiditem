@@ -67,8 +67,9 @@ sync, registration, matching, and capacity behavior is executable in
 - Wing and Rocket account rows remain distinct. Shared vendor identity may be
   claimed only from complete authenticated evidence under the publication
   lock; a mismatch conflicts.
-- Rocket PO publication replaces the account raw snapshot while retaining
-  source/workbook evidence. It publishes identities and capacity only; it does
-  not reserve, submit, confirm, or mutate stock.
+- Rocket PO reads select the latest COMPLETE before filtering rows; an empty
+  COMPLETE replaces the current view. Preserve prior snapshots for exact
+  source/workbook references. Publication changes source facts and identities,
+  not recipes, reservations, provider confirmation, or physical stock.
 - Status normalization stays in `domain/coupang-normalization.ts`.
   `adapters/coupang/` contains compatibility shims only.

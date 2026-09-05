@@ -9,7 +9,8 @@ import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshne
 import { collectAndPersistCoupangShipmentSummary } from '@/lib/coupang-shipment-summary-action';
 import { useTrendSourceCollection } from '@/hooks/use-trend-source-collection';
 import { queryKeys } from '@/lib/query-keys';
-import { collectAndPersistRocketPurchaseOrders } from '@/lib/rocket-purchase-collection-action';
+import { useRocketPoSource } from '@/hooks/use-rocket-po-source';
+import { RocketPoSourceError } from '@/lib/rocket-sales-collection';
 import { formatNumber } from '@/lib/utils';
 
 export type DepartmentQuickAction =
@@ -45,6 +46,7 @@ export function useDepartmentQuickActions() {
   const { rocketAccounts, isBootstrapping: rocketAccountBootstrapping } =
     useRocketChannelAccounts();
   const rocketAccountId = rocketAccounts[0]?.id ?? null;
+  const { collect: collectRocket } = useRocketPoSource(rocketAccountId ?? '');
   const { collectAllOrders } = usePersistedAllMarketplaceOrderCollection({
     rocketChannelAccountId: rocketAccountId,
   });
@@ -72,7 +74,7 @@ export function useDepartmentQuickActions() {
         : '쿠팡 로켓 계정을 먼저 연결해주세요.');
     }
     const { from, to } = currentMonthRange();
-    const result = await collectAndPersistRocketPurchaseOrders({
+    const result = await collectRocket({
       from,
       to,
       onCatalogSaved: () => {
@@ -83,17 +85,23 @@ export function useDepartmentQuickActions() {
       },
       createPreviewRequest: (collected) => ({
         channelAccountId: rocketAccountId,
-        collection: collected.collection,
-        rows: collected.rows,
+        sourceImportRunId: collected.sourceImportRunId,
         editedQuantities: {},
         clampEditedQuantities: true,
         previewScope: 'confirmation_requested',
       }),
+    }).catch((cause: unknown) => {
+      if (cause instanceof RocketPoSourceError && cause.attempt.state === 'RUNNING') {
+        toast.info(cause.message);
+        return null;
+      }
+      throw cause;
     });
+    if (!result) return;
     toast.success(
       `로켓 PO ${result.collected.collection.detailPoCount}/${result.collected.poCount}건 수집·저장 완료`,
     );
-  }, [queryClient, rocketAccountBootstrapping, rocketAccountId]);
+  }, [collectRocket, queryClient, rocketAccountBootstrapping, rocketAccountId]);
 
   const start = useCallback(async (action: DepartmentQuickAction): Promise<void> => {
     if (action === 'collectAllOrders') return collectAllOrders();

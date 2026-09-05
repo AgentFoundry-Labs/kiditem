@@ -6,7 +6,6 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import {
   ORDERS_WORKER_MODULES,
-  dispatchExternalMessage,
   installExternalDispatch,
 } from './helpers/domain-worker-modules.mjs';
 
@@ -91,44 +90,6 @@ function loadWorker(overrides = {}) {
   installExternalDispatch(context, sandbox.chrome);
   return { context, externalMessageListeners, storage };
 }
-
-test('collectRocketPoRows message forwards the requested status and date basis', async () => {
-  const { context, externalMessageListeners } = loadWorker();
-  let received = null;
-  let receivedCollection = null;
-  context.collectRocketPoRows = async (input, collection) => {
-    received = input;
-    receivedCollection = collection;
-    return { success: true, rows: [], poCount: 0 };
-  };
-
-  const response = await dispatchExternalMessage(
-    externalMessageListeners,
-    {
-      action: 'collectRocketPoRows',
-      from: '2026-07-01',
-      to: '2026-07-07',
-      status: 'PA',
-      dateType: 'PURCHASE_ORDER_DATE',
-      runId: RUN_ID,
-    },
-    { url: 'http://localhost:3000/order-collection' },
-  );
-
-  assert.deepEqual({ ...received }, {
-    from: '2026-07-01',
-    to: '2026-07-07',
-    status: 'PA',
-    dateType: 'PURCHASE_ORDER_DATE',
-  });
-  assert.equal(receivedCollection.runId, RUN_ID);
-  assert.equal(response.attemptId, RUN_ID);
-  assert.equal(Object.hasOwn(response, 'runId'), false);
-  assert.equal(Object.hasOwn(response.collectionSession, 'status'), false);
-  assert.equal(response.collectionSession.progress.completed, 1);
-  assert.deepEqual(response.rows, []);
-  assert.equal(response.poCount, 0);
-});
 
 test('Rocket collection implementation is extracted from the service worker', () => {
   const moduleSource = readFileSync(rocketModulePath, 'utf8');
@@ -232,6 +193,28 @@ test('Rocket page scraper uses the requested filters and labels returned rows', 
   assert.equal(result.evidence.detailPoCount, 1);
   assert.deepEqual([...result.evidence.failedPoNumbers], []);
   assert.equal(result.rows[0].poLineId, '123:P-1:12345678:1');
+  assert.deepEqual(JSON.parse(JSON.stringify(result.proof)), {
+    from: '2026-07-01', to: '2026-07-07', status: 'PA',
+    dateType: 'PURCHASE_ORDER_DATE', validatedList: true,
+  });
+});
+
+test('Rocket empty proof distinguishes a validated empty list from an absent list array', async () => {
+  for (const [body, validatedList] of [[[], true], [null, false]]) {
+    const { context } = loadWorker({
+      fetch: async () => ({
+        ok: true,
+        text: async () => JSON.stringify({ body: { body, lastPageNumber: 1 } }),
+      }),
+    });
+    const result = await context.KidItemRocketPoCollection.scrapeRocketPoRows(
+      '2026-07-01', '2026-07-07', '', 'WAREHOUSING_PLAN_DATE', RUN_ID,
+    );
+    assert.equal(result.success, true);
+    assert.deepEqual([...result.rows], []);
+    assert.equal(result.proof.validatedList, validatedList);
+    assert.equal(result.proof.status, '');
+  }
 });
 
 test('Rocket collection reports failed details, missing vendor identity, and stable line IDs', async () => {
@@ -310,23 +293,18 @@ test('Rocket detail collection reports first-page auth responses as a retryable 
   assert.doesNotMatch(result.error, /Failed to fetch/);
 });
 
-test('Rocket page scrapers remain self-contained when Chrome serializes them for injection', async () => {
+test('Rocket page scraper remains self-contained when Chrome serializes it for injection', async () => {
   const { context } = loadWorker();
   const emptyListFetch = async () => ({
     ok: true,
     text: async () => JSON.stringify({ body: { body: [], lastPageNumber: 1 } }),
   });
   const isolatedContext = vm.createContext({ fetch: emptyListFetch });
-  const isolatedList = vm.runInContext(
-    `(${context.KidItemRocketPoCollection.scrapeRocketPoList.toString()})`,
-    isolatedContext,
-  );
   const isolatedRows = vm.runInContext(
     `(${context.KidItemRocketPoCollection.scrapeRocketPoRows.toString()})`,
     isolatedContext,
   );
 
-  const listResult = await isolatedList('2026-07-01', '2026-07-07', 'RP');
   const rowsResult = await isolatedRows(
     '2026-07-01',
     '2026-07-07',
@@ -335,46 +313,31 @@ test('Rocket page scrapers remain self-contained when Chrome serializes them for
     RUN_ID,
   );
 
-  assert.equal(listResult.success, true);
-  assert.deepEqual([...listResult.pos], []);
   assert.equal(rowsResult.success, true);
   assert.deepEqual([...rowsResult.rows], []);
 });
 
-test('isolated Rocket page scrapers keep auth failures structured without module helpers', async () => {
+test('isolated Rocket page scraper keeps auth failures structured without module helpers', async () => {
   const { context } = loadWorker();
   const htmlFetch = async () => ({
     ok: true,
     text: async () => '<html><body>login</body></html>',
   });
   const isolatedContext = vm.createContext({ fetch: htmlFetch });
-  const isolatedScrapers = [
-    vm.runInContext(
-      `(${context.KidItemRocketPoCollection.scrapeRocketPoList.toString()})`,
-      isolatedContext,
-    ),
-    vm.runInContext(
-      `(${context.KidItemRocketPoCollection.scrapeRocketPoRows.toString()})`,
-      isolatedContext,
-    ),
-  ];
-
-  const results = await Promise.all([
-    isolatedScrapers[0]('2026-07-01', '2026-07-07', 'RP'),
-    isolatedScrapers[1](
+  const isolated = vm.runInContext(
+    `(${context.KidItemRocketPoCollection.scrapeRocketPoRows.toString()})`,
+    isolatedContext,
+  );
+  const result = await isolated(
       '2026-07-01',
       '2026-07-07',
       'RP',
       'WAREHOUSING_PLAN_DATE',
       RUN_ID,
-    ),
-  ]);
-
-  for (const result of results) {
-    assert.equal(result.success, false);
-    assert.equal(result.pendingLogin, true);
-    assert.equal(result.errorCode, 'coupang_po_session_required');
-  }
+  );
+  assert.equal(result.success, false);
+  assert.equal(result.pendingLogin, true);
+  assert.equal(result.errorCode, 'coupang_po_session_required');
 });
 
 test('Coupang direct-order list maps its first auth response to the shared retry signal', async () => {

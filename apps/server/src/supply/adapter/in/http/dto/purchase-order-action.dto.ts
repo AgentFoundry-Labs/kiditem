@@ -1,9 +1,5 @@
 import { IsString, IsOptional, IsNumber, IsUUID, IsInt, IsPositive, IsIn, IsArray, ArrayMinSize, ArrayMaxSize, ValidateIf, ValidateNested, MinLength, MaxLength, IsUrl, IsObject, IsBoolean, Matches } from 'class-validator';
 import { Type } from 'class-transformer';
-import type {
-  RocketPoCatalogRow,
-  RocketPoCollectionEvidence,
-} from '@kiditem/shared/rocket-purchase-preview';
 
 class PurchaseOrderItemDto {
   @IsString() @MinLength(1) productName: string;
@@ -83,17 +79,9 @@ export class PurchaseOrderActionBodyDto {
   @IsString() @MaxLength(80)
   rocketStatus?: string;
 
-  @ValidateIf(o => o.action === 'loadSavedRocketCollection')
+  @ValidateIf(o => ['loadSavedRocketCollection', 'previewRocket'].includes(o.action))
   @IsUUID()
   sourceImportRunId?: string;
-
-  @ValidateIf(o => o.action === 'previewRocket')
-  @IsObject()
-  collection?: RocketPoCollectionEvidence;
-
-  @ValidateIf(o => o.action === 'previewRocket')
-  @IsArray() @ArrayMaxSize(4_000)
-  rows?: RocketPoCatalogRow[];
 
   @ValidateIf(o => o.action === 'previewRocket')
   @IsObject() @IsOptional()

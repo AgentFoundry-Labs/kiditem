@@ -486,6 +486,42 @@ test('shipment summary uses one authenticated owner responder without accepting 
   assert.deepEqual(fake.createdTabs, []);
 });
 
+test('Rocket PO source dispatch rejects caller-owned plans and authenticates before provider IO', async () => {
+  const { fake, context } = bootServiceWorker();
+  const action = 'collectRocketPoRows';
+  const attemptId = '11111111-1111-4111-8111-111111111111';
+  const contract = context.KidItemDomains.forExternalAction(action);
+  assert.equal(typeof contract?.handle, 'function');
+  for (const invalid of [
+    { action, runId: attemptId }, { action, attemptId: [attemptId] },
+    { action, attemptId, from: '2026-07-01' },
+    { action, attemptId, attemptToken: 'caller-token' },
+  ]) assert.throws(() => contract.validate(invalid), /Invalid Rocket PO attempt/);
+  let keptAlive = 0;
+  const responses = [];
+  await new Promise((resolve) => {
+    for (const listener of fake.externalMessageListeners) {
+      if (listener({ action, attemptId }, { url: 'http://localhost:3000/rocket-orders' },
+        (response) => { responses.push(response); resolve(); }) === true) keptAlive += 1;
+    }
+  });
+  assert.equal(keptAlive, 1);
+  assert.equal(responses.length, 1);
+  assert.match(responses[0].error, /login is required/);
+  assert.deepEqual(fake.createdTabs, []);
+  assert.equal(context.KidItemDomains.capabilities().coupangRocketPoSourceOwnerV1, true);
+  assert.equal(context.KidItemDomains.capabilities().coupangRocketPoCollectionSessionV1, undefined);
+});
+
+test('unreferenced Rocket list-only action is retired without removing the live source owner', () => {
+  const { context } = bootServiceWorker();
+  assert.equal(context.KidItemDomains.capabilities().listRocketPos, undefined);
+  assert.equal(typeof context.KidItemDomains.forExternalAction('collectRocketPoRows')?.handle, 'function');
+  const worker = readFileSync(path.join(backgroundRoot, 'orders/worker.js'), 'utf8');
+  assert.equal(worker.includes('listRocketPos'), false);
+  assert.equal(worker.includes('coupangRocketPoLifecycle'), false);
+});
+
 test('1688 direct source action reaches its owner through the external dispatcher', async () => {
   const { fake } = bootServiceWorker();
   const responses = [];

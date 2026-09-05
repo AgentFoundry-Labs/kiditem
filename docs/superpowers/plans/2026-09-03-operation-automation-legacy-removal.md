@@ -318,6 +318,33 @@ Operating preflight/clone approval, remaining owner migrations, final schema
 cutover, successful boot/build, browser QA, and the one final Astra review are
 still open. No operating database or clone was accessed for this checkpoint.
 
+**Rocket PO checkpoint (2026-09-06):** Channels now owns the frozen one-shot
+Rocket attempt and atomic terminal/snapshot/Alert transaction. The extension
+keeps its existing URL, full pagination, normalized rows, detail concurrency,
+login retry and timeout; only the execution envelope changes. Confirmation,
+Orders and Dashboard read owner state independently of row count and preview
+an exact COMPLETE source. A later failed attempt retains the previous COMPLETE;
+empty COMPLETE replaces current rows. Preview failure cannot fail the source.
+Removed only the uncalled `listRocketPos` action, not the live full PO collector.
+
+Stable Ponytail review removed snapshot-reuse and multi-snapshot branches that
+cannot occur after one-shot fencing, the identity passthrough, and unused
+preview injection. Owner PostgreSQL25 and existing workbook PostgreSQL10 pass;
+server units64, shared26, web62 and integrated extension74 pass. Main reran the
+affected web31 after shrinking its API and aligning the test mock boundary.
+The 4,000-product fixture is 2,332,981 bytes: measured terminal2,219ms and exact
+reload118ms after replacing a pathological nested join with two bounded identity
+reads. These timings are disposable-PG observations, not an operating SLA.
+
+The compact scanner remains red at740 legacy references, with zero unowned
+producers and source-to-ABC calls. Fresh server/web builds retain the same3/9
+generic-session errors. The full extension suite has5 failures in unchanged
+Orders lifecycle/Sellpia legacy-contract tests; focused Rocket tests do not
+substitute for that open gate. Old Rocket facts/workbook references still need
+the coordinated Task6 preflight and cutover; no compatibility read, synthetic
+COMPLETE backfill, operating access, provider QA or independent deployment was
+performed. Task3 and the overall plan remain incomplete.
+
 - [ ] **Step 1: Add failing no-Operation assertions to existing owner acceptance tests**
 
 ```ts

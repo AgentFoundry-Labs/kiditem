@@ -5,16 +5,17 @@ import type {
   RocketSavedPoSnapshot,
   RocketSavedPoSummary,
 } from '@kiditem/shared/rocket-purchase-preview';
-import type { PrismaService } from '../../../../prisma/prisma.service';
-import type { RocketPoCatalogRepositoryPort } from '../../../application/port/out/repository/rocket-po-catalog.repository.port';
+import type { RocketPoSourceSubmission } from '@kiditem/shared/rocket-purchase-preview';
 
 export const ROCKET_PO_CATALOG_SOURCE_TYPE = 'coupang_rocket_po_catalog';
-const ROCKET_CONFIRMATION_REQUEST_STATUSES = [
-  '거래명세서확인요청',
-  '거래처확인요청',
-];
+const ROCKET_CONFIRMATION_REQUEST_STATUSES = ['거래명세서확인요청', '거래처확인요청'];
 
-type PublishInput = Parameters<RocketPoCatalogRepositoryPort['publish']>[0];
+type PublishInput = {
+  organizationId: string;
+  channelAccountId: string;
+  collection: RocketPoSourceSubmission['collection'];
+  rows: RocketPoCatalogRow[];
+};
 
 const savedLineSelect = {
   poLineId: true,
@@ -42,92 +43,93 @@ const savedLineSelect = {
   xdock: true,
 } satisfies Prisma.RocketPoCatalogLineSelect;
 
-export async function ensureRocketPoCatalogSnapshot(
+export async function createRocketPoCatalogSnapshot(
   tx: Prisma.TransactionClient,
   input: PublishInput,
   sourceImportRunId: string,
 ): Promise<void> {
-  const existing = await tx.rocketPoCatalogSnapshot.findFirst({
-    where: { sourceImportRunId, organizationId: input.organizationId },
-    select: { id: true },
-  });
-  let snapshotId = existing?.id;
-  if (!snapshotId) {
-    const snapshot = await tx.rocketPoCatalogSnapshot.create({
-      data: {
-        organizationId: input.organizationId,
-        channelAccountId: input.channelAccountId,
-        sourceImportRunId,
-        collectionRunId: input.collection.collectionRunId,
-        vendorId: input.collection.vendorId,
-        listPagesRead: input.collection.listPagesRead,
-        totalListPages: input.collection.totalListPages,
-        detailPoCount: input.collection.detailPoCount,
-      },
-      select: { id: true },
-    });
-    const createdSnapshotId = snapshot.id;
-    snapshotId = createdSnapshotId;
-    await tx.rocketPoCatalogLine.createMany({
-      data: input.rows.map((row) => ({
-        organizationId: input.organizationId,
-        snapshotId: createdSnapshotId,
-        poLineId: row.poLineId,
-        poNumber: row.poNumber,
-        vendorId: row.vendorId,
-        productNo: row.productNo,
-        barcode: row.barcode,
-        productName: row.productName,
-        orderQty: row.orderQty,
-        plannedDeliveryDate: day(row.plannedDeliveryDate),
-        poStatusCode: row.poStatusCode ?? null,
-        businessDateBasis: row.businessDateBasis ?? null,
-        hasConfirmation: Boolean(row.confirmation),
-        center: row.confirmation?.center ?? null,
-        inboundType: row.confirmation?.inboundType ?? null,
-        poStatus: row.confirmation?.poStatus ?? null,
-        returnManager: row.confirmation?.returnManager ?? null,
-        returnContact: row.confirmation?.returnContact ?? null,
-        returnAddress: row.confirmation?.returnAddress ?? null,
-        purchasePrice: row.confirmation?.purchasePrice ?? null,
-        supplyPrice: row.confirmation?.supplyPrice ?? null,
-        vat: row.confirmation?.vat ?? null,
-        totalPurchase: row.confirmation?.totalPurchase ?? null,
-        poRegisteredAt: row.confirmation?.poRegisteredAt ?? null,
-        xdock: row.confirmation?.xdock ?? null,
-      })),
-    });
-  }
-  await tx.rocketPoCatalogSnapshot.deleteMany({
-    where: {
+  const snapshot = await tx.rocketPoCatalogSnapshot.create({
+    data: {
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
-      id: { not: snapshotId },
+      sourceImportRunId,
+      collectionRunId: input.collection.collectionRunId,
+      vendorId: input.collection.vendorId,
+      listPagesRead: input.collection.listPagesRead,
+      totalListPages: input.collection.totalListPages,
+      detailPoCount: input.collection.detailPoCount,
     },
+    select: { id: true },
+  });
+  await tx.rocketPoCatalogLine.createMany({
+    data: input.rows.map((row) => ({
+      organizationId: input.organizationId,
+      snapshotId: snapshot.id,
+      poLineId: row.poLineId,
+      poNumber: row.poNumber,
+      vendorId: row.vendorId,
+      productNo: row.productNo,
+      barcode: row.barcode,
+      productName: row.productName,
+      orderQty: row.orderQty,
+      plannedDeliveryDate: day(row.plannedDeliveryDate),
+      poStatusCode: row.poStatusCode ?? null,
+      businessDateBasis: row.businessDateBasis ?? null,
+      hasConfirmation: Boolean(row.confirmation),
+      center: row.confirmation?.center ?? null,
+      inboundType: row.confirmation?.inboundType ?? null,
+      poStatus: row.confirmation?.poStatus ?? null,
+      returnManager: row.confirmation?.returnManager ?? null,
+      returnContact: row.confirmation?.returnContact ?? null,
+      returnAddress: row.confirmation?.returnAddress ?? null,
+      purchasePrice: row.confirmation?.purchasePrice ?? null,
+      supplyPrice: row.confirmation?.supplyPrice ?? null,
+      vat: row.confirmation?.vat ?? null,
+      totalPurchase: row.confirmation?.totalPurchase ?? null,
+      poRegisteredAt: row.confirmation?.poRegisteredAt ?? null,
+      xdock: row.confirmation?.xdock ?? null,
+    })),
   });
 }
 
 export async function listSavedRocketPos(
-  prisma: PrismaService,
+  prisma: Prisma.TransactionClient,
   input: {
     organizationId: string;
     channelAccountId: string;
     from: string;
     to: string;
     status?: string;
-    includeRepeatedSnapshots?: boolean;
   },
 ): Promise<RocketSavedPoSummary[]> {
+  const current = await prisma.sourceImportRun.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      sourceType: ROCKET_PO_CATALOG_SOURCE_TYPE,
+      status: 'complete',
+      parserVersion: 'rocket-po-v1',
+    },
+    orderBy: { freshnessGeneration: 'desc' },
+    select: { id: true },
+  });
+  if (!current) return [];
   const poStatusFilter = input.status
     ? ROCKET_CONFIRMATION_REQUEST_STATUSES.includes(input.status)
       ? { in: ROCKET_CONFIRMATION_REQUEST_STATUSES }
       : input.status
     : undefined;
-  const snapshots = await prisma.rocketPoCatalogSnapshot.findMany({
+  const snapshot = await prisma.rocketPoCatalogSnapshot.findFirst({
     where: {
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
-      sourceImportRun: { status: 'completed', sourceType: ROCKET_PO_CATALOG_SOURCE_TYPE },
+      sourceImportRunId: current.id,
+      sourceImportRun: {
+        organizationId: input.organizationId,
+        channelAccountId: input.channelAccountId,
+        status: 'complete',
+        sourceType: ROCKET_PO_CATALOG_SOURCE_TYPE,
+      },
       lines: {
         some: {
           plannedDeliveryDate: { gte: day(input.from), lte: day(input.to) },
@@ -135,7 +137,6 @@ export async function listSavedRocketPos(
         },
       },
     },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     select: {
       sourceImportRunId: true,
       vendorId: true,
@@ -161,43 +162,41 @@ export async function listSavedRocketPos(
       },
     },
   });
+  if (!snapshot) return [];
   const summaries: RocketSavedPoSummary[] = [];
-  const seenPoNumbers = new Set<string>();
-  for (const snapshot of snapshots) {
-    const byPoNumber = new Map<string, typeof snapshot.lines>();
-    for (const line of snapshot.lines) {
-      const lines = byPoNumber.get(line.poNumber) ?? [];
-      lines.push(line);
-      byPoNumber.set(line.poNumber, lines);
-    }
-    for (const [poNumber, lines] of byPoNumber) {
-      if (!input.includeRepeatedSnapshots && seenPoNumbers.has(poNumber)) continue;
-      const first = lines[0]!;
-      if (!input.includeRepeatedSnapshots) seenPoNumbers.add(poNumber);
-      summaries.push({
-        sourceImportRunId: snapshot.sourceImportRunId,
-        poNumber,
-        orderedAt: first.poRegisteredAt ?? '',
-        plannedDeliveryDate: isoDay(first.plannedDeliveryDate),
-        status: first.poStatus ?? '',
-        vendorId: snapshot.vendorId,
-        centerName: first.center ?? '',
-        inboundType: first.inboundType ?? '',
-        firstProductName: first.productName,
-        skuCount: lines.length,
-        orderQuantity: lines.reduce((sum, line) => sum + line.orderQty, 0),
-        orderAmount: lines.reduce((sum, line) => sum + (line.totalPurchase ?? 0), 0),
-        collectedAt: (snapshot.sourceImportRun.importedAt ?? snapshot.createdAt).toISOString(),
-      });
-    }
+  const byPoNumber = new Map<string, typeof snapshot.lines>();
+  for (const line of snapshot.lines) {
+    const lines = byPoNumber.get(line.poNumber) ?? [];
+    lines.push(line);
+    byPoNumber.set(line.poNumber, lines);
   }
-  return summaries.sort((left, right) =>
-    left.plannedDeliveryDate.localeCompare(right.plannedDeliveryDate)
-    || left.poNumber.localeCompare(right.poNumber));
+  for (const [poNumber, lines] of byPoNumber) {
+    const first = lines[0]!;
+    summaries.push({
+      sourceImportRunId: snapshot.sourceImportRunId,
+      poNumber,
+      orderedAt: first.poRegisteredAt ?? '',
+      plannedDeliveryDate: isoDay(first.plannedDeliveryDate),
+      status: first.poStatus ?? '',
+      vendorId: snapshot.vendorId,
+      centerName: first.center ?? '',
+      inboundType: first.inboundType ?? '',
+      firstProductName: first.productName,
+      skuCount: lines.length,
+      orderQuantity: lines.reduce((sum, line) => sum + line.orderQty, 0),
+      orderAmount: lines.reduce((sum, line) => sum + (line.totalPurchase ?? 0), 0),
+      collectedAt: (snapshot.sourceImportRun.importedAt ?? snapshot.createdAt).toISOString(),
+    });
+  }
+  return summaries.sort(
+    (left, right) =>
+      left.plannedDeliveryDate.localeCompare(right.plannedDeliveryDate) ||
+      left.poNumber.localeCompare(right.poNumber),
+  );
 }
 
 export async function loadSavedRocketCollection(
-  prisma: PrismaService,
+  prisma: Prisma.TransactionClient,
   input: {
     organizationId: string;
     channelAccountId: string;
@@ -209,7 +208,13 @@ export async function loadSavedRocketCollection(
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
       sourceImportRunId: input.sourceImportRunId,
-      sourceImportRun: { status: 'completed', sourceType: ROCKET_PO_CATALOG_SOURCE_TYPE },
+      sourceImportRun: {
+        organizationId: input.organizationId,
+        channelAccountId: input.channelAccountId,
+        status: 'complete',
+        sourceType: ROCKET_PO_CATALOG_SOURCE_TYPE,
+        parserVersion: 'rocket-po-v1',
+      },
     },
     select: {
       sourceImportRunId: true,
@@ -242,9 +247,11 @@ export async function loadSavedRocketCollection(
   };
 }
 
-function toCatalogRow(line: Prisma.RocketPoCatalogLineGetPayload<{
-  select: typeof savedLineSelect;
-}>): RocketPoCatalogRow {
+function toCatalogRow(
+  line: Prisma.RocketPoCatalogLineGetPayload<{
+    select: typeof savedLineSelect;
+  }>,
+): RocketPoCatalogRow {
   return {
     poLineId: line.poLineId,
     poNumber: line.poNumber,

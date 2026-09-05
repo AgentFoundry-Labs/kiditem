@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AiModule } from '../ai/ai.module';
+import { AlertsModule } from '../alerts/alerts.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { ChannelRegistrationCapabilityAdapter } from './adapter/in/agent/channel-registration-capability.adapter';
@@ -8,6 +9,7 @@ import { ChannelDashboardController } from './adapter/in/http/channel-dashboard.
 import { ChannelAccountController } from './adapter/in/http/channel-account.controller';
 import { ChannelAccountListController } from './adapter/in/http/channel-account-list.controller';
 import { RocketAccountController } from './adapter/in/http/rocket-account.controller';
+import { RocketPoSourceController } from './adapter/in/http/rocket-po-source.controller';
 import { ChannelListingController } from './adapter/in/http/channel-listing.controller';
 import { ChannelCatalogImportController } from './adapter/in/http/channel-catalog-import.controller';
 import { RocketSellpiaMatchingCsvImportController } from './adapter/in/http/rocket-sellpia-matching-csv-import.controller';
@@ -76,13 +78,14 @@ import { ChannelsWingThumbnailCapabilityAdapter } from './adapter/in/agent/chann
 import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/capability/wing-thumbnail.port';
 
 @Module({
-  imports: [AiModule, InventoryModule, OrganizationsModule],
+  imports: [AiModule, InventoryModule, OrganizationsModule, AlertsModule],
   controllers: [
     ChannelSyncController,
     ChannelDashboardController,
     ChannelAccountController,
     ChannelAccountListController,
     RocketAccountController,
+    RocketPoSourceController,
     ChannelListingController,
     ChannelCatalogImportController,
     RocketSellpiaMatchingCsvImportController,

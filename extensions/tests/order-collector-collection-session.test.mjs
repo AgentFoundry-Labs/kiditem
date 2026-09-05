@@ -16,8 +16,6 @@ const workerPath = path.join(backgroundRoot, 'worker.js');
 const AUTOMATIC_ACTIONS = [
   ['collectSellpiaDeliTracking', 'collectSellpiaDeliTracking', 'sellpia', { startDate: '2026-07-14', endDate: '2026-07-15' }],
   ['collectIcecreamMallOrders', 'collectIcecreamMallOrders', 'icecream-mall', { date: '2026-07-15' }],
-  ['collectRocketPoRows', 'collectRocketPoRows', 'coupang-rocket', { from: '2026-07-14', to: '2026-07-15' }],
-  ['listRocketPos', 'listRocketPos', 'coupang-rocket', { from: '2026-07-14', to: '2026-07-15' }],
   ['collectKidsnoteOrders', 'collectKidsnoteOrders', 'kidsnote', { from: '2026-07-14', to: '2026-07-15' }],
   ['collectKkomangseOrders', 'collectKkomangseOrders', 'kkomangse', { date: '2026-07-15' }],
   ['collectOnchannelOrders', 'collectOnchannelOrders', 'onch', { date: '2026-07-15' }],
@@ -367,9 +365,7 @@ test('automatic order actions publish safe domain-specific sessions from inactiv
     assert.equal(response.collectionSession.progress.completed, 1, action);
     assert.equal(
       response.collectionSession.producer,
-      action === 'collectRocketPoRows' || action === 'listRocketPos'
-        ? 'orders.coupang_rocket_po'
-        : 'orders.mall',
+      'orders.mall',
       action,
     );
     assert.equal('status' in response.collectionSession, false, action);

@@ -1,46 +1,56 @@
 import type {
   RocketPoCatalogPublication,
-  RocketPurchasePreviewReason,
-  RocketPurchasePreviewRequest,
   RocketSavedPoSnapshot,
   RocketSavedPoSummary,
+  RocketPoSourceBegin,
+  RocketPoSourceControl,
+  RocketPoSource,
+  RocketPoSourceSubmission,
 } from '@kiditem/shared/rocket-purchase-preview';
 
-export type RocketPoCatalogIdentity = {
-  poLineId: string;
-  channelSkuId: string;
-};
-
-export type RocketPoCatalogResolution = {
-  blockingReason: Extract<
-    RocketPurchasePreviewReason,
-    'collection_incomplete' | 'vendor_mismatch'
-  > | null;
-  catalog: RocketPoCatalogPublication | null;
+export type RocketPoCatalogIdentity = { poLineId: string; channelSkuId: string };
+export type RocketPoCompleteCollection = RocketSavedPoSnapshot & {
+  catalog: RocketPoCatalogPublication;
   identities: RocketPoCatalogIdentity[];
 };
-
 export interface RocketPoCatalogPort {
-  publishAndResolve(input: {
+  begin(input: {
     organizationId: string;
     userId: string;
-    request: RocketPurchasePreviewRequest;
-  }): Promise<RocketPoCatalogResolution>;
-
+    idempotencyKey: string;
+    request: RocketPoSourceBegin;
+  }): Promise<RocketPoSourceControl>;
+  readAttempt(input: { organizationId: string; attemptId: string }): Promise<RocketPoSourceControl>;
+  readSource(input: { organizationId: string; channelAccountId: string }): Promise<RocketPoSource>;
+  complete(input: {
+    organizationId: string;
+    attemptId: string;
+    token: string;
+    submission: RocketPoSourceSubmission;
+  }): Promise<RocketPoSourceControl>;
+  fail(input: {
+    organizationId: string;
+    attemptId: string;
+    token: string;
+    code: string;
+    message: string;
+  }): Promise<RocketPoSourceControl>;
+  readComplete(input: {
+    organizationId: string;
+    channelAccountId: string;
+    sourceImportRunId: string;
+  }): Promise<RocketPoCompleteCollection>;
   listSavedPos(input: {
     organizationId: string;
     channelAccountId: string;
     from: string;
     to: string;
     status?: string;
-    includeRepeatedSnapshots?: boolean;
   }): Promise<RocketSavedPoSummary[]>;
-
   loadSavedCollection(input: {
     organizationId: string;
     channelAccountId: string;
     sourceImportRunId: string;
   }): Promise<RocketSavedPoSnapshot | null>;
 }
-
 export const ROCKET_PO_CATALOG_PORT = Symbol('ROCKET_PO_CATALOG_PORT');

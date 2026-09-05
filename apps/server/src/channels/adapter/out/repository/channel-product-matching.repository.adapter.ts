@@ -539,8 +539,10 @@ function completedCatalogRunWhere(
 ): Prisma.SourceImportRunWhereInput {
   return {
     organizationId,
-    status: 'completed',
-    sourceType: { in: [...COMPLETED_CATALOG_SOURCE_TYPES] },
+    OR: [
+      { sourceType: 'coupang_rocket_po_catalog', status: 'complete', parserVersion: 'rocket-po-v1' },
+      { sourceType: { in: COMPLETED_CATALOG_SOURCE_TYPES.filter(source => source !== 'coupang_rocket_po_catalog') }, status: 'completed' },
+    ],
   };
 }
 

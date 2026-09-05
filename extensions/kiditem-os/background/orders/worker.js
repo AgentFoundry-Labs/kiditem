@@ -44,22 +44,6 @@ function parseShipmentSummaryStart(message) {
   }
   return { attemptId: message.attemptId };
 }
-const coupangRocketPoLifecycle = KidItemOrderCollectionLifecycle.create({
-  sessions: collectionSessions,
-  producer: "orders.coupang_rocket_po",
-  requireAttemptId: true,
-  deferredLabel: "쿠팡 로켓 PO 수집 완료 · 서버 저장 중",
-  failedLabel: "쿠팡 로켓 PO 수집 실패",
-  succeededLabel: "쿠팡 로켓 PO 수집 완료",
-  classifyFailure(value) {
-    const error = value?.error || value;
-    return value?.pendingLogin === true
-      || value?.errorCode === "coupang_po_session_required"
-      || isMallAccessError(error)
-      ? "marketplace_login"
-      : null;
-  },
-});
 const sellpiaManualMatchLifecycle = KidItemOrderCollectionLifecycle.create({
   sessions: collectionSessions,
   producer: "orders.sellpia_manual_match",
@@ -92,6 +76,11 @@ const rocketPoCollection = KidItemRocketPoCollection.create({
   chrome,
   coupangPoSession,
   withTimeout,
+});
+const rocketPoSourceOwner = KidItemRocketPoSourceOwner.create({
+  chrome, sessions: collectionSessions,
+  request: (environmentId, path, init) => browserOperationRuntimeEnvironmentContext.authedFetch(environmentId, path, init),
+  collect: rocketPoCollection.collect,
 });
 
 function runSellpiaManualMatchCollection(message) {
@@ -576,7 +565,7 @@ async function lifecycleForAttempt(attemptId, environmentId) {
     return null;
   }
   if (session?.producer === "orders.coupang_rocket_po") {
-    return coupangRocketPoLifecycle;
+    return null;
   }
   if (session?.producer === "orders.sellpia_manual_match") {
     return sellpiaManualMatchLifecycle;
@@ -587,6 +576,9 @@ async function lifecycleForAttempt(attemptId, environmentId) {
 
 async function cancelOrdersCollectionSession(attemptId, environmentId) {
   const session = await collectionSessions.getOwned(attemptId, environmentId);
+  if (session?.producer === 'orders.coupang_rocket_po') {
+    return rocketPoSourceOwner.cancel({ attemptId, environmentId });
+  }
   if (session?.producer === 'orders.coupang_shipment_summary') {
     return coupangShipmentSummarySourceOwner.cancel({ attemptId, environmentId });
   }
@@ -989,40 +981,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         });
       });
     return true;
-  }
-
-  if (msg?.action === "collectRocketPoRows") {
-    return respond(coupangRocketPoLifecycle.run(
-      msg,
-      KidItemOrderCollectionLifecycle.createIdentity(
-        "coupang-rocket",
-        typeof msg.to === "string" ? msg.to : msg.from,
-      ),
-      (collection) => collectRocketPoRows({
-        from: typeof msg.from === "string" ? msg.from : null,
-        to: typeof msg.to === "string" ? msg.to : null,
-        status: ["RP", "PA", "RI", "CI", ""].includes(msg.status) ? msg.status : "RP",
-        dateType:
-          msg.dateType === "PURCHASE_ORDER_DATE"
-            ? "PURCHASE_ORDER_DATE"
-            : "WAREHOUSING_PLAN_DATE",
-      }, collection),
-    ));
-  }
-
-  if (msg?.action === "listRocketPos") {
-    return respond(coupangRocketPoLifecycle.run(
-      msg,
-      KidItemOrderCollectionLifecycle.createIdentity(
-        "coupang-rocket",
-        typeof msg.to === "string" ? msg.to : msg.from,
-      ),
-      (collection) => listRocketPos({
-        from: typeof msg.from === "string" ? msg.from : null,
-        to: typeof msg.to === "string" ? msg.to : null,
-        status: typeof msg.status === "string" ? msg.status : "",
-      }, collection),
-    ));
   }
 
   if (msg?.action === "collectKidsnoteOrders") {
@@ -1941,16 +1899,6 @@ async function fetchCoupangShipmentPdfsInPage(items) {
     }
   }
   return { success: true, files };
-}
-
-// ── 로켓 발주확정: 발주리스트(거래처확인요청) + 상세를 풀컬럼 스크래핑 ──
-async function collectRocketPoRows({ from, to, status = "RP", dateType = "WAREHOUSING_PLAN_DATE" }, collection) {
-  return rocketPoCollection.collect({ from, to, status, dateType }, collection);
-}
-
-// ── 로켓 발주 목록(PO 단위, SKU 상세 없이) — 화면 리스트용 빠른 조회 ──
-async function listRocketPos({ from, to, status }, collection) {
-  return rocketPoCollection.list({ from, to, status }, collection);
 }
 
 async function findOrCreateInteractiveCoupangSupplierTab(reason) {
@@ -7421,6 +7369,12 @@ function normalizeSellpiaSalesOrganizationId(value) {
 KidItemDomains.register({
   producerPrefixes: ["orders", "inventory"],
   externalActions: {
+    collectRocketPoRows: {
+      validate: KidItemRocketPoSourceOwner.parseStart,
+      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
+        rocketPoSourceOwner.run({ attemptId, environmentId }),
+      ),
+    },
     collectCoupangShipmentDateSummary: {
       validate: parseShipmentSummaryStart,
       handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
@@ -7441,11 +7395,7 @@ KidItemDomains.register({
     clearCoupangCookies: true,
     art09Orders: true,
     boriboriOrders: true,
-    collectRocketPoRows: true,
-    collectRocketPoRowsEvidenceV1: true,
-    collectRocketPoRowsConfirmationV1: true,
-    coupangRocketPoCollectionSessionV1: true,
-    listRocketPos: true,
+    coupangRocketPoSourceOwnerV1: true,
     collectKakaoOrders: true,
     collectSellpiaDeliTracking: true,
     collectSellpiaSaleSummary: true,

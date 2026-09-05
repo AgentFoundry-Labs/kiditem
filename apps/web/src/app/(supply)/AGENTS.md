@@ -23,18 +23,19 @@ React Query + apiClient
   -> /api/purchase-orders
   -> queryKeys.purchaseOrders
 
-logged-in order-collector extension
--> collectRocketPoRows with a browser-created runId
--> POST /api/purchase-orders { action: 'previewRocket' |
-'listSavedRocketPos' | 'loadSavedRocketCollection', ... }
-  -> immutable PO catalog evidence, collection-scoped safe recipe automation,
-     and current-inventory preview
+explicit Rocket collection -> Channels source attempt
+-> extension reads frozen plan and uploads directly to Channels
+-> read COMPLETE source -> Supply preview by sourceImportRunId
 
 fresh preview -> browser workbook generation -> direct download
 ```
 
 ## State Rules
 
+- Rocket collection status comes from the account-scoped Channels source read,
+  independently of PO rows. Keep the prior COMPLETE on failure, and clear older
+  current rows after a verified empty COMPLETE. Preview/download failure does
+  not fail a completed source. Send source references, not rows, to preview.
 - Purchase-order mutations invalidate `queryKeys.purchaseOrders.all`.
 - `pending -> ordered` uses the submission hook with a browser-created stable
   idempotency key; it never uses generic status mutation.

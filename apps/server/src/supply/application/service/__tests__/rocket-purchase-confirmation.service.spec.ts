@@ -60,9 +60,7 @@ function previewResult() {
     status: 'ready' as const,
     collectionRunId,
     catalog: {
-      run: { id: sourceImportRunId },
-      duplicate: false,
-      changes: {},
+      sourceImportRunId, channelAccountId, generation: '1', actualCutoffAt: '2026-07-17T00:00:00.000Z', rowCount: 1,
     },
     inventoryGeneration: '12',
     rows: [{
@@ -86,6 +84,11 @@ function previewResult() {
       }],
     }],
   };
+}
+
+function reference(source = request()) {
+  const { collection: _collection, rows: _rows, ...decision } = source;
+  return { ...decision, sourceImportRunId };
 }
 
 function dependencies() {
@@ -124,7 +127,8 @@ function dependencies() {
     }),
     abandonWorkbook: vi.fn(),
   };
-  return { preview, transactions };
+  const catalog = { readComplete: vi.fn().mockResolvedValue({ collection: request().collection, rows: request().rows, catalog: previewResult().catalog, identities: [] }) };
+  return { preview, transactions, catalog };
 }
 
 describe('RocketWorkbookExportService', () => {
@@ -140,12 +144,13 @@ describe('RocketWorkbookExportService', () => {
     const service = new RocketWorkbookExportService(
       deps.preview as never,
       deps.transactions as never,
+      deps.catalog as never,
     );
 
     await expect(service.exportWorkbook({
       organizationId,
       userId,
-      request: request(),
+      request: reference(),
       artifactBytes,
     })).rejects.toThrow('generation 13');
     expect(deps.transactions.exportWorkbook).not.toHaveBeenCalled();
@@ -156,28 +161,24 @@ describe('RocketWorkbookExportService', () => {
     const service = new RocketWorkbookExportService(
       deps.preview as never,
       deps.transactions as never,
+      deps.catalog as never,
     );
 
     const result = await service.exportWorkbook({
       organizationId,
       userId,
-      request: request(),
+      request: reference(),
       artifactBytes,
     });
 
-    const {
-      idempotencyKey: _key,
-      shortageReasons: _reasons,
-      artifactFileName: _fileName,
-      artifactContentType: _contentType,
-      ...previewRequest
-    } = request();
     expect(deps.preview.preview).toHaveBeenCalledWith({
       organizationId,
       userId,
       inventoryRequirement: 'fresh',
       request: {
-        ...previewRequest,
+        channelAccountId,
+        sourceImportRunId,
+        editedQuantities: request().editedQuantities,
         previewScope: 'confirmation_requested',
       },
     });
@@ -233,20 +234,22 @@ describe('RocketWorkbookExportService', () => {
     };
     const deps = dependencies();
     deps.preview.preview.mockResolvedValue(fullPreview);
+    deps.catalog.readComplete.mockResolvedValue({ collection: completeRequest.collection, rows: completeRequest.rows, catalog: previewResult().catalog, identities: [] });
     const service = new RocketWorkbookExportService(
       deps.preview as never,
       deps.transactions as never,
+      deps.catalog as never,
     );
 
     await service.exportWorkbook({
       organizationId,
       userId,
-      request: completeRequest,
+      request: { ...reference(completeRequest), selectedPoLineIds: [poLineId] },
       artifactBytes,
     });
 
     expect(deps.preview.preview).toHaveBeenCalledWith(expect.objectContaining({
-      request: expect.objectContaining({ rows: completeRequest.rows }),
+      request: expect.objectContaining({ sourceImportRunId }),
     }));
     expect(deps.transactions.exportWorkbook).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -276,13 +279,14 @@ describe('RocketWorkbookExportService', () => {
     const service = new RocketWorkbookExportService(
       deps.preview as never,
       deps.transactions as never,
+      deps.catalog as never,
     );
 
     await expect(service.exportWorkbook({
       organizationId,
       userId,
       request: {
-        ...request(),
+        ...reference(),
         editedQuantities: { [poLineId]: 0 },
       },
       artifactBytes,
@@ -314,13 +318,14 @@ describe('RocketWorkbookExportService', () => {
     const service = new RocketWorkbookExportService(
       deps.preview as never,
       deps.transactions as never,
+      deps.catalog as never,
     );
 
     await expect(service.exportWorkbook({
       organizationId,
       userId,
       request: {
-        ...request(),
+        ...reference(),
         editedQuantities: { [poLineId]: 0 },
       },
       artifactBytes,
@@ -333,6 +338,7 @@ describe('RocketWorkbookExportService', () => {
     const service = new RocketWorkbookExportService(
       deps.preview as never,
       deps.transactions as never,
+      deps.catalog as never,
     );
 
     const result = await service.downloadWorkbook({

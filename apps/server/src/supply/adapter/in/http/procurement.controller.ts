@@ -132,8 +132,7 @@ export class ProcurementController {
         inventoryRequirement: body.inventoryRequirement ?? 'advisory',
         request: {
           channelAccountId: body.channelAccountId!,
-          collection: body.collection!,
-          rows: body.rows!,
+          sourceImportRunId: body.sourceImportRunId!,
           editedQuantities: body.editedQuantities ?? {},
           ...(body.clampEditedQuantities !== undefined && {
             clampEditedQuantities: body.clampEditedQuantities,
@@ -192,9 +191,6 @@ export class ProcurementController {
         from: body.from!,
         to: body.to!,
         ...(body.rocketStatus && { status: body.rocketStatus }),
-        ...(responseProfile === ROCKET_SAVED_PO_RESPONSE_PROFILE && {
-          includeRepeatedSnapshots: true,
-        }),
       });
     }
     if (body.action === 'loadSavedRocketCollection') {

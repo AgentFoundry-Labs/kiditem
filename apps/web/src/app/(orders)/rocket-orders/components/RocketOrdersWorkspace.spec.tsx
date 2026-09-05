@@ -1,12 +1,12 @@
 import { useEffect } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { RocketSavedPoSummary } from '@kiditem/shared/rocket-purchase-preview';
 import { listSavedRocketPos } from '@/app/(supply)/purchase-orders/lib/rocket-purchase-preview-api';
 import {
   RocketOrdersWorkspace,
   type RocketDecisionWorkspaceContext,
 } from './RocketOrdersWorkspace';
+import type { RocketSavedPoSummary } from '@kiditem/shared/rocket-purchase-preview';
 
 const rocketAccountId = '11111111-1111-4111-8111-111111111111';
 const sourceImportRunId = '22222222-2222-4222-8222-222222222222';
@@ -50,6 +50,14 @@ const query = vi.hoisted(() => ({
   isLoading: false,
 }));
 const queryMock = vi.hoisted(() => vi.fn());
+const owner = vi.hoisted(() => ({ id: '' }));
+vi.mock('@/hooks/use-rocket-po-source', () => ({
+  useRocketPoSource: (accountId: string) => ({
+    data: { status: 'READY', refreshing: false, latestAttempt: null,
+      latestComplete: accountId === '11111111-1111-4111-8111-111111111111' ? { attemptId: owner.id } : null },
+    refetch: vi.fn(),
+  }),
+}));
 const replaceMock = vi.hoisted(() => vi.fn());
 const navigation = vi.hoisted(() => ({
   pathname: '/rocket-orders',
@@ -137,6 +145,7 @@ function renderWorkspace(options?: {
 
 describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
   beforeEach(() => {
+    owner.id = sourceImportRunId;
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 6, 18, 9, 0, 0));
     sessionStorage.clear();
@@ -252,6 +261,7 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
 
 describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
   beforeEach(() => {
+    owner.id = sourceImportRunId;
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 6, 18, 12, 0, 0));
     sessionStorage.clear();
@@ -353,7 +363,8 @@ describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
     expect(latestContext?.selectedSourceImportRunId).toBeNull();
   });
 
-  it('automatically selects the newest run when legacy repeated snapshots remain', () => {
+  it('selects the authoritative owner source instead of inferring identity from repeated rows', () => {
+    owner.id = secondSourceImportRunId;
     const repeatedRuns: RocketSavedPoSummary[] = [
       {
         ...savedOrders[0]!,

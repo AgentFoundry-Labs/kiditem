@@ -204,7 +204,7 @@ test('a failed fresh-tab retry returns only the public session error and retains
   assert.equal(harness.calls.attach.at(-1).created, true);
 });
 
-test('Rocket summary and detail collection share the extracted PO session boundary', () => {
+test('Rocket detail and direct-order collection share the extracted PO session boundary', () => {
   const workerSource = readFileSync(workerPath, 'utf8');
   const rocketSource = readFileSync(rocketModulePath, 'utf8');
 
@@ -221,7 +221,7 @@ test('Rocket summary and detail collection share the extracted PO session bounda
   assert.match(workerSource, /KidItemCoupangPoSession\.create/);
   assert.match(rocketSource, /coupangPoSession\.run/);
   assert.match(rocketSource, /world:\s*["']MAIN["']/);
-  assert.match(rocketSource, /async function scrapeRocketPoList/);
+  assert.match(rocketSource, /async function scrapeRocketPoRows/);
   assert.match(workerSource, /async function collectCoupangDirectOrders[\s\S]*coupangPoSession\.run/);
   assert.doesNotMatch(workerSource, /findOrCreateCoupangSupplierTab/);
   assert.doesNotMatch(workerSource, /findOrCreateCoupangPoTab/);

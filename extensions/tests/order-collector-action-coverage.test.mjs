@@ -12,10 +12,6 @@ const workerPath = path.join(
   'extensions/kiditem-os/background/orders/worker.js',
 );
 const manifestPath = path.join(repoRoot, 'extensions/kiditem-os/manifest.json');
-const rocketCollectionPath = path.join(
-  repoRoot,
-  'extensions/kiditem-os/background/orders/rocket-po-collection.js',
-);
 const coupangPoSessionPath = path.join(
   repoRoot,
   'extensions/kiditem-os/background/orders/coupang-po-session.js',
@@ -24,8 +20,6 @@ const webSourceRoot = path.join(repoRoot, 'apps/web/src');
 const automaticCollectors = [
   'collectSellpiaDeliTracking',
   'collectIcecreamMallOrders',
-  'collectRocketPoRows',
-  'listRocketPos',
   'collectKidsnoteOrders',
   'collectKkomangseOrders',
   'collectOnchannelOrders',
@@ -111,7 +105,6 @@ test('order collector manifest grants the exact Kakao seller host', () => {
 
 test('every automatic collector explicitly attaches its inactive tab to its own run', () => {
   const worker = readFileSync(workerPath, 'utf8');
-  const rocketCollection = readFileSync(rocketCollectionPath, 'utf8');
   const coupangPoSession = readFileSync(coupangPoSessionPath, 'utf8');
   for (const collector of automaticCollectors) {
     const start = worker.indexOf(`async function ${collector}(`);
@@ -119,15 +112,7 @@ test('every automatic collector explicitly attaches its inactive tab to its own 
     const next = worker.indexOf('\nasync function ', start + 1);
     const body = worker.slice(start, next === -1 ? worker.length : next);
     assert.match(body, /\([^)]*collection[^)]*\)/, `${collector} collection argument`);
-    if (collector === 'collectRocketPoRows' || collector === 'listRocketPos') {
-      const method = collector === 'collectRocketPoRows' ? 'collect' : 'list';
-      assert.match(body, new RegExp(`rocketPoCollection\\.${method}`));
-      assert.match(rocketCollection, /coupangPoSession\.run/);
-      assert.match(
-        coupangPoSession,
-        /await attachOrderCollectionTab\(collection, tab, created\)/,
-      );
-    } else if (collector === 'collectCoupangDirectOrders') {
+    if (collector === 'collectCoupangDirectOrders') {
       assert.match(body, /coupangPoSession\.run/);
       assert.match(
         coupangPoSession,
@@ -199,7 +184,7 @@ test('order collector manifest publishes normalized failure evidence and scoped 
   assert.match(worker, /sellpiaScopedAutoInvoiceV1:\s*true/);
   assert.match(worker, /collectCoupangShipmentDateSummaryValidatedV1:\s*true/);
   assert.match(worker, /coupangShipmentSummarySourceOwnerV1:\s*true/);
-  assert.match(worker, /coupangRocketPoCollectionSessionV1:\s*true/);
+  assert.equal(/coupangRocketPoSourceOwnerV1:\s*true/.test(worker), true);
 });
 
 test('Sellpia inventory starts and uploads one owner attempt directly', () => {

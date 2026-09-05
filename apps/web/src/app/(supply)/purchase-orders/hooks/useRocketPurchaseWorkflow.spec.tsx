@@ -2,6 +2,21 @@ import { createElement, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  collectRocketPoRowsForConfirmationFromExtension,
+  loadRocketPoSource,
+  RocketPoSourceError,
+} from '@/lib/rocket-sales-collection';
+import { downloadBlob } from '@/lib/browser-download';
+import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
+import {
+  loadSavedRocketCollection,
+  previewRocketPurchases,
+} from '../lib/rocket-purchase-preview-api';
+import {
+  buildRocketConfirmationWorkbook,
+} from '../lib/rocket-confirmation-workbook';
+import { useRocketPurchaseWorkflow } from './useRocketPurchaseWorkflow';
 import type {
   RocketPoCatalogPublication,
   RocketPoCatalogRow,
@@ -10,28 +25,18 @@ import type {
   RocketPurchasePreviewResponse,
   RocketSavedPoCollection,
 } from '@kiditem/shared/rocket-purchase-preview';
-import {
-  collectRocketPoRowsForConfirmationFromExtension,
-  finalizeRocketPoCollectionSession,
-} from '@/lib/rocket-sales-collection';
-import {
-  loadSavedRocketCollection,
-  previewRocketPurchases,
-} from '../lib/rocket-purchase-preview-api';
-import {
-  buildRocketConfirmationWorkbook,
-} from '../lib/rocket-confirmation-workbook';
-import { downloadBlob } from '@/lib/browser-download';
-import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
-import { useRocketPurchaseWorkflow } from './useRocketPurchaseWorkflow';
 
-vi.mock('@/lib/rocket-sales-collection', () => ({
+vi.mock('@/lib/rocket-sales-collection', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/rocket-sales-collection')>(),
   collectRocketPoRowsForConfirmationFromExtension: vi.fn(),
-  finalizeRocketPoCollectionSession: vi.fn(),
+  loadRocketPoSource: vi.fn(),
 }));
-vi.mock('../lib/rocket-purchase-preview-api', () => ({
-  loadSavedRocketCollection: vi.fn(),
+vi.mock('@/lib/rocket-purchase-preview-api', () => ({
   previewRocketPurchases: vi.fn(),
+}));
+vi.mock('../lib/rocket-purchase-preview-api', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../lib/rocket-purchase-preview-api')>(),
+  loadSavedRocketCollection: vi.fn(),
   rocketPreviewErrorMessage: (_cause: unknown, fallback: string) => fallback,
 }));
 vi.mock('../lib/rocket-confirmation-workbook', () => ({
@@ -63,7 +68,7 @@ describe('useRocketPurchaseWorkflow', () => {
     vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockRejectedValue(
       new Error('unexpected collection'),
     );
-    vi.mocked(finalizeRocketPoCollectionSession).mockResolvedValue(undefined);
+    vi.mocked(loadRocketPoSource).mockResolvedValue({ status: 'MISSING', refreshing: false, latestAttempt: null, latestComplete: null });
     vi.mocked(sellpiaInventoryFreshnessApi.getState).mockResolvedValue(
       freshnessState({ status: 'fresh', verifiedGeneration: '12' }),
     );
@@ -79,7 +84,7 @@ describe('useRocketPurchaseWorkflow', () => {
     vi.mocked(collectRocketPoRowsForConfirmationFromExtension)
       .mockImplementation(async () => {
         events.push('extension.collect');
-        return { collection: source.collection, rows: source.rows, poCount: 1 };
+        return { ...source, poCount: 1 };
       });
     vi.mocked(previewRocketPurchases).mockImplementationOnce(async () => {
       events.push('server.preview.fresh');
@@ -103,21 +108,16 @@ describe('useRocketPurchaseWorkflow', () => {
     expect(collectRocketPoRowsForConfirmationFromExtension).toHaveBeenCalledTimes(1);
     expect(previewRocketPurchases).toHaveBeenCalledTimes(1);
     expect(previewRocketPurchases).toHaveBeenCalledWith(
-      expect.objectContaining({ rows: source.rows, collection: source.collection }),
+      expect.objectContaining({ sourceImportRunId: source.sourceImportRunId }),
     );
     expect(sellpiaInventoryFreshnessApi.getState).not.toHaveBeenCalled();
     expect(sellpiaInventoryFreshnessApi.requestRefresh).not.toHaveBeenCalled();
     expect(onCatalogSaved).toHaveBeenCalledTimes(1);
-    expect(finalizeRocketPoCollectionSession).toHaveBeenCalledWith({
-      runId: source.collection.collectionRunId,
-      status: 'succeeded',
-      message: '로켓 PO 수집본 저장을 완료했습니다.',
-    });
     expect(hook.result.current.sourceRows).toEqual(source.rows);
     expect(hook.result.current.stage).toBe('ready');
   });
 
-  it('persists and finalizes a collection after the route unmounts', async () => {
+  it('reads the owner-completed collection and previews its reference after the route unmounts', async () => {
     const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
     const collection = deferred<Awaited<ReturnType<
       typeof collectRocketPoRowsForConfirmationFromExtension
@@ -138,22 +138,15 @@ describe('useRocketPurchaseWorkflow', () => {
     });
     hook.unmount();
     collection.resolve({
-      collection: source.collection,
-      rows: source.rows,
+      ...source,
       poCount: 1,
     });
     await collecting;
 
     expect(previewRocketPurchases).toHaveBeenCalledWith(expect.objectContaining({
       channelAccountId: ACCOUNT_A,
-      collection: source.collection,
-      rows: source.rows,
+      sourceImportRunId: source.sourceImportRunId,
     }));
-    expect(finalizeRocketPoCollectionSession).toHaveBeenCalledWith({
-      runId: source.collection.collectionRunId,
-      status: 'succeeded',
-      message: '로켓 PO 수집본 저장을 완료했습니다.',
-    });
   });
 
   it('keeps collected rows visible while waiting for fresh inventory despite an unresolved file', async () => {
@@ -161,8 +154,7 @@ describe('useRocketPurchaseWorkflow', () => {
     const onCatalogSaved = vi.fn();
     const inventoryState = deferred<ReturnType<typeof freshnessState>>();
     vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockResolvedValue({
-      collection: source.collection,
-      rows: source.rows,
+      ...source,
       poCount: 1,
     });
     const advisoryRows = [previewRow('LINE-A', null, 2)];
@@ -266,8 +258,7 @@ describe('useRocketPurchaseWorkflow', () => {
 
     expect(previewRocketPurchases).toHaveBeenNthCalledWith(2, expect.objectContaining({
       channelAccountId: ACCOUNT_A,
-      collection: source.collection,
-      rows: source.rows,
+      sourceImportRunId: source.sourceImportRunId,
       editedQuantities: {},
       clampEditedQuantities: true,
     }));
@@ -301,8 +292,7 @@ describe('useRocketPurchaseWorkflow', () => {
 
     expect(hook.result.current.preview?.rows[0]?.recommendedQuantity).toBe(3);
     freshCollection.resolve({
-      collection: source.collection,
-      rows: source.rows,
+      ...source,
       poCount: 1,
     });
     await act(async () => collecting);
@@ -312,11 +302,9 @@ describe('useRocketPurchaseWorkflow', () => {
     const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
     const onCatalogSaved = vi.fn();
     const onActivity = vi.fn();
-    vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockResolvedValue({
-      collection: { ...source.collection, truncated: true },
-      rows: source.rows,
-      poCount: 2,
-    });
+    vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockRejectedValue(new RocketPoSourceError({
+      attemptId: SOURCE_A, state: 'FAILED', errorMessage: '로켓 PO 2건 중 1건만 수집되어 저장하지 않았습니다.',
+    } as never));
     vi.mocked(previewRocketPurchases).mockResolvedValue({
       ...preview(source, [previewRow('LINE-A', 'collection_incomplete', 0)]),
       catalog: null,
@@ -348,8 +336,7 @@ describe('useRocketPurchaseWorkflow', () => {
     const onCatalogSaved = vi.fn();
     const onActivity = vi.fn();
     vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockResolvedValue({
-      collection: source.collection,
-      rows: source.rows,
+      ...source,
       poCount: 1,
     });
     vi.mocked(previewRocketPurchases).mockResolvedValue(
@@ -410,7 +397,7 @@ describe('useRocketPurchaseWorkflow', () => {
     await waitFor(() => expect(hook.result.current.preview?.rows).toHaveLength(1));
 
     expect(previewRocketPurchases).toHaveBeenCalledWith(expect.objectContaining({
-      rows: [confirmationRow, completedRow],
+      sourceImportRunId: source.sourceImportRunId,
       previewScope: 'all_rows',
     }));
     // 표에는 발주확정 행까지 모두 보여준다(달력 건수와 어긋나지 않게).
@@ -469,7 +456,7 @@ describe('useRocketPurchaseWorkflow', () => {
 
     await waitFor(() => expect(hook.result.current.preview?.rows).toHaveLength(1));
     expect(previewRocketPurchases).toHaveBeenCalledWith(expect.objectContaining({
-      rows: [lineA, lineB],
+      sourceImportRunId: source.sourceImportRunId,
     }));
     expect(hook.result.current.preview?.rows[0]?.poLineId).toBe('LINE-B');
     expect(hook.result.current.sourceRows).toEqual([lineB]);
@@ -616,6 +603,32 @@ describe('useRocketPurchaseWorkflow', () => {
     });
   });
 
+  it('retains intersected and jointly clamped edits when the owner current identity acknowledges this collection', async () => {
+    const old = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A'), sourceRow('REMOVED')]);
+    const fresh = savedCollection(ACCOUNT_A, SOURCE_B, COLLECTION_B, [sourceRow('LINE-A')]);
+    vi.mocked(loadSavedRocketCollection).mockResolvedValue(old);
+    vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockResolvedValue({ ...fresh, poCount: 1 });
+    vi.mocked(previewRocketPurchases)
+      .mockResolvedValueOnce(preview(old, [previewRow('LINE-A', null, 4), previewRow('REMOVED', null, 4)]))
+      .mockResolvedValue(preview(fresh, [{ ...previewRow('LINE-A', null, 2), editedQuantity: 2 }]));
+    const hook = renderHook(({ savedSourceImportRunId }) => useRocketPurchaseWorkflow({
+      channelAccountId: ACCOUNT_A, hasConfiguredVendorId: true, from: '2026-07-01', to: '2026-07-31', savedSourceImportRunId,
+    }), { initialProps: { savedSourceImportRunId: SOURCE_A }, wrapper: queryWrapper() });
+    await waitFor(() => expect(hook.result.current.stage).toBe('ready'));
+    act(() => { hook.result.current.setReviewedQuantity('LINE-A', 3); hook.result.current.setReviewedQuantity('REMOVED', 1); });
+    await act(async () => hook.result.current.recalculate());
+    expect(previewRocketPurchases).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      sourceImportRunId: SOURCE_B, editedQuantities: { 'LINE-A': 3 }, clampEditedQuantities: true, previewScope: 'confirmation_requested',
+    }));
+    expect(hook.result.current.displayPreview?.rows.map(({ poLineId }) => poLineId)).toEqual(['LINE-A']);
+    hook.rerender({ savedSourceImportRunId: SOURCE_B });
+    await waitFor(() => expect(hook.result.current.stage).toBe('ready'));
+    expect(loadSavedRocketCollection).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.editedQuantities).toEqual({ 'LINE-A': 2 });
+    await act(async () => hook.result.current.revalidateEditedQuantities());
+    expect(previewRocketPurchases).toHaveBeenLastCalledWith(expect.objectContaining({ sourceImportRunId: SOURCE_B, editedQuantities: { 'LINE-A': 2 } }));
+  });
+
   it('downloads the reviewed workbook directly without starting a post-download workflow', async () => {
     const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
     vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
@@ -650,6 +663,44 @@ describe('useRocketPurchaseWorkflow', () => {
       }],
     }));
     expect(downloadBlob).toHaveBeenCalledWith(generatedBlob, '쿠팡_로켓.xlsx');
+  });
+
+  it('clears the previous display and edits for a newly completed empty source', async () => {
+    const old = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
+    const empty = savedCollection(ACCOUNT_A, SOURCE_B, COLLECTION_B, []);
+    vi.mocked(loadSavedRocketCollection).mockResolvedValue(old);
+    vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockResolvedValue({ ...empty, poCount: 0 });
+    vi.mocked(previewRocketPurchases).mockResolvedValueOnce(preview(old, [previewRow('LINE-A', null, 4)]))
+      .mockResolvedValueOnce(preview(empty, []));
+    const hook = renderWorkflow({ channelAccountId: ACCOUNT_A, savedSourceImportRunId: SOURCE_A });
+    await waitFor(() => expect(hook.result.current.stage).toBe('ready'));
+    act(() => hook.result.current.setReviewedQuantity('LINE-A', 3));
+    await act(async () => hook.result.current.recalculate());
+    expect(hook.result.current.displayPreview?.rows).toEqual([]);
+    expect(hook.result.current.editedQuantities).toEqual({});
+    expect(hook.result.current.collectionRun?.sourceImportRunId).toBe(SOURCE_B);
+  });
+
+  it.each(['FAILED', 'COMPLETE'] as const)('keeps RUNNING informational and releases the CTA after owner %s', async (state) => {
+    const onActivity = vi.fn();
+    const running = { attemptId: SOURCE_A, state: 'RUNNING', errorMessage: null } as never;
+    vi.mocked(loadRocketPoSource).mockResolvedValue({ status: 'MISSING', refreshing: true, latestAttempt: running, latestComplete: null });
+    vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockRejectedValue(new RocketPoSourceError(running));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children);
+    const hook = renderHook(() => useRocketPurchaseWorkflow({ channelAccountId: ACCOUNT_A, from: '2026-07-01', to: '2026-07-31',
+      savedSourceImportRunId: null, hasConfiguredVendorId: true, onActivity }), { wrapper });
+    await act(async () => hook.result.current.recalculate());
+    expect(onActivity.mock.calls.some(([event]) => event.status === 'failed')).toBe(false);
+    expect(hook.result.current.loading).toBe(true);
+    expect(hook.result.current.stage).toBe('collecting');
+    vi.mocked(loadRocketPoSource).mockResolvedValue({ status: 'MISSING', refreshing: false,
+      latestAttempt: { attemptId: SOURCE_A, state } as never, latestComplete: null });
+    await act(async () => { await client.refetchQueries(); });
+    await waitFor(() => expect(hook.result.current.loading).toBe(false));
+    expect(hook.result.current.stage).not.toBe('collecting');
+    expect(hook.result.current.error).toBeNull();
+    hook.unmount(); client.clear();
   });
 
   it('forces a fresh insufficient-capacity workbook quantity to zero', async () => {

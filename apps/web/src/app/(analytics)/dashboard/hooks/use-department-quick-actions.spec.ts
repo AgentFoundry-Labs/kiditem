@@ -37,7 +37,7 @@ describe('useDepartmentQuickActions execution boundaries', () => {
 
     for (const [sharedAction, domainSource] of [
       ['collectAndPersistCoupangShipmentSummary', shipmentScreen],
-      ['collectAndPersistRocketPurchaseOrders', rocketWorkflow],
+      ['useRocketPoSource', rocketWorkflow],
       ['useTrendSourceCollection', trendScreen],
     ] as const) {
       expect(dashboard).toContain(sharedAction);

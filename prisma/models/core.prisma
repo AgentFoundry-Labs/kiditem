@@ -426,6 +426,8 @@ model SourceImportRun {
   @@unique([organizationId, sourceType], map: "source_import_runs_coupang_ad_profitability_running_key", where: raw("source_type = 'coupang_ad_profitability' AND status = 'running'"))
   @@unique([organizationId, sourceType, publicationSequence], map: "source_import_runs_org_source_publication_key", where: raw("publication_sequence IS NOT NULL"))
   @@unique([organizationId, sourceType], map: "source_import_runs_shipment_summary_running_key", where: raw("source_type = 'coupang_shipment_summary' AND status = 'running'"))
+  @@unique([organizationId, sourceType, channelAccountId], map: "source_import_runs_rocket_po_running_key", where: raw("source_type = 'coupang_rocket_po_catalog' AND status = 'running'"))
+  @@unique([organizationId, sourceType, channelAccountId, freshnessGeneration], map: "source_import_runs_rocket_po_generation_key", where: raw("source_type = 'coupang_rocket_po_catalog' AND freshness_generation IS NOT NULL"))
   @@unique([organizationId, sourceType, freshnessGeneration], map: "source_import_runs_shipment_summary_generation_key", where: raw("source_type = 'coupang_shipment_summary' AND freshness_generation IS NOT NULL"))
   @@unique([id, organizationId], map: "source_import_runs_id_org_key")
   @@index([organizationId, sourceType, status, createdAt])

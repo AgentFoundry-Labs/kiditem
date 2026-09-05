@@ -42,10 +42,10 @@ are executable in [the Supply tests](__tests__/).
 
 ## Rocket Workbook Contract
 
-- Preview first publishes complete account-scoped Rocket catalog evidence
-  through Channels, then evaluates the latest stored Inventory snapshot.
-  Preview is pure allocation and never reserves stock, writes a workbook, or
-  calls a purchase provider.
+- Preview reads the referenced account-scoped COMPLETE Rocket snapshot through
+  Channels and evaluates the latest stored Inventory snapshot. Source publication
+  and failure belong to Channels; preview only allocates and never reserves stock,
+  writes a workbook, or calls a purchase provider.
 - Allocate shared component stock once in stable ETA/PO/line order. Strict edits
   fail by default; explicit clamping applies in that same global order.
 - Official export reruns canonical preview in fresh mode, requires every line

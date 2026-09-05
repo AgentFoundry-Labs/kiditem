@@ -51,8 +51,10 @@ multiple route groups.
 - Shipment summary callers use `coupang-shipment-summary-action.ts` to begin
   the Inventory attempt and send only its ID to the extension. Read status,
   capture cutoff, and calendar history from the owner; keep provider rows and
-  terminal writes out of the page. Rocket PO callers retain
-  `rocket-purchase-collection-action.ts` until their source-owner cutover.
+  terminal writes out of the page.
+- Rocket PO callers use `rocket-purchase-collection-action.ts` to collect through
+  the Channels attempt before requesting Supply preview by COMPLETE source ID.
+  `use-rocket-po-source.ts` reads owner status; preview errors never fail a source.
 
 ## Boundary Rules
 

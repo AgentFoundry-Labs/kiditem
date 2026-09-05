@@ -291,7 +291,6 @@ describe('ProcurementController purchase submission boundary', () => {
       from: '2026-07-01',
       to: '2026-07-31',
       status: '거래처확인요청',
-      includeRepeatedSnapshots: true,
     });
     expect(catalog.loadSavedCollection).toHaveBeenCalledWith({
       organizationId: 'organization-1',
@@ -331,16 +330,7 @@ describe('ProcurementController purchase submission boundary', () => {
     const request = {
       idempotencyKey: '11111111-1111-4111-8111-111111111111',
       channelAccountId: '22222222-2222-4222-8222-222222222222',
-      collection: {
-        collectionRunId: '33333333-3333-4333-8333-333333333333',
-        vendorId: 'VENDOR-1',
-        listPagesRead: 1,
-        totalListPages: 1,
-        truncated: false,
-        detailPoCount: 0,
-        failedPoNumbers: [],
-      },
-      rows: [],
+      sourceImportRunId: '33333333-3333-4333-8333-333333333333',
       editedQuantities: {},
       shortageReasons: {},
       artifactFileName: 'coupang-rocket.xlsx',
@@ -410,16 +400,7 @@ describe('ProcurementController purchase submission boundary', () => {
     const body = {
       action: 'previewRocket',
       channelAccountId: '11111111-1111-4111-8111-111111111111',
-      collection: {
-        collectionRunId: '22222222-2222-4222-8222-222222222222',
-        vendorId: 'VENDOR-1',
-        listPagesRead: 1,
-        totalListPages: 1,
-        truncated: false,
-        detailPoCount: 0,
-        failedPoNumbers: [],
-      },
-      rows: [],
+      sourceImportRunId: '33333333-3333-4333-8333-333333333333',
       editedQuantities: {},
       clampEditedQuantities: true,
     };
@@ -436,8 +417,7 @@ describe('ProcurementController purchase submission boundary', () => {
       inventoryRequirement: 'advisory',
       request: {
         channelAccountId: body.channelAccountId,
-        collection: body.collection,
-        rows: body.rows,
+        sourceImportRunId: body.sourceImportRunId,
         editedQuantities: body.editedQuantities,
         clampEditedQuantities: true,
       },
@@ -456,16 +436,7 @@ describe('ProcurementController purchase submission boundary', () => {
       action: 'previewRocket',
       inventoryRequirement: 'fresh',
       channelAccountId: '11111111-1111-4111-8111-111111111111',
-      collection: {
-        collectionRunId: '22222222-2222-4222-8222-222222222222',
-        vendorId: 'VENDOR-1',
-        listPagesRead: 1,
-        totalListPages: 1,
-        truncated: false,
-        detailPoCount: 0,
-        failedPoNumbers: [],
-      },
-      rows: [],
+      sourceImportRunId: '33333333-3333-4333-8333-333333333333',
       editedQuantities: {},
       clampEditedQuantities: true,
     };

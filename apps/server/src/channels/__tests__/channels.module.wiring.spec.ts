@@ -3,6 +3,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { InventoryModule } from '../../inventory/inventory.module';
+import { AlertsModule } from '../../alerts/alerts.module';
+import { RocketPoSourceController } from '../adapter/in/http/rocket-po-source.controller';
 import { ChannelsModule } from '../channels.module';
 import { ChannelRegistrationCapabilityAdapter } from '../adapter/in/agent/channel-registration-capability.adapter';
 import { ChannelAccountRepositoryAdapter } from '../adapter/out/repository/channel-account.repository.adapter';
@@ -70,6 +72,11 @@ function expectBinding(
 }
 
 describe('ChannelsModule canonical owner wiring', () => {
+  it('wires the direct Rocket source HTTP boundary and its transactional Alert owner', () => {
+    expect(Reflect.getMetadata(CONTROLLERS_KEY, ChannelsModule)).toContain(RocketPoSourceController);
+    expect(Reflect.getMetadata(IMPORTS_KEY, ChannelsModule)).toContain(AlertsModule);
+  });
+
   it('retires legacy reconciliation wiring and schema', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, ChannelsModule) ?? [];
     const controllers: unknown[] = Reflect.getMetadata(CONTROLLERS_KEY, ChannelsModule) ?? [];

@@ -17,7 +17,7 @@
             target: { tabId: tab.id },
             world: "MAIN",
             func: scrapeRocketPoRows,
-            args: [from, to, status, dateType, collection.runId],
+            args: [from, to, status, dateType, collection.attemptId],
           }),
           180000,
           "로켓 발주 수집 시간이 초과되었습니다.",
@@ -30,112 +30,7 @@
       });
     }
 
-    async function list({ from, to, status = "" }, collection) {
-      return coupangPoSession.run(collection, async (tab) => {
-        const injected = await withTimeout(
-          chromeApi.scripting.executeScript({
-            target: { tabId: tab.id },
-            world: "MAIN",
-            func: scrapeRocketPoList,
-            args: [from, to, status],
-          }),
-          60000,
-          "로켓 발주 목록 조회 시간이 초과되었습니다.",
-        );
-
-        return injected[0]?.result ?? {
-          success: false,
-          error: "supplier 화면에 접근하지 못했습니다.",
-        };
-      });
-    }
-
-    return { collect, list };
-  }
-
-  // Runs in the prepared supplier.coupang.com PO page through executeScript.
-  async function scrapeRocketPoList(from, to, statusCode) {
-    try {
-      const listPageLimit = 20;
-      const poSessionError = () => ({
-        success: false,
-        pendingLogin: true,
-        errorCode: "coupang_po_session_required",
-        error:
-          "쿠팡 발주 세션이 만료되었습니다. Supplier Hub 로그인 상태를 확인한 뒤 다시 시도하세요.",
-      });
-      const clean = (value, max) => String(value || "")
-        .replace(new RegExp("[\\u0000-\\u001F]", "g"), " ")
-        .trim()
-        .slice(0, max || 60);
-      const kstDate = (iso) => {
-        if (!iso) return "";
-        const parsed = new Date(iso);
-        if (Number.isNaN(parsed.getTime())) return String(iso).slice(0, 10);
-        parsed.setUTCHours(parsed.getUTCHours() + 9);
-        return parsed.toISOString().slice(0, 10);
-      };
-      const listUrl = (page) =>
-        "/po-web/app/purchase-order/list?page=" + page
-        + "&searchDateType=WAREHOUSING_PLAN_DATE&searchStartDate=" + (from || "")
-        + "&searchEndDate=" + (to || "")
-        + "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq="
-        + "&purchaseOrderStatus=" + (statusCode || "")
-        + "&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
-      const pos = [];
-
-      for (let page = 1; page <= listPageLimit; page += 1) {
-        const response = await fetch(listUrl(page), {
-          credentials: "include",
-          headers: { accept: "application/json" },
-        });
-        const text = await response.text();
-        if (!response.ok || text.trim().charAt(0) === "<") {
-          if (page === 1) return poSessionError();
-          break;
-        }
-        let parsed;
-        try {
-          parsed = JSON.parse(text);
-        } catch {
-          if (page === 1) return poSessionError();
-          break;
-        }
-        const body = parsed.body || {};
-        const rows = Array.isArray(body.body) ? body.body : [];
-        for (const order of rows) {
-          pos.push({
-            poSeq: order.purchaseOrderSeq,
-            orderedAt: kstDate(order.createdAt),
-            eta: kstDate(order.expectedDeliveryDate),
-            status: order.purchaseOrderStatusDescription || "",
-            vendorName: order.vendorName || "",
-            centerName: order.centerName || "",
-            inboundType: order.transportTypeDescription || "",
-            firstSkuName: clean(order.firstSkuName, 60),
-            skuCount: order.skuCount || 0,
-            orderQty: order.sumOfOrderQty || 0,
-            orderAmount: order.sumOfOrderAmount || 0,
-          });
-        }
-        if (page >= (Number(body.lastPageNumber) || 1)) break;
-      }
-      return { success: true, pos };
-    } catch (error) {
-      if (String(error?.message || error) === "Failed to fetch") {
-        return {
-          success: false,
-          pendingLogin: true,
-          errorCode: "coupang_po_session_required",
-          error:
-            "쿠팡 발주 세션이 만료되었습니다. Supplier Hub 로그인 상태를 확인한 뒤 다시 시도하세요.",
-        };
-      }
-      return {
-        success: false,
-        error: String(error?.message || error || "로켓 발주 목록 조회 실패"),
-      };
-    }
+    return { collect };
   }
 
   // Runs in supplier.coupang.com through chrome.scripting.executeScript.
@@ -186,6 +81,7 @@
       let listPagesRead = 0;
       let totalListPages = 0;
       let truncated = false;
+      let validatedList = true;
       for (let page = 1; ; page += 1) {
         const response = await fetch(listUrl(page), {
           credentials: "include",
@@ -207,6 +103,7 @@
         }
         const body = parsed.body || {};
         const rows = Array.isArray(body.body) ? body.body : [];
+        validatedList = validatedList && Array.isArray(body.body);
         listPagesRead = page;
         totalListPages = Math.max(totalListPages, Number(body.lastPageNumber) || 1);
         purchaseOrders.push(...rows);
@@ -303,6 +200,7 @@
         success: true,
         rows,
         poCount: purchaseOrders.length,
+        proof: { from, to, status: normalizedStatus, dateType: normalizedDateType, validatedList },
         evidence: {
           collectionRunId,
           vendorId,
@@ -329,7 +227,6 @@
 
   globalThis.KidItemRocketPoCollection = Object.freeze({
     create,
-    scrapeRocketPoList,
     scrapeRocketPoRows,
   });
 })();

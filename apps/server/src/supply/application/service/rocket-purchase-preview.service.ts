@@ -2,12 +2,13 @@ import {
   BadRequestException,
   Inject,
   Injectable,
-  InternalServerErrorException,
 } from '@nestjs/common';
 import {
   RocketPurchasePreviewRequestSchema,
+  RocketPurchasePreviewDecisionSchema,
   type RocketPurchasePreviewRequest,
   type RocketPurchasePreviewResponse,
+  type RocketPoCatalogRow,
 } from '@kiditem/shared/rocket-purchase-preview';
 import {
   ROCKET_PO_CATALOG_PORT,
@@ -24,7 +25,6 @@ import {
 import {
   RocketPreviewQuantityExceededError,
   previewRocketCapacity,
-  resolveRocketPreviewEditedQuantity,
 } from '../../domain/policy/rocket-capacity-preview';
 import type { RocketPurchasePreviewPort } from '../port/in/procurement/rocket-purchase-preview.port';
 
@@ -45,44 +45,18 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
     inventoryRequirement: 'advisory' | 'fresh';
     request: RocketPurchasePreviewRequest;
   }): Promise<RocketPurchasePreviewResponse> {
-    const request = RocketPurchasePreviewRequestSchema.parse(input.request);
-    const catalog = await this.catalog.publishAndResolve({
+    const parsed = RocketPurchasePreviewRequestSchema.safeParse(input.request);
+    if (!parsed.success) throw new BadRequestException('ROCKET_PREVIEW_REQUEST_INVALID');
+    const catalog = await this.catalog.readComplete({
       organizationId: input.organizationId,
-      userId: input.userId,
-      request,
+      channelAccountId: parsed.data.channelAccountId,
+      sourceImportRunId: parsed.data.sourceImportRunId,
     });
+    const { sourceImportRunId: _sourceId, ...decisionFields } = parsed.data;
+    const decision = RocketPurchasePreviewDecisionSchema.safeParse({ ...decisionFields, collection: catalog.collection, rows: catalog.rows });
+    if (!decision.success) throw new BadRequestException(decision.error.message);
+    const request = decision.data;
     const selectedRows = previewRowsForScope(request);
-    if (catalog.blockingReason) {
-      return translatePreviewPolicy(() => ({
-        status: 'ready' as const,
-        collectionRunId: request.collection.collectionRunId,
-        catalog: null,
-        inventoryGeneration: null,
-        rows: selectedRows.map((row) => {
-          const editedQuantity = resolveRocketPreviewEditedQuantity(
-            row.poLineId,
-            request.editedQuantities[row.poLineId] ?? null,
-            0,
-            request.clampEditedQuantities === true,
-          );
-          return {
-            poLineId: row.poLineId,
-            poNumber: row.poNumber,
-            productNo: row.productNo,
-            productName: row.productName,
-            plannedDeliveryDate: row.plannedDeliveryDate,
-            orderQuantity: row.orderQty,
-            recommendedQuantity: 0,
-            maxQuantity: 0,
-            editedQuantity,
-            reason: catalog.blockingReason,
-            channelListingOptionId: null,
-            masterProductId: null,
-            components: [],
-          };
-        }),
-      }));
-    }
 
     const identityByLine = new Map(catalog.identities.map((identity) =>
       [identity.poLineId, identity.channelSkuId]));
@@ -135,11 +109,6 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
         sellpiaInventorySkuIds,
       });
       if (gated.status === 'refresh_required') {
-        if (!catalog.catalog) {
-          throw new InternalServerErrorException(
-            'Rocket catalog checkpoint is missing before inventory refresh',
-          );
-        }
         return {
           status: 'freshness_pending',
           collectionRunId: request.collection.collectionRunId,
@@ -176,8 +145,8 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
 }
 
 function previewRowsForScope(
-  request: RocketPurchasePreviewRequest,
-): RocketPurchasePreviewRequest['rows'] {
+  request: { rows: RocketPoCatalogRow[]; previewScope?: RocketPurchasePreviewRequest['previewScope'] },
+): RocketPoCatalogRow[] {
   if (request.previewScope !== 'confirmation_requested') return request.rows;
   return request.rows.filter((row) => (
     ['RI', 'RP'].includes(row.poStatusCode?.toUpperCase() ?? '')
