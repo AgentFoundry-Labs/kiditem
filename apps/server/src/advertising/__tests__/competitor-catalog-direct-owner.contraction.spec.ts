@@ -18,7 +18,6 @@ describe('competitor catalog direct-owner contraction', () => {
     const productionSources = [
       resolve(advertisingRoot, 'advertising.module.ts'),
       resolve(advertisingRoot, 'adapter/in/http/advertising-ingest.controller.ts'),
-      resolve(serverRoot, 'operations/operation-owner-worker.module.ts'),
       resolve(serverRoot, 'agent-worker-application.module.ts'),
       resolve(serverRoot, '../../../packages/shared/src/sourcing/browser-operations.ts'),
     ].map((path) => readFileSync(path, 'utf8')).join('\n');

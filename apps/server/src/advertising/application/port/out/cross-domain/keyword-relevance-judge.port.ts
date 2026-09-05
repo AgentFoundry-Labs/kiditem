@@ -2,7 +2,7 @@
 //
 // The owning capability is AI's `TEXT_JUDGEMENT_PORT`; advertising wraps just
 // the surface it needs so `application/service/**` never imports another owner
-// domain's contract. Same pattern as `operation-alert.port`.
+// domain's implementation.
 //
 // The port is deliberately narrower than a general completion: advertising
 // asks one question ("does this keyword fit this product?") and gets raw text

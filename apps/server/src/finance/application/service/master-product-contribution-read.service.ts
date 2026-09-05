@@ -1,11 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
+  type MasterProductContributionAnalytics,
   type MasterProductContributionReadInput,
   type MasterProductContributionReadPort,
 } from '../port/in/master-product-contribution-read.port';
 import {
   MASTER_PRODUCT_CONTRIBUTION_REPOSITORY_PORT,
-  type MasterProductContributionAnalytics,
   type MasterProductContributionRepositoryPort,
 } from '../port/out/repository/master-product-contribution.repository.port';
 

@@ -11,6 +11,7 @@ import type {
   WingTrackedProductRow,
   WingTrackedProductWithLatest,
   WingTrackedSnapshotRow,
+  WingTrackedSnapshotValues,
 } from '../../../application/port/out/repository/wing-tracked-product.repository.port';
 
 /** Organization-scoped tracker CRUD and snapshot reads. */
