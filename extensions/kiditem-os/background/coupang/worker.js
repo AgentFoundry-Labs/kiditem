@@ -167,11 +167,19 @@ const competitorCatalogSourceOwner = KidItemCompetitorCatalogSourceOwner.create(
   },
 });
 const wingFormRuntimeCompat = KidItemWingFormRuntimeCompat.create({ chrome });
-const keywordSerpSourceOwner = KidItemKeywordSerpSourceOwner.create({
+const keywordSerpSourceOwner = KidItemKeywordRankSourceOwner.create({
+  kind: "serp",
   chrome,
   sessions: collectionSessions,
   request: (environmentId, path, init) => authedFetch(environmentId, path, init),
   collect: captureCoupangKeywordSerp,
+});
+const wingRankSourceOwner = KidItemKeywordRankSourceOwner.create({
+  kind: "wing",
+  chrome,
+  sessions: collectionSessions,
+  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
+  collect: captureWingRank,
 });
 const wingFormReadiness = KidItemWingFormReadiness.create({ chrome });
 const wingImageFetch = KidItemWingImageFetch.create({
@@ -1109,6 +1117,38 @@ async function deleteWingProduct(message) {
   }
 }
 
+async function captureWingRank(keyword, maxPages, { environmentId, attemptId }) {
+  let search, tabId;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    if (!await collectionSessions.getOwned(attemptId, environmentId)) return { cancelled: true };
+    try {
+      search = await searchWingCatalogProducts({
+        keyword, maxPages, environmentId, attemptId, collectionTabId: tabId,
+      });
+      if (search?.tabId) tabId = search.tabId;
+      if (search?.attentionRequired || search?.cancelled) return search;
+      if (!search?.success) throw new Error(search?.error || "Wing 상품분석 조회 실패");
+      break;
+    } catch (error) {
+      if (!await collectionSessions.getOwned(attemptId, environmentId)) return { cancelled: true };
+      if (attempt === 2) throw error;
+      await sleep(randomDelayMs(5000, 9000));
+    }
+  }
+  return {
+    success: true,
+    pagesScanned: search.pages.length,
+    collectedCount: search.collectedCount,
+    totalResults: search.upstreamTotal,
+    items: sortWingCatalogRowsBySales(search.rows),
+    proof: { maxPages: search.maxPages, stopReason: search.stopReason,
+      pages: search.pages.map(({ searchPage, itemCount, nextSearchPage, resultArrayObserved }) => ({
+        searchPage, itemCount, nextSearchPage, resultArrayObserved,
+      })),
+    },
+  };
+}
+
 async function searchWingCatalogProducts(message) {
   const operationSignal = message?.signal;
   operationSignal?.throwIfAborted?.();
@@ -1117,8 +1157,8 @@ async function searchWingCatalogProducts(message) {
   if (!keyword) return { success: false, error: "검색 키워드를 입력하세요" };
 
   const maxPages = clampNumber(message.maxPages, 1, WING_CATALOG_MAX_PAGES, 2);
-  const ownsSession = typeof message.collectionRunId !== "string";
-  const runId = ownsSession
+  const ownsSession = !message.attemptId && typeof message.collectionRunId !== "string";
+  const runId = message.attemptId || (ownsSession
       ? await collectionRuns.beginWebCollection(
         "sourcing.wing_catalog",
         {
@@ -1132,7 +1172,10 @@ async function searchWingCatalogProducts(message) {
         ["collectionMode", "keywordFingerprint"],
         message.environmentId,
       )
-    : message.collectionRunId;
+    : message.collectionRunId);
+  const isCancelled = () => message.attemptId
+    ? collectionSessions.getOwned(runId, message.environmentId).then((session) => !session)
+    : collectionRuns.isCancelled(runId);
   operationSignal?.throwIfAborted?.();
   const tab = Number.isInteger(message.collectionTabId)
     ? (await getTab(message.collectionTabId).catch(() => null)) ??
@@ -1146,7 +1189,7 @@ async function searchWingCatalogProducts(message) {
   if (typeof coupangEnvironment !== "undefined") {
     await coupangEnvironment.bindTab(tabId, message.environmentId);
   }
-  await collectionRuns.attachTab(runId, tab);
+  await collectionSessions.attachTab(runId, { tabId, windowId: tab.windowId });
   operationSignal?.throwIfAborted?.();
   const cancelledResult = {
     success: false,
@@ -1154,7 +1197,7 @@ async function searchWingCatalogProducts(message) {
     tabId,
     runId,
   };
-  if (await collectionRuns.isCancelled(runId)) return cancelledResult;
+  if (await isCancelled()) return cancelledResult;
 
   const loaded = await raceWingCatalogOperationAbort(
     waitForTabComplete(tabId, {
@@ -1166,7 +1209,7 @@ async function searchWingCatalogProducts(message) {
     error: error?.message || "Wing 상품등록 화면 로딩 실패",
   }));
   operationSignal?.throwIfAborted?.();
-  if (await collectionRuns.isCancelled(runId)) return cancelledResult;
+  if (await isCancelled()) return cancelledResult;
   if (loaded?.error) {
     if (ownsSession) await collectionSessions.fail(runId);
     if (ownsSession) await removeTab(tabId);
@@ -1191,6 +1234,7 @@ async function searchWingCatalogProducts(message) {
   let upstreamTotal = null;
 
   for (let index = 0; index < maxPages; index++) {
+    if (await isCancelled()) return cancelledResult;
     const payload = {
       keyword,
       excludedProductIds: [],
@@ -1201,18 +1245,18 @@ async function searchWingCatalogProducts(message) {
     let response;
     try {
       response = await raceWingCatalogOperationAbort(
-        executeWingCatalogSearchWithRetry(tabId, payload),
+        executeWingCatalogSearchWithRetry(tabId, payload, isCancelled),
         operationSignal,
       );
     } catch (error) {
-      if (await collectionRuns.isCancelled(runId)) return cancelledResult;
+      if (await isCancelled()) return cancelledResult;
       if (ownsSession) {
         await collectionSessions.fail(runId);
       }
       await removeTab(tabId);
       throw error;
     }
-    if (await collectionRuns.isCancelled(runId)) return cancelledResult;
+    if (await isCancelled()) return cancelledResult;
 
     if (response?.errorCode === "wing_xsrf_token_missing") {
       if (rows.length === 0) {
@@ -1298,7 +1342,7 @@ async function searchWingCatalogProducts(message) {
     upstreamTotal != null && upstreamTotal >= rows.length
       ? upstreamTotal
       : null;
-  if (await collectionRuns.isCancelled(runId)) return cancelledResult;
+  if (await isCancelled()) return cancelledResult;
   const result = {
     success: true,
     opened: true,
@@ -1318,9 +1362,9 @@ async function searchWingCatalogProducts(message) {
     endedAt: Date.now(),
   };
   if (ownsSession) await collectionSessions.succeed(runId);
-  if (await collectionRuns.isCancelled(runId)) return cancelledResult;
+  if (await isCancelled()) return cancelledResult;
   if (ownsSession) await removeTab(tabId);
-  if (await collectionRuns.isCancelled(runId)) return cancelledResult;
+  if (await isCancelled()) return cancelledResult;
   return { ...result, runId };
 }
 
@@ -3638,12 +3682,13 @@ async function getOrCreateWingCatalogTab() {
   return createTab({ url: WING_CATALOG_FORM_URL, active: false });
 }
 
-async function executeWingCatalogSearchWithRetry(tabId, payload) {
+async function executeWingCatalogSearchWithRetry(tabId, payload, isCancelled) {
   // 요청 제한(429)은 참을성 있게 지수 백오프로 재시도한다. 카탈로그가 커지면
   // 페이지 수가 많아 짧은 재시도로는 계속 429에 걸린다.
   const MAX_ATTEMPTS = 4;
   let response = null;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    if (await isCancelled?.()) throw new Error("COLLECTION_CANCELLED");
     response = await executeWingCatalogSearch(tabId, payload);
     const retryable =
       response?.status === 429 || response?.status >= 500;
@@ -5102,9 +5147,15 @@ KidItemDomains.register({
   },
   externalActions: {
     collectAdvertisingKeywordSerp: {
-      validate: KidItemKeywordSerpSourceOwner.parseStart,
+      validate: (message) => KidItemKeywordRankSourceOwner.parseStart(message, "serp"),
       handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
         keywordSerpSourceOwner.run({ environmentId, attemptId }),
+      ),
+    },
+    collectAdvertisingWingRank: {
+      validate: (message) => KidItemKeywordRankSourceOwner.parseStart(message, "wing"),
+      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
+        wingRankSourceOwner.run({ environmentId, attemptId }),
       ),
     },
     collectSourcingWingCatalog: {
@@ -5149,6 +5200,7 @@ KidItemDomains.register({
   },
   capabilities: {
     keywordSerpSourceOwnerV1: true,
+    wingRankSourceOwnerV1: true,
     profitabilityAdvertisingSourceOwnerV1: true,
     trackedWingProductsSourceOwnerV1: true,
     competitorCatalogSourceOwnerV1: true,
@@ -5184,6 +5236,9 @@ KidItemDomains.register({
     const session = await collectionSessions.getOwned(runId, environmentId);
     if (session?.producer === "advertising.keyword_rank") {
       return keywordSerpSourceOwner.cancel({ environmentId, attemptId: runId });
+    }
+    if (session?.producer === "advertising.wing_sales_rank") {
+      return wingRankSourceOwner.cancel({ environmentId, attemptId: runId });
     }
     if (session?.producer === "advertising.profitability_import") {
       return profitabilitySourceOwner.cancel({ environmentId, attemptId: runId });

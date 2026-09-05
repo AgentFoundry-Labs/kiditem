@@ -1,21 +1,25 @@
 (function (root) {
   "use strict";
-  const PATH = "/api/ads/keyword-rank/serp/attempts";
-  const PRODUCER = "advertising.keyword_rank";
+  const SOURCES = {
+    serp: { action: "collectAdvertisingKeywordSerp", producer: "advertising.keyword_rank",
+      type: "coupang_keyword_serp", parser: "keyword-serp-v1", maxPages: 3, errorPrefix: "SERP" },
+    wing: { action: "collectAdvertisingWingRank", producer: "advertising.wing_sales_rank",
+      type: "coupang_wing_rank", parser: "wing-rank-v1", maxPages: 5, errorPrefix: "WING_RANK" },
+  };
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-  function parseStart(message) {
-    if (message?.action !== "collectAdvertisingKeywordSerp"
+  function parseStart(message, kind) {
+    if (!SOURCES[kind] || message?.action !== SOURCES[kind].action
       || typeof message.attemptId !== "string" || !UUID.test(message.attemptId)
       || Object.keys(message).some((key) => key !== "action" && key !== "attemptId")) {
-      throw new Error("Invalid keyword SERP attempt");
+      throw new Error("Invalid keyword rank attempt");
     }
     return { attemptId: message.attemptId };
   }
 
   function parseResult(value, attemptId) {
     if (value?.attemptId !== attemptId || !["RUNNING", "COMPLETE", "FAILED"].includes(value.state)) {
-      throw new Error("INVALID_SERP_OWNER_RESPONSE");
+      throw new Error("INVALID_RANK_OWNER_RESPONSE");
     }
     return value;
   }
@@ -30,16 +34,19 @@
     };
   }
 
-  function create({ chrome, request, collect, sessions }) {
+  function create({ kind, chrome, request, collect, sessions }) {
+    const source = SOURCES[kind];
+    if (!source) throw new Error("Unknown rank source");
+    const path = `/api/ads/keyword-rank/${kind}/attempts`;
     const inFlight = new Map();
     const wire = root.KidItemSourcingAttemptWire.create({
-      chrome, sourcePath: PATH, requestFailureMessage: "키워드 순위 저장 결과를 확인하지 못했습니다",
+      chrome, sourcePath: path, requestFailureMessage: "키워드 순위 저장 결과를 확인하지 못했습니다",
     });
     function connection(environmentId, attemptId) {
       const config = { apiBase: "", headers: { "Content-Type": "application/json" },
         request: (path, init) => request(environmentId, path, init) };
       return {
-        read: () => wire.requestJson(config, `${PATH}/${encodeURIComponent(attemptId)}`, { method: "GET" })
+        read: () => wire.requestJson(config, `${path}/${encodeURIComponent(attemptId)}`, { method: "GET" })
           .then((value) => parseResult(value, attemptId)),
         submit: (attempt, submission) => wire.terminal(config, attempt, submission, (value) => parseResult(value, attemptId)),
       };
@@ -50,13 +57,13 @@
       if (attempt.state !== "RUNNING") return result(attempt);
       const plan = attempt.plan;
       if (!UUID.test(attempt.attemptToken || "")
-        || plan?.sourceType !== "coupang_keyword_serp" || plan.parserVersion !== "keyword-serp-v1"
+        || plan?.sourceType !== source.type || plan.parserVersion !== source.parser
         || typeof plan.keyword !== "string" || !plan.keyword.trim()
-        || !Number.isInteger(plan.maxPages) || plan.maxPages < 1 || plan.maxPages > 3
+        || !Number.isInteger(plan.maxPages) || plan.maxPages < 1 || plan.maxPages > source.maxPages
         || !Number.isFinite(Date.parse(attempt.expiresAt)) || Date.parse(attempt.expiresAt) <= Date.now()) {
-        throw new Error("INVALID_OR_EXPIRED_SERP_PLAN");
+        throw new Error(`INVALID_OR_EXPIRED_${source.errorPrefix}_PLAN`);
       }
-      await sessions.start({ environmentId, attemptId, producer: PRODUCER });
+      await sessions.start({ environmentId, attemptId, producer: source.producer });
       let capture;
       try {
         capture = await collect(plan.keyword, plan.maxPages, { environmentId, attemptId });
@@ -68,11 +75,13 @@
         ? { method: "PUT", suffix: "", body: {
           keyword: plan.keyword, capturedAt: new Date().toISOString(),
           pagesScanned: capture.pagesScanned, items: capture.items,
-          pagination: capture.pagination, usedFallback: !!capture.usedFallback, wall: capture.wall || null,
+          ...(kind === "wing" ? {
+            collectedCount: capture.collectedCount, totalResults: capture.totalResults, proof: capture.proof,
+          } : { pagination: capture.pagination, usedFallback: !!capture.usedFallback, wall: capture.wall || null }),
         } }
         : { method: "POST", suffix: "/fail", body: wire.failure(
-          { code: capture?.wall ? "SERP_PROVIDER_WALL" : "SERP_CAPTURE_FAILED", message: capture?.error },
-          "SERP_CAPTURE_FAILED", "쿠팡 키워드 순위 수집에 실패했습니다.",
+          { code: `${source.errorPrefix}_${capture?.wall || capture?.attentionRequired ? "PROVIDER_WALL" : "CAPTURE_FAILED"}`, message: capture?.error },
+          `${source.errorPrefix}_CAPTURE_FAILED`, "쿠팡 키워드 순위 수집에 실패했습니다.",
         ) };
       let terminal;
       try {
@@ -85,8 +94,8 @@
           // The owner rejected the payload before publication. Only this
           // definitive rejection permits a different, explicit failure result.
           terminal = await submit(attempt, { method: "POST", suffix: "/fail", body: wire.failure(
-            { code: "SERP_RESPONSE_INVALID", message: error.message },
-            "SERP_RESPONSE_INVALID", "키워드 순위 응답 형식이 올바르지 않습니다.",
+            { code: `${source.errorPrefix}_RESPONSE_INVALID`, message: error.message },
+            `${source.errorPrefix}_RESPONSE_INVALID`, "키워드 순위 응답 형식이 올바르지 않습니다.",
           ) }).catch(() => null);
           terminal ??= await read().catch(() => null);
         }
@@ -95,8 +104,9 @@
           errorCode: "SOURCE_RESULT_UNCONFIRMED", error: String(error?.message).slice(0, 300),
         };
       }
-      if (terminal.state === "FAILED" && capture?.wall) {
-        await sessions.requireAttention(attemptId, {
+      if (terminal.state === "FAILED" && (capture?.wall || capture?.attentionRequired)) {
+        // Wing already recorded its precise reason (including rate limits).
+        if (!capture.attentionRequired) await sessions.requireAttention(attemptId, {
           reason: capture.wall === "captcha" ? "captcha" : "marketplace_login",
           message: terminal.errorMessage || capture.error || "쿠팡 수집 화면을 확인해주세요.",
         });
@@ -114,7 +124,7 @@
     }
     async function cancel({ environmentId, attemptId }) {
       const session = await sessions.getOwned(attemptId, environmentId);
-      if (session?.producer !== PRODUCER) return null;
+      if (session?.producer !== source.producer) return null;
       const owner = connection(environmentId, attemptId);
       let terminal;
       await sessions.cancel(attemptId, {
@@ -139,5 +149,5 @@
     }
     return Object.freeze({ run, cancel });
   }
-  root.KidItemKeywordSerpSourceOwner = Object.freeze({ create, parseStart });
+  root.KidItemKeywordRankSourceOwner = Object.freeze({ create, parseStart });
 })(globalThis);

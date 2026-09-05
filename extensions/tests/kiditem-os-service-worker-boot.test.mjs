@@ -230,9 +230,10 @@ function bootRankCollector(pages, { loadFailureAt, redirectAt, fetch } = {}) {
   };
 }
 
-function bootWingSearch(responses) {
-  const { fake, context } = bootServiceWorker();
+function bootWingSearch(responses, { fetch } = {}) {
+  const { fake, context } = bootServiceWorker({ fetch });
   const requests = [], delays = [], urls = [];
+  let injections = 0;
   let tab;
   fake.chrome.tabs.create = (properties, callback) => {
     urls.push(properties.url);
@@ -241,8 +242,10 @@ function bootWingSearch(responses) {
     return Promise.resolve(tab);
   };
   fake.chrome.tabs.get = (_id, callback) => { callback?.(tab); return Promise.resolve(tab); };
+  fake.chrome.tabs.remove = async (_id, callback) => { tab = null; callback?.(); };
   fake.chrome.scripting.executeScript = async ({ func, args }) => {
-    const response = responses[requests.length];
+    const response = responses[injections++];
+    if (response instanceof Error) throw response;
     return [{ result: await vm.runInNewContext(`(${func.toString()})(...args)`, {
       args, document: { cookie: 'XSRF-TOKEN=fixture' }, AbortSignal,
       fetch: async (url, init) => {
@@ -254,15 +257,186 @@ function bootWingSearch(responses) {
     }) }];
   };
   context.setTimeout = (callback, ms) => {
-    if ([1000, 2000, 4000, 8000, 16000, 2200].includes(ms)) { delays.push(ms); queueMicrotask(callback); }
+    if ([1000, 2000, 4000, 7000, 8000, 16000, 2200].includes(ms)) { delays.push(ms); queueMicrotask(callback); }
     return 1;
   };
   context.clearTimeout = () => {};
-  return { requests, delays, urls, search: async (maxPages = 5) => JSON.parse(JSON.stringify(
-    await context.searchWingCatalogProducts({ keyword: '연필 세트', maxPages, environmentId: 'local',
-      collectionRunId: '11111111-1111-4111-8111-111111111111' }),
-  )) };
+  vm.runInContext('Math.random = () => 0.5;', context);
+  return { requests, delays, urls, fake, context, search: async (maxPages = 5) => {
+    // The collector receives an already-started progress session from its caller.
+    await vm.runInContext(`collectionSessions.start({environmentId: 'local',
+      attemptId: '11111111-1111-4111-8111-111111111111', producer: 'advertising.wing_sales_rank'})`, context);
+    return JSON.parse(JSON.stringify(await context.searchWingCatalogProducts({
+      keyword: '연필 세트', maxPages, environmentId: 'local',
+      collectionRunId: '11111111-1111-4111-8111-111111111111',
+    })));
+  } };
 }
+
+test('Wing rank source dispatch transports the frozen plan with original sales sorting and observed page proof', async () => {
+  const attemptId = '11111111-1111-4111-8111-111111111111';
+  const attemptToken = '22222222-2222-4222-8222-222222222222';
+  const uploads = [];
+  const h = bootWingSearch([{ status: 200, body: { result: [
+    { productId: 101, vendorItemId: 301, productName: '연필', salesLast28d: 3, salePrice: 1000 },
+    { productId: 102, vendorItemId: 302, productName: '색연필', salesLast28d: 5, salePrice: 2000 },
+  ], nextSearchPage: null } }], { fetch: async (url, init) => {
+    assert.ok(String(url).endsWith(`/wing/attempts/${attemptId}`));
+    if (init.method === 'PUT') {
+      uploads.push({ body: JSON.parse(init.body), token: new Headers(init.headers).get('x-source-attempt-token') });
+      return { ok: true, status: 200, json: async () => ({ attemptId, state: 'COMPLETE', itemCount: 2 }) };
+    }
+    return { ok: true, status: 200, json: async () => ({
+      attemptId, attemptToken, state: 'RUNNING', keyword: '연필 세트',
+      expiresAt: new Date(Date.now() + 1_500_000).toISOString(),
+      plan: { sourceType: 'coupang_wing_rank', parserVersion: 'wing-rank-v1',
+        keyword: '연필 세트', maxPages: 2, targets: [{ vendorItemId: '301' }] },
+    }) };
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  const action = h.context.KidItemDomains.forExternalAction('collectAdvertisingWingRank');
+  assert.equal(typeof action?.handle, 'function');
+  for (const extra of [{ keyword: 'forged' }, { maxPages: 5 }, { attemptToken }, { runId: attemptId }]) {
+    assert.throws(() => action.validate({ action: 'collectAdvertisingWingRank', attemptId, ...extra }));
+  }
+  const [reply, duplicate] = await Promise.all([0, 1].map(() => externalRequest(h.fake, {
+    action: 'collectAdvertisingWingRank', attemptId,
+  })));
+  assert.deepEqual(reply, duplicate);
+  assert.deepEqual(JSON.parse(JSON.stringify(reply)), { success: true, attemptId, terminalState: 'COMPLETE', itemCount: 2 });
+  assert.equal(uploads.length, 1);
+  assert.equal(uploads[0].token, attemptToken);
+  assert.deepEqual(uploads[0].body.items.map(({ vendorItemId, salesRank }) => ({ vendorItemId, salesRank })), [
+    { vendorItemId: '302', salesRank: 1 }, { vendorItemId: '301', salesRank: 2 },
+  ]);
+  assert.deepEqual(uploads[0].body.proof, { maxPages: 2, stopReason: 'no_next_search_page',
+    pages: [{ searchPage: 0, itemCount: 2, nextSearchPage: null, resultArrayObserved: true }] });
+  assert.equal(uploads[0].body.keyword, '연필 세트');
+  assert.equal(uploads[0].body.pagesScanned, 1);
+  assert.equal(uploads[0].body.collectedCount, 2);
+  assert.equal(uploads[0].body.totalResults, null);
+  assert.ok(Number.isFinite(Date.parse(uploads[0].body.capturedAt)));
+  assert.equal(h.requests.length, 1);
+  assert.deepEqual(h.urls, ['https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2']);
+});
+
+test('Wing rank source retains the existing two keyword tries on a failed browser request', async () => {
+  const attemptId = '11111111-1111-4111-8111-111111111111';
+  const writes = [];
+  const h = bootWingSearch([new Error('injected frame unavailable'), { status: 200, body: { result: [] } }], {
+    fetch: async (url, init) => {
+      // The not-yet-retired startup poll is outside this source seam.
+      if (!String(url).includes('/wing/attempts/')) return { ok: true, status: 200, json: async () => ({}) };
+      if (init.method !== 'GET') writes.push({ url: String(url), method: init.method });
+      return { ok: true, status: 200, json: async () => ({
+        attemptId, attemptToken: '22222222-2222-4222-8222-222222222222',
+        state: init.method === 'GET' ? 'RUNNING' : init.method === 'PUT' ? 'COMPLETE' : 'FAILED', itemCount: 0,
+        expiresAt: new Date(Date.now() + 1_500_000).toISOString(),
+        plan: { sourceType: 'coupang_wing_rank', parserVersion: 'wing-rank-v1', keyword: '연필 세트', maxPages: 5 },
+      }) };
+    },
+  });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  const result = await externalRequest(h.fake, { action: 'collectAdvertisingWingRank', attemptId });
+  assert.equal(result.terminalState, 'COMPLETE');
+  assert.deepEqual(writes, [{ url: `http://localhost:4000/api/ads/keyword-rank/wing/attempts/${attemptId}`, method: 'PUT' }]);
+  assert.deepEqual(h.delays, [7000]);
+  assert.equal(h.urls.length, 2);
+  assert.equal(h.requests.length, 1);
+});
+
+test('Wing rank source cancellation is owner-confirmed and stops the next page or HTTP retry', async (t) => {
+  for (const phase of ['page', 'HTTP retry']) await t.test(phase, async () => {
+  const attemptId = '11111111-1111-4111-8111-111111111111';
+  const writes = [];
+  let state = 'RUNNING';
+  const h = bootWingSearch(phase === 'page' ? [
+    { status: 200, body: { result: [{ productId: 101 }], nextSearchPage: 5 } },
+    { status: 200, body: { result: [] } },
+  ] : [{ status: 429, body: {} }, { status: 200, body: { result: [] } }], { fetch: async (url, init) => {
+    if (!String(url).includes('/wing/attempts/')) return { ok: true, status: 200, json: async () => ({}) };
+    if (init.method !== 'GET') {
+      writes.push({ url: String(url), body: JSON.parse(init.body) });
+      state = 'FAILED';
+    }
+    return { ok: true, status: 200, json: async () => ({
+      attemptId, attemptToken: '22222222-2222-4222-8222-222222222222', state, itemCount: 0,
+      expiresAt: new Date(Date.now() + 1_500_000).toISOString(),
+      plan: { sourceType: 'coupang_wing_rank', parserVersion: 'wing-rank-v1', keyword: '연필 세트', maxPages: 2 },
+    }) };
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  let entered, release;
+  const extracting = new Promise((resolve) => { entered = resolve; });
+  const resume = new Promise((resolve) => { release = resolve; });
+  if (phase === 'page') {
+    const extract = h.fake.chrome.scripting.executeScript;
+    h.fake.chrome.scripting.executeScript = async (...args) => { entered(); await resume; return extract(...args); };
+  } else {
+    const timer = h.context.setTimeout;
+    h.context.setTimeout = (callback, ms) => {
+      if (ms !== 4000) return timer(callback, ms);
+      entered(); resume.then(callback); return 1;
+    };
+  }
+  const closed = [];
+  h.fake.chrome.tabs.remove = async (tabId, callback) => {
+    assert.equal(state, 'FAILED'); closed.push(tabId); callback?.();
+  };
+  const collecting = externalRequest(h.fake, { action: 'collectAdvertisingWingRank', attemptId });
+  await extracting;
+  let cancellation;
+  try { cancellation = await externalRequest(h.fake, { action: 'cancelCollectionSession', attemptId }); }
+  finally { release(); }
+  const result = await collecting;
+  assert.equal(cancellation?.terminalState, 'FAILED');
+  assert.equal(result.terminalState, 'FAILED');
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].url.endsWith(`/${attemptId}/fail`), true);
+  assert.equal(writes[0].body.code, 'COLLECTION_CANCELLED');
+  assert.equal(h.requests.length, 1, 'the cancelled attempt must not request the next page');
+  assert.deepEqual(closed, [42]);
+  });
+});
+
+test('Wing rank source preserves rate-limit and login attention after the owner records failure', async (t) => {
+  for (const reason of ['rate_limited', 'marketplace_login']) await t.test(reason, async () => {
+    const attemptId = '11111111-1111-4111-8111-111111111111';
+    const failures = [];
+    const h = bootWingSearch(reason === 'rate_limited'
+      ? Array.from({ length: 4 }, () => ({ status: 429, body: {} }))
+      : [{ status: 403, contentType: 'text/html', body: 'login required' }], {
+      fetch: async (url, init) => {
+        if (!String(url).includes('/wing/attempts/')) return { ok: true, status: 200, json: async () => ({}) };
+        if (init.method === 'POST') {
+          assert.ok(String(url).endsWith(`/${attemptId}/fail`));
+          failures.push(JSON.parse(init.body));
+          return { ok: true, status: 200, json: async () => ({ attemptId, state: 'FAILED', itemCount: 0,
+            errorCode: 'WING_RANK_PROVIDER_WALL', errorMessage: 'Provider attention required.' }) };
+        }
+        assert.equal(init.method, 'GET');
+        return { ok: true, status: 200, json: async () => ({
+          attemptId, attemptToken: '22222222-2222-4222-8222-222222222222', state: 'RUNNING',
+          expiresAt: new Date(Date.now() + 1_500_000).toISOString(),
+          plan: { sourceType: 'coupang_wing_rank', parserVersion: 'wing-rank-v1', keyword: '연필 세트', maxPages: 5 },
+        }) };
+      },
+    });
+    h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+    const result = await externalRequest(h.fake, { action: 'collectAdvertisingWingRank', attemptId });
+    assert.equal(result.terminalState, 'FAILED');
+    assert.equal(failures.length, 1);
+    assert.equal(failures[0].code, 'WING_RANK_PROVIDER_WALL');
+    assert.equal(h.requests.length, reason === 'rate_limited' ? 4 : 1);
+    assert.deepEqual(h.delays, reason === 'rate_limited' ? [4000, 8000, 16000] : []);
+    const session = await externalRequest(h.fake, { action: 'getCollectionSession', attemptId });
+    assert.equal(session?.attention?.reason, reason);
+    const focused = [];
+    h.fake.chrome.tabs.update = async (tabId, options) => { focused.push({ tabId, ...options }); };
+    await externalRequest(h.fake, { action: 'openCollectionAttentionTab', attemptId });
+    assert.deepEqual(focused, [{ tabId: 42, active: true }]);
+  });
+});
 
 test('Wing search records whether the successful JSON response actually contained a result array', async () => {
   for (const [body, observed] of [[{ result: [] }, true], [{}, false], [{ result: null }, false]]) {

@@ -62,50 +62,17 @@ test("Wing rank pauses the whole session on login or bounded upstream exhaustion
   assert.match(wingCatalogSearch, /break;/);
 });
 
-test("Wing catalog rate limiting uses paced searches and bounded asymmetric retries", () => {
-  const wingPageDelay = source.match(
-    /const WING_CATALOG_PAGE_DELAY_MS = (\d+);/,
-  );
+test("keyword suggestions retain the initial page-render delay", () => {
   const keywordSearchDelay = source.match(
     /const COUPANG_KEYWORD_SEARCH_DELAY_MS = (\d+);/,
-  );
-  const wingCatalogSearch = functionSource(
-    'searchWingCatalogProducts',
-    'searchCoupangKeywordSuggestions',
   );
   const keywordSearch = functionSource(
     'searchCoupangKeywordSuggestions',
     'getOrCreateCoupangSearchTab',
   );
-  const retry = functionSource(
-    'executeWingCatalogSearchWithRetry',
-    'executeWingCatalogSearch',
-  );
-
-  assert.equal(wingPageDelay?.[1], '2200');
   assert.equal(keywordSearchDelay?.[1], '1500');
-  assert.match(
-    wingCatalogSearch,
-    /response = await raceWingCatalogOperationAbort\([\s\S]*?executeWingCatalogSearchWithRetry\(tabId, payload\),[\s\S]*?operationSignal,[\s\S]*?\);/,
-  );
-  assert.match(
-    wingCatalogSearch,
-    /searchPage = body\.nextSearchPage;[\s\S]*?if \(index < maxPages - 1\) \{[\s\S]*?sleep\(WING_CATALOG_PAGE_DELAY_MS\),[\s\S]*?operationSignal,[\s\S]*?\}/,
-  );
   assert.match(
     keywordSearch,
     /await sleep\(COUPANG_KEYWORD_SEARCH_DELAY_MS\);[\s\S]*?response = await executeCoupangKeywordSuggestionSearch\(/,
-  );
-  assert.match(
-    retry,
-    /const retryable =\s*response\?\.status === 429 \|\| response\?\.status >= 500;/,
-  );
-  assert.match(
-    retry,
-    /const MAX_ATTEMPTS = 4;[\s\S]*?for \(let attempt = 1; attempt <= MAX_ATTEMPTS; attempt\+\+\) \{[\s\S]*?response = await executeWingCatalogSearch\(tabId, payload\);[\s\S]*?if \(!retryable \|\| attempt === MAX_ATTEMPTS\) return response;/,
-  );
-  assert.match(
-    retry,
-    /const baseMs = response\?\.status === 429 \? 4000 : 1000;[\s\S]*?await sleep\(baseMs \* 2 \*\* \(attempt - 1\)\);/,
   );
 });
