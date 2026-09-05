@@ -50,6 +50,9 @@ importScripts(
   "orders/rocket-po-collection.js",
   // 소싱 도메인 모듈
   "sourcing/url-policy.js",
+  "sourcing/source-attempt-wire.js",
+  "sourcing/product-extension-collector.js",
+  "coupang/wing-catalog-source-owner.js",
   "sourcing/1688-trend-collector.js",
   "sourcing/live-commerce-collector.js",
   "sourcing/tiktok-cc-collector.js",

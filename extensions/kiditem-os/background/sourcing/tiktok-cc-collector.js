@@ -9,15 +9,17 @@
 // field mapping in the extractor against real captured responses before relying
 // on the output.
 //
-// The exact Operation handler owns this collector. It uses OperationRun.id for
-// its session identity, reads targets through a typed API, and posts only to
-// the fenced owner-ingest route.
+// The Sourcing owner issues the attempt identity and frozen target plan. This
+// collector only transports browser evidence through that fenced attempt.
 //
 // See [[reference_market_trend_research_tools]] for the sourcing trend context.
 (function (global) {
   "use strict";
 
-  const STATUS_KEY = "kiditem_tiktok_cc_collection_status";
+  const PRODUCER = "sourcing.tiktok_cc_trend";
+  const REQUEST_KEY = "kiditem_tiktok_cc_request_v1";
+  const SOURCE_PATH = "/sourcing/tiktok-creative/attempts";
+  const SOURCE_KEY = "tiktok.creative";
   const NAVIGATION_TIMEOUT_MS = 35_000;
   const EXTRACTION_TIMEOUT_MS = 25_000;
   const MAX_ITEMS_DEFAULT = 100;
@@ -36,23 +38,49 @@
     const getBackendRequestConfig = options.getBackendRequestConfig;
     const ensureContentScripts = options.ensureContentScripts;
     const sessions = options.sessions;
-    const now = options.now || (() => new Date());
-
     const activeRuns = new Map();
+    const wire = global.KidItemSourcingAttemptWire.create({
+      chrome: chromeApi, sourcePath: SOURCE_PATH,
+      requestFailureMessage: "TikTok source owner request failed",
+    });
+    const requestJson = wire.requestJson;
+    const storageGet = wire.getCorrelation;
+    const failureFrom = wire.failure;
 
-    function storageGet(key) {
-      return new Promise((resolve) => {
-        chromeApi.storage.local.get(key, (result) => resolve(result && result[key] ? result[key] : null));
-      });
+    function ownerError(code, message, status = null) {
+      const error = new Error(message);
+      error.code = code;
+      if (status !== null) error.status = status;
+      return error;
     }
 
-    function storageSet(value) {
-      return new Promise((resolve) => {
-        chromeApi.storage.local.set(
-          { [`${STATUS_KEY}:${value.environmentId}`]: value },
-          resolve,
-        );
-      });
+    function requiredText(value, code, max = 300) {
+      if (typeof value !== "string" || !value.trim() || value.trim().length > max) {
+        throw ownerError(code, code);
+      }
+      return value.trim();
+    }
+
+
+    function requestStorageKey(environmentId) {
+      return `${REQUEST_KEY}:${environmentId}`;
+    }
+
+    async function persistRequestIdentity(environmentId, attemptId, input) {
+      const correlation = {
+        attemptId,
+        idempotencyKey: input.idempotencyKey,
+      };
+      if (input.maxItems !== undefined) correlation.maxItems = input.maxItems;
+      if (input.region !== undefined) correlation.region = input.region;
+      await wire.setCorrelation(requestStorageKey(environmentId), correlation);
+    }
+
+    async function clearRequestIdentity(environmentId, attemptId) {
+      const key = requestStorageKey(environmentId);
+      const current = await storageGet(key);
+      if (current?.attemptId !== attemptId) return;
+      await wire.clearCorrelation(key);
     }
 
     function getTab(tabId) {
@@ -173,43 +201,6 @@
       return response;
     }
 
-    async function setStatus(run, patch) {
-      if (run.cancelRequested && patch.status !== "cancelled") return run.status;
-      run.status = {
-        ...run.status,
-        ...patch,
-        runId: run.runId,
-        updatedAt: now().toISOString(),
-      };
-      await storageSet(run.status);
-      return run.status;
-    }
-
-    async function fetchTargets(config) {
-      const request = config.request || fetch;
-      const response = await request(`${config.apiBase}/sourcing/trend/tiktok-cc-targets`, {
-        method: "GET",
-        headers: config.headers,
-      });
-      if (!response.ok) {
-        const body = await response.text().catch(() => "");
-        throw new Error(`HTTP ${response.status}: ${body.slice(0, 200)}`);
-      }
-      const data = await response.json().catch(() => ({}));
-      const raw = Array.isArray(data && data.targets) ? data.targets : [];
-      const targets = [];
-      for (const entry of raw) {
-        const keyword = entry && typeof entry.keyword === "string" ? entry.keyword.trim() : "";
-        if (!keyword) continue;
-        const label = entry && typeof entry.label === "string" && entry.label.trim()
-          ? entry.label.trim()
-          : keyword;
-        targets.push({ label: label.slice(0, 200), keyword: keyword.slice(0, 100) });
-        if (targets.length >= MAX_TARGETS) break;
-      }
-      return targets;
-    }
-
     function keywordUrl(keyword) {
       return `${BASE_URLS.keyword}?keyword=${encodeURIComponent(keyword)}`;
     }
@@ -236,67 +227,169 @@
       return cleaned.length >= 2 && cleaned.length <= 8 ? cleaned : null;
     }
 
-    async function postBatch(run, region, items, errors) {
-      const config = run.backendConfig;
-      const request = config.request || fetch;
-      if (typeof run.operationAttemptToken !== "string" || !run.operationAttemptToken) {
-        throw new Error("operation_attempt_token_required");
-      }
-      const body = { region, items };
-      if (errors && errors.length) body.errors = errors;
-      const response = await request(
-        `${config.apiBase}/sourcing/operations/tiktok-cc-trends/${encodeURIComponent(run.runId)}/results`,
-        {
-          method: "POST",
-          headers: {
-            ...config.headers,
-            "x-operation-attempt-token": run.operationAttemptToken,
-          },
-          body: JSON.stringify(body),
-        },
-      );
-      if (!response.ok) {
-        const text = await response.text().catch(() => "");
-        const error = new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
-        if (response.status === 409) {
-          error.code = "operation_runtime_fence_lost";
-          error.status = 409;
-        }
-        throw error;
-      }
-      return response.json().catch(() => ({}));
+    function isRecord(value) {
+      return value && typeof value === "object" && !Array.isArray(value);
     }
 
-    async function executeRun(run) {
+    function isTerminalState(value) {
+      return value === "COMPLETE" || value === "FAILED";
+    }
+
+    function sourcePlanFrom(value) {
+      if (!isRecord(value)) {
+        throw ownerError("INVALID_TIKTOK_SOURCE_PLAN", "Sourcing owner returned an invalid TikTok plan.");
+      }
+      const state = requiredText(value.state, "INVALID_TIKTOK_SOURCE_PLAN", 20);
+      const attemptId = requiredText(value.attemptId, "INVALID_TIKTOK_SOURCE_PLAN");
+      const expiresAt = requiredText(value.expiresAt, "INVALID_TIKTOK_SOURCE_PLAN");
+      const rawPlan = value.plan;
+      if (
+        !["RUNNING", "COMPLETE", "FAILED"].includes(state)
+        || !Number.isFinite(Date.parse(expiresAt))
+        || !isRecord(rawPlan)
+        || rawPlan.source !== SOURCE_KEY
+        || !Array.isArray(rawPlan.targetSeeds)
+        || rawPlan.targetSeeds.length > MAX_TARGETS
+        || !Number.isInteger(rawPlan.maxItems)
+        || rawPlan.maxItems < 1
+        || rawPlan.maxItems > MAX_ITEMS_DEFAULT
+        || (
+          rawPlan.regionOverride !== null
+          && (
+            typeof rawPlan.regionOverride !== "string"
+            || !/^[A-Z]{2,8}$/.test(rawPlan.regionOverride)
+          )
+        )
+      ) {
+        throw ownerError("INVALID_TIKTOK_SOURCE_PLAN", "Sourcing owner returned an invalid TikTok plan.");
+      }
+      const targetSeeds = rawPlan.targetSeeds.map((entry) => {
+        if (
+          !isRecord(entry)
+          || typeof entry.label !== "string"
+          || !entry.label
+          || entry.label.length > 200
+          || typeof entry.keyword !== "string"
+          || !entry.keyword
+          || entry.keyword.length > 100
+        ) {
+          throw ownerError("INVALID_TIKTOK_SOURCE_PLAN", "Sourcing owner returned an invalid TikTok plan.");
+        }
+        return { label: entry.label, keyword: entry.keyword };
+      });
+      const attemptToken = typeof value.attemptToken === "string" && value.attemptToken.trim()
+        ? value.attemptToken.trim()
+        : null;
+      if (state === "RUNNING" && !attemptToken) {
+        throw ownerError("INVALID_TIKTOK_SOURCE_PLAN", "Sourcing owner returned an invalid TikTok plan.");
+      }
+      return {
+        attemptId,
+        attemptToken,
+        state,
+        expiresAt,
+        plan: {
+          source: SOURCE_KEY,
+          targetSeeds,
+          maxItems: rawPlan.maxItems,
+          regionOverride: rawPlan.regionOverride,
+        },
+        acceptedCount: Number.isFinite(value.acceptedCount) ? value.acceptedCount : null,
+        errorCode: typeof value.errorCode === "string" ? value.errorCode : null,
+        errorMessage: typeof value.errorMessage === "string" ? value.errorMessage : null,
+      };
+    }
+
+    function terminalResult(plan, fallbackCollected = null) {
+      if (plan.state === "COMPLETE") {
+        return {
+          success: true,
+          attemptId: plan.attemptId,
+          terminalState: "COMPLETE",
+          ...(Number.isFinite(plan.acceptedCount) || Number.isFinite(fallbackCollected)
+            ? { collected: Number.isFinite(plan.acceptedCount) ? plan.acceptedCount : fallbackCollected }
+            : {}),
+        };
+      }
+      return {
+        success: false,
+        attemptId: plan.attemptId,
+        terminalState: "FAILED",
+        retryRequired: true,
+        errorCode: plan.errorCode || "SOURCE_RETRY_REQUIRED",
+        error: plan.errorMessage || "The previous TikTok collection failed. Start a new retry from KidItem.",
+      };
+    }
+
+
+    async function begin(config, environmentId, input) {
+      const body = {};
+      if (input.maxItems !== undefined) body.maxItems = input.maxItems;
+      if (input.region !== undefined) body.region = input.region;
+      const plan = sourcePlanFrom(await requestJson(config, SOURCE_PATH, {
+        method: "POST",
+        headers: {
+          ...config.headers,
+          "Idempotency-Key": requiredText(input.idempotencyKey, "INVALID_IDEMPOTENCY_KEY"),
+        },
+        body: JSON.stringify(body),
+      }));
+      if (plan.state === "RUNNING") {
+        await sessions.start({
+          attemptId: plan.attemptId,
+          environmentId,
+          producer: PRODUCER,
+        });
+        await persistRequestIdentity(environmentId, plan.attemptId, input);
+      }
+      return plan;
+    }
+
+    function terminalSubmit(config, plan, body) {
+      return wire.terminal(config, plan, { method: "PUT", suffix: "", body }, sourcePlanFrom);
+    }
+
+    async function terminalFail(config, plan, error) {
+      const failure = failureFrom(error, "SOURCE_COLLECTION_FAILED", "TikTok collection failed.");
+      const terminal = await wire.terminal(config, plan, {
+        method: "POST",
+        suffix: "/fail",
+        body: failure,
+      }, sourcePlanFrom);
+      return { failure, terminal };
+    }
+
+    async function clearTerminalAttempt(environmentId, attemptId, tabId) {
+      try {
+        await removeTab(tabId);
+      } finally {
+        await sessions.remove(attemptId);
+        await clearRequestIdentity(environmentId, attemptId);
+      }
+    }
+
+    async function execute(run) {
       const items = [];
       const errors = [];
+      const visitedTargetIds = [];
       const seen = new Set();
-      let region = run.regionOverride || null;
+      let region = run.plan.plan.regionOverride || null;
       try {
-        let tab = run.reusableTabId ? await getTab(run.reusableTabId) : null;
-        if (!tab) tab = await createTab();
+        let tab = await createTab();
         run.tabId = tab.id;
-        await setStatus(run, { tabId: run.tabId });
         if (Number.isInteger(tab.windowId)) {
-          await sessions.attachTab(run.runId, {
+          await sessions.attachTab(run.plan.attemptId, {
             tabId: tab.id,
             windowId: tab.windowId,
+            closeOnCancel: true,
           });
         }
 
         for (let index = 0; index < run.targets.length; index++) {
-          if (run.cancelRequested) return;
+          if (run.cancelRequested) return run.terminalResult;
           const target = run.targets[index];
-          await setStatus(run, {
-            status: "running",
-            currentTarget: target.id,
-            currentTargetIndex: index,
-            totalTargets: run.targets.length,
-            collected: items.length,
-            region,
-            error: null,
-          });
-          await sessions.progress(run.runId, {
+          visitedTargetIds.push(target.id);
+          await sessions.progress(run.plan.attemptId, {
             current: index,
             total: run.targets.length,
             completed: index - errors.length,
@@ -312,7 +405,7 @@
               continue;
             }
 
-            const extracted = await extractFromTab(run.tabId, target, region || run.regionOverride);
+            const extracted = await extractFromTab(run.tabId, target, region || run.plan.plan.regionOverride);
             if (!extracted.ok) {
               errors.push({ target: target.id, message: extracted.error || "TikTok 트렌드 추출 실패" });
               continue;
@@ -334,17 +427,10 @@
           if (items.length >= run.maxItems) break;
         }
 
-        if (run.cancelRequested) return;
+        if (run.cancelRequested) return run.terminalResult;
         const finalRegion = region || "US";
         const cappedItems = items.slice(0, run.maxItems);
-        await setStatus(run, {
-          status: "running",
-          currentTarget: null,
-          currentTargetIndex: run.targets.length,
-          collected: cappedItems.length,
-          region: finalRegion,
-        });
-        await sessions.progress(run.runId, {
+        await sessions.progress(run.plan.attemptId, {
           current: run.targets.length,
           total: run.targets.length,
           completed: run.targets.length - errors.length,
@@ -352,185 +438,172 @@
           label: "TikTok 수집 결과 저장 중",
         });
 
-        const result = await postBatch(run, finalRegion, cappedItems, errors);
-        if (run.cancelRequested) return;
-        const backendCollected = Number(result && result.collected);
-        await setStatus(run, {
-          status: "completed",
-          collected: Number.isFinite(backendCollected) ? backendCollected : cappedItems.length,
-          region: finalRegion,
-          businessDate: result && typeof result.businessDate === "string" ? result.businessDate : null,
-          errors,
-          completedAt: now().toISOString(),
-          currentTarget: null,
-          error: null,
-          tabId: null,
-        });
-        await sessions.succeed(run.runId);
+        const body = { region: finalRegion, items: cappedItems, visitedTargetIds };
+        if (errors.length) body.errors = errors;
+        const terminal = await terminalSubmit(run.config, run.plan, body);
+        if (!isTerminalState(terminal.state)) {
+          throw ownerError("INVALID_TIKTOK_TERMINAL", "TikTok owner did not terminalize the collection.");
+        }
+        const terminalTabId = run.tabId;
+        run.tabId = null;
+        await clearTerminalAttempt(run.environmentId, run.plan.attemptId, terminalTabId);
+        return terminalResult(terminal, cappedItems.length);
       } catch (error) {
-        if (!run.cancelRequested) {
-          await setStatus(run, {
-            status: "failed",
-            error: error?.code || (error && error.message) || String(error),
-            errors,
-            completedAt: now().toISOString(),
-            tabId: null,
-          });
-          await sessions.fail(run.runId);
+        if (run.cancelRequested && run.terminalResult) return run.terminalResult;
+        const failure = failureFrom(error, "SOURCE_COLLECTION_FAILED", "TikTok collection failed.");
+        try {
+          const terminal = await terminalFail(run.config, run.plan, error);
+          const terminalTabId = run.tabId;
+          run.tabId = null;
+          await clearTerminalAttempt(run.environmentId, run.plan.attemptId, terminalTabId);
+          return terminalResult(terminal.terminal);
+        } catch {
+          return {
+            success: false,
+            attemptId: run.plan.attemptId,
+            terminalState: "RUNNING",
+            errorCode: failure.code,
+            error: failure.message,
+          };
         }
       } finally {
-        if (!run.keepTabOpen) await removeTab(run.tabId);
-        if (activeRuns.get(run.environmentId) === run) {
-          activeRuns.delete(run.environmentId);
-        }
+        await removeTab(run.tabId);
       }
     }
 
-    function clampMaxItems(value) {
-      if (!Number.isInteger(value)) return MAX_ITEMS_DEFAULT;
-      return Math.max(1, Math.min(MAX_ITEMS_DEFAULT, value));
+    async function resumeOrBegin(config, environmentId, input) {
+      const sessionsForEnvironment = (await sessions.list(environmentId))
+        .filter((session) => session?.producer === PRODUCER);
+      if (sessionsForEnvironment.length > 1) {
+        throw ownerError("SOURCE_ATTEMPT_CORRELATION_CONFLICT", "More than one TikTok collection attempt is stored for this environment.");
+      }
+      const existing = sessionsForEnvironment[0];
+      if (!existing) return begin(config, environmentId, input);
+
+      const correlation = await storageGet(requestStorageKey(environmentId));
+      if (
+        !correlation
+        || correlation.attemptId !== existing.attemptId
+        || typeof correlation.idempotencyKey !== "string"
+        || !correlation.idempotencyKey.trim()
+      ) {
+        return null;
+      }
+      return begin(config, environmentId, correlation);
     }
 
-    async function start(startOptions, environmentId, requestedRunId, operationContext) {
-      const opts = startOptions || {};
-      const operationAttemptToken = operationContext?.attemptToken;
-      if (typeof operationAttemptToken !== "string" || !operationAttemptToken) {
-        return { success: false, error: "operation_attempt_token_required" };
-      }
-      if (typeof requestedRunId !== "string" || !requestedRunId) {
-        return { success: false, error: "operation_run_id_required" };
-      }
-      const activeRun = activeRuns.get(environmentId);
-      if (activeRun && activeRun.status.status === "running") {
-        return {
-          success: false,
-          error: "collection_in_progress",
-          runId: activeRun.runId,
-        };
-      }
-
-      const backendConfig = await getBackendRequestConfig(environmentId);
-      if (!backendConfig.ok) {
-        return {
-          success: false,
-          error: backendConfig.error || "KidItem 웹 앱에서 로그인 후 다시 시도해주세요.",
-        };
-      }
-
-      let targets;
-      try {
-        targets = await fetchTargets(backendConfig);
-      } catch (error) {
-        return {
-          success: false,
-          error: (error && error.message) || "TikTok 타깃을 불러오지 못했습니다.",
-        };
-      }
-
-      const maxItems = clampMaxItems(opts.maxItems);
-      const regionOverride = sanitizeRegion(opts.region);
-      const collectionTargets = buildCollectionTargets(targets);
-
-      const runId = requestedRunId;
-      const startedAt = now().toISOString();
-      const run = {
-        environmentId,
-        runId,
-        targets: collectionTargets,
-        maxItems,
-        regionOverride,
-        operationAttemptToken,
-        backendConfig,
-        reusableTabId: null,
-        tabId: null,
-        cancelRequested: false,
-        keepTabOpen: false,
-        status: {
-          environmentId,
-          runId,
-          status: "running",
-          collected: 0,
-          region: regionOverride || null,
-          businessDate: null,
-          error: null,
-          currentTarget: null,
-          currentTargetIndex: 0,
-          totalTargets: collectionTargets.length,
-          errors: [],
-          startedAt,
-          updatedAt: startedAt,
-          completedAt: null,
-          tabId: null,
-        },
-      };
-      activeRuns.set(environmentId, run);
-      await sessions.start({
-        environmentId,
-        runId,
-        producer: "sourcing.tiktok_cc_trend",
-        classification: "background_preferred",
-        restartStrategy: "extension",
-        inputIdentity: {
-          targetCount: targets.length,
-          maxItems,
-        },
-      });
-      await storageSet(run.status);
-      Promise.resolve().then(() => executeRun(run));
-      return { success: true, runId, status: "running" };
-    }
-
-    async function getStatus(runId, environmentId) {
-      const status =
-        activeRuns.get(environmentId)?.status ||
-        await storageGet(`${STATUS_KEY}:${environmentId}`);
-      if (!status) return { success: false, error: "collection_not_found" };
-      if (runId && status.runId !== runId) {
-        return { success: false, error: "run_not_found", runId };
-      }
-      const { tabId, ...publicStatus } = status;
-      return { success: true, ...publicStatus };
-    }
-
-    async function cancel(runId, environmentId) {
-      const activeRun = activeRuns.get(environmentId);
-      const stored =
-        activeRun?.status || await storageGet(`${STATUS_KEY}:${environmentId}`);
-      if (!stored) return { success: false, error: "collection_not_found" };
-      if (runId && stored.runId !== runId) {
-        return { success: false, error: "run_not_found", runId };
-      }
-
-      if (activeRun) {
-        activeRun.cancelRequested = true;
-        activeRun.keepTabOpen = false;
-        await setStatus(activeRun, {
-          status: "cancelled",
-          error: null,
-          completedAt: now().toISOString(),
-          tabId: null,
+    function launch(environmentId, work) {
+      const active = { execution: null, run: null };
+      active.execution = Promise.resolve()
+        .then(() => work(active))
+        .finally(() => {
+          if (activeRuns.get(environmentId) === active) activeRuns.delete(environmentId);
         });
-        await sessions.cancel(activeRun.runId);
-        await removeTab(activeRun.tabId);
-        activeRuns.delete(environmentId);
-        return { success: true, runId: activeRun.runId, status: "cancelled" };
-      }
-
-      const cancelled = {
-        ...stored,
-        status: "cancelled",
-        error: null,
-        completedAt: now().toISOString(),
-        updatedAt: now().toISOString(),
-        tabId: null,
-      };
-      await storageSet(cancelled);
-      await sessions.cancel(stored.runId);
-      await removeTab(stored.tabId);
-      return { success: true, runId: stored.runId, status: "cancelled" };
+      activeRuns.set(environmentId, active);
+      return active.execution;
     }
 
-    return { start, getStatus, cancel, isBlockedUrl };
+    async function run(input) {
+      const environmentId = requiredText(input?.environmentId, "INVALID_COLLECTION_ENVIRONMENT", 20);
+      const active = activeRuns.get(environmentId);
+      if (active) return active.execution;
+      return launch(environmentId, async (running) => {
+        const config = await getBackendRequestConfig(environmentId);
+        if (!config?.ok) {
+          return {
+            success: false,
+            terminalState: "RUNNING",
+            error: config?.error || "KidItem 웹 앱에서 로그인 후 다시 시도해주세요.",
+          };
+        }
+        const idempotencyKey = requiredText(input?.idempotencyKey, "INVALID_IDEMPOTENCY_KEY");
+        const plan = await resumeOrBegin(config, environmentId, {
+          idempotencyKey,
+          maxItems: input?.maxItems,
+          region: input?.region,
+        });
+        if (!plan) {
+          return {
+            success: false,
+            terminalState: "RUNNING",
+            errorCode: "SOURCE_ATTEMPT_RECOVERY_IDENTITY_MISSING",
+            error: "TikTok collection is still running and can only be retried after its fixed expiry.",
+          };
+        }
+        if (plan.state !== "RUNNING") {
+          await clearTerminalAttempt(environmentId, plan.attemptId, null);
+          return terminalResult(plan);
+        }
+        const collectorRun = {
+          config,
+          environmentId,
+          plan,
+          targets: buildCollectionTargets(plan.plan.targetSeeds),
+          maxItems: plan.plan.maxItems,
+          tabId: null,
+          cancelRequested: false,
+          terminalResult: null,
+        };
+        running.run = collectorRun;
+        return execute(collectorRun);
+      });
+    }
+
+    async function cancel(attemptId, environmentId) {
+      const normalizedAttemptId = requiredText(attemptId, "INVALID_TIKTOK_SOURCE_ATTEMPT");
+      const normalizedEnvironmentId = requiredText(environmentId, "INVALID_COLLECTION_ENVIRONMENT", 20);
+      const session = await sessions.getOwned(normalizedAttemptId, normalizedEnvironmentId);
+      if (!session || session.producer !== PRODUCER) {
+        return { success: true, cancelled: false, attemptId: normalizedAttemptId };
+      }
+      const running = activeRuns.get(normalizedEnvironmentId);
+      const collectorRun = running?.run || null;
+      let plan = collectorRun?.plan || null;
+      let config = collectorRun?.config || null;
+      if (!plan || !config) {
+        config = await getBackendRequestConfig(normalizedEnvironmentId);
+        if (!config?.ok) {
+          throw ownerError("SOURCE_OWNER_REQUEST_FAILED", config?.error || "TikTok owner is unavailable.");
+        }
+        const correlation = await storageGet(requestStorageKey(normalizedEnvironmentId));
+        if (correlation?.attemptId !== normalizedAttemptId || typeof correlation.idempotencyKey !== "string") {
+          throw ownerError("SOURCE_ATTEMPT_RECOVERY_IDENTITY_MISSING", "TikTok attempt cannot be cancelled without its request identity.");
+        }
+        plan = await begin(config, normalizedEnvironmentId, correlation);
+      }
+      if (plan.state !== "RUNNING") {
+        const terminalTabId = collectorRun?.tabId ?? null;
+        if (collectorRun) collectorRun.tabId = null;
+        await clearTerminalAttempt(normalizedEnvironmentId, normalizedAttemptId, terminalTabId);
+        return { success: true, cancelled: false, attemptId: normalizedAttemptId };
+      }
+      if (collectorRun) collectorRun.cancelRequested = true;
+      const terminal = await terminalFail(
+        config,
+        plan,
+        ownerError("COLLECTION_CANCELLED", "TikTok collection was cancelled by the user."),
+      );
+      const result = terminalResult(terminal.terminal);
+      if (collectorRun) collectorRun.terminalResult = result;
+      const terminalTabId = collectorRun?.tabId ?? null;
+      if (collectorRun) collectorRun.tabId = null;
+      await clearTerminalAttempt(normalizedEnvironmentId, normalizedAttemptId, terminalTabId);
+      return { success: true, cancelled: true, attemptId: normalizedAttemptId };
+    }
+
+    async function recover(environmentId) {
+      const normalizedEnvironmentId = requiredText(environmentId, "INVALID_COLLECTION_ENVIRONMENT", 20);
+      const active = activeRuns.get(normalizedEnvironmentId);
+      if (active) return active.execution;
+      const activeSession = (await sessions.list(normalizedEnvironmentId))
+        .find((session) => session?.producer === PRODUCER);
+      if (!activeSession) return null;
+      const correlation = await storageGet(requestStorageKey(normalizedEnvironmentId));
+      if (!correlation?.idempotencyKey) return null;
+      return run({ environmentId: normalizedEnvironmentId, ...correlation });
+    }
+
+    return Object.freeze({ cancel, recover, run, isBlockedUrl });
   }
 
   global.ProductScraperTiktokCcTrend = { create, BASE_URLS };

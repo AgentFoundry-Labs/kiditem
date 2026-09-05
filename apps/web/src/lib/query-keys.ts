@@ -323,6 +323,8 @@ export const queryKeys = {
       [...queryKeys.sourcing.all, 'entry-recommendations', limit] as const,
     trendPopularKeywords: (days: number) => [...queryKeys.sourcing.all, 'trend', 'popular-keywords', days] as const,
     trend1688Hot: (days: number) => [...queryKeys.sourcing.all, 'trend', '1688-hot', days] as const,
+    trend1688SourceStatus: () =>
+      [...queryKeys.sourcing.all, 'trend', '1688-hot', 'source-status'] as const,
     trendShorts: (days: number) => [...queryKeys.sourcing.all, 'trend', 'shorts', days] as const,
     trendTiktokCc: (days: number) => [...queryKeys.sourcing.all, 'trend', 'tiktok-cc', days] as const,
     liveCommerceStatus: () => [...queryKeys.sourcing.all, 'live-commerce', 'status'] as const,
@@ -354,6 +356,8 @@ export const queryKeys = {
       keywords,
       targetIds,
     ] as const,
+    wholesale1688Attempt: (kind: 'keyword-search' | 'image-matches', attemptId: string) =>
+      [...queryKeys.sourcing.all, 'wholesale-1688-attempt', kind, attemptId] as const,
     competitorCollectionStatus: (runId: string | null) =>
       [...queryKeys.sourcing.all, 'competitors', 'collection-status', runId] as const,
   },

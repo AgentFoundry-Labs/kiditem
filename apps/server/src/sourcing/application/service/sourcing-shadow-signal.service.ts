@@ -364,7 +364,7 @@ export class SourcingShadowSignalService {
     const query = { organizationId, days: SHADOW_WINDOW_DAYS };
     const [naverKeywords, popularKeywords, hot1688, shorts] = await Promise.all([
       this.trends.findNaverKeywordHistory(query),
-      this.trends.findPopularKeywordHistory(query),
+      this.trends.findPopularKeywordHistory(query).then((history) => history.rows),
       this.trends.find1688HotHistory(query),
       this.trends.findShortsHistory(query),
     ]);

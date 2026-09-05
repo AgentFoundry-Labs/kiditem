@@ -2,15 +2,12 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  SourcingOperationResultSchema,
-  type SourcingOperationResult,
-} from '@kiditem/shared/sourcing';
+import type { TrendSourceResult } from '@/lib/source-trend-api';
 import { CheckCircle2, Loader2, RefreshCw, XCircle } from 'lucide-react';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
-import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
-import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
+import { SourceCollectionStatus } from '../../components/SourceCollectionStatus';
+import { useTrendSourceCollection } from '../../hooks/use-trend-source-collection';
 import {
   TREND_SOURCE_META,
   TREND_SOURCE_ORDER,
@@ -25,29 +22,14 @@ const pressable =
 const DEFAULT_TREND_OPERATION_INPUT = {
   sources: [...TREND_SOURCE_ORDER],
 } as const;
-const ACTIVE_OPERATION_STATUSES = new Set([
-  'queued',
-  'waiting_runtime',
-  'waiting_dependency',
-  'running',
-  'attention_required',
-]);
-const TREND_SOURCE_SET: ReadonlySet<string> = new Set(TREND_SOURCE_ORDER);
-
-type TrendOperationSourceResult = SourcingOperationResult['sources'][number] & {
-  source: TrendSource;
-};
-
 /** 기존 수집 화면의 버튼으로 공통 실행 경로를 요청한다. */
 export function TrendCollectionSection() {
   const [collectSources, setCollectSources] = useState<Set<TrendSource>>(
     new Set(TREND_SOURCE_ORDER),
   );
-  const trendOperation = useSourcingOperationAction({
-    operationKey: 'sourcing.collect_daily_trends',
+  const trendSource = useTrendSourceCollection({
     input: DEFAULT_TREND_OPERATION_INPUT,
     snapshotQueryKey: queryKeys.sourcing.trend(),
-    wakeBrowserRuntime: true,
   });
 
   const seedsQuery = useQuery({
@@ -56,11 +38,8 @@ export function TrendCollectionSection() {
     staleTime: 60 * 1000,
   });
   const enabledSeedCount = (seedsQuery.data ?? []).filter((seed) => seed.enabled).length;
-  const parsedResult = trendOperation.run?.status === 'succeeded'
-    ? SourcingOperationResultSchema.safeParse(trendOperation.run.result)
-    : null;
-  const lastResult = parsedResult?.success ? parsedResult.data : null;
-  const lastSourceResults = lastResult?.sources.filter(isTrendSourceResult) ?? [];
+  const lastResult = trendSource.result;
+  const lastSourceResults = lastResult?.results ?? [];
 
   const toggleCollectSource = (source: TrendSource) => {
     setCollectSources((previous) => {
@@ -71,9 +50,7 @@ export function TrendCollectionSection() {
     });
   };
 
-  const running = trendOperation.isStarting
-    || (trendOperation.run !== null
-      && ACTIVE_OPERATION_STATUSES.has(trendOperation.run.status));
+  const running = trendSource.isCollecting;
   const canCollect = collectSources.size > 0 && !running;
 
   return (
@@ -111,7 +88,7 @@ export function TrendCollectionSection() {
             </div>
             <button
               type="button"
-              onClick={() => void trendOperation.start({
+              onClick={() => void trendSource.collect({
                 sources: TREND_SOURCE_ORDER.filter((source) => collectSources.has(source)),
               })}
               disabled={!canCollect}
@@ -127,17 +104,7 @@ export function TrendCollectionSection() {
         </div>
 
         <div className="mt-4">
-          <SourcingOperationRunPanel
-            run={trendOperation.run}
-            onCancel={async () => {
-              await trendOperation.cancel();
-            }}
-            onRetryAttention={async () => {
-              await trendOperation.retryAttention();
-            }}
-            isCancelling={trendOperation.isCancelling}
-            isRetrying={trendOperation.isRetrying}
-          />
+          <SourceCollectionStatus source={trendSource} />
         </div>
 
         {enabledSeedCount === 0 && !seedsQuery.isLoading && (
@@ -152,7 +119,7 @@ export function TrendCollectionSection() {
             <div className="flex items-center justify-between">
               <p className="text-xs font-semibold text-[var(--text-secondary)]">최근 수집 결과</p>
               <span className="text-[11px] font-semibold tabular-nums text-[var(--text-tertiary)]">
-                반영 {formatNumber(lastResult.summary.accepted)}건
+                반영 {formatNumber(lastSourceResults.reduce((sum, row) => sum + row.collected, 0))}건
               </span>
             </div>
             <div className="mt-2 grid gap-2 sm:grid-cols-3">
@@ -170,15 +137,9 @@ export function TrendCollectionSection() {
   );
 }
 
-function isTrendSourceResult(
-  result: SourcingOperationResult['sources'][number],
-): result is TrendOperationSourceResult {
-  return TREND_SOURCE_SET.has(result.source);
-}
-
-function CollectResultCard({ result }: { result: TrendOperationSourceResult }) {
+function CollectResultCard({ result }: { result: TrendSourceResult }) {
   const meta = TREND_SOURCE_META[result.source];
-  const successful = result.outcome === 'complete' || result.outcome === 'no_change';
+  const successful = result.state === 'COMPLETE';
   return (
     <article
       className={cn(
@@ -195,9 +156,9 @@ function CollectResultCard({ result }: { result: TrendOperationSourceResult }) {
           : <XCircle size={15} className="text-rose-600" />}
       </div>
       <p className="mt-1 text-lg font-bold tabular-nums text-[var(--text-primary)]">
-        {formatNumber(result.accepted)}건
+        {formatNumber(result.collected)}건
       </p>
-      {result.failed > 0 ? (
+      {!result.ok ? (
         <p className="mt-0.5 text-[11px] leading-4 text-rose-700">
           일부 항목 수집에 실패했습니다.
         </p>

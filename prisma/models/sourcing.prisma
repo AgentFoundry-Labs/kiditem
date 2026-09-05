@@ -223,7 +223,7 @@ model Sourcing1688OfferKeywordObservation {
 
   @@unique([id, organizationId], map: "sourcing_1688_offer_keyword_observations_id_org_key")
   @@unique([evidenceObservationId, organizationId], map: "sourcing_1688_offer_keyword_observations_evidence_org_key")
-  @@unique([organizationId, businessDate, sourceKeywordNormalized, externalOfferId, variantKeyNormalized, capturedAt], map: "sourcing_1688_offer_keyword_observations_identity_key")
+  @@unique([organizationId, ingestionRunId, businessDate, sourceKeywordNormalized, externalOfferId, variantKeyNormalized, capturedAt], map: "sourcing_1688_offer_keyword_observations_identity_key")
   @@index([ingestionRunId])
   @@index([organizationId, sourceKeywordNormalized, capturedAt(sort: Desc)], map: "sourcing_1688_offer_keyword_observations_keyword_captured_idx")
   @@index([organizationId, externalOfferId, variantKeyNormalized, capturedAt(sort: Desc)], map: "sourcing_1688_offer_keyword_observations_offer_captured_idx")
@@ -252,10 +252,11 @@ model TrendSeedKeyword {
 }
 
 /// @namespace Sourcing
-/// @describe 네이버 키워드(검색광고 월검색량 + 데이터랩 검색어트렌드) 일별 스냅샷. 시드 키워드당 하루 1행(최신본 upsert). trendRatio 는 latestRatio 반올림(0-100).
+/// @describe 네이버 키워드(검색광고 월검색량 + 데이터랩 검색어트렌드) 일별 스냅샷. 수집 attempt별 키워드/날짜 불변 관측. COMPLETE 범위에서 최신 관측을 조회한다. trendRatio 는 latestRatio 반올림(0-100).
 model NaverKeywordDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
+  ingestionRunId String   @map("ingestion_run_id") @db.Uuid
   keyword        String
   businessDate   DateTime @map("business_date") @db.Date
 
@@ -275,7 +276,10 @@ model NaverKeywordDailySnapshot {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@unique([organizationId, keyword, businessDate])
+  ingestionRun SourcingEvidenceIngestionRun @relation("NaverKeywordDailySnapshotIngestionRun", fields: [organizationId, ingestionRunId], references: [organizationId, id], onDelete: Cascade)
+
+  @@index([organizationId, ingestionRunId])
+  @@unique([organizationId, ingestionRunId, keyword, businessDate])
   @@index([organizationId, keyword, businessDate])
   @@map("naver_keyword_daily_snapshots")
 }
@@ -285,6 +289,7 @@ model NaverKeywordDailySnapshot {
 model NaverPopularKeywordDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
+  ingestionRunId String   @map("ingestion_run_id") @db.Uuid
   boardKey       String   @map("board_key")
   boardLabel     String?  @map("board_label")
   cid            String?
@@ -301,7 +306,10 @@ model NaverPopularKeywordDailySnapshot {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@unique([organizationId, boardKey, businessDate, keyword])
+  ingestionRun SourcingEvidenceIngestionRun @relation("NaverPopularKeywordDailySnapshotIngestionRun", fields: [organizationId, ingestionRunId], references: [organizationId, id], onDelete: Cascade)
+
+  @@index([organizationId, ingestionRunId])
+  @@unique([organizationId, ingestionRunId, boardKey, businessDate, keyword])
   @@index([organizationId, boardKey, businessDate])
   @@map("naver_popular_keyword_daily_snapshots")
 }
@@ -311,6 +319,7 @@ model NaverPopularKeywordDailySnapshot {
 model ShortsTrendDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
+  ingestionRunId String   @map("ingestion_run_id") @db.Uuid
   businessDate   DateTime @map("business_date") @db.Date
   videoKey       String   @map("video_key")
 
@@ -333,7 +342,10 @@ model ShortsTrendDailySnapshot {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@unique([organizationId, businessDate, videoKey])
+  ingestionRun SourcingEvidenceIngestionRun @relation("ShortsTrendDailySnapshotIngestionRun", fields: [organizationId, ingestionRunId], references: [organizationId, id], onDelete: Cascade)
+
+  @@index([organizationId, ingestionRunId])
+  @@unique([organizationId, ingestionRunId, businessDate, videoKey])
   @@index([organizationId, businessDate])
   @@map("shorts_trend_daily_snapshots")
 }
@@ -343,6 +355,7 @@ model ShortsTrendDailySnapshot {
 model LiveCommerceBroadcastDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
+  ingestionRunId String   @map("ingestion_run_id") @db.Uuid
   businessDate   DateTime @map("business_date") @db.Date
   source         String
   broadcastId    String   @map("broadcast_id")
@@ -362,9 +375,11 @@ model LiveCommerceBroadcastDailySnapshot {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ingestionRun SourcingEvidenceIngestionRun @relation("LiveCommerceBroadcastDailySnapshotIngestionRun", fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@unique([organizationId, businessDate, source, broadcastId])
+  @@unique([organizationId, ingestionRunId, businessDate, source, broadcastId])
+  @@index([organizationId, ingestionRunId, businessDate])
   @@index([organizationId, source, businessDate])
   @@map("live_commerce_broadcast_daily_snapshots")
 }
@@ -374,6 +389,7 @@ model LiveCommerceBroadcastDailySnapshot {
 model LiveCommerceProductDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
+  ingestionRunId String   @map("ingestion_run_id") @db.Uuid
   businessDate   DateTime @map("business_date") @db.Date
   source         String
   broadcastId    String   @map("broadcast_id")
@@ -390,9 +406,11 @@ model LiveCommerceProductDailySnapshot {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ingestionRun SourcingEvidenceIngestionRun @relation("LiveCommerceProductDailySnapshotIngestionRun", fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@unique([organizationId, businessDate, source, broadcastId, productId])
+  @@unique([organizationId, ingestionRunId, businessDate, source, broadcastId, productId])
+  @@index([organizationId, ingestionRunId, businessDate])
   @@index([organizationId, source, businessDate], map: "live_commerce_product_source_date_idx")
   @@index([organizationId, source, productId], map: "live_commerce_product_source_product_idx")
   @@map("live_commerce_product_daily_snapshots")
@@ -403,6 +421,7 @@ model LiveCommerceProductDailySnapshot {
 model TiktokCreativeTrendDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
+  ingestionRunId String   @map("ingestion_run_id") @db.Uuid
   businessDate   DateTime @map("business_date") @db.Date
   region         String
   trendType      String   @map("trend_type")
@@ -424,9 +443,12 @@ model TiktokCreativeTrendDailySnapshot {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ingestionRun SourcingEvidenceIngestionRun @relation("TiktokCreativeTrendDailySnapshotIngestionRun", fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@unique([organizationId, businessDate, region, trendType, entityKey])
+  @@unique([organizationId, ingestionRunId, businessDate, region, trendType, entityKey])
+  @@index([ingestionRunId])
+  @@index([organizationId, ingestionRunId, businessDate])
   @@index([organizationId, businessDate])
   @@map("tiktok_creative_trend_daily_snapshots")
 }
@@ -449,7 +471,7 @@ model SourcingCollectionSourceControl {
 }
 
 /// @namespace Sourcing
-/// @describe Durable collector attempt with a fenced lease, request identity, collection window, coverage, and terminal result.
+/// @describe Durable source-owner attempt. Browser sources use RUNNING, COMPLETE, and FAILED with a frozen plan and current COMPLETE pointer.
 model SourcingEvidenceIngestionRun {
   id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
@@ -470,7 +492,11 @@ model SourcingEvidenceIngestionRun {
   collectorVersion  String  @map("collector_version") @db.VarChar(120)
   triggerKind       String  @map("trigger_kind") @db.VarChar(40)
   triggeredByUserId String? @map("triggered_by_user_id") @db.Uuid
-  status            String  @default("collecting") @db.VarChar(40)
+  status            String  @default("RUNNING") @db.VarChar(40)
+  attemptPlan       Json?   @map("attempt_plan") @db.JsonB
+  planChecksum      String? @map("plan_checksum") @db.VarChar(64)
+  contentChecksum   String? @map("content_checksum") @db.VarChar(64)
+  isCurrentComplete Boolean @default(false) @map("is_current_complete")
 
   sourceWindowStartAt DateTime? @map("source_window_start_at") @db.Timestamptz
   sourceWindowEndAt   DateTime? @map("source_window_end_at") @db.Timestamptz
@@ -491,17 +517,25 @@ model SourcingEvidenceIngestionRun {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization             Organization                          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  triggeredByUser          User?                                 @relation("SourcingEvidenceIngestionRunTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
-  observations             SourcingEvidenceObservation[]
-  offerKeywordObservations Sourcing1688OfferKeywordObservation[]
+  organization                        Organization                          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  triggeredByUser                     User?                                 @relation("SourcingEvidenceIngestionRunTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  observations                        SourcingEvidenceObservation[]
+  offerKeywordObservations            Sourcing1688OfferKeywordObservation[]
+  liveCommerceBroadcastDailySnapshots LiveCommerceBroadcastDailySnapshot[]  @relation("LiveCommerceBroadcastDailySnapshotIngestionRun")
+  liveCommerceProductDailySnapshots   LiveCommerceProductDailySnapshot[]    @relation("LiveCommerceProductDailySnapshotIngestionRun")
+  naverKeywordDailySnapshots NaverKeywordDailySnapshot[] @relation("NaverKeywordDailySnapshotIngestionRun")
+  naverPopularKeywordDailySnapshots NaverPopularKeywordDailySnapshot[] @relation("NaverPopularKeywordDailySnapshotIngestionRun")
+  shortsTrendDailySnapshots ShortsTrendDailySnapshot[] @relation("ShortsTrendDailySnapshotIngestionRun")
+  tiktokCreativeTrendDailySnapshots   TiktokCreativeTrendDailySnapshot[]    @relation("TiktokCreativeTrendDailySnapshotIngestionRun")
 
   @@unique([id, organizationId], map: "sourcing_evidence_ingestion_runs_id_org_key")
-  @@unique([organizationId, idempotencyKey], map: "sourcing_evidence_ingestion_runs_org_idempotency_key")
-  @@unique([organizationId, sourceKey, scopeKey, targetKey], map: "sourcing_evidence_ingestion_runs_active_target_key", where: raw("((status)::text = ANY (ARRAY['collecting'::text, 'cancel_requested'::text]))"))
+  @@unique([organizationId, sourceKey, idempotencyKey], map: "sourcing_evidence_ingestion_runs_org_source_idempotency_key")
+  @@unique([organizationId, sourceKey, scopeKey, targetKey], map: "sourcing_evidence_ingestion_runs_active_target_key", where: raw("((status)::text = 'RUNNING'::text)"))
+  @@unique([organizationId, sourceKey, scopeKey, targetKey], map: "sourcing_evidence_ingestion_runs_one_current_complete_key", where: raw("(is_current_complete = true)"))
   @@index([triggeredByUserId])
   @@index([organizationId, status, startedAt], map: "sourcing_evidence_ingestion_runs_status_started_idx")
   @@index([organizationId, targetKey, startedAt], map: "sourcing_evidence_ingestion_runs_target_started_idx")
+  @@index([organizationId, sourceKey, scopeKey, targetKey, isCurrentComplete], map: "sourcing_evidence_ingestion_runs_current_complete_idx")
   @@map("sourcing_evidence_ingestion_runs")
 }
 

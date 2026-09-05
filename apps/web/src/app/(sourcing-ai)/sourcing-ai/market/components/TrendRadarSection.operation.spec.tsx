@@ -11,21 +11,10 @@ const mocks = vi.hoisted(() => ({
   fetchNaver: vi.fn(),
 }));
 
-vi.mock('../../hooks/use-sourcing-operation-action', () => ({
-  useSourcingOperationAction: mocks.useAction,
+vi.mock('../../hooks/use-trend-source-collection', () => ({
+  useTrendSourceCollection: mocks.useAction,
 }));
 
-vi.mock('../../components/SourcingOperationRunPanel', () => ({
-  SourcingOperationRunPanel: ({ onCancel, onRetryAttention }: {
-    onCancel: () => void;
-    onRetryAttention: () => void;
-  }) => (
-    <div>
-      <button type="button" onClick={onCancel}>radar-naver-cancel</button>
-      <button type="button" onClick={onRetryAttention}>radar-naver-retry</button>
-    </div>
-  ),
-}));
 
 vi.mock('../lib/live-naver-market', () => ({
   fetchPersistedNaverMarket: mocks.fetchNaver,
@@ -50,7 +39,7 @@ function renderRadar() {
   );
 }
 
-describe('TrendRadarSection Naver operation boundary', () => {
+describe('TrendRadarSection Naver source boundary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.fetchNaver.mockResolvedValue({
@@ -61,11 +50,11 @@ describe('TrendRadarSection Naver operation boundary', () => {
     });
     mocks.start.mockResolvedValue({ id: 'naver-radar-run' });
     mocks.useAction.mockReturnValue({
-      run: null,
-      start: mocks.start,
+      error: null, actualCutoffAt: null, result: null,
+      collect: mocks.start,
       cancel: mocks.cancel,
       retryAttention: mocks.retryAttention,
-      isStarting: false,
+      isCollecting: false,
       isCancelling: false,
       isRetrying: false,
     });
@@ -78,10 +67,6 @@ describe('TrendRadarSection Naver operation boundary', () => {
     expect(mocks.start).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '네이버 수집' }));
     await waitFor(() => expect(mocks.start).toHaveBeenCalledWith({ sources: ['naver'] }));
-    fireEvent.click(screen.getByRole('button', { name: 'radar-naver-cancel' }));
-    fireEvent.click(screen.getByRole('button', { name: 'radar-naver-retry' }));
-    expect(mocks.cancel).toHaveBeenCalledOnce();
-    expect(mocks.retryAttention).toHaveBeenCalledOnce();
 
     view.unmount();
     renderRadar();

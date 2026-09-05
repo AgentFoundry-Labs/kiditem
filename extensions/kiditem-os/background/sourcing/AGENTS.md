@@ -13,7 +13,6 @@ that contain `__tests__` or other `_`-prefixed committed paths.
 - Alibaba/1688 DOM and page-data extraction
 - Product-data sync to the sourcing extension ingest API
 - 1688/Douyin live broadcast and exposed-product snapshots from logged-in pages
-- TikTok Creative Center trend snapshots (hashtags, top products, keywords)
 - Popup API-base setting and manual collection UI
 
 ## API Contract
@@ -23,16 +22,13 @@ that contain `__tests__` or other `_`-prefixed committed paths.
   `http://localhost:3000`, `http://localhost:4000`,
   and `http://kiditem-office`.
 - Product data sync posts to `/product-data`.
-- Browser Operation owner-result routes are API-root paths: 1688 trend children
-  post to `/sourcing/operations/1688-trends/:runId/results`, live-commerce
-  snapshots to `/sourcing/operations/live-commerce/:runId/results`, and TikTok
-  Creative Center snapshots to
-  `/sourcing/operations/tiktok-cc-trends/:runId/results`.
-  TikTok targets remain a read from `/sourcing/trend/tiktok-cc-targets`.
-- Every browser result requires the exact claimed `OperationRun` id in `:runId`
-  and its current `x-operation-attempt-token`; the owner fences organization,
-  run, operation key, and token. Do not restore `/sourcing/extension/trend/*`
-  endpoints or a generic action/session bridge.
+- 1688 trend collection is a direct source-owner action: the extension begins
+  at `/sourcing/1688-trends/attempts`, follows the server-frozen plan, and
+  terminalizes at that attempt with `x-source-attempt-token`. Keep only its
+  attempt ID and idempotency correlation for recovery; do not persist the
+  token. The page calls the extension action, never the begin route.
+- Do not restore `/sourcing/operations/1688-trends/:runId/results`,
+  `/sourcing/extension/trend/*`, or a generic action/session bridge.
 - Authorization uses the current KidItem opaque session token delivered by the
   logged-in KidItem web tab through `chrome.runtime.sendMessage` and stored in
   `chrome.storage.local` for extension API calls. Do not reintroduce a separate
@@ -56,9 +52,9 @@ that contain `__tests__` or other `_`-prefixed committed paths.
   background worker.
 - 1688 description fetching skips data URLs, icons, logos, and duplicate image
   URLs.
-- This extension owns only the remaining exact browser Operations: daily 1688
-  trends, TikTok Creative Center trends, and live-commerce snapshots. Office
-  CDP owns 1688 keyword batches; never reintroduce their extension registry,
+- 1688 trends use the source-specific `collectSourcing1688Trends` action.
+  Live-commerce snapshots remain their exact browser Operation. Office CDP
+  owns 1688 keyword batches; never reintroduce their extension registry,
   owner-result route, response hook, anonymous/fresh-profile fallback, or an
   operator-tab navigation/close path.
 - Page-world `_detail_url` is untrusted input. `url-policy.js` must be loaded
@@ -70,12 +66,9 @@ that contain `__tests__` or other `_`-prefixed committed paths.
 ## Boundary Rules
 
 - Host permissions stay limited to Alibaba, 1688, Douyin, Jinritemai product
-  links, `ads.tiktok.com` (TikTok Creative Center Trends), Tmall image CDN, local
-  KidItem web app origins, and local backend origins. Douyin is required for the
-  operator-opened live room; Jinritemai is required only for product links
-  rendered inside that room. `ads.tiktok.com` hosts the bot/region-gated Creative
-  Center, whose own `creative_radar_api` responses are captured by a MAIN-world
-  hook (`tiktok-cc-hook.js`) that never receives KidItem tokens or backend URLs.
+  links, Tmall image CDN, local KidItem web app origins, and local backend
+  origins. Douyin is required for the operator-opened live room; Jinritemai is
+  required only for product links rendered inside that room.
 - Do not add broad `*://*/*` permissions.
 - Add new marketplace hosts only with a matching extractor and backend contract.
 - Backend payload changes require checking `worker.js`, the shared v1/v2

@@ -161,7 +161,7 @@ export class SourcingMarketDiscoveryService {
     const query = { organizationId, days: DISCOVERY_WINDOW_DAYS };
     const [naverKeywords, popularKeywords, hot1688, shorts, response] = await Promise.all([
       this.trends.findNaverKeywordHistory(query),
-      this.trends.findPopularKeywordHistory(query),
+      this.trends.findPopularKeywordHistory(query).then((history) => history.rows),
       this.trends.find1688HotHistory(query),
       this.trends.findShortsHistory(query),
       this.recommendations.latest({

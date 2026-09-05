@@ -1,12 +1,28 @@
-import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
 import { SourcingKeywordAnalysisInputSchema } from '@kiditem/shared/sourcing';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../../../auth/auth.types';
+import { toPublicAttempt, toPublicStatus } from './sourcing-source-attempt-http';
 import { NaverKeywordResearchService } from '../../../application/service/naver-keyword-research.service';
 
-/** Read-only access to exact snapshots published by the keyword operation. */
+/** Direct source collection and exact COMPLETE evidence reads. */
 @Controller('sourcing/keyword-analysis')
 export class SourcingKeywordAnalysisController {
   constructor(private readonly keywordResearch: NaverKeywordResearchService) {}
+
+  @Post('collect')
+  async collect(@Body() input: Record<string, unknown>, @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser, @Headers('idempotency-key') idempotencyKey: string) {
+    const result = await this.keywordResearch.collectAnalysis({ organizationId, input,
+      requestedByUserId: user.id, idempotencyKey });
+    return { ...result, attempt: toPublicAttempt(result.attempt) };
+  }
+
+  @Get('status')
+  async status(@Query('input') rawInput: string | undefined, @CurrentOrganization() organizationId: string) {
+    return toPublicStatus(await this.keywordResearch.status(organizationId, parseKeywordAnalysisInput(rawInput)));
+  }
 
   @Get('snapshot')
   snapshot(

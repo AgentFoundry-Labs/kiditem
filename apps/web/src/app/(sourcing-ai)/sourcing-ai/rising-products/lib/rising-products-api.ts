@@ -87,6 +87,10 @@ export interface RisingProductsResult {
 
 const BASE = '/api/sourcing/rising-products';
 
+export function calculateRisingProducts(input: { windowDays?: number; limit?: number }): Promise<RisingProductsResult> {
+  return apiClient.post<RisingProductsResult>(BASE, input);
+}
+
 export function fetchLatestRisingProducts(): Promise<RisingProductsResult | null> {
   // 저장된 스냅샷이 없으면 Nest 가 본문 없는 200 을 보낸다. `getNullable` 이 이를
   // `null` 로 정규화하므로 소비자의 null 가드가 그대로 동작한다.

@@ -9,6 +9,7 @@ export interface LiveCommerceSourceStatus {
   missing: string[];
   requiresLogin: boolean;
   latestCapturedAt: string | null;
+  sourceStatus?: TaobaoLiveSourceStatus;
 }
 
 export interface LiveCommerceBroadcastView {
@@ -42,8 +43,33 @@ export interface LiveCommerceProductView {
   capturedAt: string;
 }
 
-export function fetchLiveCommerceStatus(): Promise<{ sources: LiveCommerceSourceStatus[] }> {
-  return apiClient.get('/api/sourcing/live-commerce/status');
+export interface TaobaoLiveAttempt {
+  warnings?: string[];
+  attemptId: string;
+  state: 'RUNNING' | 'COMPLETE' | 'FAILED';
+  completedAt: string | null;
+  expiresAt: string;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+export interface TaobaoLiveSourceStatus {
+  status: 'READY' | 'STALE' | 'MISSING';
+  refreshing: boolean;
+  latestAttempt: TaobaoLiveAttempt | null;
+  latestComplete: TaobaoLiveAttempt | null;
+  actualCutoffAt: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+export function fetchLiveCommerceStatus(input: { liveIds: string[] } = { liveIds: [] }): Promise<{ sources: LiveCommerceSourceStatus[] }> {
+  const query = new URLSearchParams({ liveIds: JSON.stringify(input.liveIds) });
+  return apiClient.get(`/api/sourcing/live-commerce/status?${query}`);
+}
+
+export function collectTaobaoLive(input: { liveIds: string[] }, idempotencyKey: string): Promise<TaobaoLiveAttempt> {
+  return apiClient.post('/api/sourcing/live-commerce/taobao/attempts', input, {
+    headers: { 'Idempotency-Key': idempotencyKey },
+  });
 }
 
 export function fetchLiveCommerceSnapshots(days: number): Promise<{

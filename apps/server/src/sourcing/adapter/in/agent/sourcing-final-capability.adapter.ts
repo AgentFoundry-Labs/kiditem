@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { TREND_COLLECTION_PORT, type TrendCollectionPort } from '../../../application/port/in/trend-collection.port';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import {
   OPERATION_RUNNER_PORT,
@@ -44,6 +45,7 @@ export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPo
     private readonly operations: OperationRunnerPort,
     @Inject(SOURCING_CAPABILITY_ADMISSION_PORT)
     private readonly admissions: SourcingCapabilityAdmissionPort,
+    @Inject(TREND_COLLECTION_PORT) private readonly trends: TrendCollectionPort,
   ) {}
 
   duplicateCheck({ context, input }: { context: Pick<SourcingOwnerExecutionContext, 'organizationId'>; input: { sourceUrl: string } }) {
@@ -91,15 +93,7 @@ export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPo
 
   async refreshCollection({ context, input }: { context: SourcingOwnerExecutionContext; input: { sources: Array<'naver' | '1688' | 'shorts'> } }) {
     const ownerIdempotencyKey = requiredOwnerReceipt(context, input);
-    const run = await this.operations.start({
-      organizationId: context.organizationId,
-      operationKey: 'sourcing.collect_daily_trends',
-      triggerSource: 'agent',
-      input: { sources: input.sources },
-      requestedByUserId: context.initiatingUserId,
-      idempotencyKey: ownerIdempotencyKey,
-    });
-    return { operationRunId: run.id, status: run.status };
+    return this.trends.collect(context.organizationId, input.sources, context.initiatingUserId, ownerIdempotencyKey);
   }
 
   async refreshValidation({ context, input }: { context: SourcingOwnerExecutionContext & { ownerIdempotencyKey: string }; input: { recommendationRunId: string } }) {

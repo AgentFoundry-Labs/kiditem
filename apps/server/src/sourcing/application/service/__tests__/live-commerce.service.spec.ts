@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LiveCommerceService } from '../live-commerce.service';
 import type { TaobaoLivePort } from '../../port/out/provider/taobao-live.port';
 import type { LiveCommerceRepositoryPort } from '../../port/out/repository/live-commerce.repository.port';
-import type { SourcingCollectionCoordinator } from '../sourcing-collection-coordinator.service';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -15,52 +14,11 @@ function buildService() {
     findBroadcastSnapshots: vi.fn(async () => []),
     findProductSnapshots: vi.fn(async () => []),
   };
-  const collectionOutputs: Array<{ typedRecords: Array<{ kind: string; row: unknown }> }> = [];
-  const collectionCoordinator = {
-    execute: vi.fn(async (input: any, collector: any) => {
-      const output = await collector({
-        permit: {
-          runId: '00000000-0000-4000-8000-000000000010',
-          organizationId: input.organizationId,
-          sourceKey: input.sourceKey,
-          scopeKey: input.scopeKey,
-          targetKey: input.targetKey,
-          leaseToken: '00000000-0000-4000-8000-000000000011',
-          generation: 1,
-          entitlementVersionId: '00000000-0000-4000-8000-000000000012',
-          entitlementVersionHash: 'a'.repeat(64),
-          leaseExpiresAt: new Date('2026-08-08T01:02:00.000Z'),
-        },
-        checkpoint: async () => undefined,
-      });
-      collectionOutputs.push(output);
-      return {
-        kind: 'committed' as const,
-        runId: input.idempotencyKey,
-        acceptedCount: output.discoveredCount,
-        duplicateCount: 0,
-        staleDiscardedCount: 0,
-      };
-    }),
-  } as unknown as SourcingCollectionCoordinator;
   return {
-    service: new LiveCommerceService(taobao, repository, collectionCoordinator),
+    service: new LiveCommerceService(taobao, repository, {} as never),
     taobao,
     repository,
-    collectionCoordinator,
-    collectionOutputs,
   };
-}
-
-function typedRows(
-  ports: ReturnType<typeof buildService>,
-  kind: string,
-): Array<Record<string, unknown>> {
-  return ports.collectionOutputs.flatMap((output) =>
-    output.typedRecords
-      .filter((record) => record.kind === kind)
-      .map((record) => record.row as Record<string, unknown>),
-  );
 }
 
 describe('LiveCommerceService', () => {
@@ -68,77 +26,6 @@ describe('LiveCommerceService', () => {
 
   beforeEach(() => {
     ports = buildService();
-  });
-
-  it('persists official Taobao rooms and products under the organization scope', async () => {
-    ports.taobao.collect = vi.fn(async () => ({
-      rooms: [{
-        broadcastId: 'tb-live-1',
-        title: '타오바오 완구 방송',
-        broadcasterId: 'anchor-1',
-        broadcasterName: '완구왕',
-        status: 'live',
-        viewerCount: 5000,
-        likeCount: 300,
-        startedAt: null,
-        endedAt: null,
-        coverImageUrl: null,
-        sourceUrl: null,
-      }],
-      products: [{
-        broadcastId: 'tb-live-1',
-        productId: 'tb-item-1',
-        rank: 1,
-        title: '블록 완구',
-        priceCny: 12,
-        salesCount: null,
-        imageUrl: null,
-        sourceUrl: null,
-      }],
-      warnings: [],
-    }));
-
-    const result = await ports.service.collectTaobao(ORGANIZATION_ID, {
-      queryDate: '2026-07-14',
-      liveIds: ['tb-live-1'],
-    });
-
-    expect(result).toEqual(expect.objectContaining({ broadcastCount: 1, productCount: 1 }));
-    expect(ports.taobao.collect).toHaveBeenCalledWith(expect.objectContaining({
-      queryDate: '20260714',
-    }));
-    expect(typedRows(ports, 'live_commerce_broadcast')).toEqual([
-      expect.objectContaining({ organizationId: ORGANIZATION_ID, source: 'taobao', broadcastId: 'tb-live-1' }),
-    ]);
-    expect(typedRows(ports, 'live_commerce_product')).toEqual([
-      expect.objectContaining({ organizationId: ORGANIZATION_ID, source: 'taobao', productId: 'tb-item-1' }),
-    ]);
-  });
-
-  it('does not publish Taobao snapshots when an operation aborts after the provider resolves', async () => {
-    const controller = new AbortController();
-    const checkpoint = vi.fn(async () => undefined);
-    ports.taobao.collect = vi.fn(async () => {
-      controller.abort(new Error('operation_cancelled'));
-      return {
-        rooms: [],
-        products: [],
-        warnings: [],
-      };
-    });
-
-    await expect((ports.service.collectTaobao as never)(
-      ORGANIZATION_ID,
-      { queryDate: '2026-08-14' },
-      'operation:run-a',
-      { signal: controller.signal, checkpoint },
-    )).rejects.toThrow('operation_cancelled');
-
-    expect(ports.taobao.collect).toHaveBeenCalledWith(expect.objectContaining({
-      queryDate: '20260814',
-      signal: controller.signal,
-    }));
-    expect(ports.collectionOutputs).toEqual([]);
   });
 
   it('derives stationery/toy trend keywords from live product titles across sources', async () => {

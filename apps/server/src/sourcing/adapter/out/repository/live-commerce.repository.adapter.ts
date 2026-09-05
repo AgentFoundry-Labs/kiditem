@@ -16,12 +16,20 @@ export class LiveCommerceRepositoryAdapter implements LiveCommerceRepositoryPort
     const rows = await this.prisma.liveCommerceBroadcastDailySnapshot.findMany({
       where: {
         organizationId: query.organizationId,
+        ingestionRun: {
+          is: {
+            organizationId: query.organizationId,
+            status: 'COMPLETE',
+            isCurrentComplete: true,
+          },
+        },
         businessDate: { gte: kstInclusiveDaysStart(query.days) },
         ...(query.source ? { source: query.source } : {}),
       },
       orderBy: [{ businessDate: 'desc' }, { viewerCount: 'desc' }, { capturedAt: 'desc' }],
     });
     return rows.map((row) => ({
+      ingestionRunId: row.ingestionRunId,
       businessDate: row.businessDate,
       source: row.source as LiveCommerceBroadcastSnapshotRow['source'],
       broadcastId: row.broadcastId,
@@ -43,12 +51,20 @@ export class LiveCommerceRepositoryAdapter implements LiveCommerceRepositoryPort
     const rows = await this.prisma.liveCommerceProductDailySnapshot.findMany({
       where: {
         organizationId: query.organizationId,
+        ingestionRun: {
+          is: {
+            organizationId: query.organizationId,
+            status: 'COMPLETE',
+            isCurrentComplete: true,
+          },
+        },
         businessDate: { gte: kstInclusiveDaysStart(query.days) },
         ...(query.source ? { source: query.source } : {}),
       },
       orderBy: [{ businessDate: 'desc' }, { rank: 'asc' }, { capturedAt: 'desc' }],
     });
     return rows.map((row) => ({
+      ingestionRunId: row.ingestionRunId,
       businessDate: row.businessDate,
       source: row.source as LiveCommerceProductSnapshotRow['source'],
       broadcastId: row.broadcastId,

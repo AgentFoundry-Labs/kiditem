@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
+import { parseAttemptToken, toPublicAttempt, toPublicStatus } from './sourcing-source-attempt-http';
 import { Throttle } from '@nestjs/throttler';
 import { parseRequiredIdempotencyKey } from '../../../../common/http/required-idempotency-key';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
@@ -9,7 +10,6 @@ import {
   CreateProductGenerationDto,
   ListExtensionProductsQueryDto,
   RegisterManualProductDto,
-  ReceiveExtensionDataDto,
   ScrapeUrlBodyDto,
   ScrapeUrlStatusQueryDto,
 } from './dto';
@@ -22,17 +22,43 @@ export class SourcingExtensionIngestController {
     private readonly extensionIngest: SourcingExtensionIngestService,
   ) {}
 
-  @Post('extension/product-data')
+  @Post('extension/product-data/attempts')
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
-  async receiveExtensionData(
-    @Body() body: ReceiveExtensionDataDto,
+  async beginProductExtraction(
+    @Body() body: unknown,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
   ) {
-    return this.extensionIngest.ingestV1(
+    return this.extensionIngest.begin(
       { organizationId, userId: user.id ?? null },
       body,
+      parseRequiredIdempotencyKey(idempotencyKey),
     );
+  }
+
+  @Get('extension/product-data/status')
+  async productSourceStatus(@Query('sourceUrl') sourceUrl: string, @CurrentOrganization() organizationId: string) {
+    return toPublicStatus(await this.extensionIngest.status(organizationId, sourceUrl));
+  }
+
+  @Get('extension/product-data/attempts/:attemptId')
+  async readProductExtraction(@Param('attemptId', ParseUUIDPipe) attemptId: string, @CurrentOrganization() organizationId: string) {
+    return toPublicAttempt(await this.extensionIngest.read(organizationId, attemptId));
+  }
+
+  @Put('extension/product-data/attempts/:attemptId/complete')
+  async completeProductExtraction(@Param('attemptId', ParseUUIDPipe) attemptId: string,
+    @Headers('x-source-attempt-token') token: string | undefined, @Body() body: unknown,
+    @CurrentOrganization() organizationId: string, @CurrentUser() user: AuthUser) {
+    return toPublicAttempt(await this.extensionIngest.complete({ organizationId, userId: user.id ?? null }, attemptId, parseAttemptToken(token), body));
+  }
+
+  @Post('extension/product-data/attempts/:attemptId/fail')
+  async failProductExtraction(@Param('attemptId', ParseUUIDPipe) attemptId: string,
+    @Headers('x-source-attempt-token') token: string | undefined, @Body() body: unknown,
+    @CurrentOrganization() organizationId: string) {
+    return toPublicAttempt(await this.extensionIngest.fail(organizationId, attemptId, parseAttemptToken(token), body));
   }
 
   @Post('product-registration')

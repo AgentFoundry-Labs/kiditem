@@ -19,9 +19,8 @@ import {
 } from 'lucide-react';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
-import { isTerminalOperationStatus } from '@/hooks/useOperationRun';
-import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
-import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
+import { SourceCollectionStatus } from '../../components/SourceCollectionStatus';
+import { useTrendSourceCollection } from '../../hooks/use-trend-source-collection';
 import { fetchPersistedNaverMarket } from '../lib/live-naver-market';
 import {
   buildCrossMarketTopics,
@@ -49,11 +48,9 @@ export function GlobalSourcingOverview() {
     queryFn: fetchPersistedNaverMarket,
     staleTime: 10 * 60 * 1000,
   });
-  const naverOperation = useSourcingOperationAction({
-    operationKey: 'sourcing.collect_daily_trends',
+  const naverSource = useTrendSourceCollection({
     input: { sources: ['naver'] },
     snapshotQueryKey: queryKeys.sourcing.trendNaverKeywords(NAVER_SNAPSHOT_DAYS),
-    wakeBrowserRuntime: false,
   });
   const chinaQuery = useQuery({
     queryKey: queryKeys.sourcing.trend1688Hot(SNAPSHOT_DAYS),
@@ -115,21 +112,12 @@ export function GlobalSourcingOverview() {
           loading={naverQuery.isLoading}
           error={naverQuery.isError}
           warnings={naverQuery.data?.warnings ?? []}
-          isCollecting={naverOperation.isStarting || (
-            naverOperation.run !== null
-            && !isTerminalOperationStatus(naverOperation.run.status)
-          )}
-          onCollect={() => void naverOperation.start({ sources: ['naver'] })}
+          isCollecting={naverSource.isCollecting}
+          onCollect={() => void naverSource.collect({ sources: ['naver'] })}
         />
       </div>
 
-      <SourcingOperationRunPanel
-        run={naverOperation.run}
-        onCancel={() => { void naverOperation.cancel(); }}
-        onRetryAttention={() => { void naverOperation.retryAttention(); }}
-        isCancelling={naverOperation.isCancelling}
-        isRetrying={naverOperation.isRetrying}
-      />
+      <SourceCollectionStatus source={naverSource} />
 
       <SourceCoverage context={sourceContext} />
       <NextConnectorQueue />

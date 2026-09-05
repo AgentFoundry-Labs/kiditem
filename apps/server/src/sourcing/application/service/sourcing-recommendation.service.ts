@@ -160,7 +160,7 @@ export class SourcingRecommendationService {
       this.trends.findPopularKeywordHistory({
         organizationId: input.organizationId,
         days: 14,
-      }),
+      }).then((history) => history.rows),
       this.interests.list(input.organizationId),
       this.trends.listSeeds(input.organizationId),
     ]);
@@ -374,7 +374,7 @@ function buildInputManifest(input: {
   offers: SourcingOfferObservationSource[];
   coupangEvidenceIds: string[];
   targets: Awaited<ReturnType<SourcingInterestTargetRepositoryPort['list']>>;
-  popularRows: Awaited<ReturnType<TrendCollectionRepositoryPort['findPopularKeywordHistory']>>;
+  popularRows: Awaited<ReturnType<TrendCollectionRepositoryPort['findPopularKeywordHistory']>>['rows'];
   refreshIdempotencyKey?: string;
 }): { stable: Record<string, unknown>; full: Record<string, unknown> } {
   const stable = {

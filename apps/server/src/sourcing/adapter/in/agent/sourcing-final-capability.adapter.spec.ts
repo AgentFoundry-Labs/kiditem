@@ -26,7 +26,8 @@ function setup(admissions = { recordScrapeSnapshot: vi.fn() }) {
     findByIdempotency: vi.fn().mockResolvedValue(null),
     start: vi.fn().mockResolvedValue({ id: '00000000-0000-4000-8000-000000000008', status: 'queued' }),
   };
-  return { adapter: new SourcingFinalCapabilityAdapter(reads as never, mutations as never, discovery as never, shadow as never, operations as never, admissions as never), reads, mutations, discovery, shadow, operations };
+  const trends = { collect: vi.fn().mockResolvedValue({ businessDate: '2026-09-06', results: [] }) };
+  return { trends, adapter: new SourcingFinalCapabilityAdapter(reads as never, mutations as never, discovery as never, shadow as never, operations as never, admissions as never, trends as never), reads, mutations, discovery, shadow, operations };
 }
 
 function workflowAdapter(operations: {
@@ -224,7 +225,7 @@ describe('SourcingFinalCapabilityAdapter', () => {
   });
 
   it('passes exact derived owner keys to collection, review, and shadow owners', async () => {
-    const { adapter, mutations, shadow, operations } = setup();
+    const { adapter, mutations, shadow, operations, trends } = setup();
     const collectionInput = { sources: ['1688'] as Array<'naver' | '1688' | 'shorts'> };
     const reviewInput = {
       recommendationRunId: '00000000-0000-4000-8000-000000000007',
@@ -240,10 +241,8 @@ describe('SourcingFinalCapabilityAdapter', () => {
     await adapter.createReviewBatch({ context: reviewContext, input: reviewInput });
     await adapter.collectShadowSignals({ context: shadowContext, input: shadowInput });
 
-    expect(operations.start).toHaveBeenCalledWith(expect.objectContaining({
-      operationKey: 'sourcing.collect_daily_trends',
-      idempotencyKey: collectionContext.ownerIdempotencyKey,
-    }));
+    expect(trends.collect).toHaveBeenCalledWith(baseContext.organizationId, collectionInput.sources, baseContext.initiatingUserId, collectionContext.ownerIdempotencyKey);
+    expect(operations.start).not.toHaveBeenCalled();
     expect(mutations.createReviewBatch).toHaveBeenCalledWith(expect.objectContaining({
       idempotencyKey: reviewContext.ownerIdempotencyKey,
     }));

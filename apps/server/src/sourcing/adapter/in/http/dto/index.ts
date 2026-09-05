@@ -1,4 +1,3 @@
-export { ReceiveExtensionDataDto } from './receive-extension-data.dto';
 export { RegisterManualProductDto } from './register-manual-product.dto';
 export { CreateProductGenerationDto } from './product-generation.dto';
 export { ScrapeUrlBodyDto, ScrapeUrlStatusQueryDto } from './scrape-url.dto';

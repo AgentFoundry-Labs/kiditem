@@ -29,9 +29,8 @@ import {
 } from 'recharts';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber, formatPercent } from '@/lib/utils';
-import { isTerminalOperationStatus } from '@/hooks/useOperationRun';
-import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
-import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
+import { SourceCollectionStatus } from '../../components/SourceCollectionStatus';
+import { useTrendSourceCollection } from '../../hooks/use-trend-source-collection';
 import {
   filterTrendOpportunities,
   rankTrendOpportunitiesForChannel,
@@ -137,11 +136,9 @@ export function TrendRadarSection() {
     enabled: channelView === 'domestic',
     staleTime: 10 * 60 * 1000,
   });
-  const naverOperation = useSourcingOperationAction({
-    operationKey: 'sourcing.collect_daily_trends',
+  const naverSource = useTrendSourceCollection({
     input: { sources: ['naver'] },
     snapshotQueryKey: queryKeys.sourcing.trendNaverKeywords(NAVER_SNAPSHOT_DAYS),
-    wakeBrowserRuntime: false,
   });
   const liveSnsQuery = useQuery({
     queryKey: ['sourcing', 'live-sns-market'] as const,
@@ -236,7 +233,7 @@ export function TrendRadarSection() {
                 {activeViewMeta.description}{' '}
                 {isLive
                   ? liveDomestic
-                    ? 'OperationRun이 저장한 네이버 스냅샷을 읽습니다. 새 수집은 명시적으로 시작하세요.'
+                    ? '소스 수집이 완료한 네이버 스냅샷을 읽습니다. 새 수집은 명시적으로 시작하세요.'
                     : '유튜브 쇼츠(shortstrend) 실데이터이며 화면이 열려 있는 동안 10분마다 갱신합니다.'
                   : '판매량 확정 순위가 아니며, 현재는 리서치 스냅샷 산식입니다.'}
               </p>
@@ -266,11 +263,8 @@ export function TrendRadarSection() {
                   {liveDomestic && (
                     <button
                       type="button"
-                      onClick={() => void naverOperation.start({ sources: ['naver'] })}
-                      disabled={naverOperation.isStarting || (
-                        naverOperation.run !== null
-                        && !isTerminalOperationStatus(naverOperation.run.status)
-                      )}
+                      onClick={() => void naverSource.collect({ sources: ['naver'] })}
+                      disabled={naverSource.isCollecting}
                       className={cn(
                         'inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-purple-600 px-3 text-xs font-semibold text-white disabled:opacity-50',
                         pressable,
@@ -352,13 +346,7 @@ export function TrendRadarSection() {
           </div>
           {liveDomestic && (
             <div className="mt-3">
-              <SourcingOperationRunPanel
-                run={naverOperation.run}
-                onCancel={() => { void naverOperation.cancel(); }}
-                onRetryAttention={() => { void naverOperation.retryAttention(); }}
-                isCancelling={naverOperation.isCancelling}
-                isRetrying={naverOperation.isRetrying}
-              />
+              <SourceCollectionStatus source={naverSource} />
             </div>
           )}
         </div>

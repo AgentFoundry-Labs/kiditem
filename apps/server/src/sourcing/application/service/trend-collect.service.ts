@@ -31,9 +31,13 @@ import {
 import {
   hashCollectionRequest,
   mapTrendTypedRecordsToAuthorizedOutput,
-  normalizeCollectionTarget,
 } from './sourcing-collection-mappers';
-import { SourcingCollectionCoordinator } from './sourcing-collection-coordinator.service';
+import {
+  SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT,
+  type SourcingBrowserSourceAttempt,
+  type SourcingBrowserSourceAttemptRepositoryPort,
+} from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
+import { requireIdempotencyKey, toPermit } from './sourcing-source-attempt-primitives';
 import type {
   TrendCollectionControls,
   TrendCollectionPort,
@@ -62,6 +66,9 @@ export interface TrendSourceCollectResult {
   ok: boolean;
   collected: number;
   error?: string;
+  attemptId?: string;
+  state?: 'RUNNING' | 'COMPLETE' | 'FAILED';
+  actualCutoffAt?: string | null;
 }
 
 export interface TrendCollectResult {
@@ -93,7 +100,8 @@ export class TrendCollectService implements TrendCollectionPort {
     private readonly shortstrend: ShortstrendTrendPort,
     @Inject(TREND_COLLECTION_REPOSITORY_PORT)
     private readonly repository: TrendCollectionRepositoryPort,
-    private readonly collectionCoordinator: SourcingCollectionCoordinator,
+    @Inject(SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT)
+    private readonly attempts: SourcingBrowserSourceAttemptRepositoryPort,
   ) {}
 
   listSeeds(organizationId: string): Promise<TrendSeedRow[]> {
@@ -133,6 +141,22 @@ export class TrendCollectService implements TrendCollectionPort {
       .map((seed) => ({ label: seed.keyword, keyword: seed.keyword }));
   }
 
+  async status(organizationId: string, source: 'naver' | 'shorts') {
+    const seeds = (await this.repository.listSeeds(organizationId)).filter((seed) => seed.enabled);
+    const { capturedAt: _capturedAt, ...coverage } = trendPlan(source, seeds, new Date());
+    const checksum = hashCollectionRequest(coverage);
+    const query = { organizationId, sourceKey: coverage.source, scopeKey: 'default',
+      targetKey: checksum, currentPlanChecksum: checksum };
+    const current = await this.attempts.readSourceStatus(query);
+    if (current.latestComplete) return current;
+    const previousTarget = await this.repository.findLatestCompleteTrendScope({ organizationId, source });
+    if (!previousTarget) return current;
+    const previous = await this.attempts.readSourceStatus({ ...query, targetKey: previousTarget });
+    if (!previous.latestComplete) return current;
+    return { ...(current.latestAttempt ? current : previous), status: 'STALE' as const,
+      latestComplete: previous.latestComplete, actualCutoffAt: previous.actualCutoffAt };
+  }
+
   async collect(
     organizationId: string,
     sources?: TrendCollectSource[],
@@ -142,54 +166,19 @@ export class TrendCollectService implements TrendCollectionPort {
   ): Promise<TrendCollectResult> {
     signal?.throwIfAborted();
     const capturedAt = new Date();
-    const businessDate = kstBusinessDate(capturedAt);
-    const requested = normalizeSources(sources);
-
-    const seeds = await this.repository.listSeeds(organizationId);
-    const enabledSeeds = seeds.filter((seed) => seed.enabled);
-
-    const results: TrendSourceCollectResult[] = [];
-    for (const source of requested) {
-      signal?.throwIfAborted();
-      if (source === 'naver') {
-        results.push(
-          await this.safe('naver', () =>
-            this.collectNaver(
-              organizationId,
-              enabledSeeds,
-              businessDate,
-              capturedAt,
-              triggeredByUserId ?? null,
-              collectionRunKey,
-              signal,
-              undefined,
-            ),
-            signal,
-          ),
-        );
-      } else if (source === '1688') {
-        results.push(browserOwned1688Result());
-      } else if (source === 'shorts') {
-        results.push(
-          await this.safe('shorts', () =>
-            this.collectShorts(
-              organizationId,
-              enabledSeeds,
-              businessDate,
-              capturedAt,
-              triggeredByUserId ?? null,
-              collectionRunKey,
-              signal,
-              undefined,
-            ),
-            signal,
-          ),
-        );
+    const seeds = (await this.repository.listSeeds(organizationId)).filter((seed) => seed.enabled);
+    const results = [];
+    for (const source of normalizeSources(sources)) {
+      try {
+        results.push(await this.executeSource(organizationId, source, seeds, capturedAt, triggeredByUserId, collectionRunKey, signal));
+      } catch (error) {
+        signal?.throwIfAborted();
+        results.push({ businessDate: toDateString(kstBusinessDate(capturedAt)), source, ok: false,
+          collected: 0, error: errorMessage(error) });
       }
     }
-
-    const businessDateString = toDateString(businessDate);
-    return { businessDate: businessDateString, results };
+    return { businessDate: results[0]?.businessDate ?? toDateString(kstBusinessDate(new Date())),
+      results: results.map(({ businessDate: _businessDate, ...result }) => result) };
   }
 
   async collectSource(
@@ -201,171 +190,79 @@ export class TrendCollectService implements TrendCollectionPort {
   ): Promise<TrendSourceCollectResult & { businessDate: string }> {
     controls.signal?.throwIfAborted();
     const capturedAt = new Date();
-    const businessDate = kstBusinessDate(capturedAt);
-    await controls.checkpoint?.({
-      stage: 'collecting_source',
-      progressCurrent: 0,
-      progressTotal: 1,
-    });
-    controls.signal?.throwIfAborted();
-    const seeds = await this.repository.listSeeds(organizationId);
-    controls.signal?.throwIfAborted();
-    const enabledSeeds = seeds.filter((seed) => seed.enabled);
-    const result = await this.safe(
-      source,
-      () => source === 'naver'
-        ? this.collectNaver(
-            organizationId,
-            enabledSeeds,
-            businessDate,
-            capturedAt,
-            triggeredByUserId ?? null,
-            collectionRunKey,
-            controls.signal,
-            controls.checkpoint,
-          )
-        : source === '1688'
-          ? Promise.resolve(browserOwned1688Result())
-          : this.collectShorts(
-              organizationId,
-              enabledSeeds,
-              businessDate,
-              capturedAt,
-              triggeredByUserId ?? null,
-              collectionRunKey,
-              controls.signal,
-              controls.checkpoint,
-            ),
-      controls.signal,
-    );
-    controls.signal?.throwIfAborted();
-    await controls.checkpoint?.({
-      stage: 'finalizing_source',
-      progressCurrent: 1,
-      progressTotal: 1,
-    });
-    controls.signal?.throwIfAborted();
-    return { businessDate: toDateString(businessDate), ...result };
+    const seeds = (await this.repository.listSeeds(organizationId)).filter((seed) => seed.enabled);
+    return this.executeSource(organizationId, source, seeds, capturedAt, triggeredByUserId, collectionRunKey, controls.signal);
   }
 
-  private async safe(
-    source: TrendCollectSource,
-    fn: () => Promise<TrendSourceCollectResult>,
-    signal?: AbortSignal,
-  ): Promise<TrendSourceCollectResult> {
+  private async executeSource(organizationId: string, source: TrendCollectSource, seeds: TrendSeedRow[],
+    capturedAt: Date, triggeredByUserId?: string | null, collectionRunKey?: string, signal?: AbortSignal,
+  ): Promise<TrendSourceCollectResult & { businessDate: string }> {
+    signal?.throwIfAborted();
+    const businessDate = toDateString(kstBusinessDate(capturedAt));
+    if (source === '1688') return { businessDate, ...browserOwned1688Result() };
+    const plan = trendPlan(source, seeds, capturedAt);
+    const { capturedAt: _capturedAt, ...coverage } = plan;
+    const planChecksum = hashCollectionRequest(coverage);
+    const failureAlert = trendFailureAlert(plan.source);
+    const { attempt, created } = await this.attempts.beginAttempt({
+      organizationId, sourceKey: plan.source, scopeKey: 'default', targetKey: planChecksum,
+      idempotencyKey: requireIdempotencyKey(collectionRunKey ?? ''),
+      requestFingerprint: hashCollectionRequest({ source }), plan, planChecksum,
+      requestedByUserId: triggeredByUserId ?? null, collectorKey: 'trend-' + source,
+      collectorVersion: 'trend-source/v1', expiresInMs: 15 * 60_000, triggerKind: 'manual', failureAlert,
+    });
+    if (!created) return trendResult(source, attempt);
     try {
-      return await fn();
-    } catch (error) {
+      const frozen = attempt.plan as typeof plan;
+      const observedAt = new Date(frozen.capturedAt);
+      const day = new Date(frozen.businessDate);
+      const permit = toPermit(attempt, organizationId);
+      const output = source === 'naver'
+        ? await this.collectNaver(organizationId, frozen.keywords, day, observedAt, permit, signal)
+        : await this.collectShorts(organizationId, frozen.keywords, day, observedAt, permit, signal);
       signal?.throwIfAborted();
-      return { source, ok: false, collected: 0, error: errorMessage(error) };
+      const complete = await this.attempts.completeAttempt({ organizationId, attemptId: attempt.attemptId,
+        attemptToken: attempt.attemptToken, planChecksum: attempt.planChecksum,
+        contentChecksum: hashCollectionRequest(output), output,
+        sourceWindowStartAt: day, sourceWindowEndAt: observedAt, failureAlert });
+      return trendResult(source, complete);
+    } catch (error) {
+      const failed = await this.attempts.failAttempt({ organizationId, attemptId: attempt.attemptId,
+        attemptToken: attempt.attemptToken, code: signal?.aborted ? 'SOURCE_COLLECTION_CANCELLED' : 'SOURCE_COLLECTION_FAILED',
+        message: errorMessage(error), failureAlert });
+      signal?.throwIfAborted();
+      return trendResult(source, failed);
     }
   }
 
   private async collectNaver(
-    organizationId: string,
-    enabledSeeds: TrendSeedRow[],
-    businessDate: Date,
-    capturedAt: Date,
-    triggeredByUserId: string | null,
-    collectionRunKey?: string,
+    organizationId: string, seedKeywords: string[], businessDate: Date, capturedAt: Date,
+    permit: import('../port/out/repository/sourcing-collection.repository.port').SourcingCollectionPermit,
     signal?: AbortSignal,
-    operationCheckpoint?: TrendCollectionControls['checkpoint'],
-  ): Promise<TrendSourceCollectResult> {
+  ) {
     const errors: string[] = [];
-    const execution = await this.collectionCoordinator.execute(
-      collectionRequest({
-        organizationId,
-        sourceKey: 'naver.trend',
-        targetKey: toDateString(businessDate),
-        idempotencyKey: collectionIdempotencyKey(
-          collectionRunKey,
-          'naver',
-          businessDate,
-          triggeredByUserId,
-        ),
-        requestHash: hashCollectionRequest({
-          source: 'naver',
-          seeds: enabledSeeds.map((seed) => seed.keyword),
-          businessDate: toDateString(businessDate),
-        }),
-        collectorKey: 'trend-naver',
-        triggerKind: triggeredByUserId ? 'manual' : 'schedule',
-        triggeredByUserId,
-      }),
-      async ({ permit, checkpoint }) => {
-        let popularRows: NaverPopularKeywordSnapshotUpsert[] = [];
-        let keywordRows: NaverKeywordSnapshotUpsert[] = [];
-        await checkpoint();
-        signal?.throwIfAborted();
-        try {
-          await operationCheckpoint?.({
-            stage: 'collecting_naver_popular',
-            progressCurrent: 0,
-            progressTotal: 1,
-          });
-          signal?.throwIfAborted();
-          popularRows = await this.buildPopularBoardRows(
-            organizationId,
-            businessDate,
-            capturedAt,
-            signal,
-          );
-          signal?.throwIfAborted();
-          await operationCheckpoint?.({
-            stage: 'collecting_naver_popular',
-            progressCurrent: 1,
-            progressTotal: 1,
-          });
-        } catch (error) {
-          signal?.throwIfAborted();
-          errors.push(`naver-popular: ${errorMessage(error)}`);
-        }
-
-        await checkpoint();
-        signal?.throwIfAborted();
-        try {
-          const seedKeywords = enabledSeeds
-            .filter((seed) => seed.sources.includes('naver'))
-            .map((seed) => seed.keyword);
-          const popularKeywords = [...popularRows]
-            .sort((a, b) => a.rank - b.rank)
-            .map((row) => row.keyword);
-          const keywords = dedupeKeywords([...seedKeywords, ...popularKeywords]).slice(
-            0,
-            NAVER_KEYWORD_VOLUME_LIMIT,
-          );
-          keywordRows = await this.buildNaverKeywordRows(
-            organizationId,
-            keywords,
-            businessDate,
-            capturedAt,
-            signal,
-            operationCheckpoint,
-          );
-        } catch (error) {
-          signal?.throwIfAborted();
-          errors.push(`naver-keywords: ${errorMessage(error)}`);
-        }
-        await checkpoint();
-        signal?.throwIfAborted();
-        return mapTrendTypedRecordsToAuthorizedOutput({
-          permit,
-          typedRecords: [
-            ...popularRows.map((row) => ({ kind: 'naver_popular_keyword' as const, row })),
-            ...keywordRows.map((row) => ({ kind: 'naver_keyword' as const, row })),
-          ],
-          rejectedCount: errors.length,
-          qualityReport: { source: 'naver', partialErrors: errors.length },
-        });
-      },
-    );
-
-    return {
-      source: 'naver',
-      ok: errors.length === 0,
-      collected: collectedFromExecution(execution),
-      error: errors.length ? errors.join('; ') : undefined,
-    };
+    let popularRows: NaverPopularKeywordSnapshotUpsert[] = [];
+    let keywordRows: NaverKeywordSnapshotUpsert[] = [];
+    try {
+      popularRows = await this.buildPopularBoardRows(organizationId, businessDate, capturedAt, signal, errors);
+    } catch (error) {
+      signal?.throwIfAborted();
+      errors.push('naver-popular: ' + errorMessage(error));
+    }
+    try {
+      const popularKeywords = [...popularRows].sort((a, b) => a.rank - b.rank).map((row) => row.keyword);
+      const keywords = dedupeKeywords([...seedKeywords, ...popularKeywords]).slice(0, NAVER_KEYWORD_VOLUME_LIMIT);
+      keywordRows = await this.buildNaverKeywordRows(organizationId, keywords, businessDate, capturedAt, signal);
+    } catch (error) {
+      signal?.throwIfAborted();
+      errors.push('naver-keywords: ' + errorMessage(error));
+    }
+    if (errors.length) throw new Error(errors.join('; '));
+    return mapTrendTypedRecordsToAuthorizedOutput({ permit,
+      typedRecords: [...popularRows.map((row) => ({ kind: 'naver_popular_keyword' as const, row })),
+        ...keywordRows.map((row) => ({ kind: 'naver_keyword' as const, row }))],
+      qualityReport: { source: 'naver', completeSnapshot: true },
+    });
   }
 
   private async buildNaverKeywordRows(
@@ -374,7 +271,6 @@ export class TrendCollectService implements TrendCollectionPort {
     businessDate: Date,
     capturedAt: Date,
     signal?: AbortSignal,
-    operationCheckpoint?: TrendCollectionControls['checkpoint'],
   ): Promise<NaverKeywordSnapshotUpsert[]> {
     if (keywords.length === 0) return [];
 
@@ -403,11 +299,6 @@ export class TrendCollectService implements TrendCollectionPort {
       2,
       async (chunk, index) => {
         signal?.throwIfAborted();
-        await operationCheckpoint?.({
-          stage: 'collecting_naver_searchad',
-          progressCurrent: index,
-          progressTotal: searchAdChunks.length,
-        });
         signal?.throwIfAborted();
         const result = await this.keywordResearch.searchRelatedKeywords({
           seedKeywords: chunk,
@@ -430,27 +321,15 @@ export class TrendCollectService implements TrendCollectionPort {
         row.averageAdRank = toInt(item.averageAdRank);
       }
     }
-    await operationCheckpoint?.({
-      stage: 'collecting_naver_searchad',
-      progressCurrent: searchAdChunks.length,
-      progressTotal: searchAdChunks.length,
-    });
     signal?.throwIfAborted();
 
-    // 데이터랩 트렌드는 검색광고 월검색량을 보강(enrich)하는 best-effort 단계다.
-    // 데이터랩이 실패해도 이미 채워진 SearchAd 데이터는 버리지 않고 저장한다.
-    try {
+    {
       const datalabChunks = chunkArray(keywords, NAVER_DATALAB_BATCH_SIZE);
       const datalabResults = await mapWithConcurrency(
         datalabChunks,
         2,
         async (chunk, index) => {
           signal?.throwIfAborted();
-          await operationCheckpoint?.({
-            stage: 'collecting_naver_datalab',
-            progressCurrent: index,
-            progressTotal: datalabChunks.length,
-          });
           signal?.throwIfAborted();
           const result = await this.datalabTrend.compareSearchTrends({
             keywords: chunk,
@@ -469,15 +348,7 @@ export class TrendCollectService implements TrendCollectionPort {
           row.trendDelta = roundOrNull(item.trendDelta);
         }
       }
-      await operationCheckpoint?.({
-        stage: 'collecting_naver_datalab',
-        progressCurrent: datalabChunks.length,
-        progressTotal: datalabChunks.length,
-      });
       signal?.throwIfAborted();
-    } catch {
-      signal?.throwIfAborted();
-      // 트렌드 보강 실패는 무시(검색량 스냅샷은 유지). 소스별 결과는 상위에서 집계.
     }
 
     return rows;
@@ -488,6 +359,7 @@ export class TrendCollectService implements TrendCollectionPort {
     businessDate: Date,
     capturedAt: Date,
     signal?: AbortSignal,
+    errors: string[] = [],
   ): Promise<NaverPopularKeywordSnapshotUpsert[]> {
     signal?.throwIfAborted();
     const result = await this.popularKeywords.searchPopularKeywords({
@@ -499,11 +371,11 @@ export class TrendCollectService implements TrendCollectionPort {
     const rows: NaverPopularKeywordSnapshotUpsert[] = [];
     const seen = new Set<string>();
     for (const board of result.boards ?? []) {
-      if (board.error) continue;
+      if (board.error) { errors.push('naver-popular: ' + board.error); continue; }
       for (const entry of board.ranks ?? []) {
         const keyword = typeof entry.keyword === 'string' ? entry.keyword.trim() : '';
         if (!keyword) continue;
-        const dedupeKey = `${board.key} ${keyword}`;
+        const dedupeKey = `${board.key}\u0000${keyword}`;
         if (seen.has(dedupeKey)) continue;
         seen.add(dedupeKey);
         rows.push({
@@ -523,79 +395,20 @@ export class TrendCollectService implements TrendCollectionPort {
   }
 
   private async collectShorts(
-    organizationId: string,
-    enabledSeeds: TrendSeedRow[],
-    businessDate: Date,
-    capturedAt: Date,
-    triggeredByUserId: string | null,
-    collectionRunKey?: string,
+    organizationId: string, keywords: string[], businessDate: Date, capturedAt: Date,
+    permit: import('../port/out/repository/sourcing-collection.repository.port').SourcingCollectionPermit,
     signal?: AbortSignal,
-    operationCheckpoint?: TrendCollectionControls['checkpoint'],
-  ): Promise<TrendSourceCollectResult> {
-    const seeds = collectionSeedsFor(enabledSeeds, 'shorts');
-    let sourceError: string | undefined;
-    const execution = await this.collectionCoordinator.execute(
-      collectionRequest({
-        organizationId,
-        sourceKey: 'shortstrend.trend',
-        targetKey: toDateString(businessDate),
-        idempotencyKey: collectionIdempotencyKey(
-          collectionRunKey,
-          'shorts',
-          businessDate,
-          triggeredByUserId,
-        ),
-        requestHash: hashCollectionRequest({
-          source: 'shorts',
-          keywords: seeds.map((seed) => seed.keyword),
-          businessDate: toDateString(businessDate),
-        }),
-        collectorKey: 'trend-shortstrend',
-        triggerKind: triggeredByUserId ? 'manual' : 'schedule',
-        triggeredByUserId,
-      }),
-      async ({ permit, checkpoint }) => {
-        await checkpoint();
-        signal?.throwIfAborted();
-        await operationCheckpoint?.({
-          stage: 'collecting_shorts',
-          progressCurrent: 0,
-          progressTotal: 1,
-        });
-        signal?.throwIfAborted();
-        const result = await this.shortstrend.fetchTrending({
-          keywords: seeds.map((seed) => seed.keyword),
-          limit: SHORTS_LIMIT,
-          publishedWithinDays: SHORTS_COLLECTION_WINDOW_DAYS,
-          signal,
-        });
-        signal?.throwIfAborted();
-        await operationCheckpoint?.({
-          stage: 'collecting_shorts',
-          progressCurrent: 1,
-          progressTotal: 1,
-        });
-        if (result.error) {
-          sourceError = result.error;
-          return mapTrendTypedRecordsToAuthorizedOutput({
-            permit,
-            typedRecords: [],
-            rejectedCount: 1,
-            qualityReport: { source: 'shorts', error: sourceError },
-          });
-        }
-        await checkpoint();
-        signal?.throwIfAborted();
-        const rows = buildShortsRows(organizationId, result.items ?? [], businessDate, capturedAt);
-        return mapTrendTypedRecordsToAuthorizedOutput({
-          permit,
-          typedRecords: rows.map((row) => ({ kind: 'shorts' as const, row })),
-          qualityReport: { source: 'shorts' },
-        });
-      },
-    );
-    if (sourceError) return { source: 'shorts', ok: false, collected: 0, error: sourceError };
-    return { source: 'shorts', ok: true, collected: collectedFromExecution(execution) };
+  ) {
+    signal?.throwIfAborted();
+    const result = await this.shortstrend.fetchTrending({ keywords, limit: SHORTS_LIMIT,
+      publishedWithinDays: SHORTS_COLLECTION_WINDOW_DAYS, signal });
+    signal?.throwIfAborted();
+    if (result.error) throw new Error(result.error);
+    const rows = buildShortsRows(organizationId, result.items ?? [], businessDate, capturedAt);
+    return mapTrendTypedRecordsToAuthorizedOutput({ permit,
+      typedRecords: rows.map((row) => ({ kind: 'shorts' as const, row })),
+      qualityReport: { source: 'shorts', completeSnapshot: true },
+    });
   }
 }
 
@@ -749,48 +562,6 @@ function toDateString(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-function collectionRequest(input: {
-  organizationId: string;
-  sourceKey: string;
-  targetKey: string;
-  idempotencyKey: string;
-  requestHash: string;
-  collectorKey: string;
-  triggerKind: 'manual' | 'schedule' | 'extension' | 'bootstrap' | 'retry';
-  triggeredByUserId?: string | null;
-}) {
-  return {
-    organizationId: input.organizationId,
-    sourceKey: input.sourceKey,
-    scopeKey: 'default',
-    targetKey: normalizeCollectionTarget(input.targetKey),
-    idempotencyKey: input.idempotencyKey,
-    requestHash: input.requestHash,
-    collectorKey: input.collectorKey,
-    collectorVersion: '2026-08-08',
-    triggerKind: input.triggerKind,
-    triggeredByUserId: input.triggeredByUserId ?? null,
-    leaseDurationMs: 120_000,
-  };
-}
-
-function collectionIdempotencyKey(
-  collectionRunKey: string | undefined,
-  source: TrendCollectSource,
-  businessDate: Date,
-  triggeredByUserId: string | null,
-): string {
-  const prefix = collectionRunKey?.trim() || `trend:${triggeredByUserId ?? 'schedule'}:${toDateString(businessDate)}`;
-  return `${prefix}:${source}`;
-}
-
-function collectedFromExecution(execution: {
-  kind: 'existing' | 'committed';
-  acceptedCount?: number;
-}): number {
-  return execution.kind === 'committed' ? execution.acceptedCount ?? 0 : 0;
-}
-
 function browserOwned1688Result(): TrendSourceCollectResult {
   return {
     source: '1688',
@@ -802,4 +573,29 @@ function browserOwned1688Result(): TrendSourceCollectResult {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function trendFailureAlert(sourceKey: string) {
+  return { sourceType: sourceKey, dedupeKey: 'source:' + sourceKey,
+    title: sourceKey === 'naver.trend' ? '네이버 트렌드 수집 실패' : '쇼츠 트렌드 수집 실패',
+    href: '/sourcing-ai/market' };
+}
+
+function trendResult(source: TrendCollectSource, attempt: SourcingBrowserSourceAttempt) {
+  return { source, businessDate: String(attempt.plan.businessDate), attemptId: attempt.attemptId,
+    state: attempt.state, ok: attempt.state === 'COMPLETE', collected: attempt.acceptedCount,
+    actualCutoffAt: attempt.state === 'COMPLETE' ? String(attempt.plan.capturedAt) : null,
+    ...(attempt.errorMessage ? { error: attempt.errorMessage } : {}),
+  };
+}
+
+function trendPlan(source: 'naver' | 'shorts', seeds: TrendSeedRow[], capturedAt: Date) {
+  const businessDate = toDateString(kstBusinessDate(capturedAt));
+  return { source: source === 'naver' ? 'naver.trend' : 'shortstrend.trend',
+      businessDate, capturedAt: capturedAt.toISOString(),
+      keywords: source === 'naver' ? seeds.filter((seed) => seed.sources.includes('naver')).map((seed) => seed.keyword)
+        : collectionSeedsFor(seeds, 'shorts').map((seed) => seed.keyword),
+      ...(source === 'naver' ? { boardKeys: DEFAULT_POPULAR_BOARD_KEYS }
+        : { limit: SHORTS_LIMIT, publishedWithinDays: SHORTS_COLLECTION_WINDOW_DAYS }),
+    };
 }

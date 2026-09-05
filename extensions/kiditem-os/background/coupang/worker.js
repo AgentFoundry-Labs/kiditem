@@ -1335,23 +1335,15 @@ async function searchCoupangKeywordSuggestions(message) {
   if (!keyword) return { success: false, error: "검색 키워드를 입력하세요" };
 
   const maxResults = clampNumber(message.maxResults, 1, 50, 20);
-  const runId = await collectionRuns.beginWebCollection(
-    "advertising.keyword_rank",
-    {
-      collectionMode: "suggestions",
-      keywordFingerprint: stableInputFingerprint(keyword),
-      keywordCount: 1,
-      maxResults,
-      startedAt: Date.now(),
-    },
-    message.runId,
-    ["collectionMode", "keywordFingerprint"],
-    message.environmentId,
-  );
+  const runId = message.runId;
+  await collectionSessions.start({
+    attemptId: runId,
+    producer: "sourcing.keyword_suggestion",
+    environmentId: message.environmentId,
+  });
   const tab = await getOrCreateCoupangSearchTab(keyword);
   const tabId = tab?.id;
   if (!tabId) {
-    await collectionSessions.fail(runId);
     return { success: false, error: "쿠팡 검색 탭을 열 수 없습니다", runId };
   }
   if (typeof coupangEnvironment !== "undefined") {
@@ -1364,7 +1356,7 @@ async function searchCoupangKeywordSuggestions(message) {
     tabId,
     runId,
   };
-  if (await collectionRuns.isCancelled(runId)) return cancelledResult;
+  if ((await message.cancellation?.()) || await collectionRuns.isCancelled(runId)) return cancelledResult;
 
   const loaded = await waitForTabComplete(tabId, {
     expectedUrl: buildCoupangSearchUrl(keyword),
@@ -1372,10 +1364,8 @@ async function searchCoupangKeywordSuggestions(message) {
   }).catch((error) => ({
     error: error?.message || "쿠팡 검색 화면 로딩 실패",
   }));
-  if (await collectionRuns.isCancelled(runId)) return cancelledResult;
+  if ((await message.cancellation?.()) || await collectionRuns.isCancelled(runId)) return cancelledResult;
   if (loaded?.error) {
-    await collectionSessions.fail(runId);
-    await removeTab(tabId);
     return { success: false, error: loaded.error, tabId, runId };
   }
   if (!isCoupangSearchUrl(loaded?.url || "")) {
@@ -1388,7 +1378,7 @@ async function searchCoupangKeywordSuggestions(message) {
   }
 
   await sleep(COUPANG_KEYWORD_SEARCH_DELAY_MS);
-  if (await collectionRuns.isCancelled(runId)) return cancelledResult;
+  if ((await message.cancellation?.()) || await collectionRuns.isCancelled(runId)) return cancelledResult;
   let response;
   try {
     response = await executeCoupangKeywordSuggestionSearch(
@@ -1397,12 +1387,10 @@ async function searchCoupangKeywordSuggestions(message) {
       maxResults,
     );
   } catch (error) {
-    if (await collectionRuns.isCancelled(runId)) return cancelledResult;
-    await collectionSessions.fail(runId);
-    await removeTab(tabId);
-    throw error;
+    if ((await message.cancellation?.()) || await collectionRuns.isCancelled(runId)) return cancelledResult;
+    return { success: false, error: error?.message || "쿠팡 키워드 추출 실패", tabId, runId };
   }
-  if (await collectionRuns.isCancelled(runId)) return cancelledResult;
+  if ((await message.cancellation?.()) || await collectionRuns.isCancelled(runId)) return cancelledResult;
   if (!response?.success) {
     return collectionRuns.requireAttention(
       runId,
@@ -1427,15 +1415,7 @@ async function searchCoupangKeywordSuggestions(message) {
     startedAt: Date.now(),
     endedAt: Date.now(),
   };
-  const terminal = await collectionSessions.succeed(runId);
-  if (
-    terminal?.status === "cancelled" ||
-    (await collectionRuns.isCancelled(runId))
-  ) {
-    return cancelledResult;
-  }
-  await removeTab(tabId);
-  if (await collectionRuns.isCancelled(runId)) return cancelledResult;
+  if ((await message.cancellation?.()) || await collectionRuns.isCancelled(runId)) return cancelledResult;
   return { ...result, runId };
 }
 
@@ -4262,19 +4242,15 @@ async function handleScrapeTargets(
   });
 }
 
-const SOURCING_WING_CATALOG_OPERATION_KEY =
-  "sourcing.collect_wing_catalog_batch";
 const SOURCING_WING_CATALOG_MAX_KEYWORDS = 12;
 const SOURCING_WING_CATALOG_MAX_ITEMS = 100;
 const ADVERTISING_TRACKED_WING_PRODUCTS_PRODUCER =
   "advertising.wing_tracked_products";
 const ADVERTISING_TRACKED_WING_PRODUCTS_MAX_ITEMS = 300;
-const SOURCING_KEYWORD_SUGGESTION_OPERATION_KEY =
-  "sourcing.collect_keyword_suggestions";
 const SOURCING_KEYWORD_SUGGESTION_MAX_RESULTS = 30;
 const ADVERTISING_COMPETITOR_CATALOG_MAX_PRODUCTS = 100;
 
-function parseSourcingWingCatalogOperationInput(input) {
+function parseSourcingWingCatalogInput(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new Error("wing_catalog_operation_input_invalid");
   }
@@ -4383,283 +4359,6 @@ function wingOperationBoundedNumber(value, minimum, maximum) {
     : null;
 }
 
-async function requestSourcingWingOperation(operation, path, body) {
-  operation.signal?.throwIfAborted?.();
-  const response = await authedFetch(operation.environmentId, path, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-operation-attempt-token": operation.attemptToken,
-    },
-    body: JSON.stringify(body),
-    signal: operation.signal,
-  });
-  operation.signal?.throwIfAborted?.();
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    const error = new Error(
-      response.status === 409
-        ? "operation_runtime_fence_lost"
-        : `wing_catalog_ingest_http_${response.status}`,
-    );
-    error.status = response.status;
-    throw error;
-  }
-  return payload;
-}
-
-async function ensureSourcingWingOperationSession(operation, input) {
-  const existing = await collectionSessions.getOwned(
-    operation.runId,
-    operation.environmentId,
-  );
-  if (existing) {
-    if (
-      existing.producer !== "sourcing.wing_catalog" ||
-      existing.status !== "running"
-    ) {
-      throw new Error("wing_catalog_operation_session_invalid");
-    }
-    return existing;
-  }
-  return collectionSessions.start({
-    runId: operation.runId,
-    environmentId: operation.environmentId,
-    producer: "sourcing.wing_catalog",
-    classification: "background_preferred",
-    restartStrategy: "extension",
-    inputIdentity: {
-      purpose: input.purpose,
-      keywordCount: input.keywords.length,
-      maxPages: input.maxPages,
-      startedAt: Date.now(),
-    },
-  });
-}
-
-async function runSourcingWingCatalogOperation(operation) {
-  const input = parseSourcingWingCatalogOperationInput(operation.input);
-  await ensureSourcingWingOperationSession(operation, input);
-  operation.signal?.throwIfAborted?.();
-  const keywordResults = [];
-  let collectionTabId;
-  let keepAttentionTab = false;
-  let terminalSession = false;
-  let fenceLost = false;
-
-  try {
-    for (let index = 0; index < input.keywords.length; index += 1) {
-      const keyword = input.keywords[index];
-      await operation.heartbeat({
-        progress: index / input.keywords.length,
-        stage: "collecting_keyword",
-        progressCurrent: index,
-        progressTotal: input.keywords.length,
-      });
-      operation.signal?.throwIfAborted?.();
-
-      let search;
-      try {
-        search = await searchWingCatalogProducts({
-          keyword,
-          maxPages: input.maxPages,
-          collectionRunId: operation.runId,
-          ...(Number.isInteger(collectionTabId)
-            ? { collectionTabId }
-            : {}),
-          environmentId: operation.environmentId,
-          signal: operation.signal,
-        });
-      } catch (error) {
-        if (operation.signal?.aborted) throw operation.signal.reason || error;
-        keywordResults.push({
-          keyword,
-          outcome: "failed",
-          discovered: 0,
-          accepted: 0,
-          duplicate: 0,
-          failed: 1,
-          errorCode: "wing_catalog_keyword_failed",
-        });
-        await operation.heartbeat({
-          progress: (index + 1) / input.keywords.length,
-          stage: "collecting_keyword",
-          progressCurrent: index + 1,
-          progressTotal: input.keywords.length,
-        });
-        continue;
-      }
-
-      if (Number.isInteger(search?.tabId)) collectionTabId = search.tabId;
-      if (search?.attentionRequired) {
-        keepAttentionTab = true;
-        return {
-          status: "attention_required",
-          attentionReason: "marketplace_login",
-        };
-      }
-      if (!search?.success) {
-        keywordResults.push({
-          keyword,
-          outcome: "failed",
-          discovered: 0,
-          accepted: 0,
-          duplicate: 0,
-          failed: 1,
-          errorCode: "wing_catalog_keyword_failed",
-        });
-        await operation.heartbeat({
-          progress: (index + 1) / input.keywords.length,
-          stage: "collecting_keyword",
-          progressCurrent: index + 1,
-          progressTotal: input.keywords.length,
-        });
-        continue;
-      }
-
-      operation.signal?.throwIfAborted?.();
-      const rows = Array.isArray(search.rows)
-        ? search.rows.slice(0, SOURCING_WING_CATALOG_MAX_ITEMS)
-        : [];
-      const capturedAt = new Date().toISOString();
-      const items = rows
-        .filter((row) => row && row.productId != null && row.productName)
-        .map((row) =>
-          toSourcingWingCatalogObservation(row, keyword, capturedAt),
-        );
-      const ingest = await requestSourcingWingOperation(
-        operation,
-        `/api/sourcing/workspace/browser-operations/${encodeURIComponent(operation.runId)}/coupang-observations`,
-        { keyword, maxPages: input.maxPages, purpose: input.purpose, items },
-      );
-      const accepted = Math.max(0, Number(ingest?.acceptedCount) || 0);
-      const duplicate = Math.max(0, Number(ingest?.duplicateCount) || 0);
-      keywordResults.push({
-        keyword,
-        outcome: accepted > 0 ? "complete" : "no_change",
-        discovered: items.length,
-        accepted,
-        duplicate,
-        failed: 0,
-      });
-      await collectionSessions.progress(operation.runId, {
-        current: index + 1,
-        total: input.keywords.length,
-        completed: keywordResults.filter((result) => result.failed === 0).length,
-        failed: keywordResults.filter((result) => result.failed > 0).length,
-        label: keyword,
-      });
-      await operation.heartbeat({
-        progress: (index + 1) / input.keywords.length,
-        stage: "collecting_keyword",
-        progressCurrent: index + 1,
-        progressTotal: input.keywords.length,
-      });
-    }
-
-    operation.signal?.throwIfAborted?.();
-    await operation.heartbeat({
-      progress: 1,
-      stage: "finalizing",
-      progressCurrent: input.keywords.length,
-      progressTotal: input.keywords.length,
-    });
-    await requestSourcingWingOperation(
-      operation,
-      `/api/sourcing/workspace/browser-operations/${encodeURIComponent(operation.runId)}/finalize`,
-      { purpose: input.purpose, keywords: keywordResults },
-    );
-    operation.signal?.throwIfAborted?.();
-
-    const discovered = keywordResults.reduce(
-      (total, result) => total + result.discovered,
-      0,
-    );
-    const accepted = keywordResults.reduce(
-      (total, result) => total + result.accepted,
-      0,
-    );
-    const duplicate = keywordResults.reduce(
-      (total, result) => total + result.duplicate,
-      0,
-    );
-    const failed = keywordResults.reduce(
-      (total, result) => total + result.failed,
-      0,
-    );
-    if (failed === keywordResults.length) {
-      await collectionSessions.fail(operation.runId);
-      terminalSession = true;
-      return {
-        status: "failed",
-        errorCode: "wing_catalog_all_keywords_failed",
-        errorMessage: "Wing catalog collection failed for every keyword.",
-      };
-    }
-    const outcome = failed > 0
-      ? "partial"
-      : accepted === 0
-        ? "no_change"
-        : "complete";
-    await collectionSessions.succeed(operation.runId);
-    terminalSession = true;
-    return {
-      status: "succeeded",
-      result: {
-        outcome,
-        summary: {
-          discovered,
-          accepted,
-          duplicate,
-          unchanged: Math.max(0, discovered - accepted - failed),
-          failed,
-        },
-        sources: [
-          {
-            source: "wing_catalog",
-            outcome,
-            accepted,
-            failed,
-            ...(failed > 0 ? { errorCode: "wing_catalog_keyword_failed" } : {}),
-          },
-        ],
-        keywords: keywordResults,
-        snapshotGeneratedAt: new Date().toISOString(),
-      },
-    };
-  } catch (error) {
-    fenceLost =
-      error?.status === 409 || error?.message === "operation_runtime_fence_lost";
-    if (!operation.signal?.aborted && !fenceLost) {
-      await collectionSessions.fail(operation.runId).catch(() => undefined);
-      terminalSession = true;
-    }
-    throw error;
-  } finally {
-    if (
-      !operation.signal?.aborted &&
-      !fenceLost &&
-      !keepAttentionTab &&
-      Number.isInteger(collectionTabId)
-    ) {
-      await collectionSessions.detachTab(operation.runId, {
-        tabId: collectionTabId,
-        closeManagedTab: true,
-      }).catch(() => undefined);
-    }
-    // Abort cleanup is owned by the runtime, which cancels the exact session
-    // and closes its managed tab before suppressing the stale report.
-    if (
-      !operation.signal?.aborted &&
-      !fenceLost &&
-      !keepAttentionTab &&
-      !terminalSession
-    ) {
-      await collectionSessions.fail(operation.runId).catch(() => undefined);
-    }
-  }
-}
-
 async function collectAdvertisingTrackedWingProductsKeyword({
   environmentId,
   attemptId,
@@ -4745,7 +4444,7 @@ function parseAdvertisingTrackedWingProductsStart(message) {
   );
   return { idempotencyKey: message.idempotencyKey.trim(), keywords };
 }
-function parseSourcingKeywordSuggestionOperationInput(input) {
+function parseSourcingKeywordSuggestionInput(input) {
   if (
     !input ||
     typeof input !== "object" ||
@@ -4756,7 +4455,7 @@ function parseSourcingKeywordSuggestionOperationInput(input) {
     input.maxResults > SOURCING_KEYWORD_SUGGESTION_MAX_RESULTS ||
     Object.keys(input).some((key) => !["keyword", "maxResults"].includes(key))
   ) {
-    throw new Error("keyword_suggestion_operation_input_invalid");
+    throw new Error("keyword_suggestion_source_input_invalid");
   }
   const [keyword] = KidItemWingKeywordContract.parseBatchKeywords(
     [input.keyword],
@@ -4827,98 +4526,185 @@ function sanitizeKeywordSuggestionTokens(tokens, maxResults) {
   return sanitized;
 }
 
-async function runSourcingKeywordSuggestionOperation(operation) {
-  const input = parseSourcingKeywordSuggestionOperationInput(operation.input);
-  operation.signal?.throwIfAborted?.();
-  await operation.heartbeat({
-    progress: 0,
-    stage: "waiting_browser",
-    progressCurrent: 0,
-    progressTotal: 1,
-  });
-  let search;
+const sourcingKeywordSuggestionActive = new Map();
+const sourcingKeywordSuggestionTerminal = new Map();
+
+function parseSourcingKeywordSuggestionStart(message) {
+  if (!message || typeof message !== "object" || Array.isArray(message)
+    || message.action !== "collectSourcingKeywordSuggestions"
+    || Object.keys(message).some((key) => !["action", "idempotencyKey", "keyword", "maxResults"].includes(key))
+    || typeof message.idempotencyKey !== "string" || !message.idempotencyKey.trim()
+    || message.idempotencyKey.length > 300) {
+    throw new Error("keyword_suggestion_source_input_invalid");
+  }
+  return { idempotencyKey: message.idempotencyKey.trim(),
+    input: parseSourcingKeywordSuggestionInput({ keyword: message.keyword, maxResults: message.maxResults }) };
+}
+
+async function runSourcingKeywordSuggestions({ environmentId, idempotencyKey, input, cancelRequested = false }) {
+  sharedEnvironmentContext.requireEnvironment(environmentId);
+  input = parseSourcingKeywordSuggestionInput(input);
+  const key = `kiditem_keyword_suggestion_request_v1:${environmentId}:${idempotencyKey}`;
+  const fingerprint = JSON.stringify(input);
+  const active = sourcingKeywordSuggestionActive.get(environmentId);
+  if (active) {
+    if (active.idempotencyKey !== idempotencyKey) throw new Error("SOURCE_ATTEMPT_ALREADY_RUNNING");
+    if (active.fingerprint !== fingerprint) throw new Error("SOURCE_IDEMPOTENCY_KEY_REUSED");
+    if (cancelRequested && active.cancel) return active.cancel();
+    return active.promise;
+  }
+  const promise = executeSourcingKeywordSuggestions({ environmentId, idempotencyKey, input, key, cancelRequested });
+  sourcingKeywordSuggestionActive.set(environmentId, { idempotencyKey, fingerprint, promise });
   try {
-    search = await raceWingCatalogOperationAbort(
-      searchCoupangKeywordSuggestions({
-        keyword: input.keyword,
-        maxResults: input.maxResults,
-        runId: operation.runId,
-        environmentId: operation.environmentId,
-      }),
-      operation.signal,
-    );
-  } catch (error) {
-    if (operation.signal?.aborted) throw operation.signal.reason || error;
-    return {
-      status: "failed",
-      errorCode: "keyword_suggestion_collection_failed",
-      errorMessage: "Keyword suggestion collection failed.",
-    };
+    const result = await promise;
+    if (!cancelRequested) {
+      const session = await collectionSessions.getOwned(result.attemptId, environmentId);
+      // Keep an explicit operator attention tab available after an acknowledged
+      // source failure. All other progress/tab cleanup follows the owner ACK.
+      if (session?.producer === "sourcing.keyword_suggestion" && !session.attention) {
+        await collectionSessions.cancel(result.attemptId, { closeManagedTab: true });
+      }
+    }
+    return result;
   }
-  operation.signal?.throwIfAborted?.();
-  if (search?.attentionRequired) {
-    return {
-      status: "attention_required",
-      attentionReason: "marketplace_login",
-    };
-  }
-  if (!search?.success) {
-    return {
-      status: "failed",
-      errorCode: "keyword_suggestion_collection_failed",
-      errorMessage: "Keyword suggestion collection failed.",
-    };
-  }
-  const items = sanitizeKeywordSuggestionItems(
-    search.items,
-    input.maxResults,
-  );
-  const productNameTokens = sanitizeKeywordSuggestionTokens(
-    search.productNameTokens,
-    input.maxResults,
-  );
-  const capturedAt = new Date().toISOString();
-  await operation.heartbeat({
-    progress: 0.8,
-    stage: "persisting",
-    progressCurrent: 0,
-    progressTotal: 1,
+  finally { sourcingKeywordSuggestionActive.delete(environmentId); }
+}
+
+async function executeSourcingKeywordSuggestions({ environmentId, idempotencyKey, input, key, cancelRequested }) {
+  const sourcePath = "/api/sourcing/workspace/keyword-suggestions/attempts";
+  const wire = KidItemSourcingAttemptWire.create({
+    chrome, sourcePath, requestFailureMessage: "Keyword suggestion source owner request failed",
   });
-  const persisted = await requestSourcingWingOperation(
-    operation,
-    `/api/sourcing/workspace/browser-operations/${encodeURIComponent(operation.runId)}/keyword-suggestions`,
-    { keyword: input.keyword, capturedAt, items, productNameTokens },
-  );
-  operation.signal?.throwIfAborted?.();
-  await operation.heartbeat({
-    progress: 1,
-    stage: "persisting",
-    progressCurrent: 1,
-    progressTotal: 1,
+  const config = { apiBase: "", headers: { "Content-Type": "application/json" },
+    request: (path, init) => authedFetch(environmentId, path, init) };
+  const attempt = await wire.requestJson(config, sourcePath, {
+    method: "POST", headers: { ...config.headers, "idempotency-key": idempotencyKey },
+    body: JSON.stringify(input),
   });
-  const accepted = Math.max(0, Number(persisted?.acceptedCount) || 0);
-  const duplicate = persisted?.duplicate === true ? 1 : 0;
-  const outcome = accepted > 0 ? "complete" : "no_change";
-  return {
-    status: "succeeded",
-    result: {
-      outcome,
-      summary: {
-        discovered: items.length,
-        accepted,
-        duplicate,
-        unchanged: Math.max(0, items.length - accepted),
-        failed: 0,
-      },
-      sources: [{
-        source: "coupang_keyword_suggestion",
-        outcome,
-        accepted,
-        failed: 0,
-      }],
-      snapshotGeneratedAt: capturedAt,
-    },
+  const correlationKey = `kiditem_keyword_suggestion_attempt_v1:${environmentId}:${attempt?.attemptId}`;
+  const previous = await wire.getCorrelation(correlationKey);
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  let plan;
+  try {
+    if (attempt?.sourceKey !== "coupang.keyword_suggestion"
+      || attempt.scopeKey !== "default"
+      || attempt.plan?.source !== "coupang.keyword_suggestion"
+      || Object.keys(attempt.plan).some((key) => !["source", "keyword", "maxResults"].includes(key))
+      || !uuid.test(attempt.attemptId) || !uuid.test(attempt.attemptToken)
+      || !["RUNNING", "COMPLETE", "FAILED"].includes(attempt.state)) throw new Error();
+    plan = parseSourcingKeywordSuggestionInput({
+      keyword: attempt.plan.keyword, maxResults: attempt.plan.maxResults,
+    });
+    if (attempt.targetKey !== `keyword:${KidItemWingKeywordContract.identity(plan.keyword)}`
+      || KidItemWingKeywordContract.identity(input.keyword) !== KidItemWingKeywordContract.identity(plan.keyword)
+      || input.maxResults !== plan.maxResults
+      || (previous && previous.attemptId !== attempt.attemptId)) throw new Error();
+  } catch { throw new Error("SOURCE_PLAN_INVALID"); }
+
+  const publicStatus = (value) => {
+    if (value?.attemptId !== attempt.attemptId
+      || value.sourceKey !== "coupang.keyword_suggestion"
+      || !["COMPLETE", "FAILED"].includes(value.state)) throw new Error("SOURCE_TERMINAL_INVALID");
+    return { success: value.state === "COMPLETE", attemptId: value.attemptId,
+      state: value.state, errorCode: value.errorCode || null,
+      warnings: Array.isArray(value.warnings) ? value.warnings : [] };
   };
+  if (attempt.state !== "RUNNING") {
+    sourcingKeywordSuggestionTerminal.delete(key);
+    await wire.clearCorrelation(correlationKey);
+    return publicStatus(attempt);
+  }
+  if (!Number.isFinite(Date.parse(attempt.expiresAt)) || Date.parse(attempt.expiresAt) <= Date.now()) {
+    throw new Error("SOURCE_ATTEMPT_EXPIRED");
+  }
+  let terminal = sourcingKeywordSuggestionTerminal.get(key);
+  let cancellation = null;
+  const cancel = () => {
+    if (cancellation) return cancellation;
+    const submission = { method: "POST", suffix: "/fail", body: {
+      code: "COLLECTION_CANCELLED", message: "Keyword suggestion collection was cancelled by the user.",
+    } };
+    sourcingKeywordSuggestionTerminal.set(key, submission);
+    cancellation = wire.terminal(config, attempt, submission, publicStatus);
+    return cancellation;
+  };
+  const active = sourcingKeywordSuggestionActive.get(environmentId);
+  if (active) active.cancel = cancel;
+  if (cancelRequested) {
+    const result = await cancel();
+    sourcingKeywordSuggestionTerminal.delete(key);
+    await wire.clearCorrelation(correlationKey);
+    return result;
+  }
+  if (!terminal && previous) {
+    // Suspension lost the in-memory submission. Never recollect within that attempt.
+    terminal = { method: "POST", suffix: "/fail", body: {
+      code: "SOURCE_COLLECTION_INTERRUPTED", message: "Keyword suggestion collection was interrupted. Start a new attempt.",
+    } };
+  }
+  await wire.setCorrelation(correlationKey, { attemptId: attempt.attemptId, idempotencyKey });
+  if (!terminal) {
+    let search;
+    try {
+      search = await searchCoupangKeywordSuggestions({
+        keyword: plan.keyword, maxResults: plan.maxResults, runId: attempt.attemptId, environmentId,
+        cancellation: () => cancellation,
+      });
+    } catch { search = null; }
+    if (cancellation) {
+      const result = await cancellation;
+      sourcingKeywordSuggestionTerminal.delete(key);
+      await wire.clearCorrelation(correlationKey);
+      return result;
+    }
+    terminal = sourcingKeywordSuggestionTerminal.get(key) || (search?.success
+      ? { method: "PUT", suffix: "", body: {
+        keyword: plan.keyword, capturedAt: new Date().toISOString(),
+        items: sanitizeKeywordSuggestionItems(search.items, plan.maxResults),
+        productNameTokens: sanitizeKeywordSuggestionTokens(search.productNameTokens, plan.maxResults),
+        warnings: Array.isArray(search.warnings) ? search.warnings.filter((value) => typeof value === "string") : [],
+      } }
+      : { method: "POST", suffix: "/fail", body: {
+        code: search?.attentionRequired ? "marketplace_login" : "keyword_suggestion_collection_failed",
+        message: search?.attentionRequired
+          ? "Coupang login is required before starting a new keyword suggestion attempt."
+          : "Keyword suggestion collection failed.",
+      } });
+    sourcingKeywordSuggestionTerminal.set(key, terminal);
+  }
+  const result = await wire.terminal(config, attempt, terminal, publicStatus);
+  sourcingKeywordSuggestionTerminal.delete(key);
+  await wire.clearCorrelation(correlationKey);
+  return result;
+}
+
+async function cancelSourcingKeywordSuggestions(attemptId, environmentId) {
+  sharedEnvironmentContext.requireEnvironment(environmentId);
+  const sourcePath = "/api/sourcing/workspace/keyword-suggestions/attempts";
+  const wire = KidItemSourcingAttemptWire.create({
+    chrome, sourcePath, requestFailureMessage: "Keyword suggestion source owner request failed",
+  });
+  const key = `kiditem_keyword_suggestion_attempt_v1:${environmentId}:${attemptId}`;
+  const correlation = await wire.getCorrelation(key);
+  if (correlation?.attemptId !== attemptId || !correlation.idempotencyKey) {
+    throw new Error("SOURCE_ATTEMPT_RECOVERY_IDENTITY_MISSING");
+  }
+  const current = await wire.requestJson({
+    apiBase: "", request: (path, init) => authedFetch(environmentId, path, init),
+  }, `${sourcePath}/${encodeURIComponent(attemptId)}`, { method: "GET" });
+  const result = await collectionSessions.cancel(attemptId, {
+    closeManagedTab: true,
+    ownerFailure: async () => {
+      const terminal = await runSourcingKeywordSuggestions({
+        environmentId, idempotencyKey: correlation.idempotencyKey,
+        input: { keyword: current?.plan?.keyword, maxResults: current?.plan?.maxResults },
+        cancelRequested: true,
+      });
+      return { accepted: ["COMPLETE", "FAILED"].includes(terminal.state) };
+    },
+  });
+  await wire.clearCorrelation(key);
+  return result;
 }
 
 function boundedCompetitorText(value, maximum) {
@@ -5283,6 +5069,16 @@ KidItemDomains.register({
     [WING_FORM_PORT_NAME]: (port) => handleWingFormPort(port),
   },
   externalActions: {
+    collectSourcingWingCatalog: {
+      validate: parseSourcingWingCatalogStart,
+      handle: ({ idempotencyKey, input }, environmentId) =>
+        KidItemWorkerKeepAlive.during(runSourcingWingCatalog({ environmentId, idempotencyKey, input })),
+    },
+    collectSourcingKeywordSuggestions: {
+      validate: parseSourcingKeywordSuggestionStart,
+      handle: ({ idempotencyKey, input }, environmentId) =>
+        KidItemWorkerKeepAlive.during(runSourcingKeywordSuggestions({ environmentId, idempotencyKey, input })),
+    },
     collectAdvertisingProfitability: {
       validate: parseAdvertisingProfitabilityStart,
       handle: ({ idempotencyKey }, environmentId) =>
@@ -5313,17 +5109,15 @@ KidItemDomains.register({
         ),
     },
   },
-  operations: {
-    "sourcing.collect_wing_catalog_batch": runSourcingWingCatalogOperation,
-    "sourcing.collect_keyword_suggestions": runSourcingKeywordSuggestionOperation,
-  },
   capabilities: {
     profitabilityAdvertisingSourceOwnerV1: true,
     trackedWingProductsSourceOwnerV1: true,
     competitorCatalogSourceOwnerV1: true,
+    sourcingWingCatalogSourceOwnerV1: true,
     wingCatalogSearch: true,
     wingCatalogSearchSource: "wing-pre-matching",
     coupangKeywordSuggestions: true,
+    sourcingKeywordSuggestionSourceOwnerV1: true,
     coupangKeywordSuggestionSource: "coupang-search-page",
     coupangProductNameTokens: true,
     coupangKeywordRank: true,

@@ -10,7 +10,7 @@ import type {
   TrendCollectionRepositoryPort,
   TrendSeedRow,
 } from '../../port/out/repository/trend-collection.repository.port';
-import type { SourcingCollectionCoordinator } from '../sourcing-collection-coordinator.service';
+import type { SourcingBrowserSourceAttempt } from '../../port/out/repository/sourcing-browser-source-attempt.repository.port';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -83,39 +83,29 @@ function buildPorts() {
     updateSeed: vi.fn(),
     deleteSeed: vi.fn(),
     findNaverKeywordHistory: vi.fn(async () => []),
-    findPopularKeywordHistory: vi.fn(async () => []),
+    findPopularKeywordHistory: vi.fn(async () => ({ rows: [], coverage: [] })),
+    findKeywordAnalysisSnapshot: vi.fn(async () => null),
+    findLatestCompleteTrendScope: vi.fn(async () => null),
     find1688HotHistory: vi.fn(async () => []),
     findShortsHistory: vi.fn(async () => []),
     findTiktokCcHistory: vi.fn(async () => []),
   };
   const collectionOutputs: Array<{ typedRecords: Array<{ kind: string; row: unknown }> }> = [];
-  const collectionCoordinator = {
-    execute: vi.fn(async (input: any, collector: any) => {
-      const output = await collector({
-        permit: {
-          runId: '00000000-0000-4000-8000-000000000010',
-          organizationId: input.organizationId,
-          sourceKey: input.sourceKey,
-          scopeKey: input.scopeKey,
-          targetKey: input.targetKey,
-          leaseToken: '00000000-0000-4000-8000-000000000011',
-          generation: 1,
-          entitlementVersionId: '00000000-0000-4000-8000-000000000012',
-          entitlementVersionHash: 'a'.repeat(64),
-          leaseExpiresAt: new Date('2026-07-13T01:00:00.000Z'),
-        },
-        checkpoint: async () => undefined,
-      });
-      collectionOutputs.push(output);
-      return {
-        kind: 'committed' as const,
-        runId: input.idempotencyKey,
-        acceptedCount: Math.max(0, output.discoveredCount - output.rejectedCount),
-        duplicateCount: 0,
-        staleDiscardedCount: 0,
-      };
+  let attempt: SourcingBrowserSourceAttempt;
+  const attempts = {
+    beginAttempt: vi.fn(async (input) => {
+      attempt = { ...input, attemptId: '00000000-0000-4000-8000-000000000010',
+        attemptToken: '00000000-0000-4000-8000-000000000011', generation: 1, state: 'RUNNING',
+        acceptedCount: 0, expiresAt: new Date(Date.now() + 60_000), completedAt: null,
+        contentChecksum: null, errorCode: null, errorMessage: null };
+      return { attempt, created: true };
     }),
-  } as unknown as SourcingCollectionCoordinator;
+    completeAttempt: vi.fn(async (input) => {
+      collectionOutputs.push(input.output);
+      return { ...attempt, state: 'COMPLETE' as const, acceptedCount: input.output.discoveredCount };
+    }),
+    failAttempt: vi.fn(async (input) => ({ ...attempt, state: 'FAILED' as const, errorMessage: input.message })),
+  };
 
   const service = new TrendCollectService(
     keywordResearch,
@@ -123,17 +113,17 @@ function buildPorts() {
     popularKeywords,
     shortstrend,
     repository,
-    collectionCoordinator,
+    attempts as never,
   );
 
   return {
     service,
+    attempts,
     keywordResearch,
     datalabTrend,
     popularKeywords,
     shortstrend,
     repository,
-    collectionCoordinator,
     collectionOutputs,
   };
 }
@@ -149,6 +139,22 @@ function typedRows(
   );
 }
 
+describe('source start isolation', () => {
+  it('continues aggregate sources after rejected start without inventing an attempt, but single-source propagates', async () => {
+    const ports = buildPorts();
+    ports.attempts.beginAttempt.mockRejectedValueOnce(new Error('SOURCE_DISABLED'));
+    const result = await ports.service.collect(ORGANIZATION_ID, ['naver', 'shorts'], null, 'aggregate');
+    expect(result.results[0]).toMatchObject({ source: 'naver', ok: false, error: 'SOURCE_DISABLED' });
+    expect(result.results[0]).not.toHaveProperty('attemptId');
+    expect(result.results[1]).toMatchObject({ source: 'shorts', ok: true });
+    expect(ports.shortstrend.fetchTrending).toHaveBeenCalledOnce();
+    expect(ports.attempts.failAttempt).not.toHaveBeenCalled();
+    ports.attempts.beginAttempt.mockRejectedValueOnce(new Error('ACTIVE_ATTEMPT_CONFLICT'));
+    await expect(ports.service.collectSource(ORGANIZATION_ID, 'naver', null, 'distinct'))
+      .rejects.toThrow('ACTIVE_ATTEMPT_CONFLICT');
+  });
+});
+
 describe('TrendCollectService', () => {
   let ports: ReturnType<typeof buildPorts>;
 
@@ -156,17 +162,17 @@ describe('TrendCollectService', () => {
     ports = buildPorts();
   });
 
-  it('stops before loading seeds when the operation signal is already aborted', async () => {
+  it('stops before loading seeds when the collection signal is already aborted', async () => {
     const controller = new AbortController();
-    controller.abort(new Error('operation_attempt_fence_lost'));
+    controller.abort(new Error('collection_cancelled'));
 
     await expect(ports.service.collect(
       ORGANIZATION_ID,
       ['naver'],
       null,
-      'operation-run-1',
+      'request-1',
       controller.signal,
-    )).rejects.toThrow('operation_attempt_fence_lost');
+    )).rejects.toThrow('collection_cancelled');
     expect(ports.repository.listSeeds).not.toHaveBeenCalled();
   });
 
@@ -178,7 +184,7 @@ describe('TrendCollectService', () => {
       ),
     );
     ports.keywordResearch.searchRelatedKeywords = vi.fn(async () => {
-      controller.abort(new Error('operation_attempt_fence_lost'));
+      controller.abort(new Error('collection_cancelled'));
       return {
         source: 'naver-searchad-keywordstool' as const,
         seedKeywords: [],
@@ -191,9 +197,9 @@ describe('TrendCollectService', () => {
       ORGANIZATION_ID,
       ['naver'],
       null,
-      'operation-run-1',
+      'request-1',
       controller.signal,
-    )).rejects.toThrow('operation_attempt_fence_lost');
+    )).rejects.toThrow('collection_cancelled');
 
     expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenCalledTimes(1);
     expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenCalledWith(
@@ -201,7 +207,7 @@ describe('TrendCollectService', () => {
     );
   });
 
-  it('maps Naver chunks with concurrency exactly two while preserving keyword order and checkpoints', async () => {
+  it('maps Naver chunks with concurrency exactly two while preserving keyword order', async () => {
     const keywords = Array.from({ length: 11 }, (_, index) => `키워드-${index}`);
     ports.repository.listSeeds = vi.fn(async () => keywords.map((keyword) =>
       seed({ keyword, sources: ['naver'] })));
@@ -234,14 +240,13 @@ describe('TrendCollectService', () => {
         })),
       };
     });
-    const checkpoint = vi.fn().mockResolvedValue(undefined);
 
     const collection = ports.service.collectSource(
       ORGANIZATION_ID,
       'naver',
       null,
-      'operation-run-1',
-      { signal: new AbortController().signal, checkpoint },
+      'request-1',
+      { signal: new AbortController().signal },
     );
     await vi.waitFor(() => {
       expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenCalledTimes(2);
@@ -275,16 +280,6 @@ describe('TrendCollectService', () => {
     });
     expect(maxActive).toBe(2);
     expect(typedRows(ports, 'naver_keyword').map((row) => row.keyword)).toEqual(keywords);
-    expect(checkpoint).toHaveBeenCalledWith({
-      stage: 'collecting_naver_searchad',
-      progressCurrent: 0,
-      progressTotal: 3,
-    });
-    expect(checkpoint).toHaveBeenCalledWith({
-      stage: 'collecting_naver_searchad',
-      progressCurrent: 2,
-      progressTotal: 3,
-    });
   });
 
   it('does not start a third Naver chunk after either concurrent unit loses its signal', async () => {
@@ -299,7 +294,7 @@ describe('TrendCollectService', () => {
       const callIndex = vi.mocked(ports.keywordResearch.searchRelatedKeywords).mock.calls.length - 1;
       await gates[callIndex].promise;
       if (callIndex === 0) {
-        controller.abort(new Error('operation_attempt_fence_lost'));
+        controller.abort(new Error('collection_cancelled'));
       }
       return {
         source: 'naver-searchad-keywordstool' as const,
@@ -313,10 +308,10 @@ describe('TrendCollectService', () => {
       ORGANIZATION_ID,
       'naver',
       null,
-      'operation-run-1',
-      { signal: controller.signal, checkpoint: vi.fn().mockResolvedValue(undefined) },
+      'request-1',
+      { signal: controller.signal },
     );
-    const rejected = expect(collection).rejects.toThrow('operation_attempt_fence_lost');
+    const rejected = expect(collection).rejects.toThrow('collection_cancelled');
     await vi.waitFor(() => {
       expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenCalledTimes(2);
     });
@@ -334,7 +329,7 @@ describe('TrendCollectService', () => {
       seed({ keyword: '슬라임', sources: ['naver'] }),
     ]);
     ports.datalabTrend.compareSearchTrends = vi.fn(async () => {
-      controller.abort(new Error('operation_attempt_fence_lost'));
+      controller.abort(new Error('collection_cancelled'));
       return {
         source: 'naver-datalab-search-trend' as const,
         keywords: ['슬라임'],
@@ -350,15 +345,15 @@ describe('TrendCollectService', () => {
       ORGANIZATION_ID,
       ['naver'],
       null,
-      'operation-run-1',
+      'request-1',
       controller.signal,
-    )).rejects.toThrow('operation_attempt_fence_lost');
+    )).rejects.toThrow('collection_cancelled');
   });
 
   it('passes the signal to the Shorts batch and stops after provider abort', async () => {
     const controller = new AbortController();
     ports.shortstrend.fetchTrending = vi.fn(async () => {
-      controller.abort(new Error('operation_attempt_fence_lost'));
+      controller.abort(new Error('collection_cancelled'));
       return {
         source: 'shortstrend' as const,
         generatedAt: '2026-07-13T00:00:00.000Z',
@@ -370,9 +365,9 @@ describe('TrendCollectService', () => {
       ORGANIZATION_ID,
       ['shorts'],
       null,
-      'operation-run-1',
+      'request-1',
       controller.signal,
-    )).rejects.toThrow('operation_attempt_fence_lost');
+    )).rejects.toThrow('collection_cancelled');
 
     expect(ports.shortstrend.fetchTrending).toHaveBeenCalledWith(
       expect.objectContaining({ signal: controller.signal }),
@@ -483,9 +478,9 @@ describe('TrendCollectService', () => {
       ],
     }));
 
-    const result = await ports.service.collect(ORGANIZATION_ID, ['naver']);
+    const result = await ports.service.collect(ORGANIZATION_ID, ['naver'], null, 'manual');
 
-    expect(result.results).toEqual([{ source: 'naver', ok: true, collected: 2 }]);
+    expect(result.results).toMatchObject([{ source: 'naver', ok: true, collected: 2 }]);
     const rows = typedRows(ports, 'naver_keyword');
     const slime = rows.find((row: any) => row.keyword === '슬라임');
     expect(slime).toEqual(
@@ -535,10 +530,10 @@ describe('TrendCollectService', () => {
       ],
     }));
 
-    const result = await ports.service.collect(ORGANIZATION_ID, ['naver']);
+    const result = await ports.service.collect(ORGANIZATION_ID, ['naver'], null, 'manual');
 
     // 인기보드 2행 저장 + 그 키워드(레고·블록)의 검색광고 볼륨 스냅샷 2행 = 4.
-    expect(result.results).toEqual([{ source: 'naver', ok: true, collected: 4 }]);
+    expect(result.results).toMatchObject([{ source: 'naver', ok: true, collected: 4 }]);
     const rows = typedRows(ports, 'naver_popular_keyword');
     expect(rows).toHaveLength(2);
     // 인기보드 키워드도 검색광고 월검색량 조회 대상에 포함된다(신규 키워드 검색량 조인용).
@@ -578,9 +573,9 @@ describe('TrendCollectService', () => {
       error: 'shortstrend unreachable',
     }));
 
-    const result = await ports.service.collect(ORGANIZATION_ID, ['naver', 'shorts']);
+    const result = await ports.service.collect(ORGANIZATION_ID, ['naver', 'shorts'], null, 'manual');
 
-    expect(result.results).toEqual([
+    expect(result.results).toMatchObject([
       expect.objectContaining({ source: 'naver', ok: true, collected: 1 }),
       { source: 'shorts', ok: false, collected: 0, error: 'shortstrend unreachable' },
     ]);
@@ -617,12 +612,12 @@ describe('TrendCollectService', () => {
       ],
     }));
 
-    const result = await ports.service.collect(ORGANIZATION_ID, ['naver', 'shorts']);
+    const result = await ports.service.collect(ORGANIZATION_ID, ['naver', 'shorts'], null, 'manual');
 
     const naver = result.results.find((r) => r.source === 'naver');
     const shorts = result.results.find((r) => r.source === 'shorts');
     expect(naver).toEqual(expect.objectContaining({ source: 'naver', ok: false, collected: 0 }));
-    expect(shorts).toEqual({ source: 'shorts', ok: true, collected: 1 });
+    expect(shorts).toMatchObject({ source: 'shorts', ok: true, collected: 1 });
     expect(typedRows(ports, 'shorts')).toHaveLength(1);
   });
 });

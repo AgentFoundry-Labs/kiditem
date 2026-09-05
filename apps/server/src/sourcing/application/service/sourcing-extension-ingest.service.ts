@@ -1,11 +1,13 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { z } from 'zod';
 import {
   SourcingExtensionV1ProductSchema,
   type SourcingExtensionV1Product,
 } from '@kiditem/shared/sourcing';
 import { parseAllowedSupplierUrl, extractSupplierOfferId } from '../../domain/supplier-source-url-policy';
 import { canonicalSourcingCandidateIdentity } from '../../domain/sourcing-candidate-identity';
-import { SourcingCollectionCoordinator } from './sourcing-collection-coordinator.service';
+import { SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT, type SourcingBrowserSourceAttemptRepositoryPort } from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
+import { assertToken, boundedText, requireIdempotencyKey, toPermit } from './sourcing-source-attempt-primitives';
 import {
   hashCollectionRequest,
   normalizeCollectionTarget,
@@ -23,11 +25,9 @@ export interface AuthenticatedSourcingContext {
   userId: string | null;
 }
 
-export interface ExtensionV1Response {
-  ok: true;
-  message: string;
-  product_count: number;
-}
+const BeginSchema = z.object({ sourceUrl: z.string().min(1).max(2000) }).strict();
+const CompleteSchema = z.object({ product: SourcingExtensionV1ProductSchema,
+  description: SourcingExtensionV1ProductSchema.optional(), hadDescription: z.boolean() }).strict();
 
 /**
  * Maps the deployed extension wire payload into Sourcing candidate evidence.
@@ -35,58 +35,92 @@ export interface ExtensionV1Response {
 @Injectable()
 export class SourcingExtensionIngestService {
   constructor(
-    private readonly collections: SourcingCollectionCoordinator,
+    @Inject(SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT)
+    private readonly attempts: SourcingBrowserSourceAttemptRepositoryPort,
   ) {}
 
-  async ingestV1(
-    context: AuthenticatedSourcingContext,
-    raw: unknown,
-  ): Promise<ExtensionV1Response> {
-    const product = parseV1(raw);
-    if ((product.page_type ?? 'detail') === 'search') {
-      return {
-        ok: true,
-        message: `received search data from ${product.source_platform ?? 'supplier'}`,
-        product_count: product.total_found ?? 0,
-      };
-    }
-    const command = toV1Command(product);
-    return this.commitAndPersist(context, command);
+  async begin(context: AuthenticatedSourcingContext, raw: unknown, idempotencyKey: string) {
+    const parsed = BeginSchema.safeParse(raw);
+    if (!parsed.success) throw new BadRequestException('INVALID_PRODUCT_SOURCE_PLAN');
+    const plan = productPlan(parsed.data.sourceUrl);
+    return (await this.attempts.beginAttempt({ organizationId: context.organizationId,
+      sourceKey: plan.source, scopeKey: 'current-tab', targetKey: hashCollectionRequest(parseSupplierUrl(plan.sourceUrl).normalizedUrl),
+      idempotencyKey: requireIdempotencyKey(idempotencyKey), requestFingerprint: hashCollectionRequest(plan),
+      plan, planChecksum: hashCollectionRequest(plan), requestedByUserId: context.userId,
+      collectorKey: 'kiditem-os-product-extension', collectorVersion: 'kiditem-os/v1',
+      triggerKind: 'extension', expiresInMs: EXTENSION_LEASE_MS, failureAlert: productAlert(plan.source),
+    })).attempt;
   }
 
-  private async commitAndPersist(
-    context: AuthenticatedSourcingContext,
-    command: ExtensionProductCommand,
-  ): Promise<ExtensionV1Response> {
-    const sourceKey = `${command.sourcePlatform}.product_extension`;
-    const result = await this.collections.execute({
-      organizationId: context.organizationId,
-      sourceKey,
-      scopeKey: command.pageType,
-      targetKey: `${command.externalOfferId}:${command.variantKeyNormalized}`,
-      idempotencyKey: command.idempotencyKey,
-      requestHash: command.requestHash,
-      collectorKey: 'kiditem-os-product-extension',
-      collectorVersion: command.collectorVersion,
-      triggerKind: 'extension',
-      triggeredByUserId: context.userId,
-      leaseDurationMs: EXTENSION_LEASE_MS,
-    }, async ({ permit }) => buildExtensionOutput(
-      permit,
-      command,
-      extensionCandidateProjection(command, context),
-    ));
-
-    if (result.kind === 'existing') {
-      return { ok: true, message: 'already collected', product_count: 0 };
+  async read(organizationId: string, attemptId: string) {
+    const attempt = await this.attempts.readAttempt({ organizationId, attemptId });
+    if (!attempt || !['1688.product_extension', 'alibaba.product_extension'].includes(attempt.sourceKey)) {
+      throw new NotFoundException('SOURCE_ATTEMPT_NOT_FOUND');
     }
+    return attempt;
+  }
 
-    return {
-      ok: true,
-      message: 'collected',
-      product_count: 1,
+  status(organizationId: string, sourceUrl: string) {
+    const plan = productPlan(sourceUrl);
+    return this.attempts.readSourceStatus({ organizationId, sourceKey: plan.source,
+      scopeKey: 'current-tab', targetKey: hashCollectionRequest(parseSupplierUrl(plan.sourceUrl).normalizedUrl), currentPlanChecksum: hashCollectionRequest(plan) });
+  }
+
+  async complete(context: AuthenticatedSourcingContext, attemptId: string, attemptToken: string, raw: unknown) {
+    const attempt = await this.read(context.organizationId, attemptId);
+    assertToken(attempt, attemptToken);
+    let outputs: AuthorizedCollectionOutput[];
+    let content: unknown;
+    try {
+      const parsed = CompleteSchema.safeParse(raw);
+      if (!parsed.success) throw new BadRequestException('INVALID_PRODUCT_SOURCE_BATCH');
+      const { product, description, hadDescription } = parsed.data;
+      const plan = productPlan(product.source_url);
+      if (hashCollectionRequest(plan) !== attempt.planChecksum || plan.source !== attempt.sourceKey
+        || product.source_platform && product.source_platform.toLowerCase() !== plan.platform
+        || hadDescription !== Boolean(description) || product.page_type === 'description'
+        || description && (product.page_type === 'search' || description.source_url !== product.source_url
+          || description.product_id !== product.product_id)) {
+        throw new BadRequestException('PRODUCT_SOURCE_PLAN_MISMATCH');
+      }
+      const commands = product.page_type === 'search' ? [] : [toV1Command(product),
+        ...(description ? [toV1Command({ ...description, page_type: 'description' })] : [])];
+      const permit = toPermit(attempt, context.organizationId);
+      outputs = commands.map((command) => buildExtensionOutput(permit, command, extensionCandidateProjection(command, context)));
+      content = parsed.data;
+    } catch (error) {
+      await this.fail(context.organizationId, attemptId, attemptToken, { code: 'INVALID_PRODUCT_SOURCE_BATCH', message: 'The extracted product does not match the complete frozen source plan.' });
+      throw error;
+    }
+    const output: AuthorizedCollectionOutput = {
+      observations: outputs.flatMap((output) => output.observations),
+      typedRecords: outputs.flatMap((output) => output.typedRecords),
+      discoveredCount: outputs.length, rejectedCount: 0,
+      qualityReport: { schemaVersion: 'v1', completeSnapshot: true, searchArtifact: outputs.length === 0 },
     };
+    return this.attempts.completeAttempt({ organizationId: context.organizationId, attemptId, attemptToken,
+      planChecksum: attempt.planChecksum, contentChecksum: hashCollectionRequest(content), output,
+      sourceWindowStartAt: null, sourceWindowEndAt: new Date(), failureAlert: productAlert(attempt.sourceKey) });
   }
+
+  async fail(organizationId: string, attemptId: string, attemptToken: string, raw: unknown) {
+    const attempt = await this.read(organizationId, attemptId);
+    const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    return this.attempts.failAttempt({ organizationId, attemptId, attemptToken,
+      code: boundedText(body.code, 100) || 'SOURCE_COLLECTION_FAILED',
+      message: boundedText(body.message, 1000) || 'Product extraction failed.', failureAlert: productAlert(attempt.sourceKey) });
+  }
+}
+
+function productPlan(sourceUrl: string) {
+  const supplier = parseSupplierUrl(sourceUrl);
+  // Freeze the actual tab, including its search query/fragment. Candidate
+  // identity normalization remains in toV1Command, not in the execution plan.
+  return { source: `${supplier.platform}.product_extension`, sourceUrl: new URL(sourceUrl).toString(), platform: supplier.platform };
+}
+
+function productAlert(source: string) {
+  return { sourceType: source, dedupeKey: `source:${source}`, title: `${source.startsWith('1688') ? '1688' : 'Alibaba'} 상품 수집 실패`, href: '/sourcing-ai' };
 }
 
 interface ExtensionProductCommand {
@@ -98,15 +132,6 @@ interface ExtensionProductCommand {
   title: string | null;
   capturedAt: Date;
   payload: Record<string, unknown>;
-  requestHash: string;
-  idempotencyKey: string;
-  collectorVersion: string;
-}
-
-function parseV1(raw: unknown): SourcingExtensionV1Product {
-  const parsed = SourcingExtensionV1ProductSchema.safeParse(raw);
-  if (!parsed.success) throw new BadRequestException('확장 수집 payload 형식이 올바르지 않습니다.');
-  return parsed.data;
 }
 
 function toV1Command(product: SourcingExtensionV1Product): ExtensionProductCommand {
@@ -124,7 +149,6 @@ function toV1Command(product: SourcingExtensionV1Product): ExtensionProductComma
     throw new BadRequestException('상세 수집에는 상품명이 필요합니다.');
   }
   const payload = sanitizeV1(product, supplier.normalizedUrl, sourcePlatform);
-  const requestHash = hashCollectionRequest(payload);
   return {
     pageType,
     sourceUrl: supplier.normalizedUrl,
@@ -134,9 +158,6 @@ function toV1Command(product: SourcingExtensionV1Product): ExtensionProductComma
     title: product.title?.trim() ?? null,
     capturedAt: new Date(),
     payload,
-    requestHash,
-    idempotencyKey: `extension:v1:${requestHash}`,
-    collectorVersion: 'kiditem-os/v1',
   };
 }
 
@@ -214,6 +235,8 @@ function buildExtensionOutput(
       sourceEntityId: command.externalOfferId,
       schemaVersion: 'supplier-extension/v1',
       observationKey: hashCollectionRequest({
+        attemptId: permit.runId,
+        pageType: command.pageType,
         platform: command.sourcePlatform,
         externalOfferId: command.externalOfferId,
         variantKey: command.variantKeyNormalized,

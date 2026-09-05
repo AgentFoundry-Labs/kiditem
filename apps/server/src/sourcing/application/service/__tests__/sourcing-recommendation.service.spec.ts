@@ -53,7 +53,9 @@ function createService() {
     })),
   };
   const trends = {
-    findPopularKeywordHistory: vi.fn(async () => []),
+    findPopularKeywordHistory: vi.fn(async () => ({ rows: [], coverage: [] })),
+    findKeywordAnalysisSnapshot: vi.fn(async () => null),
+    findLatestCompleteTrendScope: vi.fn(async () => null),
     listSeeds: vi.fn(async () => []),
   };
   const interests = { list: vi.fn(async () => []) };

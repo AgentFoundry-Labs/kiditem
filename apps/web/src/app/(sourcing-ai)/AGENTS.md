@@ -11,16 +11,16 @@ master data directly.
 - Sourcing dashboard and keyword workflows
 - 1688/new-product/search model API wrappers
 - Recommendation and validation screens
-- Operation-backed Wing, keyword, competitor, 1688, trend, validation, and
-  tracking collection controls
+- Operation-backed Wing, keyword, competitor, validation, and tracking
+  collection controls, plus direct 1688 source-owner refresh controls
 - Final selection chat and sourcing interest tracking
 
 ## Data Flow
 
 ```text
 snapshot read -> owner API/read model -> React Query
-explicit CTA -> /api/operations start -> owner operation handler
-browser handler -> KidItem OS claim -> fenced owner ingest
+explicit 1688 CTA -> KidItem OS action -> source owner begin/terminal
+other explicit CTA -> /api/operations start -> owner operation handler
 ```
 
 ## State Rules
@@ -33,10 +33,11 @@ browser handler -> KidItem OS claim -> fenced owner ingest
 - UI filters and selected rows are local state unless they affect backend
   queries.
 - Mount, reload, navigation, filter change, and read effects start zero external
-  collection. Only an explicit CTA calls the shared operation action.
-- Keep the last persisted owner snapshot visible during active/failed runs; the
-  shared operation hook invalidates the successful snapshot once. Product
-  tracking uses the owner bulk history read, not per-product useQueries.
+  collection. Only an explicit CTA calls a shared operation action or its
+  source-specific extension helper.
+- Keep the last persisted owner snapshot visible during active/failed runs.
+  Owner status polling invalidates direct-source snapshots after COMPLETE;
+  Product tracking uses the owner bulk history read, not per-product useQueries.
 
 ## Boundary Rules
 
@@ -46,5 +47,6 @@ browser handler -> KidItem OS claim -> fenced owner ingest
   explicit error.
 - Operations never owns sourcing or Ads canonical rows. UI operation results are
   safe status summaries; detailed rows always come from owner read APIs.
-- Browser collection must stay aligned with the relevant extension AGENTS guide
-  and accept only its claimed, fenced OperationRun.
+- Browser collection must stay aligned with the relevant extension AGENTS guide.
+  The 1688 refresh page calls the extension only; it does not begin or expose a
+  source attempt/token itself.

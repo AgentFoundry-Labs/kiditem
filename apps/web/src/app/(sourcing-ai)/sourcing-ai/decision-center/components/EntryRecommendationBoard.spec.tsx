@@ -14,11 +14,18 @@ import { EntryRecommendationBoard } from './EntryRecommendationBoard';
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
 const ITEM_A_KEY = 'a'.repeat(64);
 const ITEM_B_KEY = 'b'.repeat(64);
+const trendMocks = vi.hoisted(() => ({ collect: vi.fn() }));
+vi.mock('../../hooks/use-trend-source-collection', () => ({ useTrendSourceCollection: () => ({ collect: trendMocks.collect, isCollecting: false, error: null, actualCutoffAt: null }) }));
+
 const operationMocks = vi.hoisted(() => ({
   start: vi.fn(),
   cancel: vi.fn(),
   retryAttention: vi.fn(),
   useAction: vi.fn(),
+}));
+const sourceOwnerMocks = vi.hoisted(() => ({
+  collect: vi.fn(),
+  fetchStatus: vi.fn(),
 }));
 const routerPushMock = vi.hoisted(() => vi.fn());
 const openConversationFromLauncherMock = vi.hoisted(() => vi.fn());
@@ -30,6 +37,10 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/hooks/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('../../hooks/use-sourcing-operation-action', () => ({
   useSourcingOperationAction: operationMocks.useAction,
+}));
+vi.mock('../../lib/sourcing-1688-source-owner', () => ({
+  collectSourcing1688TrendsFromExtension: sourceOwnerMocks.collect,
+  fetchSourcing1688TrendSourceStatus: sourceOwnerMocks.fetchStatus,
 }));
 vi.mock('../../components/SourcingOperationRunPanel', () => ({
   SourcingOperationRunPanel: ({
@@ -70,6 +81,20 @@ describe('EntryRecommendationBoard review state', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     operationMocks.start.mockResolvedValue({ id: 'operation-1688' });
+    sourceOwnerMocks.collect.mockResolvedValue({
+      success: true,
+      attemptId: '1688-attempt',
+      terminalState: 'COMPLETE',
+    });
+    sourceOwnerMocks.fetchStatus.mockResolvedValue({
+      status: 'READY',
+      refreshing: false,
+      latestAttempt: null,
+      latestComplete: null,
+      actualCutoffAt: null,
+      errorCode: null,
+      errorMessage: null,
+    });
     operationMocks.useAction.mockReturnValue({
       run: null,
       start: operationMocks.start,
@@ -143,7 +168,7 @@ describe('EntryRecommendationBoard review state', () => {
     expect(routerPushMock).not.toHaveBeenCalled();
   });
 
-  it('reads the persisted entry snapshot on mount and starts the exact 1688 operation only from the missing-supply CTA', async () => {
+  it('reads the persisted entry snapshot on mount and starts the direct 1688 source owner only from the missing-supply CTA', async () => {
     const user = userEvent.setup();
     vi.mocked(useSourcingInterestTargets).mockReturnValue({
       data: [{
@@ -158,31 +183,24 @@ describe('EntryRecommendationBoard review state', () => {
 
     expect(operationMocks.start).not.toHaveBeenCalled();
     expect(await screen.findByRole('checkbox', { name: '상품 A 선택' })).toBeChecked();
-    expect(operationMocks.useAction).toHaveBeenCalledWith(expect.objectContaining({
+    expect(operationMocks.useAction).not.toHaveBeenCalledWith(expect.objectContaining({
       operationKey: 'sourcing.collect_1688_trends',
-      input: { keywords: ['미수집 키워드'] },
-      snapshotQueryKey: ['sourcing', 'workspace', 'org-a'],
     }));
 
     await user.click(await screen.findByRole('button', { name: '1688 공급 찾기 (1)' }));
 
-    await waitFor(() => expect(operationMocks.start).toHaveBeenCalledWith({
-      keywords: ['미수집 키워드'],
+    await waitFor(() => expect(sourceOwnerMocks.collect).toHaveBeenCalledWith({
+      idempotencyKey: expect.any(String),
     }));
     expect(screen.getByRole('checkbox', { name: '상품 A 선택' })).toBeChecked();
-
-    await user.click(screen.getAllByRole('button', { name: 'interest-operation-cancel' })[1]);
-    await user.click(screen.getAllByRole('button', { name: 'interest-operation-retry' })[1]);
-    expect(operationMocks.cancel).toHaveBeenCalledTimes(1);
-    expect(operationMocks.retryAttention).toHaveBeenCalledTimes(1);
 
     view.unmount();
     renderBoard();
     expect(await screen.findByRole('checkbox', { name: '상품 A 선택' })).toBeChecked();
-    expect(operationMocks.start).toHaveBeenCalledTimes(1);
+    expect(sourceOwnerMocks.collect).toHaveBeenCalledTimes(1);
   });
 
-  it('bounds the explicit 1688 CTA to twenty normalized unique interest keywords', async () => {
+  it('does not send a mutable UI keyword list to the direct 1688 source owner', async () => {
     const user = userEvent.setup();
     const uniqueKeywords = Array.from({ length: 21 }, (_, index) => `키워드 ${index + 1}`);
     vi.mocked(useSourcingInterestTargets).mockReturnValue({
@@ -211,9 +229,75 @@ describe('EntryRecommendationBoard review state', () => {
     renderBoard();
     await user.click(await screen.findByRole('button', { name: /1688 공급 찾기/ }));
 
-    await waitFor(() => expect(operationMocks.start).toHaveBeenCalledWith({
-      keywords: ['A Pencil', ...uniqueKeywords.slice(0, 19)],
+    await waitFor(() => expect(sourceOwnerMocks.collect).toHaveBeenCalledWith({
+      idempotencyKey: expect.any(String),
     }));
+    expect(sourceOwnerMocks.collect.mock.calls[0]?.[0]).not.toHaveProperty('keywords');
+  });
+
+  it('reuses the direct source request key after an uncertain extension response', async () => {
+    const user = userEvent.setup();
+    vi.mocked(useSourcingInterestTargets).mockReturnValue({
+      data: [{
+        targetType: 'keyword',
+        sourceKeys: ['manual'],
+        label: '미수집 키워드',
+        keyword: '미수집 키워드',
+      }],
+    } as never);
+    sourceOwnerMocks.collect
+      .mockRejectedValueOnce(new Error('extension response lost'))
+      .mockResolvedValueOnce({
+        success: true,
+        attemptId: '1688-attempt',
+        terminalState: 'COMPLETE',
+      });
+
+    renderBoard();
+    const collect = await screen.findByRole('button', { name: '1688 공급 찾기 (1)' });
+    await user.click(collect);
+    await waitFor(() => expect(sourceOwnerMocks.collect).toHaveBeenCalledTimes(1));
+    await user.click(collect);
+    await waitFor(() => expect(sourceOwnerMocks.collect).toHaveBeenCalledTimes(2));
+
+    expect(sourceOwnerMocks.collect.mock.calls[1]?.[0]?.idempotencyKey).toBe(
+      sourceOwnerMocks.collect.mock.calls[0]?.[0]?.idempotencyKey,
+    );
+  });
+
+  it('clears the direct source request key after a terminal failure so a new user retry starts fresh', async () => {
+    const user = userEvent.setup();
+    vi.mocked(useSourcingInterestTargets).mockReturnValue({
+      data: [{
+        targetType: 'keyword',
+        sourceKeys: ['manual'],
+        label: '미수집 키워드',
+        keyword: '미수집 키워드',
+      }],
+    } as never);
+    sourceOwnerMocks.collect
+      .mockResolvedValueOnce({
+        success: false,
+        attemptId: '1688-attempt',
+        terminalState: 'FAILED',
+        error: 'owner failed',
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        attemptId: '1688-attempt-2',
+        terminalState: 'COMPLETE',
+      });
+
+    renderBoard();
+    const collect = await screen.findByRole('button', { name: '1688 공급 찾기 (1)' });
+    await user.click(collect);
+    await waitFor(() => expect(sourceOwnerMocks.collect).toHaveBeenCalledTimes(1));
+    await user.click(collect);
+    await waitFor(() => expect(sourceOwnerMocks.collect).toHaveBeenCalledTimes(2));
+
+    expect(sourceOwnerMocks.collect.mock.calls[1]?.[0]?.idempotencyKey).not.toBe(
+      sourceOwnerMocks.collect.mock.calls[0]?.[0]?.idempotencyKey,
+    );
   });
 
   it('starts the daily collection exactly once from the toolbar, without a direct recommendation refresh', async () => {
@@ -221,15 +305,10 @@ describe('EntryRecommendationBoard review state', () => {
     renderBoard();
 
     expect(operationMocks.start).not.toHaveBeenCalled();
-    expect(operationMocks.useAction).toHaveBeenCalledWith(expect.objectContaining({
-      operationKey: 'sourcing.collect_daily_trends',
-      input: {},
-      snapshotQueryKey: ['sourcing', 'workspace', 'org-a'],
-      wakeBrowserRuntime: true,
-    }));
+    expect(trendMocks.collect).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: '지금 수집' }));
-    await waitFor(() => expect(operationMocks.start).toHaveBeenCalledWith({}));
+    await waitFor(() => expect(trendMocks.collect).toHaveBeenCalledWith({}));
   });
 });
 

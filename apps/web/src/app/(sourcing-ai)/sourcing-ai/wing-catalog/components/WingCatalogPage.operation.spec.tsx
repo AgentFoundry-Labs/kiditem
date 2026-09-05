@@ -3,14 +3,14 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WingCatalogPage } from './WingCatalogPage';
 import { fetchWingCatalogSnapshot } from '../lib/wing-catalog-api';
-import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
+import { useNaverAnalysisSource } from '../../hooks/use-naver-analysis-source';
 import {
   fetchKeywordAnalysisSnapshot,
   keywordAnalysisInput,
 } from '../../lib/keyword-analysis-snapshot-api';
 
 const catalogStart = vi.fn(async () => ({
-  id: '10000000-0000-4000-8000-000000000001',
+  attemptId: '10000000-0000-4000-8000-000000000001',
 }));
 const naverStart = vi.fn(async () => ({
   id: '10000000-0000-4000-8000-000000000002',
@@ -38,20 +38,25 @@ vi.mock('../../lib/keyword-analysis-snapshot-api', async (importOriginal) => {
   };
 });
 
-vi.mock('../../hooks/use-sourcing-operation-action', () => ({
-  useSourcingOperationAction: vi.fn((options: Record<string, unknown>) => {
-    capturedOptions.set(options.operationKey as string, options);
-    const start = options.operationKey === 'sourcing.collect_keyword_analysis'
-      ? naverStart
-      : catalogStart;
+vi.mock('../../hooks/use-wing-catalog-source', () => ({
+  useWingCatalogSource: vi.fn((options: Record<string, unknown>) => {
+    capturedOptions.set('wing-source', options);
+    return { attempt: null, start: catalogStart, cancel: vi.fn(), isStarting: false,
+      isRunning: false, isCancelling: false, error: null };
+  }),
+}));
+
+vi.mock('../../hooks/use-naver-analysis-source', () => ({
+  useNaverAnalysisSource: vi.fn((options: Record<string, unknown>) => {
+    capturedOptions.set('naver-source', options);
     return {
       runId: null,
       run: null,
       runQuery: { data: null },
-      start,
+      collect: naverStart, error: null, actualCutoffAt: null,
       cancel: vi.fn(),
       retryAttention: vi.fn(),
-      isStarting: false,
+      isCollecting: false,
       isCancelling: false,
       isRetrying: false,
     };
@@ -96,10 +101,10 @@ describe('WingCatalogPage browser operation', () => {
     await screen.findByText(/0개 상품 · persisted_snapshot/);
     expect(catalogStart).not.toHaveBeenCalled();
     expect(naverStart).not.toHaveBeenCalled();
-    expect(capturedOptions.get('sourcing.collect_wing_catalog_batch')).toMatchObject({
+    expect(capturedOptions.get('wing-source')).toMatchObject({
       input: { keywords: ['슬라임'], maxPages: 2, purpose: 'catalog_search' },
     });
-    expect(capturedOptions.get('sourcing.collect_keyword_analysis')).toMatchObject({
+    expect(capturedOptions.get('naver-source')).toMatchObject({
       input: keywordAnalysisInput('related', { keyword: '슬라임' }),
     });
   });
@@ -115,7 +120,7 @@ describe('WingCatalogPage browser operation', () => {
     window.history.replaceState(
       {},
       '',
-      '/sourcing-ai/wing-catalog?keyword=%ED%81%B4%EB%A0%88%EC%9D%B4&operationRun=10000000-0000-4000-8000-000000000002',
+      '/sourcing-ai/wing-catalog?keyword=%ED%81%B4%EB%A0%88%EC%9D%B4&sourceAttempt=10000000-0000-4000-8000-000000000002',
     );
     renderPage();
 
@@ -132,7 +137,7 @@ describe('WingCatalogPage browser operation', () => {
     fireEvent.click(screen.getByRole('button', { name: '분석' }));
 
     await waitFor(() => expect(catalogStart).toHaveBeenCalledTimes(1));
-    expect(capturedOptions.get('sourcing.collect_wing_catalog_batch')).toMatchObject({
+    expect(capturedOptions.get('wing-source')).toMatchObject({
       input: { keywords: ['클레이'], maxPages: 2, purpose: 'catalog_search' },
     });
   });

@@ -1,15 +1,32 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { LiveCommerceService } from '../../../application/service/live-commerce.service';
-import { LiveCommerceQueryDto } from './dto/live-commerce.dto';
+import { LiveCommerceQueryDto, TaobaoLiveRequestDto } from './dto/live-commerce.dto';
+import { toPublicAttempt, toPublicStatus } from './sourcing-source-attempt-http';
 
 @Controller('sourcing/live-commerce')
 export class LiveCommerceController {
   constructor(private readonly liveCommerce: LiveCommerceService) {}
 
+  @Post('taobao/attempts')
+  async collectTaobao(
+    @Body() input: TaobaoLiveRequestDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return toPublicAttempt(await this.liveCommerce.collectTaobao(organizationId, input, idempotencyKey ?? ''));
+  }
+
   @Get('status')
-  status(@CurrentOrganization() organizationId: string) {
-    return this.liveCommerce.status(organizationId);
+  async status(
+    @CurrentOrganization() organizationId: string,
+    @Query() input: TaobaoLiveRequestDto = {},
+  ) {
+    const status = await this.liveCommerce.status(organizationId, input);
+    return { sources: status.sources.map((source) => ({
+      ...source,
+      ...(source.sourceStatus ? { sourceStatus: toPublicStatus(source.sourceStatus) } : {}),
+    })) };
   }
 
   @Get('snapshots')

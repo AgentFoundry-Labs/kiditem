@@ -45,8 +45,8 @@ import {
   useSourcingInterestTargets,
   useSourcingKeywordPreferences,
 } from '../../hooks/use-sourcing-workspace';
-import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
-import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
+import { useNaverAnalysisSource } from '../../hooks/use-naver-analysis-source';
+import { SourceCollectionStatus } from '../../components/SourceCollectionStatus';
 import {
   fetchCoupangKeywordSuggestionSnapshot,
   keywordSuggestionSnapshotQueryKey,
@@ -100,11 +100,8 @@ export function KeywordAnalysisPage() {
     () => keywordAnalysisSnapshotQueryKey(analysisInput),
     [analysisInput],
   );
-  const analysisOperation = useSourcingOperationAction({
-    operationKey: 'sourcing.collect_keyword_analysis',
+  const analysisSource = useNaverAnalysisSource({
     input: analysisInput,
-    snapshotQueryKey: analysisSnapshotKey,
-    initialRunId: initialRouteState.operationRunId,
   });
   const analysisSnapshotQuery = useQuery({
     queryKey: analysisSnapshotKey,
@@ -232,12 +229,11 @@ export function KeywordAnalysisPage() {
 
   const startAnalysis = async (input: KeywordAnalysisInput) => {
     setAnalysisInput(input);
-    const run = await analysisOperation.start(input, [keywordAnalysisSnapshotQueryKey(input)]);
+    const result = await analysisSource.collect(input);
     const params = new URLSearchParams(window.location.search);
-    params.set('operationRun', run.id);
     if (input.keyword) params.set('keyword', input.keyword);
     window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
-    return run;
+    return result;
   };
 
   useEffect(() => {
@@ -498,14 +494,7 @@ export function KeywordAnalysisPage() {
             }}
           />
 
-          <SourcingOperationRunPanel
-            className="mx-auto mt-4 max-w-[1600px]"
-            run={analysisOperation.run}
-            onCancel={() => void analysisOperation.cancel()}
-            onRetryAttention={() => void analysisOperation.retryAttention()}
-            isCancelling={analysisOperation.isCancelling}
-            isRetrying={analysisOperation.isRetrying}
-          />
+          <SourceCollectionStatus source={analysisSource} />
 
           <InterestKeywordManager
           className="mt-4 max-w-[1600px]"
@@ -1314,18 +1303,14 @@ function problemNotice(notice: string | null) {
 
 function readKeywordAnalysisRouteState(): {
   keyword: string;
-  operationRunId: string | null;
 } {
   if (typeof window === 'undefined') {
-    return { keyword: '슬라임', operationRunId: null };
+    return { keyword: '슬라임' };
   }
   const params = new URLSearchParams(window.location.search);
   const keyword = params.get('keyword')?.normalize('NFKC').trim() || '슬라임';
-  const runId = params.get('operationRun');
   return {
     keyword: keyword.slice(0, 100),
-    operationRunId:
-      runId !== null && OPERATION_RUN_ID_PATTERN.test(runId) ? runId : null,
   };
 }
 

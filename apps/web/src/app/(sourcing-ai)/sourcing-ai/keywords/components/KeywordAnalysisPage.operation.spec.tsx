@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { KeywordAnalysisPage } from './KeywordAnalysisPage';
-import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
+import { useNaverAnalysisSource } from '../../hooks/use-naver-analysis-source';
 import {
   fetchKeywordAnalysisSnapshot,
   keywordAnalysisInput,
@@ -40,17 +40,17 @@ vi.mock('../lib/coupang-keyword-snapshot-api', async (importOriginal) => {
   };
 });
 
-vi.mock('../../hooks/use-sourcing-operation-action', () => ({
-  useSourcingOperationAction: vi.fn((options: Record<string, unknown>) => {
+vi.mock('../../hooks/use-naver-analysis-source', () => ({
+  useNaverAnalysisSource: vi.fn((options: Record<string, unknown>) => {
     capturedOptions = options;
     return {
       runId: null,
       run: null,
       runQuery: { data: null },
-      start,
+      collect: start, error: null, actualCutoffAt: null,
       cancel: vi.fn(),
       retryAttention: vi.fn(),
-      isStarting: false,
+      isCollecting: false,
       isCancelling: false,
       isRetrying: false,
     };
@@ -108,13 +108,11 @@ describe('KeywordAnalysisPage operation', () => {
     ));
     expect(start).not.toHaveBeenCalled();
     expect(capturedOptions).toMatchObject({
-      operationKey: 'sourcing.collect_keyword_analysis',
       input: keywordAnalysisInput('trend_agent'),
-      initialRunId: RUN_ID,
     });
   });
 
-  it('starts exactly one persisted Naver operation for an explicit keyword search', async () => {
+  it('starts exactly one persisted Naver source request for an explicit keyword search', async () => {
     renderPage();
     const input = screen.getByPlaceholderText('키워드를 입력해주세요');
     fireEvent.change(input, { target: { value: '  클레이  ' } });
@@ -124,18 +122,16 @@ describe('KeywordAnalysisPage operation', () => {
     await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
     expect(start).toHaveBeenCalledWith(
       expected,
-      [['sourcing', 'keyword-analysis', 'snapshot', JSON.stringify(expected)]],
     );
   });
 
-  it('starts one exact persisted Naver operation from the explicit trend-agent CTA', async () => {
+  it('starts one exact persisted Naver source request from the explicit trend-agent CTA', async () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: '트렌드 찾기' }));
 
     const expected = keywordAnalysisInput('trend_agent');
     await waitFor(() => expect(start).toHaveBeenCalledWith(
       expected,
-      [['sourcing', 'keyword-analysis', 'snapshot', JSON.stringify(expected)]],
     ));
   });
 });

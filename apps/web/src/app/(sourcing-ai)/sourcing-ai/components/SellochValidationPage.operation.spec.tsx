@@ -4,15 +4,15 @@ import {
   useRefreshSourcingValidation,
   useSourcingRecommendations,
 } from '../hooks/use-sourcing-workspace';
-import { useSourcingOperationAction } from '../hooks/use-sourcing-operation-action';
+import { useWingCatalogSource } from '../hooks/use-wing-catalog-source';
 import { SellochValidationPage } from './SellochValidationPage';
 
 const start = vi.fn(async () => ({ id: '10000000-0000-4000-8000-000000000001' }));
 const legacyRefresh = vi.fn();
 
-vi.mock('../hooks/use-sourcing-operation-action', () => ({
-  useSourcingOperationAction: vi.fn(() => ({
-    run: null,
+vi.mock('../hooks/use-wing-catalog-source', () => ({
+  useWingCatalogSource: vi.fn(() => ({
+    attempt: null, isRunning: false, error: null,
     start,
     cancel: vi.fn(),
     retryAttention: vi.fn(),
@@ -52,9 +52,8 @@ describe('SellochValidationPage Wing operation', () => {
     fireEvent.click(screen.getByRole('button', { name: '검증 새로고침' }));
 
     await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
-    expect(useSourcingOperationAction).toHaveBeenLastCalledWith(expect.objectContaining({
-      operationKey: 'sourcing.collect_wing_catalog_batch',
-      input: {
+    expect(useWingCatalogSource).toHaveBeenLastCalledWith(expect.objectContaining({
+            input: {
         keywords: ['A Pencil', ...Array.from({ length: 11 }, (_, index) => `키워드 ${index + 2}`)],
         maxPages: 1,
         purpose: 'recommendation_validation',

@@ -1,354 +1,165 @@
-import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { z } from 'zod';
 import {
-  SourcingCoupangObservationCommandSchema,
-  SourcingWingCatalogBatchInputSchema,
-  SourcingWingCatalogFinalizeSchema,
-  SourcingWingCatalogKeywordSchema,
-  SourcingWingCatalogObservationBatchSchema,
-  SourcingWingCatalogSnapshotSchema,
-  sourcingWingCatalogKeywordIdentity,
-  type SourcingCoupangObservationCommand,
-  type SourcingWingCatalogFinalize,
-  type SourcingWingCatalogObservation,
-  type SourcingWingCatalogObservationBatch,
-  type SourcingWingCatalogPurpose,
-  type SourcingWingCatalogSnapshot,
+  SourcingCoupangObservationCommandSchema, SourcingWingCatalogBatchInputSchema,
+  SourcingWingCatalogFinalizeSchema, SourcingWingCatalogKeywordSchema,
+  SourcingWingCatalogObservationBatchSchema, SourcingWingCatalogSnapshotSchema,
+  sourcingWingCatalogKeywordIdentity, type SourcingCoupangObservationCommand,
+  type SourcingWingCatalogObservation, type SourcingWingCatalogSnapshot,
 } from '@kiditem/shared/sourcing';
 import {
-  OPERATION_ATTEMPT_VERIFIER_PORT,
-  type OperationAttemptVerifierPort,
-} from '../../../operations/application/port/in/operation-attempt-verifier.port';
-import {
-  SOURCING_COLLECTION_REPOSITORY_PORT,
-  type AuthorizedCollectionOutput,
-  type ClaimAuthorizedRunInput,
-  type ClaimAuthorizedRunResult,
-  type CommitAuthorizedCollectionResult,
-  type SourcingCollectionPermit,
-  type SourcingCollectionRepositoryPort,
-} from '../port/out/repository/sourcing-collection.repository.port';
+  SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT,
+  type SourcingBrowserSourceAttemptRepositoryPort,
+} from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
 import {
   SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT,
   type SourcingRecommendationSourceRepositoryPort,
 } from '../port/out/repository/sourcing-recommendation-source.repository.port';
-import {
-  SOURCING_RECOMMENDATION_REPOSITORY_PORT,
-  type SourcingRecommendationRepositoryPort,
-} from '../port/out/repository/sourcing-recommendation.repository.port';
-import {
-  hashCollectionRequest,
-} from './sourcing-collection-mappers';
-import { SourcingCollectionCoordinator } from './sourcing-collection-coordinator.service';
-import { SourcingRecommendationService } from './sourcing-recommendation.service';
-import { SourcingValidationService } from './sourcing-validation.service';
+import { hashCollectionRequest } from './sourcing-collection-mappers';
+import { assertToken, boundedText, requireIdempotencyKey, toPermit } from './sourcing-source-attempt-primitives';
+import type { AuthorizedCollectionOutput, SourcingCollectionPermit } from '../port/out/repository/sourcing-collection.repository.port';
 
-const WING_OPERATION_KEY = 'sourcing.collect_wing_catalog_batch';
-
+const SOURCE = 'coupang.wing_catalog';
+const SCOPE = { sourceKey: SOURCE, scopeKey: 'default', targetKey: 'catalog' };
+const ALERT = { sourceType: SOURCE, dedupeKey: 'source:coupang-wing-catalog',
+  title: 'Wing 카탈로그 수집 실패', href: '/sourcing-ai/wing-catalog' };
+const ReceiptSchema = z.object({
+  sequence: z.number().int().min(0).max(11), keyword: SourcingWingCatalogKeywordSchema,
+  checksum: z.string().regex(/^[a-f0-9]{64}$/), count: z.number().int().min(0).max(100),
+  duplicateCount: z.number().int().min(0).max(100),
+}).strict();
+const FinalizeSchema = SourcingWingCatalogFinalizeSchema.extend({ receipts: z.array(ReceiptSchema).max(12) });
 export type SourcingWingCatalogIngestInput = SourcingCoupangObservationCommand & {
-  organizationId: string;
-  actorUserId: string;
+  organizationId: string; actorUserId: string;
 };
 
 @Injectable()
 export class SourcingWingCatalogIngestService {
   constructor(
-    private readonly collectionCoordinator: SourcingCollectionCoordinator,
-    private readonly recommendations: SourcingRecommendationService,
-    @Inject(OPERATION_ATTEMPT_VERIFIER_PORT)
-    private readonly attemptVerifier: OperationAttemptVerifierPort,
+    @Inject(SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT)
+    private readonly attempts: SourcingBrowserSourceAttemptRepositoryPort,
     @Inject(SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT)
     private readonly sources: SourcingRecommendationSourceRepositoryPort,
-    @Inject(SOURCING_COLLECTION_REPOSITORY_PORT)
-    private readonly collectionRepository: SourcingCollectionRepositoryPort,
-    @Inject(SOURCING_RECOMMENDATION_REPOSITORY_PORT)
-    private readonly recommendationRuns: SourcingRecommendationRepositoryPort,
-    private readonly validations: SourcingValidationService,
   ) {}
 
+  async begin(input: { organizationId: string; requestedByUserId: string | null; idempotencyKey: string; input: unknown }) {
+    const parsed = SourcingWingCatalogBatchInputSchema.safeParse(input.input);
+    if (!parsed.success) throw new BadRequestException('INVALID_WING_CATALOG_REQUEST');
+    const plan = { source: SOURCE, ...parsed.data };
+    const { attempt } = await this.attempts.beginAttempt({
+      organizationId: input.organizationId, ...SCOPE, idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
+      requestFingerprint: hashCollectionRequest(plan), plan, planChecksum: hashCollectionRequest(plan),
+      requestedByUserId: input.requestedByUserId, collectorKey: 'wing-catalog-observation-ingest',
+      collectorVersion: 'coupang-wing-catalog/v2', expiresInMs: 15 * 60_000, failureAlert: ALERT,
+    });
+    return attempt;
+  }
+
+  async read(input: { organizationId: string; attemptId: string }) {
+    const attempt = await this.attempts.readAttempt(input);
+    if (!attempt || attempt.sourceKey !== SOURCE || attempt.scopeKey !== SCOPE.scopeKey
+      || attempt.targetKey !== SCOPE.targetKey || attempt.plan.source !== SOURCE) {
+      throw new NotFoundException('SOURCE_ATTEMPT_NOT_FOUND');
+    }
+    return attempt;
+  }
+
+  async current(organizationId: string) {
+    const status = await this.attempts.readSourceStatus({ organizationId, ...SCOPE, currentPlanChecksum: '' });
+    return status.latestAttempt;
+  }
+
+  async upload(input: { organizationId: string; attemptId: string; attemptToken: string; batch: unknown }) {
+    const attempt = await this.read(input);
+    assertToken(attempt, input.attemptToken);
+    const { source: _source, ...frozen } = attempt.plan;
+    const plan = SourcingWingCatalogBatchInputSchema.parse(frozen);
+    const parsed = SourcingWingCatalogObservationBatchSchema.safeParse(input.batch);
+    if (!parsed.success) throw new BadRequestException('INVALID_WING_CATALOG_BATCH');
+    const batch = parsed.data;
+    const keyword = sourcingWingCatalogKeywordIdentity(batch.keyword);
+    const sequence = plan.keywords.findIndex((value) => sourcingWingCatalogKeywordIdentity(value) === keyword);
+    if (sequence < 0 || batch.maxPages !== plan.maxPages || batch.purpose !== plan.purpose
+      || batch.items.some((item) => sourcingWingCatalogKeywordIdentity(item.sourceKeyword) !== keyword)) {
+      throw new ConflictException('SOURCE_PLAN_MISMATCH');
+    }
+    return this.attempts.stageWingCatalogBatch({
+      organizationId: input.organizationId, attemptId: input.attemptId, attemptToken: input.attemptToken,
+      planChecksum: attempt.planChecksum, sequence, keyword: plan.keywords[sequence], checksum: hashCollectionRequest(batch),
+      output: buildBatchOutput({ organizationId: input.organizationId,
+        permit: toPermit(attempt, input.organizationId), items: batch.items }),
+    });
+  }
+
+  async complete(input: { organizationId: string; attemptId: string; attemptToken: string; finalization: unknown }) {
+    const attempt = await this.read(input);
+    assertToken(attempt, input.attemptToken);
+    const { source: _source, ...frozen } = attempt.plan;
+    const plan = SourcingWingCatalogBatchInputSchema.parse(frozen);
+    const parsed = FinalizeSchema.safeParse(input.finalization);
+    if (!parsed.success) throw new BadRequestException('INVALID_WING_CATALOG_FINALIZATION');
+    const finalization = parsed.data;
+    if (finalization.purpose !== plan.purpose || finalization.keywords.length !== plan.keywords.length
+      || finalization.keywords.some((result, index) => sourcingWingCatalogKeywordIdentity(result.keyword)
+        !== sourcingWingCatalogKeywordIdentity(plan.keywords[index]))) throw new ConflictException('SOURCE_PLAN_MISMATCH');
+    if (finalization.keywords.some((result) => result.outcome === 'failed' || result.failed > 0)) {
+      return this.fail({ ...input, code: 'SOURCE_PLAN_INCOMPLETE',
+        message: 'Wing catalog collection did not complete every requested keyword.' });
+    }
+    if (finalization.receipts.some((receipt, index) => {
+      const result = finalization.keywords[index];
+      return !result || receipt.count !== result.discovered || receipt.count !== result.accepted + result.duplicate
+        || receipt.duplicateCount !== result.duplicate;
+    })) throw new ConflictException('SOURCE_RECEIPTS_MISMATCH');
+    return this.attempts.completeWingCatalogAttempt({
+      organizationId: input.organizationId, attemptId: input.attemptId, attemptToken: input.attemptToken,
+      planChecksum: attempt.planChecksum, contentChecksum: hashCollectionRequest(finalization),
+      receipts: finalization.receipts,
+      qualityReport: { source: SOURCE, snapshots: plan.keywords.map((keyword) => ({
+        keyword: sourcingWingCatalogKeywordIdentity(keyword),
+      })) }, failureAlert: ALERT,
+    });
+  }
+
+  async fail(input: { organizationId: string; attemptId: string; attemptToken: string; code: string; message: string }) {
+    await this.read(input);
+    return this.attempts.failAttempt({ ...input, code: boundedText(input.code, 100) || 'SOURCE_COLLECTION_FAILED',
+      message: boundedText(input.message, 1000) || 'Wing catalog collection failed.', failureAlert: ALERT });
+  }
+
   async ingest(input: SourcingWingCatalogIngestInput) {
-    const command = SourcingCoupangObservationCommandSchema.parse({
-      idempotencyKey: input.idempotencyKey,
-      items: input.items,
+    const command = SourcingCoupangObservationCommandSchema.parse({ idempotencyKey: input.idempotencyKey, items: input.items });
+    const items = command.items.map(toCurrentObservation);
+    const keywords = [...new Set(items.map((item) => sourcingWingCatalogKeywordIdentity(item.sourceKeyword)))];
+    const plan = { source: SOURCE, kind: 'manual', keywords };
+    const { attempt } = await this.attempts.beginAttempt({
+      organizationId: input.organizationId, ...SCOPE, idempotencyKey: command.idempotencyKey,
+      requestFingerprint: hashCollectionRequest(command), plan, planChecksum: hashCollectionRequest(plan),
+      requestedByUserId: input.actorUserId, collectorKey: 'wing-catalog-observation-ingest',
+      collectorVersion: 'coupang-wing-catalog/v2', triggerKind: 'manual', expiresInMs: 15 * 60_000, failureAlert: ALERT,
     });
-    const execution = await this.persistBatch({
-      organizationId: input.organizationId,
-      actorUserId: input.actorUserId,
-      idempotencyKey: command.idempotencyKey,
-      targetKey: `batch:${command.idempotencyKey}`,
-      triggerKind: 'manual',
-      schemaVersion: 'coupang-wing-catalog/v1',
-      items: command.items.map(toCurrentObservation),
-    });
-    if (execution.kind === 'committed') {
-      await this.recommendations.refresh({ organizationId: input.organizationId, limit: 50 });
-    }
-    return execution;
-  }
-
-  async ingestBrowserBatch(input: {
-    organizationId: string;
-    operationRunId: string;
-    attemptToken: string;
-    batch: SourcingWingCatalogObservationBatch;
-  }) {
-    const batch = SourcingWingCatalogObservationBatchSchema.parse(input.batch);
-    return this.attemptVerifier.withActiveBrowserAttemptFence({
-      organizationId: input.organizationId,
-      runId: input.operationRunId,
-      expectedOperationKey: WING_OPERATION_KEY,
-      attemptToken: input.attemptToken,
-    }, async (attempt, transaction) => {
-      const operationInput = parseOperationInput(attempt.input);
-      const normalizedKeyword = sourcingWingCatalogKeywordIdentity(batch.keyword);
-      assertExactBatch(operationInput, batch, normalizedKeyword);
-      const collectionInput = batchClaimInput({
-        organizationId: input.organizationId,
-        operationRunId: input.operationRunId,
-        normalizedKeyword,
-        requestedByUserId: attempt.requestedByUserId,
-      });
-      const claim = await this.collectionRepository.claimAuthorizedRunInAttempt(
-        transaction,
-        collectionInput,
-      );
-      if (claim.kind === 'existing') {
-        return { kind: 'existing' as const, runId: claim.permit.runId };
-      }
-      if (claim.kind !== 'claimed') throw collectionClaimConflict(claim);
-      const committed = await this.collectionRepository.commitInAttempt(transaction, {
-        permit: claim.permit,
-        output: buildBatchOutput({
-          organizationId: input.organizationId,
-          permit: claim.permit,
-          schemaVersion: 'coupang-wing-catalog/v2',
-          items: batch.items,
-        }),
-      });
-      return mapBrowserCommit(committed);
+    return this.attempts.completeAttempt({
+      organizationId: input.organizationId, attemptId: attempt.attemptId, attemptToken: attempt.attemptToken,
+      planChecksum: attempt.planChecksum, contentChecksum: hashCollectionRequest(command),
+      output: { ...buildBatchOutput({ organizationId: input.organizationId, permit: toPermit(attempt, input.organizationId), items }),
+        qualityReport: { source: SOURCE, snapshots: keywords.map((keyword) => ({ keyword })) } },
+      failureAlert: ALERT,
     });
   }
 
-  async finalizeBrowserOperation(input: {
-    organizationId: string;
-    operationRunId: string;
-    attemptToken: string;
-    finalization: SourcingWingCatalogFinalize;
-  }): Promise<{ finalized: true; refreshed: boolean; duplicate: boolean }> {
-    const finalization = SourcingWingCatalogFinalizeSchema.parse(
-      input.finalization,
-    );
-    const shouldRefresh = purposeRequiresRecommendationRefresh(
-      finalization.purpose,
-    );
-    const claim = await this.waitForFinalizeClaim({
-      organizationId: input.organizationId,
-      operationRunId: input.operationRunId,
-      attemptToken: input.attemptToken,
-      finalization,
-    });
-    if (claim.kind === 'completed') {
-      return { finalized: true, refreshed: shouldRefresh, duplicate: true };
-    }
-
-    let recommendationRunId: string | null = null;
-    try {
-      if (shouldRefresh) {
-        const effectName = finalization.purpose === 'market_analysis'
-          ? 'market-refresh'
-          : 'recommendation-refresh';
-        const staged = await this.recommendations.refresh({
-          organizationId: input.organizationId,
-          limit: 50,
-          idempotencyKey: `wing-operation:${input.operationRunId}:${effectName}`,
-          deferPublication: true,
-        });
-        recommendationRunId = staged.data?.runId ?? null;
-        if (!recommendationRunId) {
-          throw new ConflictException('wing_catalog_recommendation_stage_missing');
-        }
-        if (finalization.purpose === 'recommendation_validation') {
-          await this.validations.refreshForRun({
-            organizationId: input.organizationId,
-            recommendationRunId,
-            limit: 50,
-          });
-        }
-      }
-      await this.attemptVerifier.withActiveBrowserAttemptFence({
-        organizationId: input.organizationId,
-        runId: input.operationRunId,
-        expectedOperationKey: WING_OPERATION_KEY,
-        attemptToken: input.attemptToken,
-      }, async (attempt, transaction) => {
-        assertExactFinalization(parseOperationInput(attempt.input), finalization);
-        const committed = await this.collectionRepository.commitInAttempt(transaction, {
-          permit: claim.permit,
-          output: finalizeOutput(input.operationRunId, finalization, recommendationRunId),
-        });
-        if (committed.kind !== 'committed') {
-          throw new ConflictException('wing_catalog_finalize_lease_lost');
-        }
-        if (recommendationRunId) {
-          const publication = await this.recommendationRuns.publishStagedRunInAttempt(
-            transaction,
-            { organizationId: input.organizationId, runId: recommendationRunId },
-          );
-          if (publication === 'missing') {
-            throw new ConflictException('wing_catalog_recommendation_stage_missing');
-          }
-        }
-      });
-    } catch (error) {
-      if (!recommendationRunId) {
-        await this.collectionRepository.fail({
-          permit: claim.permit,
-          error: {
-            code: 'WING_CATALOG_FINALIZE_FAILED',
-            message: boundedErrorMessage(error),
-            retryable: true,
-          },
-        });
-      }
-      throw error;
-    }
-    return {
-      finalized: true,
-      refreshed: shouldRefresh,
-      duplicate: false,
-    };
-  }
-
-  private async waitForFinalizeClaim(input: {
-    organizationId: string;
-    operationRunId: string;
-    attemptToken: string;
-    finalization: SourcingWingCatalogFinalize;
-  }): Promise<
-    | { kind: 'claimed'; permit: SourcingCollectionPermit }
-    | { kind: 'completed'; runId: string }
-  > {
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      const claim = await this.attemptVerifier.withActiveBrowserAttemptFence({
-        organizationId: input.organizationId,
-        runId: input.operationRunId,
-        expectedOperationKey: WING_OPERATION_KEY,
-        attemptToken: input.attemptToken,
-      }, async (activeAttempt, transaction) => {
-        const operationInput = parseOperationInput(activeAttempt.input);
-        assertExactFinalization(operationInput, input.finalization);
-        return this.collectionRepository.claimRecoverableRunInAttempt(
-          transaction,
-          finalizeClaimInput({
-            organizationId: input.organizationId,
-            operationRunId: input.operationRunId,
-            requestedByUserId: activeAttempt.requestedByUserId,
-            purpose: operationInput.purpose,
-          }),
-        );
-      });
-      if (claim.kind === 'claimed' || claim.kind === 'completed') return claim;
-      if (claim.kind === 'idempotency_conflict') {
-        throw new ConflictException('wing_catalog_finalize_idempotency_conflict');
-      }
-      if (claim.kind === 'denied') {
-        throw new ConflictException(claim.reasonCode);
-      }
-      await delay(Math.min(250, Math.max(10, claim.leaseExpiresAt.getTime() - Date.now())));
-    }
-    throw new ConflictException('wing_catalog_finalize_in_progress');
-  }
-
-  async snapshot(input: {
-    organizationId: string;
-    keyword: string;
-  }): Promise<SourcingWingCatalogSnapshot> {
+  async snapshot(input: { organizationId: string; keyword: string }): Promise<SourcingWingCatalogSnapshot> {
     const keyword = SourcingWingCatalogKeywordSchema.parse(input.keyword);
-    const normalizedKeyword = sourcingWingCatalogKeywordIdentity(keyword);
     const result = await this.sources.listWingCatalogSnapshot({
-      organizationId: input.organizationId,
-      normalizedKeyword,
-      limit: 400,
+      organizationId: input.organizationId, normalizedKeyword: sourcingWingCatalogKeywordIdentity(keyword), limit: 400,
     });
-    return SourcingWingCatalogSnapshotSchema.parse({
-      keyword,
-      generatedAt: result.generatedAt?.toISOString() ?? null,
-      items: result.items,
-      rejectedCount: result.rejectedCount,
-    });
+    return SourcingWingCatalogSnapshotSchema.parse({ keyword,
+      generatedAt: result.generatedAt?.toISOString() ?? null, items: result.items, rejectedCount: result.rejectedCount });
   }
-
-  private persistBatch(input: {
-    organizationId: string;
-    actorUserId: string | null;
-    idempotencyKey: string;
-    requestHash?: string;
-    targetKey: string;
-    triggerKind: 'manual' | 'extension';
-    schemaVersion: 'coupang-wing-catalog/v1' | 'coupang-wing-catalog/v2';
-    items: SourcingWingCatalogObservation[];
-  }) {
-    const requestHash =
-      input.requestHash ?? hashCollectionRequest({ items: input.items });
-    return this.collectionCoordinator.execute(
-      {
-        organizationId: input.organizationId,
-        sourceKey: 'coupang.wing_catalog',
-        scopeKey: 'default',
-        targetKey: input.targetKey,
-        idempotencyKey: input.idempotencyKey,
-        requestHash,
-        collectorKey: 'wing-catalog-observation-ingest',
-        collectorVersion: '2026-08-14',
-        triggerKind: input.triggerKind,
-        triggeredByUserId: input.actorUserId,
-        leaseDurationMs: 120_000,
-      },
-      async ({ permit, checkpoint }) => {
-        await checkpoint();
-        const ingestedAt = new Date();
-        return buildBatchOutput({
-          organizationId: input.organizationId,
-          permit,
-          schemaVersion: input.schemaVersion,
-          items: input.items,
-          ingestedAt,
-        });
-      },
-    );
-  }
-}
-
-function batchClaimInput(input: {
-  organizationId: string;
-  operationRunId: string;
-  normalizedKeyword: string;
-  requestedByUserId: string | null;
-}): ClaimAuthorizedRunInput {
-  return {
-    organizationId: input.organizationId,
-    sourceKey: 'coupang.wing_catalog',
-    scopeKey: 'default',
-    targetKey: `keyword:${input.normalizedKeyword}`,
-    idempotencyKey: keywordIdempotency(
-      input.operationRunId,
-      input.normalizedKeyword,
-    ),
-    requestHash: hashCollectionRequest({
-      operationRunId: input.operationRunId,
-      normalizedKeyword: input.normalizedKeyword,
-    }),
-    collectorKey: 'wing-catalog-observation-ingest',
-    collectorVersion: '2026-08-14',
-    triggerKind: 'extension',
-    triggeredByUserId: input.requestedByUserId,
-    leaseDurationMs: 120_000,
-  };
 }
 
 function buildBatchOutput(input: {
   organizationId: string;
   permit: SourcingCollectionPermit;
-  schemaVersion: 'coupang-wing-catalog/v1' | 'coupang-wing-catalog/v2';
   items: SourcingWingCatalogObservation[];
   ingestedAt?: Date;
 }): AuthorizedCollectionOutput {
@@ -366,8 +177,9 @@ function buildBatchOutput(input: {
       conceptKey: sourcingWingCatalogKeywordIdentity(item.sourceKeyword),
       sourceEntityType: 'coupang_product',
       sourceEntityId: item.productId,
-      schemaVersion: input.schemaVersion,
+      schemaVersion: 'coupang-wing-catalog/v2',
       observationKey: hashCollectionRequest({
+        attemptId: input.permit.runId,
         productId: item.productId,
         itemId: item.itemId,
         vendorItemId: item.vendorItemId,
@@ -398,75 +210,6 @@ function buildBatchOutput(input: {
   };
 }
 
-function assertExactBatch(
-  operationInput: ReturnType<typeof parseOperationInput>,
-  batch: SourcingWingCatalogObservationBatch,
-  normalizedKeyword: string,
-): void {
-  const expectedKeywords = new Set(
-    operationInput.keywords.map(sourcingWingCatalogKeywordIdentity),
-  );
-  if (
-    !expectedKeywords.has(normalizedKeyword)
-    || batch.maxPages !== operationInput.maxPages
-    || batch.purpose !== operationInput.purpose
-    || batch.items.some(
-      (item) => sourcingWingCatalogKeywordIdentity(item.sourceKeyword) !== normalizedKeyword,
-    )
-  ) {
-    throw new ConflictException('wing_catalog_operation_input_mismatch');
-  }
-}
-
-function collectionClaimConflict(
-  claim: Exclude<ClaimAuthorizedRunResult, { kind: 'claimed' | 'existing' }>,
-): ConflictException {
-  return new ConflictException(
-    claim.kind === 'denied'
-      ? claim.reasonCode
-      : 'wing_catalog_ingest_idempotency_conflict',
-  );
-}
-
-function mapBrowserCommit(result: CommitAuthorizedCollectionResult) {
-  if (result.kind === 'committed') return result;
-  throw new ConflictException(
-    result.kind === 'source_denied'
-      ? result.reasonCode
-      : `wing_catalog_ingest_${result.kind}`,
-  );
-}
-
-function finalizeOutput(
-  operationRunId: string,
-  finalization: SourcingWingCatalogFinalize,
-  recommendationRunId: string | null,
-): AuthorizedCollectionOutput {
-  return {
-    observations: [],
-    typedRecords: [],
-    discoveredCount: 0,
-    rejectedCount: 0,
-    qualityReport: {
-      source: 'coupang-wing-catalog-finalize',
-      operationRunId,
-      purpose: finalization.purpose,
-      recommendationRunId,
-      snapshots: finalization.keywords
-        .filter((keyword) => keyword.outcome !== 'failed')
-        .map((keyword) => {
-          const normalizedKeyword = sourcingWingCatalogKeywordIdentity(keyword.keyword);
-          return {
-            keyword: normalizedKeyword,
-            batchIdempotencyKey: keywordIdempotency(
-              operationRunId,
-              normalizedKeyword,
-            ),
-          };
-        }),
-    },
-  };
-}
 
 function toCurrentObservation(
   item: SourcingCoupangObservationCommand['items'][number],
@@ -482,73 +225,4 @@ function toCurrentObservation(
     conversionRate28d: null,
     deliveryInfo: null,
   };
-}
-
-function parseOperationInput(input: Record<string, unknown>) {
-  const parsed = SourcingWingCatalogBatchInputSchema.safeParse(input);
-  if (!parsed.success) {
-    throw new ConflictException('wing_catalog_operation_input_invalid');
-  }
-  return parsed.data;
-}
-
-function keywordIdempotency(runId: string, normalizedKeyword: string): string {
-  return `wing-operation:${runId}:${hashCollectionRequest(normalizedKeyword)}`;
-}
-
-function finalizeClaimInput(input: {
-  organizationId: string;
-  operationRunId: string;
-  requestedByUserId: string | null;
-  purpose: SourcingWingCatalogPurpose;
-}): ClaimAuthorizedRunInput {
-  return {
-    organizationId: input.organizationId,
-    sourceKey: 'coupang.wing_catalog',
-    scopeKey: 'default',
-    targetKey: `finalize:${input.operationRunId}`,
-    idempotencyKey: `wing-operation:${input.operationRunId}:finalize`,
-    requestHash: hashCollectionRequest({
-      operationRunId: input.operationRunId,
-      purpose: input.purpose,
-      kind: 'finalize',
-    }),
-    collectorKey: 'wing-catalog-operation-finalize',
-    collectorVersion: '2026-08-14',
-    triggerKind: 'extension',
-    triggeredByUserId: input.requestedByUserId,
-    leaseDurationMs: 120_000,
-  };
-}
-
-function boundedErrorMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.slice(0, 2_000);
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-function assertExactFinalization(
-  operationInput: ReturnType<typeof parseOperationInput>,
-  finalization: SourcingWingCatalogFinalize,
-): void {
-  const expected = operationInput.keywords.map(sourcingWingCatalogKeywordIdentity);
-  const actual = finalization.keywords
-    .map((item) => sourcingWingCatalogKeywordIdentity(item.keyword));
-  if (
-    finalization.purpose !== operationInput.purpose
-    || actual.length !== expected.length
-    || new Set(actual).size !== actual.length
-    || actual.some((keyword, index) => keyword !== expected[index])
-  ) {
-    throw new ConflictException('wing_catalog_operation_input_mismatch');
-  }
-}
-
-function purposeRequiresRecommendationRefresh(
-  purpose: SourcingWingCatalogPurpose,
-): boolean {
-  return purpose === 'market_analysis' || purpose === 'recommendation_validation';
 }

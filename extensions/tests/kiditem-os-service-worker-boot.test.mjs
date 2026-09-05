@@ -52,26 +52,28 @@ function createFakeChrome() {
       alarms: { create() {}, clear() {}, onAlarm: noopEvent() },
       storage: {
         local: {
-          async get(key) {
-            if (key == null) return { ...storage };
-            if (typeof key === 'string') return { [key]: storage[key] };
-            if (Array.isArray(key)) {
-              return Object.fromEntries(key.map((k) => [k, storage[k]]));
-            }
-            return Object.fromEntries(
+          async get(key, callback) {
+            const result = key == null ? { ...storage }
+              : typeof key === 'string' ? { [key]: storage[key] }
+              : Array.isArray(key) ? Object.fromEntries(key.map((k) => [k, storage[k]]))
+              : Object.fromEntries(
               Object.entries(key).map(([k, fallback]) => [
                 k,
                 storage[k] === undefined ? fallback : storage[k],
               ]),
             );
+            callback?.(result);
+            return result;
           },
-          async set(values) {
+          async set(values, callback) {
             Object.assign(storage, values);
+            callback?.();
           },
-          async remove(keys) {
+          async remove(keys, callback) {
             for (const key of Array.isArray(keys) ? keys : [keys]) {
               delete storage[key];
             }
+            callback?.();
           },
         },
         onChanged: noopEvent(),
@@ -231,7 +233,6 @@ test('ping 이 세 도메인의 capabilities 를 합쳐 한 번만 응답한다'
     // 소싱
     'sourcingProductScraper',
     'sourcing1688TrendCollector',
-    'sourcingTiktokCcCollector',
     // 공통
     'browserCollectionSessions',
     'kiditemEnvironmentProfilesV1',
@@ -277,17 +278,25 @@ test('승인된 KidItem web origin도 retired Coupang source bridge를 직접 �
       );
       if (result === true) keptAlive += 1;
     }
-    assert.equal(keptAlive, 0, `${action}: exact OperationRun handler만 source work를 시작한다`);
+    assert.equal(keptAlive, 0, `${action}: direct source-owner action만 source work를 시작한다`);
   }
 
   assert.deepEqual(fake.createdTabs, []);
   assert.equal(
-    typeof context.KidItemDomains.runOperation('sourcing.collect_wing_catalog_batch'),
+    context.KidItemDomains.runOperation('sourcing.collect_wing_catalog_batch'),
+    null,
+  );
+  assert.equal(
+    context.KidItemDomains.runOperation('sourcing.collect_keyword_suggestions'),
+    null,
+  );
+  assert.equal(
+    typeof context.KidItemDomains.forExternalAction('collectSourcingKeywordSuggestions')?.handle,
     'function',
   );
   assert.equal(
-    typeof context.KidItemDomains.runOperation('sourcing.collect_keyword_suggestions'),
-    'function',
+    context.KidItemDomains.capabilities().sourcingKeywordSuggestionSourceOwnerV1,
+    true,
   );
 });
 
@@ -381,8 +390,153 @@ test('도메인 고유 액션은 소유 워커만 받고 retired sourcing bridge
   }
   assert.equal(sourcingBridgeKeptAlive, 0, 'retired sourcing bridge는 외부 액션을 열면 안 된다');
   assert.equal(
-    typeof context.KidItemDomains.runOperation('sourcing.collect_1688_trends'),
+    typeof context.KidItemDomains.forExternalAction('collectSourcing1688Trends')?.handle,
     'function',
-    '소싱은 exact browser Operation handler로만 등록한다',
+    '1688 source collection is owned by one explicit external action',
   );
+  assert.equal(
+    context.KidItemDomains.runOperation('sourcing.collect_1688_trends'),
+    null,
+    'retired 1688 Operation must not claim browser work',
+  );
+  const tiktokAction = context.KidItemDomains.forExternalAction('collectSourcingTiktokCcTrends');
+  assert.equal(
+    typeof tiktokAction?.handle,
+    'function',
+    'TikTok source collection is owned by one explicit external action',
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(tiktokAction.validate({
+      action: 'collectSourcingTiktokCcTrends',
+      idempotencyKey: 'tiktok-direct-dispatch-key',
+      maxItems: 12,
+      region: 'KR',
+    }))),
+    { idempotencyKey: 'tiktok-direct-dispatch-key', maxItems: 12, region: 'KR' },
+  );
+  for (const invalid of [
+    { action: 'collectSourcingTiktokCcTrends', idempotencyKey: 'key', maxItems: 101 },
+    { action: 'collectSourcingTiktokCcTrends', idempotencyKey: 'key', region: 'K1' },
+    { action: 'collectSourcingTiktokCcTrends', idempotencyKey: 'key', unexpected: true },
+  ]) {
+    assert.throws(() => tiktokAction.validate(invalid), /Invalid TikTok source collection request/);
+  }
+  assert.equal(
+    context.KidItemDomains.runOperation('sourcing.collect_tiktok_cc_trends'),
+    null,
+    'retired TikTok Operation must not claim browser work',
+  );
+  const liveCommerceAction = context.KidItemDomains.forExternalAction('collectSourcingLiveCommerce');
+  assert.equal(
+    typeof liveCommerceAction?.handle,
+    'function',
+    'Live Commerce collection is owned by one explicit external action',
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(liveCommerceAction.validate({
+      action: 'collectSourcingLiveCommerce',
+      idempotencyKey: 'live-commerce-direct-dispatch-key',
+      url: 'https://live.douyin.com/123?token=keep#private',
+    }))),
+    {
+      idempotencyKey: 'live-commerce-direct-dispatch-key',
+      url: 'https://live.douyin.com/123?token=keep#private',
+    },
+  );
+  for (const invalid of [
+    { action: 'collectSourcingLiveCommerce', idempotencyKey: 'key' },
+    { action: 'collectSourcingLiveCommerce', idempotencyKey: 'key', url: 'http://live.douyin.com/123' },
+    { action: 'collectSourcingLiveCommerce', idempotencyKey: 'key', url: 'https://live.douyin.com/123', unexpected: true },
+  ]) {
+    assert.throws(() => liveCommerceAction.validate(invalid), /Invalid Live Commerce source collection request/);
+  }
+  assert.equal(
+    context.KidItemDomains.runOperation('sourcing.collect_live_commerce_url'),
+    null,
+    'retired Live Commerce Operation must not claim browser work',
+  );
+});
+
+test('1688 direct source action reaches its owner through the external dispatcher', async () => {
+  const { fake } = bootServiceWorker();
+  const responses = [];
+  let keptAlive = 0;
+
+  for (const listener of fake.externalMessageListeners) {
+    const result = listener(
+      { action: 'collectSourcing1688Trends', idempotencyKey: '1688-direct-dispatch-key' },
+      { url: 'http://localhost:3000/sourcing-ai/decision-center' },
+      (response) => responses.push(response),
+    );
+    if (result === true) keptAlive += 1;
+  }
+
+  assert.equal(keptAlive, 1, 'direct source action must have one async owner');
+  for (let index = 0; index < 10 && responses.length === 0; index += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  assert.equal(responses.length, 1);
+  assert.equal(responses[0].success, false);
+  assert.equal(responses[0].terminalState, 'RUNNING');
+  assert.match(responses[0].error, /로그인/);
+  assert.deepEqual(fake.createdTabs, []);
+});
+
+test('TikTok direct source action reaches its owner through the external dispatcher', async () => {
+  const { fake } = bootServiceWorker();
+  const responses = [];
+  let keptAlive = 0;
+
+  for (const listener of fake.externalMessageListeners) {
+    const result = listener(
+      {
+        action: 'collectSourcingTiktokCcTrends',
+        idempotencyKey: 'tiktok-direct-dispatch-key',
+        maxItems: 12,
+        region: 'KR',
+      },
+      { url: 'http://localhost:3000/sourcing-ai/decision-center' },
+      (response) => responses.push(response),
+    );
+    if (result === true) keptAlive += 1;
+  }
+
+  assert.equal(keptAlive, 1, 'direct source action must have one async owner');
+  for (let index = 0; index < 10 && responses.length === 0; index += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  assert.equal(responses.length, 1);
+  assert.equal(responses[0].success, false);
+  assert.equal(responses[0].terminalState, 'RUNNING');
+  assert.match(responses[0].error, /로그인/);
+  assert.deepEqual(fake.createdTabs, []);
+});
+
+test('Live Commerce direct source action reaches its owner through the external dispatcher', async () => {
+  const { fake } = bootServiceWorker();
+  const responses = [];
+  let keptAlive = 0;
+
+  for (const listener of fake.externalMessageListeners) {
+    const result = listener(
+      {
+        action: 'collectSourcingLiveCommerce',
+        idempotencyKey: 'live-commerce-direct-dispatch-key',
+        url: 'https://live.douyin.com/123',
+      },
+      { url: 'http://localhost:3000/sourcing-ai/market' },
+      (response) => responses.push(response),
+    );
+    if (result === true) keptAlive += 1;
+  }
+
+  assert.equal(keptAlive, 1, 'direct source action must have one async owner');
+  for (let index = 0; index < 10 && responses.length === 0; index += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  assert.equal(responses.length, 1);
+  assert.equal(responses[0].success, false);
+  assert.equal(responses[0].terminalState, 'RUNNING');
+  assert.match(responses[0].error, /로그인/);
+  assert.deepEqual(fake.createdTabs, []);
 });

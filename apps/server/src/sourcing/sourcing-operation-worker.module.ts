@@ -1,23 +1,18 @@
 import { Module } from '@nestjs/common';
+import { AlertsModule } from '../alerts/alerts.module';
 import { KeywordRankRepositoryAdapter } from '../advertising/adapter/out/repository/keyword-rank.repository.adapter';
 import { COUPANG_MOMENTUM_READ_CAPABILITY_PORT } from '../advertising/application/port/in/capability/coupang-momentum-read.port';
 import { KEYWORD_RANK_REPOSITORY_PORT } from '../advertising/application/port/out/repository/keyword-rank.repository.port';
 import { CoupangMomentumReadService } from '../advertising/application/service/coupang-momentum-read.service';
 import { OperationsModule } from '../operations/operations.module';
 import { PrismaModule } from '../prisma/prisma.module';
-import { Sourcing1688OperationHandler } from './adapter/in/operation/sourcing-1688.operation-handler';
-import { SourcingBrowserOperationHandler } from './adapter/in/operation/sourcing-browser.operation-handler';
-import { SourcingKeywordAnalysisOperationHandler } from './adapter/in/operation/sourcing-keyword-analysis.operation-handler';
-import { SourcingLiveCommerceOperationHandler } from './adapter/in/operation/sourcing-live-commerce.operation-handler';
-import { SourcingRisingProductOperationHandler } from './adapter/in/operation/sourcing-rising-product.operation-handler';
+import { SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT } from './application/port/out/repository/sourcing-browser-source-attempt.repository.port';
+import { SourcingBrowserSourceAttemptRepositoryAdapter } from './adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
 import { SourcingScrapeUrlOperationHandler } from './adapter/in/operation/sourcing-scrape-url.operation-handler';
 import { SourcingShadowSignalOperationHandler } from './adapter/in/operation/sourcing-shadow-signal.operation-handler';
-import { SourcingTrendOperationHandler } from './adapter/in/operation/sourcing-trend.operation-handler';
-import { LiveCommerceService } from './application/service/live-commerce.service';
 import { NaverKeywordResearchService } from './application/service/naver-keyword-research.service';
 import { Sourcing1688ImageSearchService } from './application/service/sourcing-1688-image-search.service';
 import { Sourcing1688KeywordSearchService } from './application/service/sourcing-1688-keyword-search.service';
-import { SourcingCollectionCoordinator } from './application/service/sourcing-collection-coordinator.service';
 import { SourcingRecommendationService } from './application/service/sourcing-recommendation.service';
 import { SourcingRisingProductService } from './application/service/sourcing-rising-product.service';
 import { SourcingScrapeResultService } from './application/service/sourcing-scrape-result.service';
@@ -33,18 +28,15 @@ import { NaverAutocompleteKeywordAdapter } from './adapter/out/naver/naver-autoc
 import { NaverDatalabPopularKeywordAdapter } from './adapter/out/naver/naver-datalab-popular-keyword.adapter';
 import { NaverDatalabTrendAdapter } from './adapter/out/naver/naver-datalab-trend.adapter';
 import { NaverSearchAdKeywordAdapter } from './adapter/out/naver/naver-search-ad-keyword.adapter';
-import { LiveCommerceRepositoryAdapter } from './adapter/out/repository/live-commerce.repository.adapter';
 import { MarketShadowSnapshotRepositoryAdapter } from './adapter/out/repository/market-shadow-snapshot.repository.adapter';
 import { Sourcing1688SearchResultRepositoryAdapter } from './adapter/out/repository/sourcing-1688-search-result.repository.adapter';
 import { SourcingCandidateRepositoryAdapter } from './adapter/out/repository/sourcing-candidate.repository.adapter';
-import { SourcingCollectionRepositoryAdapter } from './adapter/out/repository/sourcing-collection.repository.adapter';
 import { SourcingInterestTargetRepositoryAdapter } from './adapter/out/repository/sourcing-interest-target.repository.adapter';
 import { SourcingRecommendationSourceRepositoryAdapter } from './adapter/out/repository/sourcing-recommendation-source.repository.adapter';
 import { SourcingRecommendationRepositoryAdapter } from './adapter/out/repository/sourcing-recommendation.repository.adapter';
 import { SourcingWorkspaceSnapshotRepositoryAdapter } from './adapter/out/repository/sourcing-workspace-snapshot.repository.adapter';
 import { TrendCollectionRepositoryAdapter } from './adapter/out/repository/trend-collection.repository.adapter';
 import { ShortstrendTrendAdapter } from './adapter/out/shortstrend/shortstrend-trend.adapter';
-import { TaobaoLiveAdapter } from './adapter/out/taobao/taobao-live.adapter';
 import { SOURCING_1688_IMAGE_SEARCH_PORT } from './application/port/out/provider/1688-image-search.port';
 import { SOURCING_1688_KEYWORD_SEARCH_PORT } from './application/port/out/provider/1688-keyword-search.port';
 import { COUPANG_MOMENTUM_PORT } from './application/port/out/cross-domain/coupang-momentum.port';
@@ -59,12 +51,9 @@ import {
   SOURCING_NAVER_KEYWORD_RESEARCH_PORT,
 } from './application/port/out/provider/naver-keyword-research.port';
 import { SHORTSTREND_TREND_PORT } from './application/port/out/provider/shortstrend-trend.port';
-import { TAOBAO_LIVE_PORT } from './application/port/out/provider/taobao-live.port';
-import { LIVE_COMMERCE_REPOSITORY_PORT } from './application/port/out/repository/live-commerce.repository.port';
 import { MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT } from './application/port/out/repository/market-shadow-snapshot.repository.port';
 import { SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT } from './application/port/out/repository/sourcing-1688-search-result.repository.port';
 import { SOURCING_CANDIDATE_REPOSITORY_PORT } from './application/port/out/repository/sourcing-candidate.repository.port';
-import { SOURCING_COLLECTION_REPOSITORY_PORT } from './application/port/out/repository/sourcing-collection.repository.port';
 import { SOURCING_INTEREST_TARGET_REPOSITORY_PORT } from './application/port/out/repository/sourcing-interest-target.repository.port';
 import { SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT } from './application/port/out/repository/sourcing-recommendation-source.repository.port';
 import { SOURCING_RECOMMENDATION_REPOSITORY_PORT } from './application/port/out/repository/sourcing-recommendation.repository.port';
@@ -77,14 +66,10 @@ import { TREND_COLLECTION_PORT } from './application/port/in/trend-collection.po
  * Agent OS, and browser-host runtimes remain outside the worker process.
  */
 @Module({
-  imports: [PrismaModule, OperationsModule],
+  imports: [PrismaModule, OperationsModule, AlertsModule],
   providers: [
-    SourcingTrendOperationHandler,
-    SourcingBrowserOperationHandler,
-    Sourcing1688OperationHandler,
-    SourcingRisingProductOperationHandler,
-    SourcingLiveCommerceOperationHandler,
-    SourcingKeywordAnalysisOperationHandler,
+    SourcingBrowserSourceAttemptRepositoryAdapter,
+    { provide: SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT, useExisting: SourcingBrowserSourceAttemptRepositoryAdapter },
     SourcingScrapeUrlOperationHandler,
     SourcingShadowSignalOperationHandler,
     NaverKeywordResearchService,
@@ -92,9 +77,7 @@ import { TREND_COLLECTION_PORT } from './application/port/in/trend-collection.po
     Sourcing1688KeywordSearchService,
     SourcingRecommendationService,
     SourcingRisingProductService,
-    SourcingCollectionCoordinator,
     TrendCollectService,
-    LiveCommerceService,
     SourcingScrapeResultService,
     SourcingShadowSignalService,
     SourcingPlaywrightRuntimeHandler,
@@ -105,15 +88,12 @@ import { TREND_COLLECTION_PORT } from './application/port/in/trend-collection.po
     Direct1688ImageSearchAdapter,
     Direct1688KeywordSearchAdapter,
     ShortstrendTrendAdapter,
-    TaobaoLiveAdapter,
-    SourcingCollectionRepositoryAdapter,
     TrendCollectionRepositoryAdapter,
     SourcingWorkspaceSnapshotRepositoryAdapter,
     SourcingRecommendationSourceRepositoryAdapter,
     SourcingRecommendationRepositoryAdapter,
     SourcingInterestTargetRepositoryAdapter,
     Sourcing1688SearchResultRepositoryAdapter,
-    LiveCommerceRepositoryAdapter,
     SourcingCandidateRepositoryAdapter,
     GoogleTrendsRssAdapter,
     LinkfoxEchotikShadowAdapter,
@@ -128,15 +108,12 @@ import { TREND_COLLECTION_PORT } from './application/port/in/trend-collection.po
     { provide: SOURCING_1688_IMAGE_SEARCH_PORT, useExisting: Direct1688ImageSearchAdapter },
     { provide: SOURCING_1688_KEYWORD_SEARCH_PORT, useExisting: Direct1688KeywordSearchAdapter },
     { provide: SHORTSTREND_TREND_PORT, useExisting: ShortstrendTrendAdapter },
-    { provide: TAOBAO_LIVE_PORT, useExisting: TaobaoLiveAdapter },
-    { provide: SOURCING_COLLECTION_REPOSITORY_PORT, useExisting: SourcingCollectionRepositoryAdapter },
     { provide: TREND_COLLECTION_REPOSITORY_PORT, useExisting: TrendCollectionRepositoryAdapter },
     { provide: SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT, useExisting: SourcingWorkspaceSnapshotRepositoryAdapter },
     { provide: SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT, useExisting: SourcingRecommendationSourceRepositoryAdapter },
     { provide: SOURCING_RECOMMENDATION_REPOSITORY_PORT, useExisting: SourcingRecommendationRepositoryAdapter },
     { provide: SOURCING_INTEREST_TARGET_REPOSITORY_PORT, useExisting: SourcingInterestTargetRepositoryAdapter },
     { provide: SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT, useExisting: Sourcing1688SearchResultRepositoryAdapter },
-    { provide: LIVE_COMMERCE_REPOSITORY_PORT, useExisting: LiveCommerceRepositoryAdapter },
     { provide: SOURCING_CANDIDATE_REPOSITORY_PORT, useExisting: SourcingCandidateRepositoryAdapter },
     { provide: MARKET_SHADOW_SIGNAL_PORT, useExisting: GoogleTrendsRssAdapter },
     { provide: LINKFOX_ECHOTIK_SHADOW_PORT, useExisting: LinkfoxEchotikShadowAdapter },

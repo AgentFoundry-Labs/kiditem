@@ -486,7 +486,7 @@ function trendRepository(): TrendCollectionRepositoryPort {
       trendDelta: 10,
       capturedAt: NOW,
     }]),
-    findPopularKeywordHistory: vi.fn(async () => [{
+    findPopularKeywordHistory: vi.fn(async () => ({ rows: [{
       boardKey: 'stationery',
       boardLabel: '문구',
       cid: null,
@@ -494,7 +494,9 @@ function trendRepository(): TrendCollectionRepositoryPort {
       rank: 1,
       keyword: '필통',
       linkId: null,
-    }]),
+    }], coverage: [] })),
+    findKeywordAnalysisSnapshot: vi.fn(async () => null),
+    findLatestCompleteTrendScope: vi.fn(async () => null),
     find1688HotHistory: vi.fn(async () => [{
       businessDate: BUSINESS_DATE,
       capturedAt: NOW,

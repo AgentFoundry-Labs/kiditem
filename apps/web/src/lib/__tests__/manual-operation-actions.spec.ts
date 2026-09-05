@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { collectTrendSources } from '@/lib/source-trend-api';
 import { operationsApi } from '@/lib/operations-api';
 import {
   startSellpiaInventoryRefreshAction,
@@ -8,6 +9,8 @@ import {
 vi.mock('@/lib/operations-api', () => ({
   operationsApi: { start: vi.fn() },
 }));
+
+vi.mock('@/lib/source-trend-api', () => ({ collectTrendSources: vi.fn() }));
 
 describe('manual operation actions', () => {
   beforeEach(() => {
@@ -25,16 +28,9 @@ describe('manual operation actions', () => {
       sources: ['naver', '1688'],
     });
 
-    expect(operationsApi.start).toHaveBeenNthCalledWith(
-      1,
-      'sourcing.collect_daily_trends',
-      { sourceSurface: 'dashboard', input: { sources: ['naver', '1688'] } },
-    );
-    expect(operationsApi.start).toHaveBeenNthCalledWith(
-      2,
-      'sourcing.collect_daily_trends',
-      { sourceSurface: 'domain_screen', input: { sources: ['naver', '1688'] } },
-    );
+    expect(collectTrendSources).toHaveBeenNthCalledWith(1, ['naver', '1688']);
+    expect(collectTrendSources).toHaveBeenNthCalledWith(2, ['naver', '1688']);
+    expect(operationsApi.start).not.toHaveBeenCalled();
   });
 
   it('uses the same manual Sellpia reason on either trigger surface', async () => {

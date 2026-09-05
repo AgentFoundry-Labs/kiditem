@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
+import { selectTaobaoLiveIds } from '../../../domain/taobao-live-selection';
 import type {
   TaobaoLiveCollection,
   TaobaoLivePort,
@@ -10,7 +11,6 @@ import type {
 
 const DEFAULT_TOP_BASE_URL = 'https://eco.taobao.com/router/rest';
 const DEFAULT_TIMEOUT_MS = 15_000;
-const MAX_LIVE_IDS = 30;
 
 type FetchLike = typeof fetch;
 type JsonRecord = Record<string, unknown>;
@@ -76,8 +76,7 @@ export class TaobaoLiveAdapter implements TaobaoLivePort {
         }),
     ];
 
-    const liveIds = Array.from(new Set(input.liveIds.map((id) => id.trim()).filter(Boolean)))
-      .slice(0, MAX_LIVE_IDS);
+    const liveIds = selectTaobaoLiveIds(input.liveIds);
     if (liveIds.length > 0) {
       tasks.push(
         this.queryKnownRooms(config, liveIds, input.signal)

@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import { kstBusinessDate } from '../../../common/kst';
 import { matchStationeryToyTrend } from '../../domain/stationery-toy-trend';
+import { selectTaobaoLiveIds } from '../../domain/taobao-live-selection';
 import {
   TAOBAO_LIVE_PORT,
   type TaobaoLivePort,
@@ -15,23 +15,31 @@ import {
   type LiveCommerceSource,
 } from '../port/out/repository/live-commerce.repository.port';
 import {
+  SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT,
+  type SourcingBrowserSourceAttemptRepositoryPort,
+} from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
+import {
   hashCollectionRequest,
   mapTrendTypedRecordsToAuthorizedOutput,
-  normalizeCollectionTarget,
 } from './sourcing-collection-mappers';
-import {
-  SourcingCollectionCoordinator,
-  type ActiveOperationAttemptCommitFence,
-} from './sourcing-collection-coordinator.service';
+import { requireIdempotencyKey, toPermit } from './sourcing-source-attempt-primitives';
 
 const MAX_LIVE_KEYWORD_SAMPLE_TITLES = 3;
 const LIVE_COMPOSITE_ID_SEPARATOR = '\u0000';
 
-export interface LiveCommerceOperationControls {
-  signal?: AbortSignal;
-  checkpoint?: () => Promise<void>;
-  commitWithinActiveOperationAttempt?: ActiveOperationAttemptCommitFence;
+export interface TaobaoLiveRequest {
+  queryDate?: string;
+  liveIds?: string[];
+  pageSize?: number;
 }
+
+const TAOBAO_SOURCE = { sourceKey: 'taobao.live', scopeKey: 'default', targetKey: 'all' };
+const TAOBAO_FAILURE_ALERT = {
+  sourceType: 'sourcing.taobao-live',
+  dedupeKey: 'sourcing:taobao-live',
+  title: '타오바오 라이브 수집 실패',
+  href: '/sourcing-ai/market',
+};
 
 export interface LiveTrendKeywordView {
   keyword: string;
@@ -53,10 +61,11 @@ export class LiveCommerceService {
     private readonly taobao: TaobaoLivePort,
     @Inject(LIVE_COMMERCE_REPOSITORY_PORT)
     private readonly repository: LiveCommerceRepositoryPort,
-    private readonly collectionCoordinator: SourcingCollectionCoordinator,
+    @Inject(SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT)
+    private readonly attempts: SourcingBrowserSourceAttemptRepositoryPort,
   ) {}
 
-  async status(organizationId: string) {
+  async status(organizationId: string, input: TaobaoLiveRequest = {}) {
     const [broadcasts, products] = await Promise.all([
       this.repository.findBroadcastSnapshots({ organizationId, days: 7 }),
       this.repository.findProductSnapshots({ organizationId, days: 7 }),
@@ -67,6 +76,7 @@ export class LiveCommerceService {
       if (!current || row.capturedAt > current) latestBySource.set(row.source, row.capturedAt);
     }
     const readiness = this.taobao.readiness();
+    const sourceStatus = await this.readTaobao(organizationId, input);
     return {
       sources: [
         {
@@ -76,6 +86,7 @@ export class LiveCommerceService {
           missing: readiness.missing,
           requiresLogin: false,
           latestCapturedAt: latestBySource.get('taobao')?.toISOString() ?? null,
+          sourceStatus,
         },
         {
           source: '1688' as const,
@@ -97,82 +108,92 @@ export class LiveCommerceService {
     };
   }
 
+  async readTaobao(organizationId: string, input: TaobaoLiveRequest = {}) {
+    return this.attempts.readSourceStatus({
+      organizationId,
+      ...TAOBAO_SOURCE,
+      currentPlanChecksum: hashCollectionRequest(taobaoPlan(input, new Date())),
+    });
+  }
+
   async collectTaobao(
     organizationId: string,
-    input: { queryDate?: string; liveIds?: string[]; pageSize?: number },
-    idempotencyKey?: string,
-    controls: LiveCommerceOperationControls = {},
+    input: TaobaoLiveRequest,
+    idempotencyKey: string,
+    controls: { signal?: AbortSignal } = {},
   ) {
-    await checkpointOperation(controls);
+    controls.signal?.throwIfAborted();
     const capturedAt = new Date();
     const businessDate = kstBusinessDate(capturedAt);
-    const queryDate = input.queryDate
-      ? canonicalTaobaoQueryDate(input.queryDate)
-      : formatChinaCalendarDate(capturedAt);
-    const collectionSummary: {
-      current: { broadcastCount: number; productCount: number; warnings: string[] } | null;
-    } = { current: null };
-    await this.collectionCoordinator.execute(
-      liveCollectionRequest({
-        organizationId,
-        sourceKey: 'taobao.live',
-        targetKey: queryDate,
-        idempotencyKey,
-        request: input,
-        collectorKey: 'taobao-live-collection',
-        signal: controls.signal,
-        operationCheckpoint: controls.checkpoint,
-        commitWithinActiveOperationAttempt: controls.commitWithinActiveOperationAttempt,
+    const plan = taobaoPlan(input, capturedAt);
+    const { created, attempt } = await this.attempts.beginAttempt({
+      organizationId,
+      ...TAOBAO_SOURCE,
+      idempotencyKey: requireIdempotencyKey(idempotencyKey),
+      // Omitted dates remain omitted in request identity so midnight transport
+      // replays recover the original server-frozen calendar date.
+      requestFingerprint: hashCollectionRequest({
+        ...plan, queryDate: input.queryDate ? canonicalTaobaoQueryDate(input.queryDate) : null,
       }),
-      async ({ permit, checkpoint }) => {
-        await checkpointOperation(controls);
-        await checkpoint();
-        const result = await this.taobao.collect({
-          queryDate,
-          liveIds: input.liveIds ?? [],
-          pageSize: input.pageSize ?? 100,
-          signal: controls.signal,
-        });
-        await checkpointOperation(controls);
-        await checkpoint();
-        const broadcasts: LiveCommerceBroadcastSnapshotUpsert[] = result.rooms.map((room) => ({
-          organizationId,
-          businessDate,
-          source: 'taobao',
-          ...room,
-          capturedAt,
-        }));
-        const products: LiveCommerceProductSnapshotUpsert[] = result.products.map((product) => ({
-          organizationId,
-          businessDate,
-          source: 'taobao',
-          ...product,
-          capturedAt,
-        }));
-        collectionSummary.current = {
-          broadcastCount: broadcasts.length,
-          productCount: products.length,
-          warnings: result.warnings,
-        };
-        await checkpointOperation(controls);
-        await checkpoint();
-        return mapTrendTypedRecordsToAuthorizedOutput({
-          permit,
-          typedRecords: [
-            ...broadcasts.map((row) => ({ kind: 'live_commerce_broadcast' as const, row })),
-            ...products.map((row) => ({ kind: 'live_commerce_product' as const, row })),
-          ],
-          qualityReport: { source: 'taobao', warningCount: result.warnings.length },
-        });
-      },
-    );
-    await checkpointOperation(controls);
-    const collected = collectionSummary.current;
-    if (!collected) throw new BadRequestException('An idempotent Taobao collection is already in progress.');
-    return {
-      businessDate: toDateString(businessDate),
-      ...collected,
-    };
+      plan,
+      planChecksum: hashCollectionRequest(plan),
+      requestedByUserId: null,
+      collectorKey: 'taobao-live-collection',
+      collectorVersion: '2026-08-08',
+      triggerKind: 'manual',
+      // Preserve the former Taobao execution deadline as one fixed expiry.
+      expiresInMs: 15 * 60_000,
+      failureAlert: TAOBAO_FAILURE_ALERT,
+    });
+    if (!created) return attempt;
+
+    // Provider IO runs after begin commits and without a database lock.
+    let result;
+    try {
+      controls.signal?.throwIfAborted();
+      result = await this.taobao.collect({
+        queryDate: plan.queryDate,
+        liveIds: plan.liveIds,
+        pageSize: plan.pageSize,
+        signal: controls.signal,
+      });
+      controls.signal?.throwIfAborted();
+    } catch (error) {
+      const failed = await this.attempts.failAttempt({
+        organizationId,
+        attemptId: attempt.attemptId,
+        attemptToken: attempt.attemptToken,
+        code: controls.signal?.aborted ? 'SOURCE_COLLECTION_ABORTED' : 'SOURCE_COLLECTION_FAILED',
+        message: (error instanceof Error ? error.message : String(error)).slice(0, 1_000),
+        failureAlert: TAOBAO_FAILURE_ALERT,
+      });
+      if (controls.signal?.aborted) controls.signal.throwIfAborted();
+      return failed;
+    }
+    const broadcasts: LiveCommerceBroadcastSnapshotUpsert[] = result.rooms.map((room) => ({
+      organizationId, ingestionRunId: attempt.attemptId, businessDate, source: 'taobao', ...room, capturedAt,
+    }));
+    const products: LiveCommerceProductSnapshotUpsert[] = result.products.map((product) => ({
+      organizationId, ingestionRunId: attempt.attemptId, businessDate, source: 'taobao', ...product, capturedAt,
+    }));
+    const output = mapTrendTypedRecordsToAuthorizedOutput({
+      permit: toPermit(attempt, organizationId),
+      typedRecords: [
+        ...broadcasts.map((row) => ({ kind: 'live_commerce_broadcast' as const, row })),
+        ...products.map((row) => ({ kind: 'live_commerce_product' as const, row })),
+      ],
+      qualityReport: { source: 'taobao', warningCount: result.warnings.length, warnings: result.warnings },
+    });
+    return this.attempts.completeAttempt({
+      organizationId,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      planChecksum: attempt.planChecksum,
+      contentChecksum: hashCollectionRequest(result),
+      output,
+      sourceWindowEndAt: capturedAt,
+      failureAlert: TAOBAO_FAILURE_ALERT,
+    });
   }
 
   async list(
@@ -313,12 +334,6 @@ function canonicalTaobaoQueryDate(value: string): string {
   throw new BadRequestException('taobao_query_date_invalid');
 }
 
-async function checkpointOperation(controls: LiveCommerceOperationControls): Promise<void> {
-  controls.signal?.throwIfAborted();
-  await controls.checkpoint?.();
-  controls.signal?.throwIfAborted();
-}
-
 function latestRows<T extends { capturedAt: Date }>(rows: T[], keyOf: (row: T) => string): T[] {
   const latest = new Map<string, T>();
   for (const row of rows) {
@@ -333,32 +348,11 @@ function toDateString(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-function liveCollectionRequest(input: {
-  organizationId: string;
-  sourceKey: string;
-  targetKey: string;
-  idempotencyKey?: string;
-  request: unknown;
-  collectorKey: string;
-  signal?: AbortSignal;
-  operationCheckpoint?: () => Promise<void>;
-  commitWithinActiveOperationAttempt?: ActiveOperationAttemptCommitFence;
-}) {
-  const requestHash = hashCollectionRequest(input.request);
+function taobaoPlan(input: TaobaoLiveRequest, now: Date) {
   return {
-    organizationId: input.organizationId,
-    sourceKey: input.sourceKey,
-    scopeKey: 'default',
-    targetKey: normalizeCollectionTarget(input.targetKey),
-    idempotencyKey: input.idempotencyKey?.trim() || `${input.collectorKey}:${randomUUID()}`,
-    requestHash,
-    collectorKey: input.collectorKey,
-    collectorVersion: '2026-08-08',
-    triggerKind: 'manual' as const,
-    triggeredByUserId: null,
-    leaseDurationMs: 120_000,
-    signal: input.signal,
-    operationCheckpoint: input.operationCheckpoint,
-    commitWithinActiveOperationAttempt: input.commitWithinActiveOperationAttempt,
+    source: 'taobao.live',
+    queryDate: input.queryDate ? canonicalTaobaoQueryDate(input.queryDate) : formatChinaCalendarDate(now),
+    liveIds: selectTaobaoLiveIds(input.liveIds ?? []),
+    pageSize: input.pageSize ?? 100,
   };
 }

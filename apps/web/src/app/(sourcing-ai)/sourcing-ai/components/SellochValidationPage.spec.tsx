@@ -13,9 +13,11 @@ vi.mock('../hooks/use-sourcing-workspace', () => ({
   useSourcingValidation: vi.fn(),
 }));
 
-vi.mock('../hooks/use-sourcing-operation-action', () => ({
-  useSourcingOperationAction: vi.fn(() => ({
-    run: null,
+vi.mock('../hooks/use-wing-catalog-source', () => ({
+  useWingCatalogSource: vi.fn(() => ({
+    attempt: null,
+    isRunning: false,
+    error: null,
     start: vi.fn(),
     cancel: vi.fn(),
     retryAttention: vi.fn(),

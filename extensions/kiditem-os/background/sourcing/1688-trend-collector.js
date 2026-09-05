@@ -1,34 +1,133 @@
 (function (global) {
   "use strict";
 
-  const STATUS_KEY = "kiditem_1688_trend_collection_status";
+  const PRODUCER = "sourcing.1688_trend";
+  const REQUEST_KEY = "kiditem_1688_trend_request_v1";
+  const SOURCE_PATH = "/sourcing/1688-trends/attempts";
+  const SOURCE_KEY = "1688.hot_product";
+  const MAX_KEYWORDS = 20;
+  const MAX_RESULTS_PER_KEYWORD = 20;
   const SEARCH_ORIGIN = "https://s.1688.com";
   const NAVIGATION_TIMEOUT_MS = 30000;
   const EXTRACTION_TIMEOUT_MS = 20000;
-  const TREND_OWNER_PATH = "/sourcing/operations/1688-trends/";
+
+  function ownerError(code, message, status = null) {
+    const error = new Error(message);
+    error.code = code;
+    if (status !== null) error.status = status;
+    return error;
+  }
+
+  function requiredText(value, code, max = 300) {
+    if (typeof value !== "string" || !value.trim() || value.trim().length > max) {
+      throw ownerError(code, code);
+    }
+    return value.trim();
+  }
+
+
+  function isTerminalState(value) {
+    return value === "COMPLETE" || value === "FAILED";
+  }
+
+  function planFrom(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw ownerError("INVALID_1688_SOURCE_PLAN", "Sourcing owner returned an invalid 1688 plan.");
+    }
+    const state = requiredText(value.state, "INVALID_1688_SOURCE_PLAN", 20);
+    const attemptToken = typeof value.attemptToken === "string" && value.attemptToken.trim()
+      ? value.attemptToken.trim()
+      : null;
+    const plan = {
+      attemptId: requiredText(value.attemptId, "INVALID_1688_SOURCE_PLAN"),
+      attemptToken,
+      state,
+      expiresAt: requiredText(value.expiresAt, "INVALID_1688_SOURCE_PLAN"),
+      plan: value.plan,
+      errorCode: typeof value.errorCode === "string" ? value.errorCode : null,
+      errorMessage: typeof value.errorMessage === "string" ? value.errorMessage : null,
+    };
+    if (
+      !["RUNNING", "COMPLETE", "FAILED"].includes(plan.state)
+      || (plan.state === "RUNNING" && !plan.attemptToken)
+      || !Number.isFinite(Date.parse(plan.expiresAt))
+      || !plan.plan
+      || typeof plan.plan !== "object"
+      || Array.isArray(plan.plan)
+      || plan.plan.source !== SOURCE_KEY
+      || !Array.isArray(plan.plan.keywords)
+      || plan.plan.keywords.length > MAX_KEYWORDS
+    ) {
+      throw ownerError("INVALID_1688_SOURCE_PLAN", "Sourcing owner returned an invalid 1688 plan.");
+    }
+
+    const identities = new Set();
+    plan.keywords = plan.plan.keywords.map((value) => {
+      const keyword = requiredText(value, "INVALID_1688_SOURCE_PLAN", 120);
+      const identity = keyword.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("en-US");
+      if (identities.has(identity)) {
+        throw ownerError("INVALID_1688_SOURCE_PLAN", "Sourcing owner returned duplicate 1688 keywords.");
+      }
+      identities.add(identity);
+      return keyword;
+    });
+    return plan;
+  }
+
+  function terminalResult(plan) {
+    if (plan.state === "COMPLETE") {
+      return {
+        success: true,
+        attemptId: plan.attemptId,
+        terminalState: "COMPLETE",
+      };
+    }
+    return {
+      success: false,
+      attemptId: plan.attemptId,
+      terminalState: "FAILED",
+      retryRequired: true,
+      errorCode: plan.errorCode || "SOURCE_RETRY_REQUIRED",
+      error: plan.errorMessage || "The previous 1688 collection failed. Start a new retry from KidItem.",
+    };
+  }
+
 
   function create(options) {
+    if (
+      typeof options?.getBackendRequestConfig !== "function"
+      || typeof options?.sessions?.start !== "function"
+      || typeof options?.sessions?.remove !== "function"
+    ) {
+      throw new Error("1688 source-owner collector dependencies are required.");
+    }
     const chromeApi = options.chrome;
     const getBackendRequestConfig = options.getBackendRequestConfig;
     const ensureContentScripts = options.ensureContentScripts;
     const sessions = options.sessions;
     const now = options.now || (() => new Date());
-
     const activeRuns = new Map();
+    const wire = global.KidItemSourcingAttemptWire.create({
+      chrome: chromeApi, sourcePath: SOURCE_PATH,
+      requestFailureMessage: "1688 source owner request failed",
+    });
+    const requestJson = wire.requestJson;
+    const storageGet = wire.getCorrelation;
+    const failureFrom = wire.failure;
 
-    function storageGet(key) {
-      return new Promise((resolve) => {
-        chromeApi.storage.local.get(key, (result) => resolve(result?.[key] || null));
-      });
+    function requestStorageKey(environmentId) {
+      return `${REQUEST_KEY}:${environmentId}`;
     }
 
-    function storageSet(value) {
-      return new Promise((resolve) => {
-        chromeApi.storage.local.set(
-          { [`${STATUS_KEY}:${value.environmentId}`]: value },
-          resolve,
-        );
-      });
+    async function persistRequestIdentity(environmentId, attemptId, idempotencyKey) {
+      await wire.setCorrelation(requestStorageKey(environmentId), { attemptId, idempotencyKey });
+    }
+
+    async function clearRequestIdentity(environmentId, attemptId) {
+      const key = requestStorageKey(environmentId);
+      const current = await storageGet(key);
+      if (current?.attemptId !== attemptId) return;
+      await wire.clearCorrelation(key);
     }
 
     function getTab(tabId) {
@@ -86,9 +185,8 @@
     function isVerificationUrl(value) {
       try {
         const url = new URL(value || "");
-        return url.pathname.indexOf("/punish") !== -1 ||
-          url.searchParams.get("action") === "captcha";
-      } catch (e) {
+        return url.pathname.indexOf("/punish") !== -1 || url.searchParams.get("action") === "captcha";
+      } catch {
         return false;
       }
     }
@@ -100,8 +198,7 @@
         const tab = await getTab(tabId);
         if (!tab) throw new Error("1688 수집 탭이 닫혔습니다.");
         lastTab = tab;
-        if (isVerificationUrl(tab.url)) return tab;
-        if (tab.status === "complete") return tab;
+        if (isVerificationUrl(tab.url) || tab.status === "complete") return tab;
         await delay(250);
       }
       return lastTab;
@@ -115,7 +212,6 @@
           settled = true;
           resolve({ ok: false, error: "1688 검색 결과 추출 시간 초과" });
         }, EXTRACTION_TIMEOUT_MS);
-
         chromeApi.tabs.sendMessage(tabId, message, (response) => {
           if (settled) return;
           settled = true;
@@ -130,142 +226,133 @@
       });
     }
 
-    async function extractFromTab(tabId, maxResults) {
-      const message = { type: "TRIGGER_1688_TREND_EXTRACT", maxResults };
+    async function extractFromTab(tabId) {
+      const message = { type: "TRIGGER_1688_TREND_EXTRACT", maxResults: MAX_RESULTS_PER_KEYWORD };
       let response = await sendTabMessage(tabId, message);
       if (response.ok || response.status === "verification_required") return response;
-
       const missingContentScript = /(?:content_script_unavailable|empty_extraction_response|receiving end|could not establish|message port)/i
         .test(response.error || "");
       if (!missingContentScript) return response;
-
       const injected = await ensureContentScripts(tabId);
       if (!injected) return response;
-      response = await sendTabMessage(tabId, message);
-      return response;
+      return sendTabMessage(tabId, message);
     }
 
-    async function setStatus(run, patch) {
-      if (run.cancelRequested && patch.status !== "cancelled") return run.status;
-      run.status = {
-        ...run.status,
-        ...patch,
-        runId: run.runId,
-        updatedAt: now().toISOString(),
-      };
-      await storageSet(run.status);
-      return run.status;
+    async function begin(config, environmentId, idempotencyKey) {
+      const plan = planFrom(await requestJson(config, SOURCE_PATH, {
+        method: "POST",
+        headers: {
+          ...config.headers,
+          "Idempotency-Key": requiredText(idempotencyKey, "INVALID_IDEMPOTENCY_KEY"),
+        },
+      }));
+      if (plan.state === "RUNNING") {
+        await sessions.start({
+          attemptId: plan.attemptId,
+          environmentId,
+          producer: PRODUCER,
+        });
+        await persistRequestIdentity(environmentId, plan.attemptId, idempotencyKey);
+      }
+      return plan;
+    }
+
+    async function terminalSubmit(config, plan, body) {
+      return planFrom(await wire.terminal(config, plan, {
+        method: "PUT",
+        suffix: "",
+        body,
+      }));
+    }
+
+    async function terminalFail(config, plan, error) {
+      const failure = failureFrom(
+        error,
+        "SOURCE_COLLECTION_FAILED",
+        "1688 collection failed.",
+      );
+      const terminal = planFrom(await wire.terminal(config, plan, {
+        method: "POST",
+        suffix: "/fail",
+        body: failure,
+      }));
+      return { failure, terminal };
+    }
+
+    async function clearTerminalAttempt(environmentId, attemptId, tabId) {
+      try {
+        await removeTab(tabId);
+      } finally {
+        await sessions.remove(attemptId);
+        await clearRequestIdentity(environmentId, attemptId);
+      }
     }
 
     async function markVerificationRequired(run, tab, keyword) {
       run.keepTabOpen = true;
-      const verificationUrl = tab?.url || `${SEARCH_ORIGIN}/punish?action=captcha`;
-      await setStatus(run, {
-        status: "attention_required",
-        currentKeyword: keyword,
-        verificationUrl,
-        error: "1688 검색 결과가 슬라이더 검증을 요구합니다.",
-        tabId: run.tabId,
-      });
-      await sessions.requireAttention(run.runId, {
+      await sessions.requireAttention(run.plan.attemptId, {
         reason: "captcha",
         message: "1688 검색 결과가 슬라이더 검증을 요구합니다. 알림에서 확인 탭을 열어 검증해주세요.",
       });
+      return {
+        success: false,
+        attemptId: run.plan.attemptId,
+        terminalState: "RUNNING",
+        attentionRequired: true,
+        errorCode: "CAPTCHA_REQUIRED",
+        error: tab?.url || keyword,
+      };
     }
 
-    async function postBatch(run, keywords, errors) {
-      const config = run.backendConfig;
-      const request = config.request || fetch;
-      if (typeof run.operationAttemptToken !== "string" || !run.operationAttemptToken) {
-        throw new Error("operation_attempt_token_required");
-      }
-      const response = await request(
-        `${config.apiBase}${TREND_OWNER_PATH}${encodeURIComponent(run.runId)}/results`,
-        {
-          method: "POST",
-          headers: {
-            ...config.headers,
-            "x-operation-attempt-token": run.operationAttemptToken,
-          },
-          body: JSON.stringify({ keywords, errors }),
-        },
-      );
-      if (!response.ok) {
-        const body = await response.text().catch(() => "");
-        const error = new Error(`HTTP ${response.status}: ${body.slice(0, 200)}`);
-        if (response.status === 409) {
-          error.code = "operation_runtime_fence_lost";
-          error.status = 409;
-        }
-        throw error;
-      }
-      return response.json().catch(() => ({}));
-    }
-
-    async function executeRun(run) {
+    async function execute(run) {
       const keywordResults = [];
       const errors = [];
       try {
-        let tab = run.reusableTabId ? await getTab(run.reusableTabId) : null;
-        if (!tab) tab = await createTab();
-        run.tabId = tab.id;
-        await setStatus(run, { tabId: run.tabId });
-        if (Number.isInteger(tab.windowId)) {
-          await sessions.attachTab(run.runId, {
-            tabId: tab.id,
-            windowId: tab.windowId,
+        if (run.plan.keywords.length === 0) {
+          const terminal = await terminalSubmit(run.config, run.plan, {
+            keywords: keywordResults,
+            errors,
           });
+          await clearTerminalAttempt(run.environmentId, run.plan.attemptId, null);
+          return terminalResult(terminal);
         }
+        let tab = await createTab();
+        run.tabId = tab.id;
+        await sessions.attachTab(run.plan.attemptId, {
+          tabId: tab.id,
+          windowId: tab.windowId,
+          closeOnCancel: true,
+        });
 
-        for (let index = 0; index < run.keywords.length; index++) {
-          if (run.cancelRequested) return;
-          const keyword = run.keywords[index];
-          await setStatus(run, {
-            status: "running",
-            currentKeyword: keyword,
-            currentKeywordIndex: index,
-            totalKeywords: run.keywords.length,
-            collected: keywordResults.reduce((sum, entry) => sum + entry.items.length, 0),
-            error: null,
-            verificationUrl: null,
-          });
-          await sessions.progress(run.runId, {
+        for (let index = 0; index < run.plan.keywords.length; index += 1) {
+          if (run.cancellation) return run.cancellation;
+          const keyword = run.plan.keywords[index];
+          await sessions.progress(run.plan.attemptId, {
             current: index,
-            total: run.keywords.length,
+            total: run.plan.keywords.length,
             completed: keywordResults.length - errors.length,
             failed: errors.length,
-            label: `${index + 1}/${run.keywords.length} 키워드 수집 중`,
+            label: `${index + 1}/${run.plan.keywords.length} 키워드 수집 중`,
           });
-
           try {
             const searchUrl = `${SEARCH_ORIGIN}/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword)}&charset=utf8`;
             await updateTab(run.tabId, { url: searchUrl, active: false });
             tab = await waitForNavigation(run.tabId);
-            if (isVerificationUrl(tab?.url)) {
-              await markVerificationRequired(run, tab, keyword);
-              return;
-            }
+            if (isVerificationUrl(tab?.url)) return markVerificationRequired(run, tab, keyword);
 
-            const extracted = await extractFromTab(run.tabId, run.maxResultsPerKeyword);
+            const extracted = await extractFromTab(run.tabId);
             if (extracted.status === "verification_required") {
-              tab = await getTab(run.tabId);
-              await markVerificationRequired(
-                run,
-                { url: extracted.verificationUrl || tab?.url },
-                keyword
-              );
-              return;
+              return markVerificationRequired(run, { url: extracted.verificationUrl || tab?.url }, keyword);
             }
             if (!extracted.ok) {
               errors.push({ keyword, message: extracted.error || "1688 검색 결과 추출 실패" });
               keywordResults.push({ keyword, items: [] });
               continue;
             }
-
             keywordResults.push({
               keyword,
               items: Array.isArray(extracted.items)
-                ? extracted.items.slice(0, run.maxResultsPerKeyword)
+                ? extracted.items.slice(0, MAX_RESULTS_PER_KEYWORD)
                 : [],
             });
           } catch (error) {
@@ -274,188 +361,183 @@
           }
         }
 
-        if (run.cancelRequested) return;
-        const localCollected = keywordResults.reduce(
-          (sum, entry) => sum + entry.items.length,
-          0
-        );
-        await setStatus(run, {
-          status: "running",
-          currentKeyword: null,
-          currentKeywordIndex: run.keywords.length,
-          collected: localCollected,
-        });
-        await sessions.progress(run.runId, {
-          current: run.keywords.length,
-          total: run.keywords.length,
+        if (run.cancellation) return run.cancellation;
+        await sessions.progress(run.plan.attemptId, {
+          current: run.plan.keywords.length,
+          total: run.plan.keywords.length,
           completed: keywordResults.length - errors.length,
           failed: errors.length,
           label: "1688 수집 결과 저장 중",
         });
-        const result = await postBatch(run, keywordResults, errors);
-        if (run.cancelRequested) return;
-        const backendCollected = Number(result?.collected);
-        await setStatus(run, {
-          status: "completed",
-          collected: Number.isFinite(backendCollected) ? backendCollected : localCollected,
-          businessDate: typeof result?.businessDate === "string" ? result.businessDate : null,
+        const terminal = await terminalSubmit(run.config, run.plan, {
+          keywords: keywordResults,
           errors,
-          completedAt: now().toISOString(),
-          currentKeyword: null,
-          error: null,
-          tabId: null,
         });
-        await sessions.succeed(run.runId);
+        if (!isTerminalState(terminal.state)) {
+          throw ownerError("INVALID_1688_TERMINAL", "1688 owner did not terminalize the collection.");
+        }
+        const terminalTabId = run.tabId;
+        run.tabId = null;
+        await clearTerminalAttempt(run.environmentId, run.plan.attemptId, terminalTabId);
+        if (terminal.state === "FAILED") return terminalResult(terminal);
+        return {
+          success: true,
+          attemptId: run.plan.attemptId,
+          terminalState: "COMPLETE",
+          collected: Number.isFinite(terminal.acceptedCount) ? terminal.acceptedCount : keywordResults.reduce(
+            (sum, entry) => sum + entry.items.length,
+            0,
+          ),
+        };
       } catch (error) {
-        if (!run.cancelRequested) {
-          await setStatus(run, {
-            status: "failed",
-            error: error?.code || error?.message || String(error),
-            errors,
-            completedAt: now().toISOString(),
-            tabId: null,
-          });
-          await sessions.fail(run.runId);
+        if (run.cancellation) return run.cancellation;
+        const failure = failureFrom(error, "SOURCE_COLLECTION_FAILED", "1688 collection failed.");
+        try {
+          const terminal = await terminalFail(run.config, run.plan, error);
+          const terminalTabId = run.tabId;
+          run.tabId = null;
+          await clearTerminalAttempt(run.environmentId, run.plan.attemptId, terminalTabId);
+          return terminalResult(terminal.terminal);
+        } catch {
+          return {
+            success: false,
+            attemptId: run.plan.attemptId,
+            terminalState: "RUNNING",
+            errorCode: failure.code,
+            error: failure.message,
+          };
         }
       } finally {
         if (!run.keepTabOpen) await removeTab(run.tabId);
-        if (activeRuns.get(run.environmentId) === run) {
-          activeRuns.delete(run.environmentId);
-        }
       }
     }
 
-    async function start(
-      keywords,
-      maxResultsPerKeyword,
-      environmentId,
-      requestedRunId,
-      operationContext,
-    ) {
-      const operationAttemptToken = operationContext?.attemptToken;
-      if (typeof operationAttemptToken !== "string" || !operationAttemptToken) {
-        return { success: false, error: "operation_attempt_token_required" };
+    async function resumeOrBegin(config, environmentId, idempotencyKey) {
+      const sessionsForEnvironment = (await sessions.list(environmentId))
+        .filter((session) => session?.producer === PRODUCER);
+      if (sessionsForEnvironment.length > 1) {
+        throw ownerError("SOURCE_ATTEMPT_CORRELATION_CONFLICT", "More than one 1688 collection attempt is stored for this environment.");
       }
-      if (typeof requestedRunId !== "string" || !requestedRunId) {
-        return { success: false, error: "operation_run_id_required" };
-      }
-      const activeRun = activeRuns.get(environmentId);
-      if (activeRun && activeRun.status.status === "running") {
-        return {
-          success: false,
-          error: "collection_in_progress",
-          runId: activeRun.runId,
-        };
-      }
+      const existing = sessionsForEnvironment[0];
+      if (!existing) return begin(config, environmentId, idempotencyKey);
 
-      const backendConfig = await getBackendRequestConfig(environmentId);
-      if (!backendConfig.ok) {
-        return {
-          success: false,
-          error: backendConfig.error || "KidItem 웹 앱에서 로그인 후 다시 시도해주세요.",
-        };
+      const correlation = await storageGet(requestStorageKey(environmentId));
+      if (
+        !correlation
+        || correlation.attemptId !== existing.attemptId
+        || typeof correlation.idempotencyKey !== "string"
+        || !correlation.idempotencyKey.trim()
+      ) {
+        return null;
       }
-
-      const runId = requestedRunId;
-      const startedAt = now().toISOString();
-      const run = {
-        environmentId,
-        runId,
-        keywords,
-        maxResultsPerKeyword,
-        operationAttemptToken,
-        backendConfig,
-        reusableTabId: null,
-        tabId: null,
-        cancelRequested: false,
-        keepTabOpen: false,
-        status: {
-          environmentId,
-          runId,
-          status: "running",
-          collected: 0,
-          businessDate: null,
-          error: null,
-          verificationUrl: null,
-          currentKeyword: null,
-          currentKeywordIndex: 0,
-          totalKeywords: keywords.length,
-          errors: [],
-          startedAt,
-          updatedAt: startedAt,
-          completedAt: null,
-          tabId: null,
-        },
-      };
-      activeRuns.set(environmentId, run);
-      await sessions.start({
-        environmentId,
-        runId,
-        producer: "sourcing.1688_trend",
-        classification: "background_preferred",
-        restartStrategy: "extension",
-        inputIdentity: {
-          keywordCount: keywords.length,
-          maxResults: maxResultsPerKeyword,
-        },
-      });
-      await storageSet(run.status);
-      Promise.resolve().then(() => executeRun(run));
-      return { success: true, runId, status: "running" };
+      return begin(config, environmentId, correlation.idempotencyKey);
     }
 
-    async function getStatus(runId, environmentId) {
-      const status =
-        activeRuns.get(environmentId)?.status ||
-        await storageGet(`${STATUS_KEY}:${environmentId}`);
-      if (!status) return { success: false, error: "collection_not_found" };
-      if (runId && status.runId !== runId) {
-        return { success: false, error: "run_not_found", runId };
-      }
-      const { tabId, ...publicStatus } = status;
-      return { success: true, ...publicStatus };
-    }
-
-    async function cancel(runId, environmentId) {
-      const activeRun = activeRuns.get(environmentId);
-      const stored =
-        activeRun?.status || await storageGet(`${STATUS_KEY}:${environmentId}`);
-      if (!stored) return { success: false, error: "collection_not_found" };
-      if (runId && stored.runId !== runId) {
-        return { success: false, error: "run_not_found", runId };
-      }
-
-      if (activeRun) {
-        activeRun.cancelRequested = true;
-        activeRun.keepTabOpen = false;
-        await setStatus(activeRun, {
-          status: "cancelled",
-          error: null,
-          completedAt: now().toISOString(),
-          tabId: null,
+    function launch(environmentId, work) {
+      const active = { execution: null, context: null };
+      active.execution = Promise.resolve()
+        .then(() => work(active))
+        .finally(() => {
+          if (activeRuns.get(environmentId) === active) activeRuns.delete(environmentId);
         });
-        await sessions.cancel(activeRun.runId);
-        await removeTab(activeRun.tabId);
-        activeRuns.delete(environmentId);
-        return { success: true, runId: activeRun.runId, status: "cancelled" };
-      }
-
-      const cancelled = {
-        ...stored,
-        status: "cancelled",
-        error: null,
-        completedAt: now().toISOString(),
-        updatedAt: now().toISOString(),
-        tabId: null,
-      };
-      await storageSet(cancelled);
-      await sessions.cancel(stored.runId);
-      await removeTab(stored.tabId);
-      return { success: true, runId: stored.runId, status: "cancelled" };
+      activeRuns.set(environmentId, active);
+      return active.execution;
     }
 
-    return { start, getStatus, cancel, isVerificationUrl };
+    async function run(input) {
+      const environmentId = requiredText(input?.environmentId, "INVALID_COLLECTION_ENVIRONMENT", 20);
+      const active = activeRuns.get(environmentId);
+      if (active) return active.execution;
+      return launch(environmentId, async (active) => {
+        const config = await getBackendRequestConfig(environmentId);
+        if (!config?.ok) {
+          return {
+            success: false,
+            terminalState: "RUNNING",
+            error: config?.error || "KidItem 웹 앱에서 로그인 후 다시 시도해주세요.",
+          };
+        }
+        const idempotencyKey = requiredText(input?.idempotencyKey, "INVALID_IDEMPOTENCY_KEY");
+        const plan = await resumeOrBegin(config, environmentId, idempotencyKey);
+        if (!plan) {
+          return {
+            success: false,
+            terminalState: "RUNNING",
+            errorCode: "SOURCE_ATTEMPT_RECOVERY_IDENTITY_MISSING",
+            error: "1688 collection is still running and can only be retried after its fixed expiry.",
+          };
+        }
+        if (plan.state !== "RUNNING") {
+          await clearTerminalAttempt(environmentId, plan.attemptId, null);
+          return terminalResult(plan);
+        }
+        active.context = {
+          config,
+          environmentId,
+          plan,
+          tabId: null,
+          cancellation: null,
+          keepTabOpen: false,
+        };
+        return execute(active.context);
+      });
+    }
+
+    async function cancel(attemptId, environmentId) {
+      const normalizedAttemptId = requiredText(attemptId, "INVALID_1688_SOURCE_ATTEMPT");
+      const normalizedEnvironmentId = requiredText(environmentId, "INVALID_COLLECTION_ENVIRONMENT", 20);
+      const session = await sessions.getOwned(normalizedAttemptId, normalizedEnvironmentId);
+      if (!session || session.producer !== PRODUCER) {
+        return { success: true, cancelled: false, attemptId: normalizedAttemptId };
+      }
+      const run = activeRuns.get(normalizedEnvironmentId)?.context;
+      let plan = run?.plan?.attemptId === normalizedAttemptId ? run.plan : null;
+      let config = run?.config || null;
+      if (!plan || !config) {
+        config = await getBackendRequestConfig(normalizedEnvironmentId);
+        if (!config?.ok) throw ownerError("SOURCE_OWNER_REQUEST_FAILED", config?.error || "1688 owner is unavailable.");
+        const correlation = await storageGet(requestStorageKey(normalizedEnvironmentId));
+        if (correlation?.attemptId !== normalizedAttemptId || typeof correlation.idempotencyKey !== "string") {
+          throw ownerError("SOURCE_ATTEMPT_RECOVERY_IDENTITY_MISSING", "1688 attempt cannot be cancelled without its request identity.");
+        }
+        plan = await begin(config, normalizedEnvironmentId, correlation.idempotencyKey);
+      }
+      if (plan.state !== "RUNNING") {
+        const terminalTabId = run?.tabId ?? null;
+        if (run) run.tabId = null;
+        await clearTerminalAttempt(normalizedEnvironmentId, normalizedAttemptId, terminalTabId);
+        return { success: true, cancelled: false, attemptId: normalizedAttemptId };
+      }
+      const cancellation = (async () => {
+        const terminal = await terminalFail(
+          config,
+          plan,
+          ownerError("COLLECTION_CANCELLED", "1688 collection was cancelled by the user."),
+        );
+        const terminalTabId = run?.tabId ?? null;
+        if (run) run.tabId = null;
+        await clearTerminalAttempt(normalizedEnvironmentId, normalizedAttemptId, terminalTabId);
+        return terminalResult(terminal.terminal);
+      })();
+      if (run) run.cancellation = cancellation;
+      await cancellation;
+      return { success: true, cancelled: true, attemptId: normalizedAttemptId };
+    }
+
+    async function recover(environmentId) {
+      const normalizedEnvironmentId = requiredText(environmentId, "INVALID_COLLECTION_ENVIRONMENT", 20);
+      const active = activeRuns.get(normalizedEnvironmentId);
+      if (active) return active.execution;
+      const activeSession = (await sessions.list(normalizedEnvironmentId))
+        .find((session) => session?.producer === PRODUCER);
+      if (activeSession?.attention) return null;
+      const correlation = await storageGet(requestStorageKey(normalizedEnvironmentId));
+      if (!correlation?.idempotencyKey) return null;
+      return run({ environmentId: normalizedEnvironmentId, idempotencyKey: correlation.idempotencyKey });
+    }
+
+    return Object.freeze({ cancel, recover, run, isVerificationUrl });
   }
 
-  global.ProductScraper1688Trend = { create };
+  global.ProductScraper1688Trend = Object.freeze({ create });
 })(globalThis);

@@ -273,7 +273,6 @@ test('shared producers declare stable collection modes and opaque input owners',
   assert.match(worker, /function stableInputFingerprint\(/);
   for (const [name, nextName, mode] of [
     ['searchWingCatalogProducts', 'searchCoupangKeywordSuggestions', 'single_catalog'],
-    ['searchCoupangKeywordSuggestions', 'getOrCreateCoupangSearchTab', 'suggestions'],
     ['startWingSalesRankCheck', 'runWingSalesRankBatch', 'batch'],
     ['checkCoupangKeywordRank', 'startCoupangKeywordRankCheck', 'single_serp'],
     ['startCoupangKeywordRankCheck', 'runCoupangKeywordRankBatch', 'all_trackers'],
@@ -282,7 +281,6 @@ test('shared producers declare stable collection modes and opaque input owners',
   }
   for (const [name, nextName] of [
     ['searchWingCatalogProducts', 'searchCoupangKeywordSuggestions'],
-    ['searchCoupangKeywordSuggestions', 'getOrCreateCoupangSearchTab'],
     ['checkCoupangKeywordRank', 'startCoupangKeywordRankCheck'],
   ]) {
     const source = functionSource(name, nextName);
@@ -796,64 +794,8 @@ test('automatic collectors clean up owned tabs and replace a missing shared Wing
   assert.equal(cancelledWing.cancelled, true);
   assert.deepEqual(wingCalls, ['create', 'attach']);
 
-  const suggestionCalls = [];
-  let suggestionCancelled = false;
-  const suggestionContext = vm.createContext({
-    console,
-    Date,
-    clampNumber: () => 20,
-    collectionRuns: {
-      beginWebCollection: async () => 'keyword-run',
-      attachTab: async () => suggestionCalls.push('attach'),
-      requireAttention: async () => suggestionCalls.push('attention'),
-      isCancelled: async () => suggestionCancelled,
-    },
-    stableInputFingerprint: () => 'fp64:keyword',
-    getOrCreateCoupangSearchTab: async () => ({ id: 42, windowId: 7 }),
-    waitForTabComplete: async () => ({ url: 'https://www.coupang.com/np/search' }),
-    buildCoupangSearchUrl: () => 'https://www.coupang.com/np/search',
-    isCoupangSearchUrl: () => true,
-    sleep: async () => undefined,
-    COUPANG_KEYWORD_SEARCH_DELAY_MS: 0,
-    executeCoupangKeywordSuggestionSearch: async () => ({
-      success: true,
-      items: [],
-      productNameTokens: [],
-    }),
-    collectionSessions: {
-      fail: async () => suggestionCalls.push('fail'),
-      succeed: async () => suggestionCalls.push('succeed'),
-    },
-    removeTab: async () => suggestionCalls.push('remove'),
-  });
-  vm.runInContext(
-    `${functionSource('searchCoupangKeywordSuggestions', 'getOrCreateCoupangSearchTab')}\n` +
-      'globalThis.searchSuggestions = searchCoupangKeywordSuggestions;',
-    suggestionContext,
-  );
-
-  await suggestionContext.searchSuggestions({ keyword: '문구' });
-  assert.deepEqual(suggestionCalls, ['attach', 'succeed', 'remove']);
-  suggestionCalls.length = 0;
-  suggestionContext.executeCoupangKeywordSuggestionSearch = async () => {
-    throw new Error('Coupang request failed');
-  };
-  await assert.rejects(
-    suggestionContext.searchSuggestions({ keyword: '문구' }),
-    /Coupang request failed/,
-  );
-  assert.deepEqual(suggestionCalls, ['attach', 'fail', 'remove']);
-  suggestionCalls.length = 0;
-  suggestionCancelled = false;
-  suggestionContext.executeCoupangKeywordSuggestionSearch = async () => {
-    suggestionCancelled = true;
-    return { success: true, items: [], productNameTokens: [] };
-  };
-  const cancelledSuggestion = await suggestionContext.searchSuggestions({
-    keyword: '문구',
-  });
-  assert.equal(cancelledSuggestion.cancelled, true);
-  assert.deepEqual(suggestionCalls, ['attach']);
+  // Keyword suggestion lifecycle is covered with the real source-owner action
+  // and canonical CollectionSession in coupang-keyword-operation.test.mjs.
 
   const rankCalls = [];
   let rankCancelled = false;
@@ -976,4 +918,11 @@ test('interactive focus helper requires a deliberate user-action reason', async 
   ]);
   assert.match(worker, /interactiveTabs\.createTab/);
   assert.match(worker, /interactiveTabs\.focusTab/);
+});
+
+test('keyword source progress uses the canonical attempt identity without local terminal state', () => {
+  const collection = functionSource('searchCoupangKeywordSuggestions', 'getOrCreateCoupangSearchTab');
+  assert.match(collection, /collectionSessions\.start\(\{\s*attemptId:\s*runId/);
+  assert.doesNotMatch(collection, /collectionSessions\.(succeed|fail)\(/);
+  assert.doesNotMatch(collection, /collectionRuns\.beginWebCollection\(/);
 });

@@ -1,12 +1,11 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { sourcingWingCatalogKeywordIdentity } from '@kiditem/shared/sourcing';
+import { useMemo, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AlertTriangle, Loader2, RefreshCw, Sparkles, Star } from 'lucide-react';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
-import { isTerminalOperationStatus } from '@/hooks/useOperationRun';
 import { useAuth } from '@/hooks/useAuth';
 import { useRightSurfaceLauncher } from '@/components/layout/right-surface-launcher-context';
 import {
@@ -26,10 +25,14 @@ import {
   useSourcingReviewSelections,
 } from '../../hooks/use-sourcing-workspace';
 import { interestTargetSource } from '../../lib/sourcing-interest-target';
-import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
-import { normalizeWingOperationKeywords } from '../../lib/wing-operation-input';
+import { useTrendSourceCollection } from '../../hooks/use-trend-source-collection';
+import {
+  collectSourcing1688TrendsFromExtension,
+  fetchSourcing1688TrendSourceStatus,
+  type Sourcing1688TrendSourceStatus,
+} from '../../lib/sourcing-1688-source-owner';
 import { SourcingReadState } from '../../components/SourcingReadState';
-import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
+import { SourceCollectionStatus } from '../../components/SourceCollectionStatus';
 import { EntryRecommendationDetail } from './EntryRecommendationDetail';
 import { EntryRecommendationTable } from './EntryRecommendationTable';
 
@@ -50,25 +53,22 @@ type InterestFilter = 'all' | 'interest' | 'other';
 export function EntryRecommendationBoard() {
   const { user } = useAuth();
   const { openConversationFromLauncher } = useRightSurfaceLauncher();
+  const queryClient = useQueryClient();
   const organizationId = user?.organizationId ?? null;
   const [activeId, setActiveId] = useState<string | null>(null);
   const [interestFilter, setInterestFilter] = useState<InterestFilter>('all');
+  const retryKeysByRequestFingerprint = useRef(new Map<string, string>());
   const saveSelection = useSaveSourcingReviewSelection();
 
   const recommendationsQuery = useSourcingRecommendations('entry', { limit: LIMIT });
   const recommendationRunId = recommendationsQuery.data?.data?.runId ?? null;
   const selectionsQuery = useSourcingReviewSelections('entry', recommendationRunId);
   const interestTargetsQuery = useSourcingInterestTargets();
-  const dailyTrendOperation = useSourcingOperationAction({
-    operationKey: 'sourcing.collect_daily_trends',
+  const dailyTrendSource = useTrendSourceCollection({
     input: {},
     snapshotQueryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
-    wakeBrowserRuntime: true,
   });
-  const isCollecting = dailyTrendOperation.isStarting || (
-    dailyTrendOperation.run !== null
-    && !isTerminalOperationStatus(dailyTrendOperation.run.status)
-  );
+  const isCollecting = dailyTrendSource.isCollecting;
 
   const recommendationItems = recommendationsQuery.data?.data?.items ?? [];
   const allItems = useMemo(() => toEntryRecommendations(recommendationItems), [recommendationItems]);
@@ -104,38 +104,53 @@ export function EntryRecommendationBoard() {
     () => toEntryInterestKeywordStatuses(recommendationItems, interestTargets),
     [interestTargets, recommendationItems],
   );
-  const missingInterestKeywordIdentities = useMemo(
-    () => new Set(
-      interestKeywords
-        .filter((entry) => entry.state !== 'candidates')
-        .map((entry) => sourcingWingCatalogKeywordIdentity(entry.keyword)),
+  const interestSourceStatusQuery = useQuery({
+    queryKey: queryKeys.sourcing.trend1688SourceStatus(),
+    queryFn: fetchSourcing1688TrendSourceStatus,
+    refetchInterval: (query) => (
+      query.state.data?.latestAttempt?.state === 'RUNNING' ? 5_000 : false
     ),
-    [interestKeywords],
-  );
-  const interestOperationKeywords = useMemo(
-    () => normalizeWingOperationKeywords(
-      [
-        ...interestTargets.map((target) => target.keyword ?? target.label),
-        ...interestKeywords.map((entry) => entry.keyword),
-      ].filter((keyword) =>
-        missingInterestKeywordIdentities.has(sourcingWingCatalogKeywordIdentity(keyword))),
-      20,
-    ),
-    [interestKeywords, interestTargets, missingInterestKeywordIdentities],
-  );
-  const interestOperationInput = useMemo(
-    () => ({ keywords: interestOperationKeywords }),
-    [interestOperationKeywords],
-  );
-  const interestCollectionOperation = useSourcingOperationAction({
-    operationKey: 'sourcing.collect_1688_trends',
-    input: interestOperationInput,
-    snapshotQueryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
+  });
+  const interestCollectionMutation = useMutation({
+    mutationFn: async () => {
+      const requestFingerprint = 'sourcing.1688.hot_product:all';
+      const idempotencyKey = retryKeysByRequestFingerprint.current.get(requestFingerprint)
+        ?? crypto.randomUUID();
+      retryKeysByRequestFingerprint.current.set(requestFingerprint, idempotencyKey);
+      const clearRetryKey = () => {
+        if (retryKeysByRequestFingerprint.current.get(requestFingerprint) === idempotencyKey) {
+          retryKeysByRequestFingerprint.current.delete(requestFingerprint);
+        }
+      };
+      const result = await collectSourcing1688TrendsFromExtension({ idempotencyKey });
+      if (result.terminalState === 'COMPLETE') {
+        if (!result.success) {
+          throw new Error('KidItem OS 익스텐션이 완료 상태와 충돌하는 결과를 반환했습니다.');
+        }
+        clearRetryKey();
+        return result;
+      }
+      if (result.terminalState === 'FAILED') {
+        clearRetryKey();
+        throw new Error(result.error ?? '1688 공급 수집에 실패했습니다. 새로 시도해주세요.');
+      }
+      throw new Error(result.error ?? '1688 공급 수집 결과를 확인하지 못했습니다. 다시 시도해주세요.');
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.trend1688SourceStatus() });
+      toast.success('1688 공급 후보를 갱신했습니다.');
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : '1688 공급 수집에 실패했습니다.');
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.trend1688SourceStatus() });
+    },
   });
   const interestCollectionActive =
-    interestCollectionOperation.isStarting
-    || (interestCollectionOperation.run !== null
-      && !isTerminalOperationStatus(interestCollectionOperation.run.status));
+    interestCollectionMutation.isPending
+    || interestSourceStatusQuery.data?.latestAttempt?.state === 'RUNNING';
   const sources = useMemo(() => toEntrySourceStatuses(recommendationItems), [recommendationItems]);
   const dataGaps = recommendationsQuery.data?.warnings.map((warning) => warning.message) ?? [];
   const visibleItems = useMemo(
@@ -198,17 +213,11 @@ export function EntryRecommendationBoard() {
           totalCount={items.length}
           isCollecting={isCollecting}
           isRefreshing={recommendationsQuery.isFetching}
-          onCollect={() => void dailyTrendOperation.start({})}
+          onCollect={() => void dailyTrendSource.collect({})}
           onRefresh={() => void recommendationsQuery.refetch()}
         />
 
-        <SourcingOperationRunPanel
-          run={dailyTrendOperation.run}
-          onCancel={() => { void dailyTrendOperation.cancel(); }}
-          onRetryAttention={() => { void dailyTrendOperation.retryAttention(); }}
-          isCancelling={dailyTrendOperation.isCancelling}
-          isRetrying={dailyTrendOperation.isRetrying}
-        />
+        <SourceCollectionStatus source={dailyTrendSource} />
 
         <SourceStrip sources={sources} dataGaps={dataGaps} />
 
@@ -219,19 +228,12 @@ export function EntryRecommendationBoard() {
           totalCount={visibleItems.length}
           isCollecting={interestCollectionActive}
           onCollect={() => {
-            if (interestOperationKeywords.length === 0) return;
-            void interestCollectionOperation.start({ keywords: interestOperationKeywords });
+            interestCollectionMutation.mutate();
           }}
           onFilterChange={setInterestFilter}
         />
 
-        <SourcingOperationRunPanel
-          run={interestCollectionOperation.run}
-          onCancel={() => { void interestCollectionOperation.cancel(); }}
-          onRetryAttention={() => { void interestCollectionOperation.retryAttention(); }}
-          isCancelling={interestCollectionOperation.isCancelling}
-          isRetrying={interestCollectionOperation.isRetrying}
-        />
+        <Sourcing1688SourceStatus source={interestSourceStatusQuery.data} />
 
         {activeItem && (
           <EntryRecommendationDetail
@@ -373,6 +375,32 @@ function SourceStrip({ sources, dataGaps }: { sources: EntrySourceStatus[]; data
         </ul>
       )}
     </div>
+  );
+}
+
+function Sourcing1688SourceStatus({
+  source,
+}: {
+  source: Sourcing1688TrendSourceStatus | undefined;
+}) {
+  if (!source || source.status === 'READY' && !source.refreshing) return null;
+
+  const message = source.latestAttempt?.state === 'RUNNING'
+    ? '1688 공급 후보를 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'
+    : source.errorMessage ?? '1688 공급 데이터가 최신 계획과 일치하지 않습니다.';
+
+  return (
+    <p
+      role="status"
+      className={cn(
+        'rounded-lg border px-3 py-2 text-xs font-semibold',
+        source.latestAttempt?.state === 'RUNNING'
+          ? 'border-sky-200 bg-sky-50 text-sky-700'
+          : 'border-amber-200 bg-amber-50 text-amber-800',
+      )}
+    >
+      {message}
+    </p>
   );
 }
 

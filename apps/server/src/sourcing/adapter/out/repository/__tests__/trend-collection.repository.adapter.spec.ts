@@ -44,8 +44,9 @@ describe('TrendCollectionRepositoryAdapter', () => {
       where: {
         organizationId: 'organization-1',
         businessDate: { gte: expect.any(Date) },
+        ingestionRun: { sourceKey: 'naver.trend', scopeKey: 'default', status: 'COMPLETE', isCurrentComplete: true },
       },
-      orderBy: [{ keyword: 'asc' }, { businessDate: 'asc' }],
+      orderBy: [{ capturedAt: 'desc' }, { createdAt: 'asc' }, { id: 'asc' }],
     });
   });
 
@@ -104,8 +105,61 @@ describe('TrendCollectionRepositoryAdapter', () => {
       where: {
         organizationId: 'organization-1',
         businessDate: { gte: expect.any(Date) },
+        ingestionRun: {
+          sourceKey: '1688.hot_product',
+          status: 'COMPLETE',
+          isCurrentComplete: true,
+        },
       },
       orderBy: [{ businessDate: 'asc' }, { rank: 'asc' }],
     });
   });
+
+  it('reads TikTok history only from the current COMPLETE source generation', async () => {
+    const businessDate = new Date('2026-09-04T00:00:00.000Z');
+    const capturedAt = new Date('2026-09-04T02:00:00.000Z');
+    const findMany = vi.fn().mockResolvedValue([{
+      businessDate,
+      capturedAt,
+      region: 'US',
+      trendType: 'hashtag',
+      entityKey: 'school-supplies',
+      rank: 1,
+      label: 'School supplies',
+      industry: null,
+      sourceKeyword: null,
+      postCount: null,
+      viewCount: null,
+      growthPct: null,
+      thumbnailUrl: null,
+      sourceUrl: null,
+    }]);
+    const prisma = {
+      tiktokCreativeTrendDailySnapshot: { findMany },
+    } as unknown as PrismaService;
+    const adapter = new TrendCollectionRepositoryAdapter(prisma);
+
+    await expect(adapter.findTiktokCcHistory({ organizationId: 'organization-1', days: 7 }))
+      .resolves.toEqual([expect.objectContaining({
+        region: 'US',
+        trendType: 'hashtag',
+        entityKey: 'school-supplies',
+      })]);
+
+    expect(findMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'organization-1',
+        businessDate: { gte: expect.any(Date) },
+        ingestionRun: {
+          sourceKey: 'tiktok.creative',
+          scopeKey: 'default',
+          targetKey: 'all',
+          status: 'COMPLETE',
+          isCurrentComplete: true,
+        },
+      },
+      orderBy: [{ businessDate: 'asc' }, { trendType: 'asc' }, { rank: 'asc' }],
+    });
+  });
+
 });

@@ -19,7 +19,9 @@ export const SOURCE_OWNER_BY_PRODUCER = Object.freeze({
   "orders.mall": "orders",
   "orders.sellpia_manual_match": "channels",
   "sourcing.1688_trend": "sourcing",
+  "sourcing.product_extension": "sourcing",
   "sourcing.live_commerce": "sourcing",
   "sourcing.tiktok_cc_trend": "sourcing",
   "sourcing.wing_catalog": "sourcing",
+  "sourcing.keyword_suggestion": "sourcing",
 });

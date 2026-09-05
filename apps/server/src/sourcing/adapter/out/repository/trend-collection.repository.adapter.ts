@@ -1,3 +1,4 @@
+import { SourcingKeywordAnalysisSnapshotSchema } from '@kiditem/shared/sourcing';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { kstInclusiveDaysStart } from '../../../../common/kst';
@@ -20,6 +21,19 @@ const DEFAULT_TREND_SEED_SOURCES = ['naver', 'shorts', '1688'];
 @Injectable()
 export class TrendCollectionRepositoryAdapter implements TrendCollectionRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
+
+  async findKeywordAnalysisSnapshot(input: { organizationId: string; inputHash: string; attemptId?: string }) {
+    const observation = await this.prisma.sourcingEvidenceObservation.findFirst({
+      where: { organizationId: input.organizationId, sourceKey: 'naver.keyword_analysis',
+        evidenceFamily: 'keyword_analysis', conceptKey: input.inputHash, schemaVersion: 'naver-keyword-analysis/v1',
+        ingestionRun: { organizationId: input.organizationId, sourceKey: 'naver.keyword_analysis',
+          scopeKey: 'default', targetKey: input.inputHash, status: 'COMPLETE',
+          ...(input.attemptId ? { id: input.attemptId } : { isCurrentComplete: true }) } },
+      select: { payload: true },
+    });
+    const parsed = SourcingKeywordAnalysisSnapshotSchema.safeParse(observation?.payload);
+    return parsed.success ? parsed.data : null;
+  }
 
   async listSeeds(organizationId: string): Promise<TrendSeedRow[]> {
     const rows = await this.prisma.trendSeedKeyword.findMany({
@@ -85,15 +99,28 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
     }
   }
 
+  async findLatestCompleteTrendScope(input: { organizationId: string; source: 'naver' | 'shorts' }): Promise<string | null> {
+    const complete = await this.prisma.sourcingEvidenceIngestionRun.findFirst({
+      where: { organizationId: input.organizationId, sourceKey: input.source === 'naver' ? 'naver.trend' : 'shortstrend.trend',
+        scopeKey: 'default', status: 'COMPLETE', isCurrentComplete: true },
+      orderBy: [{ sourceWindowEndAt: 'desc' }, { startedAt: 'asc' }, { id: 'asc' }],
+      select: { targetKey: true },
+    });
+    return complete?.targetKey ?? null;
+  }
+
   async findNaverKeywordHistory(query: TrendHistoryQuery): Promise<NaverKeywordSnapshotRow[]> {
     const rows = await this.prisma.naverKeywordDailySnapshot.findMany({
       where: {
         organizationId: query.organizationId,
         businessDate: { gte: kstInclusiveDaysStart(query.days) },
+        ingestionRun: { sourceKey: 'naver.trend', scopeKey: 'default', status: 'COMPLETE', isCurrentComplete: true },
       },
-      orderBy: [{ keyword: 'asc' }, { businessDate: 'asc' }],
+      orderBy: [{ capturedAt: 'desc' }, { createdAt: 'asc' }, { id: 'asc' }],
     });
-    return rows.map((row) => ({
+    return latestTrendRows(rows, (row) => `${row.businessDate.toISOString()}:${row.keyword}`)
+      .sort((a, b) => a.keyword.localeCompare(b.keyword) || a.businessDate.getTime() - b.businessDate.getTime())
+      .map((row) => ({
       keyword: row.keyword,
       businessDate: row.businessDate,
       monthlyTotalSearchCount: row.monthlyTotalSearchCount,
@@ -107,23 +134,36 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
     }));
   }
 
-  async findPopularKeywordHistory(query: TrendHistoryQuery): Promise<NaverPopularKeywordSnapshotRow[]> {
-    const rows = await this.prisma.naverPopularKeywordDailySnapshot.findMany({
-      where: {
-        organizationId: query.organizationId,
-        businessDate: { gte: kstInclusiveDaysStart(query.days) },
-      },
-      orderBy: [{ boardKey: 'asc' }, { businessDate: 'asc' }, { rank: 'asc' }],
+  async findPopularKeywordHistory(query: TrendHistoryQuery) {
+    // Read coverage even when the complete attempt produced no board rows.
+    const attempts = await this.prisma.sourcingEvidenceIngestionRun.findMany({
+      where: { organizationId: query.organizationId, sourceKey: 'naver.trend', scopeKey: 'default',
+        status: 'COMPLETE', isCurrentComplete: true,
+        sourceWindowStartAt: { gte: kstInclusiveDaysStart(query.days) } },
+      orderBy: [{ sourceWindowEndAt: 'desc' }, { startedAt: 'asc' }, { id: 'asc' }],
+      select: { attemptPlan: true, naverPopularKeywordDailySnapshots: true },
     });
-    return rows.map((row) => ({
-      boardKey: row.boardKey,
-      boardLabel: row.boardLabel,
-      cid: row.cid,
-      businessDate: row.businessDate,
-      rank: row.rank,
-      keyword: row.keyword,
-      linkId: row.linkId,
-    }));
+    const covered = new Set<string>();
+    const coverage: Array<{ boardKey: string; businessDate: Date }> = [];
+    const rows: NaverPopularKeywordSnapshotRow[] = [];
+    for (const attempt of attempts) {
+      const plan = attempt.attemptPlan;
+      if (!plan || typeof plan !== 'object' || Array.isArray(plan)
+        || typeof plan.businessDate !== 'string' || !Array.isArray(plan.boardKeys)) continue;
+      for (const boardKey of plan.boardKeys) {
+        if (typeof boardKey !== 'string') continue;
+        const coverageKey = plan.businessDate + ':' + boardKey;
+        if (covered.has(coverageKey)) continue;
+        covered.add(coverageKey);
+        coverage.push({ boardKey, businessDate: new Date(plan.businessDate) });
+        rows.push(...attempt.naverPopularKeywordDailySnapshots.filter((row) => row.boardKey === boardKey).map((row) => ({
+          boardKey: row.boardKey, boardLabel: row.boardLabel, cid: row.cid, businessDate: row.businessDate,
+          rank: row.rank, keyword: row.keyword, linkId: row.linkId,
+        })));
+      }
+    }
+    return { coverage, rows: rows.sort((a, b) => a.boardKey.localeCompare(b.boardKey)
+      || a.businessDate.getTime() - b.businessDate.getTime() || a.rank - b.rank) };
   }
 
   async find1688HotHistory(query: TrendHistoryQuery): Promise<Sourcing1688HotProductSnapshotRow[]> {
@@ -131,6 +171,11 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
       where: {
         organizationId: query.organizationId,
         businessDate: { gte: kstInclusiveDaysStart(query.days) },
+        ingestionRun: {
+          sourceKey: '1688.hot_product',
+          status: 'COMPLETE',
+          isCurrentComplete: true,
+        },
       },
       orderBy: [{ businessDate: 'asc' }, { rank: 'asc' }],
     });
@@ -156,10 +201,13 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
       where: {
         organizationId: query.organizationId,
         businessDate: { gte: kstInclusiveDaysStart(query.days) },
+        ingestionRun: { sourceKey: 'shortstrend.trend', scopeKey: 'default', status: 'COMPLETE', isCurrentComplete: true },
       },
-      orderBy: [{ businessDate: 'asc' }, { rank: 'asc' }],
+      orderBy: [{ capturedAt: 'desc' }, { createdAt: 'asc' }, { id: 'asc' }],
     });
-    return rows.map((row) => ({
+    return latestTrendRows(rows, (row) => `${row.businessDate.toISOString()}:${row.videoKey}`)
+      .sort((a, b) => a.businessDate.getTime() - b.businessDate.getTime() || (a.rank ?? 0) - (b.rank ?? 0))
+      .map((row) => ({
       businessDate: row.businessDate,
       capturedAt: row.capturedAt,
       videoKey: row.videoKey,
@@ -181,6 +229,13 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
       where: {
         organizationId: query.organizationId,
         businessDate: { gte: kstInclusiveDaysStart(query.days) },
+        ingestionRun: {
+          sourceKey: 'tiktok.creative',
+          scopeKey: 'default',
+          targetKey: 'all',
+          status: 'COMPLETE',
+          isCurrentComplete: true,
+        },
       },
       orderBy: [{ businessDate: 'asc' }, { trendType: 'asc' }, { rank: 'asc' }],
     });
@@ -229,4 +284,14 @@ function toSeedRow(row: {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+function latestTrendRows<T>(rows: T[], identity: (row: T) => string): T[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const key = identity(row);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }

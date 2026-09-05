@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
+import { randomUUID } from 'node:crypto';
 import {
   SOURCING_WORKER_MODULES,
   installExternalDispatch,
@@ -21,8 +22,6 @@ const trendCollectorPath = path.resolve('extensions/kiditem-os/background/sourci
 const trendCollectorSource = fs.readFileSync(trendCollectorPath, 'utf8');
 const liveCommerceCollectorPath = path.resolve('extensions/kiditem-os/background/sourcing/live-commerce-collector.js');
 const liveCommerceCollectorSource = fs.readFileSync(liveCommerceCollectorPath, 'utf8');
-const tiktokCcCollectorPath = path.resolve('extensions/kiditem-os/background/sourcing/tiktok-cc-collector.js');
-const tiktokCcCollectorSource = fs.readFileSync(tiktokCcCollectorPath, 'utf8');
 const manifest = JSON.parse(
   fs.readFileSync(path.resolve('extensions/kiditem-os/manifest.json'), 'utf8'),
 );
@@ -86,8 +85,10 @@ function loadBackground(initialStorage = {}, plannedResponses = []) {
   const installListeners = [];
   const fetchCalls = [];
   const dispatchedEvents = [];
+  const tabUrls = new Map();
 
   const context = {
+    crypto: { randomUUID },
     AbortController,
     chrome: {
       runtime: {
@@ -118,9 +119,16 @@ function loadBackground(initialStorage = {}, plannedResponses = []) {
         },
       },
       tabs: {
-        get: async () => ({ url: 'https://detail.1688.com/offer/607635921546.html' }),
+        get: async (id) => ({ url: tabUrls.get(id) || 'https://detail.1688.com/offer/607635921546.html' }),
         query: async () => [{ id: 3000, url: 'http://localhost:3000/dashboard' }],
-        sendMessage: () => {},
+        sendMessage: (tabId, message, callback) => {
+          callback?.({ ok: true });
+          if (message.type === 'TRIGGER_EXTRACT') queueMicrotask(() => {
+            for (const listener of runtimeListeners) listener({ type: 'PRODUCT_DATA', attemptId: message.attemptId,
+              data: { source_url: tabUrls.get(tabId), source_platform: '1688', page_type: 'search', total_found: 0 } },
+            { tab: { id: tabId } }, () => {});
+          });
+        },
       },
     },
     console,
@@ -133,7 +141,9 @@ function loadBackground(initialStorage = {}, plannedResponses = []) {
         ok: status >= 200 && status < 300,
         status,
         text: async () => planned.body ?? '',
-        json: async () => planned.json ?? {},
+        json: async () => planned.json ?? (url.endsWith('/attempts')
+          ? { attemptId: randomUUID(), attemptToken: randomUUID(), state: 'RUNNING' }
+          : { state: 'COMPLETE' }),
       };
     },
     Headers,
@@ -166,7 +176,17 @@ function loadBackground(initialStorage = {}, plannedResponses = []) {
     installListeners,
     storage: storage.values,
     storageApi: storage,
+    runtimeListeners,
+    tabUrls,
   };
+}
+
+function collectProduct(env, product, environmentId) {
+  const tabId = env.tabUrls.size + 1;
+  env.tabUrls.set(tabId, product.source_url);
+  return new Promise((resolve) => {
+    for (const listener of env.runtimeListeners) listener({ type: 'COLLECT_CURRENT', tabId, environmentId }, {}, resolve);
+  });
 }
 
 function sendExternal(listeners, message, sender = { url: 'http://localhost:3000/product-pipeline/collected-products' }) {
@@ -242,7 +262,6 @@ test('advertises the logged-in Chrome trend and live-commerce collector capabili
   assert.equal(response?.success, true);
   assert.equal(response?.capabilities?.sourcing1688TrendCollector, true);
   assert.equal(response?.capabilities?.sourcingLiveCommerceCollector, true);
-  assert.equal(response?.capabilities?.sourcingTiktokCcCollector, true);
   assert.equal(response?.capabilities?.browserCollectionSessions, true);
   assert.equal(response?.capabilities?.kiditemEnvironmentProfilesV1, true);
   assert.equal(manifest.version, MERGED_EXTENSION_VERSION);
@@ -277,10 +296,7 @@ test('통합 서비스워커가 공용 모듈과 소싱 모듈을 소싱 워커�
   assert.ok(
     at('sourcing/live-commerce-collector.js') > at('sourcing/1688-trend-collector.js'),
   );
-  assert.ok(
-    at('sourcing/tiktok-cc-collector.js') > at('sourcing/live-commerce-collector.js'),
-  );
-  assert.ok(at('sourcing/worker.js') > at('sourcing/tiktok-cc-collector.js'));
+  assert.ok(at('sourcing/worker.js') > at('sourcing/live-commerce-collector.js'));
 
   // 세 도메인이 하나의 세션 저장소를 공유하고, 인스턴스는 공용 전역이 소유한다.
   const globalsSource = fs.readFileSync(
@@ -294,7 +310,7 @@ test('통합 서비스워커가 공용 모듈과 소싱 모듈을 소싱 워커�
 
 // 세 도메인 워커가 각자 응답하면 같은 메시지에 경쟁 응답이 된다. 공통 액션은
 // external-dispatch.js 만 처리하고, 소싱 워커는 자기 액션만 남긴다.
-test('수집 세션 공통 액션은 통합 dispatch 가 단독으로 처리하고 소싱은 exact Operation만 등록한다', () => {
+test('수집 세션 공통 액션은 통합 dispatch 가 단독으로 처리하고 1688은 direct source-owner action으로 등록한다', () => {
   const dispatchSource = fs.readFileSync(
     path.resolve('extensions/kiditem-os/background/external-dispatch.js'),
     'utf8',
@@ -304,7 +320,6 @@ test('수집 세션 공통 액션은 통합 dispatch 가 단독으로 처리하�
     'getCollectionSession',
     'cancelCollectionSession',
     'openCollectionAttentionTab',
-    'restartCollectionSession',
   ]) {
     assert.match(dispatchSource, new RegExp(`["']${action}["']`), action);
     assert.doesNotMatch(
@@ -329,9 +344,19 @@ test('수집 세션 공통 액션은 통합 dispatch 가 단독으로 처리하�
       legacyAction,
     );
   }
-  assert.match(backgroundSource, /"sourcing\.collect_1688_trends": runSourcing1688TrendOperation/);
-  assert.match(backgroundSource, /"sourcing\.collect_tiktok_cc_trends": runSourcingTiktokCcTrendOperation/);
-  assert.match(backgroundSource, /"sourcing\.collect_live_commerce_url": runSourcingLiveCommerceOperation/);
+  assert.match(backgroundSource, /collectSourcing1688Trends:\s*\{/);
+  assert.doesNotMatch(backgroundSource, /"sourcing\.collect_1688_trends": runSourcing1688TrendOperation/);
+  assert.match(backgroundSource, /collectSourcingTiktokCcTrends:\s*\{/);
+  assert.match(backgroundSource, /validate:\s*parseSourcingTiktokCcTrendStart/);
+  assert.doesNotMatch(
+    backgroundSource,
+    /"sourcing\.collect_tiktok_cc_trends": runSourcingTiktokCcTrendOperation/,
+  );
+  assert.doesNotMatch(backgroundSource, /function runSourcingTiktokCcTrendOperation\(/);
+  assert.match(backgroundSource, /collectSourcingLiveCommerce:\s*\{/);
+  assert.match(backgroundSource, /validate:\s*parseSourcingLiveCommerceStart/);
+  assert.doesNotMatch(backgroundSource, /"sourcing\.collect_live_commerce_url": runSourcingLiveCommerceOperation/);
+  assert.doesNotMatch(backgroundSource, /function runSourcingLiveCommerceOperation\(/);
 });
 
 test('accepts a heartbeat port that keeps long 1688 trend runs alive', () => {
@@ -357,13 +382,13 @@ test('stores office auth and routes requests to the office API origin', async ()
   );
 
   assert.equal(response?.success, true);
-  await env.context.sendToBackend(
+  await collectProduct(env,
     { source_url: 'https://detail.1688.com/offer/607635921546.html' },
     'office',
   );
   assert.equal(
     env.fetchCalls[0].url,
-    'http://kiditem-office/api/sourcing/extension/product-data',
+    'http://kiditem-office/api/sourcing/extension/product-data/attempts',
   );
   assert.equal(
     new Headers(env.fetchCalls[0].init.headers).get('authorization'),
@@ -391,12 +416,12 @@ test('sends the stored token as Bearer auth to the sourcing ingest API', async (
     },
   });
 
-  await env.context.sendToBackend(
+  await collectProduct(env,
     { source_url: 'https://detail.1688.com/offer/607635921546.html' },
     'local',
   );
 
-  assert.equal(env.fetchCalls.length, 1);
+  assert.equal(env.fetchCalls.length, 2);
   const headers = new Headers(env.fetchCalls[0].init.headers);
   assert.equal(headers.get('content-type'), 'application/json');
   assert.equal(headers.get('authorization'), 'Bearer stored-token');
@@ -408,7 +433,7 @@ test('ignores ambiguous legacy API bases and tokens', async () => {
     kiditem_auth_token: 'stored-token',
   });
 
-  const result = await env.context.sendToBackend(
+  const result = await collectProduct(env,
     { source_url: 'https://detail.1688.com/offer/607635921546.html' },
     'local',
   );
@@ -428,7 +453,7 @@ test('requests web resync and retries once after 401 with a changed token', asyn
     [{ status: 401 }, { status: 200 }],
   );
 
-  const pending = env.context.sendToBackend(
+  const pending = collectProduct(env,
     { source_url: 'https://detail.1688.com/offer/607635921546.html' },
     'local',
   );
@@ -440,7 +465,7 @@ test('requests web resync and retries once after 401 with a changed token', asyn
   const result = await pending;
 
   assert.equal(result.ok, true);
-  assert.equal(env.fetchCalls.length, 2);
+  assert.equal(env.fetchCalls.length, 3);
   assert.equal(
     new Headers(env.fetchCalls[1].init.headers).get('authorization'),
     'Bearer rotated-token',
@@ -458,11 +483,11 @@ test('coalesces concurrent 401 refresh signals and retries each request once', a
     [{ status: 401 }, { status: 401 }, { status: 200 }, { status: 200 }],
   );
 
-  const first = env.context.sendToBackend(
+  const first = collectProduct(env,
     { source_url: 'https://detail.1688.com/offer/1.html' },
     'local',
   );
-  const second = env.context.sendToBackend(
+  const second = collectProduct(env,
     { source_url: 'https://detail.1688.com/offer/2.html' },
     'local',
   );
@@ -474,13 +499,13 @@ test('coalesces concurrent 401 refresh signals and retries each request once', a
   const results = await Promise.all([first, second]);
 
   assert.deepEqual(results.map((result) => result.ok), [true, true]);
-  assert.equal(env.fetchCalls.length, 4);
+  assert.equal(env.fetchCalls.length, 6);
   assert.deepEqual(env.dispatchedEvents, ['kiditem:extension-auth-required']);
 });
 
 test('fails closed when the selected environment is not authenticated', async () => {
   const env = loadBackground();
-  const result = await env.context.sendToBackend(
+  const result = await collectProduct(env,
     { source_url: 'https://detail.1688.com/offer/1.html' },
     'local',
   );
