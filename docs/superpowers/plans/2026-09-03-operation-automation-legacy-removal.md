@@ -15,14 +15,15 @@
 ## Global Constraints
 
 - This is the declared platform-boundary reconstruction exception to the one-domain-per-session rule; unrelated domain cleanup remains excluded.
-- Classify agent work before dispatch. Use Luna/max for mechanical deletion,
-  import/module wiring, and local DTO changes. Mark work that protects
-  invariants across two or more boundaries as `경계 불변식 작업`
-  (`boundary-invariant work`) and use Terra/max; this includes database
-  transaction/CAS/idempotency, durable
-  state transitions, retry/stale handling, AI job lifecycle,
-  extension-to-server contracts, and schema/data cutover.
-- The root agent owns integration and tests. Run one Sol/max final review only
+- Use Astra for all implementation and review subagents, with high reasoning
+  by default. Simple deletion, import/module wiring, and local changes may use
+  medium. Continue to mark
+  work protecting invariants across two or more boundaries as `경계 불변식 작업`
+  (`boundary-invariant work`), but do not select another model for it.
+  After every two feedback-to-fix rounds on the same task, raise reasoning one
+  tier (medium → high → xhigh → max). Do not repeat an unchanged review
+  merely to trigger escalation.
+- The root agent owns integration and tests. Run one Astra/high final review only
   after implementation and focused tests; that review reports only new P0/P1
   findings and deletable complexity through the Ponytail lens.
 - A business action is removed only after its owner/capability acceptance test passes, or the ownership manifest names it `DELETE` and operating preflight confirms no required schedule/workflow.
@@ -249,9 +250,73 @@ Operation routes. Their existing `SourcingEvidenceIngestionRun` lifecycle must
 first be hard-reshaped to the three-state source-attempt contract, including
 fixed expiry, frozen plan, terminal checksum/current COMPLETE pointer, and
 owner-transaction Alert handling. Implement and verify that scoped schema/data
-cutover with Terra/max after the Advertising slice and before deleting the
+cutover with Astra/high after the Advertising slice and before deleting the
 generic backend runtime. Do not add a temporary route, compatibility layer, or
 generic source-attempt model.
+
+This is a lifecycle transplant, not a collector rewrite. Preserve each
+extension collector's existing URL, target selection and count, region,
+pagination, login/block detection, extractor/content script, response mapping,
+deduplication, timeout, retry, and failure semantics. A server-frozen plan must
+contain the same inputs the collector previously selected at start; it must not
+introduce new defaults or limits. Characterization tests prove the old target
+plan and normalized output are unchanged for the same inputs before the owner
+attempt replaces `OperationRun`, claim, and heartbeat. Keep live-site behavior
+marked unverified until browser QA exercises it.
+
+**Sourcing checkpoint (2026-09-05):** Applied the approved Ponytail shrink:
+1688, TikTok, and Live share one extension transport/correlation helper,
+one Sourcing-local HTTP token/public-response helper, and owner primitives.
+Collector plans, extraction, normalization, and terminal interpretation remain
+source-specific; no new worker or generic lifecycle was introduced. Removed
+the obsolete browser Live Operation controller/service/catalog registration
+after its registration regression tests failed, then passed. Taobao remains
+in scope and has not been removed.
+
+Focused verification: 45 server tests and 59 extension tests pass, including
+wire retries, collector characterization, route wiring, and worker boot. The
+cutover scanner still reports 865 legacy references, zero unowned producers,
+and zero source-to-ABC references. This is not full acceptance: shared Sourcing
+read/write convergence, Wing/server-producer migration, schema/data cutover,
+NestJS boot, web build, and actual browser QA remain open. The full server build
+fails with 71 type errors, including retained Sourcing callers of removed
+interfaces and ABC/Advertising type mismatches. Resolve these as integration
+work before boot/merge acceptance. No operating DB was accessed for this
+checkpoint; live-site behavior remains unverified.
+
+**Integration checkpoint (2026-09-06):** Source-owner work remains incomplete;
+the earlier checkpoint is historical evidence, not the current error count.
+Sourcing's URL ingestion and shared Trend callers now use direct owners;
+the Sourcing unit gate passes 113 files / 654 tests. Inventory shipment summary
+now uses a frozen attempt, immutable date observations, one atomic terminal
+and Alert transaction, and separate capture/calendar reads. Existing untagged
+dates remain unverified. Its HTTP/PostgreSQL gate passes 7 tests; integrated
+extension, web, and Inventory module/service gates pass 82, 23, and 13 tests.
+The actual provider site is still unverified.
+
+Ponytail checks removed unmounted Advertising UI, the orphan page-owned
+Sellpia snapshot bridge, unused Orders Operation wrappers, and the uncalled
+application-wide cancellation endpoint. Direct AI cancellation stays intact;
+its six focused suites pass, and integrated application-root tests pass 8.
+These deletions do not count as completion of the remaining live collectors.
+Local commits include `7ecc172`, `3fb713a77`, and `9c597fb54`; nothing was deployed.
+
+The current scanner reports 741 legacy references, zero unowned producers, and
+zero source-to-ABC references. Server build still fails on 3 retired Automation
+session exports; the latest web build fails on 9 retained browser-session
+imports. Do not restore compatibility exports to hide these gaps. Conventions
+still stops at schema/ERD drift while the schema cutover remains in flight.
+
+Resolve the documented live-collector conflicts before changing their policy:
+catalog chunks currently mutate canonical data before finalization; Advertising
+keyword completion can report partial coverage; physical Sellpia stock's old
+`full` action includes a different profit window; Shadow admission retains a
+daily paid-IO limit. Preserve collector inputs and output meaning until the
+necessary decision is explicit. Orders artifact-only and canonical ingestion
+branches also remain separate responsibilities, not a new generic runtime.
+Operating preflight/clone approval, remaining owner migrations, final schema
+cutover, successful boot/build, browser QA, and the one final Astra review are
+still open. No operating database or clone was accessed for this checkpoint.
 
 - [ ] **Step 1: Add failing no-Operation assertions to existing owner acceptance tests**
 
