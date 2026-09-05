@@ -768,13 +768,6 @@ describe('readiness extension collection', () => {
       resolve(process.cwd(), 'src/app/(analytics)/dashboard/page.tsx'),
       'utf8',
     );
-    const scrapeCollectorSource = readFileSync(
-      resolve(
-        process.cwd(),
-        'src/app/(advertising)/ad-ops/components/ScrapeCollector.tsx',
-      ),
-      'utf8',
-    );
     const competitorExtensionSource = readFileSync(
       resolve(
         process.cwd(),
@@ -794,9 +787,6 @@ describe('readiness extension collection', () => {
     expect(readinessSource).not.toContain('window.open');
     expect(dashboardSource).not.toContain('window.open');
     expect(dashboardSource).toContain("producer: 'dashboard.wing_sales'");
-    expect(scrapeCollectorSource).not.toContain('window.open');
-    expect(scrapeCollectorSource).toContain("'advertising.scrape_targets'");
-    expect(scrapeCollectorSource).toContain('BrowserCollectionRunControls');
     expect(competitorExtensionSource).toContain(
       'COMPETITOR_EXTENSION_MIN_VERSION = KIDITEM_EXTENSION_MIN_VERSION',
     );

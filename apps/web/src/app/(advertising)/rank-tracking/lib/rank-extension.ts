@@ -1,14 +1,10 @@
-// coupang-ads-scraper 확장의 쿠팡 검색순위 액션 3종 래퍼.
-// checkCoupangKeywordRank(단건) / runCoupangKeywordRankCheck(일괄 시작) /
-// getCoupangRankCheckStatus(진행률 폴링). 순위 매칭/저장은 서버가 담당하고
-// 확장은 공개 검색 페이지 SERP 캡처 + /api/ads/extension/sync 전송만 수행한다.
+// Wing 판매순위 일괄 수집 시작과 진행률 조회를 위한 확장 래퍼.
 
 import {
   detectExtensionId,
   isChromeExtensionRuntimeAvailable,
   sendToExtension,
 } from "@/lib/extension-bridge";
-import type { SerpItem } from "./rank-api";
 import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
 
 // 통합 확장(kiditem-os)은 세 확장을 합치며 버전을 1.0.0 으로 리셋했다. 개별
@@ -20,9 +16,6 @@ export const RANK_EXTENSION_CHROME_REQUIRED =
 export const RANK_EXTENSION_REQUIRED =
   "KIDITEM 쿠팡 확장프로그램을 설치/새로고침한 뒤 다시 실행하세요.";
 export const RANK_EXTENSION_RELOAD_REQUIRED = `KIDITEM 쿠팡 확장프로그램이 예전 버전입니다. chrome://extensions 에서 확장프로그램을 새로고침한 뒤 다시 실행하세요. (필요 버전 ${RANK_EXTENSION_MIN_VERSION}+)`;
-
-/** 페이지 이동 딜레이 포함 최대 3페이지 캡처를 감안한 단건 체크 타임아웃. */
-export const RANK_CHECK_TIMEOUT_MS = 120_000;
 
 export type RankExtensionGate =
   | { status: "ready"; extensionId: string; version: string | null }
@@ -39,21 +32,6 @@ interface KidItemExtensionPingResponse {
     wingCatalogSalesRankCancel?: boolean;
     browserCollectionSessions?: boolean;
   };
-}
-
-export interface CheckKeywordRankResponse {
-  success?: boolean;
-  cancelled?: boolean;
-  attentionRequired?: boolean;
-  runId?: string | null;
-  error?: string;
-  keyword?: string;
-  pagesScanned?: number;
-  items?: SerpItem[];
-  total?: number;
-  /** true = 서버(/api/ads/extension/sync) 전송까지 완료. */
-  posted?: boolean;
-  wall?: string | null;
 }
 
 export interface RunRankCheckResponse {
@@ -146,47 +124,6 @@ export function rankExtensionGateMessage(
   if (gate.status === "missing") return RANK_EXTENSION_REQUIRED;
   if (gate.status === "outdated") return RANK_EXTENSION_RELOAD_REQUIRED;
   return null;
-}
-
-/** 단일 키워드 SERP 캡처(+기본 서버 전송). 확장이 www.coupang.com 검색 탭을 연다. */
-export async function checkCoupangKeywordRank(
-  extensionId: string,
-  input: { keyword: string; maxPages?: number; runId?: string },
-): Promise<CheckKeywordRankResponse> {
-  const keyword = input.keyword.trim();
-  if (!keyword) throw new Error("검색 키워드를 입력하세요.");
-
-  const response = await sendToExtension<CheckKeywordRankResponse>(
-    extensionId,
-    {
-      action: "checkCoupangKeywordRank",
-      keyword,
-      maxPages: input.maxPages ?? 2,
-      ...(input.runId ? { runId: input.runId } : {}),
-    },
-    RANK_CHECK_TIMEOUT_MS,
-  );
-  if (
-    !response?.success &&
-    response?.cancelled &&
-    typeof response.runId === "string"
-  ) {
-    return { ...response, items: [] };
-  }
-  if (
-    !response?.success &&
-    response?.attentionRequired &&
-    typeof response.runId === "string"
-  ) {
-    return { ...response, items: [] };
-  }
-  if (!response?.success) {
-    throw new Error(response?.error ?? "쿠팡 키워드 순위 수집 실패");
-  }
-  return {
-    ...response,
-    items: Array.isArray(response.items) ? response.items : [],
-  };
 }
 
 /** 활성 트래커 전체 일괄 확인 시작 — 즉시 runId 반환, 진행률은 status 폴링. */

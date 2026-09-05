@@ -1,11 +1,10 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   detectExtensionId,
   isChromeExtensionRuntimeAvailable,
   sendToExtension,
 } from "@/lib/extension-bridge";
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  checkCoupangKeywordRank,
   detectRankExtensionGate,
   isRankExtensionVersionAtLeast,
   RANK_EXTENSION_MIN_VERSION,
@@ -64,42 +63,6 @@ describe("rank extension version gate", () => {
       status: "outdated",
       extensionId: "coupang-extension",
       version: "1.0.2",
-    });
-  });
-
-  it("preserves an attention run so the generic controls can recover it", async () => {
-    vi.mocked(sendToExtension).mockResolvedValue({
-      success: false,
-      attentionRequired: true,
-      runId: "11111111-1111-4111-8111-111111111111",
-      error: "쿠팡 로그인이 필요합니다.",
-    });
-
-    await expect(
-      checkCoupangKeywordRank("coupang-extension", {
-        keyword: "문구세트",
-      }),
-    ).resolves.toMatchObject({
-      attentionRequired: true,
-      runId: "11111111-1111-4111-8111-111111111111",
-    });
-  });
-
-  it("returns a cancelled single-rank run without turning it into a collection error", async () => {
-    vi.mocked(sendToExtension).mockResolvedValue({
-      success: false,
-      cancelled: true,
-      runId: "11111111-1111-4111-8111-111111111111",
-    });
-
-    await expect(
-      checkCoupangKeywordRank("coupang-extension", {
-        keyword: "문구세트",
-      }),
-    ).resolves.toMatchObject({
-      cancelled: true,
-      runId: "11111111-1111-4111-8111-111111111111",
-      items: [],
     });
   });
 
