@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   COUPANG_CATALOG_COLLECTOR_VERSION,
   type CoupangCatalogCollectionRun,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { toast } from 'sonner';
+import {
+  beginWingRankBatch,
+  fetchWingRankBatch,
+} from '@/app/(advertising)/rank-tracking/lib/rank-api';
 import {
   detectRankExtensionGate,
   rankExtensionGateMessage,
@@ -19,6 +23,7 @@ import {
 } from '@/lib/browser-collection-session';
 import { startCoupangCatalogBrowser } from '@/lib/coupang-catalog-extension';
 import { detectExtensionId } from '@/lib/extension-bridge';
+import { transferExtensionAuthTo } from '@/lib/extension-auth';
 import { queryKeys } from '@/lib/query-keys';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { collectSellpiaSaleSummaryFromExtension } from '@/lib/sellpia-sales-collection';
@@ -45,8 +50,8 @@ interface ChannelAccountOption {
 
 interface BackgroundReadinessRun {
   runId: string;
-  checkKey: 'coupang_products' | 'wing_kpi';
-  producer: 'channels.coupang_catalog' | 'advertising.wing_rank';
+  checkKey: 'coupang_products';
+  producer: 'channels.coupang_catalog';
 }
 
 function makeClientRunKey(): string {
@@ -102,8 +107,20 @@ export function useReadinessCollection({
   const [backgroundRun, setBackgroundRun] =
     useState<BackgroundReadinessRun | null>(null);
   const settledBackgroundRunIdRef = useRef<string | null>(null);
+  const [wingBatchKey, setWingBatchKey] = useState<string | null>(null);
+  const [wingStarting, setWingStarting] = useState(false);
+  const observedWingTerminals = useRef('');
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const wingOwner = useQuery({
+    queryKey: [...queryKeys.ads.keywordRank(), 'batch', wingBatchKey],
+    queryFn: () => fetchWingRankBatch(wingBatchKey!),
+    enabled: !!wingBatchKey && !wingStarting,
+    refetchInterval: (query) =>
+      !query.state.data || query.state.data.attempts.some((attempt) => attempt.state === 'RUNNING')
+        ? 2000
+        : false,
+  });
   const backgroundSessionQuery = useBrowserCollectionSession(
     backgroundRun?.runId ?? null,
   );
@@ -134,6 +151,41 @@ export function useReadinessCollection({
       setPendingKey(null);
     }
   };
+
+  useEffect(() => {
+    if (wingOwner.isError) {
+      toast.error('서버의 Wing 수집 결과를 확인하지 못했습니다.');
+    }
+  }, [wingOwner.isError]);
+
+  useEffect(() => {
+    if (wingStarting || !wingOwner.data) return;
+    const attempts = wingOwner.data.attempts;
+    const running = attempts.some((attempt) => attempt.state === 'RUNNING');
+    setPendingKey((current) =>
+      current === null || current === 'wing_kpi'
+        ? running ? 'wing_kpi' : null
+        : current,
+    );
+    const terminals = attempts.filter((attempt) => attempt.state !== 'RUNNING');
+    const signature = terminals
+      .map((attempt) => `${attempt.attemptId}:${attempt.state}`).join(',');
+    if (!signature || signature === observedWingTerminals.current) return;
+    observedWingTerminals.current = signature;
+    const failures = terminals.filter((attempt) => attempt.state === 'FAILED');
+    if (failures.length) {
+      toast.error(
+        `${failures.map((attempt) => `${attempt.keyword}: ${attempt.errorMessage ?? '수집 실패'}`).join(', ')} · 이전 정상 데이터는 유지됩니다.`,
+      );
+    } else if (!running) {
+      toast.success(`${terminals.length}/${attempts.length}개 키워드 수집 완료`);
+    }
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.ads.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
+      queryClient.invalidateQueries({ queryKey: ['traffic'] }),
+    ]).then(() => refetchReadiness());
+  }, [wingStarting, wingOwner.data, queryClient, refetchReadiness]);
 
   useEffect(() => {
     if (!backgroundRun || !backgroundSession) return;
@@ -260,25 +312,12 @@ export function useReadinessCollection({
     }
 
     if (check.key === 'wing_kpi') {
-      const producer = readinessCollectionProducer(check.key);
-      if (producer !== 'advertising.wing_rank') {
-        toast.error('지원하지 않는 브라우저 수집 항목입니다.');
-        return;
-      }
-
       setPendingKey(check.key);
       setActiveSession(null);
-      settledBackgroundRunIdRef.current = null;
+      setWingStarting(true);
       try {
         const gate = await detectRankExtensionGate();
         if (gate.status !== 'ready') {
-          if (gate.status === 'missing' || gate.status === 'chrome_required') {
-            await recordMissingBrowserCollection(
-              producer,
-              { checkKey: check.key, trigger: 'readiness' },
-              requestedRunId,
-            );
-          }
           const message =
             rankExtensionGateMessage(gate) ??
             'Wing 판매순위 수집 확장프로그램을 확인할 수 없습니다.';
@@ -288,21 +327,32 @@ export function useReadinessCollection({
           return;
         }
 
-        const runId = await issueBrowserCollectionRunId(requestedRunId);
-        const result = await runWingSalesRankCheck(gate.extensionId, runId);
-        if (!result.started) {
+        await transferExtensionAuthTo(gate.extensionId);
+        const key = makeClientRunKey();
+        setWingBatchKey(key);
+        observedWingTerminals.current = '';
+        const batch = await beginWingRankBatch(key);
+        queryClient.setQueryData(
+          [...queryKeys.ads.keywordRank(), 'batch', key], batch,
+        );
+        if (!batch.attempts.length) {
+          setWingBatchKey(null);
           toast.info('순위를 확인할 자사 상품이 없습니다.');
           setPendingKey(null);
           return;
         }
-        setBackgroundRun({
-          runId: result.runId ?? runId,
-          checkKey: 'wing_kpi',
-          producer: 'advertising.wing_rank',
-        });
         toast.info(
-          `자사 상품 ${result.productTotal ?? 0}개의 Wing 판매순위 수집을 시작했습니다.`,
+          `자사 상품 ${batch.selection.productCount}개의 Wing 판매순위 수집을 요청했습니다.`,
+          {
+            action: {
+              label: '진행 보기',
+              onClick: () => {
+                window.open(`/rank-tracking?rankBatch=${key}`, '_blank', 'noopener,noreferrer');
+              },
+            },
+          },
         );
+        await runWingSalesRankCheck(gate.extensionId, key);
       } catch (error) {
         toast.error(
           error instanceof Error
@@ -310,6 +360,8 @@ export function useReadinessCollection({
             : 'Wing 판매순위 일괄 확인 시작 실패',
         );
         setPendingKey(null);
+      } finally {
+        setWingStarting(false);
       }
       return;
     }

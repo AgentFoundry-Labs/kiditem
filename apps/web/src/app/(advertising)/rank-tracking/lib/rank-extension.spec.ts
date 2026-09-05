@@ -1,9 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  detectExtensionId,
-  isChromeExtensionRuntimeAvailable,
-  sendToExtension,
-} from "@/lib/extension-bridge";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { KIDITEM_EXTENSION_ID_KEY } from "@/lib/extension-bridge";
 import {
   detectRankExtensionGate,
   isRankExtensionVersionAtLeast,
@@ -11,17 +7,28 @@ import {
   runWingSalesRankCheck,
 } from "./rank-extension";
 
-vi.mock("@/lib/extension-bridge", () => ({
-  detectExtensionId: vi.fn(),
-  isChromeExtensionRuntimeAvailable: vi.fn(),
-  sendToExtension: vi.fn(),
-}));
+function extensionReply(reply: unknown, messages: unknown[] = []) {
+  vi.stubGlobal("chrome", {
+    runtime: {
+      sendMessage: (
+        _id: string,
+        message: unknown,
+        callback: (value: unknown) => void,
+      ) => {
+        messages.push(message);
+        callback(reply);
+      },
+    },
+  });
+}
 
 describe("rank extension version gate", () => {
   beforeEach(() => {
-    vi.mocked(sendToExtension).mockReset();
-    vi.mocked(detectExtensionId).mockReset();
-    vi.mocked(isChromeExtensionRuntimeAvailable).mockReset();
+    window.localStorage.setItem(KIDITEM_EXTENSION_ID_KEY, "coupang-extension");
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
   });
 
   it("accepts the merged extension and rejects a pre-merge install", () => {
@@ -47,12 +54,12 @@ describe("rank extension version gate", () => {
   });
 
   it("rejects an extension without browserCollectionSessions", async () => {
-    vi.mocked(isChromeExtensionRuntimeAvailable).mockReturnValue(true);
-    vi.mocked(detectExtensionId).mockResolvedValue("coupang-extension");
-    vi.mocked(sendToExtension).mockResolvedValue({
+    extensionReply({
       success: true,
       version: "1.0.2",
       capabilities: {
+        kiditemEnvironmentProfilesV1: true,
+        wingRankSourceOwnerV1: true,
         wingCatalogSalesRank: true,
         wingCatalogSalesRankCancel: true,
         browserCollectionSessions: false,
@@ -66,21 +73,59 @@ describe("rank extension version gate", () => {
     });
   });
 
-  it("passes the current run id through a Wing same-run restart", async () => {
-    vi.mocked(sendToExtension).mockResolvedValue({
+  it("rejects a legacy rank collector even when the older rank and session capabilities are present", async () => {
+    extensionReply({
       success: true,
-      started: true,
-      runId: "11111111-1111-4111-8111-111111111111",
+      version: "1.0.2",
+      capabilities: {
+        kiditemEnvironmentProfilesV1: true,
+        browserCollectionSessions: true,
+        wingCatalogSalesRank: true,
+        wingCatalogSalesRankCancel: true,
+      },
     });
+    await expect(detectRankExtensionGate()).resolves.toMatchObject({
+      status: "outdated",
+    });
+  });
+
+  it("accepts the source-owner transport without requiring retired rank capabilities", async () => {
+    extensionReply({
+      success: true,
+      version: "1.0.2",
+      capabilities: {
+        kiditemEnvironmentProfilesV1: true,
+        browserCollectionSessions: true,
+        wingRankSourceOwnerV1: true,
+      },
+    });
+    await expect(detectRankExtensionGate()).resolves.toEqual({
+      status: "ready",
+      extensionId: "coupang-extension",
+      version: "1.0.2",
+    });
+  });
+
+  it("sends only the frozen batch receipt key, without a page-owned plan", async () => {
+    const messages: unknown[] = [];
+    extensionReply(
+      {
+        success: true,
+        started: true,
+      },
+      messages,
+    );
 
     await runWingSalesRankCheck(
       "coupang-extension",
       "11111111-1111-4111-8111-111111111111",
     );
 
-    expect(sendToExtension).toHaveBeenCalledWith("coupang-extension", {
-      action: "runWingSalesRankCheck",
-      runId: "11111111-1111-4111-8111-111111111111",
-    });
+    expect(messages).toEqual([
+      {
+        action: "collectAdvertisingWingRankBatch",
+        idempotencyKey: "11111111-1111-4111-8111-111111111111",
+      },
+    ]);
   });
 });

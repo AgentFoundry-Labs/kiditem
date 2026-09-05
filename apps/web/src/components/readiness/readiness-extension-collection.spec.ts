@@ -23,8 +23,22 @@ import {
 import { useReadinessCollection } from './useReadinessCollection';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
 import type { BrowserCollectionSessionView } from '@kiditem/shared/browser-collection-session';
+import type { WingRankBatch } from '@kiditem/shared/advertising';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
+const WING_BATCH_PATH = '/api/ads/keyword-rank/wing/batch-attempts';
+function wingBatch(state: 'RUNNING' | 'COMPLETE' = 'RUNNING'): WingRankBatch {
+  return {
+    attempts: [{ attemptId: RUN_ID, keyword: '연필', generation: '1', state,
+      expiresAt: '2026-09-10T00:00:00.000Z', actualCutoffAt: state === 'COMPLETE' ? '2026-09-06T00:00:00.000Z' : null,
+      itemCount: 0, errorCode: null, errorMessage: null,
+      plan: { sourceType: 'coupang_wing_rank', parserVersion: 'wing-rank-v1', keyword: '연필', maxPages: 5,
+        targets: [{ vendorItemId: 'V1', productName: '연필', category: null, keyword: '연필', candidateIndex: 0 }] } }],
+    selection: { productCount: 1, candidateCount: 1, keywordCount: 1, targetKeywordCount: 1,
+      resumed: false, pendingProductCount: 1, targets: [{ keyword: '연필', vendorItemIds: ['V1'], productCount: 1,
+        primaryProductCount: 1, pendingProductCount: 1, pendingPrimaryProductCount: 1, phase: 'primary', maxPages: 5 }] },
+  };
+}
 const COMPATIBLE_PING = {
   success: true,
   version: '1.2.102',
@@ -190,17 +204,15 @@ describe('readiness extension collection', () => {
     mocks.runWingSalesRankCheck.mockResolvedValue({
       success: true,
       started: true,
-      runId: RUN_ID,
-      productTotal: 244,
     });
-    vi.mocked(apiClient.get).mockResolvedValue([
+    vi.mocked(apiClient.get).mockImplementation(async (path) => path === WING_BATCH_PATH ? wingBatch() : [
       {
         id: '00000000-0000-4000-8000-000000000001',
         channel: 'coupang',
         isPrimary: true,
       },
     ]);
-    vi.mocked(apiClient.post).mockResolvedValue({ id: RUN_ID });
+    vi.mocked(apiClient.post).mockImplementation(async (path) => path === WING_BATCH_PATH ? wingBatch() : { id: RUN_ID });
     mocks.startCoupangCatalogBrowser.mockResolvedValue('coupang-extension');
     mocks.transferExtensionAuthTo.mockResolvedValue(undefined);
     mocks.wingSession = null;
@@ -636,7 +648,7 @@ describe('readiness extension collection', () => {
     expect(toast.success).toHaveBeenCalledWith('1/1개 수집 완료');
   });
 
-  it('records personal attention when detection fails and never opens a tab', async () => {
+  it('shows missing Wing guidance without creating a legacy run or opening a tab', async () => {
     mocks.detectRankExtensionGate.mockResolvedValue({ status: 'missing' });
     const open = vi.spyOn(window, 'open');
     const { result } = renderHook(
@@ -649,16 +661,14 @@ describe('readiness extension collection', () => {
     });
 
     expect(mocks.detectRankExtensionGate).toHaveBeenCalledTimes(1);
-    expect(recordMissingBrowserCollection).toHaveBeenCalledWith(
-      'advertising.wing_rank',
-      { checkKey: 'wing_kpi', trigger: 'readiness' },
-      undefined,
-    );
+    expect(recordMissingBrowserCollection).not.toHaveBeenCalled();
+    expect(mocks.issueRunId).not.toHaveBeenCalled();
+    expect(toast.warning).toHaveBeenCalled();
     expect(sendToExtension).not.toHaveBeenCalled();
     expect(open).not.toHaveBeenCalled();
   });
 
-  it('keeps the current run id when a web restart cannot find the extension', async () => {
+  it('does not reuse a retired Wing run id when the extension is missing', async () => {
     mocks.detectRankExtensionGate.mockResolvedValue({ status: 'missing' });
     const { result } = renderHook(
       () => useReadinessCollection({ refetchReadiness: vi.fn() }),
@@ -669,11 +679,8 @@ describe('readiness extension collection', () => {
       await result.current.handleCollect(check('wing_kpi'), RUN_ID);
     });
 
-    expect(recordMissingBrowserCollection).toHaveBeenCalledWith(
-      'advertising.wing_rank',
-      { checkKey: 'wing_kpi', trigger: 'readiness' },
-      RUN_ID,
-    );
+    expect(recordMissingBrowserCollection).not.toHaveBeenCalled();
+    expect(mocks.issueRunId).not.toHaveBeenCalled();
   });
 
   it('does not automatically start campaign ad sync after daily ads finish', async () => {
@@ -720,11 +727,12 @@ describe('readiness extension collection', () => {
     expect(refetchReadiness).toHaveBeenCalledTimes(2);
   });
 
-  it('keeps Wing rank pending while its background session runs and settles from session state', async () => {
+  it('keeps Wing pending until the owner receipt settles, ignoring legacy session state', async () => {
     const refetchReadiness = vi.fn().mockResolvedValue(undefined);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const view = renderHook(
       () => useReadinessCollection({ refetchReadiness }),
-      { wrapper: wrapper() },
+      { wrapper: wrapper(client) },
     );
 
     await act(async () => {
@@ -734,27 +742,16 @@ describe('readiness extension collection', () => {
     expect(view.result.current.pendingKey).toBe('wing_kpi');
     expect(runWingSalesRankCheck).toHaveBeenCalledWith(
       'coupang-extension',
-      RUN_ID,
+      expect.stringMatching(/^[0-9a-f-]{36}$/i),
     );
-
-    mocks.wingSession = {
-      ...session('advertising.wing_rank'),
-      status: 'running',
-      finishedAt: null,
-    };
-    view.rerender();
-    await waitFor(() => {
-      expect(view.result.current.activeSession).toEqual(
-        expect.objectContaining({
-          producer: 'advertising.wing_rank',
-          status: 'running',
-        }),
-      );
-    });
-    expect(view.result.current.pendingKey).toBe('wing_kpi');
 
     mocks.wingSession = session('advertising.wing_rank');
     view.rerender();
+    expect(view.result.current.activeSession).toBeNull();
+    expect(view.result.current.pendingKey).toBe('wing_kpi');
+
+    vi.mocked(apiClient.get).mockResolvedValue(wingBatch('COMPLETE'));
+    await act(async () => { await client.invalidateQueries(); });
     await waitFor(() => expect(view.result.current.pendingKey).toBeNull());
     expect(refetchReadiness).toHaveBeenCalledTimes(1);
   });
@@ -784,7 +781,6 @@ describe('readiness extension collection', () => {
     );
 
     expect(readinessSource).not.toContain('fallbackOpenTabs');
-    expect(readinessSource).not.toContain('window.open');
     expect(dashboardSource).not.toContain('window.open');
     expect(dashboardSource).toContain("producer: 'dashboard.wing_sales'");
     expect(competitorExtensionSource).toContain(
