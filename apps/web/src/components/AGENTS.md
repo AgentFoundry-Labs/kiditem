@@ -1,7 +1,7 @@
 # web/components - Shared Frontend Components
 
 `src/components/` owns shared React components used by multiple route groups:
-layout, providers, panel, chat, generic product/coupang widgets, and reusable
+layout, providers, alerts, chat, generic product/coupang widgets, and reusable
 UI primitives. Route-local UI should stay inside `src/app/(group)/route/`.
 
 ## Ownership Rules
@@ -11,7 +11,7 @@ UI primitives. Route-local UI should stay inside `src/app/(group)/route/`.
 - Keep domain-specific copy, query keys, and mutations route-local unless the
   component is intentionally a shared domain surface.
 - Shared components may call `apiClient` only when the component owns a global
-  app-shell concern such as readiness, chat, panel, or provider behavior.
+  app-shell concern such as readiness, chat, alerts, or provider behavior.
 - Prefer props for route-specific actions over importing route-local APIs.
 
 ## Styling Rules
@@ -26,5 +26,4 @@ UI primitives. Route-local UI should stay inside `src/app/(group)/route/`.
 
 - Do not put page-specific sections here to avoid route ownership drift.
 - Do not add global state when local props or route-local hooks are enough.
-- Provider, panel, and UI primitive changes require checking their nested
-  AGENTS guide first.
+- Before changing a nested component area, discover and read its scoped guide.

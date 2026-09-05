@@ -9,7 +9,7 @@ the nearest scoped guide owns route-specific composition.
 
 - `src/components/`: UI shared by at least two route groups.
 - `components/providers/`: singleton app wiring and session/query providers.
-- `components/panel/`: live panel, SSE/backfill, store, and actions.
+- `components/alerts/`: the global durable-notification view.
 - `components/ui/`: presentational primitives without API, auth, store, route,
   or domain behavior.
 - `src/lib/`, `src/hooks/`, and `src/store/`: shared infrastructure,
@@ -22,8 +22,10 @@ the nearest scoped guide owns route-specific composition.
 - Inherit the root database and organization-scope prohibitions.
 - Server state uses React Query, domain hooks, and `queryKeys`. Poll with
   `refetchInterval` and invalidate only affected families after mutation.
-- Panel is the existing SSE exception. A new realtime domain requires a scoped
-  design and instruction update.
+- Notifications use the shared Alert query: foreground polling every ten
+  seconds, refetch on focus, and invalidation after dismissal. Keep progress
+  and source status in their owner screens. A new realtime domain requires a
+  scoped design and instruction update.
 - Use focused shared types, `isApiError` for API failures, `sonner` for
   user status, `cn()` plus semantic tokens for styles, Lucide for icons, and
   shared formatting helpers.
@@ -52,7 +54,7 @@ Premium/Enterprise APIs, private internals, or `@copilotkit/react-ui`.
   orchestration without changing API behavior.
 - Update [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md) for route-group,
   route, or shared-ownership changes.
-- Agent OS visualization, live panel, print helpers, operational settings, and
+- Agent OS visualization, notifications, print helpers, operational settings, and
   auth routes keep their documented special ownership; do not generalize them
   into other route groups.
 

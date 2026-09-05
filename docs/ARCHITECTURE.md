@@ -139,10 +139,10 @@ Business owners register handlers and retain their own result sinks.
 `OperationAlert` remains a personal notification projection, not the source of
 truth for an operation run. Browser runtime attempts are fenced by an
 `attemptToken` so stale extension reports cannot change a newer attempt.
-The global notification sheet is one chronological list: Alert rows and run
-projections share the same compact row presentation, with no separate Agent OS
-or `내 작업` card section. Rocket collection remains on that path pending its
-owner cutover; shipment-summary failures already use Inventory's source Alert.
+The global notification view reads durable Alerts only, with ten-second
+foreground polling, focus refetch, and dismissal invalidation. It does not
+merge run progress or replay an SSE stream. Source screens own their progress
+and current-source reads; shipment-summary failures use Inventory's source Alert.
 
 Sourcing has one exact ownership flow:
 
@@ -654,7 +654,7 @@ Agent OS presents the same conversation history and workspace, suppressing
 only the duplicate chat body while preserving the live runtime.
 
 `RightAuxiliaryPanel` is the only right-side surface. Its mutually exclusive
-`notifications | ai_chat | null` state renders `NotificationPanelContent` or
+`notifications | ai_chat | null` state renders `AlertsPopover` or
 `ConversationPanel`; there is no `PanelSheet` shell or panel-open store. At
 1536 pixels and above (`2xl`) it is a 352-pixel push dock that reduces the
 work-surface width; from 768 through 1535 pixels it is the same 352-pixel
