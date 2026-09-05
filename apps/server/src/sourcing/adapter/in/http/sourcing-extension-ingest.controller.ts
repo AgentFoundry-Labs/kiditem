@@ -1,11 +1,11 @@
 import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
-import { parseAttemptToken, toPublicAttempt, toPublicStatus } from './sourcing-source-attempt-http';
 import { Throttle } from '@nestjs/throttler';
 import { parseRequiredIdempotencyKey } from '../../../../common/http/required-idempotency-key';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import { SourcingExtensionIngestService } from '../../../application/service/sourcing-extension-ingest.service';
 import { SourcingService } from '../../../application/service/sourcing.service';
+import { parseAttemptToken, toPublicAttempt, toPublicStatus } from './sourcing-source-attempt-http';
 import {
   CreateProductGenerationDto,
   ListExtensionProductsQueryDto,
@@ -90,8 +90,9 @@ export class SourcingExtensionIngestController {
     @Body() body: ScrapeUrlBodyDto,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
   ) {
-    return this.sourcingService.scrapeUrl(body.url.trim(), organizationId, user.id);
+    return this.sourcingService.scrapeUrl(body.url.trim(), organizationId, user.id, parseRequiredIdempotencyKey(idempotencyKey));
   }
 
   @Get('scrape-url/status')

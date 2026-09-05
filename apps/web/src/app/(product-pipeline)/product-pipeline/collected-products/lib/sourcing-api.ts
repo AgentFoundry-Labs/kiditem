@@ -10,7 +10,6 @@ import {
 } from '@kiditem/shared/sourcing';
 import { apiClient } from '@/lib/api-client';
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
-import type { OperationRunName } from '@kiditem/shared/identifiers';
 
 export type ProductStatus = SourcingCandidateStatus;
 
@@ -210,23 +209,43 @@ export interface ScrapeUrlResponse {
   message: string;
   product_id: string | null;
   skipped?: boolean;
-  operation?: OperationRunName | null;
+  attempt: ScrapeUrlAttempt | null;
   candidateId?: string | null;
   href?: string | null;
 }
 
-export type ScrapeUrlStatusResponse =
+export interface ScrapeUrlAttempt {
+  attemptId: string;
+  state: 'RUNNING' | 'COMPLETE' | 'FAILED';
+  expiresAt: string;
+  completedAt: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  scrapeUrlResult?: { candidateId: string; href: string };
+}
+
+export interface ScrapeUrlSourceStatus {
+  status: 'READY' | 'STALE' | 'MISSING';
+  refreshing: boolean;
+  latestAttempt: ScrapeUrlAttempt | null;
+  latestComplete: ScrapeUrlAttempt | null;
+  actualCutoffAt: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+export type ScrapeUrlStatusResponse = { source: ScrapeUrlSourceStatus } & (
   | {
       status: 'available';
       candidateId: null;
       href: null;
-      platform: '1688' | 'ALIBABA' | null;
+      platform: '1688' | 'alibaba';
     }
   | {
       status: 'collected';
       candidateId: string;
       href: string;
-    };
+    });
 
 /** Coerces backend Decimal/string `costCny` into a plain number. */
 function coerceCostCny(value: unknown): number | null {
@@ -666,8 +685,8 @@ export const productsApi = {
 };
 
 export const sourcingApi = {
-  async scrapeUrl(url: string): Promise<ScrapeUrlResponse> {
-    return apiClient.post<ScrapeUrlResponse>(`/api/sourcing/scrape-url`, { url });
+  async scrapeUrl(url: string, idempotencyKey: string): Promise<ScrapeUrlResponse> {
+    return apiClient.post<ScrapeUrlResponse>(`/api/sourcing/scrape-url`, { url }, { headers: { 'idempotency-key': idempotencyKey } });
   },
   async scrapeUrlStatus(url: string): Promise<ScrapeUrlStatusResponse> {
     const qs = new URLSearchParams({ url });

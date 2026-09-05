@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { SOURCING_OPERATIONS } from '../sourcing.operations';
 
 describe('Sourcing Operations', () => {
+  it('keeps direct URL scraping out of the Operation catalog', () => {
+    expect(SOURCING_OPERATIONS.some((operation) => operation.key === 'sourcing.scrape_url')).toBe(false);
+  });
   it('keeps Wing source collection out of the Operation catalog', () => {
     expect(SOURCING_OPERATIONS.some((operation) => operation.key === 'sourcing.collect_wing_catalog_batch')).toBe(false);
   });

@@ -1,10 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { TREND_COLLECTION_PORT, type TrendCollectionPort } from '../../../application/port/in/trend-collection.port';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
-import {
-  OPERATION_RUNNER_PORT,
-  type OperationRunnerPort,
-} from '../../../../operations/application/port/in/operation-runner.port';
+import { SourcingScrapeUrlService } from '../../../application/service/sourcing-scrape-url.service';
 import {
   SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT,
   SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT,
@@ -23,7 +20,6 @@ import {
   SOURCING_CAPABILITY_ADMISSION_PORT,
   type SourcingCapabilityAdmissionPort,
 } from '../../../application/port/in/capability/sourcing-capability-admission.port';
-import { SOURCING_SCRAPE_URL_OPERATION } from '../../../domain/operation/sourcing.operations';
 import type {
   SourcingFinalCapabilityPort,
   SourcingOwnerExecutionContext,
@@ -41,8 +37,7 @@ export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPo
     private readonly discovery: SourcingFinalDiscoveryCapabilityPort,
     @Inject(MARKET_SHADOW_COLLECTION_CAPABILITY_PORT)
     private readonly shadow: MarketShadowCollectionCapabilityPort,
-    @Inject(OPERATION_RUNNER_PORT)
-    private readonly operations: OperationRunnerPort,
+    private readonly scrapes: SourcingScrapeUrlService,
     @Inject(SOURCING_CAPABILITY_ADMISSION_PORT)
     private readonly admissions: SourcingCapabilityAdmissionPort,
     @Inject(TREND_COLLECTION_PORT) private readonly trends: TrendCollectionPort,
@@ -130,31 +125,8 @@ export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPo
 
   async scrapeUrlWorkflow({ context, input }: { context: SourcingOwnerExecutionContext; input: { sourceUrl: string } }) {
     const idempotencyKey = requiredOwnerReceipt(context, input);
-    const replay = await this.operations.findByIdempotency({
-      organizationId: context.organizationId,
-      operationKey: SOURCING_SCRAPE_URL_OPERATION.key,
-      idempotencyKey,
-      expectedInput: { sourceUrl: input.sourceUrl },
-    });
-    if (replay) {
-      return { kind: 'enqueued' as const, operationRunId: replay.id, status: replay.status };
-    }
-    const duplicate = await this.discovery.duplicateCheck({
-      organizationId: context.organizationId,
-      sourceUrl: input.sourceUrl,
-    });
-    if (duplicate.duplicate && duplicate.candidateId) {
-      return { kind: 'existing' as const, candidateId: duplicate.candidateId };
-    }
-    const run = await this.operations.start({
-      organizationId: context.organizationId,
-      operationKey: SOURCING_SCRAPE_URL_OPERATION.key,
-      triggerSource: 'agent',
-      input: { sourceUrl: input.sourceUrl },
-      requestedByUserId: context.initiatingUserId,
-      idempotencyKey,
-    });
-    return { kind: 'enqueued' as const, operationRunId: run.id, status: run.status };
+    return this.scrapes.collect({ organizationId: context.organizationId, userId: context.initiatingUserId,
+      sourceUrl: input.sourceUrl, idempotencyKey });
   }
 
   async collectShadowSignals({ context, input }: { context: SourcingOwnerExecutionContext; input: Record<string, never> }) {

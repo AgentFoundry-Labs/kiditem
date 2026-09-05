@@ -5,7 +5,6 @@ import { AiModule } from "../ai/ai.module";
 import { AdvertisingModule } from "../advertising/advertising.module";
 import { ChannelsModule } from "../channels/channels.module";
 import { InventoryModule } from "../inventory/inventory.module";
-import { OperationsModule } from "../operations/operations.module";
 import { SupplyModule } from "../supply/supply.module";
 import { SourcingAgentRuntimeModule } from "./sourcing-agent-runtime.module";
 import { SourcingShadowOperationModule } from "./sourcing-shadow-operation.module";
@@ -43,6 +42,7 @@ import { Sourcing1688ImageSearchService } from "./application/service/sourcing-1
 import { Sourcing1688KeywordSearchService } from "./application/service/sourcing-1688-keyword-search.service";
 import { Sourcing1688SearchResultService } from "./application/service/sourcing-1688-search-result.service";
 import { SourcingService } from "./application/service/sourcing.service";
+import { SourcingScrapeUrlService } from "./application/service/sourcing-scrape-url.service";
 import { SourcingPromotionService } from "./application/service/sourcing-promotion.service";
 import { SourcingWorkspaceArchiveService } from "./application/service/sourcing-workspace-archive.service";
 import { SourcingExtensionIngestService } from "./application/service/sourcing-extension-ingest.service";
@@ -133,7 +133,7 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
  * during issue #192 follow-up Track A PR 1). `supplier-payments` is a finance
  * capability.
  *
- * Deterministic URL scraping is a Sourcing-owned Operation. Product generation
+ * Deterministic URL scraping is a direct Sourcing-owned source attempt. Product generation
  * uses the direct AI owner port; neither path creates a generic AgentRun.
  *
  * Sourcing ingest writes `SourcingCandidate` + `CandidateImage` rows via
@@ -151,7 +151,6 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     AdvertisingModule,
     ChannelsModule,
     InventoryModule,
-    OperationsModule,
     SupplyModule,
   ],
   controllers: [
@@ -176,6 +175,7 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
   ],
   providers: [
     SourcingService,
+    SourcingScrapeUrlService,
     SourcingFinalCapabilityAdapter,
     SourcingCapabilityCompositionAdapter,
     {

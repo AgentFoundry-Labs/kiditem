@@ -11,6 +11,8 @@ export const ALLOWED_SOURCING_COLLECTION_SOURCES = [
   '1688.image_search',
   '1688.product_extension',
   'alibaba.product_extension',
+  '1688.scrape_url',
+  'alibaba.scrape_url',
   'coupang.wing_catalog',
   'coupang.keyword_suggestion',
   'naver.autocomplete',

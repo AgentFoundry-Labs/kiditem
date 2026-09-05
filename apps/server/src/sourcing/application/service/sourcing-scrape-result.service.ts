@@ -1,7 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common';
 import {
-  SOURCING_CANDIDATE_REPOSITORY_PORT,
-  type SourcingCandidateRepositoryPort,
+  type UpsertCandidateInput,
 } from '../port/out/repository/sourcing-candidate.repository.port';
 import {
   extractSupplierOfferId,
@@ -12,15 +10,10 @@ import {
   canonicalSourcingCandidateIdentity,
 } from '../../domain/sourcing-candidate-identity';
 
-export interface PersistSourcingScrapeResultInput {
+interface PrepareSourcingScrapeResultInput {
   organizationId: string;
   triggeredByUserId: string | null;
   output: Record<string, unknown>;
-}
-
-export interface PersistSourcingScrapeResult {
-  candidateId: string;
-  href: string;
 }
 
 export class SourcingScrapeResultError extends Error {
@@ -49,102 +42,87 @@ const PRODUCT_IMAGE_FIELD_KEYS = [
   'offerImgList',
 ] as const;
 
-@Injectable()
-export class SourcingScrapeResultService {
-  constructor(
-    @Inject(SOURCING_CANDIDATE_REPOSITORY_PORT)
-    private readonly candidates: SourcingCandidateRepositoryPort,
-  ) {}
-
-  async persist(
-    input: PersistSourcingScrapeResultInput,
-  ): Promise<PersistSourcingScrapeResult> {
-    if (input.output.ok !== true) {
-      throw new SourcingScrapeResultError(
-        'sourcing_scrape_failed',
-        nonEmptyString(input.output.error) ??
-          'Sourcing scrape did not succeed.',
-      );
-    }
-    const scraped = isRecord(input.output.scraped_data)
-      ? input.output.scraped_data
-      : null;
-    if (!scraped) {
-      throw new SourcingScrapeResultError(
-        'sourcing_scrape_missing_output',
-        'Sourcing scrape returned no scraped_data.',
-      );
-    }
-
-    const rawSourceUrl =
-      nonEmptyString(scraped.source_url) ??
-      nonEmptyString(input.output.source_url);
-    if (!rawSourceUrl) {
-      throw new SourcingScrapeResultError(
-        'sourcing_scrape_missing_source_url',
-        'Scraped sourcing result requires a source URL.',
-      );
-    }
-    const source = parseSupplierUrl(rawSourceUrl);
-    const title = nonEmptyString(scraped.title);
-    if (!title) {
-      throw new SourcingScrapeResultError(
-        'sourcing_scrape_missing_title',
-        'Scraped sourcing result requires a title.',
-      );
-    }
-
-    const sourcePlatform = PLATFORM_MAP[source.platform];
-    const validatedExternalOfferId = extractSupplierOfferId(source);
-    const externalOfferId =
-      validatedExternalOfferId ?? nonEmptyString(scraped.product_id);
-    const variantKeyNormalized = normalizeSourcingVariantKey(
-      scraped.variant_key,
+export function prepareSourcingScrapeResult(input: PrepareSourcingScrapeResultInput): UpsertCandidateInput & { rawData: Record<string, unknown> } {
+  if (input.output.ok !== true) {
+    throw new SourcingScrapeResultError(
+      'sourcing_scrape_failed',
+      nonEmptyString(input.output.error) ??
+        'Sourcing scrape did not succeed.',
     );
-    const images = extractImageUrls(scraped);
-    const candidate = await this.candidates.upsertSourced({
-      organizationId: input.organizationId,
-      sourceUrl: source.normalizedUrl,
-      sourcePlatform,
-      externalOfferId,
-      variantKeyNormalized,
-      sourceIdentityHash: canonicalSourcingCandidateIdentity({
-        sourcePlatform,
-        sourceUrl: source.normalizedUrl,
-        validatedExternalOfferId,
-        variantKeyNormalized,
-      }),
-      rawData: {
-        ...scraped,
-        source_url: source.normalizedUrl,
-        page_type: scraped.page_type ?? 'detail',
-      },
-      name: title,
-      description:
-        nonEmptyString(scraped.description) ??
-        nonEmptyString(scraped.description_text) ??
-        '',
-      category: nonEmptyString(scraped.category_name),
-      tags: stringList(scraped.tags),
-      thumbnailUrl: images[0] ?? null,
-      imageUrl: images[0] ?? null,
-      costCny: extractCostCny(scraped, sourcePlatform),
-      triggeredByUserId: input.triggeredByUserId,
-      images: images.map((url, index) => ({
-        url,
-        role: 'product',
-        label: null,
-        sortOrder: index,
-        source: 'sourcing-scrape-url',
-        isPrimary: index === 0,
-      })),
-    });
-
-    return {
-      candidateId: candidate.id,
-      href: `/product-pipeline/collected-products/${encodeURIComponent(candidate.id)}`,
-    };
   }
+  const scraped = isRecord(input.output.scraped_data)
+    ? input.output.scraped_data
+    : null;
+  if (!scraped) {
+    throw new SourcingScrapeResultError(
+      'sourcing_scrape_missing_output',
+      'Sourcing scrape returned no scraped_data.',
+    );
+  }
+
+  const rawSourceUrl =
+    nonEmptyString(scraped.source_url) ??
+    nonEmptyString(input.output.source_url);
+  if (!rawSourceUrl) {
+    throw new SourcingScrapeResultError(
+      'sourcing_scrape_missing_source_url',
+      'Scraped sourcing result requires a source URL.',
+    );
+  }
+  const source = parseSupplierUrl(rawSourceUrl);
+  const title = nonEmptyString(scraped.title);
+  if (!title) {
+    throw new SourcingScrapeResultError(
+      'sourcing_scrape_missing_title',
+      'Scraped sourcing result requires a title.',
+    );
+  }
+
+  const sourcePlatform = PLATFORM_MAP[source.platform];
+  const validatedExternalOfferId = extractSupplierOfferId(source);
+  const externalOfferId =
+    validatedExternalOfferId ?? nonEmptyString(scraped.product_id);
+  const variantKeyNormalized = normalizeSourcingVariantKey(
+    scraped.variant_key,
+  );
+  const images = extractImageUrls(scraped);
+  return {
+    organizationId: input.organizationId,
+    sourceUrl: source.normalizedUrl,
+    sourcePlatform,
+    externalOfferId,
+    variantKeyNormalized,
+    sourceIdentityHash: canonicalSourcingCandidateIdentity({
+      sourcePlatform,
+      sourceUrl: source.normalizedUrl,
+      validatedExternalOfferId,
+      variantKeyNormalized,
+    }),
+    rawData: {
+      ...scraped,
+      source_url: source.normalizedUrl,
+      page_type: scraped.page_type ?? 'detail',
+    },
+    name: title,
+    description:
+      nonEmptyString(scraped.description) ??
+      nonEmptyString(scraped.description_text) ??
+      '',
+    category: nonEmptyString(scraped.category_name),
+    tags: stringList(scraped.tags),
+    thumbnailUrl: images[0] ?? null,
+    imageUrl: images[0] ?? null,
+    costCny: extractCostCny(scraped, sourcePlatform),
+    triggeredByUserId: input.triggeredByUserId,
+    images: images.map((url, index) => ({
+      url,
+      role: 'product',
+      label: null,
+      sortOrder: index,
+      source: 'sourcing-scrape-url',
+      isPrimary: index === 0,
+    })),
+  };
 }
 
 function parseSupplierUrl(value: string) {

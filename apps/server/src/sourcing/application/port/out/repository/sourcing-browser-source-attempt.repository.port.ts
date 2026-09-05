@@ -1,4 +1,5 @@
 import type { AuthorizedCollectionOutput } from './sourcing-collection.repository.port';
+import type { UpsertCandidateInput } from './sourcing-candidate.repository.port';
 
 export const SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT = Symbol(
   'SourcingBrowserSourceAttemptRepositoryPort',
@@ -40,6 +41,7 @@ export interface SourcingBrowserSourceAttempt {
   errorCode: string | null;
   errorMessage: string | null;
   completedAt: Date | null;
+  scrapeUrlResult?: { candidateId: string; href: string };
 }
 
 export interface SourcingBrowserSourceStatus {
@@ -90,6 +92,10 @@ export interface FailSourcingBrowserSourceAttemptInput {
   failureAlert: SourcingBrowserSourceFailureAlert;
 }
 
+export interface CompleteSourcingScrapeUrlAttemptInput extends CompleteSourcingBrowserSourceAttemptInput {
+  candidate: UpsertCandidateInput;
+}
+
 export interface SourcingWingCatalogReceipt {
   sequence: number;
   keyword: string;
@@ -115,6 +121,7 @@ export interface CompleteSourcingWingCatalogInput extends Omit<CompleteSourcingB
 }
 
 export interface SourcingBrowserSourceAttemptRepositoryPort {
+  readScrapeUrlAttemptByKey(input: { organizationId: string; sourceKey: string; idempotencyKey: string; requestFingerprint: string }): Promise<SourcingBrowserSourceAttempt | null>;
   readAttempt(input: {
     organizationId: string;
     attemptId: string;
@@ -133,6 +140,7 @@ export interface SourcingBrowserSourceAttemptRepositoryPort {
   completeAttempt(
     input: CompleteSourcingBrowserSourceAttemptInput,
   ): Promise<SourcingBrowserSourceAttempt>;
+  completeScrapeUrlAttempt(input: CompleteSourcingScrapeUrlAttemptInput): Promise<SourcingBrowserSourceAttempt>;
   stageWingCatalogBatch(input: StageSourcingWingCatalogInput): Promise<SourcingWingCatalogReceipt>;
   completeWingCatalogAttempt(input: CompleteSourcingWingCatalogInput): Promise<SourcingBrowserSourceAttempt>;
   failAttempt(

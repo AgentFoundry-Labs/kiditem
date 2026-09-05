@@ -425,6 +425,7 @@ export default function SourcingPage() {
       <div className="flex-1 overflow-y-auto px-5 py-4">
         {scrape.showScrapeInput && (
           <ScrapeUrlInput
+            ownerStatus={scrape.ownerStatus}
             scrapeUrl={scrape.scrapeUrl}
             onChange={scrape.setScrapeUrl}
             onKeyDown={scrape.handleKeyDown}

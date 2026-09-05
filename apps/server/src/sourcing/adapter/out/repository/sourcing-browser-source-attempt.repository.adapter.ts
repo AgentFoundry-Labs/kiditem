@@ -8,6 +8,7 @@ import { canonicalJson } from '../../../domain/sourcing-stable-json';
 import {
   type BeginSourcingBrowserSourceAttemptInput,
   type CompleteSourcingBrowserSourceAttemptInput,
+  type CompleteSourcingScrapeUrlAttemptInput,
   type FailSourcingBrowserSourceAttemptInput,
   type SourcingBrowserSourceAttempt,
   type SourcingBrowserSourceAttemptPlan,
@@ -18,6 +19,7 @@ import {
   type SourcingWingCatalogReceipt,
 } from '../../../application/port/out/repository/sourcing-browser-source-attempt.repository.port';
 import { persistBrowserSourceAttemptFacts } from './sourcing-browser-source-attempt.persistence';
+import { upsertSourcedCandidateIn } from './sourcing-candidate-upsert.transaction';
 import type { SourcingCollectionPermit } from '../../../application/port/out/repository/sourcing-collection.repository.port';
 
 const MAX_ATTEMPT_TTL_MS = 30 * 60_000;
@@ -41,6 +43,15 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
   ) {}
+
+  async readScrapeUrlAttemptByKey(input: { organizationId: string; sourceKey: string; idempotencyKey: string; requestFingerprint: string }) {
+    if (!['1688.scrape_url', 'alibaba.scrape_url'].includes(input.sourceKey)) throw new ConflictException('INVALID_SCRAPE_SOURCE');
+    const row = await this.prisma.sourcingEvidenceIngestionRun.findUnique({ where: {
+      organizationId_sourceKey_idempotencyKey: { organizationId: input.organizationId, sourceKey: input.sourceKey, idempotencyKey: input.idempotencyKey },
+    } });
+    if (row && row.requestHash !== input.requestFingerprint) throw new ConflictException('SOURCE_IDEMPOTENCY_KEY_REUSED');
+    return row ? toAttempt(row, new Date()) : null;
+  }
 
   async readAttempt(input: {
     organizationId: string;
@@ -231,10 +242,15 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
     }, input.receipts));
   }
 
+  completeScrapeUrlAttempt(input: CompleteSourcingScrapeUrlAttemptInput): Promise<SourcingBrowserSourceAttempt> {
+    return this.prisma.$transaction((tx) => this.completeInTransaction(tx, input, undefined, input));
+  }
+
   private async completeInTransaction(
     tx: Transaction,
     input: CompleteSourcingBrowserSourceAttemptInput,
     receipts?: SourcingWingCatalogReceipt[],
+    scrape?: CompleteSourcingScrapeUrlAttemptInput,
   ): Promise<SourcingBrowserSourceAttempt> {
     const initialAttempt = await findAttempt(tx, input.organizationId, input.attemptId);
     await lockScope(tx, initialAttempt);
@@ -242,6 +258,12 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
     const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
     assertToken(attempt, input.attemptToken);
     assertPlanChecksum(attempt, input.planChecksum);
+    if (scrape && (scrape.candidate.organizationId !== input.organizationId
+      || scrape.candidate.sourceUrl !== parsePlan(attempt.attemptPlan).sourceUrl
+      || !['1688.scrape_url', 'alibaba.scrape_url'].includes(attempt.sourceKey)
+    )) {
+      throw new ConflictException('SOURCE_SCRAPE_CANDIDATE_MISMATCH');
+    }
     if (receipts) {
       assertWingAttempt(attempt);
       const actual = wingReceipts(attempt).sort((a, b) => a.sequence - b.sequence);
@@ -297,6 +319,9 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
       0,
       input.output.discoveredCount - input.output.rejectedCount - persisted.staleDiscardedCount,
     );
+    const candidate = scrape ? await upsertSourcedCandidateIn(tx, scrape.candidate) : null;
+    const scrapeUrlResult = candidate ? { candidateId: candidate.id,
+      href: `/product-pipeline/collected-products/${encodeURIComponent(candidate.id)}` } : undefined;
     await tx.sourcingEvidenceIngestionRun.updateMany({
       where: {
         organizationId: attempt.organizationId,
@@ -321,6 +346,7 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
         staleDiscardedCount: persisted.staleDiscardedCount,
         qualityReport: toInputJson({
           ...input.output.qualityReport,
+          ...(scrapeUrlResult ? { scrapeUrlResult } : {}),
           source: attempt.sourceKey,
           planChecksum: input.planChecksum,
           completeSnapshot: true,
@@ -422,6 +448,8 @@ function toAttempt(attempt: AttemptRow, now: Date): SourcingBrowserSourceAttempt
     errorCode: isReadTimeExpiry ? 'ATTEMPT_EXPIRED' : attempt.errorCode,
     errorMessage: isReadTimeExpiry ? ATTEMPT_EXPIRED_MESSAGE : attempt.errorMessage,
     completedAt: attempt.completedAt,
+    ...(state === 'COMPLETE' && attempt.sourceKey.endsWith('.scrape_url') && quality?.scrapeUrlResult
+      ? { scrapeUrlResult: quality.scrapeUrlResult as { candidateId: string; href: string } } : {}),
   };
 }
 

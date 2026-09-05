@@ -8,14 +8,12 @@ import { OperationsModule } from '../operations/operations.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT } from './application/port/out/repository/sourcing-browser-source-attempt.repository.port';
 import { SourcingBrowserSourceAttemptRepositoryAdapter } from './adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
-import { SourcingScrapeUrlOperationHandler } from './adapter/in/operation/sourcing-scrape-url.operation-handler';
 import { SourcingShadowSignalOperationHandler } from './adapter/in/operation/sourcing-shadow-signal.operation-handler';
 import { NaverKeywordResearchService } from './application/service/naver-keyword-research.service';
 import { Sourcing1688ImageSearchService } from './application/service/sourcing-1688-image-search.service';
 import { Sourcing1688KeywordSearchService } from './application/service/sourcing-1688-keyword-search.service';
 import { SourcingRecommendationService } from './application/service/sourcing-recommendation.service';
 import { SourcingRisingProductService } from './application/service/sourcing-rising-product.service';
-import { SourcingScrapeResultService } from './application/service/sourcing-scrape-result.service';
 import { SourcingShadowSignalService } from './application/service/sourcing-shadow-signal.service';
 import { TrendCollectService } from './application/service/trend-collect.service';
 import { SourcingPlaywrightRuntimeHandler } from './adapter/out/runtime/sourcing-playwright-runtime.handler';
@@ -70,7 +68,6 @@ import { TREND_COLLECTION_PORT } from './application/port/in/trend-collection.po
   providers: [
     SourcingBrowserSourceAttemptRepositoryAdapter,
     { provide: SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT, useExisting: SourcingBrowserSourceAttemptRepositoryAdapter },
-    SourcingScrapeUrlOperationHandler,
     SourcingShadowSignalOperationHandler,
     NaverKeywordResearchService,
     Sourcing1688ImageSearchService,
@@ -78,7 +75,6 @@ import { TREND_COLLECTION_PORT } from './application/port/in/trend-collection.po
     SourcingRecommendationService,
     SourcingRisingProductService,
     TrendCollectService,
-    SourcingScrapeResultService,
     SourcingShadowSignalService,
     SourcingPlaywrightRuntimeHandler,
     NaverDatalabPopularKeywordAdapter,

@@ -5,11 +5,6 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  OperationRunIdSchema,
-  OrganizationIdSchema,
-  formatOperationRunName,
-} from '@kiditem/shared/identifiers';
 import { paginationParams } from '../../../common/pagination';
 import { canonicalOwnerInputHash } from '../../../common/owner-idempotency-key';
 import {
@@ -33,11 +28,6 @@ import {
   type RegistrationContentWorkspacePort,
 } from '../port/out/cross-domain/registration-content-workspace.port';
 import {
-  SOURCING_SCRAPE_OPERATION_PORT,
-  type SourcingScrapeOperationPort,
-} from '../port/out/cross-domain/sourcing-scrape-operation.port';
-import { detectSourcingScrapePlatform } from '../../domain/sourcing-url';
-import {
   extractSupplierOfferId,
   parseAllowedSupplierUrl,
 } from '../../domain/supplier-source-url-policy';
@@ -46,6 +36,7 @@ import {
   normalizeSourcingVariantKey,
   canonicalSourcingCandidateIdentity,
 } from '../../domain/sourcing-candidate-identity';
+import { SourcingScrapeUrlService } from './sourcing-scrape-url.service';
 import { buildProductBasics } from './product-basics.presenter';
 import { SourcingAgentCommandService } from './sourcing-agent-command.service';
 import type {
@@ -80,10 +71,6 @@ const DESCRIPTION_IMAGE_FIELD_KEYS = [
 
 type FlatExtensionData = ReceiveExtensionDataInput;
 
-function collectedCandidateHref(candidateId: string): string {
-  return `/product-pipeline/collected-products/${encodeURIComponent(candidateId)}`;
-}
-
 @Injectable()
 export class SourcingService {
   constructor(
@@ -98,8 +85,7 @@ export class SourcingService {
     @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
     private readonly registrationContentWorkspaces: RegistrationContentWorkspacePort,
     private readonly agentCommands: SourcingAgentCommandService,
-    @Inject(SOURCING_SCRAPE_OPERATION_PORT)
-    private readonly scrapes: SourcingScrapeOperationPort,
+    private readonly scrapes: SourcingScrapeUrlService,
   ) {}
 
   async receiveExtensionData(
@@ -309,60 +295,13 @@ export class SourcingService {
     url: string,
     organizationId: string,
     triggeredByUserId: string | null,
+    idempotencyKey: string,
   ) {
-    const existing = await this.candidates.findActiveBySourceUrl({
-      organizationId,
-      sourceUrl: url,
-    });
-    if (existing) {
-      return {
-        ok: true,
-        skipped: true,
-        message: '이미 수집된 URL입니다. 기존 수집 상품으로 이동할 수 있습니다.',
-        operation: null,
-        candidateId: existing.id,
-        product_id: existing.id,
-        href: collectedCandidateHref(existing.id),
-      };
-    }
-    const operation = await this.scrapes.startDirect({
-      organizationId,
-      requestedByUserId: triggeredByUserId,
-      sourceUrl: url,
-      idempotencyKey: `sourcing.scrape_url:${url}`,
-    });
-    return {
-      ok: true,
-      skipped: false,
-      message: '스크래핑 작업이 대기열에 등록되었습니다.',
-      operation: formatOperationRunName(
-        OrganizationIdSchema.parse(organizationId),
-        OperationRunIdSchema.parse(operation.operationRunId),
-      ),
-      candidateId: null,
-      product_id: null,
-      href: null,
-    };
+    return this.scrapes.collect({ organizationId, userId: triggeredByUserId, sourceUrl: url, idempotencyKey });
   }
 
   async scrapeUrlStatus(url: string, organizationId: string) {
-    const existing = await this.candidates.findActiveBySourceUrl({
-      organizationId,
-      sourceUrl: url,
-    });
-    if (existing) {
-      return {
-        status: 'collected' as const,
-        candidateId: existing.id,
-        href: collectedCandidateHref(existing.id),
-      };
-    }
-    return {
-      status: 'available' as const,
-      candidateId: null,
-      href: null,
-      platform: detectSourcingScrapePlatform(url),
-    };
+    return this.scrapes.status(organizationId, url);
   }
 
   async listProducts(
