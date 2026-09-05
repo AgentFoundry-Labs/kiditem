@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
-import type { PrismaClient } from '@prisma/client';
+import {
+  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH,
+} from '@kiditem/shared/product-abc';
 import { DashboardSalesService } from '../application/service/dashboard-sales.service';
 import { buildDashboardContext } from '../domain/context';
 import { DashboardSalesRepositoryAdapter } from '../adapter/out/repository/dashboard-sales.repository.adapter';
@@ -26,6 +29,7 @@ import {
   setupChannelListing,
   seedOrderWithLineItems,
 } from '../../../test-helpers/finance-seeds';
+import type { PrismaClient } from '@prisma/client';
 
 describe('DashboardSalesService.getSummary (PG integration)', () => {
   let prisma: PrismaClient;
@@ -333,6 +337,94 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     expect(result.topProducts[0]).toMatchObject({
       name: 'Unclassified Top Product',
       grade: null,
+    });
+  });
+
+  it('retains the published absolute grade and provenance after a newer source failure', async () => {
+    const { masterId, optionId, listingOptionId } = await seedTestListing('ABC');
+    await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      externalOrderId: 'SALES-T-ABC',
+      orderedAt: midMonth().toISOString(),
+      shippingPrice: 0,
+      lineItems: [{ quantity: 1, totalPrice: 10_000, optionId, listingOptionId }],
+    });
+    const formula = await prisma.masterProductAbcFormulaVersion.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        formulaKey: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.formulaKey,
+        version: 1,
+        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD)),
+        formulaChecksum: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH,
+      },
+    });
+    const source = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'sellpia_product_profitability',
+        status: 'completed',
+      },
+    });
+    const advertising = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'coupang_ad_profitability',
+        status: 'completed',
+      },
+    });
+    await prisma.masterProductAbcEvaluation.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        masterProductId: masterId,
+        formulaVersionId: formula.id,
+        abcGrade: 'A',
+        weightedRevenue: 10_000_000,
+        weightedOrderTimeSupplyCost: 6_000_000,
+        weightedAdvertisingSpend: 1_000_000,
+        weightedOperatingProfit: 3_000_000,
+        operatingProfitVelocity30: 3_000_000,
+        operatingMargin: 0.3,
+        lossPersistence: 0,
+        profitScore: 100,
+        marginScore: 100,
+        consistencyScore: 100,
+        economicScore: 100,
+        validObservationDays: 30,
+        formulaRevision: 1,
+        publicationRevision: 2,
+        gradeBasisCutoffDate: new Date('2026-06-30T00:00:00Z'),
+        sellpiaSourceImportRunId: source.id,
+        advertisingSourceImportRunId: advertising.id,
+        sellpiaGeneration: 3n,
+        advertisingGeneration: 4n,
+        mappingGeneration: 5n,
+        calculatedAt: new Date('2026-07-01T00:00:00Z'),
+      },
+    });
+    await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'coupang_ad_profitability',
+        status: 'failed',
+        errorCode: 'COLLECTION_FAILED',
+      },
+    });
+
+    const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+
+    expect(result.topProducts[0]).toMatchObject({
+      grade: 'A',
+      abcEvaluation: {
+        abcGrade: 'A',
+        weightedOperatingProfit: 3_000_000,
+        economicScore: 100,
+        formula: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+        publicationRevision: 2,
+        gradeBasisCutoffDate: '2026-06-30',
+        sellpiaSourceImportRunId: source.id,
+        advertisingSourceImportRunId: advertising.id,
+        sellpiaGeneration: '3', advertisingGeneration: '4', mappingGeneration: '5',
+      },
     });
   });
 

@@ -134,10 +134,11 @@ export function evaluateMasterProductAbc(
     weightedAdvertisingSpend: roundPersisted(metrics.weightedAdvertisingSpend, formula),
     weightedOperatingProfit: roundPersisted(metrics.weightedOperatingProfit, formula),
     operatingProfitVelocity30: roundPersisted(metrics.operatingProfitVelocity30, formula),
-    operatingMargin: roundPersisted(metrics.operatingMargin, formula),
+    operatingMargin: metrics.operatingMargin === null
+      ? null : roundPersisted(metrics.operatingMargin, formula),
     lossPersistence: roundPersisted(metrics.lossPersistence, formula),
     profitScore: roundPersisted(profitScore, formula),
-    marginScore: roundPersisted(marginScore, formula),
+    marginScore: marginScore === null ? null : roundPersisted(marginScore, formula),
     consistencyScore: roundPersisted(consistencyScore, formula),
     economicScore: roundPersisted(economicScore, formula),
   };
@@ -379,8 +380,7 @@ export function interpolateMasterProductAbcAnchor(
   return anchors[anchors.length - 1]!.score;
 }
 
-function roundPersisted(value: number | null, formula: ProductAbcFormulaPayload): number | null {
-  if (value === null) return null;
+function roundPersisted(value: number, formula: ProductAbcFormulaPayload): number {
   const scale = formula.precision.persistedScale;
   const factor = 10 ** scale;
   const scaled = value * factor;

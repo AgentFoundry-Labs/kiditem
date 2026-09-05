@@ -1,64 +1,42 @@
 import { describe, expect, it, vi } from 'vitest';
+import {
+  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+  type ProductAbcEvaluation,
+} from '@kiditem/shared/product-abc';
 import { DashboardSalesRepositoryAdapter } from '../dashboard-sales.repository.adapter';
 
 describe('DashboardSalesRepositoryAdapter', () => {
-  it('preserves an unclassified automatic evaluation on Top Products', async () => {
-    const queryRaw = vi.fn().mockResolvedValue([
-      {
-        id: 'listing-1',
-        name: '미분류 상품',
-        organization: '쿠팡',
-        grade: null,
-        abcCalculationStatus: 'INSUFFICIENT_EVIDENCE',
-        abcRawScore: null,
-        abcAdjustedScore: null,
-        abcReliability: null,
-        abcWeightedRevenue: 12_000,
-        abcWeightedOrderTimeCogs: 2_000,
-        abcWeightedAdSpend: 0,
-        abcWeightedContributionProfit: null,
-        abcProfitVelocity30: null,
-        abcWeightedContributionMargin: null,
-        abcLossRecurrence: null,
-        abcPaidOrderCount: 4,
-        abcObservationDays: 12,
-        abcFirstValidPaidSaleAt: new Date('2026-07-20T00:00:00.000Z'),
-        abcSourceCoverageStartDate: new Date('2025-06-26T00:00:00.000Z'),
-        abcSourceCoverageEndDate: new Date('2026-07-31T00:00:00.000Z'),
-        abcEvaluationCutoffDate: new Date('2026-07-31T00:00:00.000Z'),
-        abcSellpiaCoverageStartDate: new Date('2025-06-26T00:00:00.000Z'),
-        abcSellpiaCoverageEndDate: new Date('2026-07-31T00:00:00.000Z'),
-        abcSellpiaSourceStatus: 'READY',
-        abcSellpiaSourceCapturedAt: new Date('2026-08-01T00:00:00.000Z'),
-        abcAdvertisingCoverageStartDate: new Date('2025-06-26T00:00:00.000Z'),
-        abcAdvertisingCoverageEndDate: new Date('2026-07-31T00:00:00.000Z'),
-        abcAdvertisingSourceStatus: 'CONFIRMED_ZERO',
-        abcAdvertisingSourceCapturedAt: new Date('2026-08-01T00:00:00.000Z'),
-        abcOrdersSourceStatus: 'NOT_APPLIED',
-        abcOrdersCoverageStartDate: null,
-        abcOrdersCoverageEndDate: null,
-        abcOrdersSourceCapturedAt: null,
-        abcMappingSourceStatus: 'READY',
-        abcMappingInventoryGeneration: 1n,
-        abcMappingVerifiedAt: new Date('2026-08-01T00:00:00.000Z'),
-        abcCostComponents: {
-          recognizedRevenue: { amount: 12_000, status: 'OBSERVED' },
-          orderTimeCogs: { amount: 2_000, status: 'OBSERVED' },
-          advertisingSpend: { amount: 0, status: 'CONFIRMED_ZERO' },
-          marketplaceCommission: { amount: 0, status: 'NOT_APPLIED' },
-          outboundFulfillment: { amount: 0, status: 'NOT_APPLIED' },
-          returnLoss: { amount: 0, status: 'NOT_APPLIED' },
-          otherVariableCost: { amount: 0, status: 'NOT_APPLIED' },
-        },
-        abcStatusDetail: '최소 관찰 기준을 아직 충족하지 않았습니다.',
-        abcCalculatedAt: new Date('2026-08-01T00:00:00.000Z'),
-        abcFormulaJson: null,
-        revenue: 10_000,
-        quantity: 1,
-      },
-    ]);
+  it('reads the published absolute evaluation without synthesizing another grade', async () => {
+    const published: ProductAbcEvaluation = {
+      abcGrade: 'B',
+      weightedRevenue: 1_000_000,
+      weightedOrderTimeSupplyCost: 600_000,
+      weightedAdvertisingSpend: 100_000,
+      weightedOperatingProfit: 300_000,
+      operatingProfitVelocity30: 300_000,
+      operatingMargin: 0.3,
+      lossPersistence: 0,
+      profitScore: 40,
+      marginScore: 100,
+      consistencyScore: 100,
+      economicScore: 70,
+      validObservationDays: 30,
+      formula: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+      formulaRevision: 1,
+      publicationRevision: 2,
+      gradeBasisCutoffDate: '2026-06-30',
+      sellpiaSourceImportRunId: '11111111-1111-4111-8111-111111111111',
+      advertisingSourceImportRunId: '22222222-2222-4222-8222-222222222222',
+      sellpiaGeneration: '3',
+      advertisingGeneration: '4',
+      mappingGeneration: '5',
+      calculatedAt: '2026-07-01T00:00:00.000Z',
+    };
     const repository = new DashboardSalesRepositoryAdapter({
-      $queryRaw: queryRaw,
+      $queryRaw: vi.fn().mockResolvedValue([{
+        id: 'listing-1', name: '상품', organization: '쿠팡',
+        abcEvaluation: published, revenue: 10_000, quantity: 1,
+      }]),
     } as never);
 
     const result = await repository.fetchTopProducts(
@@ -67,11 +45,28 @@ describe('DashboardSalesRepositoryAdapter', () => {
       new Date('2026-08-01T00:00:00.000Z'),
     );
 
-    expect(result[0].grade).toBeNull();
-    expect(result[0].abcEvaluation).toMatchObject({
-      calculationStatus: 'INSUFFICIENT_EVIDENCE',
-      paidOrderCount: 4,
-      observationDays: 12,
+    expect(result[0]).toMatchObject({
+      grade: 'B', abcEvaluation: published, revenue: 10_000,
     });
   });
+
+  it.each([null, { abcGrade: 'A', economicScore: 95 }])(
+    'does not expose an official grade without a complete stored evaluation: %j',
+    async (abcEvaluation) => {
+      const repository = new DashboardSalesRepositoryAdapter({
+        $queryRaw: vi.fn().mockResolvedValue([{
+          id: 'listing-1', name: '신상품', organization: '쿠팡',
+          abcEvaluation, revenue: 10_000, quantity: 1,
+        }]),
+      } as never);
+
+      const result = await repository.fetchTopProducts(
+        '11111111-1111-4111-8111-111111111111',
+        new Date('2026-07-01T00:00:00.000Z'),
+        new Date('2026-08-01T00:00:00.000Z'),
+      );
+
+      expect(result[0]).toMatchObject({ grade: null, abcEvaluation: null, revenue: 10_000 });
+    },
+  );
 });
