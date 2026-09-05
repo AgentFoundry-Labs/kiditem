@@ -78,6 +78,7 @@ const SOURCE_OWNER_DISPOSITIONS = new Set([
  */
 const LEGACY_TOKEN_PATTERNS = [
   /\bOperationRun(?:[A-Z][A-Za-z0-9_]*)?\b/g,
+  /\bBrowserCollection(?:RunId|IssueResponse)(?:Schema)?\b/g,
   /\bOperationRunner(?:[A-Z][A-Za-z0-9_]*)?\b/g,
   /\bOperationSchedule(?:[A-Z][A-Za-z0-9_]*)?\b/g,
   /\bOperationAlert(?:[A-Z][A-Za-z0-9_]*)?\b/g,

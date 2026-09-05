@@ -77,6 +77,26 @@ test("reports active legacy runtime references", async () => {
   );
 });
 
+test("rejects retired server-issued collection run contracts without matching owner attempts", async () => {
+  await withFixture(
+    {
+      "apps/web/src/lib/collection.ts": [
+        "BrowserCollectionRunIdSchema.parse(input);",
+        "BrowserCollectionIssueResponseSchema.parse(response);",
+        "const current = { attemptId, producer, progress };",
+      ].join("\n"),
+    },
+    {},
+    async (root) => {
+      const result = await scanOperationAutomationCutover(root);
+      assert.deepEqual(result.legacyReferences, [
+        "apps/web/src/lib/collection.ts:1:BrowserCollectionRunIdSchema",
+        "apps/web/src/lib/collection.ts:2:BrowserCollectionIssueResponseSchema",
+      ]);
+    },
+  );
+});
+
 test("accepts a direct owner fixture with no legacy runtime", async () => {
   await withFixture(
     {
