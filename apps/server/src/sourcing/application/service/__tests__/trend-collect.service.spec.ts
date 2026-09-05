@@ -414,134 +414,27 @@ describe('TrendCollectService', () => {
     expect(targets[0]).toEqual({ label: '사용자 시드 0', keyword: '自定义关键词0' });
   });
 
-  it('ingests one organization-scoped 1688 extension batch with shared capture time and offer dedupe', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-07-13T15:30:00.000Z'));
-    try {
-      const result = await ports.service.ingest1688ExtensionResults(ORGANIZATION_ID, {
-        runId: 'run-1688-1',
-        keywords: [
-          {
-            keyword: ' 文具 ',
-            items: [
-              {
-                offerId: ' offer-a ',
-                title: ' 젤펜 ',
-                priceCny: 0.81,
-                monthlySales: 2_000,
-                tradeScore: 88,
-                rank: 2,
-              },
-            ],
-          },
-          {
-            keyword: '儿童笔袋',
-            items: [
-              { offerId: 'offer-a', title: 'duplicate', rank: 1 },
-              { offerId: 'offer-b', title: ' 필통 ', monthlySales: 900 },
-            ],
-          },
-        ],
-        errors: [{ keyword: ' 儿童贴纸 ', message: ' slider required ' }],
-      });
-
-      expect(result).toEqual({
-        businessDate: '2026-07-14',
-        collected: 3,
-        errors: [{ keyword: '儿童贴纸', message: 'slider required' }],
-      });
-      const rows = typedRows(ports, 'offer_1688_keyword_observation');
-      expect(rows).toHaveLength(3);
-      expect(rows.find((row) => row.offerId === 'offer-a' && row.sourceKeyword === '文具')).toEqual(expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
-        businessDate: new Date('2026-07-14T00:00:00.000Z'),
-        offerId: 'offer-a',
-        sourceKeyword: '文具',
-        rank: 2,
-        title: '젤펜',
-        tradeScore: '88',
-      }));
-      expect(rows.find((row) => row.offerId === 'offer-a' && row.sourceKeyword === '儿童笔袋')).toEqual(expect.objectContaining({
-        offerId: 'offer-a',
-        sourceKeyword: '儿童笔袋',
-        rank: 1,
-        title: 'duplicate',
-      }));
-      expect(rows.find((row) => row.offerId === 'offer-b')).toEqual(expect.objectContaining({
-        offerId: 'offer-b',
-        sourceKeyword: '儿童笔袋',
-        rank: 2,
-        title: '필통',
-      }));
-      expect(rows[0].capturedAt).toBe(rows[1].capturedAt);
-      expect(rows[0].businessDate).toBe(rows[1].businessDate);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('returns only enabled seeds tagged tiktok-cc as creative-center targets', async () => {
+  it('returns the pre-cutover TikTok source seed set without changing its 20-target server cap', async () => {
     ports.repository.listSeeds = vi.fn(async () => [
-      seed({ keyword: '슬라임', keywordCn: '史莱姆', sources: ['tiktok-cc', 'shorts'] }),
-      seed({ keyword: '스퀴시', sources: ['naver'] }),
-      seed({ keyword: '비활성', sources: ['tiktok-cc'], enabled: false }),
+      seed({ keyword: '  school supplies  ', sources: ['tiktok-cc'] }),
+      seed({ keyword: 'disabled', sources: ['tiktok-cc'], enabled: false }),
+      seed({ keyword: 'other source', sources: ['shorts'] }),
+      ...Array.from({ length: 20 }, (_, index) => seed({
+        keyword: `tiktok-${index}`,
+        sources: ['tiktok-cc'],
+      })),
     ]);
 
     const targets = await ports.service.listTiktokCcTargets(ORGANIZATION_ID);
 
-    expect(targets).toEqual([{ label: '슬라임', keyword: '슬라임' }]);
+    expect(targets).toHaveLength(20);
+    expect(targets[0]).toEqual({ label: '  school supplies  ', keyword: '  school supplies  ' });
+    expect(targets).not.toContainEqual(expect.objectContaining({ label: 'disabled' }));
+    expect(targets).not.toContainEqual(expect.objectContaining({ label: 'other source' }));
   });
 
-  it('ingests one region-scoped tiktok-cc batch with shared capture time and type+entity dedupe', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-07-13T15:30:00.000Z'));
-    try {
-      const result = await ports.service.ingestTiktokCcResults(ORGANIZATION_ID, {
-        runId: 'run-ttcc-1',
-        region: 'us',
-        items: [
-          {
-            trendType: 'hashtag',
-            entityKey: ' #squishy ',
-            label: ' squishy ',
-            industry: 'Toys',
-            viewCount: 9_000_000_000,
-            growthPct: 42.5,
-            rank: 3,
-          },
-          { trendType: 'hashtag', entityKey: '#squishy', label: 'duplicate' },
-          { trendType: 'product', entityKey: 'prod-1', label: ' Mini squishy set ', sourceKeyword: '스퀴시' },
-        ],
-        errors: [{ target: ' KR/top-products ', message: ' region blocked ' }],
-      });
-
-      expect(result).toEqual({
-        businessDate: '2026-07-14',
-        collected: 2,
-        errors: [{ target: 'KR/top-products', message: 'region blocked' }],
-      });
-    const rows = typedRows(ports, 'tiktok_creative');
-      expect(rows).toHaveLength(2);
-      expect(rows[0]).toEqual(expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
-        businessDate: new Date('2026-07-14T00:00:00.000Z'),
-        region: 'US',
-        trendType: 'hashtag',
-        entityKey: '#squishy',
-        label: 'squishy',
-        rank: 3,
-        viewCount: 9_000_000_000,
-        growthPct: 42.5,
-      }));
-      expect(rows[1]).toEqual(expect.objectContaining({
-        trendType: 'product',
-        entityKey: 'prod-1',
-        sourceKeyword: '스퀴시',
-      }));
-      expect(rows[0].capturedAt).toBe(rows[1].capturedAt);
-    } finally {
-      vi.useRealTimers();
-    }
+  it('leaves 1688 extension publication exclusively to its token-fenced source owner', () => {
+    expect(ports.service).not.toHaveProperty('ingest1688ExtensionResults');
   });
 
   it('maps SearchAd metrics per seed and merges DataLab trend ratio/delta', async () => {

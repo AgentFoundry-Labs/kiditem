@@ -18,9 +18,7 @@ import {
   TREND_COLLECTION_REPOSITORY_PORT,
   type NaverKeywordSnapshotUpsert,
   type NaverPopularKeywordSnapshotUpsert,
-  type Sourcing1688OfferKeywordObservationInput,
   type ShortsSnapshotUpsert,
-  type TiktokCcSnapshotUpsert,
   type TrendCollectionRepositoryPort,
   type TrendSeedRow,
   type UpdateTrendSeedInput,
@@ -32,7 +30,6 @@ import {
 } from '../../domain/stationery-toy-trend';
 import {
   hashCollectionRequest,
-  map1688HotProductsToAuthorizedOutput,
   mapTrendTypedRecordsToAuthorizedOutput,
   normalizeCollectionTarget,
 } from './sourcing-collection-mappers';
@@ -72,62 +69,12 @@ export interface TrendCollectResult {
   results: TrendSourceCollectResult[];
 }
 
-export interface Extension1688TrendBatchInput {
-  runId: string;
-  keywords: Array<{
-    keyword: string;
-    items: Array<{
-      offerId: string;
-      title?: string;
-      priceCny?: number;
-      monthlySales?: number;
-      repurchaseRate?: string;
-      tradeScore?: number;
-      supplierName?: string;
-      imageUrl?: string;
-      sourceUrl?: string;
-      rank?: number;
-    }>;
-  }>;
-  errors?: Array<{ keyword: string; message: string }>;
-}
-
-export interface Extension1688TrendBatchResult {
-  businessDate: string;
-  collected: number;
-  errors: Array<{ keyword: string; message: string }>;
-}
-
 export interface Extension1688TrendTarget {
   label: string;
   keyword: string;
 }
 
-export interface TiktokCcTrendBatchInput {
-  runId: string;
-  region: string;
-  items: Array<{
-    trendType: string;
-    entityKey: string;
-    label?: string;
-    industry?: string;
-    sourceKeyword?: string;
-    rank?: number;
-    postCount?: number;
-    viewCount?: number;
-    growthPct?: number;
-    thumbnailUrl?: string;
-    sourceUrl?: string;
-  }>;
-  errors?: Array<{ target: string; message: string }>;
-}
-
-export interface TiktokCcTrendBatchResult {
-  businessDate: string;
-  collected: number;
-  errors: Array<{ target: string; message: string }>;
-}
-
+/** Raw legacy seeds; the TikTok owner freezes extension-equivalent normalization. */
 export interface TiktokCcTrendTarget {
   label: string;
   keyword: string;
@@ -178,140 +125,12 @@ export class TrendCollectService implements TrendCollectionPort {
       }));
   }
 
-  async ingest1688ExtensionResults(
-    organizationId: string,
-    input: Extension1688TrendBatchInput,
-  ): Promise<Extension1688TrendBatchResult> {
-    const capturedAt = new Date();
-    const businessDate = kstBusinessDate(capturedAt);
-    const seenKeywordOffers = new Set<string>();
-    const rows: Sourcing1688OfferKeywordObservationInput[] = [];
-
-    for (const keywordResult of input.keywords) {
-      const sourceKeyword = keywordResult.keyword.trim();
-      keywordResult.items.forEach((item, index) => {
-        const offerId = item.offerId.trim();
-        if (!sourceKeyword || !offerId) return;
-        const identity = `${normalizeCollectionTarget(sourceKeyword)}\u001f${offerId}`;
-        if (seenKeywordOffers.has(identity)) return;
-        seenKeywordOffers.add(identity);
-        rows.push({
-          organizationId,
-          businessDate,
-          offerId,
-          sourceKeyword,
-          rank: item.rank ?? index + 1,
-          title: optionalText(item.title),
-          priceCny: item.priceCny ?? null,
-          monthlySales: toInt(item.monthlySales),
-          repurchaseRate: optionalText(item.repurchaseRate),
-          tradeScore: item.tradeScore == null ? null : String(item.tradeScore),
-          supplierName: optionalText(item.supplierName),
-          imageUrl: optionalText(item.imageUrl),
-          sourceUrl: optionalText(item.sourceUrl),
-          capturedAt,
-        });
-      });
-    }
-
-    const execution = await this.collectionCoordinator.execute(
-      collectionRequest({
-        organizationId,
-        sourceKey: '1688.hot_product',
-        targetKey: `extension:${input.runId.trim()}`,
-        idempotencyKey: `extension-1688:${input.runId.trim()}`,
-        requestHash: hashCollectionRequest(input),
-        collectorKey: 'extension-1688-trend',
-        triggerKind: 'extension',
-      }),
-      async ({ permit, checkpoint }) => {
-        await checkpoint();
-        return map1688HotProductsToAuthorizedOutput({ permit, rows });
-      },
-    );
-    return {
-      businessDate: toDateString(businessDate),
-      collected: collectedFromExecution(execution),
-      errors: (input.errors ?? []).map((error) => ({
-        keyword: error.keyword.trim(),
-        message: error.message.trim(),
-      })),
-    };
-  }
-
-  // 틱톡 크리에이티브 센터는 봇/리전 차단이라 서버 fetch 대신 확장 스크랩으로만 적재한다.
-  // 확장이 'tiktok-cc' 시드 키워드/카테고리 기준으로 스크랩할 대상 목록을 돌려준다.
   async listTiktokCcTargets(organizationId: string): Promise<TiktokCcTrendTarget[]> {
     const seeds = await this.repository.listSeeds(organizationId);
     return seeds
       .filter((seed) => seed.enabled && seed.sources.includes('tiktok-cc'))
       .slice(0, MAX_TIKTOK_CC_TARGETS)
       .map((seed) => ({ label: seed.keyword, keyword: seed.keyword }));
-  }
-
-  async ingestTiktokCcResults(
-    organizationId: string,
-    input: TiktokCcTrendBatchInput,
-  ): Promise<TiktokCcTrendBatchResult> {
-    const capturedAt = new Date();
-    const businessDate = kstBusinessDate(capturedAt);
-    const region = input.region.trim().toUpperCase();
-    const seen = new Set<string>();
-    const rows: TiktokCcSnapshotUpsert[] = [];
-
-    input.items.forEach((item, index) => {
-      const trendType = item.trendType.trim();
-      const entityKey = item.entityKey.trim();
-      if (!trendType || !entityKey) return;
-      const dedupeKey = `${trendType}::${entityKey}`;
-      if (seen.has(dedupeKey)) return;
-      seen.add(dedupeKey);
-      rows.push({
-        organizationId,
-        businessDate,
-        region,
-        trendType,
-        entityKey,
-        rank: item.rank ?? index + 1,
-        label: optionalText(item.label),
-        industry: optionalText(item.industry),
-        sourceKeyword: optionalText(item.sourceKeyword),
-        postCount: toInt(item.postCount),
-        viewCount: toInt(item.viewCount),
-        growthPct: item.growthPct == null ? null : item.growthPct,
-        thumbnailUrl: optionalText(item.thumbnailUrl),
-        sourceUrl: optionalText(item.sourceUrl),
-        capturedAt,
-      });
-    });
-
-    const execution = await this.collectionCoordinator.execute(
-      collectionRequest({
-        organizationId,
-        sourceKey: 'tiktok.creative',
-        targetKey: `${region}:${input.runId.trim()}`,
-        idempotencyKey: `extension-tiktok:${input.runId.trim()}`,
-        requestHash: hashCollectionRequest(input),
-        collectorKey: 'extension-tiktok-creative',
-        triggerKind: 'extension',
-      }),
-      async ({ permit, checkpoint }) => {
-        await checkpoint();
-        return mapTrendTypedRecordsToAuthorizedOutput({
-          permit,
-          typedRecords: rows.map((row) => ({ kind: 'tiktok_creative' as const, row })),
-          qualityReport: { source: 'extension', region },
-        });
-      },
-    );
-    return {
-      businessDate: toDateString(businessDate),
-      collected: collectedFromExecution(execution),
-      errors: (input.errors ?? []).map((error) => ({
-        target: error.target.trim(),
-        message: error.message.trim(),
-      })),
-    };
   }
 
   async collect(
@@ -924,11 +743,6 @@ function parseTimestamp(value: string | null | undefined): Date | null {
   if (!value) return null;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function optionalText(value: string | null | undefined): string | null {
-  const normalized = value?.trim();
-  return normalized ? normalized : null;
 }
 
 function toDateString(date: Date): string {
