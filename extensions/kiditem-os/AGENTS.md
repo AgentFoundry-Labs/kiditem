@@ -51,9 +51,10 @@ module map instead of duplicating every handler in this guide.
   receipt identity. Stale, expired, or post-terminal writes are rejected, and
   the worker stops and closes owned background tabs when the fence is lost.
 - The extension is never a canonical Sourcing or Ads writer. Post raw provider
-  rows only to the fenced owner ingest API; terminal submissions contain safe
-  counts/references, never raw rows or credentials.
-- One environment has one active browser claim per producer. Attention is a
-  human login/OTP/CAPTCHA state, not an automatic retry. A cancelled or expired
-  attempt is not resumed or reactivated; a later explicit retry receives a new
-  attempt identity.
+  rows only to the fenced owner ingest API. One-shot terminal requests include
+  validated source data; responses to the page contain safe counts/references,
+  not raw rows or credentials.
+- The owner admits at most one active attempt per publication scope. Local
+  sessions track progress and tab recovery, not ownership or terminality.
+  Surface login/OTP/CAPTCHA failures for operator action; explicit retries of
+  failed or expired work receive a new owner attempt identity.
