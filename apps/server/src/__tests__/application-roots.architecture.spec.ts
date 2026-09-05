@@ -9,8 +9,10 @@ import { AgentWorkerApplicationModule } from '../agent-worker-application.module
 import { AgentOsInteractionHttpModule } from '../agent-os/agent-os-interaction-http.module';
 import { AgentOsHttpModule } from '../agent-os/agent-os-http.module';
 import { AgentOsWorkerModule } from '../agent-os/agent-os-worker.module';
+import { DetailPageEditorController } from '../ai/adapter/in/http/detail-page-editor.controller';
+import { ImageAiController } from '../ai/adapter/in/http/image-ai.controller';
+import { ThumbnailAnalysisGenerationReviewController } from '../ai/adapter/in/http/thumbnail-analysis-generation-review.controller';
 import { OperationsHttpModule } from '../operations/operations-http.module';
-import { OperationsWorkerModule } from '../operations/operations.module';
 import { inspectStaticApplicationRootPolicy } from './application-root-policy';
 
 type ModuleLike = Function | { module: Function; imports?: ModuleLike[] };
@@ -32,6 +34,20 @@ function graph(root: ModuleLike): Set<ModuleLike> {
 function classes(root: ModuleLike): Function[] { return [...graph(root)].map(moduleClass); }
 
 describe('final application-root topology', () => {
+  it('keeps direct owner cancellation without the retired OperationCancellation boundary', () => {
+    const modules = classes(ApiApplicationModule);
+    const controllers = modules.flatMap((module) =>
+      Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, module) ?? [],
+    );
+    expect(controllers).toEqual(expect.arrayContaining([
+      DetailPageEditorController,
+      ImageAiController,
+      ThumbnailAnalysisGenerationReviewController,
+    ]));
+    expect(modules.map((module) => module.name)).not.toContain('OperationCancellationModule');
+    expect(existsSync(join(serverSource, 'operation-cancellation/operation-cancellation.module.ts'))).toBe(false);
+  });
+
   it('has one API interaction boundary, with no duplicate direct Agent OS HTTP import', () => {
     const apiImports = Reflect.getMetadata(MODULE_METADATA.IMPORTS, ApiApplicationModule) ?? [];
     expect(apiImports).toContain(AgentOsInteractionHttpModule);
@@ -42,7 +58,8 @@ describe('final application-root topology', () => {
 
   it('keeps worker execution and API transport separate', () => {
     expect(classes(AgentWorkerApplicationModule)).toContain(AgentOsWorkerModule);
-    expect(classes(AgentWorkerApplicationModule)).toContain(OperationsWorkerModule);
+    expect(classes(AgentWorkerApplicationModule).map((module) => module.name))
+      .not.toContain('OperationsWorkerModule');
     expect(classes(AgentWorkerApplicationModule)).not.toContain(AgentOsHttpModule);
     expect(existsSync(join(serverSource, 'agent-mcp-application.module.ts'))).toBe(false);
   });

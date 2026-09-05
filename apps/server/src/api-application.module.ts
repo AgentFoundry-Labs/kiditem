@@ -20,7 +20,6 @@ import { StorageModule } from './common/storage/storage.module';
 import { FeatureGateModule } from './feature-gate/feature-gate.module';
 import { FinanceModule } from './finance/finance.module';
 import { InventoryModule } from './inventory/inventory.module';
-import { OperationCancellationModule } from './operation-cancellation/operation-cancellation.module';
 import { OperationsHttpModule } from './operations/operations-http.module';
 import { OrdersModule } from './orders/orders.module';
 import { OrganizationsModule } from './organizations/organizations.module';
@@ -60,7 +59,6 @@ import { UploadsModule } from './uploads/uploads.module';
     AgentOsInteractionHttpModule,
     AgentOsRuntimeHttpModule,
     AutomationModule,
-    OperationCancellationModule,
     OperationsHttpModule,
     AdvertisingModule,
     UploadsModule,
