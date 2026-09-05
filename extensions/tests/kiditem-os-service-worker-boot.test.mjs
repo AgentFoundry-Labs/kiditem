@@ -118,7 +118,7 @@ function createFakeChrome() {
   };
 }
 
-function bootServiceWorker() {
+function bootServiceWorker({ fetch: fetchFn } = {}) {
   const fake = createFakeChrome();
   let context;
   const sandbox = {
@@ -144,7 +144,7 @@ function bootServiceWorker() {
     clearTimeout,
     console,
     crypto,
-    fetch: async () => ({ ok: true, status: 200, json: async () => ({}), text: async () => '' }),
+    fetch: fetchFn ?? (async () => ({ ok: true, status: 200, json: async () => ({}), text: async () => '' })),
     setInterval,
     setTimeout,
     structuredClone,
@@ -163,10 +163,20 @@ function bootServiceWorker() {
   return { fake, context };
 }
 
+function externalRequest(fake, message) {
+  return new Promise((resolve) => {
+    let responders = 0;
+    for (const listener of fake.externalMessageListeners) {
+      if (listener(message, { url: 'http://localhost:3000/advertising/keyword-rank' }, resolve) === true) responders += 1;
+    }
+    assert.equal(responders, 1);
+  });
+}
+
 // Exercise the production collector from the fully loaded worker. Only Chrome
 // browser IO and time are simulated; capture, pagination and normalization run.
-function bootRankCollector(pages, { loadFailureAt, redirectAt } = {}) {
-  const { fake, context } = bootServiceWorker();
+function bootRankCollector(pages, { loadFailureAt, redirectAt, fetch } = {}) {
+  const { fake, context } = bootServiceWorker({ fetch });
   const urls = [], delays = [];
   let tab;
   fake.chrome.tabs.create = (properties, callback) => {
@@ -213,12 +223,197 @@ function bootRankCollector(pages, { loadFailureAt, redirectAt } = {}) {
   context.clearTimeout = () => {};
   vm.runInContext('Math.random = () => 0;', context);
   return {
-    urls, delays,
+    urls, delays, fake, context,
     capture: async (maxPages = 2) => JSON.parse(JSON.stringify(
       await context.captureCoupangKeywordSerp('연필 세트', maxPages, { environmentId: 'local' }),
     )),
   };
 }
+
+test('SERP source dispatch collects the server plan and returns only its acknowledged owner result', async () => {
+  const attemptId = '11111111-1111-4111-8111-111111111111';
+  const attemptToken = '22222222-2222-4222-8222-222222222222';
+  const control = {
+    attemptId, attemptToken, state: 'RUNNING', keyword: '연필 세트', itemCount: 0,
+    expiresAt: new Date(Date.now() + 600_000).toISOString(),
+    plan: { sourceType: 'coupang_keyword_serp', parserVersion: 'keyword-serp-v1',
+      keyword: '연필 세트', maxPages: 1, explicitVendorItemIds: [], ownItems: [] },
+  };
+  const uploads = [];
+  const h = bootRankCollector([{ items: [{ productId: '1', vendorItemId: '10', name: '연필' }] }], { fetch: async (url, init) => {
+    if (String(url).endsWith(`/serp/attempts/${attemptId}`)) {
+      if (init.method === 'PUT') {
+        uploads.push({ body: JSON.parse(init.body), token: new Headers(init.headers).get('x-source-attempt-token') });
+        return { ok: true, status: 200, json: async () => ({ attemptId, state: 'COMPLETE', itemCount: 1 }) };
+      }
+      return { ok: true, status: 200, json: async () => control };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
+  const contract = h.context.KidItemDomains.forExternalAction('collectAdvertisingKeywordSerp');
+  assert.equal(typeof contract?.handle, 'function');
+  for (const extra of [{ keyword: 'forged' }, { attemptToken }, { runId: attemptId }]) {
+    assert.throws(() => contract.validate({ action: 'collectAdvertisingKeywordSerp', attemptId, ...extra }));
+  }
+  const dispatch = () => new Promise((resolve) => {
+    let responders = 0;
+    for (const listener of h.fake.externalMessageListeners) {
+      if (listener({ action: 'collectAdvertisingKeywordSerp', attemptId },
+        { url: 'http://localhost:3000/advertising/keyword-rank' }, resolve) === true) responders += 1;
+    }
+    assert.equal(responders, 1);
+  });
+  const [reply, replay] = await Promise.all([dispatch(), dispatch()]);
+  assert.deepEqual(reply, replay);
+  assert.deepEqual(JSON.parse(JSON.stringify(reply)), {
+    success: true, attemptId, terminalState: 'COMPLETE', itemCount: 1,
+  });
+  assert.equal(uploads.length, 1);
+  assert.equal(uploads[0].token, attemptToken);
+  assert.equal(uploads[0].body.keyword, '연필 세트');
+  assert.equal(uploads[0].body.items[0].vendorItemId, '10');
+  assert.ok(Number.isFinite(Date.parse(uploads[0].body.capturedAt)));
+  assert.deepEqual(uploads[0].body.pagination, { requestedMaxPages: 1, stoppedAtPage: 1, stopReason: 'page_limit' });
+  assert.equal(h.urls.length, 1);
+});
+
+test('SERP source dispatch reconciles lost terminal replies without submitting a contradictory failure', async (t) => {
+  for (const outcome of ['COMPLETE', 'FAILED', 'UNAVAILABLE']) await t.test(outcome, async () => {
+    const attemptId = '11111111-1111-4111-8111-111111111111';
+    const uploads = [];
+    let reads = 0;
+    const h = bootRankCollector([{ items: [{ productId: '1', name: '연필' }] }], {
+      fetch: async (url, init) => {
+        if (!String(url).includes('/serp/attempts/')) return { ok: true, status: 200, json: async () => ({}) };
+        assert.equal(String(url).endsWith(`/serp/attempts/${attemptId}`), true, 'never send /fail after an uncertain upload');
+        if (init.method === 'PUT') {
+          uploads.push(init.body);
+          throw new TypeError('response connection lost');
+        }
+        reads += 1;
+        if (reads > 1 && outcome === 'UNAVAILABLE') throw new TypeError('server unavailable');
+        return { ok: true, status: 200, json: async () => reads === 1 ? {
+          attemptId, attemptToken: '22222222-2222-4222-8222-222222222222', state: 'RUNNING',
+          expiresAt: new Date(Date.now() + 600_000).toISOString(),
+          plan: { sourceType: 'coupang_keyword_serp', parserVersion: 'keyword-serp-v1', keyword: '연필 세트', maxPages: 1 },
+        } : { attemptId, state: outcome, itemCount: outcome === 'COMPLETE' ? 1 : 0,
+          errorCode: 'INCOMPLETE_SERP_CAPTURE', errorMessage: 'Source proof rejected.' } };
+      },
+    });
+    h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
+    const action = h.context.KidItemDomains.forExternalAction('collectAdvertisingKeywordSerp');
+    const result = await action.handle({ attemptId }, 'local');
+    assert.equal(result.success, outcome === 'COMPLETE');
+    assert.equal(result.terminalState, outcome === 'UNAVAILABLE' ? 'RUNNING' : outcome);
+    assert.equal(uploads.length, 3);
+    assert.equal(new Set(uploads).size, 1, 'the exact capture timestamp/body is preserved across retries');
+    assert.equal(h.urls.length, 1, 'a transport retry does not recollect the source');
+    const session = await externalRequest(h.fake, { action: 'getCollectionSession', attemptId });
+    assert.equal(Boolean(session), outcome === 'UNAVAILABLE', 'uncertainty retains only local correlation');
+  });
+});
+
+test('SERP source dispatch records provider login failure and retains the owned attention tab', async () => {
+  const attemptId = '11111111-1111-4111-8111-111111111111';
+  const failures = [];
+  const h = bootRankCollector([{ items: [], wall: 'login' }], { fetch: async (url, init) => {
+    if (!String(url).includes('/serp/attempts/')) return { ok: true, status: 200, json: async () => ({}) };
+    if (init.method === 'POST') {
+      assert.equal(String(url).endsWith(`/${attemptId}/fail`), true);
+      failures.push(JSON.parse(init.body));
+      return { ok: true, status: 201, json: async () => ({ attemptId, state: 'FAILED', itemCount: 0,
+        errorCode: 'SERP_PROVIDER_WALL', errorMessage: 'Login required.' }) };
+    }
+    assert.equal(init.method, 'GET');
+    return { ok: true, status: 200, json: async () => ({
+      attemptId, attemptToken: '22222222-2222-4222-8222-222222222222', state: 'RUNNING',
+      expiresAt: new Date(Date.now() + 600_000).toISOString(),
+      plan: { sourceType: 'coupang_keyword_serp', parserVersion: 'keyword-serp-v1', keyword: '연필 세트', maxPages: 1 },
+    }) };
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
+  const result = await h.context.KidItemDomains.forExternalAction('collectAdvertisingKeywordSerp')
+    .handle({ attemptId }, 'local');
+  assert.equal(result.success, false);
+  assert.equal(result.terminalState, 'FAILED');
+  assert.equal(failures.length, 1);
+  const session = await externalRequest(h.fake, { action: 'getCollectionSession', attemptId });
+  assert.equal(session?.attention?.reason, 'marketplace_login');
+  const focused = [];
+  h.fake.chrome.tabs.update = async (tabId, options) => { focused.push({ tabId, ...options }); };
+  await externalRequest(h.fake, { action: 'openCollectionAttentionTab', attemptId });
+  assert.deepEqual(focused, [{ tabId: 41, active: true }]);
+});
+
+test('SERP source cancellation is owner-confirmed before closing the tab and stops further pagination', async () => {
+  const attemptId = '11111111-1111-4111-8111-111111111111';
+  const writes = [];
+  let state = 'RUNNING';
+  const h = bootRankCollector([{ items: [{ productId: '1' }] }, { items: [{ productId: '2' }] }], {
+    fetch: async (url, init) => {
+      if (!String(url).includes('/serp/attempts/')) return { ok: true, status: 200, json: async () => ({}) };
+      if (init.method !== 'GET') {
+        writes.push({ url: String(url), body: JSON.parse(init.body) });
+        state = 'FAILED';
+      }
+      return { ok: true, status: 200, json: async () => ({
+        attemptId, attemptToken: '22222222-2222-4222-8222-222222222222', state,
+        errorCode: state === 'FAILED' ? 'COLLECTION_CANCELLED' : null, itemCount: 0,
+        expiresAt: new Date(Date.now() + 600_000).toISOString(),
+        plan: { sourceType: 'coupang_keyword_serp', parserVersion: 'keyword-serp-v1', keyword: '연필 세트', maxPages: 2 },
+      }) };
+    },
+  });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
+  let entered, release;
+  const extracting = new Promise((resolve) => { entered = resolve; });
+  const resume = new Promise((resolve) => { release = resolve; });
+  const extract = h.fake.chrome.scripting.executeScript;
+  h.fake.chrome.scripting.executeScript = async (...args) => { entered(); await resume; return extract(...args); };
+  const closed = [];
+  h.fake.chrome.tabs.remove = async (tabId) => { assert.equal(state, 'FAILED'); closed.push(tabId); };
+  const collecting = h.context.KidItemDomains.forExternalAction('collectAdvertisingKeywordSerp').handle({ attemptId }, 'local');
+  await extracting;
+  let cancellation;
+  try { cancellation = await externalRequest(h.fake, { action: 'cancelCollectionSession', attemptId }); }
+  finally { release(); }
+  const result = await collecting;
+  assert.equal(cancellation?.terminalState, 'FAILED');
+  assert.equal(result.terminalState, 'FAILED');
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].url.endsWith(`/${attemptId}/fail`), true);
+  assert.equal(writes[0].body.code, 'COLLECTION_CANCELLED');
+  assert.equal(h.urls.length, 1);
+  assert.deepEqual(closed, [41]);
+});
+
+test('SERP source records a definitive payload rejection as FAILED rather than leaving an unconfirmed RUNNING source', async () => {
+  const attemptId = '11111111-1111-4111-8111-111111111111';
+  const writes = [];
+  const h = bootRankCollector([{ items: [{ productId: '1' }] }], { fetch: async (url, init) => {
+    if (!String(url).includes('/serp/attempts/')) return { ok: true, status: 200, json: async () => ({}) };
+    if (init.method === 'PUT') {
+      writes.push('PUT');
+      return { ok: false, status: 400, json: async () => ({ message: 'INVALID_SERP_CAPTURE' }) };
+    }
+    if (init.method === 'POST') {
+      writes.push('FAIL');
+      return { ok: true, status: 201, json: async () => ({ attemptId, state: 'FAILED', itemCount: 0,
+        errorCode: 'SERP_RESPONSE_INVALID', errorMessage: 'Invalid capture.' }) };
+    }
+    return { ok: true, status: 200, json: async () => ({
+      attemptId, attemptToken: '22222222-2222-4222-8222-222222222222', state: 'RUNNING',
+      expiresAt: new Date(Date.now() + 600_000).toISOString(),
+      plan: { sourceType: 'coupang_keyword_serp', parserVersion: 'keyword-serp-v1', keyword: '연필 세트', maxPages: 1 },
+    }) };
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
+  const result = await h.context.KidItemDomains.forExternalAction('collectAdvertisingKeywordSerp').handle({ attemptId }, 'local');
+  assert.equal(result.terminalState, 'FAILED');
+  assert.deepEqual(writes, ['PUT', 'FAIL']);
+  assert.equal(h.urls.length, 1);
+});
 
 test('SERP capture preserves URLs, DOM order and normalized fields while proving the page limit', async () => {
   const h = bootRankCollector([

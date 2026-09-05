@@ -167,6 +167,12 @@ const competitorCatalogSourceOwner = KidItemCompetitorCatalogSourceOwner.create(
   },
 });
 const wingFormRuntimeCompat = KidItemWingFormRuntimeCompat.create({ chrome });
+const keywordSerpSourceOwner = KidItemKeywordSerpSourceOwner.create({
+  chrome,
+  sessions: collectionSessions,
+  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
+  collect: captureCoupangKeywordSerp,
+});
 const wingFormReadiness = KidItemWingFormReadiness.create({ chrome });
 const wingImageFetch = KidItemWingImageFetch.create({
   runtimeId: chrome.runtime.id,
@@ -2771,6 +2777,9 @@ async function captureCoupangKeywordSerp(keyword, maxPages, options = {}) {
 
   for (let page = 1; page <= maxPages; page++) {
     stoppedAtPage = page;
+    if (options.attemptId && !(await collectionSessions.get(options.attemptId))) {
+      return { success: false, cancelled: true, tabId };
+    }
     const pageUrl = buildCoupangRankSearchUrl(keyword, page);
 
     if (!tabId) {
@@ -2779,6 +2788,9 @@ async function captureCoupangKeywordSerp(keyword, maxPages, options = {}) {
       if (!tabId)
         return { success: false, error: "쿠팡 검색 탭을 열 수 없습니다" };
       if (options.runId) await collectionRuns.attachTab(options.runId, tab);
+      if (options.attemptId) await collectionSessions.attachTab(options.attemptId, {
+        tabId: tab.id, windowId: tab.windowId, closeOnCancel: true,
+      });
       if (typeof coupangEnvironment !== "undefined") {
         await coupangEnvironment.bindTab(tabId, options.environmentId);
       }
@@ -2833,6 +2845,9 @@ async function captureCoupangKeywordSerp(keyword, maxPages, options = {}) {
     }
 
     wall = extraction.wall || wall;
+    if (options.attemptId && !(await collectionSessions.get(options.attemptId))) {
+      return { success: false, cancelled: true, tabId };
+    }
     usedFallback = usedFallback || !!extraction.usedFallback;
 
     const pageItems = Array.isArray(extraction.items) ? extraction.items : [];
@@ -5085,6 +5100,12 @@ KidItemDomains.register({
     [WING_FORM_PORT_NAME]: (port) => handleWingFormPort(port),
   },
   externalActions: {
+    collectAdvertisingKeywordSerp: {
+      validate: KidItemKeywordSerpSourceOwner.parseStart,
+      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
+        keywordSerpSourceOwner.run({ environmentId, attemptId }),
+      ),
+    },
     collectSourcingWingCatalog: {
       validate: parseSourcingWingCatalogStart,
       handle: ({ idempotencyKey, input }, environmentId) =>
@@ -5126,6 +5147,7 @@ KidItemDomains.register({
     },
   },
   capabilities: {
+    keywordSerpSourceOwnerV1: true,
     profitabilityAdvertisingSourceOwnerV1: true,
     trackedWingProductsSourceOwnerV1: true,
     competitorCatalogSourceOwnerV1: true,
@@ -5159,6 +5181,9 @@ KidItemDomains.register({
   },
   cancelCollectionSession: async (runId, environmentId) => {
     const session = await collectionSessions.getOwned(runId, environmentId);
+    if (session?.producer === "advertising.keyword_rank") {
+      return keywordSerpSourceOwner.cancel({ environmentId, attemptId: runId });
+    }
     if (session?.producer === "advertising.profitability_import") {
       return profitabilitySourceOwner.cancel({ environmentId, attemptId: runId });
     }
