@@ -5,19 +5,10 @@ import { LiveCommerceSection } from './LiveCommerceSection';
 
 const mocks = vi.hoisted(() => ({
   taobaoStart: vi.fn(),
-  useAction: vi.fn(),
   fetchStatus: vi.fn(),
   fetchSnapshots: vi.fn(),
   collectBrowser: vi.fn(),
   fetchBrowserStatus: vi.fn(),
-}));
-
-vi.mock('../../hooks/use-sourcing-operation-action', () => ({
-  useSourcingOperationAction: mocks.useAction,
-}));
-
-vi.mock('../../components/SourcingOperationRunPanel', () => ({
-  SourcingOperationRunPanel: () => <div>taobao-operation-panel</div>,
 }));
 
 vi.mock('../lib/live-commerce-api', () => ({
@@ -87,15 +78,6 @@ describe('LiveCommerceSection direct source-owner migration', () => {
       }],
     });
     mocks.taobaoStart.mockResolvedValue({ attemptId: 'taobao-attempt', state: 'COMPLETE' });
-    mocks.useAction.mockImplementation(() => ({
-      run: null,
-      start: mocks.taobaoStart,
-      cancel: vi.fn(),
-      retryAttention: vi.fn(),
-      isStarting: false,
-      isCancelling: false,
-      isRetrying: false,
-    }));
     mocks.collectBrowser.mockResolvedValue({
       success: true,
       attemptId: '00000000-0000-4000-8000-000000000777',
@@ -118,7 +100,7 @@ describe('LiveCommerceSection direct source-owner migration', () => {
     await screen.findByRole('button', { name: '공식 수집' });
     expect(await screen.findByText('보존된 라이브 스냅샷')).toBeInTheDocument();
     expect(mocks.collectBrowser).not.toHaveBeenCalled();
-    expect(mocks.useAction).not.toHaveBeenCalled();
+    expect(mocks.taobaoStart).not.toHaveBeenCalled();
 
     const url = 'https://live.douyin.com/123?token=keep#private';
     fireEvent.change(screen.getByPlaceholderText(/https:\/\/live\.douyin\.com/), {
@@ -133,9 +115,6 @@ describe('LiveCommerceSection direct source-owner migration', () => {
     expect(screen.getByText('보존된 라이브 스냅샷')).toBeInTheDocument();
     await waitFor(() => expect(mocks.fetchBrowserStatus).toHaveBeenCalledWith(url));
     expect(screen.getByText(/기준 09\.\s*04/)).toBeInTheDocument();
-    expect(mocks.useAction).not.toHaveBeenCalledWith(expect.objectContaining({
-      operationKey: 'sourcing.collect_live_commerce_url',
-    }));
 
     view.unmount();
     renderSection();
@@ -151,7 +130,6 @@ describe('LiveCommerceSection direct source-owner migration', () => {
     await screen.findByRole('button', { name: '공식 수집' });
     await waitFor(() => expect(screen.getByRole('button', { name: '공식 수집' })).toBeEnabled());
     expect(mocks.taobaoStart).not.toHaveBeenCalled();
-    expect(screen.queryByText('taobao-operation-panel')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '공식 수집' }));
     await screen.findByText('response lost');
     fireEvent.click(screen.getByRole('button', { name: '공식 수집' }));

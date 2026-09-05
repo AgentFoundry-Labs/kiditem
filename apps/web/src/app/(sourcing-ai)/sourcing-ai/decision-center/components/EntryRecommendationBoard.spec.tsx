@@ -17,12 +17,6 @@ const ITEM_B_KEY = 'b'.repeat(64);
 const trendMocks = vi.hoisted(() => ({ collect: vi.fn() }));
 vi.mock('../../hooks/use-trend-source-collection', () => ({ useTrendSourceCollection: () => ({ collect: trendMocks.collect, isCollecting: false, error: null, actualCutoffAt: null }) }));
 
-const operationMocks = vi.hoisted(() => ({
-  start: vi.fn(),
-  cancel: vi.fn(),
-  retryAttention: vi.fn(),
-  useAction: vi.fn(),
-}));
 const sourceOwnerMocks = vi.hoisted(() => ({
   collect: vi.fn(),
   fetchStatus: vi.fn(),
@@ -35,26 +29,9 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('@/hooks/useAuth', () => ({ useAuth: vi.fn() }));
-vi.mock('../../hooks/use-sourcing-operation-action', () => ({
-  useSourcingOperationAction: operationMocks.useAction,
-}));
 vi.mock('../../lib/sourcing-1688-source-owner', () => ({
   collectSourcing1688TrendsFromExtension: sourceOwnerMocks.collect,
   fetchSourcing1688TrendSourceStatus: sourceOwnerMocks.fetchStatus,
-}));
-vi.mock('../../components/SourcingOperationRunPanel', () => ({
-  SourcingOperationRunPanel: ({
-    onCancel,
-    onRetryAttention,
-  }: {
-    onCancel?: () => void;
-    onRetryAttention?: () => void;
-  }) => (
-    <div>
-      <button type="button" onClick={onCancel}>interest-operation-cancel</button>
-      <button type="button" onClick={onRetryAttention}>interest-operation-retry</button>
-    </div>
-  ),
 }));
 vi.mock('../../hooks/use-sourcing-workspace', () => ({
   useSaveSourcingReviewSelection: vi.fn(),
@@ -80,7 +57,6 @@ function renderBoard() {
 describe('EntryRecommendationBoard review state', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    operationMocks.start.mockResolvedValue({ id: 'operation-1688' });
     sourceOwnerMocks.collect.mockResolvedValue({
       success: true,
       attemptId: '1688-attempt',
@@ -94,15 +70,6 @@ describe('EntryRecommendationBoard review state', () => {
       actualCutoffAt: null,
       errorCode: null,
       errorMessage: null,
-    });
-    operationMocks.useAction.mockReturnValue({
-      run: null,
-      start: operationMocks.start,
-      cancel: operationMocks.cancel,
-      retryAttention: operationMocks.retryAttention,
-      isStarting: false,
-      isCancelling: false,
-      isRetrying: false,
     });
     vi.mocked(useAuth).mockReturnValue({
       user: { organizationId: 'org-a' },
@@ -181,11 +148,8 @@ describe('EntryRecommendationBoard review state', () => {
 
     const view = renderBoard();
 
-    expect(operationMocks.start).not.toHaveBeenCalled();
+    expect(sourceOwnerMocks.collect).not.toHaveBeenCalled();
     expect(await screen.findByRole('checkbox', { name: '상품 A 선택' })).toBeChecked();
-    expect(operationMocks.useAction).not.toHaveBeenCalledWith(expect.objectContaining({
-      operationKey: 'sourcing.collect_1688_trends',
-    }));
 
     await user.click(await screen.findByRole('button', { name: '1688 공급 찾기 (1)' }));
 
@@ -304,7 +268,6 @@ describe('EntryRecommendationBoard review state', () => {
     const user = userEvent.setup();
     renderBoard();
 
-    expect(operationMocks.start).not.toHaveBeenCalled();
     expect(trendMocks.collect).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: '지금 수집' }));
