@@ -221,6 +221,7 @@ test('ping 이 세 도메인의 capabilities 를 합쳐 한 번만 응답한다'
   for (const capability of [
     // 주문수집
     'orderCollectionIcecreamMall',
+    'coupangShipmentSummarySourceOwnerV1',
     'collectSellpiaInventoryJsonV1',
     'collectSellpiaManualMatchV1',
     'collectSellpiaManualMatchPortV1',
@@ -455,6 +456,34 @@ test('도메인 고유 액션은 소유 워커만 받고 retired sourcing bridge
     null,
     'retired Live Commerce Operation must not claim browser work',
   );
+});
+
+test('shipment summary uses one authenticated owner responder without accepting a page-owned plan', async () => {
+  const { fake, context } = bootServiceWorker();
+  const action = 'collectCoupangShipmentDateSummary';
+  const attemptId = '11111111-1111-4111-8111-111111111111';
+  const contract = context.KidItemDomains.forExternalAction(action);
+  assert.equal(typeof contract?.handle, 'function');
+  for (const invalid of [
+    { action, runId: attemptId },
+    { action, attemptId, maxPages: 60 },
+    { action, attemptId, attemptToken: 'caller-token' },
+  ]) assert.throws(() => contract.validate(invalid), /Invalid shipment summary attempt/);
+
+  let keptAlive = 0;
+  const responses = [];
+  await new Promise((resolve) => {
+    for (const listener of fake.externalMessageListeners) {
+      if (listener({ action, attemptId },
+        { url: 'http://localhost:3000/coupang-shipments' },
+        (response) => { responses.push(response); resolve(); }) === true) keptAlive += 1;
+    }
+  });
+  assert.equal(keptAlive, 1);
+  assert.equal(responses.length, 1);
+  assert.equal(responses[0].success, false);
+  assert.match(responses[0].error, /login is required/);
+  assert.deepEqual(fake.createdTabs, []);
 });
 
 test('1688 direct source action reaches its owner through the external dispatcher', async () => {

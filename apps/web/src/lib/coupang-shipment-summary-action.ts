@@ -1,228 +1,162 @@
-import { apiClient } from '@/lib/api-client';
+import { z } from "zod";
+import { apiClient } from "./api-client";
+import { isApiError } from "./api-error";
 import {
   detectOrderCollectionExtensionRuntime,
   sendToExtension,
-} from '@/lib/extension-bridge';
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
-import { formatNumber } from '@/lib/utils';
+} from "./extension-bridge";
+import { transferExtensionAuthTo } from "./extension-auth";
+import { createSecureRandomUuid } from "./secure-random-uuid";
 
-export const COUPANG_COOKIE_BLOAT_CODE = 'coupang_cookie_bloat';
-export const COUPANG_SHIPMENT_SESSION_REQUIRED_CODE = 'coupang_shipment_session_required';
-export const COUPANG_SHIPMENT_RESPONSE_INVALID_CODE = 'coupang_shipment_response_invalid';
-
-const ORDER_COLLECTOR_REQUIRED_MESSAGE =
-  '주문수집 확장프로그램이 필요합니다. extensions/kiditem-os를 Chrome에서 로드한 뒤 다시 시도해주세요.';
-const ORDER_COLLECTOR_RELOAD_MESSAGE =
-  '주문수집 확장프로그램이 이전 버전입니다. Chrome 확장 관리에서 extensions/kiditem-os를 새로고침한 뒤 다시 시도해주세요.';
-const VERIFICATION_ERROR_MESSAGE =
-  '발송일 요약 저장을 서버에서 확인하지 못했습니다. 다시 조회해주세요.';
-
-export class CoupangShipmentExtensionError extends Error {
-  code?: string;
-
-  constructor(message: string, code?: string) {
-    super(message);
-    this.name = 'CoupangShipmentExtensionError';
-    this.code = code;
-  }
-}
-
+export const COUPANG_COOKIE_BLOAT_CODE = "coupang_cookie_bloat";
+export const COUPANG_SHIPMENT_SESSION_REQUIRED_CODE =
+  "coupang_shipment_session_required";
+export const COUPANG_SHIPMENT_RESPONSE_INVALID_CODE =
+  "coupang_shipment_response_invalid";
+const BASE = "/api/coupang-shipments/date-summary";
+const entrySchema = z.object({
+  date: z.string(),
+  count: z.number().int().nonnegative(),
+  boxes: z.number().int().nonnegative(),
+  capturedAt: z.string().datetime(),
+  verified: z.boolean(),
+});
+const attemptSchema = z.object({
+  attemptId: z.string().uuid(),
+  state: z.enum(["RUNNING", "COMPLETE", "FAILED"]),
+  generation: z.string(),
+  plan: z.object({
+    sourceType: z.literal("coupang_shipment_summary"),
+    parserVersion: z.literal("shipment-summary-v1"),
+    maxPages: z.number(),
+  }),
+  expiresAt: z.string().datetime(),
+  actualCutoffAt: z.string().datetime().nullable(),
+  errorCode: z.string().nullable(),
+  errorMessage: z.string().nullable(),
+});
+const attemptReadSchema = attemptSchema.extend({
+  items: z.array(entrySchema),
+  capturedItems: z.array(entrySchema),
+});
+const sourceSchema = z.object({
+  status: z.enum(["READY", "STALE", "MISSING"]),
+  refreshing: z.boolean(),
+  latestAttempt: attemptSchema.nullable(),
+  latestComplete: attemptSchema.nullable(),
+  items: z.array(entrySchema),
+  capturedItems: z.array(entrySchema),
+});
+export type CoupangShipmentSummarySource = z.infer<typeof sourceSchema>;
 export interface CoupangShipmentDateSummaryItem {
   date: string;
   count: number;
   boxes: number;
 }
-
-type CoupangShipmentDateSummaryResult = {
-  success: boolean;
-  error?: string;
-  errorCode?: string;
-  scannedPages?: number;
-  totalRows?: number;
-  dates?: CoupangShipmentDateSummaryItem[];
-};
-
-type PersistedDateSummaryResponse = {
-  items: Array<CoupangShipmentDateSummaryItem & { capturedAt: string }>;
-};
-
 export type CoupangShipmentSummaryActionResult =
-  | { status: 'empty'; items: [] }
+  | { status: "empty"; items: [] }
   | {
-      status: 'collected';
+      status: "collected";
       items: CoupangShipmentDateSummaryItem[];
       latest: CoupangShipmentDateSummaryItem;
     };
 
-export function isCoupangCookieBloatError(error: unknown): boolean {
-  return error instanceof CoupangShipmentExtensionError
-    && error.code === COUPANG_COOKIE_BLOAT_CODE;
-}
-
-export function isCoupangShipmentSessionRequiredError(error: unknown): boolean {
-  return error instanceof CoupangShipmentExtensionError
-    && error.code === COUPANG_SHIPMENT_SESSION_REQUIRED_CODE;
-}
-
-/** Exact manual action used by both the shipment screen and dashboard. */
-export async function collectAndPersistCoupangShipmentSummary(): Promise<
-  CoupangShipmentSummaryActionResult
-> {
-  const runId = await issueBrowserCollectionRunId();
-  const extensionId = await getValidatedDateSummaryExtensionId();
-  try {
-    const collected = await requestCoupangShipmentDateSummary(extensionId, {
-      runId,
-      deferTerminal: true,
-    });
-    if (collected.length === 0) {
-      await finalizeShipmentSummarySession({
-        extensionId,
-        runId,
-        status: 'succeeded',
-        message: '새로 조회된 쉽먼트가 없습니다.',
-      });
-      return { status: 'empty', items: [] };
-    }
-
-    await apiClient.put<PersistedDateSummaryResponse>('/api/coupang-shipments/date-summary', {
-      items: collected,
-    });
-    const persisted = await apiClient.get<PersistedDateSummaryResponse>(
-      '/api/coupang-shipments/date-summary',
-    );
-    const persistedByDate = new Map(persisted.items.map((item) => [item.date, item]));
-    for (const expected of collected) {
-      const actual = persistedByDate.get(expected.date);
-      if (!actual || actual.count !== expected.count || actual.boxes !== expected.boxes) {
-        throw new Error(VERIFICATION_ERROR_MESSAGE);
-      }
-    }
-
-    const items = persisted.items.map(({ date, count, boxes }) => ({ date, count, boxes }));
-    const latest = [...collected].sort((left, right) => right.date.localeCompare(left.date))[0]!;
-    await finalizeShipmentSummarySession({
-      extensionId,
-      runId,
-      status: 'succeeded',
-      message: `발송일 ${formatNumber(items.length)}일 · 최신 ${latest.date} (${formatNumber(latest.count)}건)`,
-    });
-    return { status: 'collected', items, latest };
-  } catch (error) {
-    await finalizeShipmentSummarySession({
-      extensionId,
-      runId,
-      status: 'failed',
-      message: error instanceof Error ? error.message : '쿠팡 쉽먼트 조회에 실패했습니다.',
-    });
-    throw error;
-  }
-}
-
-export async function collectCoupangShipmentDateSummaryViaExtension(): Promise<
-  CoupangShipmentDateSummaryItem[]
-> {
-  const extensionId = await getValidatedDateSummaryExtensionId();
-  return requestCoupangShipmentDateSummary(extensionId);
-}
-
-async function requestCoupangShipmentDateSummary(
-  extensionId: string,
-  lifecycle?: { runId: string; deferTerminal: true },
-): Promise<CoupangShipmentDateSummaryItem[]> {
-  const response = await sendToExtension<CoupangShipmentDateSummaryResult>(
-    extensionId,
-    {
-      action: 'collectCoupangShipmentDateSummary',
-      ...(lifecycle ?? {}),
-    },
-    90_000,
-  );
-  if (!response?.success) {
-    throw new CoupangShipmentExtensionError(
-      response?.error ?? '쿠팡 쉽먼트 발송일 조회에 실패했습니다.',
-      response?.errorCode,
-    );
-  }
-  return validateDateSummaryResponse(response);
-}
-
-async function finalizeShipmentSummarySession({
-  extensionId,
-  runId,
-  status,
-  message,
-}: {
-  extensionId: string;
-  runId: string;
-  status: 'succeeded' | 'failed';
-  message: string;
-}): Promise<void> {
-  await sendToExtension(extensionId, {
-    action: 'finalizeCollectionSession',
-    runId,
-    status,
-    message: message.slice(0, 300),
-  }).catch(() => undefined);
-}
-
-async function getValidatedDateSummaryExtensionId(): Promise<string> {
-  const runtime = await detectOrderCollectionExtensionRuntime(
-    1_200,
-    [
-      'collectCoupangShipmentDateSummaryValidatedV1',
-      'coupangShipmentSummaryCollectionSessionV1',
-    ],
-  );
-  if (runtime.status === 'ready') return runtime.extensionId;
-  if (runtime.status === 'incompatible') throw new Error(ORDER_COLLECTOR_RELOAD_MESSAGE);
-
-  if (typeof window !== 'undefined'
-    && window.location.hostname === 'localhost'
-    && window.location.port !== '3000') {
-    throw new Error(
-      '주문수집 확장프로그램은 로컬 앱의 http://localhost:3000 에서 연결됩니다. 웹 앱을 3000 포트로 열어 다시 시도해주세요.',
-    );
-  }
-  throw new Error(ORDER_COLLECTOR_REQUIRED_MESSAGE);
-}
-
-function validateDateSummaryResponse(
-  response: CoupangShipmentDateSummaryResult,
-): CoupangShipmentDateSummaryItem[] {
-  const invalid = (): never => {
-    throw new CoupangShipmentExtensionError(
-      '쿠팡 쉽먼트 조회 결과가 불완전합니다. 주문수집 확장프로그램을 새로고침한 뒤 다시 조회해주세요.',
-      COUPANG_SHIPMENT_RESPONSE_INVALID_CODE,
-    );
-  };
-  if (
-    !Array.isArray(response.dates)
-    || !Number.isInteger(response.scannedPages)
-    || (response.scannedPages ?? 0) < 1
-    || !Number.isInteger(response.totalRows)
-    || (response.totalRows ?? -1) < 0
+export class CoupangShipmentExtensionError extends Error {
+  constructor(
+    message: string,
+    public code?: string,
   ) {
-    return invalid();
+    super(message);
+    this.name = "CoupangShipmentExtensionError";
   }
+}
+export function isCoupangCookieBloatError(error: unknown): boolean {
+  return (
+    error instanceof CoupangShipmentExtensionError &&
+    error.code === COUPANG_COOKIE_BLOAT_CODE
+  );
+}
+export function isCoupangShipmentSessionRequiredError(error: unknown): boolean {
+  return (
+    error instanceof CoupangShipmentExtensionError &&
+    error.code === COUPANG_SHIPMENT_SESSION_REQUIRED_CODE
+  );
+}
+export function loadCoupangShipmentSummarySource(): Promise<CoupangShipmentSummarySource> {
+  return apiClient.getParsed(`${BASE}/source`, sourceSchema);
+}
 
-  const seenDates = new Set<string>();
-  let countedRows = 0;
-  for (const item of response.dates) {
+/** Both manual buttons use the same owner; the page never receives or uploads provider rows. */
+export async function collectAndPersistCoupangShipmentSummary(): Promise<CoupangShipmentSummaryActionResult> {
+  const runtime = await detectOrderCollectionExtensionRuntime(1_200, [
+    "coupangShipmentSummarySourceOwnerV1",
+  ]);
+  if (runtime.status === "incompatible")
+    throw new Error("주문수집 확장프로그램을 새로고침한 뒤 다시 시도해주세요.");
+  if (runtime.status !== "ready") {
     if (
-      !item
-      || !/^\d{4}-\d{2}-\d{2}$/.test(item.date)
-      || seenDates.has(item.date)
-      || !Number.isInteger(item.count)
-      || item.count < 1
-      || !Number.isInteger(item.boxes)
-      || item.boxes < 0
+      window.location.hostname === "localhost" &&
+      window.location.port !== "3000"
     ) {
-      return invalid();
+      throw new Error(
+        "주문수집 확장프로그램은 로컬 앱의 http://localhost:3000 에서 연결됩니다. 웹 앱을 3000 포트로 열어 다시 시도해주세요.",
+      );
     }
-    seenDates.add(item.date);
-    countedRows += item.count;
+    throw new Error(
+      "주문수집 확장프로그램이 필요합니다. extensions/kiditem-os를 Chrome에서 로드한 뒤 다시 시도해주세요.",
+    );
   }
-  if (countedRows !== response.totalRows) return invalid();
-  return response.dates;
+  await transferExtensionAuthTo(runtime.extensionId);
+  const key = createSecureRandomUuid();
+  const begin = () =>
+    apiClient.post<unknown>(
+      `${BASE}/attempts`,
+      {},
+      { headers: { "Idempotency-Key": key } },
+    );
+  let started: unknown;
+  try {
+    started = await begin();
+  } catch (error) {
+    if (!isApiError(error) || (error.status !== 0 && error.status < 500))
+      throw error;
+    started = await begin(); // Lost begin response replays the same explicit action, never a new generation.
+  }
+  const attempt = attemptSchema.parse(started);
+  if (attempt.state === "RUNNING") {
+    await sendToExtension(
+      runtime.extensionId,
+      {
+        action: "collectCoupangShipmentDateSummary",
+        attemptId: attempt.attemptId,
+      },
+      90_000,
+    ).catch(() => undefined);
+  }
+  const saved = await apiClient.getParsed(
+    `${BASE}/attempts/${attempt.attemptId}`,
+    attemptReadSchema,
+  );
+  if (saved.attemptId !== attempt.attemptId)
+    throw new Error("발송일 요약 저장을 서버에서 확인하지 못했습니다.");
+  if (saved.state !== "COMPLETE")
+    throw new CoupangShipmentExtensionError(
+      saved.errorMessage ??
+        "쉽먼트 조회가 아직 진행 중입니다. 서버 상태를 확인해주세요.",
+      saved.errorCode ?? "SOURCE_RUNNING",
+    );
+  if (saved.capturedItems.length === 0) return { status: "empty", items: [] };
+  const item = ({ date, count, boxes }: CoupangShipmentDateSummaryItem) => ({
+    date,
+    count,
+    boxes,
+  });
+  const latest = [...saved.capturedItems].sort((a, b) =>
+    b.date.localeCompare(a.date),
+  )[0]!;
+  return {
+    status: "collected",
+    items: saved.items.map(item),
+    latest: item(latest),
+  };
 }

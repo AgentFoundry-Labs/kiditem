@@ -195,6 +195,7 @@ describe('Sellpia authoritative inventory query keys', () => {
   });
 
   it('keeps snapshots, assets, history, and availability in independently invalidatable families', () => {
+    expect(queryKeys.inventory.coupangShipmentSummary()).toEqual(['inventory', 'coupang-shipment-summary']);
     expect(queryKeys.inventory.snapshots()).toEqual(['inventory', 'sellpia-skus']);
     expect(queryKeys.inventory.snapshot({ page: '2', query: 'SP-1' })).toEqual([
       'inventory',

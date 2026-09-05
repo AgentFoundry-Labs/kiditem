@@ -1,3 +1,4 @@
+import { createReadStream } from "node:fs";
 import {
   Body,
   Controller,
@@ -8,18 +9,24 @@ import {
   Put,
   Res,
   StreamableFile,
-} from '@nestjs/common';
-import { createReadStream } from 'node:fs';
-import type { Response } from 'express';
-
-import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+  Headers,
+  Post,
+  Query,
+  ParseUUIDPipe,
+} from "@nestjs/common";
+import { CurrentOrganization } from "../../../../auth/decorators/current-organization.decorator";
 import {
   COUPANG_SHIPMENTS_PORT,
   type CoupangShipmentsPort,
-} from '../../../application/port/in/fulfillment';
-import { SaveCoupangShipmentDateSummaryDto } from './dto';
+} from "../../../application/port/in/fulfillment";
+import {
+  BeginShipmentSummaryDto,
+  SubmitShipmentSummaryDto,
+  FailShipmentSummaryDto,
+} from "./dto/coupang-shipment-date-summary.dto";
+import type { Response } from "express";
 
-@Controller('coupang-shipments')
+@Controller("coupang-shipments")
 export class CoupangShipmentsController {
   constructor(
     @Inject(COUPANG_SHIPMENTS_PORT)
@@ -31,26 +38,81 @@ export class CoupangShipmentsController {
     return this.coupangShipments.listLocalFiles(organizationId);
   }
 
-  @Get('date-summary')
+  @Get("date-summary")
   listDateSummary(@CurrentOrganization() organizationId: string) {
     return this.coupangShipments.listDateSummary(organizationId);
   }
 
-  @Put('date-summary')
-  saveDateSummary(
+  @Post("date-summary/attempts")
+  beginSummary(
     @CurrentOrganization() organizationId: string,
-    @Body() dto: SaveCoupangShipmentDateSummaryDto,
+    @Headers("idempotency-key") key: string,
+    @Body() dto: BeginShipmentSummaryDto,
   ) {
-    return this.coupangShipments.saveDateSummary(organizationId, dto.items);
+    return this.coupangShipments.beginSummary(
+      organizationId,
+      key,
+      dto.maxPages,
+    );
   }
 
-  @Get('files/:runId/:date/:fileName')
-  @Header('Access-Control-Expose-Headers', 'Content-Disposition')
+  @Get("date-summary/source")
+  readSummarySource(
+    @CurrentOrganization() organizationId: string,
+    @Query() query: BeginShipmentSummaryDto,
+  ) {
+    return this.coupangShipments.readSummarySource(
+      organizationId,
+      query.maxPages,
+    );
+  }
+
+  @Get("date-summary/attempts/:attemptId")
+  readSummaryAttempt(
+    @CurrentOrganization() organizationId: string,
+    @Param("attemptId", ParseUUIDPipe) attemptId: string,
+  ) {
+    return this.coupangShipments.readSummaryAttempt(organizationId, attemptId);
+  }
+
+  @Put("date-summary/attempts/:attemptId")
+  completeSummary(
+    @CurrentOrganization() organizationId: string,
+    @Param("attemptId", ParseUUIDPipe) attemptId: string,
+    @Headers("x-source-attempt-token") token: string,
+    @Body() dto: SubmitShipmentSummaryDto,
+  ) {
+    return this.coupangShipments.completeSummary(
+      organizationId,
+      attemptId,
+      token,
+      dto,
+    );
+  }
+
+  @Post("date-summary/attempts/:attemptId/fail")
+  failSummary(
+    @CurrentOrganization() organizationId: string,
+    @Param("attemptId", ParseUUIDPipe) attemptId: string,
+    @Headers("x-source-attempt-token") token: string,
+    @Body() dto: FailShipmentSummaryDto,
+  ) {
+    return this.coupangShipments.failSummary(
+      organizationId,
+      attemptId,
+      token,
+      dto.code,
+      dto.message,
+    );
+  }
+
+  @Get("files/:runId/:date/:fileName")
+  @Header("Access-Control-Expose-Headers", "Content-Disposition")
   async download(
     @CurrentOrganization() organizationId: string,
-    @Param('runId') runId: string,
-    @Param('date') date: string,
-    @Param('fileName') fileName: string,
+    @Param("runId") runId: string,
+    @Param("date") date: string,
+    @Param("fileName") fileName: string,
     @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
     const file = await this.coupangShipments.resolveLocalFile(organizationId, {
@@ -58,14 +120,17 @@ export class CoupangShipmentsController {
       date,
       fileName,
     });
-    response.setHeader('Content-Disposition', contentDispositionAttachment(file.fileName));
-    response.setHeader('Content-Type', 'application/pdf');
-    response.setHeader('Content-Length', String(file.sizeBytes));
+    response.setHeader(
+      "Content-Disposition",
+      contentDispositionAttachment(file.fileName),
+    );
+    response.setHeader("Content-Type", "application/pdf");
+    response.setHeader("Content-Length", String(file.sizeBytes));
     return new StreamableFile(createReadStream(file.path));
   }
 }
 
 function contentDispositionAttachment(fileName: string): string {
-  const asciiFallback = fileName.replace(/[^\x20-\x7E]/g, '_');
+  const asciiFallback = fileName.replace(/[^\x20-\x7E]/g, "_");
   return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 }

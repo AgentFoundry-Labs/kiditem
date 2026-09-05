@@ -121,11 +121,19 @@ Trend collection uses `src/hooks/use-trend-source-collection.ts` across Sourcing
 and Dashboard: explicit owner collection, correlated retry keys, source status,
 and snapshot invalidation share one React Query hook. Sellpia refresh retains
 its separate Operation-backed manual action pending its owner cutover. Order
-collection, Coupang shipment-summary lookup, and Rocket PO collection keep
+collection and Rocket PO collection keep
 their existing browser action contracts so dashboard execution preserves the
 same generated files, saved summaries/catalogs, and operator-facing results as
 their screens. Scheduled variants may use Operations, but they do not redefine
 manual-button behavior or browser-local artifact ownership.
+
+Coupang shipment-summary lookup now begins an Inventory-owned SourceImportRun.
+The extension reads its frozen plan and uploads directly; immutable date facts,
+COMPLETE metadata, and Alert resolution commit together. The page reads the
+latest capture separately from calendar history, which retains the last
+COMPLETE observation per date. Untagged existing dates remain unverified, not
+successful capture evidence. CollectionSession holds only progress and tab
+attention; shipment PDF/file collection remains a separate existing action.
 
 Business owners register handlers and retain their own result sinks.
 `OperationAlert` remains a personal notification projection, not the source of
@@ -133,8 +141,8 @@ truth for an operation run. Browser runtime attempts are fenced by an
 `attemptToken` so stale extension reports cannot change a newer attempt.
 The global notification sheet is one chronological list: Alert rows and run
 projections share the same compact row presentation, with no separate Agent OS
-or `내 작업` card section. Manual shipment and Rocket actions publish distinct
-browser collection producers so their titles and return links remain stable.
+or `내 작업` card section. Rocket collection remains on that path pending its
+owner cutover; shipment-summary failures already use Inventory's source Alert.
 
 Sourcing has one exact ownership flow:
 

@@ -172,6 +172,7 @@ model ReturnTransfer {
 model CoupangShipmentDateSummary {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
+  sourceImportRunId String? @map("source_import_run_id") @db.Uuid
   shipmentDate   String   @map("shipment_date")
   count          Int      @default(0)
   boxes          Int      @default(0)
@@ -180,8 +181,11 @@ model CoupangShipmentDateSummary {
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceImportRun SourceImportRun? @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@unique([organizationId, shipmentDate])
+  @@unique([organizationId, sourceImportRunId, shipmentDate], map: "shipment_date_summary_attempt_date_key", where: raw("source_import_run_id IS NOT NULL"))
+  @@unique([organizationId, shipmentDate], map: "shipment_date_summary_baseline_date_key", where: raw("source_import_run_id IS NULL"))
+  @@index([sourceImportRunId, organizationId])
   @@index([organizationId])
   @@map("coupang_shipment_date_summaries")
 }

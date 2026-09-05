@@ -24,6 +24,7 @@ importScripts(
   "operation-runtime-client.js",
   // 세 도메인이 같은 값으로 각자 만들던 전역을 여기서 한 번만 만든다.
   "worker-globals.js",
+  "sourcing/source-attempt-wire.js",
   // 쿠팡 도메인 모듈
   "coupang/environment-runtime.js",
   "coupang/ad-collector-delay.js",
@@ -48,9 +49,9 @@ importScripts(
   "orders/sellpia-post-processing.js",
   "orders/coupang-po-session.js",
   "orders/rocket-po-collection.js",
+  "orders/coupang-shipment-summary-source-owner.js",
   // 소싱 도메인 모듈
   "sourcing/url-policy.js",
-  "sourcing/source-attempt-wire.js",
   "sourcing/product-extension-collector.js",
   "coupang/wing-catalog-source-owner.js",
   "sourcing/1688-trend-collector.js",

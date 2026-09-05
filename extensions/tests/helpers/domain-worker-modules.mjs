@@ -20,6 +20,7 @@ const SHARED_MODULES = [
 
 export const ORDERS_WORKER_MODULES = [
   ...SHARED_MODULES,
+  '../sourcing/source-attempt-wire.js',
   'collection-failure.js',
   'order-collection-lifecycle.js',
   'sellpia-inventory.js',
@@ -27,6 +28,7 @@ export const ORDERS_WORKER_MODULES = [
   'sellpia-post-processing.js',
   'coupang-po-session.js',
   'rocket-po-collection.js',
+  'coupang-shipment-summary-source-owner.js',
 ];
 
 export const SOURCING_WORKER_MODULES = [

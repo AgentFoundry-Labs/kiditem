@@ -397,35 +397,6 @@ test('automatic order actions publish safe domain-specific sessions from inactiv
   }
 });
 
-test('shipment summary publishes one deferred shipment-specific session', async () => {
-  const runtime = loadWorker();
-  runtime.context.collectCoupangShipmentDateSummary = async () => ({
-    success: true,
-    scannedPages: 1,
-    totalRows: 0,
-    dates: [],
-  });
-
-  const runId = uuid(90);
-  const response = await dispatch(runtime.externalMessageListeners, {
-    action: 'collectCoupangShipmentDateSummary',
-    runId,
-    deferTerminal: true,
-  });
-
-  assert.equal(response.attemptId, runId);
-  assert.equal(response.collectionSession.progress.completed, 1);
-  assert.equal(response.collectionSession.progress.total, 2);
-  assert.equal(
-    response.collectionSession.producer,
-    'orders.coupang_shipment_summary',
-  );
-  assert.deepEqual(
-    response.collectionSession.attention,
-    null,
-  );
-});
-
 test('every automatic mall access failure requires personal attention without focusing', async () => {
   const runtime = loadWorker();
   for (const [, functionName] of AUTOMATIC_ACTIONS) {

@@ -48,12 +48,11 @@ multiple route groups.
 - `manual-operation-actions.ts` owns the retained Sellpia manual request.
   Trend consumers use `src/hooks/use-trend-source-collection.ts` for the shared
   owner action, retry keys, and source status.
-- `coupang-shipment-summary-action.ts` and
-  `rocket-purchase-collection-action.ts` own manual browser actions promoted
-  across route groups. Keep extension collection, persistence verification,
-  and session terminalization inside these shared boundaries. Each action uses
-  its own browser collection producer so both trigger surfaces create one
-  identically titled row in the global notification panel.
+- Shipment summary callers use `coupang-shipment-summary-action.ts` to begin
+  the Inventory attempt and send only its ID to the extension. Read status,
+  capture cutoff, and calendar history from the owner; keep provider rows and
+  terminal writes out of the page. Rocket PO callers retain
+  `rocket-purchase-collection-action.ts` until their source-owner cutover.
 
 ## Boundary Rules
 

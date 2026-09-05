@@ -63,6 +63,11 @@ function sourceFilesUnder(directory) {
   });
 }
 
+test('retired Orders and Rocket Operation wrappers are absent', () => {
+  const worker = readFileSync(workerPath, 'utf8');
+  assert.doesNotMatch(worker, /runMarketplaceOrderCollectionOperation|runCoupangRocketPurchaseOrderOperation/);
+});
+
 test('order-collection route actions are handled by the extension worker', () => {
   const requestedActions = new Set();
   for (const file of sourceFilesUnder(routeRoot)) {
@@ -193,7 +198,7 @@ test('order collector manifest publishes normalized failure evidence and scoped 
   assert.match(worker, /sellpiaOrderFileUploadEvidenceV1:\s*true/);
   assert.match(worker, /sellpiaScopedAutoInvoiceV1:\s*true/);
   assert.match(worker, /collectCoupangShipmentDateSummaryValidatedV1:\s*true/);
-  assert.match(worker, /coupangShipmentSummaryCollectionSessionV1:\s*true/);
+  assert.match(worker, /coupangShipmentSummarySourceOwnerV1:\s*true/);
   assert.match(worker, /coupangRocketPoCollectionSessionV1:\s*true/);
 });
 

@@ -1,140 +1,187 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { apiClient } from '@/lib/api-client';
-import {
-  collectAndPersistCoupangShipmentSummary,
-} from '@/lib/coupang-shipment-summary-action';
-import {
-  detectOrderCollectionExtensionRuntime,
-  sendToExtension,
-} from '@/lib/extension-bridge';
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { collectAndPersistCoupangShipmentSummary } from "../coupang-shipment-summary-action";
 
-vi.mock('@/lib/api-client', () => ({
-  apiClient: { get: vi.fn(), put: vi.fn() },
-}));
+const attemptId = "11111111-1111-4111-8111-111111111111";
+const entry = {
+  date: "2026-09-01",
+  count: 2,
+  boxes: 4,
+  capturedAt: "2026-09-06T00:00:00Z",
+  verified: true,
+};
+const attempt = {
+  attemptId,
+  state: "RUNNING",
+  generation: "1",
+  attemptToken: "server-token",
+  plan: {
+    sourceType: "coupang_shipment_summary",
+    parserVersion: "shipment-summary-v1",
+    maxPages: 40,
+  },
+  expiresAt: "2099-01-01T00:00:00Z",
+  actualCutoffAt: null,
+  errorCode: null,
+  errorMessage: null,
+};
 
-vi.mock('@/lib/extension-bridge', () => ({
-  detectOrderCollectionExtensionRuntime: vi.fn(),
-  sendToExtension: vi.fn(),
-}));
-
-vi.mock('@/lib/browser-collection-session', () => ({
-  issueBrowserCollectionRunId: vi.fn(),
-}));
-
-const RUN_ID = '11111111-1111-4111-8111-111111111111';
-
-describe('collectAndPersistCoupangShipmentSummary', () => {
+describe("shipment action at HTTP and Chrome boundaries", () => {
+  const messages: Record<string, unknown>[] = [];
+  const calls: Array<{ path: string; init?: RequestInit }> = [];
+  let complete: Record<string, unknown>;
   beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(detectOrderCollectionExtensionRuntime).mockResolvedValue({
-      status: 'ready',
-      extensionId: 'extension-id',
-      version: '0.1.87',
+    messages.length = 0;
+    calls.length = 0;
+    complete = {
+      ...attempt,
+      state: "COMPLETE",
+      actualCutoffAt: entry.capturedAt,
+      capturedItems: [entry],
+      items: [entry],
+    };
+    localStorage.setItem("kiditem-order-ext-id", "test-extension");
+    vi.stubGlobal("chrome", {
+      runtime: {
+        sendMessage: (
+          _id: string,
+          message: Record<string, unknown>,
+          callback: (reply: unknown) => void,
+        ) => {
+          messages.push(message);
+          callback(
+            message.action === "ping"
+              ? {
+                  success: true,
+                  version: "test",
+                  capabilities: {
+                    kiditemEnvironmentProfilesV1: true,
+                    coupangShipmentSummarySourceOwnerV1: true,
+                    collectCoupangShipmentDateSummaryValidatedV1: true,
+                    coupangShipmentSummaryCollectionSessionV1: true,
+                  },
+                }
+              : { success: true, attemptId, terminalState: "COMPLETE" },
+          );
+        },
+      },
     });
-    vi.mocked(issueBrowserCollectionRunId).mockResolvedValue(RUN_ID);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const path = new URL(url, "http://localhost").pathname;
+        calls.push({ path, init });
+        if (path === "/api/auth/extension-handoff")
+          return Response.json({ token: "a".repeat(43) });
+        if (path.endsWith("/date-summary/attempts") && init?.method === "POST")
+          return Response.json(attempt);
+        if (path.endsWith(`/attempts/${attemptId}`))
+          return Response.json(complete);
+        return Response.json(
+          { message: `unexpected ${path}` },
+          { status: 404 },
+        );
+      }),
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
   });
 
-  it('uses the validated extension result and verifies the persisted summary', async () => {
-    vi.mocked(sendToExtension).mockResolvedValue({
-      success: true,
-      scannedPages: 2,
-      totalRows: 3,
-      dates: [
-        { date: '2026-08-01', count: 2, boxes: 4 },
-        { date: '2026-07-31', count: 1, boxes: 1 },
-      ],
+  it("uses the owner exact COMPLETE rows, sends only attempt identity to Chrome, and never resaves provider data", async () => {
+    expect(await collectAndPersistCoupangShipmentSummary()).toEqual({
+      status: "collected",
+      latest: { date: "2026-09-01", count: 2, boxes: 4 },
+      items: [{ date: "2026-09-01", count: 2, boxes: 4 }],
     });
-    vi.mocked(apiClient.put).mockResolvedValue({ items: [] });
-    vi.mocked(apiClient.get).mockResolvedValue({
-      items: [
-        { date: '2026-08-01', count: 2, boxes: 4, capturedAt: '2026-08-01T00:00:00Z' },
-        { date: '2026-07-31', count: 1, boxes: 1, capturedAt: '2026-08-01T00:00:00Z' },
-      ],
-    });
-
-    await expect(collectAndPersistCoupangShipmentSummary()).resolves.toEqual({
-      status: 'collected',
-      latest: { date: '2026-08-01', count: 2, boxes: 4 },
-      items: [
-        { date: '2026-08-01', count: 2, boxes: 4 },
-        { date: '2026-07-31', count: 1, boxes: 1 },
-      ],
-    });
-    expect(apiClient.put).toHaveBeenCalledWith('/api/coupang-shipments/date-summary', {
-      items: [
-        { date: '2026-08-01', count: 2, boxes: 4 },
-        { date: '2026-07-31', count: 1, boxes: 1 },
-      ],
-    });
-    expect(sendToExtension).toHaveBeenNthCalledWith(1, 'extension-id', {
-      action: 'collectCoupangShipmentDateSummary',
-      runId: RUN_ID,
-      deferTerminal: true,
-    }, 90_000);
-    expect(sendToExtension).toHaveBeenLastCalledWith('extension-id', {
-      action: 'finalizeCollectionSession',
-      runId: RUN_ID,
-      status: 'succeeded',
-      message: '발송일 2일 · 최신 2026-08-01 (2건)',
-    });
-    expect(detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(1_200, [
-      'collectCoupangShipmentDateSummaryValidatedV1',
-      'coupangShipmentSummaryCollectionSessionV1',
-    ]);
+    expect(
+      messages.filter(
+        (message) => message.action === "collectCoupangShipmentDateSummary",
+      ),
+    ).toEqual([{ action: "collectCoupangShipmentDateSummary", attemptId }]);
+    expect(calls.some((call) => call.init?.method === "PUT")).toBe(false);
+    expect(
+      messages.some(
+        (message) => message.action === "finalizeCollectionSession",
+      ),
+    ).toBe(false);
   });
-
-  it('rejects a cached extension without the dedicated shipment session', async () => {
-    vi.mocked(detectOrderCollectionExtensionRuntime).mockResolvedValue({
-      status: 'incompatible',
-      extensionId: 'legacy-extension-id',
-      version: '0.1.86',
-      missingCapabilities: ['coupangShipmentSummaryCollectionSessionV1'],
-    });
-
-    await expect(collectAndPersistCoupangShipmentSummary()).rejects.toThrow(/새로고침/);
-    expect(sendToExtension).not.toHaveBeenCalled();
-  });
-
-  it('keeps an explicit empty result distinct and does not persist it', async () => {
-    vi.mocked(sendToExtension).mockResolvedValue({
-      success: true,
-      scannedPages: 1,
-      totalRows: 0,
-      dates: [],
-    });
-
-    await expect(collectAndPersistCoupangShipmentSummary()).resolves.toEqual({
-      status: 'empty',
+  it("keeps an empty COMPLETE distinct from retained calendar history", async () => {
+    complete = { ...complete, capturedItems: [] };
+    expect(await collectAndPersistCoupangShipmentSummary()).toEqual({
+      status: "empty",
       items: [],
     });
-    expect(apiClient.put).not.toHaveBeenCalled();
-    expect(apiClient.get).not.toHaveBeenCalled();
-    expect(sendToExtension).toHaveBeenLastCalledWith('extension-id', {
-      action: 'finalizeCollectionSession',
-      runId: RUN_ID,
-      status: 'succeeded',
-      message: '새로 조회된 쉽먼트가 없습니다.',
-    });
+    expect(
+      calls.some((call) => call.path.endsWith(`/attempts/${attemptId}`)),
+    ).toBe(true);
   });
-
-  it('rejects a save that cannot be read back exactly', async () => {
-    vi.mocked(sendToExtension).mockResolvedValue({
-      success: true,
-      scannedPages: 1,
-      totalRows: 1,
-      dates: [{ date: '2026-08-01', count: 1, boxes: 2 }],
+  it("ignores Chrome success when the exact owner reports failure", async () => {
+    complete = {
+      ...complete,
+      state: "FAILED",
+      errorCode: "coupang_cookie_bloat",
+      errorMessage: "쿠키를 정리해주세요.",
+    };
+    await expect(
+      collectAndPersistCoupangShipmentSummary(),
+    ).rejects.toMatchObject({ code: "coupang_cookie_bloat" });
+  });
+  it("recovers a lost begin response using the same idempotency key, then uses the exact terminal read", async () => {
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    let lost = false;
+    vi.mocked(fetch).mockImplementation(async (...args) => {
+      const response = await original(...args);
+      if (String(args[0]).endsWith("/date-summary/attempts") && !lost) {
+        lost = true;
+        throw new Error("response lost");
+      }
+      return response;
     });
-    vi.mocked(apiClient.put).mockResolvedValue({ items: [] });
-    vi.mocked(apiClient.get).mockResolvedValue({ items: [] });
-
-    await expect(collectAndPersistCoupangShipmentSummary())
-      .rejects.toThrow('발송일 요약 저장을 서버에서 확인하지 못했습니다.');
-    expect(sendToExtension).toHaveBeenLastCalledWith('extension-id', {
-      action: 'finalizeCollectionSession',
-      runId: RUN_ID,
-      status: 'failed',
-      message: '발송일 요약 저장을 서버에서 확인하지 못했습니다. 다시 조회해주세요.',
-    });
+    const quiet = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    try {
+      expect((await collectAndPersistCoupangShipmentSummary()).status).toBe(
+        "collected",
+      );
+    } finally {
+      quiet.mockRestore();
+    }
+    const starts = calls.filter((call) =>
+      call.path.endsWith("/date-summary/attempts"),
+    );
+    expect(starts).toHaveLength(2);
+    expect(new Headers(starts[0].init?.headers).get("Idempotency-Key")).toBe(
+      new Headers(starts[1].init?.headers).get("Idempotency-Key"),
+    );
+  });
+  it("recovers a lost Chrome callback from owner COMPLETE, but never invents terminal success for RUNNING", async () => {
+    const runtime = (
+      window as unknown as {
+        chrome: {
+          runtime: {
+            lastError?: { message: string };
+            sendMessage: (...args: unknown[]) => void;
+          };
+        };
+      }
+    ).chrome.runtime;
+    const original = runtime.sendMessage;
+    runtime.sendMessage = (...args: unknown[]) => {
+      const message = args[1] as { action: string };
+      if (message.action !== "collectCoupangShipmentDateSummary")
+        return original(...args);
+      runtime.lastError = { message: "reply lost" };
+      (args[2] as (value: unknown) => void)(undefined);
+      delete runtime.lastError;
+    };
+    expect((await collectAndPersistCoupangShipmentSummary()).status).toBe(
+      "collected",
+    );
+    complete = { ...complete, state: "RUNNING", actualCutoffAt: null };
+    await expect(
+      collectAndPersistCoupangShipmentSummary(),
+    ).rejects.toMatchObject({ code: "SOURCE_RUNNING" });
   });
 });

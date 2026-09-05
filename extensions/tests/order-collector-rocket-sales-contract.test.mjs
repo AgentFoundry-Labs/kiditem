@@ -122,8 +122,10 @@ test('collectRocketPoRows message forwards the requested status and date basis',
     dateType: 'PURCHASE_ORDER_DATE',
   });
   assert.equal(receivedCollection.runId, RUN_ID);
-  assert.equal(response.runId, RUN_ID);
-  assert.equal(response.collectionSession.status, 'succeeded');
+  assert.equal(response.attemptId, RUN_ID);
+  assert.equal(Object.hasOwn(response, 'runId'), false);
+  assert.equal(Object.hasOwn(response.collectionSession, 'status'), false);
+  assert.equal(response.collectionSession.progress.completed, 1);
   assert.deepEqual(response.rows, []);
   assert.equal(response.poCount, 0);
 });
