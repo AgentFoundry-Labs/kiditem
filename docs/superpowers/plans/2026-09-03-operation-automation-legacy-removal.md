@@ -345,6 +345,43 @@ the coordinated Task6 preflight and cutover; no compatibility read, synthetic
 COMPLETE backfill, operating access, provider QA or independent deployment was
 performed. Task3 and the overall plan remain incomplete.
 
+**Rank owner checkpoint (2026-09-06):** Immutable SERP/Wing capture and
+per-keyword COMPLETE publication are implemented, including the three serving
+read models' source provenance. Readiness now applies the same-org COMPLETE
+Wing source/parser fence to its existing date/coverage/count queries while
+retaining the selected active-account scope and freshness policy. Source
+admission/read HTTP+PostgreSQL38, Readiness HTTP+PostgreSQL4 and existing
+Readiness16 tests passed against disposable databases.
+
+Frozen batch admission adds no parent runtime/table: the first actual keyword
+attempt stores immutable ordered member IDs (and Wing selection metadata).
+Same-key replay preserves members after failures/configuration drift; individual
+keyword publication remains independent. Original enabled SERP selection and
+Wing pending-today-or-all policy remain unchanged. All members are admitted in
+one source-locked transaction with queue-aware fixed expiries (SERP10min plus
+index×(10min+8s), Wing25min plus index×(25min+2.5s)); no heartbeat, renewal or
+invented target cap. Empty selection is a nonpersisted no-op, not COMPLETE.
+
+The extension's Wing direct transport and batch dispatch reuse its original
+collector, pacing and normalized output. Actual full-worker tests passed44
+cases, with shared progress-schema/cancellation regression8 passing after the
+producer was restored to the existing `advertising.wing_rank` contract.
+Dispatch ACK is not completion; the current unconfirmed terminal is never
+contradicted by a failure submission, and unstarted interrupted members are
+failed through their owners. The rank screen and Readiness entrypoint now
+admit/dispatch the frozen batch and read owner results; the rank URL retains
+only its receipt key for reload, cancellation and attention-tab recovery.
+Dispatch/cancel ACKs do not become terminal state. Web focused gates passed
+50 rank/API tests and12 selected Wing Readiness tests. One duplicated source-
+text assertion was removed after Ponytail review; the actual hook8 passed
+again. The complete legacy Readiness suite still has10 failures, and the fresh
+web build still fails on8 retired generic-session exports in other consumers.
+No whole-web success is claimed. Commits55d00de,71f0df9,2d00219 and6e6321cf5
+record these bounded server, extension and web slices.
+SERP seller enrichment, old rank runtime deletion,
+actual unpacked/provider browser QA, aggregate boot/build and Task6 cutover
+remain open. These focused results do not complete Task3 or the plan.
+
 **Remaining source boundaries (read-only findings, not approved exceptions):**
 
 - **Catalog:** `channel-catalog-collection.service.ts` publishes each detail
