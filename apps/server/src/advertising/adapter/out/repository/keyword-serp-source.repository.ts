@@ -8,6 +8,8 @@ import {
 import { Prisma } from "@prisma/client";
 import {
   KeywordSerpSourcePlanSchema,
+  KeywordSerpSourceBeginSchema,
+  type KeywordSerpBatch,
   type KeywordSerpCapture,
   type KeywordSerpSourceBegin,
   type KeywordSerpSourceAttempt,
@@ -71,22 +73,6 @@ export class KeywordSerpSourceRepository {
           attemptToken: row.attemptToken,
         } satisfies KeywordSerpSourceControl;
       }
-      const old = await tx.sourceImportRun.findFirst({
-        where: { ...scope(org), rankKeyword: input.keyword, status: "running" },
-      });
-      if (old) {
-        if (!expired(old))
-          throw new ConflictException({
-            code: "ATTEMPT_IN_PROGRESS",
-            attemptId: old.id,
-          });
-        await this.failIn(
-          tx,
-          old,
-          "ATTEMPT_EXPIRED",
-          "Keyword SERP collection expired.",
-        );
-      }
       const plan = await runWithAdIngestTransaction(
         tx,
         async (): Promise<KeywordSerpSourcePlan> => {
@@ -107,27 +93,164 @@ export class KeywordSerpSourceRepository {
           };
         },
       );
-      const previous = await tx.sourceImportRun.aggregate({
-        where: { ...scope(org), rankKeyword: input.keyword },
-        _max: { freshnessGeneration: true },
-      });
-      const row = await tx.sourceImportRun.create({
-        data: {
-          ...scope(org),
-          rankKeyword: input.keyword,
-          status: "running",
-          idempotencyKey: key,
-          requestFingerprint: hash(input),
-          attemptToken: randomUUID(),
-          freshnessGeneration: (previous._max.freshnessGeneration ?? 0n) + 1n,
-          plan: json(plan),
-          expiresAt: new Date(Date.now() + TTL_MS),
-        },
-      });
+      const row = await this.createIn(
+        tx,
+        org,
+        randomUUID(),
+        key,
+        hash(input),
+        plan,
+        new Date(Date.now() + TTL_MS),
+      );
       return {
         ...view(row),
         attemptToken: row.attemptToken,
       } satisfies KeywordSerpSourceControl;
+    });
+  }
+
+  async beginBatch(org: string, key: string): Promise<KeywordSerpBatch> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        await this.lock(tx, org);
+        const replay = await tx.sourceImportRun.findFirst({
+          where: { ...scope(org), idempotencyKey: key },
+        });
+        if (replay) return this.batchView(tx, org, replay);
+        const { trackers, ownItems } = await runWithAdIngestTransaction(
+          tx,
+          async () => ({
+            trackers: (await this.rank.listTrackers(org)).filter(
+              (tracker) => tracker.enabled !== false && tracker.keyword.trim(),
+            ),
+            ownItems: (await this.rank.listOwnVendorItems(org)).map(
+              ({ vendorItemId, productName }) => ({
+                vendorItemId,
+                productName,
+              }),
+            ),
+          }),
+        );
+        const attemptIds = trackers.map(() => randomUUID());
+        const admittedAt = Date.now();
+        const attempts: KeywordSerpSourceAttempt[] = [];
+        for (const [index, tracker] of trackers.entries()) {
+          const input = KeywordSerpSourceBeginSchema.parse({
+            keyword: tracker.keyword,
+            maxPages: tracker.maxPages,
+          });
+          const plan: KeywordSerpSourcePlan = {
+            sourceType: SOURCE,
+            parserVersion: PARSER,
+            ...input,
+            explicitVendorItemIds: tracker.vendorItemIds,
+            ownItems,
+            ...(index === 0 ? { admission: { attemptIds } } : {}),
+          };
+          const unitKey =
+            index === 0
+              ? key
+              : `rank-batch:${hash({ key, keyword: input.keyword })}`;
+          const row = await this.createIn(
+            tx,
+            org,
+            attemptIds[index],
+            unitKey,
+            hash({ mode: "enabled_trackers" }),
+            plan,
+            new Date(admittedAt + TTL_MS + index * (TTL_MS + 8_000)),
+          );
+          attempts.push(view(row));
+        }
+        return { attempts } satisfies KeywordSerpBatch;
+      },
+      { timeout: 30_000 },
+    );
+  }
+
+  async readBatch(org: string, key: string): Promise<KeywordSerpBatch> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const anchor = await tx.sourceImportRun.findFirst({
+          where: { ...scope(org), idempotencyKey: key },
+        });
+        if (!anchor)
+          throw new NotFoundException("SERP_BATCH_ADMISSION_NOT_FOUND");
+        return this.batchView(tx, org, anchor);
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  private async batchView(
+    tx: Tx,
+    org: string,
+    anchor: Attempt,
+  ): Promise<KeywordSerpBatch> {
+    const admission = KeywordSerpSourcePlanSchema.parse(anchor.plan).admission;
+    if (
+      anchor.requestFingerprint !== hash({ mode: "enabled_trackers" }) ||
+      !admission ||
+      admission.attemptIds[0] !== anchor.id
+    )
+      throw new ConflictException("SOURCE_IDEMPOTENCY_KEY_REUSED");
+    const rows = await tx.sourceImportRun.findMany({
+      where: { ...scope(org), id: { in: admission.attemptIds } },
+    });
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    if (rows.length !== admission.attemptIds.length)
+      throw new NotFoundException("SERP_BATCH_MEMBER_NOT_FOUND");
+    return {
+      attempts: admission.attemptIds.map((id) => view(byId.get(id)!)),
+    } satisfies KeywordSerpBatch;
+  }
+
+  private async createIn(
+    tx: Tx,
+    org: string,
+    id: string,
+    key: string,
+    fingerprint: string,
+    plan: KeywordSerpSourcePlan,
+    expiresAt: Date,
+  ) {
+    const old = await tx.sourceImportRun.findFirst({
+      where: { ...scope(org), rankKeyword: plan.keyword, status: "running" },
+    });
+    if (old) {
+      if (!expired(old))
+        throw new ConflictException({
+          code: "ATTEMPT_IN_PROGRESS",
+          attemptId: old.id,
+        });
+      await this.failIn(
+        tx,
+        old,
+        "ATTEMPT_EXPIRED",
+        "Keyword SERP collection expired.",
+      );
+    }
+    const reused = await tx.sourceImportRun.findFirst({
+      where: { ...scope(org), idempotencyKey: key },
+    });
+    if (reused) throw new ConflictException("SOURCE_IDEMPOTENCY_KEY_REUSED");
+    const previous = await tx.sourceImportRun.aggregate({
+      where: { ...scope(org), rankKeyword: plan.keyword },
+      _max: { freshnessGeneration: true },
+    });
+    return tx.sourceImportRun.create({
+      data: {
+        ...scope(org),
+        id,
+        rankKeyword: plan.keyword,
+        status: "running",
+        idempotencyKey: key,
+        requestFingerprint: fingerprint,
+        attemptToken: randomUUID(),
+        freshnessGeneration: (previous._max.freshnessGeneration ?? 0n) + 1n,
+        plan: json(plan),
+        expiresAt,
+      },
     });
   }
 

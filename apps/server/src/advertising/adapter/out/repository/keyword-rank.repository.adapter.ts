@@ -44,10 +44,12 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
   listTrackers(organizationId: string): Promise<KeywordTrackerRow[]> {
-    return this.prisma.coupangKeywordTracker.findMany({
-      where: { organizationId },
-      orderBy: { createdAt: "desc" },
-    });
+    return adIngestRepositoryClient(this.prisma).coupangKeywordTracker.findMany(
+      {
+        where: { organizationId },
+        orderBy: { createdAt: "desc" },
+      },
+    );
   }
 
   upsertTrackerByKeyword(

@@ -30,6 +30,10 @@ export const KeywordSerpSourcePlanSchema = z
     ownItems: z.array(
       z.object({ vendorItemId: z.string(), productName: z.string() }).strict(),
     ),
+    admission: z
+      .object({ attemptIds: z.array(z.string().uuid()).min(1) })
+      .strict()
+      .optional(),
   })
   .strict();
 export type KeywordSerpSourcePlan = z.infer<typeof KeywordSerpSourcePlanSchema>;
@@ -94,3 +98,10 @@ export const KeywordSerpSourceSchema = z
   })
   .strict();
 export type KeywordSerpSource = z.infer<typeof KeywordSerpSourceSchema>;
+
+export const KeywordSerpBatchBeginSchema = z.object({}).strict();
+export type KeywordSerpBatchBegin = z.infer<typeof KeywordSerpBatchBeginSchema>;
+export const KeywordSerpBatchSchema = z
+  .object({ attempts: z.array(KeywordSerpSourceAttemptSchema) })
+  .strict();
+export type KeywordSerpBatch = z.infer<typeof KeywordSerpBatchSchema>;

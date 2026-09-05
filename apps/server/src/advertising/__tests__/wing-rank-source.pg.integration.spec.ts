@@ -46,6 +46,7 @@ describe('Wing rank owner incoming HTTP + PostgreSQL', () => {
       alerts,
       rank,
       new WingSalesRankIngestHandler(rank),
+      new KeywordRankService(rank),
     );
     const module = await Test.createTestingModule({
       controllers: [

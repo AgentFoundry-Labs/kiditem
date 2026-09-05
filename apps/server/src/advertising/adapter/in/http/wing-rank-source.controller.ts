@@ -14,6 +14,7 @@ import { z } from "zod";
 import {
   WingRankCaptureSchema,
   WingRankSourceBeginSchema,
+  WingRankBatchBeginSchema,
 } from "@kiditem/shared/advertising";
 import { CurrentOrganization } from "../../../../auth/decorators/current-organization.decorator";
 import { WingRankSourceRepository } from "../../out/repository/wing-rank-source.repository";
@@ -21,6 +22,31 @@ import { WingRankSourceRepository } from "../../out/repository/wing-rank-source.
 @Controller("ads/keyword-rank/wing")
 export class WingRankSourceController {
   constructor(private readonly owner: WingRankSourceRepository) {}
+
+  @Post("batch-attempts")
+  beginBatch(
+    @CurrentOrganization() org: string,
+    @Headers("idempotency-key") key: string | undefined,
+    @Body() raw: unknown,
+  ) {
+    if (
+      !WingRankBatchBeginSchema.safeParse(raw).success ||
+      !key?.trim() ||
+      key.length > 128
+    )
+      throw new BadRequestException("INVALID_WING_RANK_BATCH_ATTEMPT");
+    return this.owner.beginBatch(org, key.trim());
+  }
+
+  @Get("batch-attempts")
+  readBatch(
+    @CurrentOrganization() org: string,
+    @Headers("idempotency-key") key: string | undefined,
+  ) {
+    if (!key?.trim() || key.length > 128)
+      throw new BadRequestException("INVALID_WING_RANK_BATCH_ATTEMPT");
+    return this.owner.readBatch(org, key.trim());
+  }
 
   @Post("attempts")
   begin(

@@ -14,6 +14,7 @@ import { z } from "zod";
 import {
   KeywordSerpCaptureSchema,
   KeywordSerpSourceBeginSchema,
+  KeywordSerpBatchBeginSchema,
 } from "@kiditem/shared/advertising";
 import { CurrentOrganization } from "../../../../auth/decorators/current-organization.decorator";
 import { KeywordSerpSourceRepository } from "../../out/repository/keyword-serp-source.repository";
@@ -21,6 +22,31 @@ import { KeywordSerpSourceRepository } from "../../out/repository/keyword-serp-s
 @Controller("ads/keyword-rank/serp")
 export class KeywordSerpSourceController {
   constructor(private readonly owner: KeywordSerpSourceRepository) {}
+
+  @Post("batch-attempts")
+  beginBatch(
+    @CurrentOrganization() org: string,
+    @Headers("idempotency-key") key: string | undefined,
+    @Body() raw: unknown,
+  ) {
+    if (
+      !KeywordSerpBatchBeginSchema.safeParse(raw).success ||
+      !key?.trim() ||
+      key.length > 128
+    )
+      throw new BadRequestException("INVALID_SERP_BATCH_ATTEMPT");
+    return this.owner.beginBatch(org, key.trim());
+  }
+
+  @Get("batch-attempts")
+  readBatch(
+    @CurrentOrganization() org: string,
+    @Headers("idempotency-key") key: string | undefined,
+  ) {
+    if (!key?.trim() || key.length > 128)
+      throw new BadRequestException("INVALID_SERP_BATCH_ATTEMPT");
+    return this.owner.readBatch(org, key.trim());
+  }
 
   @Post("attempts")
   begin(

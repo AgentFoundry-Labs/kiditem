@@ -9,6 +9,7 @@ import {
 import { Prisma } from "@prisma/client";
 import {
   WingRankSourcePlanSchema,
+  type WingRankBatch,
   type WingRankCapture,
   type WingRankSourceBegin,
   type WingRankSourceAttempt,
@@ -25,6 +26,7 @@ import {
   type KeywordRankRepositoryPort,
 } from "../../../application/port/out/repository/keyword-rank.repository.port";
 import { WingSalesRankIngestHandler } from "../../../application/service/wing-sales-rank-ingest.handler";
+import { KeywordRankService } from "../../../application/service/keyword-rank.service";
 import { runWithAdIngestTransaction } from "./ad-ingest-transaction-context";
 
 const SOURCE = "coupang_wing_rank";
@@ -49,6 +51,7 @@ export class WingRankSourceRepository {
     @Inject(KEYWORD_RANK_REPOSITORY_PORT)
     private readonly rank: KeywordRankRepositoryPort,
     private readonly ingest: WingSalesRankIngestHandler,
+    private readonly keywordRank: KeywordRankService,
   ) {}
 
   async begin(org: string, key: string, input: WingRankSourceBegin) {
@@ -73,22 +76,6 @@ export class WingRankSourceRepository {
           attemptToken: row.attemptToken,
         } satisfies WingRankSourceControl;
       }
-      const old = await tx.sourceImportRun.findFirst({
-        where: { ...scope(org), rankKeyword: input.keyword, status: "running" },
-      });
-      if (old) {
-        if (!expired(old))
-          throw new ConflictException({
-            code: "ATTEMPT_IN_PROGRESS",
-            attemptId: old.id,
-          });
-        await this.failIn(
-          tx,
-          old,
-          "ATTEMPT_EXPIRED",
-          "Wing rank collection expired.",
-        );
-      }
       const targets = await runWithAdIngestTransaction(tx, () =>
         this.ingest.resolveTargets(org, input.keyword),
       );
@@ -100,27 +87,167 @@ export class WingRankSourceRepository {
         ...input,
         targets,
       };
-      const previous = await tx.sourceImportRun.aggregate({
-        where: { ...scope(org), rankKeyword: input.keyword },
-        _max: { freshnessGeneration: true },
-      });
-      const row = await tx.sourceImportRun.create({
-        data: {
-          ...scope(org),
-          rankKeyword: input.keyword,
-          status: "running",
-          idempotencyKey: key,
-          requestFingerprint: hash(input),
-          attemptToken: randomUUID(),
-          freshnessGeneration: (previous._max.freshnessGeneration ?? 0n) + 1n,
-          plan: json(plan),
-          expiresAt: new Date(Date.now() + TTL_MS),
-        },
-      });
+      const row = await this.createIn(
+        tx,
+        org,
+        randomUUID(),
+        key,
+        hash(input),
+        plan,
+        new Date(Date.now() + TTL_MS),
+      );
       return {
         ...view(row),
         attemptToken: row.attemptToken,
       } satisfies WingRankSourceControl;
+    });
+  }
+
+  async beginBatch(org: string, key: string): Promise<WingRankBatch> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        await this.lock(tx, org);
+        const replay = await tx.sourceImportRun.findFirst({
+          where: { ...scope(org), idempotencyKey: key },
+        });
+        if (replay) return this.batchView(tx, org, replay);
+        const { selection, assignments } = await runWithAdIngestTransaction(
+          tx,
+          () => this.keywordRank.resolveWingSalesRankSelection(org),
+        );
+        const attemptIds = selection.targets.map(() => randomUUID());
+        const admittedAt = Date.now();
+        const attempts: WingRankSourceAttempt[] = [];
+        for (const [index, target] of selection.targets.entries()) {
+          const plan: WingRankSourcePlan = {
+            sourceType: SOURCE,
+            parserVersion: PARSER,
+            keyword: target.keyword,
+            maxPages: target.maxPages,
+            targets: assignments
+              .filter((assignment) => assignment.keyword === target.keyword)
+              .map(
+                ({
+                  vendorItemId,
+                  productName,
+                  category,
+                  keyword,
+                  candidateIndex,
+                }) => ({
+                  vendorItemId,
+                  productName,
+                  category,
+                  keyword,
+                  candidateIndex,
+                }),
+              ),
+            ...(index === 0 ? { admission: { attemptIds, selection } } : {}),
+          };
+          const unitKey =
+            index === 0
+              ? key
+              : `rank-batch:${hash({ key, keyword: target.keyword })}`;
+          const row = await this.createIn(
+            tx,
+            org,
+            attemptIds[index],
+            unitKey,
+            hash({ mode: "wing_pending_or_all" }),
+            plan,
+            new Date(admittedAt + TTL_MS + index * (TTL_MS + 2_500)),
+          );
+          attempts.push(view(row));
+        }
+        return { attempts, selection } satisfies WingRankBatch;
+      },
+      { timeout: 30_000 },
+    );
+  }
+
+  async readBatch(org: string, key: string): Promise<WingRankBatch> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const anchor = await tx.sourceImportRun.findFirst({
+          where: { ...scope(org), idempotencyKey: key },
+        });
+        if (!anchor)
+          throw new NotFoundException("WING_RANK_BATCH_ADMISSION_NOT_FOUND");
+        return this.batchView(tx, org, anchor);
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  private async batchView(
+    tx: Tx,
+    org: string,
+    anchor: Attempt,
+  ): Promise<WingRankBatch> {
+    const admission = WingRankSourcePlanSchema.parse(anchor.plan).admission;
+    if (
+      anchor.requestFingerprint !== hash({ mode: "wing_pending_or_all" }) ||
+      !admission ||
+      admission.attemptIds[0] !== anchor.id
+    )
+      throw new ConflictException("SOURCE_IDEMPOTENCY_KEY_REUSED");
+    const rows = await tx.sourceImportRun.findMany({
+      where: { ...scope(org), id: { in: admission.attemptIds } },
+    });
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    if (rows.length !== admission.attemptIds.length)
+      throw new NotFoundException("WING_RANK_BATCH_MEMBER_NOT_FOUND");
+    return {
+      attempts: admission.attemptIds.map((id) => view(byId.get(id)!)),
+      selection: admission.selection,
+    } satisfies WingRankBatch;
+  }
+
+  private async createIn(
+    tx: Tx,
+    org: string,
+    id: string,
+    key: string,
+    fingerprint: string,
+    plan: WingRankSourcePlan,
+    expiresAt: Date,
+  ) {
+    const old = await tx.sourceImportRun.findFirst({
+      where: { ...scope(org), rankKeyword: plan.keyword, status: "running" },
+    });
+    if (old) {
+      if (!expired(old))
+        throw new ConflictException({
+          code: "ATTEMPT_IN_PROGRESS",
+          attemptId: old.id,
+        });
+      await this.failIn(
+        tx,
+        old,
+        "ATTEMPT_EXPIRED",
+        "Wing rank collection expired.",
+      );
+    }
+    const reused = await tx.sourceImportRun.findFirst({
+      where: { ...scope(org), idempotencyKey: key },
+    });
+    if (reused) throw new ConflictException("SOURCE_IDEMPOTENCY_KEY_REUSED");
+    const previous = await tx.sourceImportRun.aggregate({
+      where: { ...scope(org), rankKeyword: plan.keyword },
+      _max: { freshnessGeneration: true },
+    });
+    return tx.sourceImportRun.create({
+      data: {
+        ...scope(org),
+        id,
+        rankKeyword: plan.keyword,
+        status: "running",
+        idempotencyKey: key,
+        requestFingerprint: fingerprint,
+        attemptToken: randomUUID(),
+        freshnessGeneration: (previous._max.freshnessGeneration ?? 0n) + 1n,
+        plan: json(plan),
+        expiresAt,
+      },
     });
   }
 

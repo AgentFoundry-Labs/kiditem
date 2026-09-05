@@ -18,6 +18,32 @@ export const WingRankSourceBeginSchema = z
   .strict();
 export type WingRankSourceBegin = z.infer<typeof WingRankSourceBeginSchema>;
 
+export const WingRankSelectionSchema = z
+  .object({
+    productCount: z.number().int().nonnegative(),
+    candidateCount: z.number().int().nonnegative(),
+    keywordCount: z.number().int().nonnegative(),
+    targetKeywordCount: z.number().int().nonnegative(),
+    resumed: z.boolean(),
+    pendingProductCount: z.number().int().nonnegative(),
+    targets: z.array(
+      z
+        .object({
+          keyword: z.string(),
+          vendorItemIds: z.array(z.string()),
+          productCount: z.number().int().nonnegative(),
+          primaryProductCount: z.number().int().nonnegative(),
+          pendingProductCount: z.number().int().nonnegative(),
+          pendingPrimaryProductCount: z.number().int().nonnegative(),
+          phase: z.enum(['primary', 'comparison']),
+          maxPages: z.literal(5),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+export type WingRankSelection = z.infer<typeof WingRankSelectionSchema>;
+
 export const WingRankSourcePlanSchema = z
   .object({
     sourceType: z.literal('coupang_wing_rank'),
@@ -37,6 +63,13 @@ export const WingRankSourcePlanSchema = z
           .strict(),
       )
       .min(1),
+    admission: z
+      .object({
+        attemptIds: z.array(z.string().uuid()).min(1),
+        selection: WingRankSelectionSchema,
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type WingRankSourcePlan = z.infer<typeof WingRankSourcePlanSchema>;
@@ -96,3 +129,13 @@ export const WingRankSourceSchema = KeywordSerpSourceSchema.omit({
   latestComplete: WingRankSourceAttemptSchema.nullable(),
 });
 export type WingRankSource = z.infer<typeof WingRankSourceSchema>;
+
+export const WingRankBatchBeginSchema = z.object({}).strict();
+export type WingRankBatchBegin = z.infer<typeof WingRankBatchBeginSchema>;
+export const WingRankBatchSchema = z
+  .object({
+    attempts: z.array(WingRankSourceAttemptSchema),
+    selection: WingRankSelectionSchema,
+  })
+  .strict();
+export type WingRankBatch = z.infer<typeof WingRankBatchSchema>;
