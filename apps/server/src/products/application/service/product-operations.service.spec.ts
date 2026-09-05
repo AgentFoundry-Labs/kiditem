@@ -1,8 +1,8 @@
 import { BadRequestException, Logger } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
+import { PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD } from '@kiditem/shared/product-abc';
 import { ProductOperationsService } from './product-operations.service';
 import type { ProductOperationsRepositoryPort } from '../port/out/repository/product-operations.repository.port';
-import { PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD } from '@kiditem/shared/product-abc';
 
 const organizationId = '00000000-0000-4000-8000-000000000001';
 const userId = '00000000-0000-4000-8000-000000000002';
@@ -11,7 +11,7 @@ const channelListingOptionId = '00000000-0000-4000-8000-000000000004';
 const skuId = '00000000-0000-4000-8000-000000000005';
 
 describe('ProductOperationsService', () => {
-  it('reads actual contribution from the full-month source-manifest intersection', async () => {
+  it('reads actual contribution for the basis selected by Finance evidence', async () => {
     const repository = makeRepository();
     const product = rawListProduct(productId);
     product.abcGrade = 'B';
@@ -747,6 +747,8 @@ function officialEvaluation() {
 
 function abcStatusFacts() {
   return {
+    mappingReady: true,
+    contributionBasis: { basisFromDate: '2026-02-01', basisCutoffDate: '2026-08-31' },
     displayDataAsOf: '2026-08-31',
     actualCutoff: '2026-08-31',
     traffic: sourceStatus('2026-09-03', '2026-09-04T00:00:00.000Z'),
@@ -767,7 +769,6 @@ function abcStatusFacts() {
         mappingGeneration: '8',
         coverageStartDate: '2026-01-15',
         coverageEndDate: '2026-08-31',
-        coveredMonths: ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08'],
         capturedAt: '2026-09-01T00:00:00.000Z',
       },
       advertising: {
@@ -776,7 +777,6 @@ function abcStatusFacts() {
         mappingGeneration: '8',
         coverageStartDate: '2026-02-01',
         coverageEndDate: '2026-08-31',
-        coveredMonths: ['2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08'],
         capturedAt: '2026-09-01T00:01:00.000Z',
       },
     },

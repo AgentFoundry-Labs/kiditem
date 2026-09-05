@@ -2,6 +2,7 @@ import type {
   ProductOperationsDataSourceStatus,
   ProductOperationsPeriodDays,
 } from '@kiditem/shared/product-operations';
+import type { ProfitabilityEvidenceSnapshot } from '../../../../../finance/application/port/in/master-product-profitability-read.port';
 
 export const PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT = Symbol(
   'PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT',
@@ -13,7 +14,6 @@ export type ProductOperationsAbcSourceManifest = Readonly<{
   mappingGeneration: string;
   coverageStartDate: string;
   coverageEndDate: string;
-  coveredMonths: readonly string[];
   capturedAt: string;
 }>;
 
@@ -23,6 +23,8 @@ export type ProductOperationsDataStatusFacts = {
   actualCutoff: string | null;
   sellpia: ProductOperationsDataSourceStatus;
   advertising: ProductOperationsDataSourceStatus;
+  mappingReady: boolean;
+  contributionBasis: ProfitabilityEvidenceSnapshot['contributionBasis'];
   sourceVector: {
     sellpia: ProductOperationsAbcSourceManifest | null;
     advertising: ProductOperationsAbcSourceManifest | null;

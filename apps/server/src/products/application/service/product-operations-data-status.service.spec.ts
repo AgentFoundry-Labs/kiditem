@@ -92,6 +92,8 @@ describe('ProductOperationsDataStatusService', () => {
 
 function facts() {
   return {
+    mappingReady: true,
+    contributionBasis: { basisFromDate: '2026-01-01', basisCutoffDate: '2026-08-31' },
     displayDataAsOf: '2026-09-03',
     traffic: {
       status: 'READY' as const,
@@ -140,7 +142,6 @@ function sourceManifest(sourceImportRunId: string, generation: string) {
     mappingGeneration: '8',
     coverageStartDate: '2026-01-01',
     coverageEndDate: '2026-08-31',
-    coveredMonths: ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08'],
     capturedAt: '2026-09-01T00:00:00.000Z',
   };
 }

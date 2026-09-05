@@ -55,6 +55,10 @@ export type ProfitabilityEvidenceSnapshot = Readonly<{
   targetCutoff: string;
   actualCutoff: string | null;
   mappingGeneration: string | null;
+  contributionBasis: Readonly<{
+    basisFromDate: string;
+    basisCutoffDate: string;
+  }> | null;
   sourceVector: Readonly<{
     sellpia: SourceGenerationView;
     advertising: SourceGenerationView;

@@ -1,18 +1,20 @@
-import { Injectable } from '@nestjs/common';
-import type {
-  ProductOperationsDataSourceStatus,
-  ProductOperationsPeriodDays,
-} from '@kiditem/shared/product-operations';
+import { Inject, Injectable } from '@nestjs/common';
 import {
-  PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
-} from '@kiditem/shared/product-abc';
+  MASTER_PRODUCT_PROFITABILITY_READ_PORT,
+  type ProfitabilityEvidence,
+  type SourceGenerationView,
+} from '../../../../finance/application/port/in/master-product-profitability-read.port';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { kstMonthEnd } from '../../../../common/kst';
+import { listSellingMasterProductIds } from './selling-master-product.query';
 import type {
   ProductOperationsDataStatusFacts,
   ProductOperationsDataStatusRepositoryPort,
 } from '../../../application/port/out/repository/product-operations-data-status.repository.port';
-import { listSellingMasterProductIds } from './selling-master-product.query';
+import type {
+  ProductOperationsDataSourceStatus,
+  ProductOperationsPeriodDays,
+} from '@kiditem/shared/product-operations';
 
 type TrafficAggregate = {
   _max: {
@@ -22,30 +24,14 @@ type TrafficAggregate = {
   };
 };
 
-type SourceRun = {
-  id: string;
-  status: string;
-  publicationSequence: bigint | null;
-  coverageStartDate: Date | null;
-  coverageEndDate: Date | null;
-  coveredMonths: string[];
-  importedAt: Date | null;
-  updatedAt: Date;
-  expiresAt?: Date | null;
-  errorCode: string | null;
-  mappingGeneration: bigint | null;
-  adSourcePolicyHash: string | null;
-};
-
-const SOURCE_TYPES = {
-  sellpia: 'sellpia_product_profitability',
-  advertising: 'coupang_ad_profitability',
-} as const;
-
 @Injectable()
 export class ProductOperationsDataStatusRepositoryAdapter
 implements ProductOperationsDataStatusRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(MASTER_PRODUCT_PROFITABILITY_READ_PORT)
+    private readonly evidence: ProfitabilityEvidence,
+  ) {}
 
   async read(
     organizationId: string,
@@ -53,7 +39,7 @@ implements ProductOperationsDataStatusRepositoryPort {
   ): Promise<ProductOperationsDataStatusFacts> {
     const cutoffDate = yesterdayKst();
     const periodStart = utcCalendarDate(addCalendarDays(cutoffDate, -(periodDays - 1)));
-    const [traffic, formulaState, sellingMasterProductIds] = await Promise.all([
+    const [traffic, formulaState, sellingMasterProductIds, evidence] = await Promise.all([
       this.prisma.channelListingDailySnapshot.aggregate({
         where: {
           organizationId,
@@ -86,47 +72,29 @@ implements ProductOperationsDataStatusRepositoryPort {
         },
       }),
       listSellingMasterProductIds(this.prisma, organizationId),
+      this.evidence.load({ organizationId, targetCutoff: previousKstMonthEnd() }),
     ]);
     const trafficStatus = sourceStatus(traffic as TrafficAggregate, cutoffDate);
-    const targetCutoff = previousKstMonthEnd();
     const mappingGeneration = formulaState?.mappingGeneration ?? 0n;
-    const [sellpiaFacts, advertisingFacts, products] = await Promise.all([
-      this.readSourceStatus(
-        organizationId,
-        SOURCE_TYPES.sellpia,
-        mappingGeneration,
-        targetCutoff,
-      ),
-      this.readSourceStatus(
-        organizationId,
-        SOURCE_TYPES.advertising,
-        mappingGeneration,
-        targetCutoff,
-      ),
-      this.prisma.masterProduct.findMany({
-        where: { organizationId, id: { in: sellingMasterProductIds } },
-        orderBy: { id: 'asc' },
-        select: {
-          id: true,
-          abcGrade: true,
-          _count: { select: { inventorySkus: true } },
-        },
-      }),
-    ]);
-    const sellpia = sellpiaFacts.status;
-    const advertising = advertisingFacts.status;
-
-    const actualCutoff = minimumCutoff(sellpia.actualCutoff, advertising.actualCutoff);
+    const products = await this.prisma.masterProduct.findMany({
+      where: { organizationId, id: { in: sellingMasterProductIds } },
+      orderBy: { id: 'asc' },
+      select: { id: true, abcGrade: true },
+    });
+    const productEvidence = new Map(evidence.products.map((product) => [product.masterProductId, product]));
+    const actualCutoff = evidence.actualCutoff;
     return {
       displayDataAsOf: minimumCutoff(trafficStatus.actualCutoff, actualCutoff),
       traffic: trafficStatus,
       actualCutoff,
-      sellpia,
-      advertising,
+      sellpia: { ...evidence.sources.sellpia, capturedAt: evidence.sourceVector.sellpia.capturedAt },
+      advertising: { ...evidence.sources.advertising, capturedAt: evidence.sourceVector.advertising.capturedAt },
       sourceVector: {
-        sellpia: sellpiaFacts.manifest,
-        advertising: advertisingFacts.manifest,
+        sellpia: sourceManifest(evidence.sourceVector.sellpia),
+        advertising: sourceManifest(evidence.sourceVector.advertising),
       },
+      mappingReady: evidence.mappingGeneration === mappingGeneration.toString(),
+      contributionBasis: evidence.contributionBasis,
       formulaState: {
         formulaRevision: formulaState?.formulaRevision ?? 0,
         publicationRevision: formulaState?.publicationRevision ?? 0,
@@ -139,58 +107,8 @@ implements ProductOperationsDataStatusRepositoryPort {
       products: products.map((product) => ({
         masterProductId: product.id,
         abcGrade: isAbcGrade(product.abcGrade) ? product.abcGrade : null,
-        mappingValid: product._count.inventorySkus > 0,
+        mappingValid: productEvidence.get(product.id)?.mappingValid ?? false,
       })),
-    };
-  }
-
-  private async readSourceStatus(
-    organizationId: string,
-    sourceType: string,
-    mappingGeneration: bigint,
-    targetCutoff: string,
-  ) {
-    const select = {
-      id: true,
-      status: true,
-      publicationSequence: true,
-      coverageStartDate: true,
-      coverageEndDate: true,
-      coveredMonths: true,
-      importedAt: true,
-      updatedAt: true,
-      expiresAt: true,
-      errorCode: true,
-      mappingGeneration: true,
-      adSourcePolicyHash: true,
-    } as const;
-    const [latestAttempt, latestComplete] = await Promise.all([
-      this.prisma.sourceImportRun.findFirst({
-        where: { organizationId, sourceType },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        select,
-      }),
-      this.prisma.sourceImportRun.findFirst({
-        where: {
-          organizationId,
-          sourceType,
-          status: 'completed',
-          publicationSequence: { not: null },
-        },
-        orderBy: [{ publicationSequence: 'desc' }, { id: 'desc' }],
-        select,
-      }),
-    ]);
-    const complete = latestComplete as SourceRun | null;
-    return {
-      status: profitabilitySourceStatus(
-      latestAttempt as SourceRun | null,
-      complete,
-      targetCutoff,
-      mappingGeneration,
-      sourceType === SOURCE_TYPES.advertising,
-      ),
-      manifest: sourceManifest(complete),
     };
   }
 }
@@ -219,76 +137,18 @@ function sourceStatus(
   };
 }
 
-function profitabilitySourceStatus(
-  latestAttempt: SourceRun | null,
-  latestComplete: SourceRun | null,
-  targetCutoff: string,
-  mappingGeneration: bigint,
-  advertising: boolean,
-): ProductOperationsDataSourceStatus {
-  const latestAttemptState = attemptState(latestAttempt);
-  const manifest = sourceManifest(latestComplete);
-  if (!manifest || !latestComplete) {
-    return {
-      status: 'MISSING',
-      actualCutoff: null,
-      capturedAt: null,
-      latestAttemptState,
-      errorCode: attemptErrorCode(latestAttempt, latestAttemptState),
-    };
-  }
-  const coverageEndDate = manifest.coverageEndDate;
-  const actualCutoff = coverageEndDate < targetCutoff ? coverageEndDate : targetCutoff;
+function sourceManifest(source: SourceGenerationView) {
+  if (!source.sourceImportRunId || source.publicationSequence === null
+    || source.mappingGeneration === null || !source.coverageStartDate
+    || !source.coverageEndDate || !source.capturedAt) return null;
   return {
-    status: latestAttemptState === 'COMPLETE'
-      && latestAttempt?.id === latestComplete.id
-      && latestComplete.mappingGeneration === mappingGeneration
-      && (!advertising
-        || latestComplete.adSourcePolicyHash
-          === PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH)
-      && coverageEndDate >= targetCutoff
-      ? 'READY'
-      : 'STALE',
-    actualCutoff,
-    capturedAt: (latestComplete.importedAt ?? latestComplete.updatedAt).toISOString(),
-    latestAttemptState,
-    errorCode: attemptErrorCode(latestAttempt, latestAttemptState),
+    sourceImportRunId: source.sourceImportRunId,
+    generation: source.publicationSequence,
+    mappingGeneration: source.mappingGeneration,
+    coverageStartDate: source.coverageStartDate,
+    coverageEndDate: source.coverageEndDate,
+    capturedAt: source.capturedAt,
   };
-}
-
-function sourceManifest(run: SourceRun | null) {
-  if (!run
-    || run.publicationSequence === null
-    || run.mappingGeneration === null
-    || !run.coverageStartDate
-    || !run.coverageEndDate) return null;
-  return {
-    sourceImportRunId: run.id,
-    generation: run.publicationSequence.toString(),
-    mappingGeneration: run.mappingGeneration.toString(),
-    coverageStartDate: calendarDate(run.coverageStartDate),
-    coverageEndDate: calendarDate(run.coverageEndDate),
-    coveredMonths: run.coveredMonths,
-    capturedAt: (run.importedAt ?? run.updatedAt).toISOString(),
-  };
-}
-
-function attemptState(run: SourceRun | null): 'RUNNING' | 'COMPLETE' | 'FAILED' | null {
-  if (!run) return null;
-  if (run.status === 'completed') return 'COMPLETE';
-  if (run.status === 'failed' || (run.status === 'running'
-    && run.expiresAt !== undefined
-    && run.expiresAt !== null
-    && run.expiresAt <= new Date())) return 'FAILED';
-  return 'RUNNING';
-}
-
-function attemptErrorCode(
-  run: SourceRun | null,
-  state: 'RUNNING' | 'COMPLETE' | 'FAILED' | null,
-): string | null {
-  if (state !== 'FAILED') return null;
-  return run?.errorCode ?? 'ATTEMPT_EXPIRED';
 }
 
 function minimumCutoff(left: string | null, right: string | null): string | null {

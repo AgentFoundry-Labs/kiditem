@@ -149,6 +149,7 @@ export class MasterProductProfitabilityReadService
         targetCutoff: input.targetCutoff,
         actualCutoff: null,
         mappingGeneration: null,
+        contributionBasis: null,
         sourceVector: {
           sellpia: latestSellpia?.view ?? emptyGeneration(),
           advertising: latestAdvertising?.view ?? emptyGeneration(),
@@ -205,6 +206,7 @@ export class MasterProductProfitabilityReadService
       targetCutoff: input.targetCutoff,
       actualCutoff: selected.actualCutoff,
       mappingGeneration: selected.mappingGeneration,
+      contributionBasis: fullMonthContributionBasis(selected),
       sourceVector: {
         sellpia: selected.sellpia.view,
         advertising: selected.advertising.view,
@@ -248,6 +250,25 @@ function requiredOrganizationId(value: string): string {
     throw new BadRequestException('Profitability evidence requires an organization');
   }
   return value.trim();
+}
+
+// Display contribution uses the latest contiguous full months proven by the
+// selected pair. A COMPLETE advertising manifest proves its entire date range.
+function fullMonthContributionBasis(selected: SelectedPair) {
+  const from = [selected.sellpia.view.coverageStartDate!, selected.advertising.view.coverageStartDate!].sort().at(-1)!;
+  const months = [...new Set(selected.sellpia.metadata.coverage.coveredMonths)]
+    .filter((month) => YEAR_MONTH_PATTERN.test(month)
+      && `${month}-01` >= from && kstMonthEnd(month) <= selected.actualCutoff)
+    .sort();
+  if (months.length === 0) return null;
+  let first = months.length - 1;
+  while (first > 0) {
+    const next = new Date(`${months[first - 1]}-01T00:00:00.000Z`);
+    next.setUTCMonth(next.getUTCMonth() + 1);
+    if (next.toISOString().slice(0, 7) !== months[first]) break;
+    first -= 1;
+  }
+  return { basisFromDate: `${months[first]}-01`, basisCutoffDate: kstMonthEnd(months.at(-1)!) };
 }
 
 function parseMonthEnd(value: string): string {

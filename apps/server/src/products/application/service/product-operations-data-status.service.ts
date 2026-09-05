@@ -47,7 +47,7 @@ export class ProductOperationsDataStatusService {
         mapping: {
           status: mappingRequiredProductCount > 0
             ? 'MISSING'
-            : sourceVectorMatchesMapping(facts)
+            : facts.mappingReady
               ? 'READY'
               : 'STALE',
           generation: facts.formulaState.mappingGeneration,
@@ -64,12 +64,4 @@ export class ProductOperationsDataStatusService {
       },
     });
   }
-}
-
-function sourceVectorMatchesMapping(
-  facts: Awaited<ReturnType<ProductOperationsDataStatusRepositoryPort['read']>>,
-): boolean {
-  return facts.sourceVector.sellpia?.mappingGeneration === facts.formulaState.mappingGeneration
-    && facts.sourceVector.advertising?.mappingGeneration
-      === facts.formulaState.mappingGeneration;
 }

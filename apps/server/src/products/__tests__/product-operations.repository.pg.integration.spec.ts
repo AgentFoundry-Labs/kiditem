@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
-  PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
   PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
   PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH,
 } from '@kiditem/shared/product-abc';
@@ -25,18 +24,28 @@ import { ProductOperationsRepositoryAdapter } from '../adapter/out/repository/pr
 import { ProductOperationsService } from '../application/service/product-operations.service';
 import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
 import { InventoryAvailabilityService } from '../../inventory/application/service/inventory-availability.service';
-import type { PrismaClient } from '@prisma/client';
-import type { PrismaService } from '../../prisma/prisma.service';
 import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/repository/product-operations-data-status.repository.adapter';
+import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
+import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
+import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
+import { AlertsRepository } from '../../alerts/alerts.repository';
+import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaClient } from '@prisma/client';
 
 describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
   let service: ProductOperationsService;
+  let sellpia: SellpiaProfitabilitySourceService;
+  let advertising: ProfitabilityAdImportRepositoryAdapter;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
+    const alerts = new SourceFailureAlerts(new AlertsRepository(prismaService));
+    sellpia = new SellpiaProfitabilitySourceService(prismaService, alerts);
+    advertising = new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts);
     service = new ProductOperationsService(
       new ProductOperationsRepositoryAdapter(prismaService),
       new InventoryAvailabilityService(
@@ -48,7 +57,8 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       new CatalogDisplayMediaService(
         new CatalogDisplayMediaRepositoryAdapter(prismaService),
       ),
-      new ProductOperationsDataStatusRepositoryAdapter(prismaService),
+      new ProductOperationsDataStatusRepositoryAdapter(prismaService,
+        new MasterProductProfitabilityReadService(sellpia, advertising, prismaService)),
       { readContribution: async () => null } as never,
     );
   });
@@ -869,7 +879,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     evaluations: readonly { masterProductId: string; abcGrade: 'A' | 'B' | 'C' }[],
   ) {
     const calculatedAt = new Date('2026-09-01T00:00:00.000Z');
-    const coverageStartDate = new Date('2026-01-01T00:00:00.000Z');
     const coverageEndDate = new Date('2026-08-31T00:00:00.000Z');
     const formulaVersion = await prisma.masterProductAbcFormulaVersion.create({
       data: {
@@ -880,41 +889,19 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         formulaChecksum: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH,
       },
     });
-    const [sellpiaSource, advertisingSource] = await Promise.all([
-      prisma.sourceImportRun.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          sourceType: 'sellpia_product_profitability',
-          status: 'completed',
-          publicationSequence: 1n,
-          mappingGeneration: 0n,
-          coverageStartDate,
-          coverageEndDate,
-          coveredMonths: [
-            '2026-01', '2026-02', '2026-03', '2026-04',
-            '2026-05', '2026-06', '2026-07', '2026-08',
-          ],
-          importedAt: calculatedAt,
-        },
-      }),
-      prisma.sourceImportRun.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          sourceType: 'coupang_ad_profitability',
-          status: 'completed',
-          publicationSequence: 1n,
-          mappingGeneration: 0n,
-          adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
-          coverageStartDate,
-          coverageEndDate,
-          coveredMonths: [
-            '2026-01', '2026-02', '2026-03', '2026-04',
-            '2026-05', '2026-06', '2026-07', '2026-08',
-          ],
-          importedAt: calculatedAt,
-        },
-      }),
-    ]);
+    const sellpiaSource = await sellpia.beginAttempt(TEST_ORGANIZATION_ID, randomUUID());
+    await sellpia.submitAttempt(TEST_ORGANIZATION_ID, sellpiaSource.attemptId, {
+      attemptToken: sellpiaSource.attemptToken,
+      parserVersion: 'sellpia-profitability-v1',
+      providerBackedEmptyProof: true,
+      coveredMonths: sellpiaSource.plan.coveredMonths,
+      provenance: { source: 'sellpia_stat_prd_profit', costBasis: 'ORDER_TIME_SUPPLY_COST', vatIncluded: true },
+      products: [],
+    });
+    const advertisingSource = await advertising.beginAttempt({ organizationId: TEST_ORGANIZATION_ID, idempotencyKey: randomUUID() });
+    expect(advertisingSource.accounts).toEqual([]);
+    await advertising.finalizeAttempt({ organizationId: TEST_ORGANIZATION_ID,
+      attemptId: advertisingSource.attemptId, attemptToken: advertisingSource.attemptToken });
     await prisma.$transaction(async (tx) => {
       await tx.masterProductAbcFormulaState.create({
         data: {
@@ -923,8 +910,8 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
           formulaRevision: 1,
           publicationRevision: 1,
           officialCutoffDate: coverageEndDate,
-          publishedSellpiaSourceImportRunId: sellpiaSource.id,
-          publishedAdvertisingSourceImportRunId: advertisingSource.id,
+          publishedSellpiaSourceImportRunId: sellpiaSource.attemptId,
+          publishedAdvertisingSourceImportRunId: advertisingSource.attemptId,
           publishedMappingGeneration: 0n,
           mappingGeneration: 0n,
           publishedAt: calculatedAt,
@@ -951,8 +938,8 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
           formulaRevision: 1,
           publicationRevision: 1,
           gradeBasisCutoffDate: coverageEndDate,
-          sellpiaSourceImportRunId: sellpiaSource.id,
-          advertisingSourceImportRunId: advertisingSource.id,
+          sellpiaSourceImportRunId: sellpiaSource.attemptId,
+          advertisingSourceImportRunId: advertisingSource.attemptId,
           sellpiaGeneration: 1n,
           advertisingGeneration: 1n,
           mappingGeneration: 0n,

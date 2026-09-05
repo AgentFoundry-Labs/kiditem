@@ -38,7 +38,6 @@ import {
   CATALOG_DISPLAY_MEDIA_PORT,
   type CatalogDisplayMediaPort,
 } from '../../../ai/application/port/in/workspace/catalog-display-media.port';
-import type { ProductOperationsPort } from '../port/in/product-operations.port';
 import {
   PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT,
   type ProductOperationsDataStatusRepositoryPort,
@@ -49,7 +48,7 @@ import {
   MASTER_PRODUCT_CONTRIBUTION_READ_PORT,
   type MasterProductContributionReadPort,
 } from '../../../finance/application/port/in/master-product-contribution-read.port';
-import { kstMonthEnd } from '../../../common/kst';
+import type { ProductOperationsPort } from '../port/in/product-operations.port';
 
 @Injectable()
 export class ProductOperationsService implements ProductOperationsPort {
@@ -269,7 +268,7 @@ export class ProductOperationsService implements ProductOperationsPort {
     dataStatus: ProductOperationsDataStatusFacts,
     masterProductIds: readonly string[],
   ): Promise<ProductAbcContributionAnalytics | null> {
-    const basis = fullMonthContributionBasis(dataStatus.sourceVector);
+    const basis = dataStatus.contributionBasis;
     if (!basis) return Promise.resolve(null);
     return this.contribution.readContribution({
       organizationId,
@@ -421,7 +420,7 @@ function enrichAbc<T extends {
     masterProductId === product.id);
   const mappingStatus = current?.mappingValid === false
     ? 'UNMAPPED' as const
-    : sourceVectorMatchesMapping(status)
+    : status.mappingReady
       ? 'READY' as const
       : 'STALE' as const;
   const displayStatus = abcDisplayStatus(
@@ -489,51 +488,12 @@ function abcSource(
   };
 }
 
-function sourceVectorMatchesMapping(status: ProductOperationsDataStatusFacts): boolean {
-  return [status.sourceVector.sellpia, status.sourceVector.advertising].every(
-    (source) => source?.mappingGeneration === status.formulaState.mappingGeneration,
-  );
-}
-
 function contributionOverview(
   analytics: ProductAbcContributionAnalytics | null,
 ): ProductAbcContributionOverview | null {
   if (!analytics) return null;
   const { products: _products, ...overview } = analytics;
   return overview;
-}
-
-function fullMonthContributionBasis(sourceVector: ProductOperationsDataStatusFacts['sourceVector']) {
-  const sellpia = sourceVector.sellpia;
-  const advertising = sourceVector.advertising;
-  if (!sellpia || !advertising) return null;
-  const advertisingMonths = new Set(fullMonths(advertising));
-  const common = fullMonths(sellpia)
-    .filter((month) => advertisingMonths.has(month))
-    .sort();
-  if (common.length === 0) return null;
-  let first = common.length - 1;
-  while (first > 0 && nextMonth(common[first - 1]!) === common[first]) first -= 1;
-  const fromMonth = common[first]!;
-  const cutoffMonth = common[common.length - 1]!;
-  return {
-    basisFromDate: `${fromMonth}-01`,
-    basisCutoffDate: kstMonthEnd(cutoffMonth),
-  };
-}
-
-function fullMonths(source: ProductOperationsAbcSourceManifest): string[] {
-  return source.coveredMonths.filter((month) => {
-    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return false;
-    return `${month}-01` >= source.coverageStartDate
-      && kstMonthEnd(month) <= source.coverageEndDate;
-  });
-}
-
-function nextMonth(month: string): string {
-  const date = new Date(`${month}-01T00:00:00.000Z`);
-  date.setUTCMonth(date.getUTCMonth() + 1);
-  return date.toISOString().slice(0, 7);
 }
 
 const IMMINENT_STOCK_MIN_MONTHS_EXCLUSIVE = 1.5;

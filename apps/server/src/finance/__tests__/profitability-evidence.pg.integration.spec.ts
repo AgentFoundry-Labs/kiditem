@@ -11,6 +11,8 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { MasterProductProfitabilityReadService } from '../application/service/master-product-profitability-read.service';
+import { ProductOperationsDataStatusService } from '../../products/application/service/product-operations-data-status.service';
+import { ProductOperationsDataStatusRepositoryAdapter } from '../../products/adapter/out/repository/product-operations-data-status.repository.adapter';
 import type { PrismaClient } from '@prisma/client';
 
 describe('ProfitabilityEvidence (PostgreSQL)', () => {
@@ -28,6 +30,37 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+  });
+
+  it('shows the same missing compatible cutoff in Products as in ABC evidence after mapping changes', async () => {
+    const alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    const sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts);
+    const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
+    await seedMappedProduct(prisma, TEST_ORGANIZATION_ID, 'OWN');
+    const published = await publishSellpia(sellpia, TEST_ORGANIZATION_ID, 'OWN', 2_000);
+    await publishEmptyAdvertising(advertising, TEST_ORGANIZATION_ID, 'own-ad');
+    await prisma.masterProductAbcFormulaState.upsert({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      create: { organizationId: TEST_ORGANIZATION_ID, mappingGeneration: 1n },
+      update: { mappingGeneration: 1n },
+    });
+    const evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prisma as never);
+    const products = new ProductOperationsDataStatusService(
+      new ProductOperationsDataStatusRepositoryAdapter(prisma as never, evidence),
+    );
+
+    const candidate = await evidence.load({ organizationId: TEST_ORGANIZATION_ID, targetCutoff: published.plan.to });
+    const display = await products.getStatus(TEST_ORGANIZATION_ID, 30);
+
+    expect(candidate.actualCutoff).toBeNull();
+    expect(display).toMatchObject({
+      actualCutoff: null,
+      sources: {
+        sellpia: { status: 'STALE' },
+        advertising: { status: 'STALE' },
+        mapping: { status: 'STALE', generation: '1' },
+      },
+    });
   });
 
   it('loads one coherent source pair and excludes another organization', async () => {
@@ -62,6 +95,10 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
       targetCutoff: ownSellpia.plan.to,
       actualCutoff: ownSellpia.plan.to,
       mappingGeneration: '0',
+      contributionBasis: {
+        basisFromDate: ownSellpia.plan.from,
+        basisCutoffDate: ownSellpia.plan.to,
+      },
       sources: {
         sellpia: { status: 'READY', latestAttemptState: 'COMPLETE' },
         advertising: { status: 'READY', latestAttemptState: 'COMPLETE' },
