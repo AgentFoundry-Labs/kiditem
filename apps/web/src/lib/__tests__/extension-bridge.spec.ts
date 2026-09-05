@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   KIDITEM_EXTENSION_ID_KEY,
@@ -19,6 +20,12 @@ type PingResponse = {
   version?: string;
   capabilities?: Record<string, unknown>;
 };
+
+it('removes the orphan page-owned Sellpia raw-snapshot bridge', async () => {
+  const bridge = await import('../extension-bridge');
+  expect(bridge).not.toHaveProperty('collectSellpiaInventory');
+  expect(existsSync(new URL('../sellpia-inventory-extension.ts', import.meta.url))).toBe(false);
+});
 
 function installChrome(response: PingResponse) {
   Object.defineProperty(window, 'chrome', {

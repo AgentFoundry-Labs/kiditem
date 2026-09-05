@@ -38,9 +38,6 @@ multiple route groups.
   events and one-time removal of the retired localStorage bearer record.
 - `extension-auth.ts` owns the explicit, just-in-time extension token handoff;
   no general browser API caller may consume that token.
-- `sellpia-inventory-extension.ts` is the only Sellpia inventory command
-  adapter. React code passes the claimed token as the extension `runId` and
-  never sends extension messages directly.
 - `sellpia-inventory-freshness-api.ts` owns freshness leases, browser/manual
   upload, source binding, refresh requests, order-transmission intent
   prepare/finalize/abort calls, unified attempt history, and the authoritative
