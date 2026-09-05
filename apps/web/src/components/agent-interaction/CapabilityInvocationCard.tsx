@@ -1,19 +1,17 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { CapabilityResultEnvelope } from '@kiditem/shared/agent-interaction';
 import { Check, ShieldCheck, X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys, type ConversationIdentity } from '@/lib/query-keys';
 import { formatDateTime } from '@/lib/utils';
 import { ConversationCardFrame } from './ConversationCardFrame';
-import { OperationReferenceCard } from './OperationReferenceCard';
 import { ResourceReferenceCard } from './ResourceReferenceCard';
+import type { CapabilityResultEnvelope } from '@kiditem/shared/agent-interaction';
 
 type InvocationResult = Pick<CapabilityResultEnvelope,
   | 'summary'
   | 'resourceRefs'
-  | 'operationRefs'
 >;
 
 interface InvocationReceipt {
@@ -136,9 +134,6 @@ function InvocationResultEvidence({ result }: { result: InvocationResult }) {
       <p className="text-sm leading-6 text-foreground">{result.summary}</p>
       {result.resourceRefs.map((reference) => (
         <ResourceReferenceCard key={`resource:${reference.kind}:${reference.id}`} reference={reference} />
-      ))}
-      {result.operationRefs.map((reference) => (
-        <OperationReferenceCard key={`operation:${reference.kind}:${reference.id}`} reference={reference} />
       ))}
     </section>
   );

@@ -345,6 +345,46 @@ the coordinated Task6 preflight and cutover; no compatibility read, synthetic
 COMPLETE backfill, operating access, provider QA or independent deployment was
 performed. Task3 and the overall plan remain incomplete.
 
+**Remaining source boundaries (read-only findings, not approved exceptions):**
+
+- **Catalog:** `channel-catalog-collection.service.ts` publishes each detail
+  chunk into current listing/option/media rows before finalize; the current
+  finalizer publishes the full set again. The spec instead requires invisible
+  staging and metadata-only finalize. Choose an explicit measured full-publication
+  transaction exception, or include generation-aware catalog/media reads in the
+  schema migration. Neither adding a token nor raising the timeout fixes this.
+- **Advertising keyword:** the existing 300-ad/10-minute invocation budget and
+  partial cursor do not prove the full roster. A continued attempt needs frozen
+  account/date/roster and receipt-backed coverage; a capped or failed enumeration
+  must not be certified COMPLETE. Keep current collection limits and require a
+  scope/continuation decision before changing capture meaning.
+- **Physical Sellpia:** reconnect the actual stock collector, not the already
+  migrated profitability action. Its legacy `full` scope includes a different
+  profit window; settle that scope and immutable stock-artifact storage before
+  replacing the live lease/import paths. Do not reinstate Operation dispatch.
+- **Shadow:** the current daily admission blocks further paid IO even after
+  failure. Explicit retry cannot silently become unlimited same-day paid IO.
+  Preserve provider/evaluation behavior while deciding that admission contract.
+- **Orders:** ordinary malls generate files kept in IndexedDB; only Coupang
+  directship also ingests canonical Orders. Define owner-durable export storage
+  and authenticated replay without turning other mall exports into Order writes.
+  Art09 converts in the browser. Kakao calls a converter absent from both this
+  checkout and its local `origin/release/office` controller/service; a new field
+  mapping cannot be invented as a transplant. Live-host behavior is unverified.
+- **Rank:** preserve successful per-keyword publication and Wing's existing
+  pending-today selection. The three daily rank tables are mutable serving data;
+  distinguish immutable capture from that projection, or make typed rows
+  generation-scoped before changing reads. Include the direct Readiness reader
+  and seller-identity enrichment: accepted seller catalog publication and the
+  still-unfenced identity path both mutate SERP JSON after rank collection.
+  Do not freeze enrichment targets before the new SERPs that currently select
+  them, delete enrichment, or add aggregate batch/child workflow state.
+
+These findings name remaining implementation and product decisions; they are
+not a new collection policy, extra worker, permission to access operating data,
+or proof that a retained source is complete. Existing collector inputs and
+outputs remain the characterization authority until a conflict is resolved.
+
 - [ ] **Step 1: Add failing no-Operation assertions to existing owner acceptance tests**
 
 ```ts
@@ -414,6 +454,21 @@ git commit -m "refactor: move domain work off operations"
 
 - Consumes: `GET /api/alerts` and `POST /api/alerts/:id/dismiss`.
 - Produces: one alert popover that polls every 10 seconds, refetches on focus, and invalidates after dismiss.
+
+**Residual checkpoint (2026-09-06):** Existing Alert polling and retired
+ActionBoard/Workflow/Marketplace route removal remain intact. Commit `7d7a32f64`
+removes unused Workflow/cache declarations, nine uncalled Operation hooks and
+their exclusive API methods. It also removes only thumbnail-batch Operation
+Alert writes, preserving 15-row chunks, two-second delay, local progress,
+partial/all failure, callbacks and request cancellation. Main's combined gate
+passes81 tests; the product-pipeline sweep passes393/fails2 at the unchanged
+catalog generic-ID dependency. No real-browser route or whole-web build success
+is claimed. The subsequent Agent-card retirement removes its Operation lookup,
+card, hook and query keys while preserving receipt summary/resources/approvals;
+historical JSON is ignored, not rewritten. Main's integrated Alert/Agent/route
+gate passes215 tests. The scanner is still red at711 references (web27), with
+zero unowned producers and source-to-ABC calls. Live Sellpia/browser-source
+migration remains required before deleting the remaining helper modules.
 
 - [ ] **Step 1: Write failing Alert polling tests**
 

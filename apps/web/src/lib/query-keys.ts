@@ -36,11 +36,6 @@ export const queryKeys = {
     tasksList: (params: Record<string, string | number | undefined>) =>
       [...queryKeys.agents.all, 'tasksList', params] as const,
   },
-  operations: {
-    all: ['operations'] as const,
-    runs: () => [...queryKeys.operations.all, 'runs'] as const,
-    run: (runId: string) => [...queryKeys.operations.runs(), runId] as const,
-  },
   products: {
     all: ['products'] as const,
     list: (params: Record<string, string>) => [...queryKeys.products.all, 'list', params] as const,

@@ -10,9 +10,6 @@ export type StartOperationInput = CreateOperationRunRequest & {
 };
 
 export const operationsApi = {
-  getRun: (runId: string) =>
-    apiClient.getParsed(`/api/operations/runs/${runId}`, OperationRunSchema),
-
   async start(operationKey: string, input: StartOperationInput): Promise<OperationRun> {
     const raw = await apiClient.post<unknown>(
       `/api/operations/${encodeURIComponent(operationKey)}/runs`,

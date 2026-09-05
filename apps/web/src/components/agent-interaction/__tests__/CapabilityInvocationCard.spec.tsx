@@ -152,17 +152,11 @@ describe('CapabilityInvocationCard', () => {
         output: { providerPayload: 'must not render' },
       },
     } as never);
-    vi.mocked(apiClient.getParsed).mockResolvedValue({
-      id: OPERATION_ID,
-      title: '발주서 확인',
-      status: 'waiting_runtime',
-    } as never);
 
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><CapabilityInvocationCard identity={IDENTITY} invocationId={invocationId} /></QueryClientProvider>);
 
     expect(await screen.findByText('발주서를 만들고 확인 대기 중입니다.')).toBeVisible();
-    expect(await screen.findByRole('heading', { name: '발주서 확인' })).toBeVisible();
-    expect(screen.getByText('준비 중')).toBeVisible();
+    expect(apiClient.getParsed).not.toHaveBeenCalled();
     expect(screen.getByRole('link', { name: '발주서 열기' }))
       .toHaveAttribute('href', '/purchase-orders?orderId=purchase%2Forder%3F1');
     expect(screen.queryByText(OPERATION_ID)).not.toBeInTheDocument();

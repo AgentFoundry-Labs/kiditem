@@ -1,23 +1,19 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import * as operationHooks from '@/hooks/useOperationRun';
 import * as manualActions from './manual-operation-actions';
 import { operationsApi } from './operations-api';
 import { queryKeys } from './query-keys';
 
 describe('retired Automation declarations', () => {
-  it('has no orphan Workflow types or route cache families while retaining exact Operation reads', () => {
+  it('has no retired Workflow/Operation UI declarations while retaining Sellpia start', () => {
     expect(existsSync(resolve(process.cwd(), 'src/types/index.ts'))).toBe(false);
-    for (const family of ['workflows', 'marketplace', 'actionTasks']) {
+    expect(existsSync(resolve(process.cwd(), 'src/hooks/useOperationRun.ts'))).toBe(false);
+    expect(existsSync(resolve(process.cwd(), 'src/components/agent-interaction/OperationReferenceCard.tsx'))).toBe(false);
+    for (const family of ['workflows', 'marketplace', 'actionTasks', 'operations']) {
       expect(queryKeys).not.toHaveProperty(family);
     }
-    for (const key of ['catalog', 'reconnect', 'schedules']) {
-      expect(queryKeys.operations).not.toHaveProperty(key);
-    }
-    expect(queryKeys.operations.run('run-1')).toEqual(['operations', 'runs', 'run-1']);
-    expect(Object.keys(operationHooks).sort()).toEqual(['isTerminalOperationStatus', 'useOperationRun']);
-    expect(Object.keys(operationsApi).sort()).toEqual(['getRun', 'start']);
+    expect(Object.keys(operationsApi)).toEqual(['start']);
     expect(Object.keys(manualActions)).toEqual(['startSellpiaInventoryRefreshAction']);
   });
 });
