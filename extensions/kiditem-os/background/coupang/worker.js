@@ -1259,6 +1259,7 @@ async function searchWingCatalogProducts(message) {
     pages.push({
       searchPage,
       itemCount: result.length,
+      resultArrayObserved: Array.isArray(body.result),
       nextSearchPage: body.nextSearchPage ?? null,
       total: resolveWingCatalogTotal(body),
     });

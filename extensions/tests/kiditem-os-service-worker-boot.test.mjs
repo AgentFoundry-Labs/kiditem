@@ -230,6 +230,94 @@ function bootRankCollector(pages, { loadFailureAt, redirectAt, fetch } = {}) {
   };
 }
 
+function bootWingSearch(responses) {
+  const { fake, context } = bootServiceWorker();
+  const requests = [], delays = [], urls = [];
+  let tab;
+  fake.chrome.tabs.create = (properties, callback) => {
+    urls.push(properties.url);
+    tab = { id: 42, windowId: 7, status: 'complete', ...properties };
+    callback?.(tab);
+    return Promise.resolve(tab);
+  };
+  fake.chrome.tabs.get = (_id, callback) => { callback?.(tab); return Promise.resolve(tab); };
+  fake.chrome.scripting.executeScript = async ({ func, args }) => {
+    const response = responses[requests.length];
+    return [{ result: await vm.runInNewContext(`(${func.toString()})(...args)`, {
+      args, document: { cookie: 'XSRF-TOKEN=fixture' }, AbortSignal,
+      fetch: async (url, init) => {
+        requests.push({ url, ...init, body: JSON.parse(init.body) });
+        return { ok: response.status === 200, status: response.status,
+          headers: new Headers({ 'content-type': response.contentType || 'application/json' }),
+          text: async () => JSON.stringify(response.body) };
+      },
+    }) }];
+  };
+  context.setTimeout = (callback, ms) => {
+    if ([1000, 2000, 4000, 8000, 16000, 2200].includes(ms)) { delays.push(ms); queueMicrotask(callback); }
+    return 1;
+  };
+  context.clearTimeout = () => {};
+  return { requests, delays, urls, search: async (maxPages = 5) => JSON.parse(JSON.stringify(
+    await context.searchWingCatalogProducts({ keyword: '연필 세트', maxPages, environmentId: 'local',
+      collectionRunId: '11111111-1111-4111-8111-111111111111' }),
+  )) };
+}
+
+test('Wing search records whether the successful JSON response actually contained a result array', async () => {
+  for (const [body, observed] of [[{ result: [] }, true], [{}, false], [{ result: null }, false]]) {
+    const h = bootWingSearch([{ status: 200, body }]);
+    const result = await h.search();
+    assert.equal(result.success, true, 'observation does not rewrite the original collector result');
+    assert.equal(result.stopReason, 'empty_page');
+    assert.deepEqual(result.rows, []);
+    assert.equal(result.pages[0].resultArrayObserved, observed);
+    assert.equal(h.requests.length, 1);
+  }
+});
+
+test('Wing search preserves request cursors, 429 retry delays, deduplication and normalized product fields', async () => {
+  const product = { productId: 101, itemId: 201, vendorItemId: 301, productName: '연필',
+    salePrice: 1000, salesLast28d: 3, pvLast28Day: 12, rating: 4.5, ratingCount: 8,
+    displayCategoryInfo: [{ categoryHierarchy: '문구 > 연필' }] };
+  const h = bootWingSearch([
+    { status: 429, body: {} }, { status: 429, body: {} },
+    { status: 200, body: { result: [product], nextSearchPage: 5 } },
+    { status: 200, body: { result: [product, { ...product, productId: 102, vendorItemId: 302 }], nextSearchPage: null } },
+  ]);
+  const result = await h.search();
+  assert.deepEqual(h.urls, ['https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2']);
+  assert.deepEqual(h.requests.map(({ url, method, credentials, body }) => ({ url, method, credentials, body })),
+    [0, 0, 0, 5].map((searchPage) => ({ url: '/tenants/seller-web/pre-matching/search', method: 'POST', credentials: 'include',
+      body: { keyword: '연필 세트', excludedProductIds: [], searchPage, searchOrder: 'DEFAULT', sortType: 'DEFAULT' } })));
+  assert.deepEqual(h.delays, [4000, 8000, 2200]);
+  assert.equal(result.stopReason, 'no_next_search_page');
+  assert.deepEqual(result.pages, [
+    { searchPage: 0, itemCount: 1, resultArrayObserved: true, nextSearchPage: 5, total: null },
+    { searchPage: 5, itemCount: 2, resultArrayObserved: true, nextSearchPage: null, total: null },
+  ]);
+  assert.equal(result.collectedCount, 2);
+  assert.equal(result.upstreamTotal, null);
+  assert.deepEqual(result.rows[0], { productId: '101', itemId: '201', vendorItemId: '301', productName: '연필',
+    itemName: null, brandName: null, manufacture: null, categoryHierarchy: '문구 > 연필', imagePath: null,
+    salePrice: 1000, rating: 4.5, ratingCount: 8, pvLast28Day: 12, salesLast28d: 3,
+    estimatedRevenue28d: 3000, conversionRate28d: 0.25, deliveryInfo: null });
+});
+
+test('Wing search keeps partial rows and original 5xx exhaustion while exposing the incomplete stop reason', async () => {
+  const h = bootWingSearch([
+    { status: 200, body: { result: [{ productId: 101, productName: '연필' }], nextSearchPage: 1 } },
+    ...Array.from({ length: 4 }, () => ({ status: 503, body: {} })),
+  ]);
+  const result = await h.search();
+  assert.equal(result.success, true, 'the owner validates completeness; collection output remains unchanged');
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.stopReason, 'non_json_response');
+  assert.equal(result.pages.length, 1);
+  assert.deepEqual(h.requests.map((request) => request.body.searchPage), [0, 1, 1, 1, 1]);
+  assert.deepEqual(h.delays, [2200, 1000, 2000, 4000]);
+});
+
 test('SERP source dispatch collects the server plan and returns only its acknowledged owner result', async () => {
   const attemptId = '11111111-1111-4111-8111-111111111111';
   const attemptToken = '22222222-2222-4222-8222-222222222222';
