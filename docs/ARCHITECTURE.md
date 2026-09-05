@@ -117,8 +117,10 @@ automation -X-> provider conversation
 operations -X-> agent capability registry
 ```
 
-Trend collection and Sellpia refresh are Operation-backed shared manual
-actions because their durable result already lives behind owner APIs. Order
+Trend collection uses `src/hooks/use-trend-source-collection.ts` across Sourcing
+and Dashboard: explicit owner collection, correlated retry keys, source status,
+and snapshot invalidation share one React Query hook. Sellpia refresh retains
+its separate Operation-backed manual action pending its owner cutover. Order
 collection, Coupang shipment-summary lookup, and Rocket PO collection keep
 their existing browser action contracts so dashboard execution preserves the
 same generated files, saved summaries/catalogs, and operator-facing results as

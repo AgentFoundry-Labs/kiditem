@@ -2,12 +2,12 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { TrendSourceResult } from '@/lib/source-trend-api';
 import { CheckCircle2, Loader2, RefreshCw, XCircle } from 'lucide-react';
+import type { TrendSourceResult } from '@/lib/source-trend-api';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
+import { useTrendSourceCollection } from '@/hooks/use-trend-source-collection';
 import { SourceCollectionStatus } from '../../components/SourceCollectionStatus';
-import { useTrendSourceCollection } from '../../hooks/use-trend-source-collection';
 import {
   TREND_SOURCE_META,
   TREND_SOURCE_ORDER,

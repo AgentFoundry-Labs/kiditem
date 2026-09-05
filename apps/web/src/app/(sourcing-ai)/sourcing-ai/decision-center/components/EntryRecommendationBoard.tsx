@@ -8,6 +8,7 @@ import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useRightSurfaceLauncher } from '@/components/layout/right-surface-launcher-context';
+import { useTrendSourceCollection } from '@/hooks/use-trend-source-collection';
 import {
   type EntryInterestKeywordStatus,
   type EntryRecommendation,
@@ -25,7 +26,6 @@ import {
   useSourcingReviewSelections,
 } from '../../hooks/use-sourcing-workspace';
 import { interestTargetSource } from '../../lib/sourcing-interest-target';
-import { useTrendSourceCollection } from '../../hooks/use-trend-source-collection';
 import {
   collectSourcing1688TrendsFromExtension,
   fetchSourcing1688TrendSourceStatus,

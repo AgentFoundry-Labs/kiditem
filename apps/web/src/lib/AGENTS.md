@@ -48,8 +48,9 @@ multiple route groups.
 - `rocket-confirm-file-store.ts` owns the browser-local Rocket workbook history
   shared by the Supply confirmation workspace and the preserved Orders file
   list. It is operator convenience only, never server truth or provider proof.
-- `manual-operation-actions.ts` owns shared Trend and Sellpia manual requests;
-  dashboard/domain-screen source metadata may differ but inputs and keys do not.
+- `manual-operation-actions.ts` owns the retained Sellpia manual request.
+  Trend consumers use `src/hooks/use-trend-source-collection.ts` for the shared
+  owner action, retry keys, and source status.
 - `coupang-shipment-summary-action.ts` and
   `rocket-purchase-collection-action.ts` own manual browser actions promoted
   across route groups. Keep extension collection, persistence verification,

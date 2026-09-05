@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   fetchNaver: vi.fn(),
 }));
 
-vi.mock('../../hooks/use-trend-source-collection', () => ({
+vi.mock('@/hooks/use-trend-source-collection', () => ({
   useTrendSourceCollection: mocks.useAction,
 }));
 

@@ -15,6 +15,8 @@ needs them.
 - `useAllMarketplaceOrderCollection()` composes the exact per-account extension
   collection, session lifecycle, zero/login classification, and generated-file
   callback shared by the order screen and dashboard.
+- `useTrendSourceCollection()` shares explicit Naver/Shorts owner collection,
+  retry-key correlation, and React Query source status across Sourcing and Dashboard.
 - `useUrlControlledTab()` for allow-listed canonical workspace selection while
   preserving query parameters owned by nested views and filters.
 

@@ -7,11 +7,10 @@ const mocks = vi.hoisted(() => ({
   start: vi.fn(),
   cancel: vi.fn(),
   retryAttention: vi.fn(),
-  collectTrend: vi.fn(),
   useAction: vi.fn(),
 }));
 
-vi.mock('../../hooks/use-trend-source-collection', () => ({
+vi.mock('@/hooks/use-trend-source-collection', () => ({
   useTrendSourceCollection: mocks.useAction,
 }));
 
@@ -23,7 +22,6 @@ vi.mock('../lib/trend-collection-api', () => ({
     '1688': { label: '1688', className: 'wholesale' },
     shorts: { label: 'Shorts', className: 'shorts' },
   },
-  collectTrend: mocks.collectTrend,
   fetchTrendSeeds: vi.fn().mockResolvedValue([]),
 }));
 
@@ -67,7 +65,6 @@ describe('TrendCollectionSection operation migration', () => {
     renderSection();
 
     expect(mocks.start).not.toHaveBeenCalled();
-    expect(mocks.collectTrend).not.toHaveBeenCalled();
     expect(screen.getByText('persisted-trend-snapshots')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '트렌드 수집' }));
@@ -76,7 +73,6 @@ describe('TrendCollectionSection operation migration', () => {
     expect(mocks.start).toHaveBeenCalledWith({
       sources: ['naver', 'shorts'],
     });
-    expect(mocks.collectTrend).not.toHaveBeenCalled();
     expect(mocks.useAction).toHaveBeenCalledWith({
       input: { sources: ['naver', 'shorts'] },
       snapshotQueryKey: ['sourcing', 'trend'],

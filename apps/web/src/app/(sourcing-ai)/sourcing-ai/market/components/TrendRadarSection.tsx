@@ -29,8 +29,8 @@ import {
 } from 'recharts';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber, formatPercent } from '@/lib/utils';
+import { useTrendSourceCollection } from '@/hooks/use-trend-source-collection';
 import { SourceCollectionStatus } from '../../components/SourceCollectionStatus';
-import { useTrendSourceCollection } from '../../hooks/use-trend-source-collection';
 import {
   filterTrendOpportunities,
   rankTrendOpportunitiesForChannel,

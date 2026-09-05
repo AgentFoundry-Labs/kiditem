@@ -21,7 +21,7 @@ describe('useDepartmentQuickActions execution boundaries', () => {
       'src/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow.ts',
     );
     const trendScreen = source(
-      'src/app/(sourcing-ai)/sourcing-ai/market/lib/trend-collection-api.ts',
+      'src/app/(sourcing-ai)/sourcing-ai/market/components/TrendCollectionSection.tsx',
     );
     const sellpiaScreen = source('src/hooks/useSellpiaInventoryFreshness.ts');
     const sharedOrderAction = source('src/hooks/useAllMarketplaceOrderCollection.ts');
@@ -38,11 +38,14 @@ describe('useDepartmentQuickActions execution boundaries', () => {
     for (const [sharedAction, domainSource] of [
       ['collectAndPersistCoupangShipmentSummary', shipmentScreen],
       ['collectAndPersistRocketPurchaseOrders', rocketWorkflow],
-      ['startTrendCollectionAction', trendScreen],
+      ['useTrendSourceCollection', trendScreen],
     ] as const) {
       expect(dashboard).toContain(sharedAction);
       expect(domainSource).toContain(sharedAction);
     }
+    expect(dashboard).toContain("@/hooks/use-trend-source-collection");
+    expect(trendScreen).toContain("@/hooks/use-trend-source-collection");
+    expect(dashboard).not.toContain('startTrendCollectionAction');
     expect(sellpiaScreen).toContain('startSellpiaInventoryRefreshAction');
   });
 });

@@ -19,8 +19,8 @@ import {
 } from 'lucide-react';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
+import { useTrendSourceCollection } from '@/hooks/use-trend-source-collection';
 import { SourceCollectionStatus } from '../../components/SourceCollectionStatus';
-import { useTrendSourceCollection } from '../../hooks/use-trend-source-collection';
 import { fetchPersistedNaverMarket } from '../lib/live-naver-market';
 import {
   buildCrossMarketTopics,
