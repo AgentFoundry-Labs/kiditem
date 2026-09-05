@@ -8,6 +8,7 @@ import { SELLPIA_PRODUCT_DEPLETION_READ_PORT } from '../sellpia-product-depletio
 import { MASTER_PRODUCT_PROFIT_FACT_READ_PORT } from '../../application/port/in/master-product-profit-fact-read.port';
 import { SELLPIA_PROFITABILITY_SOURCE_READ_PORT } from '../../application/port/in/sellpia-profitability-source-read.port';
 import { SellpiaProfitabilitySourceService } from '../sellpia-profitability-source.service';
+import { SellpiaProfitabilitySourceModule } from '../sellpia-profitability-source.module';
 import { AlertsModule } from '../../../alerts/alerts.module';
 
 describe('SellpiaProductSalesModule wiring', () => {
@@ -25,9 +26,8 @@ describe('SellpiaProductSalesModule wiring', () => {
 
     expect(imports).toContain(InventoryModule);
     expect(imports).toContain(AiModule);
-    expect(imports).toContain(AlertsModule);
-    expect(providers).toContain(SellpiaProfitabilitySourceService);
-    expect(exports).toContain(SellpiaProfitabilitySourceService);
+    expect(imports).toContain(SellpiaProfitabilitySourceModule);
+    expect(exports).toContain(SellpiaProfitabilitySourceModule);
     expect(binding?.useExisting).toBe(SellpiaProductSalesService);
     expect(exports).toContain(SELLPIA_PRODUCT_DEPLETION_READ_PORT);
   });
@@ -49,8 +49,8 @@ describe('SellpiaProductSalesModule wiring', () => {
   });
 
   it('exports the typed deep source read capability through the owner service', () => {
-    const providers: unknown[] = Reflect.getMetadata('providers', SellpiaProductSalesModule) ?? [];
-    const exports: unknown[] = Reflect.getMetadata('exports', SellpiaProductSalesModule) ?? [];
+    const providers: unknown[] = Reflect.getMetadata('providers', SellpiaProfitabilitySourceModule) ?? [];
+    const exports: unknown[] = Reflect.getMetadata('exports', SellpiaProfitabilitySourceModule) ?? [];
     const binding = providers.find((provider) =>
       typeof provider === 'object'
       && provider !== null
@@ -60,5 +60,6 @@ describe('SellpiaProductSalesModule wiring', () => {
 
     expect(binding?.useExisting).toBe(SellpiaProfitabilitySourceService);
     expect(exports).toContain(SELLPIA_PROFITABILITY_SOURCE_READ_PORT);
+    expect(Reflect.getMetadata('imports', SellpiaProfitabilitySourceModule)).toEqual([AlertsModule]);
   });
 });

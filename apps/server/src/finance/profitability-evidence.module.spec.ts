@@ -3,6 +3,7 @@ import { MODULE_METADATA } from '@nestjs/common/constants';
 import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
 import { AdvertisingProfitabilityReadModule } from '../advertising/advertising-profitability-read.module';
 import { SellpiaProductSalesModule } from '../analytics/sellpia-product-sales/sellpia-product-sales.module';
+import { SellpiaProfitabilitySourceModule } from '../analytics/sellpia-product-sales/sellpia-profitability-source.module';
 import { MASTER_PRODUCT_PROFITABILITY_READ_PORT } from './application/port/in/master-product-profitability-read.port';
 import { MasterProductProfitabilityReadService } from './application/service/master-product-profitability-read.service';
 import { ProfitabilityEvidenceModule } from './profitability-evidence.module';
@@ -594,9 +595,14 @@ describe('ProfitabilityEvidence', () => {
 });
 
 describe('ProfitabilityEvidenceModule', () => {
+  it('does not import the Sellpia screen/depletion module back into its evidence dependency', () => {
+    expect(Reflect.getMetadata(MODULE_METADATA.IMPORTS, ProfitabilityEvidenceModule))
+      .not.toContain(SellpiaProductSalesModule);
+  });
+
   it('exports one Finance-owned evidence seam over the two exact source readers', () => {
     expect(Reflect.getMetadata(MODULE_METADATA.IMPORTS, ProfitabilityEvidenceModule)).toEqual([
-      SellpiaProductSalesModule,
+      SellpiaProfitabilitySourceModule,
       AdvertisingProfitabilityReadModule,
     ]);
     expect(Reflect.getMetadata(MODULE_METADATA.PROVIDERS, ProfitabilityEvidenceModule)).toEqual([
