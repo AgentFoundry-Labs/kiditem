@@ -192,6 +192,12 @@ export class ReadinessService {
         .filter((value): value is string => Boolean(value)),
     );
     const activeWingVendorIdList = [...activeWingVendorIds];
+    const completeWingRankSource = {
+      organizationId,
+      sourceType: 'coupang_wing_rank',
+      parserVersion: 'wing-rank-v1',
+      status: 'completed',
+    } satisfies Prisma.SourceImportRunWhereInput;
     // Rank rows do not carry channelAccountId. Fence their date/coverage to
     // vendor items belonging to the selected active account.
     const wingSalesRank = activeWingVendorIdList.length
@@ -199,6 +205,7 @@ export class ReadinessService {
           where: {
             organizationId,
             vendorItemId: { in: activeWingVendorIdList },
+            sourceImportRun: completeWingRankSource,
           },
           orderBy: [{ businessDate: 'desc' }, { capturedAt: 'desc' }],
           select: { capturedAt: true, businessDate: true },
@@ -212,6 +219,7 @@ export class ReadinessService {
               organizationId,
               businessDate: wingSalesRank.businessDate,
               vendorItemId: { in: activeWingVendorIdList },
+              sourceImportRun: completeWingRankSource,
             },
             select: { vendorItemId: true },
             distinct: ['vendorItemId'],
@@ -221,6 +229,7 @@ export class ReadinessService {
               organizationId,
               businessDate: wingSalesRank.businessDate,
               vendorItemId: { in: activeWingVendorIdList },
+              sourceImportRun: completeWingRankSource,
             },
           }),
         ])

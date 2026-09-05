@@ -238,6 +238,12 @@ describe('ReadinessService', () => {
         organizationId: ORGANIZATION_ID,
         businessDate: latestBusinessDate,
         vendorItemId: { in: ['vendor-item-1', 'vendor-item-2'] },
+        sourceImportRun: {
+          organizationId: ORGANIZATION_ID,
+          sourceType: 'coupang_wing_rank',
+          parserVersion: 'wing-rank-v1',
+          status: 'completed',
+        },
       },
       select: { vendorItemId: true },
       distinct: ['vendorItemId'],
