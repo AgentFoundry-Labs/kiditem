@@ -15,7 +15,6 @@ import {
   type ProductAbcContributionAnalytics,
   type ProductAbcContributionOverview,
   type ProductAbcContributionProduct,
-  type ProductAbcDisplayStatus,
   type ProductAbcEvaluation,
 } from '@kiditem/shared/product-abc';
 import {
@@ -48,6 +47,7 @@ import {
   MASTER_PRODUCT_CONTRIBUTION_READ_PORT,
   type MasterProductContributionReadPort,
 } from '../../../finance/application/port/in/master-product-contribution-read.port';
+import { productAbcDisplayStatus } from '../../domain/product-abc-display-status';
 import type { ProductOperationsPort } from '../port/in/product-operations.port';
 
 @Injectable()
@@ -423,8 +423,8 @@ function enrichAbc<T extends {
     : status.mappingReady
       ? 'READY' as const
       : 'STALE' as const;
-  const displayStatus = abcDisplayStatus(
-    product.abcEvaluation,
+  const displayStatus = productAbcDisplayStatus(
+    product.abcEvaluation !== null,
     current?.mappingValid !== false,
     status,
     createdAt,
@@ -454,21 +454,6 @@ function enrichAbc<T extends {
     }),
     contribution,
   };
-}
-
-function abcDisplayStatus(
-  evaluation: ProductAbcEvaluation | null,
-  mappingValid: boolean,
-  status: ProductOperationsDataStatusFacts,
-  createdAt: string | Date,
-): ProductAbcDisplayStatus {
-  if (!mappingValid) return 'SOURCE_UNMAPPED';
-  if (status.sellpia.status !== 'READY') return 'SELLPIA_SOURCE_STALE';
-  if (status.advertising.status !== 'READY') return 'AD_SOURCE_STALE';
-  if (evaluation) return 'READY';
-  if (status.formulaState.publishedAt
-    && new Date(createdAt) > new Date(status.formulaState.publishedAt)) return 'NEW';
-  return 'INSUFFICIENT_EVIDENCE';
 }
 
 function abcSource(

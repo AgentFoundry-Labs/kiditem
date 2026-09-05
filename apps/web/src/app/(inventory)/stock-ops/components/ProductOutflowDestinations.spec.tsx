@@ -1,10 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { SellpiaProductDestination } from '@kiditem/shared/dashboard';
-import { productAbcEvaluation } from '@/test/fixtures/product-abc';
+import { productAbcEvaluation, productAbcReadModel } from '@/test/fixtures/product-abc';
 import {
   ProductOutflowDestinations,
 } from './ProductOutflowDestinations';
+import type { SellpiaProductDestination } from '@kiditem/shared/dashboard';
 
 describe('ProductOutflowDestinations', () => {
   it('keeps a separate image beside each rendered destination and limits the dense table cell to two', () => {
@@ -33,21 +33,17 @@ describe('ProductOutflowDestinations', () => {
     expect(screen.queryByLabelText('C등급')).not.toBeInTheDocument();
   });
 
-  it('shows the automatic evaluation state rather than a lifecycle label', () => {
-    render(<ProductOutflowDestinations destinations={[
-      destination('observing', '관찰 상품', '기본', null, null, productAbcEvaluation({
-        abcGrade: null,
-        calculationStatus: 'INSUFFICIENT_EVIDENCE',
-        formula: null,
-        rawScore: null,
-        adjustedScore: null,
-        reliability: null,
-        weightedContributionProfit: null,
-      })),
-    ]} />);
-
-    expect(screen.getByRole('link', { name: '관찰 상품 · 기본' }))
-      .toHaveAttribute('title', expect.stringContaining('INSUFFICIENT_EVIDENCE'));
+  it('shows the retained grade with live source attention and the actual data cutoff', () => {
+    const item = destination('stale', '기존 등급 상품', '기본', null, 'A');
+    item.abc = productAbcReadModel({
+      displayStatus: 'SELLPIA_SOURCE_STALE',
+      sources: { ...item.abc.sources, sellpia: { ...item.abc.sources.sellpia, status: 'STALE', latestAttemptState: 'FAILED' } },
+    });
+    render(<ProductOutflowDestinations destinations={[item]} />);
+    const link = screen.getByRole('link', { name: '기존 등급 상품 · 기본' });
+    expect(link).toHaveAttribute('title', expect.stringContaining('셀피아 원천 갱신 필요'));
+    expect(link).toHaveAttribute('title', expect.stringContaining('데이터 기준 2026-07-31'));
+    expect(link).toHaveAttribute('href', '/product-hub/master-stale');
   });
 
   it('has an accessible empty state', () => {
@@ -76,8 +72,7 @@ function destination(
     externalOptionId: `external-option-${suffix}`,
     optionName,
     unitsPerSale: 1,
-    abcGrade,
-    abcEvaluation,
+    abc: productAbcReadModel({ evaluation: abcEvaluation }),
     displayImage: url ? {
       url,
       source: 'channel_catalog',

@@ -1,3 +1,5 @@
+import { Prisma } from '@prisma/client';
+import { PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD } from '@kiditem/shared/product-abc';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
 import { SellpiaProductInventoryReader } from '../sellpia-product-inventory-reader';
@@ -13,6 +15,7 @@ function makePrisma() {
     items: [],
   }));
   const prisma = {
+    masterProductAbcFormulaState: { findUnique: vi.fn(async () => null) },
     sourceImportRun: {
       findFirst: vi.fn().mockResolvedValue({ id: 'complete-generation' }),
     },
@@ -24,6 +27,7 @@ function makePrisma() {
     prisma as never,
     { findBySkuIds: inventoryAvailability } as never,
     { findDisplayMedia: vi.fn(async () => new Map()) } as never,
+    missingEvidence(),
   );
   const Service = SellpiaProductSalesService as unknown as new (
     prisma: unknown,
@@ -180,7 +184,7 @@ describe('SellpiaProductSalesService.getSummary', () => {
             id: true,
             code: true,
             name: true,
-            abcGrade: true,
+            createdAt: true,
             abcEvaluation: { include: { formulaVersion: true } },
           },
         },
@@ -249,8 +253,8 @@ describe('SellpiaProductSalesService.getSummary', () => {
       product.inventoryResolution.status === 'matched'
         ? product.inventoryResolution.destinations
         : [])).toEqual(expect.arrayContaining([
-      expect.objectContaining({ masterProductId: 'master-a', abcGrade: 'A' }),
-      expect.objectContaining({ masterProductId: 'master-c', abcGrade: 'C' }),
+      expect.objectContaining({ masterProductId: 'master-a', abc: expect.objectContaining({ abcGrade: 'A' }) }),
+      expect.objectContaining({ masterProductId: 'master-c', abc: expect.objectContaining({ abcGrade: 'C' }) }),
     ]));
   });
 
@@ -402,7 +406,8 @@ function inventoryMasterProduct(
     code: id,
     name: id,
     abcGrade,
-    abcEvaluation: null,
+    createdAt: new Date('2026-01-01'),
+    abcEvaluation: abcGrade ? storedEvaluation(abcGrade) : null,
   };
 }
 
@@ -422,5 +427,29 @@ function collectedInventory(
       isActive: row.isActive,
       generation: '12',
     })),
+  };
+}
+
+function missingEvidence() {
+  const source = { sourceImportRunId: null, publicationSequence: null, mappingGeneration: null, coverageStartDate: null, coverageEndDate: null, capturedAt: null };
+  const status = { status: 'MISSING' as const, actualCutoff: null, latestAttemptState: null, errorCode: null };
+  return { load: async () => ({
+    targetCutoff: '2026-06-30', actualCutoff: null, mappingGeneration: null, contributionBasis: null,
+    sources: { sellpia: status, advertising: status }, sourceVector: { sellpia: source, advertising: source }, products: [],
+  }) };
+}
+
+function storedEvaluation(abcGrade: 'A' | 'B' | 'C') {
+  const decimal = (value: number) => new Prisma.Decimal(value);
+  return {
+    abcGrade, weightedRevenue: decimal(100), weightedOrderTimeSupplyCost: decimal(10),
+    weightedAdvertisingSpend: decimal(0), weightedOperatingProfit: decimal(90),
+    operatingProfitVelocity30: decimal(90), operatingMargin: decimal(0.9), lossPersistence: decimal(0),
+    profitScore: decimal(80), marginScore: decimal(100), consistencyScore: decimal(100), economicScore: decimal(90),
+    validObservationDays: 30, formulaVersion: { formulaJson: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD },
+    formulaRevision: 1, publicationRevision: 1, gradeBasisCutoffDate: new Date('2026-06-30'),
+    sellpiaSourceImportRunId: '11111111-1111-4111-8111-111111111112',
+    advertisingSourceImportRunId: '11111111-1111-4111-8111-111111111113',
+    sellpiaGeneration: 1n, advertisingGeneration: 1n, mappingGeneration: 1n, calculatedAt: new Date('2026-07-01'),
   };
 }

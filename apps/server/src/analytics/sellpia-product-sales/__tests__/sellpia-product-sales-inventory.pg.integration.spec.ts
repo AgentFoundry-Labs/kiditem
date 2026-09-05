@@ -1,4 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { AlertsRepository } from '../../../alerts/alerts.repository';
+import { SourceFailureAlerts } from '../../../alerts/alerts.service';
+import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
+import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
+import { SellpiaProfitabilitySourceService } from '../sellpia-profitability-source.service';
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
 import { SellpiaProductInventoryReader } from '../sellpia-product-inventory-reader';
 import { SellpiaMasterProductProfitFactReader } from '../sellpia-master-product-profit-fact.reader';
@@ -30,12 +35,18 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     const inventory = new InventoryAvailabilityService(
       new InventoryAvailabilityRepositoryAdapter(prismaService),
     );
+    const alerts = new SourceFailureAlerts(new AlertsRepository(prismaService));
+    const evidence = new MasterProductProfitabilityReadService(
+      new SellpiaProfitabilitySourceService(prismaService, alerts),
+      new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts), prismaService,
+    );
     service = new SellpiaProductSalesService(
       prismaService,
       new SellpiaProductInventoryReader(
         prismaService,
         inventory,
         { findDisplayMedia: async () => new Map() },
+        evidence,
       ),
     );
     profitFactReader = new SellpiaMasterProductProfitFactReader(prismaService);
@@ -48,31 +59,21 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    const coverageEndDate = previousKstMonthEnd();
-    const ownRun = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'sellpia_product_profitability',
-        status: 'completed',
-        publicationSequence: 1n,
-        mappingGeneration: 0n,
-        coverageEndDate,
-        importedAt: new Date('2026-07-20T01:00:00.000Z'),
-      },
-    });
-    const foreignRun = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: OTHER_ORGANIZATION_ID,
-        sourceType: 'sellpia_product_profitability',
-        status: 'completed',
-        publicationSequence: 1n,
-        mappingGeneration: 0n,
-        coverageEndDate,
-        importedAt: new Date('2026-07-20T01:00:00.000Z'),
-      },
-    });
-    canonicalProfitabilityRunId = ownRun.id;
-    foreignProfitabilityRunId = foreignRun.id;
+    const owner = new SellpiaProfitabilitySourceService(
+      prisma as never, new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+    );
+    async function publishEmpty(organizationId: string) {
+      const attempt = await owner.beginAttempt(organizationId, 'inventory-depletion-fixture');
+      await owner.submitAttempt(organizationId, attempt.attemptId, {
+        attemptToken: attempt.attemptToken, parserVersion: 'sellpia-profitability-v1',
+        providerBackedEmptyProof: true, coveredMonths: attempt.plan.coveredMonths,
+        provenance: { source: 'sellpia_stat_prd_profit', costBasis: 'ORDER_TIME_SUPPLY_COST', vatIncluded: true },
+        products: [],
+      });
+      return attempt.attemptId;
+    }
+    canonicalProfitabilityRunId = await publishEmpty(TEST_ORGANIZATION_ID);
+    foreignProfitabilityRunId = await publishEmpty(OTHER_ORGANIZATION_ID);
   });
 
   it('uses active organization-scoped inventory with code, option-code, then unique-barcode precedence', async () => {
@@ -154,7 +155,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     expect(result.stockCapturedAt).toBe(verifiedAt.toISOString());
   });
 
-  it('preserves depletion signals while projecting stored destination grades from canonical inventory', async () => {
+  it('preserves depletion signals without promoting grade caches that have no published evaluation', async () => {
     await seedInventoryState(prisma, new Date('2026-07-17T03:00:00.000Z'));
     const importRun = await prisma.sourceImportRun.create({
       data: {
@@ -229,7 +230,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     expect(byCode.REORDER.inventoryResolution.destinations).toEqual([
       expect.objectContaining({
         masterProductId: reorderDestination.masterProductId,
-        abcGrade: 'A',
+        abc: expect.objectContaining({ abcGrade: null }),
       }),
     ]);
     expect(byCode.DEAD).toMatchObject({
@@ -253,7 +254,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     expect(byCode.ANOMALY.inventoryResolution.destinations).toEqual([
       expect.objectContaining({
         masterProductId: anomalyDestination.masterProductId,
-        abcGrade: null,
+        abc: expect.objectContaining({ abcGrade: null }),
       }),
     ]);
     expect(byCode.ANOMALY.monthly.find((month) => month.yearMonth === completeMonths[0])).toEqual({
@@ -266,9 +267,9 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       reorderCount: 1,
       deadStockCount: 1,
       anomalyCount: 1,
-      abcCounts: { A: 1, B: 1, C: 1 },
-      classifiedProductCount: 3,
-      unclassifiedProductCount: 1,
+      abcCounts: { A: 0, B: 0, C: 0 },
+      classifiedProductCount: 0,
+      unclassifiedProductCount: 4,
     });
   });
 
@@ -487,10 +488,6 @@ function sales(productCode: string, optionCode: string, barcode: string | null) 
   };
 }
 
-function previousKstMonthEnd(): Date {
-  const current = new Date(Date.now() + 9 * 60 * 60 * 1_000);
-  return new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), 0));
-}
 
 function metricSales(
   productCode: string,

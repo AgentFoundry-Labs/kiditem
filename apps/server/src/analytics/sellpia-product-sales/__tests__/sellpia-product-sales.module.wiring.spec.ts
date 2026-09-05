@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
+import { ProfitabilityEvidenceModule } from '../../../finance/profitability-evidence.module';
 import { InventoryModule } from '../../../inventory/inventory.module';
 import { AiModule } from '../../../ai/ai.module';
 import { SellpiaProductSalesModule } from '../sellpia-product-sales.module';
@@ -25,6 +26,7 @@ describe('SellpiaProductSalesModule wiring', () => {
         } | undefined;
 
     expect(imports).toContain(InventoryModule);
+    expect(imports).toContain(ProfitabilityEvidenceModule);
     expect(imports).toContain(AiModule);
     expect(imports).toContain(SellpiaProfitabilitySourceModule);
     expect(exports).toContain(SellpiaProfitabilitySourceModule);

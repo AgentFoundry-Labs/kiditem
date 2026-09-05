@@ -61,6 +61,7 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/advertising/__tests__/ad-strategy-flow.pg.integration.spec.ts",
   "apps/server/src/advertising/__tests__/profitability-ad-import.repository.pg.integration.spec.ts",
   "apps/server/src/analytics/dashboard/__tests__/dashboard-inventory.pg.integration.spec.ts",
+  "apps/server/src/analytics/dashboard/__tests__/inventory-abc-read.pg.integration.spec.ts",
   "apps/server/src/analytics/sellpia-product-sales/__tests__/sellpia-product-sales-inventory.pg.integration.spec.ts",
   "apps/server/src/analytics/sellpia-product-sales/__tests__/sellpia-profitability-source.pg.integration.spec.ts",
   "apps/server/src/analytics/supplier-stats/__tests__/supplier-stats-flow.pg.integration.spec.ts",
@@ -408,7 +409,9 @@ describe("Sellpia authoritative final-schema contract", () => {
     );
     assert.doesNotMatch(dashboardSalesRepository, /channel_sku_components/);
     assert.doesNotMatch(dashboardSalesRepository, /LEFT JOIN LATERAL/);
-    assert.match(dashboardSalesRepository, /mp\.abc_grade AS grade/);
+    assert.match(dashboardSalesRepository, /LEFT JOIN master_product_abc_evaluations abce/);
+    assert.match(dashboardSalesRepository, /grade: abcEvaluation\?\.abcGrade \?\? null/);
+    assert.doesNotMatch(dashboardSalesRepository, /mp\.abc_grade AS grade/);
     assert.match(dashboardSalesRepository, /GROUP BY cl\.id/);
   });
 });

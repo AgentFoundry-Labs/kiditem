@@ -5,6 +5,7 @@ import {
   ProductAbcEvaluationSchema,
   ProductAbcFormulaPayloadSchema,
   ProductAbcGradeSchema,
+  ProductAbcReadModelSchema,
 } from './product-abc.js';
 
 // ─── Shared building blocks ───────────────────────────────────────────────
@@ -505,8 +506,7 @@ export const SellpiaProductDestinationSchema = z.object({
   externalOptionId: z.string().min(1),
   optionName: z.string().nullable(),
   unitsPerSale: z.number().int().positive(),
-  abcGrade: ProductAbcGradeSchema.nullable(),
-  abcEvaluation: ProductAbcEvaluationSchema.nullable(),
+  abc: ProductAbcReadModelSchema,
   displayImage: SellpiaProductDestinationDisplayImageSchema.nullable(),
 }).strict();
 
@@ -514,8 +514,7 @@ export const SellpiaInventoryMasterProductSchema = z.object({
   masterProductId: z.string().uuid(),
   masterProductCode: z.string().min(1),
   masterProductName: z.string().min(1),
-  abcGrade: ProductAbcGradeSchema.nullable(),
-  abcEvaluation: ProductAbcEvaluationSchema.nullable(),
+  abc: ProductAbcReadModelSchema,
 }).strict();
 
 export const SellpiaProductInventoryResolutionSchema = z.discriminatedUnion(

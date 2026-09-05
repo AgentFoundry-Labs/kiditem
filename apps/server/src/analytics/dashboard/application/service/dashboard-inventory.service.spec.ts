@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildDashboardContext } from '../../domain/context';
-import type { DashboardInventoryRepositoryPort } from '../port/out/repository/dashboard-inventory.repository.port';
 import { DashboardInventoryService } from './dashboard-inventory.service';
+import type { DashboardInventoryRepositoryPort } from '../port/out/repository/dashboard-inventory.repository.port';
 
 function repository(
   overrides: Partial<DashboardInventoryRepositoryPort> = {},
@@ -35,13 +35,13 @@ describe('DashboardInventoryService', () => {
         { abcGrade: 'A', count: 2 }, { abcGrade: 'B', count: 1 },
       ]),
       countActiveProductsByAbcStatus: vi.fn().mockResolvedValue([
-        { calculationStatus: 'READY', count: 3 },
-        { calculationStatus: 'INSUFFICIENT_EVIDENCE', count: 2 },
-        { calculationStatus: 'SELLPIA_SOURCE_STALE', count: 1 },
+        { displayStatus: 'READY', count: 3 },
+        { displayStatus: 'INSUFFICIENT_EVIDENCE', count: 2 },
+        { displayStatus: 'SELLPIA_SOURCE_STALE', count: 1 },
       ]),
       findActiveAbcContributions: vi.fn().mockResolvedValue([
-        { abcGrade: 'A', weightedContributionProfit: 800 },
-        { abcGrade: 'B', weightedContributionProfit: 200 },
+        { abcGrade: 'A', weightedOperatingProfit: 800 },
+        { abcGrade: 'B', weightedOperatingProfit: 200 },
       ]),
       countUnclassifiedActiveProducts: vi.fn().mockResolvedValue(5),
       getSellingChannelMappingSummary: vi.fn().mockResolvedValue({

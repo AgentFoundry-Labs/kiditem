@@ -2,10 +2,9 @@ import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { DashboardModule } from '../dashboard.module';
 import { DashboardCapabilityModule } from '../dashboard-capability.module';
+import { ProfitabilityEvidenceModule } from '../../../finance/profitability-evidence.module';
 import { PrismaModule } from '../../../prisma/prisma.module';
-
 import { DashboardController } from '../adapter/in/http/dashboard.controller';
-
 // adapter/out/repository
 import { ProfitCalculationRepositoryAdapter } from '../adapter/out/repository/profit-calculation.repository.adapter';
 import { AdAggregationRepositoryAdapter } from '../adapter/out/repository/ad-aggregation.repository.adapter';
@@ -15,7 +14,6 @@ import { DashboardAdRepositoryAdapter } from '../adapter/out/repository/dashboar
 import { DashboardTrendRepositoryAdapter } from '../adapter/out/repository/dashboard-trend.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { DashboardInventoryRepositoryAdapter } from '../adapter/out/repository/dashboard-inventory.repository.adapter';
-
 // application/service
 import { DashboardContextService } from '../application/service/dashboard-context.service';
 import { DashboardSalesService } from '../application/service/dashboard-sales.service';
@@ -24,7 +22,6 @@ import { DashboardInventoryService } from '../application/service/dashboard-inve
 import { DashboardTrendService } from '../application/service/dashboard-trend.service';
 import { AnalyticsOverviewCapabilityAdapter } from '../adapter/in/agent/analytics-overview-capability.adapter';
 import { ANALYTICS_OVERVIEW_CAPABILITY_PORT } from '../application/port/in/analytics-overview-capability.port';
-
 // application/port/out tokens
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/repository/profit-calculation.repository.port';
 import { AD_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/ad-aggregation.repository.port';
@@ -60,7 +57,7 @@ describe('DashboardModule capability wiring', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, DashboardModule) ?? [];
     expect(imports).toEqual([DashboardCapabilityModule]);
     expect(Reflect.getMetadata(IMPORTS_KEY, DashboardCapabilityModule) ?? [])
-      .toEqual([PrismaModule]);
+      .toEqual([PrismaModule, ProfitabilityEvidenceModule]);
     expect(Reflect.getMetadata(CONTROLLERS_KEY, DashboardCapabilityModule) ?? [])
       .toEqual([]);
   });

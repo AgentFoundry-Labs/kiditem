@@ -1,6 +1,12 @@
+import { PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD, PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH } from '@kiditem/shared/product-abc';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
-import type { PrismaClient } from '@prisma/client';
+import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
+import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
+import { SellpiaProfitabilitySourceService } from '../../sellpia-product-sales/sellpia-profitability-source.service';
+import { MASTER_PRODUCT_PROFITABILITY_READ_PORT } from '../../../finance/application/port/in/master-product-profitability-read.port';
+import { SourceFailureAlerts } from '../../../alerts/alerts.service';
+import { AlertsRepository } from '../../../alerts/alerts.repository';
 import { DashboardInventoryService } from '../application/service/dashboard-inventory.service';
 import { buildDashboardContext } from '../domain/context';
 import { DashboardInventoryRepositoryAdapter } from '../adapter/out/repository/dashboard-inventory.repository.adapter';
@@ -20,6 +26,7 @@ import {
   seedOrderWithLineItems,
   seedAd,
 } from '../../../test-helpers/finance-seeds';
+import type { PrismaClient } from '@prisma/client';
 
 describe('DashboardInventoryService.getSummary (PG integration)', () => {
   let prisma: PrismaClient;
@@ -28,9 +35,15 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    const alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    const evidence = new MasterProductProfitabilityReadService(
+      new SellpiaProfitabilitySourceService(prisma as never, alerts),
+      new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts), prisma as never,
+    );
     const m = await Test.createTestingModule({
       providers: [
         DashboardInventoryService,
+        { provide: MASTER_PRODUCT_PROFITABILITY_READ_PORT, useValue: evidence },
         DashboardInventoryRepositoryAdapter,
         { provide: PrismaService, useValue: prisma },
         { provide: DASHBOARD_INVENTORY_REPOSITORY_PORT, useExisting: DashboardInventoryRepositoryAdapter },
@@ -223,64 +236,6 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     expect(result.unclassifiedProductCount).toBe(1);
   });
 
-  it('reads stored automatic calculation states without turning them into C', async () => {
-    const official = await setupMaster(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ABC-OFFICIAL', name: 'Official', abcGrade: 'A',
-    });
-    const observing = await setupMaster(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ABC-OBSERVING', name: 'Observing', abcGrade: null,
-    });
-    const stale = await setupMaster(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ABC-STALE', name: 'Stale', abcGrade: 'B',
-    });
-    const failed = await setupMaster(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ABC-ERROR', name: 'Error', abcGrade: null,
-    });
-    await setupMaster(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ABC-UNPUBLISHED', name: 'Unpublished', abcGrade: null,
-    });
-    const foreign = await setupMaster(prisma, {
-      organizationId: OTHER_ORGANIZATION_ID, code: 'M-O-ABC-OBSERVING', name: 'Foreign', abcGrade: null,
-    });
-    const calculatedAt = new Date('2026-07-31T00:00:00.000Z');
-    await prisma.masterProductAbcEvaluation.createMany({
-      data: [
-        {
-          organizationId: TEST_ORGANIZATION_ID, masterProductId: official.id,
-          calculationStatus: 'READY', calculatedAt,
-        },
-        {
-          organizationId: TEST_ORGANIZATION_ID, masterProductId: observing.id,
-          calculationStatus: 'INSUFFICIENT_EVIDENCE', calculatedAt,
-        },
-        {
-          organizationId: TEST_ORGANIZATION_ID, masterProductId: stale.id,
-          calculationStatus: 'SELLPIA_SOURCE_STALE', calculatedAt,
-        },
-        {
-          organizationId: TEST_ORGANIZATION_ID, masterProductId: failed.id,
-          calculationStatus: 'CALCULATION_ERROR', calculatedAt,
-        },
-        {
-          organizationId: OTHER_ORGANIZATION_ID, masterProductId: foreign.id,
-          calculationStatus: 'INSUFFICIENT_EVIDENCE', calculatedAt,
-        },
-      ],
-    });
-
-    const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
-
-    expect(result.gradeCount).toEqual({ A: 1, B: 1, C: 0 });
-    expect(result.abcStatusCount).toMatchObject({
-      READY: 1,
-      INSUFFICIENT_EVIDENCE: 1,
-      SELLPIA_SOURCE_STALE: 1,
-      CALCULATION_ERROR: 1,
-    });
-    expect(result.unclassifiedProductCount).toBe(3);
-    expect(result.abcFormula).toBeNull();
-  });
-
   it('counts only organization-scoped automatic MasterProduct grade history', async () => {
     const ownMaster = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
@@ -304,12 +259,10 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
           organizationId: TEST_ORGANIZATION_ID,
           masterProductId: ownMaster.id,
           formulaVersionId: ownFormula.id,
+          formulaRevision: 1, publicationRevision: 1,
           oldGrade: null,
           newGrade: 'A',
-          calculationStatus: 'READY',
-          adjustedScore: 80,
-          weightedContributionProfit: 10,
-          weightedContributionMargin: 0.5,
+          economicScore: 80,
           sourceCutoffDate: new Date('2026-07-31T00:00:00.000Z'),
           reason: 'automatic_profitability_evaluation',
         },
@@ -317,12 +270,10 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
           organizationId: OTHER_ORGANIZATION_ID,
           masterProductId: foreignMaster.id,
           formulaVersionId: foreignFormula.id,
+          formulaRevision: 1, publicationRevision: 1,
           oldGrade: 'A',
           newGrade: 'C',
-          calculationStatus: 'READY',
-          adjustedScore: 20,
-          weightedContributionProfit: -1,
-          weightedContributionMargin: -0.1,
+          economicScore: 20,
           sourceCutoffDate: new Date('2026-07-31T00:00:00.000Z'),
           reason: 'automatic_profitability_evaluation',
         },
@@ -341,14 +292,10 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     return prisma.masterProductAbcFormulaVersion.create({
       data: {
         organizationId,
-        formulaKey: 'ABC_V1',
+        formulaKey: 'PRODUCT_ABC_ABSOLUTE',
         version: 1,
-        calculationCodeChecksum: 'a'.repeat(64),
-        formulaChecksum: `${organizationId.slice(0, 1)}${'b'.repeat(63)}`,
-        formulaJson: {},
-        trainingStartDate: new Date('2025-07-01T00:00:00.000Z'),
-        trainingEndDate: new Date('2026-07-31T00:00:00.000Z'),
-        calibrationMetricsJson: {},
+        formulaChecksum: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH,
+        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD)),
       },
     });
   }

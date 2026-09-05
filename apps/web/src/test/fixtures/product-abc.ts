@@ -2,6 +2,7 @@ import {
   PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
   type ProductAbcEvaluation,
   type ProductAbcFormulaPayload,
+  type ProductAbcReadModel,
 } from '@kiditem/shared/product-abc';
 
 export function productAbcFormula(
@@ -40,6 +41,32 @@ export function productAbcEvaluation(
     advertisingGeneration: '7',
     mappingGeneration: '7',
     calculatedAt: '2026-08-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function productAbcReadModel(
+  overrides: Partial<ProductAbcReadModel> = {},
+): ProductAbcReadModel {
+  const evaluation = overrides.evaluation === undefined ? productAbcEvaluation() : overrides.evaluation;
+  const source = {
+    status: 'READY' as const,
+    sourceImportRunId: '11111111-1111-4111-8111-111111111112', generation: '7',
+    coverageStartDate: '2026-06-01', coverageEndDate: '2026-07-31', actualCutoffDate: '2026-07-31',
+    capturedAt: '2026-08-01T00:00:00.000Z', latestAttemptState: 'COMPLETE' as const, errorCode: null,
+  };
+  return {
+    abcGrade: evaluation?.abcGrade ?? null,
+    evaluation,
+    displayStatus: evaluation ? 'READY' : 'INSUFFICIENT_EVIDENCE',
+    formulaRevision: 2, publicationRevision: 4,
+    officialCutoffDate: evaluation?.gradeBasisCutoffDate ?? null,
+    publishedAt: '2026-08-01T00:00:00.000Z', actualCutoffDate: '2026-07-31',
+    sources: {
+      sellpia: source,
+      advertising: { ...source, sourceImportRunId: '11111111-1111-4111-8111-111111111113' },
+      mapping: { status: 'READY', mappingGeneration: '7' },
+    },
     ...overrides,
   };
 }

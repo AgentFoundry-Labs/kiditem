@@ -8,15 +8,17 @@
 // 2-hop joins (A-grade review fetch) bind organization on both
 // MasterProduct and ChannelListing both bind organizationId.
 
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../../../../prisma/prisma.service';
-import { buildPerListingMetrics } from '../../../../../common/per-listing-profit';
-import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
-import { ProductAbcFormulaSummarySchema } from '@kiditem/shared/product-abc';
+import { Inject, Injectable } from '@nestjs/common';
+import { ProductAbcFormulaPayloadSchema } from '@kiditem/shared/product-abc';
 import {
   isChannelListingOnSale,
   resolveChannelListingSaleStatus,
 } from '@kiditem/shared/channel-listing';
+import { PrismaService } from '../../../../../prisma/prisma.service';
+import { buildPerListingMetrics } from '../../../../../common/per-listing-profit';
+import { MASTER_PRODUCT_PROFITABILITY_READ_PORT, type ProfitabilityEvidence } from '../../../../../finance/application/port/in/master-product-profitability-read.port';
+import { productAbcDisplayStatus } from '../../../../../products/domain/product-abc-display-status';
+import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
 import type {
   DashboardInventoryRepositoryPort,
   AbcContributionRow,
@@ -31,7 +33,11 @@ import type {
 export class DashboardInventoryRepositoryAdapter
   implements DashboardInventoryRepositoryPort
 {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(MASTER_PRODUCT_PROFITABILITY_READ_PORT)
+    private readonly evidence: ProfitabilityEvidence,
+  ) {}
 
   async countActiveProductsByGrade(
     organizationId: string,
@@ -54,18 +60,30 @@ export class DashboardInventoryRepositoryAdapter
   async countActiveProductsByAbcStatus(
     organizationId: string,
   ): Promise<AbcStatusCountRow[]> {
-    const rows = await this.prisma.masterProductAbcEvaluation.groupBy({
-      by: ['calculationStatus'],
-      _count: { id: true },
-      where: {
-        organizationId,
-        masterProduct: { is: { organizationId, isActive: true } },
-      },
-    });
-    return rows.map((row) => ({
-      calculationStatus: row.calculationStatus,
-      count: row._count.id,
-    } satisfies AbcStatusCountRow));
+    const kst = new Date(Date.now() + 9 * 60 * 60 * 1_000);
+    const targetCutoff = new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), 0)).toISOString().slice(0, 10);
+    const [rows, evidence, state] = await Promise.all([
+      this.prisma.masterProduct.findMany({
+        where: { organizationId, isActive: true },
+        select: { id: true, createdAt: true, abcEvaluation: { select: { id: true } } },
+      }),
+      this.evidence.load({ organizationId, targetCutoff }),
+      this.prisma.masterProductAbcFormulaState.findUnique({
+        where: { organizationId }, select: { publishedAt: true },
+      }),
+    ]);
+    const products = new Map(evidence.products.map((product) => [product.masterProductId, product]));
+    const counts = new Map<AbcStatusCountRow['displayStatus'], number>();
+    for (const row of rows) {
+      const displayStatus = productAbcDisplayStatus(
+        row.abcEvaluation !== null,
+        products.get(row.id)?.mappingValid ?? false,
+        { ...evidence.sources, formulaState: { publishedAt: state?.publishedAt ?? null } },
+        row.createdAt,
+      );
+      counts.set(displayStatus, (counts.get(displayStatus) ?? 0) + 1);
+    }
+    return [...counts].map(([displayStatus, count]) => ({ displayStatus, count }));
   }
 
   async findActiveAbcContributions(
@@ -74,13 +92,13 @@ export class DashboardInventoryRepositoryAdapter
     const rows = await this.prisma.masterProductAbcEvaluation.findMany({
       where: { organizationId, masterProduct: { is: { organizationId, isActive: true } } },
       select: {
-        weightedContributionProfit: true,
+        weightedOperatingProfit: true,
         masterProduct: { select: { abcGrade: true } },
       },
     });
     return rows.map((row) => ({
       abcGrade: row.masterProduct.abcGrade,
-      weightedContributionProfit: row.weightedContributionProfit?.toNumber() ?? null,
+      weightedOperatingProfit: row.weightedOperatingProfit.toNumber(),
     } satisfies AbcContributionRow));
   }
 
@@ -102,7 +120,7 @@ export class DashboardInventoryRepositoryAdapter
       include: { activeFormulaVersion: { select: { formulaJson: true } }, },
     });
     const formula = state?.activeFormulaVersion
-      ? ProductAbcFormulaSummarySchema.safeParse(state.activeFormulaVersion.formulaJson)
+      ? ProductAbcFormulaPayloadSchema.safeParse(state.activeFormulaVersion.formulaJson)
       : null;
     return formula?.success ? formula.data : null;
   }

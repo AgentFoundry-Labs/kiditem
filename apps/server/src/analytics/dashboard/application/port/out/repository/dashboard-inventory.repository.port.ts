@@ -1,5 +1,5 @@
 import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
-import type { ProductAbcFormulaSummary } from '@kiditem/shared/product-abc';
+import type { ProductAbcDisplayStatus, ProductAbcFormulaPayload } from '@kiditem/shared/product-abc';
 
 export const DASHBOARD_INVENTORY_REPOSITORY_PORT = Symbol(
   'DashboardInventoryRepositoryPort',
@@ -11,13 +11,13 @@ export interface GradeCountRow {
 }
 
 export interface AbcStatusCountRow {
-  calculationStatus: string;
+  displayStatus: ProductAbcDisplayStatus;
   count: number;
 }
 
 export interface AbcContributionRow {
   abcGrade: string | null;
-  weightedContributionProfit: number | null;
+  weightedOperatingProfit: number | null;
 }
 
 export interface GradeChangeRow {
@@ -46,7 +46,7 @@ export interface DashboardInventoryRepositoryPort {
   countActiveProductsByAbcStatus(organizationId: string): Promise<AbcStatusCountRow[]>;
   findActiveAbcContributions(organizationId: string): Promise<AbcContributionRow[]>;
   countUnclassifiedActiveProducts(organizationId: string): Promise<number>;
-  findAbcFormula(organizationId: string): Promise<ProductAbcFormulaSummary | null>;
+  findAbcFormula(organizationId: string): Promise<ProductAbcFormulaPayload | null>;
   findUnreadAlerts(organizationId: string, limit: number): Promise<DashboardAlertItem[]>;
   countActiveProducts(organizationId: string): Promise<number>;
   fetchPerListingMetrics(

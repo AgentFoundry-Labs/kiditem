@@ -4,6 +4,11 @@ import {
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
+import {
+  DASHBOARD_INVENTORY_REPOSITORY_PORT,
+  type DashboardInventoryRepositoryPort,
+  type GradeChangeRow,
+} from '../port/out/repository/dashboard-inventory.repository.port';
 import type {
   DashboardInventorySummary,
   Warnings,
@@ -11,11 +16,6 @@ import type {
   DataFreshness,
 } from '@kiditem/shared/dashboard';
 import type { DashboardContext } from '../../domain/context';
-import {
-  DASHBOARD_INVENTORY_REPOSITORY_PORT,
-  type DashboardInventoryRepositoryPort,
-  type GradeChangeRow,
-} from '../port/out/repository/dashboard-inventory.repository.port';
 
 @Injectable()
 export class DashboardInventoryService {
@@ -84,17 +84,13 @@ export class DashboardInventoryService {
         READY: 0,
         INSUFFICIENT_EVIDENCE: 0,
         SOURCE_UNMAPPED: 0,
-        CALIBRATION_PENDING: 0,
-        RECALCULATING: 0,
         SELLPIA_SOURCE_STALE: 0,
         AD_SOURCE_STALE: 0,
-        ORDERS_SOURCE_STALE: 0,
-        CALCULATION_ERROR: 0,
       };
       for (const row of abcStatusRows) {
-        const calculationStatus = row.calculationStatus === 'CALIBRATION_PENDING'
+        const calculationStatus = row.displayStatus === 'NEW'
           ? 'INSUFFICIENT_EVIDENCE'
-          : row.calculationStatus;
+          : row.displayStatus;
         if (calculationStatus in abcStatusCount) {
           abcStatusCount[calculationStatus as keyof typeof abcStatusCount] += row.count;
         }
@@ -102,8 +98,8 @@ export class DashboardInventoryService {
       const abcContributionProfit = { amountByGrade: { A: 0, B: 0, C: 0 }, shareByGrade: { A: 0, B: 0, C: 0 } };
       for (const row of abcContributionRows) {
         if ((row.abcGrade === 'A' || row.abcGrade === 'B' || row.abcGrade === 'C')
-          && row.weightedContributionProfit !== null) {
-          abcContributionProfit.amountByGrade[row.abcGrade] += Math.round(row.weightedContributionProfit);
+          && row.weightedOperatingProfit !== null) {
+          abcContributionProfit.amountByGrade[row.abcGrade] += Math.round(row.weightedOperatingProfit);
         }
       }
       const contributionTotal = Object.values(abcContributionProfit.amountByGrade)

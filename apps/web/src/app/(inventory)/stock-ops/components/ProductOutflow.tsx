@@ -3,17 +3,17 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowDown, ArrowDownRight, ArrowUpRight, Loader2, Minus, Search } from 'lucide-react';
+import { queryKeys } from '@/lib/query-keys';
+import { cn, formatNumber, formatDateTime } from '@/lib/utils';
+import { fetchSellpiaProductSales } from '@/lib/sellpia-product-sales-api';
+import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
+import { SellpiaSyncAction } from '../../_shared/SellpiaSyncAction';
+import { ProductOutflowDestinations, abcReadTitle } from './ProductOutflowDestinations';
 import type {
   SellpiaProductSalesRow,
   SellpiaProductSalesSummary,
   SellpiaProductTrend,
 } from '@kiditem/shared/dashboard';
-import { queryKeys } from '@/lib/query-keys';
-import { cn, formatNumber, formatDateTime } from '@/lib/utils';
-import { fetchSellpiaProductSales } from '@/lib/sellpia-product-sales-api';
-import { SellpiaSyncAction } from '../../_shared/SellpiaSyncAction';
-import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
-import { ProductOutflowDestinations } from './ProductOutflowDestinations';
 
 const MONTHS_WINDOW = 13; // 1년(완결 12개월 + 진행 월)
 
@@ -165,10 +165,10 @@ function ProductOutflowTable({
     else if (filter === 'anomaly') list = list.filter((p) => p.anomaly);
     else if (filter === 'A' || filter === 'B' || filter === 'C') {
       list = list.filter((p) => p.inventoryResolution.status === 'matched'
-        && p.inventoryResolution.inventoryProduct?.abcGrade === filter);
+        && p.inventoryResolution.inventoryProduct?.abc.abcGrade === filter);
     } else if (filter === 'unclassified') {
       list = list.filter((p) => p.inventoryResolution.status === 'matched'
-        && p.inventoryResolution.inventoryProduct?.abcGrade === null);
+        && p.inventoryResolution.inventoryProduct?.abc.abcGrade === null);
     }
 
     const vms: RowVM[] = list.map((row) => {
@@ -302,16 +302,21 @@ function TrendIcon({ trend }: { trend: SellpiaProductTrend }) {
 function ProductRow({ vm, monthsDesc, hasStock, sortKey }: { vm: RowVM; monthsDesc: string[]; hasStock: boolean; sortKey: SortKey }) {
   const { row: p, monthMap, anomalySet, peakYm } = vm;
   const resolution = p.inventoryResolution;
+  const abc = resolution.status === 'matched' ? resolution.inventoryProduct?.abc : null;
   const rowBg = p.deadStock ? 'bg-rose-50/40' : 'bg-white';
   return (
     <tr className={cn('border-t border-slate-50 group', rowBg)}>
       <td className={cn('sticky left-0 z-20 w-14 min-w-14 px-1 py-2 text-center border-b border-slate-50', rowBg, 'group-hover:bg-slate-50')}>
         {resolution.status === 'matched'
-          ? <ProductAbcBadge
-              grade={resolution.inventoryProduct?.abcGrade ?? null}
-              evaluation={resolution.inventoryProduct?.abcEvaluation ?? null}
-              compact
-            />
+          ? <>
+              <ProductAbcBadge grade={abc?.abcGrade ?? null} evaluation={abc?.evaluation ?? null} compact />
+              {abc && abc.displayStatus !== 'READY' ? (
+                <span className="block text-[10px] text-amber-700" title={abcReadTitle(abc)}>
+                  {abc.displayStatus === 'NEW' || abc.displayStatus === 'INSUFFICIENT_EVIDENCE'
+                    ? '관찰 중' : abc.displayStatus === 'SOURCE_UNMAPPED' ? '매핑 필요' : '원천 확인'}
+                </span>
+              ) : null}
+            </>
           : <span className="text-xs text-slate-300">—</span>}
       </td>
       <td className={cn('sticky left-14 z-10 px-3 py-2 border-b border-slate-50 max-w-[300px]', rowBg, 'group-hover:bg-slate-50')}>

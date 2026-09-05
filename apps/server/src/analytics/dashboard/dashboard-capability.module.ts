@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { ProfitabilityEvidenceModule } from '../../finance/profitability-evidence.module';
 import { AnalyticsOverviewCapabilityAdapter } from './adapter/in/agent/analytics-overview-capability.adapter';
 import { ProfitCalculationRepositoryAdapter } from './adapter/out/repository/profit-calculation.repository.adapter';
 import { AdAggregationRepositoryAdapter } from './adapter/out/repository/ad-aggregation.repository.adapter';
@@ -55,7 +56,7 @@ const dashboardServices = [
 ];
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, ProfitabilityEvidenceModule],
   providers: [
     ...repositoryAdapters,
     ...dashboardServices,
