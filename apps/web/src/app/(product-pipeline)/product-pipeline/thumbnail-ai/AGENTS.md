@@ -29,8 +29,8 @@ React Query hooks
   -> optimistic candidate mutation with rollback
 ```
 
-Batch progress uses `AbortController` refs plus server cancel and immediate UI
-state updates.
+Batch progress is local UI state. Cancellation aborts the active request and
+stops remaining chunks; report server job cancellation only with an owner receipt.
 
 Thumbnail results and generations join on `contentWorkspaceId`. Tracking rows
 use `channelListingId`; collected-product entry keeps `sourceCandidateId` as

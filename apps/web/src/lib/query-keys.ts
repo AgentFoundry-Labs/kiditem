@@ -36,28 +36,10 @@ export const queryKeys = {
     tasksList: (params: Record<string, string | number | undefined>) =>
       [...queryKeys.agents.all, 'tasksList', params] as const,
   },
-  workflows: {
-    all: ['workflows'] as const,
-    list: () => [...queryKeys.workflows.all, 'list'] as const,
-    detail: (id: string) => [...queryKeys.workflows.all, 'detail', id] as const,
-    runs: (id: string) => [...queryKeys.workflows.all, 'runs', id] as const,
-    runDetail: (runId: string) => [...queryKeys.workflows.all, 'runDetail', runId] as const,
-  },
   operations: {
     all: ['operations'] as const,
-    catalog: () => [...queryKeys.operations.all, 'catalog'] as const,
     runs: () => [...queryKeys.operations.all, 'runs'] as const,
     run: (runId: string) => [...queryKeys.operations.runs(), runId] as const,
-    reconnect: (operationKey: string, input?: Record<string, unknown>) =>
-      [...queryKeys.operations.all, 'reconnect', operationKey, input] as const,
-    schedules: () => [...queryKeys.operations.all, 'schedules'] as const,
-  },
-  marketplace: {
-    all: ['marketplace'] as const,
-    workflows: (query?: { module?: string; category?: string }) =>
-      [...queryKeys.marketplace.all, 'workflows', query] as const,
-    agents: (query?: { role?: string; category?: string }) =>
-      [...queryKeys.marketplace.all, 'agents', query] as const,
   },
   products: {
     all: ['products'] as const,
@@ -448,10 +430,6 @@ export const queryKeys = {
   returnTransfers: {
     all: ['returnTransfers'] as const,
     list: (params?: Record<string, string>) => [...queryKeys.returnTransfers.all, 'list', params] as const,
-  },
-  actionTasks: {
-    all: ['actionTasks'] as const,
-    list: (scope?: string) => [...queryKeys.actionTasks.all, 'list', scope ?? 'all'] as const,
   },
   syncInfo: () => ['syncInfo'] as const,
   salesPlans: {

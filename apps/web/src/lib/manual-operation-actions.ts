@@ -18,14 +18,3 @@ export function startSellpiaInventoryRefreshAction({
     input: { reason, scope },
   });
 }
-
-export function startProductProfitabilityRefreshAction({
-  sourceSurface,
-}: {
-  sourceSurface: ManualOperationSourceSurface;
-}): Promise<OperationRun> {
-  return operationsApi.start('products.refresh_profitability_evidence', {
-    sourceSurface,
-    input: {},
-  });
-}

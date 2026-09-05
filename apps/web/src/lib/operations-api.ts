@@ -1,13 +1,7 @@
 import {
-  OperationCatalogResponseSchema,
-  OperationRunListResponseSchema,
-  OperationRunReconnectResponseSchema,
   OperationRunSchema,
-  OperationScheduleListResponseSchema,
-  OperationScheduleSchema,
   type CreateOperationRunRequest,
   type OperationRun,
-  type UpsertOperationScheduleRequest,
 } from '@kiditem/shared/operations';
 import { apiClient } from './api-client';
 
@@ -16,28 +10,8 @@ export type StartOperationInput = CreateOperationRunRequest & {
 };
 
 export const operationsApi = {
-  listCatalog: () =>
-    apiClient.getParsed('/api/operations', OperationCatalogResponseSchema),
-
-  listRuns: () =>
-    apiClient.getParsed('/api/operations/runs', OperationRunListResponseSchema),
-
   getRun: (runId: string) =>
     apiClient.getParsed(`/api/operations/runs/${runId}`, OperationRunSchema),
-
-  async findReconnectable(
-    operationKey: string,
-    input?: Record<string, unknown>,
-  ): Promise<OperationRun | null> {
-    const suffix = input === undefined
-      ? ''
-      : `?input=${encodeURIComponent(JSON.stringify(input))}`;
-    const response = await apiClient.getParsed(
-      `/api/operations/${encodeURIComponent(operationKey)}/runs/reconnect${suffix}`,
-      OperationRunReconnectResponseSchema,
-    );
-    return response.run;
-  },
 
   async start(operationKey: string, input: StartOperationInput): Promise<OperationRun> {
     const raw = await apiClient.post<unknown>(
@@ -51,38 +25,5 @@ export const operationsApi = {
       },
     );
     return OperationRunSchema.parse(raw);
-  },
-
-  async cancel(runId: string): Promise<OperationRun> {
-    const raw = await apiClient.post<unknown>(`/api/operations/runs/${runId}/cancel`);
-    return OperationRunSchema.parse(raw);
-  },
-
-  async retryBrowserRun(runId: string): Promise<OperationRun> {
-    const raw = await apiClient.post<unknown>(
-      `/api/operation-runtime/browser/runs/${runId}/retry`,
-    );
-    return OperationRunSchema.parse(raw);
-  },
-
-  listSchedules: () =>
-    apiClient.getParsed('/api/operation-schedules', OperationScheduleListResponseSchema),
-
-  async upsertSchedule(
-    operationKey: string,
-    request: UpsertOperationScheduleRequest,
-  ) {
-    const raw = await apiClient.put<unknown>(
-      `/api/operation-schedules/${encodeURIComponent(operationKey)}`,
-      request,
-    );
-    return OperationScheduleSchema.parse(raw);
-  },
-
-  async disableSchedule(operationKey: string) {
-    const raw = await apiClient.delete<unknown>(
-      `/api/operation-schedules/${encodeURIComponent(operationKey)}`,
-    );
-    return OperationScheduleSchema.parse(raw);
   },
 };
