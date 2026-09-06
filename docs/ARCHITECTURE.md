@@ -144,19 +144,21 @@ foreground polling, focus refetch, and dismissal invalidation. It does not
 merge run progress or replay an SSE stream. Source screens own their progress
 and current-source reads; shipment-summary failures use Inventory's source Alert.
 
-Sourcing has one exact ownership flow:
+Sourcing collection uses its source owners directly:
 
 ```text
-sourcing screen -> Operations start/read -> owner operation handler
-browser handler -> KidItem OS claim -> fenced owner ingest
-owner snapshot -> sourcing screen
-Operations never owns sourcing or Ads canonical rows
+screen / Agent -> Sourcing owner attempt + frozen plan
+browser source -> KidItem OS collector -> fenced owner terminal + Alert
+server source -> provider -> owner terminal + Alert
+COMPLETE observations + latest attempt status -> source screen / Agent
 ```
 
-Operations provides the run envelope, resource-class dispatch, lifecycle gate,
-and browser lease only. The Sourcing or Advertising owner handler writes its
-own canonical observations and exposes its own read model; no raw
-`OperationRun.result` becomes a canonical row.
+Shadow uses this same Sourcing attempt ledger for paired Google/optional LinkFox
+collection. It admits once per organization/KST day, including failure/expiry;
+the original request key replays without provider IO. Successful full evaluation
+payloads are immutable observations. Failure retains the previous COMPLETE
+snapshot with stale status and actual cutoff. It has no Operation Worker or
+mutable WorkspaceSnapshot claim. This does not change provider/evaluation rules.
 
 The hard-cutover boundary has an executable guard at
 `scripts/check-operation-automation-cutover.mjs`. It reads the checked-in

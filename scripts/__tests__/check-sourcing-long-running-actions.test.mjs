@@ -229,7 +229,7 @@ test('rejects legacy direct collection POST endpoints while allowing typed snaps
   );
 });
 
-test('rejects a direct shadow provider-and-snapshot collection facade outside its exact operation handler', () => {
+test('allows Shadow entrypoints to invoke the source owner directly', () => {
   const result = analyzeSourcingLongRunningActions({
     webSources: [],
     sourcingServerSources: [{
@@ -240,8 +240,21 @@ test('rejects a direct shadow provider-and-snapshot collection facade outside it
 
   assert.deepEqual(
     result.findings.map((finding) => finding.rule),
-    ['direct_shadow_signal_collection_from_entrypoint'],
+    [],
   );
+});
+
+test('rejects retired Shadow Operation admission from HTTP and Agent entrypoints', () => {
+  for (const entry of ['http/shadow.controller.ts', 'agent/shadow.adapter.ts']) {
+    const result = analyzeSourcingLongRunningActions({
+      webSources: [],
+      sourcingServerSources: [{
+        path: `apps/server/src/sourcing/adapter/in/${entry}`,
+        source: 'return this.operations.startShadowCollection(input);',
+      }],
+    });
+    assert.deepEqual(result.findings.map((finding) => finding.rule), ['retired_shadow_operation_entrypoint']);
+  }
 });
 
 test('rejects an approved-origin Coupang external source-collection bridge', () => {

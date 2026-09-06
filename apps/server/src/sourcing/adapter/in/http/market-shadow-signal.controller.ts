@@ -1,41 +1,63 @@
 import {
+  BadRequestException,
+  Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
-  Inject,
+  Param,
+  ParseUUIDPipe,
   Post,
   Query,
 } from '@nestjs/common';
+import { z } from 'zod';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
-import type { AuthUser } from '../../../../auth/auth.types';
 import { SourcingShadowSignalService } from '../../../application/service/sourcing-shadow-signal.service';
-import {
-  MARKET_SHADOW_OPERATION_PORT,
-  type MarketShadowOperationPort,
-} from '../../../application/port/out/cross-domain/market-shadow-operation.port';
 import { TrendHistoryQueryDto } from './dto';
+import type { AuthUser } from '../../../../auth/auth.types';
+
+const IdempotencyKeySchema = z.string().uuid();
+const CollectRequestSchema = z.object({}).strict();
 
 @Controller('sourcing/trend/shadow')
 export class MarketShadowSignalController {
   constructor(
-    @Inject(MARKET_SHADOW_OPERATION_PORT)
-    private readonly operations: MarketShadowOperationPort,
     private readonly shadowSignals: SourcingShadowSignalService,
   ) {}
 
   @Post('collect')
-  @HttpCode(HttpStatus.ACCEPTED)
+  @HttpCode(HttpStatus.OK)
   collect(
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
+    @Headers('idempotency-key') idempotencyKey?: string,
+    @Body() body?: unknown,
   ) {
-    return this.operations.startShadowCollection({
+    const key = IdempotencyKeySchema.safeParse(idempotencyKey);
+    if (!key.success) throw new BadRequestException('INVALID_IDEMPOTENCY_KEY');
+    if (!CollectRequestSchema.safeParse(body ?? {}).success) {
+      throw new BadRequestException('INVALID_SHADOW_REQUEST');
+    }
+    return this.shadowSignals.collect({
       organizationId,
       requestedByUserId: user.id,
-      triggerSource: 'domain_screen',
+      idempotencyKey: key.data,
     });
+  }
+
+  @Get('status')
+  status(@CurrentOrganization() organizationId: string) {
+    return this.shadowSignals.getStatus(organizationId);
+  }
+
+  @Get('attempts/:attemptId')
+  readAttempt(
+    @CurrentOrganization() organizationId: string,
+    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
+  ) {
+    return this.shadowSignals.readAttempt(organizationId, attemptId);
   }
 
   @Get()

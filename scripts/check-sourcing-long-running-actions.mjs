@@ -290,11 +290,6 @@ function hasLegacyDirectCollectionPost(source) {
   );
 }
 
-function hasDirectShadowSignalCollection(source) {
-  return /\bSourcingShadowSignalService\b/.test(source)
-    && /\bthis\.[A-Za-z_$][\w$]*\.collect\s*\(/.test(source);
-}
-
 function hasMountedNaverProviderCollection(file) {
   return file.path.includes('/market/')
     && /\bapiClient\.post\s*(?:<[^>]*>)?\s*\(\s*['"]\/api\/sourcing\/keyword-research\/naver\/(?:related-keywords|datalab\/search-trends)['"]/.test(file.source);
@@ -430,12 +425,12 @@ export function analyzeSourcingLongRunningActions({
     }
     if (
       (file.path.includes('/adapter/in/http/') || file.path.includes('/adapter/in/agent/'))
-      && hasDirectShadowSignalCollection(file.source)
+      && /\b(?:MARKET_SHADOW_OPERATION_PORT|startShadowCollection)\b|sourcing\.collect_shadow_signals/.test(file.source)
     ) {
       findings.push(finding(
-        'direct_shadow_signal_collection_from_entrypoint',
+        'retired_shadow_operation_entrypoint',
         file.path,
-        'Shadow provider collection and canonical snapshot writes belong only to the exact Operation handler.',
+        'Shadow entrypoints call the Sourcing source owner directly; Operation admission is retired.',
       ));
     }
     if (file.path.includes('/adapter/in/http/') && hasDirectRecommendationRefresh(file.source)) {

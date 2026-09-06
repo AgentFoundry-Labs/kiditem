@@ -4,6 +4,10 @@ import {
   SourcingShadowSignalService,
 } from '../sourcing-shadow-signal.service';
 import type {
+  SourcingBrowserSourceAttemptRepositoryPort,
+  SourcingBrowserSourceAttempt,
+} from '../../port/out/repository/sourcing-browser-source-attempt.repository.port';
+import type {
   LinkfoxEchotikShadowPort,
   MarketShadowSignalPort,
 } from '../../port/out/provider/market-shadow-signal.port';
@@ -22,6 +26,8 @@ describe('SourcingShadowSignalService', () => {
   let snapshots: MarketShadowSnapshotRepositoryPort;
   let trends: TrendCollectionRepositoryPort;
   let linkfox: LinkfoxEchotikShadowPort;
+  let attempts: SourcingBrowserSourceAttemptRepositoryPort;
+  const input = { organizationId: ORGANIZATION_ID, idempotencyKey: 'shadow-key' };
   let service: SourcingShadowSignalService;
 
   beforeEach(() => {
@@ -29,95 +35,113 @@ describe('SourcingShadowSignalService', () => {
       fetchTrending: vi.fn(async () => ({
         source: 'google-trends-rss',
         generatedAt: NOW.toISOString(),
-        items: [{
-          externalId: 'gtr_1',
-          source: 'google-trends-rss',
-          title: '새 학기 필통 인기',
-          rawTitle: '새 학기 필통 인기',
-          approximateTraffic: 10_000,
-          approximateTrafficLabel: '10K+',
-          publishedAt: NOW.toISOString(),
-          sourceUrl: 'https://news.example/trend/1',
-          newsItems: [],
-          relevanceLabel: '필기구·학용품',
-          raw: {},
-        }],
+        items: [
+          {
+            externalId: 'gtr_1',
+            source: 'google-trends-rss',
+            title: '새 학기 필통 인기',
+            rawTitle: '새 학기 필통 인기',
+            approximateTraffic: 10_000,
+            approximateTrafficLabel: '10K+',
+            publishedAt: NOW.toISOString(),
+            sourceUrl: 'https://news.example/trend/1',
+            newsItems: [],
+            relevanceLabel: '필기구·학용품',
+            raw: {},
+          },
+        ],
       })),
     };
-    snapshots = snapshotRepository();
+    vi.stubEnv('SOURCING_LINKFOX_SHADOW_ENABLED', '0');
+    let snapshot: MarketShadowSnapshotRow | null = null;
+    let attempt: SourcingBrowserSourceAttempt;
+    snapshots = {
+      findAttemptIdByKey: vi.fn(async () => null),
+      findByAttempt: vi.fn(async () => snapshot),
+      readLatest: vi.fn(async () => ({
+        latestAttempt: null,
+        latestComplete: null,
+        actualCutoffAt: null,
+      })),
+      listRecent: vi.fn(async () => []),
+    };
+    attempts = {
+      beginAttempt: vi.fn(
+        async (
+          admission: Parameters<SourcingBrowserSourceAttemptRepositoryPort['beginAttempt']>[0],
+        ) => {
+          attempt = {
+            ...admission,
+            attemptId: 'attempt-1',
+            attemptToken: 'secret',
+            state: 'RUNNING',
+            expiresAt: new Date(NOW.getTime() + 900_000),
+            errorCode: null,
+            errorMessage: null,
+          } as SourcingBrowserSourceAttempt;
+          return { created: true, attempt };
+        },
+      ),
+      readAttempt: vi.fn(async () => attempt),
+      completeAttempt: vi.fn(
+        async (
+          terminal: Parameters<SourcingBrowserSourceAttemptRepositoryPort['completeAttempt']>[0],
+        ) => {
+          snapshot = row(terminal.output.observations[0].rawPayload);
+          attempt = { ...attempt, state: 'COMPLETE' };
+          return attempt;
+        },
+      ),
+      failAttempt: vi.fn(
+        async (
+          terminal: Parameters<SourcingBrowserSourceAttemptRepositoryPort['failAttempt']>[0],
+        ) => {
+          attempt = {
+            ...attempt,
+            state: 'FAILED',
+            errorCode: terminal.code,
+            errorMessage: terminal.message,
+          };
+          return attempt;
+        },
+      ),
+    } as unknown as SourcingBrowserSourceAttemptRepositoryPort;
     trends = trendRepository();
     linkfox = linkfoxProvider();
-    service = new SourcingShadowSignalService(
-      provider,
-      snapshots,
-      trends,
-      linkfox,
-    );
+    service = new SourcingShadowSignalService(provider, snapshots, trends, attempts, linkfox);
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  it('claims the KST business date before external IO and stores disabled shadow evaluation', async () => {
-    const order: string[] = [];
-    vi.mocked(snapshots.claimDaily).mockImplementation(async (input) => {
-      order.push('claim');
-      return { claimed: true, row: row(input.payload) };
-    });
-    vi.mocked(provider.fetchTrending).mockImplementation(async () => {
-      order.push('external');
-      return {
-        source: 'google-trends-rss',
-        generatedAt: NOW.toISOString(),
-        items: [{
-          externalId: 'gtr_1',
-          source: 'google-trends-rss',
-          title: '새 학기 필통 인기',
-          rawTitle: '새 학기 필통 인기',
-          approximateTraffic: 10_000,
-          approximateTrafficLabel: '10K+',
-          publishedAt: NOW.toISOString(),
-          sourceUrl: 'https://news.example/trend/1',
-          newsItems: [],
-          relevanceLabel: '필기구·학용품',
-          raw: {},
-        }],
-      };
-    });
-
-    const result = await service.collect(ORGANIZATION_ID, NOW);
-
-    expect(order).toEqual(['claim', 'external']);
-    expect(snapshots.claimDaily).toHaveBeenCalledWith(expect.objectContaining({
-      organizationId: ORGANIZATION_ID,
-      businessDate: BUSINESS_DATE,
-      payload: expect.objectContaining({
-        version: 1,
-        input: expect.objectContaining({
-          experiment: 'paired-shadow-v1',
-          sources: ['google-trends-rss'],
-          windowDays: 30,
-        }),
-        result: expect.objectContaining({
-          status: 'collecting',
-          decisionImpact: 'disabled',
-        }),
+  it('admits the KST day before provider IO and retains disabled Google/baseline evaluation', async () => {
+    const result = await service.collect(input, NOW);
+    expect(attempts.beginAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceKey: 'market_shadow_signals',
+        scopeKey: 'day',
+        targetKey: '2026-07-16',
+        expiresInMs: 900_000,
+        plan: expect.objectContaining({ experiment: 'paired-shadow-v1', windowDays: 30 }),
       }),
-    }));
-    expect(provider.fetchTrending).toHaveBeenCalledWith(expect.objectContaining({
-      seedKeywords: expect.arrayContaining(['필통', '儿童笔袋', '산리오']),
-      limit: 100,
-    }));
-    const finalPayload = vi.mocked(snapshots.finalizeDaily).mock.calls[0][0]
-      .payload as MarketShadowSnapshotPayload;
-    expect(finalPayload.result).toMatchObject({
+    );
+    expect(vi.mocked(attempts.beginAttempt).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(provider.fetchTrending).mock.invocationCallOrder[0],
+    );
+    expect(provider.fetchTrending).toHaveBeenCalledWith(
+      expect.objectContaining({
+        seedKeywords: expect.arrayContaining(['필통', '儿童笔袋', '산리오']),
+        limit: 100,
+      }),
+    );
+    const payload = result.snapshot!.payload as MarketShadowSnapshotPayload;
+    expect(payload.input.sources).toEqual(['google-trends-rss']);
+    expect(payload.result).toMatchObject({
       status: 'complete',
       decisionImpact: 'disabled',
       evaluation: {
-        baseline: {
-          evidenceGroupCount: 4,
-        },
+        baseline: { evidenceGroupCount: 4 },
         googleTrends: {
           signalCount: 1,
           relevantSignalCount: 1,
@@ -125,186 +149,67 @@ describe('SourcingShadowSignalService', () => {
           overlapLabels: ['필기구·학용품'],
           novelLabels: [],
         },
-        promotionGate: {
-          minimumObservationDays: 30,
-          observedDays: 1,
-          eligible: false,
-        },
+        promotionGate: { minimumObservationDays: 30, observedDays: 1, eligible: false },
       },
     });
-    expect(result.claimed).toBe(true);
+    expect(payload.meta).toMatchObject({
+      generatedAt: NOW.toISOString(),
+      generationSource: 'scheduled',
+    });
     expect(linkfox.fetchNewProductRank).not.toHaveBeenCalled();
   });
 
-  it('returns an existing daily snapshot without any provider or baseline calls', async () => {
-    const existing = row({
-      version: 1,
-      input: {},
-      result: { status: 'failed', decisionImpact: 'disabled' },
-      meta: {},
-    });
-    vi.mocked(snapshots.claimDaily).mockResolvedValue({
-      claimed: false,
-      row: existing,
-    });
-
-    const result = await service.collect(ORGANIZATION_ID, NOW);
-
-    expect(result).toEqual({ claimed: false, snapshot: existing });
+  it('replays the exact receipt before seeds, configuration and external IO on another day', async () => {
+    const first = await service.collect(input, NOW);
+    vi.mocked(snapshots.findAttemptIdByKey).mockResolvedValue(first.attemptId);
+    vi.mocked(trends.listSeeds).mockClear();
+    vi.mocked(provider.fetchTrending).mockClear();
+    vi.mocked(trends.findNaverKeywordHistory).mockClear();
+    vi.stubEnv('SOURCING_LINKFOX_SHADOW_ENABLED', '1');
+    expect(await service.collect(input, new Date('2026-08-20T00:00:00Z'))).toEqual(first);
+    expect(trends.listSeeds).not.toHaveBeenCalled();
     expect(provider.fetchTrending).not.toHaveBeenCalled();
     expect(trends.findNaverKeywordHistory).not.toHaveBeenCalled();
-    expect(snapshots.finalizeDaily).not.toHaveBeenCalled();
+    expect(attempts.beginAttempt).toHaveBeenCalledOnce();
   });
 
-  it('does not claim a canonical snapshot when cancellation arrives while loading server-owned seeds', async () => {
+  it('does not admit when cancelled during seed loading', async () => {
     const controller = new AbortController();
     vi.mocked(trends.listSeeds).mockImplementation(async () => {
-      controller.abort(new Error('operation_cancelled'));
+      controller.abort(new Error('cancelled'));
       return [];
     });
-
-    await expect(service.collect(ORGANIZATION_ID, NOW, {
-      signal: controller.signal,
-      checkpoint: vi.fn(async () => undefined),
-      withinActiveOperationAttemptFence: vi.fn(async (commit) => commit({})),
-    })).rejects.toThrow('operation_cancelled');
-
-    expect(snapshots.claimDailyInAttempt).not.toHaveBeenCalled();
-    expect(snapshots.claimDaily).not.toHaveBeenCalled();
+    await expect(service.collect(input, NOW, { signal: controller.signal })).rejects.toThrow(
+      'cancelled',
+    );
+    expect(attempts.beginAttempt).not.toHaveBeenCalled();
     expect(provider.fetchTrending).not.toHaveBeenCalled();
   });
 
-  it('does not finalize a canonical snapshot when cancellation occurs after the provider resolves', async () => {
+  it('records cancellation after provider completion without publishing a snapshot', async () => {
     const controller = new AbortController();
-    const abandonDailyClaim = vi.mocked(snapshots.abandonDailyClaim);
-    abandonDailyClaim.mockResolvedValue(1);
     vi.mocked(provider.fetchTrending).mockImplementation(async () => {
-      controller.abort(new Error('operation_cancelled'));
-      return {
-        source: 'google-trends-rss',
-        generatedAt: NOW.toISOString(),
-        items: [],
-      };
+      controller.abort(new Error('cancelled'));
+      return { source: 'google-trends-rss', generatedAt: NOW.toISOString(), items: [] };
     });
-
-    await expect((service.collect as (...args: unknown[]) => Promise<unknown>)(
-      ORGANIZATION_ID,
-      NOW,
-      {
-        signal: controller.signal,
-        checkpoint: vi.fn(async () => undefined),
-        withinActiveOperationAttemptFence: vi.fn(async (commit) => commit({})),
-      },
-    )).rejects.toThrow('operation_cancelled');
-
-    expect(snapshots.finalizeDailyInAttempt).not.toHaveBeenCalled();
-    expect(snapshots.finalizeDaily).not.toHaveBeenCalled();
-    expect(abandonDailyClaim).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      businessDate: BUSINESS_DATE,
-      snapshotId: 'snapshot-1',
+    expect(await service.collect(input, NOW, { signal: controller.signal })).toMatchObject({
+      state: 'FAILED',
+      errorCode: 'SHADOW_COLLECTION_CANCELLED',
+      snapshot: null,
     });
+    expect(attempts.completeAttempt).not.toHaveBeenCalled();
   });
 
-  it('abandons only the claimed collecting marker when the final active fence is lost, so a later explicit operation can claim', async () => {
-    let marker: MarketShadowSnapshotRow | null = null;
-    let nextMarkerId = 1;
-    type StagedAttemptTransaction = {
-      stagedFinalPayload?: Record<string, unknown>;
-    };
-    const publishedSnapshots: Record<string, unknown>[] = [];
-    const abandonDailyClaim = vi.mocked(snapshots.abandonDailyClaim);
-    abandonDailyClaim.mockImplementation(async (input: {
-      organizationId: string;
-      businessDate: Date;
-      snapshotId: string;
-    }) => {
-      const isExactCollectingMarker = marker
-        && marker.id === input.snapshotId
-        && marker.organizationId === input.organizationId
-        && marker.businessDate.getTime() === input.businessDate.getTime()
-        && (marker.payload.result as { status?: string } | undefined)?.status
-          === 'collecting';
-      if (!isExactCollectingMarker) return 0 as const;
-      marker = null;
-      return 1 as const;
-    });
-    vi.mocked(snapshots.claimDailyInAttempt).mockImplementation(async (_transaction, input) => {
-      if (marker) return { claimed: false, row: marker };
-      marker = {
-        ...row(input.payload),
-        id: `marker-${nextMarkerId++}`,
-      };
-      return { claimed: true, row: marker };
-    });
-    vi.mocked(snapshots.finalizeDailyInAttempt).mockImplementation(
-      async (transaction, input) => {
-        (transaction as StagedAttemptTransaction).stagedFinalPayload = input.payload;
-        return row(input.payload);
-      },
-    );
-
-    let fenceCalls = 0;
-    const losingFence = vi.fn(async (
-      commit: (transaction: StagedAttemptTransaction) => Promise<unknown>,
-    ) => {
-      fenceCalls += 1;
-      const transaction: StagedAttemptTransaction = {};
-      const result = await commit(transaction);
-      if (fenceCalls === 1) return result;
-      throw new Error('operation_attempt_fence_lost');
-    });
-
-    await expect(service.collect(ORGANIZATION_ID, NOW, {
-      withinActiveOperationAttemptFence: losingFence,
-    })).rejects.toThrow('operation_attempt_fence_lost');
-
-    expect(provider.fetchTrending).toHaveBeenCalledTimes(1);
-    expect(snapshots.finalizeDailyInAttempt).toHaveBeenCalledTimes(1);
-    expect(publishedSnapshots).toEqual([]);
-    expect(abandonDailyClaim).toHaveBeenCalledTimes(1);
-    expect(abandonDailyClaim).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      businessDate: BUSINESS_DATE,
-      snapshotId: 'marker-1',
-    });
-    expect(marker).toBeNull();
-    expect(snapshots.claimDailyInAttempt).toHaveBeenCalledTimes(1);
-
-    const laterExplicitOperation = await service.collect(ORGANIZATION_ID, NOW, {
-      withinActiveOperationAttemptFence: vi.fn(async (commit) => {
-        const transaction: StagedAttemptTransaction = {};
-        const result = await commit(transaction);
-        if (transaction.stagedFinalPayload) {
-          publishedSnapshots.push(transaction.stagedFinalPayload);
-        }
-        return result;
-      }),
-    });
-
-    expect(laterExplicitOperation.claimed).toBe(true);
-    expect(snapshots.claimDailyInAttempt).toHaveBeenCalledTimes(2);
-    expect(snapshots.finalizeDailyInAttempt).toHaveBeenCalledTimes(2);
-    expect(publishedSnapshots).toHaveLength(1);
-    expect(abandonDailyClaim).toHaveBeenCalledTimes(1);
-  });
-
-  it('finalizes a partial snapshot and redacts secrets when Google fails', async () => {
+  it('stores a sanitized bounded Google error without a partial snapshot', async () => {
     vi.mocked(provider.fetchTrending).mockRejectedValue(
       new Error('Authorization: super-secret-token upstream failed'),
     );
-
-    await service.collect(ORGANIZATION_ID, NOW);
-
-    const payload = vi.mocked(snapshots.finalizeDaily).mock.calls[0][0]
-      .payload as MarketShadowSnapshotPayload;
-    expect(payload.result.status).toBe('partial');
-    expect(payload.result.sources).toEqual([]);
-    expect(payload.result.errors).toEqual([{
-      source: 'google-trends-rss',
-      message: 'Authorization=[REDACTED] upstream failed',
-    }]);
-    expect(snapshots.abandonDailyClaim).not.toHaveBeenCalled();
+    expect(await service.collect(input, NOW)).toMatchObject({
+      state: 'FAILED',
+      snapshot: null,
+      errorMessage: 'google-trends-rss: Authorization=[REDACTED] upstream failed',
+    });
+    expect(attempts.completeAttempt).not.toHaveBeenCalled();
   });
 
   it('clamps recent reads to a 30-day KST business-date window', async () => {
@@ -323,7 +228,7 @@ describe('SourcingShadowSignalService', () => {
     vi.stubEnv('SOURCING_LINKFOX_PILOT_ORGANIZATION_IDS', ORGANIZATION_ID);
     vi.stubEnv('SOURCING_LINKFOX_ECHOTIK_REGION', 'US');
 
-    await service.collect(ORGANIZATION_ID, NOW);
+    const result = await service.collect(input, NOW);
 
     expect(linkfox.fetchNewProductRank).toHaveBeenCalledTimes(1);
     expect(linkfox.fetchNewProductRank).toHaveBeenCalledWith({
@@ -331,8 +236,7 @@ describe('SourcingShadowSignalService', () => {
       region: 'US',
       pageSize: 50,
     });
-    const payload = vi.mocked(snapshots.finalizeDaily).mock.calls[0][0]
-      .payload as MarketShadowSnapshotPayload;
+    const payload = result.snapshot!.payload as MarketShadowSnapshotPayload;
     expect(payload.input.sources).toEqual([
       'google-trends-rss',
       'linkfox-echotik-new-product-rank',
@@ -364,169 +268,146 @@ describe('SourcingShadowSignalService', () => {
     });
   });
 
-  it('does not spend credits for non-pilot organizations or missing regions', async () => {
+  it('does not spend credits for non-pilot organizations', async () => {
     vi.stubEnv('SOURCING_LINKFOX_SHADOW_ENABLED', '1');
     vi.stubEnv('SOURCING_LINKFOX_PILOT_ORGANIZATION_IDS', 'another-org');
     vi.stubEnv('SOURCING_LINKFOX_ECHOTIK_REGION', 'US');
-
-    await service.collect(ORGANIZATION_ID, NOW);
-
+    const result = await service.collect(input, NOW);
     expect(linkfox.fetchNewProductRank).not.toHaveBeenCalled();
-    let payload = vi.mocked(snapshots.finalizeDaily).mock.calls[0][0]
-      .payload as MarketShadowSnapshotPayload;
-    expect(payload.result.evaluation.linkfoxEchoTik.status).toBe('not_in_pilot');
-
-    vi.mocked(snapshots.finalizeDaily).mockClear();
-    vi.stubEnv('SOURCING_LINKFOX_PILOT_ORGANIZATION_IDS', ORGANIZATION_ID);
-    vi.stubEnv('SOURCING_LINKFOX_ECHOTIK_REGION', '');
-    await service.collect(ORGANIZATION_ID, NOW);
-
-    expect(linkfox.fetchNewProductRank).not.toHaveBeenCalled();
-    payload = vi.mocked(snapshots.finalizeDaily).mock.calls[0][0]
-      .payload as MarketShadowSnapshotPayload;
-    expect(payload.result.status).toBe('partial');
-    expect(payload.result.evaluation.linkfoxEchoTik.status).toBe(
-      'configuration_error',
-    );
-    expect(payload.result.errors).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        source: 'linkfox-echotik-new-product-rank',
-        message: expect.stringContaining('SOURCING_LINKFOX_ECHOTIK_REGION'),
-      }),
-    ]));
+    expect(
+      (result.snapshot!.payload as MarketShadowSnapshotPayload).result.evaluation.linkfoxEchoTik
+        .status,
+    ).toBe('not_in_pilot');
   });
 
-  it('stores a sanitized partial result when the paid treatment fails without retrying', async () => {
+  it('fails missing region without paid IO or a partial snapshot', async () => {
+    vi.stubEnv('SOURCING_LINKFOX_SHADOW_ENABLED', '1');
+    vi.stubEnv('SOURCING_LINKFOX_PILOT_ORGANIZATION_IDS', ORGANIZATION_ID);
+    vi.stubEnv('SOURCING_LINKFOX_ECHOTIK_REGION', '');
+    const result = await service.collect(input, NOW);
+    expect(result).toMatchObject({ state: 'FAILED', snapshot: null });
+    expect(result.errorMessage).toContain('SOURCING_LINKFOX_ECHOTIK_REGION');
+    expect(linkfox.fetchNewProductRank).not.toHaveBeenCalled();
+  });
+
+  it('does not retry a paid failure and stores only its sanitized error', async () => {
     vi.stubEnv('SOURCING_LINKFOX_SHADOW_ENABLED', '1');
     vi.stubEnv('SOURCING_LINKFOX_PILOT_ORGANIZATION_IDS', ORGANIZATION_ID);
     vi.stubEnv('SOURCING_LINKFOX_ECHOTIK_REGION', 'US');
     vi.mocked(linkfox.fetchNewProductRank).mockRejectedValue(
       new Error('api_key=paid-secret-token quota exhausted'),
     );
-
-    await service.collect(ORGANIZATION_ID, NOW);
-
+    expect(await service.collect(input, NOW)).toMatchObject({
+      state: 'FAILED',
+      snapshot: null,
+      errorMessage: 'linkfox-echotik-new-product-rank: api_key=[REDACTED] quota exhausted',
+    });
     expect(linkfox.fetchNewProductRank).toHaveBeenCalledTimes(1);
-    const payload = vi.mocked(snapshots.finalizeDaily).mock.calls[0][0]
-      .payload as MarketShadowSnapshotPayload;
-    expect(payload.result.status).toBe('partial');
-    expect(payload.result.evaluation.linkfoxEchoTik.status).toBe('failed');
-    expect(payload.result.errors).toEqual(expect.arrayContaining([{
-      source: 'linkfox-echotik-new-product-rank',
-      message: 'api_key=[REDACTED] quota exhausted',
-    }]));
   });
 
-  it('marks 30 observed days ready for review while keeping decision impact disabled', async () => {
+  it.each([29, 30])('preserves %i observed days and disabled decisions', async (days) => {
     vi.mocked(snapshots.listRecent).mockResolvedValue(
-      Array.from({ length: 30 }, (_, index) => ({
+      Array.from({ length: days }, (_, index) => ({
         ...row({}),
         id: `snapshot-${index}`,
-        businessDate: new Date(
-          BUSINESS_DATE.getTime() - index * 24 * 60 * 60 * 1000,
-        ),
+        businessDate: new Date(BUSINESS_DATE.getTime() - index * 24 * 60 * 60 * 1000),
       })),
     );
 
-    await service.collect(ORGANIZATION_ID, NOW);
+    const result = await service.collect(input, NOW);
 
-    const payload = vi.mocked(snapshots.finalizeDaily).mock.calls[0][0]
-      .payload as MarketShadowSnapshotPayload;
+    const payload = result.snapshot!.payload as MarketShadowSnapshotPayload;
     expect(payload.result.evaluation.promotionGate).toEqual({
       minimumObservationDays: 30,
-      observedDays: 30,
-      reviewReady: true,
+      observedDays: days,
+      reviewReady: days === 30,
       eligible: false,
     });
     expect(payload.result.decisionImpact).toBe('disabled');
   });
 });
 
-function snapshotRepository(): MarketShadowSnapshotRepositoryPort {
-  return {
-    claimDailyInAttempt: vi.fn(async (_transaction, input) => ({
-      claimed: true,
-      row: row(input.payload),
-    })),
-    claimDaily: vi.fn(async (input) => ({
-      claimed: true,
-      row: row(input.payload),
-    })),
-    abandonDailyClaim: vi.fn(async () => 1 as const),
-    finalizeDailyInAttempt: vi.fn(async (_transaction, input) => row(input.payload)),
-    finalizeDaily: vi.fn(async (input) => row(input.payload)),
-    listRecent: vi.fn(async () => []),
-  };
-}
-
 function trendRepository(): TrendCollectionRepositoryPort {
   return {
-    listSeeds: vi.fn(async () => [{
-      id: 'seed-1',
-      organizationId: ORGANIZATION_ID,
-      keyword: '산리오',
-      keywordCn: null,
-      sources: ['naver'],
-      enabled: true,
-      createdAt: NOW,
-      updatedAt: NOW,
-    }]),
+    listSeeds: vi.fn(async () => [
+      {
+        id: 'seed-1',
+        organizationId: ORGANIZATION_ID,
+        keyword: '산리오',
+        keywordCn: null,
+        sources: ['naver'],
+        enabled: true,
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+    ]),
     upsertSeedByKeyword: vi.fn(),
     updateSeed: vi.fn(),
     deleteSeed: vi.fn(),
-    findNaverKeywordHistory: vi.fn(async () => [{
-      keyword: '캐릭터 필통',
-      businessDate: BUSINESS_DATE,
-      monthlyTotalSearchCount: 1000,
-      monthlyPcSearchCount: 100,
-      monthlyMobileSearchCount: 900,
-      competitionIndex: '중간',
-      averageAdRank: 3,
-      trendRatio: 80,
-      trendDelta: 10,
-      capturedAt: NOW,
-    }]),
-    findPopularKeywordHistory: vi.fn(async () => ({ rows: [{
-      boardKey: 'stationery',
-      boardLabel: '문구',
-      cid: null,
-      businessDate: BUSINESS_DATE,
-      rank: 1,
-      keyword: '필통',
-      linkId: null,
-    }], coverage: [] })),
+    findNaverKeywordHistory: vi.fn(async () => [
+      {
+        keyword: '캐릭터 필통',
+        businessDate: BUSINESS_DATE,
+        monthlyTotalSearchCount: 1000,
+        monthlyPcSearchCount: 100,
+        monthlyMobileSearchCount: 900,
+        competitionIndex: '중간',
+        averageAdRank: 3,
+        trendRatio: 80,
+        trendDelta: 10,
+        capturedAt: NOW,
+      },
+    ]),
+    findPopularKeywordHistory: vi.fn(async () => ({
+      rows: [
+        {
+          boardKey: 'stationery',
+          boardLabel: '문구',
+          cid: null,
+          businessDate: BUSINESS_DATE,
+          rank: 1,
+          keyword: '필통',
+          linkId: null,
+        },
+      ],
+      coverage: [],
+    })),
     findKeywordAnalysisSnapshot: vi.fn(async () => null),
     findLatestCompleteTrendScope: vi.fn(async () => null),
-    find1688HotHistory: vi.fn(async () => [{
-      businessDate: BUSINESS_DATE,
-      capturedAt: NOW,
-      offerId: 'offer-1',
-      sourceKeyword: '儿童笔袋',
-      rank: 1,
-      title: '儿童卡通笔袋',
-      priceCny: 10,
-      monthlySales: 100,
-      repurchaseRate: '30%',
-      tradeScore: '80',
-      supplierName: '공장',
-      imageUrl: null,
-      sourceUrl: 'https://detail.1688.com/offer/1.html',
-    }]),
-    findShortsHistory: vi.fn(async () => [{
-      businessDate: BUSINESS_DATE,
-      capturedAt: NOW,
-      videoKey: 'short-1',
-      rank: 1,
-      title: '캐릭터 필통 언박싱',
-      channelName: '문구채널',
-      viewCount: 100,
-      likeCount: 10,
-      commentCount: 1,
-      keyword: '필통',
-      publishedAt: NOW,
-      thumbnailUrl: null,
-      videoUrl: null,
-    }]),
+    find1688HotHistory: vi.fn(async () => [
+      {
+        businessDate: BUSINESS_DATE,
+        capturedAt: NOW,
+        offerId: 'offer-1',
+        sourceKeyword: '儿童笔袋',
+        rank: 1,
+        title: '儿童卡通笔袋',
+        priceCny: 10,
+        monthlySales: 100,
+        repurchaseRate: '30%',
+        tradeScore: '80',
+        supplierName: '공장',
+        imageUrl: null,
+        sourceUrl: 'https://detail.1688.com/offer/1.html',
+      },
+    ]),
+    findShortsHistory: vi.fn(async () => [
+      {
+        businessDate: BUSINESS_DATE,
+        capturedAt: NOW,
+        videoKey: 'short-1',
+        rank: 1,
+        title: '캐릭터 필통 언박싱',
+        channelName: '문구채널',
+        viewCount: 100,
+        likeCount: 10,
+        commentCount: 1,
+        keyword: '필통',
+        publishedAt: NOW,
+        thumbnailUrl: null,
+        videoUrl: null,
+      },
+    ]),
   };
 }
 
@@ -540,29 +421,31 @@ function linkfoxProvider(): LinkfoxEchotikShadowPort {
       pageSize: 50,
       total: 1,
       costToken: 4.5,
-      products: [{
-        asin: 'B000TEST',
-        title: 'Kids pencil case stationery set',
-        region: 'US',
-        price: 12.5,
-        minPrice: 10,
-        maxPrice: 15,
-        currency: 'USD',
-        totalSaleCnt: 100,
-        totalSale30dCnt: 80,
-        gmv: 1000,
-        salesTrendFlagText: 'new trending stationery',
-        videoCount: 8,
-        liveCount: 2,
-        influencerCount: 4,
-        commission: 10,
-        rating: 4.8,
-        reviewCount: 20,
-        availableDate: '2026-07-10',
-        categoryId: 'stationery',
-        imageUrls: ['https://example.test/product.png'],
-        raw: {},
-      }],
+      products: [
+        {
+          asin: 'B000TEST',
+          title: 'Kids pencil case stationery set',
+          region: 'US',
+          price: 12.5,
+          minPrice: 10,
+          maxPrice: 15,
+          currency: 'USD',
+          totalSaleCnt: 100,
+          totalSale30dCnt: 80,
+          gmv: 1000,
+          salesTrendFlagText: 'new trending stationery',
+          videoCount: 8,
+          liveCount: 2,
+          influencerCount: 4,
+          commission: 10,
+          rating: 4.8,
+          reviewCount: 20,
+          availableDate: '2026-07-10',
+          categoryId: 'stationery',
+          imageUrls: ['https://example.test/product.png'],
+          raw: {},
+        },
+      ],
     })),
   };
 }

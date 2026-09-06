@@ -391,18 +391,25 @@ remain open. These focused results do not complete Task3 or the plan.
   PostgreSQL. Complete the same owner's token/expiry/replay and terminal/Alert
   fencing without changing collector inputs or outputs. Measure statement count
   and elapsed time; operating-clone access remains separately approval-gated.
-- **Advertising keyword:** the existing 300-ad/10-minute invocation budget and
-  partial cursor do not prove the full roster. A continued attempt needs frozen
-  account/date/roster and receipt-backed coverage; a capped or failed enumeration
-  must not be certified COMPLETE. Keep current collection limits and require a
-  scope/continuation decision before changing capture meaning.
+- **Advertising keyword (approved 2026-09-06):** retain the existing 300-ad/
+  10-minute invocation budget. Budget exhaustion leaves the same unexpired
+  attempt RUNNING for explicit manual continuation, not automatic continuation
+  or a partial COMPLETE. Freeze the first collection's account/date/target list
+  and use receipt-backed coverage of that full list before publication. Failed
+  or truncated enumeration cannot certify COMPLETE. Preserve provider filters,
+  limits, normalization and collector retries; no new worker/child workflow.
 - **Physical Sellpia:** reconnect the actual stock collector, not the already
   migrated profitability action. Its legacy `full` scope includes a different
   profit window; settle that scope and immutable stock-artifact storage before
   replacing the live lease/import paths. Do not reinstate Operation dispatch.
-- **Shadow:** the current daily admission blocks further paid IO even after
-  failure. Explicit retry cannot silently become unlimited same-day paid IO.
-  Preserve provider/evaluation behavior while deciding that admission contract.
+- **Shadow (approved 2026-09-06):** preserve one organization/KST-day admission,
+  including failed or expired attempts. A new key on the same day returns a
+  daily-limit conflict; it never invokes paid IO. The original key always
+  returns its original receipt across date/configuration drift. Use the existing
+  Sourcing attempt and one successful observation payload, with a 15-minute
+  fixed expiry. COMPLETE-only history replaces mutable WorkspaceSnapshot claims;
+  provider inputs, concurrent baseline reads, and evaluation arithmetic stay
+  unchanged. HTTP and Agent call the same owner directly; no new UI or Worker.
 - **Orders:** ordinary malls generate files kept in IndexedDB; only Coupang
   directship also ingests canonical Orders. Define owner-durable export storage
   and authenticated replay without turning other mall exports into Order writes.
@@ -576,6 +583,24 @@ Expected: the scanner's surviving references shrink after every commit; no publi
 git add apps/server/src/agent-os apps/server/src/ai apps/server/src/channels apps/server/src/inventory apps/server/src/orders apps/server/src/products apps/server/src/sourcing apps/server/src/advertising apps/server/src/analytics/traffic extensions/kiditem-os/background/source-owner-manifest.js
 git commit -m "refactor: move domain work off operations"
 ```
+
+**Shadow owner checkpoint (2026-09-06):** HTTP and Agent now invoke the same
+Sourcing owner directly. One fixed-expiry attempt admits the paired capture;
+failure/expiry consumes its KST day. Same-key replay does not repeat provider
+IO. COMPLETE payloads live in immutable evidence observations; the source-local
+repository only reads them, with latest attempt and COMPLETE selected in one
+RepeatableRead snapshot. Deleted the mutable WorkspaceSnapshot claim/finalize
+path, its obsolete mock tests, the Shadow Operation graph, and the unreferenced
+Sourcing Worker/catalog. Providers/evaluation behavior remains unchanged.
+
+Root scoped correctness/Ponytail acceptance found no remaining new P0/P1.
+Root PostgreSQL3 suites/30 PASS (Shadow, common owner, source-status), focused
+server7 suites/49 PASS, scanner21 PASS, scoped lint and diff checks PASS.
+Whole server build still reports3 retired Automation exports. Script gates
+retain one existing Rocket-PO synthetic stock-write finding, and the Sourcing
+scanner retains4 stale Operation-rule findings. No successful boot, actual
+provider/extension QA, operating DB/clone access, or whole-plan completion is
+claimed. The one independent final review remains after all implementation/QA.
 
 ### Task 4: Replace Panel With Alert Polling And Remove Automation UI
 

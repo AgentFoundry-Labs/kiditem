@@ -22,6 +22,7 @@ export const ALLOWED_SOURCING_COLLECTION_SOURCES = [
   'naver.trend',
   'naver.keyword_analysis',
   'shortstrend.trend',
+  'market_shadow_signals',
   'tiktok.creative',
   'douyin.live_commerce',
   'taobao.live',

@@ -21,7 +21,7 @@ function setup(admissions = { recordScrapeSnapshot: vi.fn() }) {
   const reads = { retrieveWorkspaceEvidence: vi.fn(), inspectRecommendationRun: vi.fn() };
   const mutations = { refreshValidation: vi.fn().mockResolvedValue({ recommendationRunId: '00000000-0000-4000-8000-000000000007', validationEpisodeIds: [], missingEvidence: [] }), createReviewBatch: vi.fn() };
   const discovery = { duplicateCheck: vi.fn().mockResolvedValue({ duplicate: false, candidateId: null }), scrapeProductUrl: vi.fn().mockResolvedValue({ sourceUrl: 'https://detail.1688.com/offer/1.html', platform: '1688', title: 'Toy', price: 1, currency: 'CNY', variantKeyNormalized: '', images: [], contentHash: 'a'.repeat(64) }), ingestCandidate: vi.fn().mockResolvedValue({ candidateId: '00000000-0000-4000-8000-000000000010' }) };
-  const shadow = { collectShadowSignals: vi.fn().mockResolvedValue({ operationRunId: '00000000-0000-4000-8000-000000000009', status: 'queued' }) };
+  const shadow = { collectShadowSignals: vi.fn().mockResolvedValue({ attemptId: '00000000-0000-4000-8000-000000000009', state: 'FAILED', expiresAt: new Date('2026-09-06T01:15:00Z'), errorCode: 'SOURCE_FAILED', errorMessage: 'Provider unavailable', snapshot: null }) };
   const scrapes = { collect: vi.fn() };
   const trends = { collect: vi.fn().mockResolvedValue({ businessDate: '2026-09-06', results: [] }) };
   return { trends, adapter: new SourcingFinalCapabilityAdapter(reads as never, mutations as never, discovery as never, shadow as never, scrapes as never, admissions as never, trends as never), reads, mutations, discovery, shadow, scrapes };
@@ -144,7 +144,9 @@ describe('SourcingFinalCapabilityAdapter', () => {
 
     await adapter.refreshCollection({ context: collectionContext, input: collectionInput });
     await adapter.createReviewBatch({ context: reviewContext, input: reviewInput });
-    await adapter.collectShadowSignals({ context: shadowContext, input: shadowInput });
+    await expect(adapter.collectShadowSignals({ context: shadowContext, input: shadowInput })).resolves.toMatchObject({
+      attemptId: '00000000-0000-4000-8000-000000000009', state: 'FAILED', snapshot: null,
+    });
 
     expect(trends.collect).toHaveBeenCalledWith(baseContext.organizationId, collectionInput.sources, baseContext.initiatingUserId, collectionContext.ownerIdempotencyKey);
     expect(scrapes.collect).not.toHaveBeenCalled();

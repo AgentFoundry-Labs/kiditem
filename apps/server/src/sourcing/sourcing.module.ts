@@ -7,7 +7,14 @@ import { ChannelsModule } from "../channels/channels.module";
 import { InventoryModule } from "../inventory/inventory.module";
 import { SupplyModule } from "../supply/supply.module";
 import { SourcingAgentRuntimeModule } from "./sourcing-agent-runtime.module";
-import { SourcingShadowOperationModule } from "./sourcing-shadow-operation.module";
+import { MarketShadowSignalCapabilityAdapter } from './adapter/in/agent/market-shadow-signal-capability.adapter';
+import { SourcingShadowSignalService } from './application/service/sourcing-shadow-signal.service';
+import { GoogleTrendsRssAdapter } from './adapter/out/google-trends/google-trends-rss.adapter';
+import { LinkfoxEchotikShadowAdapter } from './adapter/out/linkfox/linkfox-echotik-shadow.adapter';
+import { MarketShadowSnapshotRepositoryAdapter } from './adapter/out/repository/market-shadow-snapshot.repository.adapter';
+import { MARKET_SHADOW_COLLECTION_CAPABILITY_PORT } from './application/port/in/capability/market-shadow-capability.port';
+import { LINKFOX_ECHOTIK_SHADOW_PORT, MARKET_SHADOW_SIGNAL_PORT } from './application/port/out/provider/market-shadow-signal.port';
+import { MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT } from './application/port/out/repository/market-shadow-snapshot.repository.port';
 import { SourcingFinalCapabilityAdapter } from './adapter/in/agent/sourcing-final-capability.adapter';
 import { SourcingCapabilityCompositionAdapter } from './adapter/in/agent/sourcing-capability-composition.adapter';
 import { SourcingScrapeSnapshotAdmissionGuard } from './adapter/in/agent/sourcing-scrape-snapshot-admission.guard';
@@ -145,7 +152,6 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     PrismaModule,
     AlertsModule,
     SourcingAgentRuntimeModule,
-    SourcingShadowOperationModule,
     SourcingFrozenRegistrationReadCapabilityModule,
     AiModule,
     AdvertisingModule,
@@ -174,6 +180,15 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     LiveCommerceController,
   ],
   providers: [
+    MarketShadowSignalCapabilityAdapter,
+    SourcingShadowSignalService,
+    GoogleTrendsRssAdapter,
+    LinkfoxEchotikShadowAdapter,
+    MarketShadowSnapshotRepositoryAdapter,
+    { provide: MARKET_SHADOW_COLLECTION_CAPABILITY_PORT, useExisting: MarketShadowSignalCapabilityAdapter },
+    { provide: MARKET_SHADOW_SIGNAL_PORT, useExisting: GoogleTrendsRssAdapter },
+    { provide: LINKFOX_ECHOTIK_SHADOW_PORT, useExisting: LinkfoxEchotikShadowAdapter },
+    { provide: MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT, useExisting: MarketShadowSnapshotRepositoryAdapter },
     SourcingService,
     SourcingScrapeUrlService,
     SourcingFinalCapabilityAdapter,

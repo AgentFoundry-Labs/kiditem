@@ -108,7 +108,7 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
     input: BeginSourcingBrowserSourceAttemptInput,
   ): Promise<{ attempt: SourcingBrowserSourceAttempt; created: boolean }> {
     assertBeginInput(input);
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       await lockScope(tx, input);
       const now = await databaseClock(tx);
       const replay = await tx.sourcingEvidenceIngestionRun.findUnique({
@@ -128,6 +128,25 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
           return { attempt: toAttempt(await expireAttempt(tx, replay, now, input.failureAlert, this.alerts), now), created: false };
         }
         return { attempt: toAttempt(replay, now), created: false };
+      }
+
+      // Shadow's paid paired capture consumes its KST-day admission even on failure.
+      if (input.sourceKey === 'market_shadow_signals') {
+        const admitted = await tx.sourcingEvidenceIngestionRun.findFirst({
+          where: {
+            organizationId: input.organizationId,
+            sourceKey: input.sourceKey,
+            scopeKey: input.scopeKey,
+            targetKey: input.targetKey,
+          },
+          orderBy: { generation: 'desc' },
+        });
+        if (admitted) {
+          if (admitted.status === 'RUNNING' && effectiveState(admitted, now) === 'FAILED') {
+            await expireAttempt(tx, admitted, now, input.failureAlert, this.alerts);
+          }
+          return { dailyLimitAttemptId: admitted.id };
+        }
       }
 
       const running = await tx.sourcingEvidenceIngestionRun.findFirst({
@@ -189,6 +208,11 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
       });
       return { attempt: toAttempt(created, now), created: true };
     });
+    // Throw after commit so expiration and its Alert are not rolled back by admission denial.
+    if ('dailyLimitAttemptId' in result) {
+      throw new ConflictException({ code: 'SHADOW_DAILY_LIMIT', attemptId: result.dailyLimitAttemptId });
+    }
+    return result;
   }
 
   async completeAttempt(
@@ -426,7 +450,7 @@ function effectiveState(
   return attempt.status === 'RUNNING' && attempt.leaseExpiresAt > now ? 'RUNNING' : 'FAILED';
 }
 
-function toAttempt(attempt: AttemptRow, now: Date): SourcingBrowserSourceAttempt {
+export function toAttempt(attempt: AttemptRow, now: Date): SourcingBrowserSourceAttempt {
   const state = effectiveState(attempt, now);
   const quality = attempt.qualityReport as Record<string, unknown> | null;
   const warnings = quality?.warnings;
@@ -559,6 +583,12 @@ async function sourceAccessFailureCode(
 }
 
 function assertBeginInput(input: BeginSourcingBrowserSourceAttemptInput): void {
+  if (
+    input.sourceKey === 'market_shadow_signals'
+    && (input.scopeKey !== 'day' || !/^\d{4}-\d{2}-\d{2}$/.test(input.targetKey))
+  ) {
+    throw new TypeError('Shadow admission requires a KST-day scope.');
+  }
   if (!input.idempotencyKey || !input.requestFingerprint || !input.planChecksum || !input.plan.source) {
     throw new TypeError('A source attempt needs request identity and a frozen source plan.');
   }

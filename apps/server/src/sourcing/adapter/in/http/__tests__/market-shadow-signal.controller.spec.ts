@@ -4,53 +4,50 @@ import { HTTP_CODE_METADATA } from '@nestjs/common/constants';
 import { describe, expect, it, vi } from 'vitest';
 import { MarketShadowSignalController } from '../market-shadow-signal.controller';
 
+const key = '00000000-0000-4000-8000-000000000001';
+
 describe('MarketShadowSignalController', () => {
-  it('starts exactly one persisted shadow operation for the authenticated organization', async () => {
-    const operations = {
-      startShadowCollection: vi.fn(async () => ({
-        operationRunId: 'run-1',
-        status: 'queued',
-      })),
-    };
-    const service = {
-      listRecent: vi.fn(),
-    };
-    const controller = new MarketShadowSignalController(
-      operations as never,
-      service as never,
-    );
-
-    const result = await controller.collect('org-1', { id: 'user-1' } as never);
-
-    expect(operations.startShadowCollection).toHaveBeenCalledTimes(1);
-    expect(operations.startShadowCollection).toHaveBeenCalledWith({
-      organizationId: 'org-1',
-      requestedByUserId: 'user-1',
-      triggerSource: 'domain_screen',
+  it('awaits the source-owner receipt with authenticated scope and the caller key', async () => {
+    const receipt = { attemptId: 'attempt-1', state: 'COMPLETE', snapshot: { id: 'snapshot-1' } };
+    const service = { collect: vi.fn(async () => receipt) };
+    const controller = new MarketShadowSignalController(service as never);
+    expect(await controller.collect('org-1', { id: 'user-1' } as never, key, {})).toEqual(receipt);
+    expect(service.collect).toHaveBeenCalledExactlyOnceWith({
+      organizationId: 'org-1', requestedByUserId: 'user-1', idempotencyKey: key,
     });
-    expect(result).toEqual({ operationRunId: 'run-1', status: 'queued' });
-    expect(service.listRecent).not.toHaveBeenCalled();
+    expect(Reflect.getMetadata(HTTP_CODE_METADATA, MarketShadowSignalController.prototype.collect)).toBe(HttpStatus.OK);
   });
 
-  it('accepts shadow collection asynchronously instead of executing a provider in the request', () => {
-    expect(Reflect.getMetadata(
-      HTTP_CODE_METADATA,
-      MarketShadowSignalController.prototype.collect,
-    )).toBe(HttpStatus.ACCEPTED);
+  it.each([undefined, '', 'not-a-uuid'])('rejects invalid HTTP idempotency key %s before admission', (invalid) => {
+    const service = { collect: vi.fn() };
+    const controller = new MarketShadowSignalController(service as never);
+    expect(() => controller.collect('org-1', { id: 'user-1' } as never, invalid, {})).toThrow('INVALID_IDEMPOTENCY_KEY');
+    expect(service.collect).not.toHaveBeenCalled();
   });
 
-  it('reads a bounded recent window for the authenticated organization', async () => {
+  it('rejects client-selected organization, date, or provider limits', () => {
+    const service = { collect: vi.fn() };
+    const controller = new MarketShadowSignalController(service as never);
+    expect(() => controller.collect('org-1', { id: 'user-1' } as never, key, { organizationId: 'other', date: '2026-01-01', limit: 1 })).toThrow('INVALID_SHADOW_REQUEST');
+    expect(service.collect).not.toHaveBeenCalled();
+  });
+
+  it('scopes status and exact receipt recovery to the authenticated organization', async () => {
     const service = {
-      listRecent: vi.fn(async () => [{ id: 'snapshot-1' }]),
+      getStatus: vi.fn(async () => ({ status: 'STALE', latestComplete: { id: 'previous' } })),
+      readAttempt: vi.fn(async () => ({ attemptId: key, state: 'FAILED' })),
     };
-    const controller = new MarketShadowSignalController(
-      { startShadowCollection: vi.fn() } as never,
-      service as never,
-    );
+    const controller = new MarketShadowSignalController(service as never);
+    expect(await controller.status('org-1')).toMatchObject({ status: 'STALE' });
+    expect(await controller.readAttempt('org-1', key)).toEqual({ attemptId: key, state: 'FAILED' });
+    expect(service.getStatus).toHaveBeenCalledExactlyOnceWith('org-1');
+    expect(service.readAttempt).toHaveBeenCalledExactlyOnceWith('org-1', key);
+  });
 
-    const result = await controller.listRecent({ days: 14 }, 'org-1');
-
-    expect(service.listRecent).toHaveBeenCalledWith('org-1', 14);
-    expect(result).toEqual({ snapshots: [{ id: 'snapshot-1' }] });
+  it('reads a bounded recent complete history for the authenticated organization', async () => {
+    const service = { listRecent: vi.fn(async () => [{ id: 'snapshot-1' }]) };
+    const controller = new MarketShadowSignalController(service as never);
+    expect(await controller.listRecent({ days: 14 }, 'org-1')).toEqual({ snapshots: [{ id: 'snapshot-1' }] });
+    expect(service.listRecent).toHaveBeenCalledExactlyOnceWith('org-1', 14);
   });
 });

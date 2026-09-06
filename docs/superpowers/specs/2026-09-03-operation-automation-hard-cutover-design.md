@@ -165,8 +165,9 @@ database model:
 
 `ExtensionCollectionSession` uses the owner-issued `SourceImportAttempt.id` as
 its local correlation ID. Transport retries and an extension service-worker
-restart may resume that same attempt. A user retry after a terminal result
-always creates a new attempt/session; an extension session is never restarted
+restart may resume that same attempt. An admitted user retry after a terminal
+result creates a new attempt/session, subject to source-specific admission
+limits; an extension session is never restarted
 in place. The two records never mirror state: extension progress is not a
 publication fact, and source readiness is never derived from extension-local
 state.
@@ -1026,6 +1027,35 @@ PostgreSQL and assert observable outcomes, not Prisma call order. Replaced
 repository mocks, fake-Prisma interaction tests, and wiring-only tests are
 deleted instead of layered under the new Interface tests. Unpacked Chrome owns
 the extension Adapter journey.
+
+### Advertising keyword manual continuation (approved 2026-09-06)
+
+The existing 300-ad/10-minute per-invocation budget remains. Reaching it keeps
+the same unexpired attempt RUNNING; only an explicit user continuation resumes
+it. Freeze the first collection's account, seven-day window and full target
+roster. Receipt-backed coverage must prove that entire roster before COMPLETE;
+failed/truncated enumeration cannot certify completion. No automatic
+continuation, partial COMPLETE, new worker or child workflow is introduced.
+Existing provider filters, limits, normalization and retry behavior remain.
+
+### Shadow daily admission exception (approved 2026-09-06)
+
+Shadow retains its existing organization/KST-day paid-IO limit: a failed or
+expired attempt also consumes that day's admission. A distinct key on that day
+returns `409 SHADOW_DAILY_LIMIT` with the prior attempt ID. Same-key replay
+returns the original receipt without reading new provider configuration or
+executing providers, even after the day changes. New-day collection requires a
+new explicit key. Scope-locked admission enforces this under concurrency; an
+expired prior attempt and its Alert commit before the daily-limit rejection.
+
+The paired Google/optional LinkFox collection uses one existing Sourcing attempt
+with a fixed 15-minute expiry and one successful observation containing the
+unchanged full evaluation payload. History reads only COMPLETE observations by
+their parent KST day; failure stores bounded error data, not a mutable partial
+snapshot, and retains the previous COMPLETE result with its actual cutoff.
+Provider inputs, limits, pilot eligibility, concurrent baseline reads, and
+evaluation arithmetic remain unchanged. HTTP/Agent invoke the owner directly;
+there is no new Worker, screen, or extension collector.
 
 ### Source attempts and extension
 
