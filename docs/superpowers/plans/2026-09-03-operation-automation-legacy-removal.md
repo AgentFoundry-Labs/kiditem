@@ -458,6 +458,35 @@ products, while the original SERP enrichment retains500. The shared envelope may
 accept500, but the owner validates the concrete frozen input's original bound.
 No new collector limit, selector, partial-success proof or retry policy is added.
 
+**SERP transport integration checkpoint (2026-09-06):** The direct SERP batch
+now uses the same small rank-local transport as Wing, without a new batch table,
+worker or parent workflow. Existing keyword capture and4–8s pacing precede the
+three direct enrichment owner calls above. A failed/unconfirmed enrichment or
+explicit cancellation stops subsequent phases; cancellation arriving during
+admission settles the exact newly admitted owner before provider IO. Original
+collector functions remain unchanged (9 retained functions have matching hashes
+against the preceding catalog-integration commit).
+
+Removed the old single/batch SERP execution shell, its alarm, local terminal
+status and unfenced rank/identity/catalog posting helpers. The server rejects
+their old extension-sync types while keeping other live sync types and the
+owner-only normalizers. Catalog capture preserves standalone100 versus rank500,
+including their original nullable-field mapping. Terminal retries keep the exact
+payload; missing ACK or a newer attempt in the response triggers an exact-owner
+read, never a fabricated COMPLETE or contradictory automatic failure. A focused
+regression also corrected the inherited same-URL navigation-completion wait and
+the catalog owner's tab-ID registration, without changing navigation targets,
+timeouts or extraction.
+
+Evidence: integrated extension8 suites/121 tests, server ingress/owner focused62,
+catalog HTTP/PostgreSQL5, shared14 and shared build passed. Extension syntax,
+adapter-copy and diff checks passed. The broader server build still fails on
+3 retired Automation session exports; scanner remains709 legacy references,
+zero unowned producers and zero source-to-ABC references. No full web/boot,
+provider/browser QA, operating DB access or final independent review is claimed.
+The remaining source-boundary decisions above still block generic runtime and
+schema cutover completion; these results do not complete Task3 or the plan.
+
 - [ ] **Step 1: Add failing no-Operation assertions to existing owner acceptance tests**
 
 ```ts

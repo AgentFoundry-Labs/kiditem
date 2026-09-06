@@ -178,13 +178,14 @@ function externalRequest(fake, message) {
   });
 }
 
-test('retired Wing rank shell actions have no public worker responder', async () => {
+test('retired Wing and SERP rank shells have no public worker responder', async () => {
   const requests = [];
   const { fake } = bootServiceWorker({ fetch: async (url) => {
     requests.push(String(url));
     return { ok: true, status: 200, json: async () => ({ targets: [] }) };
   } });
-  for (const action of ['runWingSalesRankCheck', 'cancelWingSalesRankCheck', 'getWingSalesRankCheckStatus']) {
+  for (const action of ['runWingSalesRankCheck', 'cancelWingSalesRankCheck', 'getWingSalesRankCheckStatus',
+    'checkCoupangKeywordRank', 'runCoupangKeywordRankCheck', 'getCoupangRankCheckStatus']) {
     const responses = [];
     const responders = fake.externalMessageListeners.filter((listener) =>
       listener({ action, runId: 'retired-wing-run' },
@@ -202,7 +203,7 @@ test('retired Wing rank shell schedules are not installed', async () => {
   const { fake } = bootServiceWorker();
   for (const listener of fake.installedListeners) await listener({ reason: 'update' });
   assert.equal(fake.createdAlarms.some((name) =>
-    name.includes('keyword-rank-check') || name.includes('wing-sales-rank-resume')), false);
+    name.includes('keyword-rank-check') || name.includes('wing-sales-rank-resume') || name.includes('coupang-keyword-serp-rank')), false);
 });
 
 // Exercise the production collector from the fully loaded worker. Only Chrome
@@ -316,6 +317,111 @@ function bootWingSearch(responses, { fetch } = {}) {
     })));
   } };
 }
+
+test('SERP batch publishes original keyword captures before admitting sequential seller enrichment owners', { timeout: 3000 }, async (t) => {
+  for (const catalogState of ['COMPLETE', 'FAILED']) await t.test(catalogState, async () => {
+    const key = '99999999-9999-4999-8999-999999999999';
+    const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
+    const catalogId = '33333333-3333-4333-8333-333333333333';
+    const identityId = '44444444-4444-4444-8444-444444444444';
+    const token = '55555555-5555-4555-8555-555555555555';
+    const phases = [];
+    const h = bootRankCollector(ids.map((id, i) => ({ items: [{ productId: String(i + 1), name: '연필' }] })), {
+      fetch: async (url, init) => {
+        const path = new URL(url).pathname;
+        if (path.endsWith('/serp/batch-attempts')) {
+          assert.equal(init.method, 'GET');
+          return { ok: true, json: async () => ({ attempts: ids.map((attemptId) => ({ attemptId, state: 'RUNNING' })) }) };
+        }
+        const serpId = ids.find((id) => path.endsWith(`/serp/attempts/${id}`));
+        if (serpId) {
+          if (init.method === 'PUT') {
+            phases.push(`serp:${serpId}`);
+            return { ok: true, json: async () => ({ attemptId: serpId, state: 'COMPLETE' }) };
+          }
+          return { ok: true, json: async () => ({ attemptId: serpId, attemptToken: token, state: 'RUNNING',
+            expiresAt: new Date(Date.now() + 600_000).toISOString(),
+            plan: { sourceType: 'coupang_keyword_serp', parserVersion: 'keyword-serp-v1', keyword: `연필${ids.indexOf(serpId)}`, maxPages: 1 },
+          }) };
+        }
+        if (path.endsWith('/competitor-catalogs/attempts')) {
+          const input = JSON.parse(init.body);
+          assert.equal(phases.filter((phase) => phase.startsWith('serp:')).length, 2);
+          assert.equal(input.target, 'rank_enrichment');
+          if (input.excludeCompletedAttemptId) {
+            assert.equal(input.excludeCompletedAttemptId, catalogId);
+            assert.equal(phases.at(-1), 'identity');
+            phases.push('catalog:new');
+          } else phases.push('catalog:initial');
+          return { ok: true, json: async () => ({ attemptId: catalogId, attemptToken: token, state: catalogState,
+            expiresAt: new Date(Date.now() + 600_000).toISOString(), input, targets: [],
+          }) };
+        }
+        if (path.includes('/competitor-seller-identities/attempts')) {
+          assert.equal(catalogState, 'COMPLETE');
+          if (init.method === 'POST') {
+            assert.deepEqual(JSON.parse(init.body), {});
+            assert.equal(phases.at(-1), 'catalog:initial');
+            phases.push('identity');
+          }
+          return { ok: true, json: async () => ({ attemptId: identityId, attemptToken: token, state: 'COMPLETE',
+            expiresAt: new Date(Date.now() + 600_000).toISOString(),
+            plan: { sourceType: 'coupang_competitor_seller_identity', parserVersion: 'seller-identity-v1', days: 30, limit: 200, targets: [] },
+          }) };
+        }
+        assert.equal(path.includes('/extension/sync'), false, 'unfenced rank/enrichment ingress is retired');
+        return { ok: true, json: async () => ({}) };
+      },
+    });
+    h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
+    h.fake.chrome.tabs.remove = async (_id, callback) => callback?.();
+    const ack = await externalRequest(h.fake, { action: 'collectAdvertisingKeywordSerpBatch', idempotencyKey: key });
+    assert.deepEqual(JSON.parse(JSON.stringify(ack)), { success: true, started: true });
+    for (let spin = 0; spin < 100; spin += 1) await new Promise(setImmediate);
+    assert.deepEqual(phases, [`serp:${ids[0]}`, `serp:${ids[1]}`, 'catalog:initial',
+      ...(catalogState === 'COMPLETE' ? ['identity', 'catalog:new'] : [])]);
+    assert.deepEqual(h.delays, [1200, 4000, 1200]);
+    assert.deepEqual(h.urls, ['https://www.coupang.com/np/search?q=%EC%97%B0%ED%95%840&channel=user&page=1&listSize=36',
+      'https://www.coupang.com/np/search?q=%EC%97%B0%ED%95%841&channel=user&page=1&listSize=36']);
+  });
+});
+
+test('SERP batch cancellation during enrichment admission settles its exact owner before provider IO', async () => {
+  const key = '99999999-9999-4999-8999-999999999999';
+  const attemptId = '11111111-1111-4111-8111-111111111111';
+  const target = { keyword: '문구', sellerId: 'A123', sellerName: '문구마켓', sellerStoreUrl: 'https://shop.coupang.com/A123' };
+  let state = 'RUNNING';
+  let failures = 0;
+  const control = () => ({ attemptId, state, attemptToken: '22222222-2222-4222-8222-222222222222',
+    expiresAt: new Date(Date.now() + 600_000).toISOString(), input: { target: 'rank_enrichment' }, targets: [target] });
+  const h = bootRankCollector([], { fetch: async (url, init) => {
+    const path = new URL(url).pathname;
+    assert.equal(path.includes('/competitor-seller-identities/'), false);
+    if (path.endsWith('/serp/batch-attempts')) return { ok: true, json: async () => ({ attempts: [
+      { attemptId: '33333333-3333-4333-8333-333333333333', state: 'COMPLETE' },
+    ] }) };
+    if (path.endsWith('/competitor-catalogs/attempts')) {
+      await externalRequest(h.fake, { action: 'cancelAdvertisingKeywordSerpBatch', idempotencyKey: key });
+      return { ok: true, json: async () => control() };
+    }
+    if (path.includes('/competitor-catalogs/attempts/')) {
+      if (path.endsWith('/fail')) {
+        failures += 1;
+        state = 'FAILED';
+        return { ok: true, json: async () => ({ latestAttempt: { attemptId, state } }) };
+      }
+      assert.equal(init.method, 'GET');
+      return { ok: true, json: async () => control() };
+    }
+    return { ok: true, json: async () => ({}) };
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
+  await externalRequest(h.fake, { action: 'collectAdvertisingKeywordSerpBatch', idempotencyKey: key });
+  for (let spin = 0; spin < 100; spin += 1) await new Promise(setImmediate);
+  assert.equal(state, 'FAILED');
+  assert.equal(failures, 1, 'cancellation is one owner transition, not a later capture failure');
+  assert.deepEqual(h.urls, []);
+});
 
 test('competitor catalog source preserves standalone100 and SERP enrichment500 through the real DOM collector', { timeout: 3000 }, async (t) => {
   for (const targetMode of ['all', 'rank_enrichment']) await t.test(targetMode, async () => {

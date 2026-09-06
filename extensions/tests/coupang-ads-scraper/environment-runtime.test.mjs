@@ -65,6 +65,7 @@ test('namespaces state and scheduled alarms by environment', () => {
   assert.equal(runtime.parseAlarm('auto-scrape:preview'), null);
   assert.equal(runtime.parseAlarm('keyword-rank-check:local'), null);
   assert.equal(runtime.parseAlarm('wing-sales-rank-resume:local'), null);
+  assert.equal(runtime.parseAlarm('coupang-keyword-serp-rank:local'), null);
 });
 
 test('binds marketplace tabs to one explicit connected environment', async () => {

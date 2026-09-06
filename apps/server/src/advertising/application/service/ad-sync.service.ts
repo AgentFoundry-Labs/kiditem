@@ -40,7 +40,6 @@ import {
 import { AdCampaignIngestHandler } from "./ad-campaign-ingest.handler";
 import { AdKeywordIngestHandler } from "./ad-keyword-ingest.handler";
 import { CoupangAdsDailyIngestHandler } from "./coupang-ads-daily-ingest.handler";
-import { KeywordRankIngestHandler } from "./keyword-rank-ingest.handler";
 import { RawScrapeIngestHandler } from "./raw-scrape-ingest.handler";
 import { TrafficIngestHandler } from "./traffic-ingest.handler";
 import {
@@ -66,7 +65,6 @@ export class AdSyncService {
     private readonly rawScrapeHandler: RawScrapeIngestHandler,
     private readonly trafficHandler: TrafficIngestHandler,
     private readonly coupangAdsDailyHandler: CoupangAdsDailyIngestHandler,
-    private readonly keywordRankHandler: KeywordRankIngestHandler,
     @Inject(AD_INGEST_TRANSACTION_PORT)
     private readonly ingestTransaction: AdIngestTransactionPort,
   ) {}
@@ -92,16 +90,6 @@ export class AdSyncService {
             payload,
             organizationId,
             map,
-          );
-        case "competitor_seller_catalog":
-          return this.keywordRankHandler.executeSellerCatalogs(
-            payload,
-            organizationId,
-          );
-        case "competitor_seller_identity":
-          return this.keywordRankHandler.executeSellerIdentities(
-            payload,
-            organizationId,
           );
         default:
           throw new BadRequestException(

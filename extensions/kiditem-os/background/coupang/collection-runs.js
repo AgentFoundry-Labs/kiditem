@@ -242,9 +242,7 @@
       }
 
       await sessions.cancel(runId, { closeManagedTab: true });
-      if (session.producer === "advertising.keyword_rank") {
-        await options.cancelKeywordRank(runId, ownerEnvironmentId);
-      } else if (session.producer === "advertising.competitor_catalog") {
+      if (session.producer === "advertising.competitor_catalog") {
         await options.cancelCompetitorCatalog(runId, ownerEnvironmentId);
       }
       return { success: true, cancelled: true, runId };

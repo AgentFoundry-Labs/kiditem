@@ -1,16 +1,30 @@
+import { ValidationPipe } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { describe, expect, it } from 'vitest';
 import { ExtensionSyncDto } from './extension-sync.dto';
 
-it.each(['keyword_rank', 'wing_sales_rank'])('rejects %s captures at the unfenced extension sync boundary', async (type) => {
-  const dto = plainToInstance(ExtensionSyncDto, {
-    type,
-    data: [{ keyword: '문구', items: [] }],
-  });
-  expect((await validate(dto, { whitelist: true })).map((error) => error.property))
-    .toContain('type');
-});
+it.each(['keyword_rank', 'wing_sales_rank', 'competitor_seller_identity', 'competitor_seller_catalog'])(
+  'rejects %s captures at the unfenced extension sync boundary',
+  async (type) => {
+    const pipe = new ValidationPipe({ whitelist: true, transform: true });
+    await expect(pipe.transform(
+      { type, data: [{ keyword: '문구', items: [] }] },
+      { type: 'body', metatype: ExtensionSyncDto },
+    )).rejects.toMatchObject({ status: 400 });
+  },
+);
+
+it.each(['ad_campaign', 'ad_keyword', 'raw_scrape', 'traffic', 'coupang_ads_daily'])(
+  'preserves the retained %s extension sync ingress',
+  async (type) => {
+    const pipe = new ValidationPipe({ whitelist: true, transform: true });
+    await expect(pipe.transform(
+      { type, data: [{ value: 1 }] },
+      { type: 'body', metatype: ExtensionSyncDto },
+    )).resolves.toMatchObject({ type, data: [{ value: 1 }] });
+  },
+);
 
 async function scopeErrors(scope: unknown) {
   const dto = plainToInstance(ExtensionSyncDto, {

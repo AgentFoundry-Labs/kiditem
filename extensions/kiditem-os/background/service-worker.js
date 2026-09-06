@@ -35,6 +35,7 @@ importScripts(
   "coupang/tracked-wing-products-source-owner.js",
   "coupang/competitor-catalog-source-owner.js",
   "coupang/keyword-rank-source-owner.js",
+  "coupang/keyword-rank-batch.js",
   "coupang/wing-image-fetch.js",
   "coupang/wing-form-runtime-compat.js",
   "coupang/wing-form-readiness.js",

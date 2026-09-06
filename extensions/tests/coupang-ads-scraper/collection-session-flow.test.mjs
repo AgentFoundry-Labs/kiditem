@@ -236,65 +236,11 @@ test('automatic rank and keyword helpers create extension-owned inactive tabs', 
   }
 });
 
-test('web restart handlers preserve the requested run id and use the shared begin contract', () => {
-  assert.match(
-    worker,
-    /msg\.action === "runCoupangKeywordRankCheck"[\s\S]*?startCoupangKeywordRankCheck\(\{\s*runId:\s*msg\.runId/s,
-  );
-  const source = functionSource('startCoupangKeywordRankCheck', 'runCoupangKeywordRankBatch');
-  assert.match(source, /collectionRuns\.beginWebCollection\(/);
-  assert.doesNotMatch(source, /collectionSessions\.start\(/);
-});
-
-test('shared producers declare stable collection modes and opaque input owners', () => {
-  assert.match(worker, /function stableInputFingerprint\(/);
-  for (const [name, nextName, mode] of [
-    ['searchWingCatalogProducts', 'searchCoupangKeywordSuggestions', 'single_catalog'],
-    ['checkCoupangKeywordRank', 'startCoupangKeywordRankCheck', 'single_serp'],
-    ['startCoupangKeywordRankCheck', 'runCoupangKeywordRankBatch', 'all_trackers'],
-  ]) {
-    assert.match(functionSource(name, nextName), new RegExp(`collectionMode:\\s*["']${mode}["']`));
-  }
-  for (const [name, nextName] of [
-    ['searchWingCatalogProducts', 'searchCoupangKeywordSuggestions'],
-    ['checkCoupangKeywordRank', 'startCoupangKeywordRankCheck'],
-  ]) {
-    const source = functionSource(name, nextName);
-    assert.match(source, /keywordFingerprint:\s*stableInputFingerprint\(keyword\)/);
-    assert.match(source, /\["collectionMode",\s*"keywordFingerprint"\]/);
-  }
-});
-
-test('stale domain state only yields to a restartable generic same-run session', () => {
-  const context = vm.createContext({});
-  vm.runInContext(
-    `${functionSource('canRestartStoredDomainRun', 'stableInputFingerprint')}\n` +
-      'globalThis.canRestart = canRestartStoredDomainRun;',
-    context,
-  );
-  const stored = { runId: 'run-a', status: 'running' };
-
-  for (const status of ['attention_required', 'failed', 'cancelled', 'succeeded']) {
-    assert.equal(
-      context.canRestart(stored, 'run-a', { runId: 'run-a', status }),
-      true,
-      status,
-    );
-  }
-  for (const status of ['pending', 'running']) {
-    assert.equal(
-      context.canRestart(stored, 'run-a', { runId: 'run-a', status }),
-      false,
-      status,
-    );
-  }
-  assert.equal(context.canRestart(stored, 'run-b', { runId: 'run-b', status: 'failed' }), false);
-  assert.equal(context.canRestart(stored, 'run-a', null), false);
-
-  assert.match(
-    functionSource('startCoupangKeywordRankCheck', 'runCoupangKeywordRankBatch'),
-    /canRestartStoredDomainRun\(/,
-  );
+test('single Wing catalog search declares stable collection mode and opaque input ownership', () => {
+  const source = functionSource('searchWingCatalogProducts', 'searchCoupangKeywordSuggestions');
+  assert.match(source, /collectionMode:\s*["']single_catalog["']/);
+  assert.match(source, /keywordFingerprint:\s*stableInputFingerprint\(keyword\)/);
+  assert.match(source, /\["collectionMode",\s*"keywordFingerprint"\]/);
 });
 
 test('scrape-target web restarts bind the run to a stable target owner', () => {
@@ -302,7 +248,7 @@ test('scrape-target web restarts bind the run to a stable target owner', () => {
     stableInputFingerprint: (value) => `hash:${value}`,
   });
   vm.runInContext(
-    `${functionSource('stableScrapeTargetFingerprint', 'canRestartStoredDomainRun')}\n` +
+    `${functionSource('stableScrapeTargetFingerprint', 'stableInputFingerprint')}\n` +
       'globalThis.fingerprint = stableScrapeTargetFingerprint;',
     context,
   );
@@ -382,153 +328,10 @@ test('rejected scrape-target preparation preserves the existing domain state', a
   );
 });
 
-test('ordinary tab cancellation dispatches domain owners and fences late terminal writes', () => {
-  assert.match(worker, /cancelKeywordRank:\s*requestCoupangKeywordRankCancellation/);
+test('competitor cancellation retains its domain owner', () => {
   assert.match(worker, /cancelCompetitorCatalog:\s*requestCoupangCompetitorCatalogCancellation/);
-  assert.match(
-    functionSource('runCoupangKeywordRankBatch'),
-    /if \(await collectionRuns\.isCancelled\(runId\)\)/,
-  );
   assert.doesNotMatch(worker, /runCoupangCompetitorSellerCatalog/);
   assert.match(worker, /status:\s*"cancelled"/);
-});
-
-test('cancelled keyword batch skips seller phases, sync, terminal writes, and success', async () => {
-  const calls = [];
-  const context = vm.createContext({
-    console,
-    setInterval: () => 1,
-    clearInterval: () => undefined,
-    chrome: {
-      runtime: { lastError: null, getPlatformInfo: () => undefined },
-      storage: { local: { set: async () => calls.push('status') } },
-    },
-    collectionRuns: { isCancelled: async () => true },
-    collectionSessions: {
-      progress: async () => calls.push('progress'),
-      succeed: async () => calls.push('succeed'),
-    },
-    fetchCoupangCompetitorSellerTargets: async () => calls.push('seller-targets'),
-    postKeywordRankSync: async () => calls.push('rank-sync'),
-    notifyDashboard: () => calls.push('notify'),
-  });
-  vm.runInContext(
-    `${functionSource('runCoupangKeywordRankBatch', 'runScheduledKeywordRankCheck')}\n` +
-      'globalThis.runBatch = runCoupangKeywordRankBatch;',
-    context,
-  );
-
-  const result = await context.runBatch(
-    [{ keyword: '문구세트', maxPages: 1 }],
-    'cancelled-run',
-    123,
-  );
-
-  assert.deepEqual(calls, []);
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
-    success: false,
-    cancelled: true,
-    runId: 'cancelled-run',
-  });
-});
-
-test('keyword terminal cancellation reasserts domain cancelled instead of succeeding', async () => {
-  const calls = [];
-  const cancellationStates = [false, true];
-  const context = vm.createContext({
-    console,
-    setInterval: () => 1,
-    clearInterval: () => undefined,
-    KEYWORD_RANK_STATUS_KEY: 'keyword-status',
-    chrome: {
-      runtime: { lastError: null, getPlatformInfo: () => undefined },
-      storage: { local: { set: async () => calls.push('status') } },
-    },
-    collectionRuns: {
-      isCancelled: async () => cancellationStates.shift() ?? true,
-    },
-    collectionSessions: { succeed: async () => calls.push('succeed') },
-    requestCoupangKeywordRankCancellation: async () => calls.push('cancel-owner'),
-    notifyDashboard: () => calls.push('notify'),
-  });
-  vm.runInContext(
-    `${functionSource('runCoupangKeywordRankBatch', 'runScheduledKeywordRankCheck')}\n` +
-      'globalThis.runBatch = runCoupangKeywordRankBatch;',
-    context,
-  );
-
-  const result = await context.runBatch([], 'cancelled-run', 123);
-
-  assert.deepEqual(calls, ['status', 'cancel-owner']);
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
-    success: false,
-    cancelled: true,
-    runId: 'cancelled-run',
-  });
-});
-
-test('cancellation during initial target fetch cannot be overwritten by pre-batch status writes', async () => {
-  for (const fetchResult of ['error', 'empty']) {
-    let cancelled = false;
-    let status = null;
-    const calls = [];
-    const keywordContext = vm.createContext({
-      console,
-      Date,
-      KEYWORD_RANK_STATUS_KEY: 'keyword-status',
-      getStorage: async () => ({
-        'keyword-status': status,
-      }),
-      collectionRuns: {
-        createRunId: () => 'keyword-run',
-        beginWebCollection: async () => {
-          cancelled = false;
-          return 'keyword-run';
-        },
-        isCancelled: async () => cancelled,
-      },
-      authedFetch: async () => {
-        cancelled = true;
-        if (fetchResult === 'error') throw new Error('tracker fetch failed');
-        return { ok: true, json: async () => [] };
-      },
-      requestCoupangKeywordRankCancellation: async () => {
-        calls.push('cancel-owner');
-        status = { runId: 'keyword-run', status: 'cancelled', cancelled: true };
-      },
-      chrome: {
-        storage: {
-          local: {
-            set: async (next) => {
-              status = next['keyword-status'];
-              calls.push(`status:${status.status}`);
-            },
-          },
-        },
-      },
-      collectionSessions: {
-        fail: async () => calls.push('fail'),
-        succeed: async () => calls.push('succeed'),
-        progress: async () => calls.push('progress'),
-      },
-      runCoupangKeywordRankBatch: () => {
-        calls.push('batch');
-        return Promise.resolve();
-      },
-    });
-    vm.runInContext(
-      `${functionSource('canRestartStoredDomainRun', 'stableInputFingerprint')}\n` +
-      `${functionSource('startCoupangKeywordRankCheck', 'runCoupangKeywordRankBatch')}\n` +
-        'globalThis.startKeyword = startCoupangKeywordRankCheck;',
-      keywordContext,
-    );
-
-    const result = await keywordContext.startKeyword();
-    assert.equal(result.cancelled, true);
-    assert.equal(cancelled, true);
-    assert.equal(status.status, 'cancelled');
-    assert.deepEqual(calls, ['cancel-owner']);
-  }
 });
 
 test('automatic collectors clean up owned tabs and replace a missing shared Wing tab', async () => {
@@ -630,72 +433,6 @@ test('automatic collectors clean up owned tabs and replace a missing shared Wing
   });
   assert.equal(cancelledWing.cancelled, true);
   assert.deepEqual(wingCalls, ['create', 'attach']);
-
-  // Keyword suggestion lifecycle is covered with the real source-owner action
-  // and canonical CollectionSession in coupang-keyword-operation.test.mjs.
-
-  const rankCalls = [];
-  let rankCancelled = false;
-  let cancelRankOnSucceed = false;
-  const rankContext = vm.createContext({
-    console,
-    clampNumber: () => 1,
-    COUPANG_RANK_MAX_PAGES: 3,
-    collectionRuns: {
-      beginWebCollection: async () => 'rank-run',
-      isCancelled: async () => rankCancelled,
-      requireAttention: async () => rankCalls.push('attention'),
-    },
-    stableInputFingerprint: () => 'fp64:keyword',
-    captureCoupangKeywordSerp: async () => ({
-      success: true,
-      tabId: 43,
-      pagesScanned: 1,
-      items: [],
-    }),
-    collectionSessions: {
-      fail: async () => rankCalls.push('fail'),
-      succeed: async () => {
-        rankCalls.push('succeed');
-        if (cancelRankOnSucceed) {
-          rankCancelled = true;
-          return { status: 'cancelled' };
-        }
-        return { status: 'succeeded' };
-      },
-    },
-    removeTab: async () => rankCalls.push('remove'),
-    getAuthToken: async () => null,
-  });
-  vm.runInContext(
-    `${functionSource('checkCoupangKeywordRank', 'startCoupangKeywordRankCheck')}\n` +
-      'globalThis.checkRank = checkCoupangKeywordRank;',
-    rankContext,
-  );
-
-  await rankContext.checkRank({ keyword: '문구', post: false });
-  assert.deepEqual(rankCalls, ['succeed', 'remove']);
-  rankCalls.length = 0;
-  rankCancelled = false;
-  cancelRankOnSucceed = true;
-  const terminalCancelledRank = await rankContext.checkRank({
-    keyword: '문구',
-    post: false,
-  });
-  assert.equal(terminalCancelledRank.cancelled, true);
-  assert.deepEqual(rankCalls, ['succeed']);
-  rankCalls.length = 0;
-  cancelRankOnSucceed = false;
-  rankCancelled = true;
-  rankContext.captureCoupangKeywordSerp = async () => ({
-    success: false,
-    tabId: 43,
-    wall: 'captcha',
-    error: 'captcha',
-  });
-  const cancelledRank = await rankContext.checkRank({ keyword: '문구' });
-  assert.equal(cancelledRank.cancelled, true);
-  assert.deepEqual(rankCalls, []);
 });
 
 test('retires the web-origin competitor seller collector and routes direct collection to its source owner', () => {

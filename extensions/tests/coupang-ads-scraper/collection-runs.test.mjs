@@ -96,7 +96,6 @@ function createRuntime(initialSessions = []) {
       };
     },
     cancelCatalog: async (runId) => calls.push(['cancelCatalog', runId]),
-    cancelKeywordRank: async (runId) => calls.push(['cancelKeywordRank', runId]),
     cancelCompetitorCatalog: async (runId) => calls.push(['cancelCompetitorCatalog', runId]),
     loadScheduledTargets: async () => {
       calls.push(['loadScheduledTargets']);
@@ -373,15 +372,6 @@ test('cancel uses dedicated window ownership and ordinary tab owner cancellation
     runId: 'dashboard',
     staleRunId: 'newer-run',
   });
-
-  const keyword = createRuntime([
-    session({ runId: 'keyword', producer: 'advertising.keyword_rank' }),
-  ]);
-  await keyword.controller.cancel('keyword');
-  assert.deepEqual(JSON.parse(JSON.stringify(keyword.calls)), [
-    ['cancel', 'keyword', { closeManagedTab: true }],
-    ['cancelKeywordRank', 'keyword'],
-  ]);
 
   const competitor = createRuntime([
     session({ runId: 'competitor', producer: 'advertising.competitor_catalog' }),

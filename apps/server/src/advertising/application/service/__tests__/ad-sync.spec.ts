@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
+  BadRequestException,
   ConflictException,
   NotFoundException,
   UnprocessableEntityException,
@@ -13,7 +14,6 @@ import type { AdKeywordIngestHandler } from "../ad-keyword-ingest.handler";
 import type { RawScrapeIngestHandler } from "../raw-scrape-ingest.handler";
 import type { TrafficIngestHandler } from "../traffic-ingest.handler";
 import type { CoupangAdsDailyIngestHandler } from "../coupang-ads-daily-ingest.handler";
-import type { KeywordRankIngestHandler } from "../keyword-rank-ingest.handler";
 import type { AdIngestTransactionPort } from "../../port/out/transaction/ad-ingest-transaction.port";
 import {
   buildMockAdListingRepo,
@@ -54,10 +54,17 @@ describe("AdSyncService", () => {
       {} as RawScrapeIngestHandler,
       {} as TrafficIngestHandler,
       {} as CoupangAdsDailyIngestHandler,
-      {} as KeywordRankIngestHandler,
       ingestTransaction as unknown as AdIngestTransactionPort,
     );
   });
+
+  it.each(['keyword_rank', 'wing_sales_rank', 'competitor_seller_identity', 'competitor_seller_catalog'])(
+    'rejects unfenced %s captures without a legacy dispatch',
+    async (type) => {
+      await expect(service.sync({ type, data: [] }, 'organization-1'))
+        .rejects.toBeInstanceOf(BadRequestException);
+    },
+  );
 
   it("runs an authoritative replay key once and returns the persisted response on retry", async () => {
     const map: ListingMap = {
@@ -90,7 +97,6 @@ describe("AdSyncService", () => {
       handler as unknown as RawScrapeIngestHandler,
       {} as TrafficIngestHandler,
       {} as CoupangAdsDailyIngestHandler,
-      {} as KeywordRankIngestHandler,
       ingestTransaction as unknown as AdIngestTransactionPort,
     );
     const payload = {
@@ -151,7 +157,6 @@ describe("AdSyncService", () => {
         {} as RawScrapeIngestHandler,
         {} as TrafficIngestHandler,
         {} as CoupangAdsDailyIngestHandler,
-        {} as KeywordRankIngestHandler,
         ingestTransaction as unknown as AdIngestTransactionPort,
       );
 

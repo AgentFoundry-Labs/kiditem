@@ -378,6 +378,13 @@
       }
       return launch(environmentId, async () => {
         const plan = await rehydrate(environmentId, scope, true) || await begin(environmentId, input);
+        if (plan.state === "RUNNING") {
+          await input.onAttempt?.(plan);
+          if (!(await sessions.get(plan.attemptId))) {
+            const terminal = await readAttemptControl(environmentId, plan.attemptId, scope).catch(() => null);
+            return terminalReplayResult(terminal || { attemptId: plan.attemptId, state: "RUNNING" });
+          }
+        }
         return plan.state === "RUNNING" ? execute(environmentId, plan) : terminalReplayResult(plan);
       });
     }
