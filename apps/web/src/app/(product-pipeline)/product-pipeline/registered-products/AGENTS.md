@@ -11,11 +11,10 @@ handoff screens.
 - Keep listing navigation and workspace projection helpers pure and tested.
 - Use `queryKeys.channelListings` and `queryKeys.contentWorkspaces` for shared
   server state.
-- The existing two-second browser collection status poll progressively
-  invalidates channel-listing and product-operations queries whenever the
-  server reports a higher published-product count. Completion performs the
-  final matching and channel-availability invalidations; do not add a second
-  timer or replace the preserved card layout.
+- Poll owner collection status every two seconds. Show staged-detail progress
+  separately from publication; invalidate listing, product-operations, mapping,
+  and availability queries once the owner confirms the whole catalog commit.
+  Preserve the card layout and reuse the existing poll.
 - Products owns channel-origin product/variant creation or exact reuse;
   Channels extracts typed evidence and writes final still-null links. Names and
   AI never auto-confirm identity.

@@ -35,8 +35,10 @@ change physical `SellpiaInventorySku` stock or direct
 3. Confirm the panel does not report an extension or Wing-tab connection
    error.
 4. Click **Wing에서 가져오기**.
-5. Keep both tabs available while the UI reports discovery, detail storage,
-   publication, processing rate, and ETA.
+5. Keep the managed Wing collection tab available while the UI reports
+   discovery and private detail storage. The rate/ETA estimates detail
+   collection, not the final database transaction. Existing cards stay unchanged
+   until the complete snapshot commits.
 6. If the browser or page was interrupted, return to the same account and click
    **수집 재개**. The extension resumes the accepted server run instead of
    silently starting a competing publication.
@@ -105,11 +107,14 @@ unrelated-image fallback.
 
 - Chunks are idempotent by run, kind, and sequence. A stale attempt cannot
   overwrite the current run.
-- Detail chunks publish observed listings incrementally. An accepted complete
-  detail chunk replaces that listing's provider-media set and may soft-delete
-  provider assets absent from the chunk before finalization. Only a complete,
-  internally consistent finalization may deactivate listings or options that
-  were not observed anywhere in the new snapshot.
+- Detail chunks are private staging, not current listing or media updates.
+  Finalization validates the full staged snapshot under its publication fence,
+  then atomically publishes listings/options/media and reconciles absence. A
+  rollback leaves all previous canonical data unchanged. This source uses the
+  explicitly approved measured full-publication transaction in the
+  [active cutover design](../superpowers/specs/2026-09-03-operation-automation-hard-cutover-design.md#wing-catalog-full-publication-exception--approved-2026-09-06).
+- A lost final response is checked against the exact owner's durable receipt;
+  local transport success alone never means publication succeeded.
 - Existing manually selected or generated content is preserved. A provider
   primary image initializes selection only when no operator-authored selection
   exists.
@@ -129,7 +134,7 @@ unrelated-image fallback.
 | Extension is not detected | Reload the unpacked extension and the KidItem page, then verify the origin allowlist. |
 | Wing tab is missing or logged out | Open the Wing inventory tab, complete human authentication, then resume. |
 | Collection is interrupted | Return to the same account and use **수집 재개**. Do not edit run/chunk rows. |
-| One page/detail fails | Inspect the recorded run error, correct browser state, and resume. An incomplete run does not deactivate unobserved listings/options, but accepted complete detail chunks may already have replaced provider media for their listing. |
+| One page/detail fails | Inspect the recorded run error and correct browser state. An incomplete run leaves previous listings, options, and provider media unchanged. Resume only a still-running owner attempt; terminal retries require a new attempt. |
 | Finalization reports inconsistent counts | Stop and report the run ID and counts; do not force publication or mark the run complete manually. |
 | Provider image cannot be fetched later | Keep the URL-backed catalog asset unchanged and retry only the requested thumbnail/detail operation. |
 | Latest detail renderer is not detected | Reload extension version 1.2.85 and the KidItem tab; confirm `detailPageClientRasterV1 = true`. |
@@ -155,8 +160,9 @@ rtk git diff --check -- extensions/kiditem-os
 Manual browser acceptance:
 
 1. Confirm KidItem and Wing are signed in within the same Chrome profile.
-2. Start collection for the selected account and observe published-product
-   counts increasing.
+2. Start collection for the selected account and observe staged-detail counts
+   increasing while existing cards/media remain unchanged. Verify the owner
+   confirms the complete publication before the listing queries refresh.
 3. Interrupt once, reload, and confirm **수집 재개** continues the same run.
 4. Complete finalization and confirm active/inactive tabs, options, provider
    media, and listing detail navigation.
@@ -175,7 +181,7 @@ Stop and report when:
 - direct registration lacks `detailPageClientRasterV1 = true` or exact storage
   host permission;
 - the selected account is not an active `channel='coupang'` account;
-- an incomplete run changes absent-listing activation state;
+- an incomplete run changes any current listing, option, or provider media;
 - a collection changes Sellpia stock, component recipes, or operator-authored
   content;
 - required automated or browser verification fails.

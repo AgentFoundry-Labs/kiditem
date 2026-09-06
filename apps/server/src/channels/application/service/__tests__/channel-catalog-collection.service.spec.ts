@@ -23,7 +23,10 @@ describe('ChannelCatalogCollectionService', () => {
       organizationId: ORGANIZATION_ID,
       userId: USER_ID,
       channelAccountId: ACCOUNT_ID,
-      request: { clientRunKey: CLIENT_RUN_KEY, collectorVersion: 'wing-inventory-v1' },
+      request: {
+        clientRunKey: CLIENT_RUN_KEY,
+        collectorVersion: 'wing-inventory-v1',
+      },
     });
 
     expect(repository.startOrResume).toHaveBeenCalledWith({
@@ -42,13 +45,25 @@ describe('ChannelCatalogCollectionService', () => {
 
   it('reports missing pages and products entirely from durable chunks', async () => {
     const repository = makeRepository();
-    repository.getOwnedRunWithChunks.mockResolvedValue(runWithChunks([
-      discoveryChunk(1, [
-        { ordinal: 0, externalProductId: 'P-1', registeredName: '첫 상품', primaryImageUrl: null },
-        { ordinal: 1, externalProductId: 'P-2', registeredName: '둘째 상품', primaryImageUrl: null },
+    repository.getOwnedRunWithChunks.mockResolvedValue(
+      runWithChunks([
+        discoveryChunk(1, [
+          {
+            ordinal: 0,
+            externalProductId: 'P-1',
+            registeredName: '첫 상품',
+            primaryImageUrl: null,
+          },
+          {
+            ordinal: 1,
+            externalProductId: 'P-2',
+            registeredName: '둘째 상품',
+            primaryImageUrl: null,
+          },
+        ]),
+        productChunk(0, ['P-1']),
       ]),
-      productChunk(0, ['P-1']),
-    ]));
+    );
     const service = new ChannelCatalogCollectionService(repository, makePublisher());
 
     const result = await service.getStatus(ownedInput());
@@ -61,12 +76,12 @@ describe('ChannelCatalogCollectionService', () => {
       optionCount: 1,
       mediaCount: 1,
       storedChunks: 2,
-      publishedProducts: 1,
-      publishedOptionCount: 1,
-      publishedMediaCount: 1,
-      publishedChunks: 1,
-      firstPublishedAt: '2026-07-14T00:00:00.000Z',
-      lastPublishedAt: '2026-07-14T00:00:00.000Z',
+      publishedProducts: 0,
+      publishedOptionCount: 0,
+      publishedMediaCount: 0,
+      publishedChunks: 0,
+      firstPublishedAt: null,
+      lastPublishedAt: null,
     });
     expect(result.missing).toEqual({
       discoverySequences: [2],
@@ -78,7 +93,12 @@ describe('ChannelCatalogCollectionService', () => {
     const repository = makeRepository();
     const service = new ChannelCatalogCollectionService(repository, makePublisher());
     const payload = discoveryPayload(1, [
-      { ordinal: 0, externalProductId: 'P-1', registeredName: '상품', primaryImageUrl: null },
+      {
+        ordinal: 0,
+        externalProductId: 'P-1',
+        registeredName: '상품',
+        primaryImageUrl: null,
+      },
     ]);
 
     await service.putChunk({
@@ -95,58 +115,40 @@ describe('ChannelCatalogCollectionService', () => {
       },
     });
 
-    expect(repository.putChunk).toHaveBeenCalledWith(expect.objectContaining({
-      runId: RUN_ID,
-      checksum: hashCatalogChunkPayload(payload),
-      payload,
-    }));
+    expect(repository.putChunk).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: RUN_ID,
+        checksum: hashCatalogChunkPayload(payload),
+        payload,
+      }),
+    );
   });
 
-  it('publishes a stored product-detail chunk immediately, including idempotent retries', async () => {
+  it('keeps fully staged details ready to finalize and out of published progress', async () => {
     const repository = makeRepository();
-    const chunk = productChunk(0, ['P-1'], false);
-    repository.putChunk.mockResolvedValue({ stored: false, chunk });
-    const publisher = makePublisher();
-    const service = new ChannelCatalogCollectionService(repository, publisher);
-
-    await service.putChunk({
-      ...ownedInput(),
-      userId: USER_ID,
-      kind: 'product_details',
-      sequence: chunk.sequence,
-      request: {
-        kind: 'product_details',
-        sequence: chunk.sequence,
-        checksum: hashCatalogChunkPayload(chunk.payload),
-        itemCount: chunk.itemCount,
-        payload: chunk.payload,
-      },
-    });
-
-    expect(publisher.publishChunk).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      userId: USER_ID,
-      channelAccountId: ACCOUNT_ID,
-      collectionRunId: RUN_ID,
-      chunkId: chunk.id,
-      products: chunk.payload.products,
-    });
-  });
-
-  it('keeps stored but unpublished details retryable and out of published progress', async () => {
-    const repository = makeRepository();
-    repository.getOwnedRunWithChunks.mockResolvedValue(runWithChunks([
-      discoveryChunk(1, [
-        { ordinal: 0, externalProductId: 'P-1', registeredName: '상품', primaryImageUrl: null },
-      ], onePageManifest()),
-      productChunk(0, ['P-1'], false),
-      confirmationChunk(onePageManifest()),
-    ]));
+    repository.getOwnedRunWithChunks.mockResolvedValue(
+      runWithChunks([
+        discoveryChunk(
+          1,
+          [
+            {
+              ordinal: 0,
+              externalProductId: 'P-1',
+              registeredName: '상품',
+              primaryImageUrl: null,
+            },
+          ],
+          onePageManifest(),
+        ),
+        productChunk(0, ['P-1']),
+        confirmationChunk(onePageManifest()),
+      ]),
+    );
     const service = new ChannelCatalogCollectionService(repository, makePublisher());
 
     const result = await service.getStatus(ownedInput());
 
-    expect(result.phase).toBe('hydration');
+    expect(result.phase).toBe('ready_to_finalize');
     expect(result.progress).toMatchObject({
       hydratedProducts: 1,
       publishedProducts: 0,
@@ -156,57 +158,86 @@ describe('ChannelCatalogCollectionService', () => {
       firstPublishedAt: null,
       lastPublishedAt: null,
     });
-    expect(result.missing.productIds).toEqual(['P-1']);
+    expect(result.missing.productIds).toEqual([]);
   });
 
   it('rejects a checksum mismatch before writing JSONB', async () => {
     const repository = makeRepository();
     const service = new ChannelCatalogCollectionService(repository, makePublisher());
     const payload = discoveryPayload(1, [
-      { ordinal: 0, externalProductId: 'P-1', registeredName: '상품', primaryImageUrl: null },
+      {
+        ordinal: 0,
+        externalProductId: 'P-1',
+        registeredName: '상품',
+        primaryImageUrl: null,
+      },
     ]);
 
-    await expect(service.putChunk({
-      ...ownedInput(),
-      userId: USER_ID,
-      kind: 'discovery_page',
-      sequence: 1,
-      request: {
+    await expect(
+      service.putChunk({
+        ...ownedInput(),
+        userId: USER_ID,
         kind: 'discovery_page',
         sequence: 1,
-        checksum: 'f'.repeat(64),
-        itemCount: 1,
-        payload,
-      },
-    })).rejects.toBeInstanceOf(BadRequestException);
+        request: {
+          kind: 'discovery_page',
+          sequence: 1,
+          checksum: 'f'.repeat(64),
+          itemCount: 1,
+          payload,
+        },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
     expect(repository.putChunk).not.toHaveBeenCalled();
   });
 
   it('blocks finalize until discovery, hydration, and manifest confirmation are complete', async () => {
     const repository = makeRepository();
-    repository.getOwnedRunWithChunks.mockResolvedValue(runWithChunks([
-      discoveryChunk(1, [
-        { ordinal: 0, externalProductId: 'P-1', registeredName: '상품', primaryImageUrl: null },
+    repository.getOwnedRunWithChunks.mockResolvedValue(
+      runWithChunks([
+        discoveryChunk(1, [
+          {
+            ordinal: 0,
+            externalProductId: 'P-1',
+            registeredName: '상품',
+            primaryImageUrl: null,
+          },
+        ]),
       ]),
-    ]));
+    );
     const publisher = makePublisher();
     const service = new ChannelCatalogCollectionService(repository, publisher);
 
-    await expect(service.finalize({
-      ...ownedInput(),
-      userId: USER_ID,
-      request: { snapshotHash: 'a'.repeat(64) },
-    })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.finalize({
+        ...ownedInput(),
+        userId: USER_ID,
+        request: { snapshotHash: 'a'.repeat(64) },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
     expect(publisher.publish).not.toHaveBeenCalled();
   });
 
   it('exposes the server canonical hash when a resumable snapshot is ready', async () => {
     const repository = makeRepository();
-    const productWithSaleStatus = withSaleStatus(productChunk(0, ['P-1']).payload.products[0]!, '판매중');
+    const productWithSaleStatus = withSaleStatus(
+      productChunk(0, ['P-1']).payload.products[0]!,
+      '판매중',
+    );
     const chunks = [
-      discoveryChunk(1, [
-        { ordinal: 0, externalProductId: 'P-1', registeredName: '상품', primaryImageUrl: null, saleStatus: '판매중' },
-      ], onePageManifest()),
+      discoveryChunk(
+        1,
+        [
+          {
+            ordinal: 0,
+            externalProductId: 'P-1',
+            registeredName: '상품',
+            primaryImageUrl: null,
+            saleStatus: '판매중',
+          },
+        ],
+        onePageManifest(),
+      ),
       productChunk(0, ['P-1']),
       confirmationChunk(onePageManifest()),
     ];
@@ -221,11 +252,24 @@ describe('ChannelCatalogCollectionService', () => {
 
   it('publishes one complete canonical snapshot with the server-computed hash', async () => {
     const repository = makeRepository();
-    const productWithSaleStatus = withSaleStatus(productChunk(0, ['P-1']).payload.products[0]!, '판매중');
+    const productWithSaleStatus = withSaleStatus(
+      productChunk(0, ['P-1']).payload.products[0]!,
+      '판매중',
+    );
     const chunks = [
-      discoveryChunk(1, [
-        { ordinal: 0, externalProductId: 'P-1', registeredName: '상품', primaryImageUrl: null, saleStatus: '판매중' },
-      ], onePageManifest()),
+      discoveryChunk(
+        1,
+        [
+          {
+            ordinal: 0,
+            externalProductId: 'P-1',
+            registeredName: '상품',
+            primaryImageUrl: null,
+            saleStatus: '판매중',
+          },
+        ],
+        onePageManifest(),
+      ),
       productChunk(0, ['P-1']),
       confirmationChunk(onePageManifest()),
     ];
@@ -240,13 +284,15 @@ describe('ChannelCatalogCollectionService', () => {
       request: { snapshotHash },
     });
 
-    expect(publisher.publish).toHaveBeenCalledWith(expect.objectContaining({
-      organizationId: ORGANIZATION_ID,
-      channelAccountId: ACCOUNT_ID,
-      collectionRunId: RUN_ID,
-      snapshotHash,
-      products: [productWithSaleStatus],
-    }));
+    expect(publisher.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        channelAccountId: ACCOUNT_ID,
+        collectionRunId: RUN_ID,
+        snapshotHash,
+        chunkSetHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
+    );
   });
 });
 
@@ -260,23 +306,23 @@ function ownedInput() {
 
 function makeRepository() {
   return {
-    startOrResume: vi.fn<ChannelCatalogCollectionRepositoryPort['startOrResume']>()
+    startOrResume: vi
+      .fn<ChannelCatalogCollectionRepositoryPort['startOrResume']>()
       .mockResolvedValue(runRecord()),
-    getOwnedRunWithChunks: vi.fn<ChannelCatalogCollectionRepositoryPort['getOwnedRunWithChunks']>()
+    getOwnedRunWithChunks: vi
+      .fn<ChannelCatalogCollectionRepositoryPort['getOwnedRunWithChunks']>()
       .mockResolvedValue(runWithChunks([])),
-    putChunk: vi.fn<ChannelCatalogCollectionRepositoryPort['putChunk']>()
+    putChunk: vi
+      .fn<ChannelCatalogCollectionRepositoryPort['putChunk']>()
       .mockResolvedValue({ stored: true, chunk: {} as never }),
-    recordRecoverableError: vi.fn<ChannelCatalogCollectionRepositoryPort['recordRecoverableError']>(),
+    recordRecoverableError:
+      vi.fn<ChannelCatalogCollectionRepositoryPort['recordRecoverableError']>(),
     markFailed: vi.fn<ChannelCatalogCollectionRepositoryPort['markFailed']>(),
   };
 }
 
 function makePublisher() {
   return {
-    publishChunk: vi.fn<ChannelCatalogPublicationPort['publishChunk']>().mockResolvedValue({
-      duplicate: false,
-      changes: { publishedProducts: 1 },
-    }),
     publish: vi.fn<ChannelCatalogPublicationPort['publish']>().mockResolvedValue({
       sourceImportRunId: '00000000-0000-4000-8000-000000000006',
       duplicate: false,
@@ -305,7 +351,13 @@ function runRecord() {
   };
 }
 
-function runWithChunks(chunks: Array<ReturnType<typeof discoveryChunk> | ReturnType<typeof productChunk> | ReturnType<typeof confirmationChunk>>) {
+function runWithChunks(
+  chunks: Array<
+    | ReturnType<typeof discoveryChunk>
+    | ReturnType<typeof productChunk>
+    | ReturnType<typeof confirmationChunk>
+  >,
+) {
   return { ...runRecord(), chunks };
 }
 
@@ -343,7 +395,10 @@ function discoveryPayload(
     kind: 'discovery_page' as const,
     page,
     manifest,
-    items: items.map((item) => ({ ...item, saleStatus: item.saleStatus ?? null })),
+    items: items.map((item) => ({
+      ...item,
+      saleStatus: item.saleStatus ?? null,
+    })),
   };
 }
 
@@ -359,12 +414,10 @@ function discoveryChunk(
     checksum: 'a'.repeat(64),
     itemCount: items.length,
     payload: discoveryPayload(page, items, manifest),
-    publishedAt: null,
-    publicationJson: null,
   };
 }
 
-function productChunk(startOrdinal: number, productIds: string[], published = true) {
+function productChunk(startOrdinal: number, productIds: string[]) {
   const products = productIds.map((externalProductId, index) => ({
     ordinal: startOrdinal + index,
     product: {
@@ -375,24 +428,28 @@ function productChunk(startOrdinal: number, productIds: string[], published = tr
       manufacturer: null,
       brand: null,
       productStatus: '승인완료',
-      options: [{
-        externalOptionId: `${externalProductId}-SKU`,
-        optionName: '기본',
-        skuStatus: '판매중',
-        salePrice: 12_900,
-        sellerSku: `${externalProductId}-SELLER`,
-        modelNumber: null,
-        barcode: null,
-        attributes: [],
-        media: [],
-        raw: { source: 'fixture-option' },
-      }],
-      media: [{
-        sourceUrl: 'https://example.com/image.jpg',
-        role: 'primary' as const,
-        sortOrder: 0,
-        externalOptionId: null,
-      }],
+      options: [
+        {
+          externalOptionId: `${externalProductId}-SKU`,
+          optionName: '기본',
+          skuStatus: '판매중',
+          salePrice: 12_900,
+          sellerSku: `${externalProductId}-SELLER`,
+          modelNumber: null,
+          barcode: null,
+          attributes: [],
+          media: [],
+          raw: { source: 'fixture-option' },
+        },
+      ],
+      media: [
+        {
+          sourceUrl: 'https://example.com/image.jpg',
+          role: 'primary' as const,
+          sortOrder: 0,
+          externalOptionId: null,
+        },
+      ],
       raw: { source: 'fixture' },
     },
   }));
@@ -408,8 +465,6 @@ function productChunk(startOrdinal: number, productIds: string[], published = tr
       startOrdinal,
       products,
     },
-    publishedAt: published ? new Date('2026-07-14T00:00:00.000Z') : null,
-    publicationJson: published ? { publishedProducts: products.length } : null,
   };
 }
 
@@ -425,8 +480,6 @@ function confirmationChunk(manifest = onePageManifest()) {
       kind: 'manifest_confirmation' as const,
       manifest,
     },
-    publishedAt: null,
-    publicationJson: null,
   };
 }
 

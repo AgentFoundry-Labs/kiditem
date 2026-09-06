@@ -1,10 +1,5 @@
 import { createHash } from 'node:crypto';
-import {
-  BadRequestException,
-  ConflictException,
-  Inject,
-  Injectable,
-} from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import {
   CoupangCatalogCollectionErrorRequestSchema,
   CoupangCatalogCollectionRunSchema,
@@ -35,8 +30,7 @@ import {
 type CanonicalProduct = { ordinal: number; product: CoupangCatalogProductV1 };
 
 @Injectable()
-export class ChannelCatalogCollectionService
-implements ChannelCatalogCollectionPort {
+export class ChannelCatalogCollectionService implements ChannelCatalogCollectionPort {
   constructor(
     @Inject(CHANNEL_CATALOG_COLLECTION_REPOSITORY_PORT)
     private readonly repository: ChannelCatalogCollectionRepositoryPort,
@@ -47,10 +41,7 @@ implements ChannelCatalogCollectionPort {
   async start(
     input: Parameters<ChannelCatalogCollectionPort['start']>[0],
   ): Promise<CoupangCatalogCollectionRun> {
-    const request = parseRequest(
-      StartCoupangCatalogCollectionRequestSchema,
-      input.request,
-    );
+    const request = parseRequest(StartCoupangCatalogCollectionRequestSchema, input.request);
     const run = await this.repository.startOrResume({
       organizationId: input.organizationId,
       userId: input.userId,
@@ -68,9 +59,7 @@ implements ChannelCatalogCollectionPort {
   async getStatus(
     input: Parameters<ChannelCatalogCollectionPort['getStatus']>[0],
   ): Promise<CoupangCatalogCollectionRun> {
-    return buildCollectionStatus(
-      await this.repository.getOwnedRunWithChunks(input),
-    );
+    return buildCollectionStatus(await this.repository.getOwnedRunWithChunks(input));
   }
 
   async putChunk(
@@ -78,15 +67,13 @@ implements ChannelCatalogCollectionPort {
   ): Promise<CoupangCatalogCollectionRun> {
     const request = parseRequest(PutCoupangCatalogChunkRequestSchema, input.request);
     if (request.kind !== input.kind || request.sequence !== input.sequence) {
-      throw new BadRequestException(
-        'Chunk kind and sequence must match the request path',
-      );
+      throw new BadRequestException('Chunk kind and sequence must match the request path');
     }
     const expectedChecksum = hashCatalogChunkPayload(request.payload);
     if (request.checksum !== expectedChecksum) {
       throw new BadRequestException('Chunk checksum does not match its canonical payload');
     }
-    const stored = await this.repository.putChunk({
+    await this.repository.putChunk({
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
       runId: input.runId,
@@ -96,26 +83,13 @@ implements ChannelCatalogCollectionPort {
       itemCount: request.itemCount,
       payload: request.payload,
     });
-    if (request.kind === 'product_details') {
-      await this.publisher.publishChunk({
-        organizationId: input.organizationId,
-        userId: input.userId,
-        channelAccountId: input.channelAccountId,
-        collectionRunId: input.runId,
-        chunkId: stored.chunk.id,
-        products: request.payload.products,
-      });
-    }
     return this.getStatus(input);
   }
 
   async recordError(
     input: Parameters<ChannelCatalogCollectionPort['recordError']>[0],
   ): Promise<CoupangCatalogCollectionRun> {
-    const request = parseRequest(
-      CoupangCatalogCollectionErrorRequestSchema,
-      input.request,
-    );
+    const request = parseRequest(CoupangCatalogCollectionErrorRequestSchema, input.request);
     await this.repository.recordRecoverableError({
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
@@ -128,12 +102,14 @@ implements ChannelCatalogCollectionPort {
   async finalize(
     input: Parameters<ChannelCatalogCollectionPort['finalize']>[0],
   ): Promise<CoupangCatalogCollectionRun> {
-    const request = parseRequest(
-      FinalizeCoupangCatalogCollectionRequestSchema,
-      input.request,
-    );
+    const request = parseRequest(FinalizeCoupangCatalogCollectionRequestSchema, input.request);
     const run = await this.repository.getOwnedRunWithChunks(input);
-    if (run.status === 'completed') return buildCollectionStatus(run);
+    if (run.status === 'completed') {
+      if (jsonRecord(run.metaJson)?.snapshotHash !== request.snapshotHash) {
+        throw new ConflictException('Completed collection has a different snapshot hash');
+      }
+      return buildCollectionStatus(run);
+    }
     if (run.status !== 'running') {
       throw new ConflictException(`Cannot finalize a collection that is ${run.status}`);
     }
@@ -163,9 +139,7 @@ implements ChannelCatalogCollectionPort {
     }
     const serverHash = hashCoupangCatalogSnapshot(snapshot.products);
     if (request.snapshotHash !== serverHash) {
-      throw new BadRequestException(
-        'Snapshot hash does not match the server canonical snapshot',
-      );
+      throw new BadRequestException('Snapshot hash does not match the server canonical snapshot');
     }
 
     await this.publisher.publish({
@@ -174,7 +148,7 @@ implements ChannelCatalogCollectionPort {
       channelAccountId: input.channelAccountId,
       collectionRunId: input.runId,
       snapshotHash: serverHash,
-      products: snapshot.products,
+      chunkSetHash: hashCatalogChunkReceipts(run.chunks),
     });
     return this.getStatus(input);
   }
@@ -198,9 +172,10 @@ function buildCollectionStatus(
   }
 
   const phase = derivePhase(run.status, state, metadata);
-  const readySnapshotHash = phase === 'ready_to_finalize'
-    ? hashCoupangCatalogSnapshot(assembleCompleteSnapshot(run.chunks).products)
-    : null;
+  const readySnapshotHash =
+    phase === 'ready_to_finalize'
+      ? hashCoupangCatalogSnapshot(assembleCompleteSnapshot(run.chunks).products)
+      : null;
   return CoupangCatalogCollectionRunSchema.parse({
     id: run.id,
     channelAccountId: run.channelAccountId,
@@ -208,39 +183,37 @@ function buildCollectionStatus(
     status: run.status,
     phase,
     collectorVersion:
-      typeof metadata.collectorVersion === 'string'
-        ? metadata.collectorVersion
-        : 'unknown',
+      typeof metadata.collectorVersion === 'string' ? metadata.collectorVersion : 'unknown',
     manifest: state.manifest,
     progress: {
       discoveryPagesStored: state.discoveryPages.size,
       discoveredProducts: state.discovered.length,
       hydratedProducts: state.products.length,
-      optionCount: state.products.reduce(
-        (sum, item) => sum + item.product.options.length,
-        0,
-      ),
+      optionCount: state.products.reduce((sum, item) => sum + item.product.options.length, 0),
       mediaCount: state.products.reduce(
-        (sum, item) => sum + item.product.media.length +
+        (sum, item) =>
+          sum +
+          item.product.media.length +
           item.product.options.reduce((optionSum, option) => optionSum + option.media.length, 0),
         0,
       ),
       storedChunks: run.chunks.length,
-      publishedProducts: state.publishedProducts.length,
-      publishedOptionCount: countOptions(state.publishedProducts),
-      publishedMediaCount: countMedia(state.publishedProducts),
-      publishedChunks: state.publishedChunkDates.length,
-      firstPublishedAt: firstDate(state.publishedChunkDates)?.toISOString() ?? null,
-      lastPublishedAt: lastDate(state.publishedChunkDates)?.toISOString() ?? null,
+      publishedProducts: run.status === 'completed' ? state.products.length : 0,
+      publishedOptionCount: run.status === 'completed' ? countOptions(state.products) : 0,
+      publishedMediaCount: run.status === 'completed' ? countMedia(state.products) : 0,
+      publishedChunks:
+        run.status === 'completed'
+          ? run.chunks.filter((chunk) => chunk.kind === 'product_details').length
+          : 0,
+      firstPublishedAt: run.status === 'completed' ? (run.finishedAt?.toISOString() ?? null) : null,
+      lastPublishedAt: run.status === 'completed' ? (run.finishedAt?.toISOString() ?? null) : null,
     },
     missing: {
       discoverySequences: missingDiscoverySequences(state),
-      productIds: missingProductIds(state),
+      productIds: missingHydratedProductIds(state),
     },
     snapshotHash:
-      typeof metadata.snapshotHash === 'string'
-        ? metadata.snapshotHash
-        : readySnapshotHash,
+      typeof metadata.snapshotHash === 'string' ? metadata.snapshotHash : readySnapshotHash,
     error: error
       ? {
           code: stringValue(error.code, 'collection_error'),
@@ -273,8 +246,6 @@ type InspectedChunks = {
     saleStatus: string | null;
   }>;
   products: CanonicalProduct[];
-  publishedProducts: CanonicalProduct[];
-  publishedChunkDates: Date[];
 };
 
 function inspectChunks(chunks: ChannelCatalogCollectionChunkRecord[]): InspectedChunks {
@@ -283,8 +254,6 @@ function inspectChunks(chunks: ChannelCatalogCollectionChunkRecord[]): Inspected
   const discoveryPages = new Set<number>();
   const discovered: InspectedChunks['discovered'] = [];
   const products: CanonicalProduct[] = [];
-  const publishedProducts: CanonicalProduct[] = [];
-  const publishedChunkDates: Date[] = [];
 
   for (const chunk of chunks) {
     if (chunk.kind === 'discovery_page') {
@@ -292,23 +261,18 @@ function inspectChunks(chunks: ChannelCatalogCollectionChunkRecord[]): Inspected
       manifest ??= payload.manifest;
       assertSameManifest(manifest, payload.manifest);
       discoveryPages.add(payload.page);
-      discovered.push(...payload.items.map(({ ordinal, externalProductId, saleStatus }) => ({
-        ordinal,
-        externalProductId,
-        saleStatus: saleStatus ?? null,
-      })));
+      discovered.push(
+        ...payload.items.map(({ ordinal, externalProductId, saleStatus }) => ({
+          ordinal,
+          externalProductId,
+          saleStatus: saleStatus ?? null,
+        })),
+      );
     } else if (chunk.kind === 'product_details') {
       const payload = parseStoredChunk(CoupangCatalogProductDetailsChunkV1Schema, chunk);
       products.push(...payload.products);
-      if (chunk.publishedAt) {
-        publishedProducts.push(...payload.products);
-        publishedChunkDates.push(chunk.publishedAt);
-      }
     } else if (chunk.kind === 'manifest_confirmation') {
-      const payload = parseStoredChunk(
-        CoupangCatalogManifestConfirmationV1Schema,
-        chunk,
-      );
+      const payload = parseStoredChunk(CoupangCatalogManifestConfirmationV1Schema, chunk);
       confirmation = payload.manifest;
     } else {
       throw new ConflictException(`Unknown stored catalog chunk kind: ${chunk.kind}`);
@@ -320,12 +284,10 @@ function inspectChunks(chunks: ChannelCatalogCollectionChunkRecord[]): Inspected
     discoveryPages,
     discovered: discovered.sort((a, b) => a.ordinal - b.ordinal),
     products: products.sort((a, b) => a.ordinal - b.ordinal),
-    publishedProducts: publishedProducts.sort((a, b) => a.ordinal - b.ordinal),
-    publishedChunkDates,
   };
 }
 
-function assembleCompleteSnapshot(
+export function assembleCompleteSnapshot(
   chunks: ChannelCatalogCollectionChunkRecord[],
 ): CompleteSnapshot {
   const state = inspectChunks(chunks);
@@ -336,9 +298,7 @@ function assembleCompleteSnapshot(
   assertSameManifest(state.manifest, state.confirmation);
   const missingPages = missingDiscoverySequences(state);
   if (missingPages.length > 0) {
-    throw new BadRequestException(
-      `Discovery pages are missing: ${missingPages.join(', ')}`,
-    );
+    throw new BadRequestException(`Discovery pages are missing: ${missingPages.join(', ')}`);
   }
   if (state.discovered.length !== state.manifest.totalItems) {
     throw new BadRequestException(
@@ -350,9 +310,7 @@ function assembleCompleteSnapshot(
   const ordinals = new Set<number>();
   for (const item of state.discovered) {
     if (discoveredIds.has(item.externalProductId)) {
-      throw new BadRequestException(
-        `Duplicate discovered product ID: ${item.externalProductId}`,
-      );
+      throw new BadRequestException(`Duplicate discovered product ID: ${item.externalProductId}`);
     }
     if (ordinals.has(item.ordinal)) {
       throw new BadRequestException(`Duplicate discovery ordinal: ${item.ordinal}`);
@@ -370,9 +328,7 @@ function assembleCompleteSnapshot(
   const externalOptionOwners = new Map<string, string>();
   const products: CanonicalProduct[] = [];
   for (const item of state.products) {
-    const expected = state.discovered.find(
-      (discovered) => discovered.ordinal === item.ordinal,
-    );
+    const expected = state.discovered.find((discovered) => discovered.ordinal === item.ordinal);
     if (!expected || expected.externalProductId !== item.product.externalProductId) {
       throw new BadRequestException(
         `Hydrated product does not match discovery ordinal ${item.ordinal}`,
@@ -400,35 +356,16 @@ function assembleCompleteSnapshot(
   }
   const missingProducts = missingHydratedProductIds(state);
   if (missingProducts.length > 0 || state.products.length !== state.discovered.length) {
-    throw new BadRequestException(
-      `Product details are missing: ${missingProducts.join(', ')}`,
-    );
-  }
-  const unpublishedProducts = missingProductIds(state);
-  if (
-    unpublishedProducts.length > 0 ||
-    state.publishedProducts.length !== state.discovered.length
-  ) {
-    throw new BadRequestException(
-      `Product details are not published: ${unpublishedProducts.join(', ')}`,
-    );
+    throw new BadRequestException(`Product details are missing: ${missingProducts.join(', ')}`);
   }
   return { manifest: state.manifest, products };
 }
 
 function missingDiscoverySequences(state: InspectedChunks): number[] {
   if (!state.manifest) return [];
-  return Array.from({ length: state.manifest.expectedPages }, (_, index) => index + 1)
-    .filter((sequence) => !state.discoveryPages.has(sequence));
-}
-
-function missingProductIds(state: InspectedChunks): string[] {
-  const published = new Set(
-    state.publishedProducts.map((item) => item.product.externalProductId),
+  return Array.from({ length: state.manifest.expectedPages }, (_, index) => index + 1).filter(
+    (sequence) => !state.discoveryPages.has(sequence),
   );
-  return state.discovered
-    .filter((item) => !published.has(item.externalProductId))
-    .map((item) => item.externalProductId);
 }
 
 function missingHydratedProductIds(state: InspectedChunks): string[] {
@@ -460,24 +397,12 @@ function countOptions(products: CanonicalProduct[]): number {
 
 function countMedia(products: CanonicalProduct[]): number {
   return products.reduce(
-    (sum, item) => sum + item.product.media.length + item.product.options.reduce(
-      (optionSum, option) => optionSum + option.media.length,
-      0,
-    ),
+    (sum, item) =>
+      sum +
+      item.product.media.length +
+      item.product.options.reduce((optionSum, option) => optionSum + option.media.length, 0),
     0,
   );
-}
-
-function firstDate(dates: Date[]): Date | null {
-  return dates.length > 0
-    ? new Date(Math.min(...dates.map((date) => date.getTime())))
-    : null;
-}
-
-function lastDate(dates: Date[]): Date | null {
-  return dates.length > 0
-    ? new Date(Math.max(...dates.map((date) => date.getTime())))
-    : null;
 }
 
 function derivePhase(
@@ -488,12 +413,9 @@ function derivePhase(
   if (status === 'completed') return 'finished';
   const storedPhase = metadata.phase;
   if (storedPhase === 'publishing') return 'publishing';
-  if (
-    !state.manifest ||
-    !state.confirmation ||
-    missingDiscoverySequences(state).length > 0
-  ) return 'discovery';
-  if (missingProductIds(state).length > 0) return 'hydration';
+  if (!state.manifest || !state.confirmation || missingDiscoverySequences(state).length > 0)
+    return 'discovery';
+  if (missingHydratedProductIds(state).length > 0) return 'hydration';
   return 'ready_to_finalize';
 }
 
@@ -506,10 +428,7 @@ function assertSameManifest(
   }
 }
 
-function parseStoredChunk<T>(
-  schema: ZodType<T>,
-  chunk: ChannelCatalogCollectionChunkRecord,
-): T {
+function parseStoredChunk<T>(schema: ZodType<T>, chunk: ChannelCatalogCollectionChunkRecord): T {
   const result = schema.safeParse(chunk.payload);
   if (!result.success) {
     throw new ConflictException(
@@ -529,6 +448,20 @@ function parseRequest<T>(schema: ZodType<T>, value: unknown): T {
 
 export function hashCatalogChunkPayload(payload: unknown): string {
   return createHash('sha256').update(stableStringify(payload)).digest('hex');
+}
+
+export function hashCatalogChunkReceipts(chunks: ChannelCatalogCollectionChunkRecord[]): string {
+  return hashCatalogChunkPayload(
+    chunks
+      .map(({ id, kind, sequence, checksum, itemCount }) => ({
+        id,
+        kind,
+        sequence,
+        checksum,
+        itemCount,
+      }))
+      .sort((a, b) => a.kind.localeCompare(b.kind) || a.sequence - b.sequence),
+  );
 }
 
 export function hashCoupangCatalogSnapshot(products: CanonicalProduct[]): string {
@@ -579,7 +512,9 @@ function numberRecord(value: unknown): Record<string, number> {
   const record = jsonRecord(value);
   if (!record) return {};
   return Object.fromEntries(
-    Object.entries(record).filter((entry): entry is [string, number] =>
-      typeof entry[1] === 'number' && Number.isInteger(entry[1]) && entry[1] >= 0),
+    Object.entries(record).filter(
+      (entry): entry is [string, number] =>
+        typeof entry[1] === 'number' && Number.isInteger(entry[1]) && entry[1] >= 0,
+    ),
   );
 }

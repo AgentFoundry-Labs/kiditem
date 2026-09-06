@@ -11,7 +11,7 @@ export interface CatalogMediaPublicationPort {
     organizationId: string;
     userId: string;
     publicationReference: {
-      type: 'channel_scrape_run' | 'source_import_run';
+      type: 'source_import_run';
       id: string;
     };
     listings: Array<{

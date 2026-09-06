@@ -6,13 +6,10 @@ import {
 } from './coupang-catalog-progress';
 
 describe('Coupang catalog progress', () => {
-  it('distinguishes discovered, stored-detail, and DB-published progress', () => {
+  it('shows private staged progress without claiming canonical publication', () => {
     const run = collectionRun({
       discoveredProducts: 1_228,
       hydratedProducts: 80,
-      publishedProducts: 60,
-      publishedOptionCount: 68,
-      publishedMediaCount: 120,
     });
 
     expect(buildCoupangCatalogProgress(
@@ -21,19 +18,31 @@ describe('Coupang catalog progress', () => {
     )).toMatchObject({
       discoveredLabel: '목록 발견 1,228 / 1,228',
       hydratedLabel: '상세 수집 80 / 1,228',
-      publishedLabel: 'DB 반영 60 / 1,228',
-      publicationDetailsLabel: '옵션 68개 · 이미지 120개 반영',
-      rateLabel: '처리 6.0개/분',
-      etaLabel: '완료 예상 3시간 15분',
+      publishedLabel: '전체 수집 후 한 번에 반영',
+      publicationDetailsLabel: '수집 중에는 기존 상품 데이터 유지',
+      rateLabel: '수집 1.3개/분',
+      etaLabel: '상세 수집 예상 14시간 21분',
+      percent: 7,
     });
   });
 
-  it('avoids invalid rates and ETAs before publication starts', () => {
+  it('avoids invalid rates and ETAs before detail collection starts', () => {
     const progress = buildCoupangCatalogProgress(collectionRun(), 0);
 
     expect(progress.percent).toBe(0);
     expect(progress.rateLabel).toBeNull();
     expect(progress.etaLabel).toBeNull();
+  });
+
+  it('reserves completion for the committed owner result, not collected details or phase', () => {
+    const run = collectionRun({
+      discoveredProducts: 10,
+      hydratedProducts: 10,
+      phase: 'ready_to_finalize',
+    });
+    expect(buildCoupangCatalogProgress(run, Date.parse('2026-07-14T00:30:00Z')))
+      .toMatchObject({ percent: 99, publishedLabel: '전체 수집 후 한 번에 반영', etaLabel: null });
+    expect(buildCoupangCatalogProgress({ ...run, phase: 'finished' }, 0).percent).toBe(99);
   });
 
   it('reports completed publication without a negative ETA', () => {
@@ -43,10 +52,24 @@ describe('Coupang catalog progress', () => {
       discoveredProducts: 10,
       hydratedProducts: 10,
       publishedProducts: 10,
+      publishedOptionCount: 20,
+      publishedMediaCount: 30,
     }), Date.parse('2026-07-14T00:30:00.000Z'));
 
     expect(progress.percent).toBe(100);
     expect(progress.etaLabel).toBeNull();
+    expect(progress.publishedLabel).toBe('DB 반영 10 / 10');
+    expect(progress.publicationDetailsLabel).toBe('옵션 20개 · 이미지 30개 반영');
+    expect(progress.rateLabel).toBeNull();
+  });
+
+  it('does not project a continuing collection rate or ETA for a failed owner', () => {
+    expect(buildCoupangCatalogProgress(collectionRun({
+      status: 'failed', discoveredProducts: 100, hydratedProducts: 40,
+    }), Date.parse('2026-07-14T00:30:00Z'))).toMatchObject({
+      rateLabel: null, etaLabel: null, percent: 40,
+      publicationDetailsLabel: '수집 중에는 기존 상품 데이터 유지',
+    });
   });
 
   it('hides a previous server attempt error while the browser collection is active', () => {

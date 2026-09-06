@@ -534,11 +534,25 @@
   }
 
   async function getServerStatus(dependencies, channelAccountId, runId) {
-    return apiJson(
+    const server = await apiJson(
       dependencies,
       `/api/channels/accounts/${encodeURIComponent(channelAccountId)}` +
         `/catalog-imports/coupang-wing/runs/${encodeURIComponent(runId)}`,
     );
+    assertOwnedServerStatus(server, channelAccountId, runId);
+    return server;
+  }
+
+  function assertOwnedServerStatus(server, channelAccountId, runId) {
+    if (server?.id !== runId || server?.channelAccountId !== channelAccountId) {
+      throw new Error("쿠팡 상품 수집 응답의 실행·계정이 일치하지 않습니다");
+    }
+    if (server.status !== "running" && server.status !== "completed") {
+      throw new Error("종료된 쿠팡 상품 수집입니다. 새 수집을 시작해주세요");
+    }
+    if (server.status === "completed") {
+      requiredUuid(server.publication?.sourceImportRunId, "sourceImportRunId");
+    }
   }
 
   async function apiJson(dependencies, path, init) {
@@ -561,6 +575,17 @@
   async function handleStepError(error, dependencies) {
     const state = await getState(dependencies);
     if (!state || state.status !== "running") return;
+    // A response can be lost after the full publication commits.
+    let server;
+    try {
+      server = await getServerStatus(dependencies, state.channelAccountId, state.runId);
+    } catch {
+      // Unconfirmed publication is not success; preserve the original error.
+    }
+    if (server?.status === "completed") {
+      await finish(state, dependencies, server);
+      return;
+    }
     const message = error?.message || String(error);
     const failed = {
       ...state,
@@ -589,6 +614,10 @@
   }
 
   async function finish(state, dependencies, server) {
+    assertOwnedServerStatus(server, state.channelAccountId, state.runId);
+    if (server.status !== "completed") {
+      throw new Error("쿠팡 상품 전체 반영이 아직 확인되지 않았습니다");
+    }
     const done = {
       ...state,
       status: "done",

@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
-import type { CoupangCatalogProductV1 } from '@kiditem/shared/coupang-catalog-snapshot';
+import type {
+  CoupangCatalogProductV1,
+  PutCoupangCatalogChunkRequest,
+} from '@kiditem/shared/coupang-catalog-snapshot';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../../ai/adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -14,20 +17,28 @@ import {
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 import { ChannelCatalogPublicationRepositoryAdapter } from '../adapter/out/repository/channel-catalog-publication.repository.adapter';
+import { ChannelCatalogCollectionRepositoryAdapter } from '../adapter/out/repository/channel-catalog-collection.repository.adapter';
+import {
+  ChannelCatalogCollectionService,
+  hashCatalogChunkPayload,
+} from '../application/service/channel-catalog-collection.service';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
-const SNAPSHOT_A = 'a'.repeat(64);
 
 describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
-  let publisher: ChannelCatalogPublicationRepositoryAdapter;
+  let collection: ChannelCatalogCollectionService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    publisher = new ChannelCatalogPublicationRepositoryAdapter(
+    const publisher = new ChannelCatalogPublicationRepositoryAdapter(
       prisma as unknown as PrismaService,
       new AiCatalogMediaPublicationRepositoryAdapter(),
+    );
+    collection = new ChannelCatalogCollectionService(
+      new ChannelCatalogCollectionRepositoryAdapter(prisma as unknown as PrismaService),
+      publisher,
     );
   });
 
@@ -51,9 +62,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
   });
 
   it('publishes channel identities and media without creating operating products', async () => {
-    const result = await publish(await createCollectionRun(prisma), SNAPSHOT_A, [
-      product('P-1', 'S-1'),
-    ]);
+    const result = await publish(await createCollectionRun(prisma), [product('P-1', 'S-1')]);
 
     const listing = await prisma.channelListing.findFirstOrThrow({
       where: {
@@ -91,8 +100,9 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       }),
     ]);
     expect(await prisma.masterProduct.count()).toBe(0);
-    expect(listing.contentWorkspaces[0]?.currentThumbnailSelection?.contentAsset)
-      .toMatchObject({ url: 'https://example.com/P-1.jpg' });
+    expect(listing.contentWorkspaces[0]?.currentThumbnailSelection?.contentAsset).toMatchObject({
+      url: 'https://example.com/P-1.jpg',
+    });
   });
 
   it('publishes scraper data when vendorId differs from a legacy external alias', async () => {
@@ -104,9 +114,9 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       },
     });
 
-    await expect(publish(await createCollectionRun(prisma), SNAPSHOT_A, [
-      product('P-1', 'S-1'),
-    ])).resolves.toMatchObject({
+    await expect(
+      publish(await createCollectionRun(prisma), [product('P-1', 'S-1')]),
+    ).resolves.toMatchObject({
       duplicate: false,
       changes: {
         createdProductCount: 1,
@@ -116,7 +126,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
   });
 
   it('preserves a confirmed product link and direct option components on recollection', async () => {
-    await publish(await createCollectionRun(prisma), SNAPSHOT_A, [
+    await publish(await createCollectionRun(prisma), [
       product('P-1', 'S-1'),
       product('P-2', 'S-2'),
     ]);
@@ -157,7 +167,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       },
     });
 
-    await publish(await createCollectionRun(prisma), 'b'.repeat(64), [
+    await publish(await createCollectionRun(prisma), [
       product('P-1', 'S-1', { displayName: '수정된 노출명' }),
     ]);
 
@@ -176,100 +186,131 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     });
     expect(after.options[0]).toMatchObject({
       id: before.options[0]!.id,
-      inventoryComponents: [expect.objectContaining({
-        sellpiaInventorySkuId: inventorySku.id,
-        quantity: 2,
-      })],
+      inventoryComponents: [
+        expect.objectContaining({
+          sellpiaInventorySkuId: inventorySku.id,
+          quantity: 2,
+        }),
+      ],
     });
     expect(absentAfter.isActive).toBe(false);
     expect(absentAfter.options[0]?.isActive).toBe(false);
   });
 
-  it('reuses a completed identical snapshot without duplicating identities', async () => {
-    const first = await publish(
-      await createCollectionRun(prisma),
-      SNAPSHOT_A,
-      [product('P-1', 'S-1')],
-    );
-    const duplicate = await publish(
-      await createCollectionRun(prisma),
-      SNAPSHOT_A,
-      [product('P-1', 'S-1')],
-    );
+  it('publishes a new identical capture without duplicating canonical identities', async () => {
+    const first = await publish(await createCollectionRun(prisma), [product('P-1', 'S-1')]);
+    const repeated = await publish(await createCollectionRun(prisma), [product('P-1', 'S-1')]);
 
-    expect(duplicate).toMatchObject({
-      sourceImportRunId: first.sourceImportRunId,
-      duplicate: true,
-    });
+    expect(repeated.sourceImportRunId).not.toBe(first.sourceImportRunId);
+    expect(repeated.duplicate).toBe(false);
     expect(await prisma.channelListing.count()).toBe(1);
     expect(await prisma.channelListingOption.count()).toBe(1);
   });
 
   it('advances mapping generation for active identity changes but not metadata-only or rejected publication', async () => {
-    await publish(await createCollectionRun(prisma), '1'.repeat(64), [
-      product('P-1', 'S-1'),
-    ]);
+    await publish(await createCollectionRun(prisma), [product('P-1', 'S-1')]);
     await expect(mappingGeneration()).resolves.toBe(1n);
 
-    await publish(await createCollectionRun(prisma), '2'.repeat(64), [
+    await publish(await createCollectionRun(prisma), [
       product('P-1', 'S-1', { displayName: '메타데이터만 변경' }),
     ]);
     await expect(mappingGeneration()).resolves.toBe(1n);
 
-    await publish(await createCollectionRun(prisma), '3'.repeat(64), [
+    await publish(await createCollectionRun(prisma), [
       product('P-1', 'S-1'),
       product('P-2', 'S-2'),
     ]);
     await expect(mappingGeneration()).resolves.toBe(2n);
 
-    await publish(await createCollectionRun(prisma), '4'.repeat(64), [
-      product('P-1', 'S-1'),
-    ]);
+    await publish(await createCollectionRun(prisma), [product('P-1', 'S-1')]);
     await expect(mappingGeneration()).resolves.toBe(3n);
 
-    await publish(await createCollectionRun(prisma), '5'.repeat(64), [
+    await publish(await createCollectionRun(prisma), [
       product('P-1', 'S-1'),
       product('P-2', 'S-2'),
     ]);
     await expect(mappingGeneration()).resolves.toBe(4n);
 
-    await expect(publish(await createCollectionRun(prisma), '6'.repeat(64), [
-      product('P-3', 'S-1'),
-    ])).rejects.toBeInstanceOf(ConflictException);
+    await expect(
+      publish(await createCollectionRun(prisma), [product('P-3', 'S-1')]),
+    ).rejects.toBeInstanceOf(ConflictException);
     await expect(mappingGeneration()).resolves.toBe(4n);
-    await expect(prisma.masterProductAbcFormulaState.findUnique({
-      where: { organizationId: OTHER_ORGANIZATION_ID },
-      select: { mappingGeneration: true },
-    })).resolves.toBeNull();
+    await expect(
+      prisma.masterProductAbcFormulaState.findUnique({
+        where: { organizationId: OTHER_ORGANIZATION_ID },
+        select: { mappingGeneration: true },
+      }),
+    ).resolves.toBeNull();
   });
 
   it('rejects an external option moving to another parent and rolls back', async () => {
-    await publish(await createCollectionRun(prisma), SNAPSHOT_A, [
-      product('P-1', 'S-1'),
-    ]);
-    await expect(publish(
-      await createCollectionRun(prisma),
-      'c'.repeat(64),
-      [product('P-2', 'S-1')],
-    )).rejects.toBeInstanceOf(ConflictException);
+    await publish(await createCollectionRun(prisma), [product('P-1', 'S-1')]);
+    await expect(
+      publish(await createCollectionRun(prisma), [product('P-2', 'S-1')]),
+    ).rejects.toBeInstanceOf(ConflictException);
 
-    expect(await prisma.channelListing.count({ where: { externalId: 'P-2' } }))
-      .toBe(0);
+    expect(await prisma.channelListing.count({ where: { externalId: 'P-2' } })).toBe(0);
   });
 
-  async function publish(
-    collectionRunId: string,
-    snapshotHash: string,
-    products: ReturnType<typeof product>[],
-  ) {
-    return publisher.publish({
+  async function publish(collectionRunId: string, products: ReturnType<typeof product>[]) {
+    const scope = {
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
-      collectionRunId,
-      snapshotHash,
-      products: products.map((item, ordinal) => ({ ordinal, product: item })),
-    });
+      runId: collectionRunId,
+    };
+    const manifest = {
+      totalItems: products.length,
+      pageSize: 100,
+      expectedPages: 1,
+      firstPageFingerprint: 'a'.repeat(64),
+    };
+    const payloads: PutCoupangCatalogChunkRequest['payload'][] = [
+      {
+        version: 1,
+        kind: 'discovery_page',
+        page: 1,
+        manifest,
+        items: products.map((p, ordinal) => ({
+          ordinal,
+          externalProductId: p.externalProductId,
+          registeredName: p.registeredName,
+          primaryImageUrl: null,
+          saleStatus: null,
+        })),
+      },
+      {
+        version: 1,
+        kind: 'product_details',
+        startOrdinal: 0,
+        products: products.map((p, ordinal) => ({
+          ordinal,
+          product: p,
+        })),
+      },
+      { version: 1, kind: 'manifest_confirmation', manifest },
+    ];
+    for (const payload of payloads) {
+      await collection.putChunk({
+        ...scope,
+        kind: payload.kind,
+        sequence: 1,
+        request: {
+          kind: payload.kind,
+          sequence: 1,
+          payload,
+          checksum: hashCatalogChunkPayload(payload),
+          itemCount: payload.kind === 'manifest_confirmation' ? 1 : products.length,
+        } as PutCoupangCatalogChunkRequest,
+      });
+    }
+    const ready = await collection.getStatus(scope);
+    return (
+      await collection.finalize({
+        ...scope,
+        request: { snapshotHash: ready.snapshotHash! },
+      })
+    ).publication!;
   }
 
   async function mappingGeneration(): Promise<bigint> {
@@ -311,24 +352,28 @@ function product(
     manufacturer: '제조사',
     brand: '브랜드',
     productStatus: '승인완료',
-    options: [{
-      externalOptionId,
-      optionName: '기본',
-      skuStatus: '판매중',
-      salePrice: 12_900,
-      sellerSku: `${externalProductId}-SELLER`,
-      modelNumber: 'MODEL-1',
-      barcode: '001234567890',
-      attributes: [{ type: '색상', value: '파랑' }],
-      media: [],
-      raw: { source: 'fixture-option' },
-    }],
-    media: [{
-      sourceUrl: `https://example.com/${externalProductId}.jpg`,
-      role: 'primary',
-      sortOrder: 0,
-      externalOptionId: null,
-    }],
+    options: [
+      {
+        externalOptionId,
+        optionName: '기본',
+        skuStatus: '판매중',
+        salePrice: 12_900,
+        sellerSku: `${externalProductId}-SELLER`,
+        modelNumber: 'MODEL-1',
+        barcode: '001234567890',
+        attributes: [{ type: '색상', value: '파랑' }],
+        media: [],
+        raw: { source: 'fixture-option' },
+      },
+    ],
+    media: [
+      {
+        sourceUrl: `https://example.com/${externalProductId}.jpg`,
+        role: 'primary',
+        sortOrder: 0,
+        externalOptionId: null,
+      },
+    ],
     raw: { externalProductId },
   };
 }

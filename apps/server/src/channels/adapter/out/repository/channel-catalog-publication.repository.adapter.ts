@@ -8,7 +8,7 @@ import {
 import { Prisma } from '@prisma/client';
 import {
   COUPANG_CATALOG_BROWSER_FILE_NAME,
-  type CoupangCatalogMediaV1,
+  PutCoupangCatalogChunkRequestSchema,
   type CoupangCatalogProductV1,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -16,17 +16,22 @@ import {
   CATALOG_MEDIA_PUBLICATION_PORT,
   type CatalogMediaPublicationPort,
 } from '../../../application/port/out/cross-domain/catalog-media-publication.port';
-import type {
-  ChannelCatalogPublicationPort,
-  ChannelCatalogChunkPublicationResult,
-  ChannelCatalogPublicationResult,
-} from '../../../application/port/out/repository/channel-catalog-publication.port';
 import { resolveCoupangVendorId } from '../../../domain/coupang-account-identity';
 import {
   advanceProductMappingGeneration,
   lockProductMapping,
 } from '../../../../common/product-mapping-generation';
+import {
+  assembleCompleteSnapshot,
+  hashCatalogChunkPayload,
+  hashCatalogChunkReceipts,
+  hashCoupangCatalogSnapshot,
+} from '../../../application/service/channel-catalog-collection.service';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
+import type {
+  ChannelCatalogPublicationPort,
+  ChannelCatalogPublicationResult,
+} from '../../../application/port/out/repository/channel-catalog-publication.port';
 
 const CHANNEL = 'coupang';
 const COLLECTION_SOURCE = 'coupang_wing_catalog_browser';
@@ -34,7 +39,6 @@ const SOURCE_TYPE = 'coupang_wing_catalog';
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 } as const;
 
 type PublishInput = Parameters<ChannelCatalogPublicationPort['publish']>[0];
-type PublishChunkInput = Parameters<ChannelCatalogPublicationPort['publishChunk']>[0];
 
 type LockedCollectionRun = {
   id: string;
@@ -43,166 +47,71 @@ type LockedCollectionRun = {
   metaJson: Prisma.JsonValue | null;
 };
 
-type LockedChunk = {
-  id: string;
-  publishedAt: Date | null;
-  publicationJson: Prisma.JsonValue | null;
-};
-
 @Injectable()
-export class ChannelCatalogPublicationRepositoryAdapter
-implements ChannelCatalogPublicationPort {
+export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalogPublicationPort {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(CATALOG_MEDIA_PUBLICATION_PORT)
     private readonly media: CatalogMediaPublicationPort,
   ) {}
 
-  publishChunk(
-    input: PublishChunkInput,
-  ): Promise<ChannelCatalogChunkPublicationResult> {
+  publish(input: PublishInput): Promise<ChannelCatalogPublicationResult> {
     return this.prisma.$transaction(async (tx) => {
       await lockProductMapping(tx, input.organizationId);
       await lockAccount(tx, input.organizationId, input.channelAccountId);
       const collectionRun = await lockCollectionRun(tx, input);
-      if (collectionRun.status !== 'running') {
-        throw new ConflictException(
-          `Cannot publish a chunk after collection is ${collectionRun.status}`,
-        );
-      }
-      await assertActiveCoupangAccount(tx, input.organizationId, input.channelAccountId);
-
-      const chunkRows = await tx.$queryRaw<LockedChunk[]>`
-        SELECT
-          id,
-          published_at AS "publishedAt",
-          publication_json AS "publicationJson"
-        FROM channel_scrape_chunks
-        WHERE id = ${input.chunkId}::uuid
-          AND scrape_run_id = ${input.collectionRunId}::uuid
-          AND organization_id = ${input.organizationId}::uuid
-          AND kind = 'product_details'
-        FOR UPDATE
-      `;
-      const chunk = chunkRows[0];
-      if (!chunk) throw new NotFoundException('Coupang product detail chunk not found');
-      if (chunk.publishedAt) {
-        return {
-          duplicate: true,
-          changes: numberRecord(chunk.publicationJson),
-        };
-      }
-
-      const upserted = await upsertCoupangCatalogRows(tx, this.media, {
-        organizationId: input.organizationId,
-        userId: input.userId,
-        channelAccountId: input.channelAccountId,
-        products: input.products,
-        lastImportRunId: null,
-        publicationReference: {
-          type: 'channel_scrape_run',
-          id: input.collectionRunId,
-        },
-      });
-      const publication = {
-        publishedProducts: input.products.length,
-        ...upserted.changes,
-      };
-      await tx.channelScrapeChunk.update({
-        where: { id: input.chunkId },
-        data: {
-          publishedAt: new Date(),
-          publicationJson: publication,
-        },
-      });
-      if (upserted.mappingIdentityChanged) {
-        await advanceProductMappingGeneration(tx, input.organizationId);
-      }
-      return { duplicate: false, changes: publication };
-    }, TRANSACTION_OPTIONS);
-  }
-
-  publish(input: PublishInput): Promise<ChannelCatalogPublicationResult> {
-    return this.prisma.$transaction(async (tx) => {
-      await lockProductMapping(tx, input.organizationId);
-      const accountLockKey =
-        `channel-catalog-publication:${input.organizationId}:${SOURCE_TYPE}:${input.channelAccountId}`;
-      await tx.$queryRaw`
-        SELECT pg_advisory_xact_lock(hashtextextended(${accountLockKey}, 0))::text AS "lock"
-      `;
-
-      const lockedRows = await tx.$queryRaw<LockedCollectionRun[]>`
-        SELECT
-          id,
-          status,
-          source_import_run_id AS "sourceImportRunId",
-          meta_json AS "metaJson"
-        FROM channel_scrape_runs
-        WHERE id = ${input.collectionRunId}::uuid
-          AND organization_id = ${input.organizationId}::uuid
-          AND channel_account_id = ${input.channelAccountId}::uuid
-          AND channel = ${CHANNEL}
-          AND source = ${COLLECTION_SOURCE}
-        FOR UPDATE
-      `;
-      const collectionRun = lockedRows[0];
-      if (!collectionRun) {
-        throw new NotFoundException('Coupang catalog collection run not found');
-      }
       if (collectionRun.status === 'completed') {
+        const metadata = jsonRecord(collectionRun.metaJson);
+        if (
+          metadata?.snapshotHash !== input.snapshotHash ||
+          metadata?.chunkSetHash !== input.chunkSetHash
+        ) {
+          throw new ConflictException('Completed collection has a different final receipt');
+        }
         return completedCollectionResult(collectionRun);
       }
       if (collectionRun.status !== 'running') {
-        throw new ConflictException(
-          `Cannot publish a collection that is ${collectionRun.status}`,
-        );
+        throw new ConflictException(`Cannot publish a collection that is ${collectionRun.status}`);
       }
 
-      const account = await tx.channelAccount.findFirst({
-        where: {
-          id: input.channelAccountId,
-          organizationId: input.organizationId,
-          status: 'active',
-        },
-        select: { channel: true, externalAccountId: true, vendorId: true },
-      });
-      if (!account) throw new NotFoundException('Active channel account not found');
-      if (account.channel !== CHANNEL) {
-        throw new BadRequestException('Coupang catalog publication requires channel=coupang');
-      }
-      assertCanonicalAccount(account);
-
-      const duplicate = await tx.sourceImportRun.findFirst({
+      const chunks = await tx.channelScrapeChunk.findMany({
         where: {
           organizationId: input.organizationId,
-          sourceType: SOURCE_TYPE,
-          channelAccountId: input.channelAccountId,
-          fileHash: input.snapshotHash,
-          status: 'completed',
+          scrapeRunId: input.collectionRunId,
         },
-        select: { id: true },
+        select: {
+          id: true,
+          kind: true,
+          sequence: true,
+          checksum: true,
+          itemCount: true,
+          payload: true,
+        },
       });
-      if (duplicate) {
-        const result = {
-          sourceImportRunId: duplicate.id,
-          duplicate: true,
-          changes: zeroChanges(),
-        };
-        await completeCollectionRun(tx, input, collectionRun.metaJson, result);
-        return result;
+      if (hashCatalogChunkReceipts(chunks) !== input.chunkSetHash) {
+        throw new ConflictException('Staged catalog receipts changed before publication');
       }
+      for (const chunk of chunks) {
+        const parsed = PutCoupangCatalogChunkRequestSchema.safeParse(chunk);
+        if (!parsed.success || hashCatalogChunkPayload(parsed.data.payload) !== chunk.checksum) {
+          throw new ConflictException('Stored catalog chunk does not match its receipt');
+        }
+      }
+      const { products } = assembleCompleteSnapshot(chunks);
+      if (hashCoupangCatalogSnapshot(products) !== input.snapshotHash) {
+        throw new ConflictException('Staged catalog snapshot changed before publication');
+      }
+      await assertActiveCoupangAccount(tx, input.organizationId, input.channelAccountId);
 
-      const optionCount = input.products.reduce(
-        (sum, item) => sum + item.product.options.length,
-        0,
-      );
+      const optionCount = products.reduce((sum, item) => sum + item.product.options.length, 0);
       const sourceRun = await tx.sourceImportRun.create({
         data: {
           organizationId: input.organizationId,
           sourceType: SOURCE_TYPE,
           channelAccountId: input.channelAccountId,
           fileName: COUPANG_CATALOG_BROWSER_FILE_NAME,
-          fileHash: input.snapshotHash,
+          fileHash: null,
+          contentChecksum: input.snapshotHash,
           status: 'running',
           rowCount: optionCount,
           createdBy: input.userId,
@@ -214,7 +123,7 @@ implements ChannelCatalogPublicationPort {
         organizationId: input.organizationId,
         userId: input.userId,
         channelAccountId: input.channelAccountId,
-        products: input.products,
+        products,
         lastImportRunId: sourceRun.id,
         publicationReference: { type: 'source_import_run', id: sourceRun.id },
       });
@@ -239,16 +148,16 @@ implements ChannelCatalogPublicationPort {
       });
 
       if (
-        upserted.mappingIdentityChanged
-        || deactivatedOptions.count > 0
-        || deactivatedListings.count > 0
+        upserted.mappingIdentityChanged ||
+        deactivatedOptions.count > 0 ||
+        deactivatedListings.count > 0
       ) {
         await advanceProductMappingGeneration(tx, input.organizationId);
       }
 
       const publicationSequence = await nextPublicationSequence(tx, input.organizationId);
       await tx.sourceImportRun.update({
-        where: { id: sourceRun.id },
+        where: { id: sourceRun.id, organizationId: input.organizationId },
         data: {
           status: 'completed',
           importedAt: new Date(),
@@ -278,9 +187,9 @@ async function upsertCoupangCatalogRows(
     userId: string;
     channelAccountId: string;
     products: Array<{ ordinal: number; product: CoupangCatalogProductV1 }>;
-    lastImportRunId: string | null;
+    lastImportRunId: string;
     publicationReference: {
-      type: 'channel_scrape_run' | 'source_import_run';
+      type: 'source_import_run';
       id: string;
     };
   },
@@ -301,7 +210,7 @@ async function upsertCoupangCatalogRows(
       listingId: identities.listingIds.get(product.externalProductId)!,
       channel: CHANNEL,
       displayName: product.displayName ?? product.registeredName ?? product.externalProductId,
-      media: flattenMedia(product.media, product.options.flatMap((option) => option.media)),
+      media: [...product.media, ...product.options.flatMap((option) => option.media)],
     })),
   });
   return {
@@ -322,8 +231,7 @@ async function lockAccount(
   organizationId: string,
   channelAccountId: string,
 ): Promise<void> {
-  const accountLockKey =
-    `channel-catalog-publication:${organizationId}:${SOURCE_TYPE}:${channelAccountId}`;
+  const accountLockKey = `channel-catalog-publication:${organizationId}:${SOURCE_TYPE}:${channelAccountId}`;
   await tx.$queryRaw`
     SELECT pg_advisory_xact_lock(hashtextextended(${accountLockKey}, 0))::text AS "lock"
   `;
@@ -331,7 +239,7 @@ async function lockAccount(
 
 async function lockCollectionRun(
   tx: Prisma.TransactionClient,
-  input: Pick<PublishChunkInput, 'organizationId' | 'channelAccountId' | 'collectionRunId'>,
+  input: Pick<PublishInput, 'organizationId' | 'channelAccountId' | 'collectionRunId'>,
 ): Promise<LockedCollectionRun> {
   const rows = await tx.$queryRaw<LockedCollectionRun[]>`
     SELECT
@@ -392,6 +300,7 @@ async function completeCollectionRun(
         ...metadata,
         phase: 'finished',
         snapshotHash: input.snapshotHash,
+        chunkSetHash: input.chunkSetHash,
         publication: {
           sourceImportRunId: result.sourceImportRunId,
           duplicate: result.duplicate,
@@ -448,39 +357,18 @@ async function nextPublicationSequence(
   return sequence;
 }
 
-function flattenMedia(
-  productMedia: CoupangCatalogMediaV1[],
-  optionMedia: CoupangCatalogMediaV1[],
-): CoupangCatalogMediaV1[] {
-  return [...productMedia, ...optionMedia];
-}
-
 function jsonRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : null;
 }
 
 function numberRecord(value: unknown): Record<string, number> {
   const record = jsonRecord(value);
   if (!record) return {};
-  return Object.fromEntries(Object.entries(record).filter(
-    (entry): entry is [string, number] => typeof entry[1] === 'number',
-  ));
-}
-
-function zeroChanges(): Record<string, number> {
-  return {
-    createdProductCount: 0,
-    updatedProductCount: 0,
-    deactivatedProductCount: 0,
-    createdSkuCount: 0,
-    updatedSkuCount: 0,
-    deactivatedSkuCount: 0,
-    createdMasterProductCount: 0,
-    reusedMasterProductCount: 0,
-    linkedProductCount: 0,
-    imageCount: 0,
-    inactivatedImageCount: 0,
-  };
+  return Object.fromEntries(
+    Object.entries(record).filter(
+      (entry): entry is [string, number] => typeof entry[1] === 'number',
+    ),
+  );
 }

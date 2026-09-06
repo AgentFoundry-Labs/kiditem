@@ -19,13 +19,9 @@ const SOURCE = 'coupang_wing_catalog_browser';
 const PAGE_TYPE = 'catalog_full_snapshot';
 
 type StartInput = Parameters<ChannelCatalogCollectionRepositoryPort['startOrResume']>[0];
-type OwnedRunInput = Parameters<
-  ChannelCatalogCollectionRepositoryPort['getOwnedRunWithChunks']
->[0];
+type OwnedRunInput = Parameters<ChannelCatalogCollectionRepositoryPort['getOwnedRunWithChunks']>[0];
 type PutChunkInput = Parameters<ChannelCatalogCollectionRepositoryPort['putChunk']>[0];
-type ErrorInput = Parameters<
-  ChannelCatalogCollectionRepositoryPort['recordRecoverableError']
->[0];
+type ErrorInput = Parameters<ChannelCatalogCollectionRepositoryPort['recordRecoverableError']>[0];
 
 type LockedRun = {
   id: string;
@@ -33,8 +29,7 @@ type LockedRun = {
 };
 
 @Injectable()
-export class ChannelCatalogCollectionRepositoryAdapter
-implements ChannelCatalogCollectionRepositoryPort {
+export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalogCollectionRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
   async startOrResume(input: StartInput): Promise<ChannelCatalogCollectionRunRecord> {
@@ -70,9 +65,7 @@ implements ChannelCatalogCollectionRepositoryPort {
     }
   }
 
-  async getOwnedRunWithChunks(
-    input: OwnedRunInput,
-  ): Promise<ChannelCatalogCollectionWithChunks> {
+  async getOwnedRunWithChunks(input: OwnedRunInput): Promise<ChannelCatalogCollectionWithChunks> {
     const run = await this.prisma.channelScrapeRun.findFirst({
       where: ownedRunWhere(input),
       select: {
@@ -106,9 +99,7 @@ implements ChannelCatalogCollectionRepositoryPort {
         throw new NotFoundException('Coupang catalog collection run not found');
       }
       if (run.status !== 'running') {
-        throw new ConflictException(
-          `Cannot write a chunk after collection is ${run.status}`,
-        );
+        throw new ConflictException(`Cannot write a chunk after collection is ${run.status}`);
       }
 
       const existing = await tx.channelScrapeChunk.findFirst({
@@ -122,9 +113,7 @@ implements ChannelCatalogCollectionRepositoryPort {
       });
       if (existing) {
         if (existing.checksum !== input.checksum) {
-          throw new ConflictException(
-            'Chunk coordinate already exists with a different checksum',
-          );
+          throw new ConflictException('Chunk coordinate already exists with a different checksum');
         }
         return { stored: false, chunk: existing };
       }
@@ -184,9 +173,7 @@ implements ChannelCatalogCollectionRepositoryPort {
       if (!current) {
         throw new NotFoundException('Coupang catalog collection run not found');
       }
-      throw new ConflictException(
-        `Cannot update a collection after it is ${current.status}`,
-      );
+      throw new ConflictException(`Cannot update a collection after it is ${current.status}`);
     }
     const run = await this.prisma.channelScrapeRun.findFirst({
       where: ownedRunWhere(input),
@@ -223,9 +210,7 @@ implements ChannelCatalogCollectionRepositoryPort {
       );
     }
     if (!resolveCoupangVendorId(account)) {
-      throw new BadRequestException(
-        'Coupang channel account requires a vendor identity',
-      );
+      throw new BadRequestException('Coupang channel account requires a vendor identity');
     }
   }
 }
@@ -254,15 +239,9 @@ const chunkSelect = {
   checksum: true,
   itemCount: true,
   payload: true,
-  publishedAt: true,
-  publicationJson: true,
 } as const;
 
-function ownedRunWhere(input: {
-  organizationId: string;
-  channelAccountId: string;
-  runId: string;
-}) {
+function ownedRunWhere(input: { organizationId: string; channelAccountId: string; runId: string }) {
   return {
     id: input.runId,
     organizationId: input.organizationId,

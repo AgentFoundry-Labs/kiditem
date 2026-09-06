@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Prisma, type ContentAsset } from '@prisma/client';
 import type {
@@ -6,170 +6,219 @@ import type {
   ChannelCatalogMedia,
 } from '../../../../channels/application/port/out/cross-domain/catalog-media-publication.port';
 
+const BULK_ROWS = 500;
+
 @Injectable()
-export class AiCatalogMediaPublicationRepositoryAdapter
-implements CatalogMediaPublicationPort {
+export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaPublicationPort {
   async publishProviderMedia(
     input: Parameters<CatalogMediaPublicationPort['publishProviderMedia']>[0],
   ) {
     const tx = transactionClient(input.transaction);
-    let imageCount = 0;
-    let inactivatedImageCount = 0;
+    if (input.listings.length === 0) return { imageCount: 0, inactivatedImageCount: 0 };
+    const listingIds = input.listings.map((listing) => listing.listingId);
+    const ownedListings = await tx.channelListing.findMany({
+      where: { organizationId: input.organizationId, id: { in: listingIds } },
+      select: { id: true },
+    });
+    if (ownedListings.length !== new Set(listingIds).size) {
+      throw new Error('Catalog media requires owned channel listings');
+    }
 
-    for (const listing of input.listings) {
-      let workspace = await tx.contentWorkspace.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          channelListingId: listing.listingId,
-          ownerType: 'channel_listing',
-          status: 'active',
-          isDeleted: false,
-        },
-        select: {
-          id: true,
-          currentThumbnailSelectionId: true,
-          currentThumbnailSelection: {
-            select: { contentAssetId: true, contentAsset: { select: { metadata: true } } },
-          },
-        },
-      });
-      workspace ??= await tx.contentWorkspace.create({
-        data: {
+    const existingWorkspaces = await tx.contentWorkspace.findMany({
+      where: {
+        organizationId: input.organizationId,
+        channelListingId: { in: listingIds },
+        ownerType: 'channel_listing',
+        status: 'active',
+        isDeleted: false,
+      },
+      select: { id: true, channelListingId: true },
+    });
+    const workspaceIdsByListing = new Map(
+      existingWorkspaces.map((row) => [row.channelListingId!, row.id]),
+    );
+    const newWorkspaces = input.listings
+      .filter((listing) => !workspaceIdsByListing.has(listing.listingId))
+      .map((listing) => {
+        const id = randomUUID();
+        workspaceIdsByListing.set(listing.listingId, id);
+        return {
+          id,
           organizationId: input.organizationId,
           ownerType: 'channel_listing',
           channelListingId: listing.listingId,
           displayName: listing.displayName,
           normalizedTitle: normalizeContentTitle(listing.displayName),
           createdByUserId: input.userId,
-        },
-        select: {
-          id: true,
-          currentThumbnailSelectionId: true,
-          currentThumbnailSelection: {
-            select: { contentAssetId: true, contentAsset: { select: { metadata: true } } },
-          },
-        },
+        };
       });
+    for (let offset = 0; offset < newWorkspaces.length; offset += BULK_ROWS) {
+      await tx.contentWorkspace.createMany({
+        data: newWorkspaces.slice(offset, offset + BULK_ROWS),
+      });
+    }
 
-      let group = await tx.contentGenerationGroup.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          contentWorkspaceId: workspace.id,
-          groupType: 'workspace_assets',
+    // The pointer is authoritative only after this lock. A manual selection made
+    // before acquisition is preserved; one made later runs after our transaction.
+    const workspaceIds = [...workspaceIdsByListing.values()];
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM content_workspaces
+      WHERE organization_id = ${input.organizationId}::uuid
+        AND id = ANY(${workspaceIds}::uuid[])
+        AND channel_listing_id = ANY(${listingIds}::uuid[])
+        AND owner_type = 'channel_listing' AND status = 'active' AND is_deleted = false
+      ORDER BY id FOR UPDATE
+    `;
+    if (locked.length !== workspaceIds.length)
+      throw new Error('Catalog workspace changed before publication');
+    const workspaces = await tx.contentWorkspace.findMany({
+      where: { organizationId: input.organizationId, id: { in: workspaceIds } },
+      select: {
+        id: true,
+        channelListingId: true,
+        currentThumbnailSelectionId: true,
+        currentThumbnailSelection: {
+          select: { contentAssetId: true, contentAsset: { select: { metadata: true } } },
         },
-        select: { id: true },
-      });
-      group ??= await tx.contentGenerationGroup.create({
-        data: {
+      },
+    });
+    const workspaceByListing = new Map(workspaces.map((row) => [row.channelListingId!, row]));
+    const groups = await tx.contentGenerationGroup.findMany({
+      where: {
+        organizationId: input.organizationId,
+        contentWorkspaceId: { in: workspaceIds },
+        groupType: 'workspace_assets',
+      },
+      select: { id: true, contentWorkspaceId: true },
+    });
+    const groupByWorkspace = new Map<string, string>();
+    for (const group of groups) {
+      if (!groupByWorkspace.has(group.contentWorkspaceId))
+        groupByWorkspace.set(group.contentWorkspaceId, group.id);
+    }
+    const newGroups = input.listings
+      .filter((listing) => !groupByWorkspace.has(workspaceIdsByListing.get(listing.listingId)!))
+      .map((listing) => {
+        const contentWorkspaceId = workspaceIdsByListing.get(listing.listingId)!;
+        const id = randomUUID();
+        groupByWorkspace.set(contentWorkspaceId, id);
+        return {
+          id,
           organizationId: input.organizationId,
-          contentWorkspaceId: workspace.id,
+          contentWorkspaceId,
           groupType: 'workspace_assets',
           title: 'Workspace managed assets',
           createdByUserId: input.userId,
           metadata: { sourceType: 'channel_catalog', channel: listing.channel },
-        },
-        select: { id: true },
+        };
       });
+    for (let offset = 0; offset < newGroups.length; offset += BULK_ROWS) {
+      await tx.contentGenerationGroup.createMany({
+        data: newGroups.slice(offset, offset + BULK_ROWS),
+      });
+    }
+    const existingAssets = await tx.contentAsset.findMany({
+      where: {
+        organizationId: input.organizationId,
+        originGenerationGroupId: { in: [...groupByWorkspace.values()] },
+      },
+    });
+    const assetsByGroup = new Map<string, ContentAsset[]>();
+    for (const asset of existingAssets) {
+      const groupId = asset.originGenerationGroupId!;
+      const rows = assetsByGroup.get(groupId) ?? [];
+      rows.push(asset);
+      assetsByGroup.set(groupId, rows);
+    }
+    const newAssets: Prisma.ContentAssetCreateManyInput[] = [];
+    const updatedAssets: Array<{
+      id: string;
+      groupId: string;
+      url: string;
+      role: string;
+      sortOrder: number;
+      metadata: Record<string, unknown>;
+    }> = [];
+    const absentAssets: Array<{ id: string; groupId: string; metadata: Record<string, unknown> }> =
+      [];
+    const selections: Array<{
+      id: string;
+      organizationId: string;
+      contentWorkspaceId: string;
+      contentAssetId: string;
+      createdByUserId: string;
+      listingId: string;
+    }> = [];
+    let imageCount = 0;
+    let inactivatedImageCount = 0;
 
-      const existingAssets = await tx.contentAsset.findMany({
-        where: {
-          organizationId: input.organizationId,
-          originGenerationGroupId: group.id,
-        },
-      });
-      const providerAssets = existingAssets.filter((asset) =>
-        isChannelProviderAsset(asset, listing.channel));
+    for (const listing of input.listings) {
+      const workspace = workspaceByListing.get(listing.listingId)!;
+      const groupId = groupByWorkspace.get(workspace.id)!;
+      const providerAssets = (assetsByGroup.get(groupId) ?? []).filter((asset) =>
+        isChannelProviderAsset(asset, listing.channel),
+      );
       const desiredKeys = new Set<string>();
-      const activeAssets: ContentAsset[] = [];
+      const activeAssets: Array<{ id: string; role: string | null; sortOrder: number }> = [];
       for (const media of uniqueMedia(listing.media)) {
         const assetKeys = providerAssetKeys(workspace.id, listing.channel, media);
         const assetKey = assetKeys[0]!;
         const existing = providerAssets.find((asset) => assetKeys.includes(asset.assetKey));
         desiredKeys.add(existing?.assetKey ?? assetKey);
-        const existingMetadata = jsonRecord(existing?.metadata) ?? {};
         const metadata = {
-          ...withoutMaterializationMetadata(existingMetadata),
+          ...withoutMaterializationMetadata(jsonRecord(existing?.metadata) ?? {}),
           sourceType: 'channel_catalog',
           channel: listing.channel,
           sourceUrl: media.sourceUrl,
           externalOptionId: media.externalOptionId,
           publicationReference: input.publicationReference,
-          ...(input.publicationReference.type === 'source_import_run'
-            ? { lastImportRunId: input.publicationReference.id }
-            : {}),
+          lastImportRunId: input.publicationReference.id,
           active: true,
         };
-        const asset = existing
-          ? await tx.contentAsset.update({
-              where: {
-                id_organizationId: {
-                  id: existing.id,
-                  organizationId: input.organizationId,
-                },
-              },
-              data: {
-                url: media.sourceUrl,
-                storageKey: null,
-                mimeType: null,
-                width: null,
-                height: null,
-                fileSize: null,
-                role: media.role,
-                sortOrder: media.sortOrder,
-                metadata,
-                isDeleted: false,
-                deletedAt: null,
-              },
-            })
-          : await tx.contentAsset.create({
-              data: {
-                organizationId: input.organizationId,
-                originGenerationGroupId: group.id,
-                createdByUserId: input.userId,
-                assetKey,
-                url: media.sourceUrl,
-                assetType: 'image',
-                role: media.role,
-                sortOrder: media.sortOrder,
-                metadata,
-              },
-            });
-        activeAssets.push(asset);
-        imageCount += 1;
-      }
-
-      const absentIds = providerAssets
-        .filter((asset) => !desiredKeys.has(asset.assetKey) && !asset.isDeleted)
-        .map((asset) => asset.id);
-      if (absentIds.length > 0) {
-        for (const asset of providerAssets.filter((item) => absentIds.includes(item.id))) {
-          await tx.contentAsset.update({
-            where: {
-              id_organizationId: {
-                id: asset.id,
-                organizationId: input.organizationId,
-              },
-            },
-            data: {
-              isDeleted: true,
-              deletedAt: new Date(),
-              metadata: {
-                ...(jsonRecord(asset.metadata) ?? {}),
-                active: false,
-                publicationReference: input.publicationReference,
-                ...(input.publicationReference.type === 'source_import_run'
-                  ? { lastImportRunId: input.publicationReference.id }
-                  : {}),
-              },
-            },
+        const id = existing?.id ?? randomUUID();
+        if (existing) {
+          updatedAssets.push({
+            id,
+            groupId,
+            url: media.sourceUrl,
+            role: media.role,
+            sortOrder: media.sortOrder,
+            metadata,
+          });
+        } else {
+          newAssets.push({
+            id,
+            organizationId: input.organizationId,
+            originGenerationGroupId: groupId,
+            createdByUserId: input.userId,
+            assetKey,
+            url: media.sourceUrl,
+            assetType: 'image',
+            role: media.role,
+            sortOrder: media.sortOrder,
+            metadata: metadata as Prisma.InputJsonValue,
           });
         }
-        inactivatedImageCount += absentIds.length;
+        activeAssets.push({ id, role: media.role, sortOrder: media.sortOrder });
+        imageCount += 1;
       }
-
+      for (const asset of providerAssets) {
+        if (desiredKeys.has(asset.assetKey) || asset.isDeleted) continue;
+        absentAssets.push({
+          id: asset.id,
+          groupId,
+          metadata: {
+            ...(jsonRecord(asset.metadata) ?? {}),
+            active: false,
+            publicationReference: input.publicationReference,
+            lastImportRunId: input.publicationReference.id,
+          },
+        });
+        inactivatedImageCount += 1;
+      }
       const primary = activeAssets
         .filter((asset) => asset.role === 'primary')
-        .sort((left, right) => left.sortOrder - right.sortOrder)[0];
+        .sort((a, b) => a.sortOrder - b.sortOrder)[0];
       const currentIsProvider = workspace.currentThumbnailSelection
         ? isProviderMetadata(
             workspace.currentThumbnailSelection.contentAsset.metadata,
@@ -181,31 +230,65 @@ implements CatalogMediaPublicationPort {
         (!workspace.currentThumbnailSelectionId || currentIsProvider) &&
         workspace.currentThumbnailSelection?.contentAssetId !== primary.id
       ) {
-        const selection = await tx.contentWorkspaceThumbnailSelection.create({
-          data: {
-            organizationId: input.organizationId,
-            contentWorkspaceId: workspace.id,
-            contentAssetId: primary.id,
-            createdByUserId: input.userId,
-          },
-          select: { id: true },
-        });
-        await tx.contentWorkspace.update({
-          where: {
-            id_organizationId: {
-              id: workspace.id,
-              organizationId: input.organizationId,
-            },
-          },
-          data: { currentThumbnailSelectionId: selection.id },
+        selections.push({
+          id: randomUUID(),
+          organizationId: input.organizationId,
+          contentWorkspaceId: workspace.id,
+          contentAssetId: primary.id,
+          createdByUserId: input.userId,
+          listingId: listing.listingId,
         });
       }
     }
 
-    return {
-      imageCount,
-      inactivatedImageCount,
-    };
+    for (let offset = 0; offset < newAssets.length; offset += BULK_ROWS) {
+      await tx.contentAsset.createMany({ data: newAssets.slice(offset, offset + BULK_ROWS) });
+    }
+    for (let offset = 0; offset < updatedAssets.length; offset += BULK_ROWS) {
+      const batch = updatedAssets.slice(offset, offset + BULK_ROWS);
+      const updated = await tx.$executeRaw`
+      UPDATE content_assets AS asset
+      SET url = incoming.url, storage_key = NULL, mime_type = NULL, width = NULL,
+          height = NULL, file_size = NULL, role = incoming.role, sort_order = incoming."sortOrder",
+          metadata = incoming.metadata, is_deleted = false, deleted_at = NULL, updated_at = NOW()
+      FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
+        AS incoming(id uuid, "groupId" uuid, url text, role text, "sortOrder" integer, metadata jsonb)
+      WHERE asset.organization_id = ${input.organizationId}::uuid
+        AND asset.id = incoming.id AND asset.origin_generation_group_id = incoming."groupId"
+    `;
+      if (updated !== batch.length)
+        throw new Error('Catalog provider asset changed before publication');
+    }
+    for (let offset = 0; offset < absentAssets.length; offset += BULK_ROWS) {
+      const batch = absentAssets.slice(offset, offset + BULK_ROWS);
+      const updated = await tx.$executeRaw`
+      UPDATE content_assets AS asset
+      SET is_deleted = true, deleted_at = NOW(), metadata = incoming.metadata, updated_at = NOW()
+      FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
+        AS incoming(id uuid, "groupId" uuid, metadata jsonb)
+      WHERE asset.organization_id = ${input.organizationId}::uuid
+        AND asset.id = incoming.id AND asset.origin_generation_group_id = incoming."groupId"
+    `;
+      if (updated !== batch.length)
+        throw new Error('Catalog provider asset changed before publication');
+    }
+    for (let offset = 0; offset < selections.length; offset += BULK_ROWS) {
+      const batch = selections.slice(offset, offset + BULK_ROWS);
+      await tx.contentWorkspaceThumbnailSelection.createMany({
+        data: batch.map(({ listingId: _listingId, ...selection }) => selection),
+      });
+      const updated = await tx.$executeRaw`
+        UPDATE content_workspaces AS workspace
+        SET current_thumbnail_selection_id = incoming.id, updated_at = NOW()
+        FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
+          AS incoming(id uuid, "contentWorkspaceId" uuid, "listingId" uuid)
+        WHERE workspace.organization_id = ${input.organizationId}::uuid
+          AND workspace.id = incoming."contentWorkspaceId" AND workspace.channel_listing_id = incoming."listingId"
+          AND workspace.owner_type = 'channel_listing' AND workspace.status = 'active' AND workspace.is_deleted = false
+      `;
+      if (updated !== batch.length) throw new Error('Catalog workspace changed before publication');
+    }
+    return { imageCount, inactivatedImageCount };
   }
 }
 
@@ -223,8 +306,9 @@ function uniqueMedia(media: ChannelCatalogMedia[]): ChannelCatalogMedia[] {
     const existing = unique.get(key);
     if (!existing || item.sortOrder < existing.sortOrder) unique.set(key, item);
   }
-  return [...unique.values()].sort((left, right) =>
-    left.sortOrder - right.sortOrder || left.sourceUrl.localeCompare(right.sourceUrl),
+  return [...unique.values()].sort(
+    (left, right) =>
+      left.sortOrder - right.sortOrder || left.sourceUrl.localeCompare(right.sourceUrl),
   );
 }
 
@@ -253,7 +337,7 @@ function isProviderMetadata(value: unknown, channel: string): boolean {
 
 function jsonRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : null;
 }
 

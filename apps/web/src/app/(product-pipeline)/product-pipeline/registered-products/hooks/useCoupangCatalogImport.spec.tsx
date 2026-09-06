@@ -152,7 +152,7 @@ describe('useCoupangCatalogImport', () => {
     expect(mocks.sendToExtension).toHaveBeenCalledTimes(1);
   });
 
-  it('refreshes listings and product operations once per higher publication count', async () => {
+  it('refreshes canonical queries exactly once after the owner commits the whole catalog', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -175,17 +175,12 @@ describe('useCoupangCatalogImport', () => {
           id: RUN_ID,
           channelAccountId: ACCOUNT_ID,
           status: 'running',
-          progress: { publishedProducts: 20 },
+          progress: { hydratedProducts: 20, publishedProducts: 0 },
         },
       );
     });
-    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({
-      queryKey: queryKeys.channelListings.all,
-    }));
-    expect(invalidate).toHaveBeenCalledWith({
-      queryKey: queryKeys.products.operations.all,
-    });
-    const progressInvalidationCount = invalidate.mock.calls.length;
+    await act(async () => Promise.resolve());
+    expect(invalidate).not.toHaveBeenCalled();
 
     act(() => {
       queryClient.setQueryData(
@@ -194,13 +189,13 @@ describe('useCoupangCatalogImport', () => {
           id: RUN_ID,
           channelAccountId: ACCOUNT_ID,
           status: 'running',
-          progress: { publishedProducts: 20 },
+          progress: { hydratedProducts: 20, publishedProducts: 0 },
           updatedAt: 'same-count',
         },
       );
     });
     await act(async () => Promise.resolve());
-    expect(invalidate).toHaveBeenCalledTimes(progressInvalidationCount);
+    expect(invalidate).not.toHaveBeenCalled();
 
     act(() => {
       queryClient.setQueryData(
@@ -209,13 +204,12 @@ describe('useCoupangCatalogImport', () => {
           id: RUN_ID,
           channelAccountId: ACCOUNT_ID,
           status: 'running',
-          progress: { publishedProducts: 40 },
+          progress: { hydratedProducts: 40, publishedProducts: 0 },
         },
       );
     });
-    await waitFor(() => {
-      expect(invalidate.mock.calls.length).toBe(progressInvalidationCount + 2);
-    });
+    await act(async () => Promise.resolve());
+    expect(invalidate).not.toHaveBeenCalled();
 
     act(() => {
       queryClient.setQueryData(
@@ -240,6 +234,15 @@ describe('useCoupangCatalogImport', () => {
         queryKey: queryKeys.channelSkuAvailability.all,
       });
     });
+    expect(invalidate).toHaveBeenCalledTimes(4);
+    act(() => {
+      queryClient.setQueryData(
+        queryKeys.coupangCatalogImports.run(ACCOUNT_ID, RUN_ID),
+        (current: Record<string, unknown>) => ({ ...current, updatedAt: 'replayed-complete' }),
+      );
+    });
+    await act(async () => Promise.resolve());
+    expect(invalidate).toHaveBeenCalledTimes(4);
   });
 
   it('synchronizes a polled cancellation into the personal alert once', async () => {

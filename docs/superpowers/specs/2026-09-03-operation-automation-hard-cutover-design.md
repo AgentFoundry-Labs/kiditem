@@ -348,8 +348,9 @@ Staged facts are never canonical merely because they exist. Readers select
 facts only through the source owner's current pointer to a `COMPLETE`
 manifest. A failed or expired attempt cannot move that pointer.
 
-Finalize is a short owner metadata transaction; it never rewrites the staged
-fact set. The source owner Module's persistence Implementation owns the
+Finalize is a short owner metadata transaction, except for the approved Wing
+catalog publication below; other sources never rewrite the staged fact set.
+The source owner Module's persistence Implementation owns the
 transaction:
 
 ```text
@@ -383,6 +384,32 @@ transaction rollback leaves no visible complete manifest and downstream reads
 continue using the previous complete generation. Failed and incomplete staged
 facts remain invisible and are retained in this cutover; no cleanup subsystem
 is added without measured storage pressure.
+
+### Wing catalog full-publication exception — approved 2026-09-06
+
+Channels' Wing product/option catalog keeps uploaded chunks private in its
+existing collection storage. Upload never changes current listings, options,
+media, absence reconciliation, or mapping generation. The final owner
+transaction validates the complete staged snapshot and account/attempt fence,
+publishes the entire catalog and media, reconciles absence, advances mapping
+provenance, and commits the terminal receipt and Alert together. Any failure
+rolls back all canonical changes; the previous complete catalog stays visible.
+
+This measured full-publication transaction replaces metadata-only finalize for
+this source alone. Reuse the existing identity/media owners and preserve
+product links, recipes, stock, and listing content; do not introduce
+generation-aware duplicate read models, another worker, or a compatibility
+path. Record statement counts and elapsed transaction time on a representative
+disposable PostgreSQL fixture, then verify the request budget on the approved
+operating clone before cutover. A timeout increase alone is not acceptance.
+The fixed-token/expiry, immutable replay, and terminal/Alert contracts still
+apply. Collector inputs and normalized output remain unchanged.
+
+Browser snapshot equality is not attempt identity. A new collection must
+publish even if its content matches an older snapshot (A → B → A); only the
+same collection's terminal receipt is an idempotent replay. Browser publication
+uses the existing `contentChecksum`, leaving file-upload `fileHash` deduplication
+to the file-import path.
 
 ### Partial rows and mapping
 
@@ -894,7 +921,8 @@ Correctness does not require per-row lifecycle writes:
 - one-shot facts use a measured bounded bulk insert; chunked sources use
   idempotent bounded batches;
 - the terminal source transaction performs metadata/current-pointer and one
-  Alert mutation only, with no fact-set rewrite or ABC write;
+  Alert mutation only, except for Wing catalog's approved measured full
+  publication; no source transaction writes ABC;
 - no heartbeat, progress-row, scheduler, bootstrap scan, or panel projection
   writes remain;
 - current source reads use the indexed owner current-generation pointer;
@@ -1000,8 +1028,8 @@ the extension Adapter journey.
 - a one-shot replay or duplicate chunk sequence/checksum does not duplicate
   staged facts, while conflicting replay is rejected;
 - staged and incomplete generations are invisible to canonical readers;
-- finalize changes only validated metadata/current pointers and never rewrites
-  the staged fact set;
+- finalize changes only validated metadata/current pointers, except for Wing
+  catalog's approved atomic full-publication transaction;
 - a fixed expiry rejects late writes, `read` derives effective failure without
   mutation, and the next `beginAttempt` CAS-fails the old attempt and writes its
   Alert before creating the new attempt;

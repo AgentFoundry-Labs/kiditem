@@ -81,6 +81,7 @@ function cancelledSession(): BrowserCollectionSessionView {
 describe('CoupangCatalogImportPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState(null, '', '/');
     mocks.listAccounts.mockResolvedValue([
       { id: ACCOUNT_ID, channel: 'coupang', name: 'Coupang Wing', isPrimary: true },
     ]);
@@ -96,10 +97,10 @@ describe('CoupangCatalogImportPanel', () => {
         progress: {
           discoveredProducts: 1_228,
           hydratedProducts: 400,
-          publishedProducts: 400,
-          publishedOptionCount: 522,
-          publishedMediaCount: 2_100,
-          firstPublishedAt: '2026-07-15T00:00:00.000Z',
+          publishedProducts: 0,
+          publishedOptionCount: 0,
+          publishedMediaCount: 0,
+          firstPublishedAt: null,
         },
         createdAt: '2026-07-15T00:00:00.000Z',
         error: null,
@@ -125,6 +126,10 @@ describe('CoupangCatalogImportPanel', () => {
     );
 
     expect(await screen.findByRole('button', { name: '수집 중' })).toBeDisabled();
+    expect(screen.getByText('상세 수집 400 / 1,228')).toBeInTheDocument();
+    expect(screen.getByText('전체 수집 후 한 번에 반영')).toBeInTheDocument();
+    expect(screen.getByText('수집 중에는 기존 상품 데이터 유지')).toBeInTheDocument();
+    expect(screen.queryByText(/카드 반영 중/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '수집 중단' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '수집 재개' })).not.toBeInTheDocument();
     expect(screen.getByTestId('run-controls')).toHaveAttribute(
@@ -140,6 +145,28 @@ describe('CoupangCatalogImportPanel', () => {
       );
     });
     expect(mocks.syncAlert).toHaveBeenCalled();
+  });
+
+  it.each([[RUN_ID, RUN_ID], ['invalid-run-id', null]])(
+    'validates a source-owned collection deep link: %s', async (value, expected) => {
+      window.history.replaceState(null, '', `/?collectionRun=${value}`);
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(<QueryClientProvider client={client}><CoupangCatalogImportPanel /></QueryClientProvider>);
+      await waitFor(() => expect(mocks.useCatalogImport).toHaveBeenCalledWith(ACCOUNT_ID, expected));
+    },
+  );
+
+  it('uses committed owner completion even if local browser progress has not caught up', async () => {
+    const current = mocks.useCatalogImport.getMockImplementation()!();
+    mocks.useCatalogImport.mockReturnValue({
+      ...current,
+      serverStatus: { ...current.serverStatus, status: 'completed', phase: 'finished' },
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><CoupangCatalogImportPanel /></QueryClientProvider>);
+    await waitFor(() => expect(screen.getByRole('button', { name: '다시 동기화' })).toBeEnabled());
+    expect(screen.queryByRole('button', { name: '수집 중' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '수집 중단' })).not.toBeInTheDocument();
   });
 
   it('treats an asynchronous cancellation response as a submitted stop request', async () => {

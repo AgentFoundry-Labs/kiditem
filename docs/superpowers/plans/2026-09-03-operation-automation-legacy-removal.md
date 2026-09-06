@@ -382,14 +382,15 @@ SERP seller enrichment, old rank runtime deletion,
 actual unpacked/provider browser QA, aggregate boot/build and Task6 cutover
 remain open. These focused results do not complete Task3 or the plan.
 
-**Remaining source boundaries (read-only findings, not approved exceptions):**
+**Remaining source boundaries (approval is source-specific):**
 
-- **Catalog:** `channel-catalog-collection.service.ts` publishes each detail
-  chunk into current listing/option/media rows before finalize; the current
-  finalizer publishes the full set again. The spec instead requires invisible
-  staging and metadata-only finalize. Choose an explicit measured full-publication
-  transaction exception, or include generation-aware catalog/media reads in the
-  schema migration. Neither adding a token nor raising the timeout fixes this.
+- **Catalog:** On 2026-09-06 the user approved
+  private staging followed by one measured full-publication transaction, not
+  generation-aware catalog/media reads. Remove chunk publication and prove
+  rollback/visibility through owner HTTP and public catalog reads on disposable
+  PostgreSQL. Complete the same owner's token/expiry/replay and terminal/Alert
+  fencing without changing collector inputs or outputs. Measure statement count
+  and elapsed time; operating-clone access remains separately approval-gated.
 - **Advertising keyword:** the existing 300-ad/10-minute invocation budget and
   partial cursor do not prove the full roster. A continued attempt needs frozen
   account/date/roster and receipt-backed coverage; a capped or failed enumeration
@@ -486,6 +487,25 @@ zero unowned producers and zero source-to-ABC references. No full web/boot,
 provider/browser QA, operating DB access or final independent review is claimed.
 The remaining source-boundary decisions above still block generic runtime and
 schema cutover completion; these results do not complete Task3 or the plan.
+
+**Wing catalog publication checkpoint (2026-09-06):** Detail uploads now stay
+private; the final transaction validates the exact staged receipt set and
+publishes listings/options/media, absence, mapping generation and the receipt
+atomically. Same-attempt replay is unchanged; new A → B → A captures publish
+again. Lost final ACK is reconciled against the exact owner receipt. The screen
+shows hydration progress and invalidates canonical reads once after completion.
+
+The existing AI media adapter now batches writes in500-row groups in that same
+transaction, preserving provider asset identity and manual thumbnail selections.
+Disposable PostgreSQL integration24 passed, including visibility, rollback,
+receipt races and manual-selection concurrency. The1000-product/3000-option/
+1000-media fixture measured50 statements/1255ms for new publication and41/
+3792ms for refresh, versus13032 statements before bulk persistence; only query
+count is asserted. Server unit/controller11, web focused15 and extension408
+passed. Nest build still has3 retired Automation export errors and web build7
+retired generic-session export errors. No full boot or real-provider QA is
+claimed. Owner token/fixed-expiry/terminal-Alert convergence remains the next
+catalog slice; this storage checkpoint does not complete Task3 or the plan.
 
 - [ ] **Step 1: Add failing no-Operation assertions to existing owner acceptance tests**
 

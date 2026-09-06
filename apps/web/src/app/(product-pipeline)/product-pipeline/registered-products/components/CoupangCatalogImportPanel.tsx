@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BrowserCollectionRunIdSchema } from '@kiditem/shared/browser-collection-session';
+import { CoupangCatalogCollectionRunSchema } from '@kiditem/shared/coupang-catalog-snapshot';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Database, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
@@ -59,8 +59,10 @@ export function CoupangCatalogImportPanel() {
   const isComplete = server?.status === 'completed';
   const isRunning = server?.status === 'running' && extension?.status === 'running';
   const browserActive =
-    collectionSession?.status === 'running' ||
-    collectionSession?.status === 'attention_required';
+    server?.status === 'running' && (
+      collectionSession?.status === 'running' ||
+      collectionSession?.status === 'attention_required'
+    );
   const isCollecting = browserActive || isRunning;
   const canResume = server?.status === 'running' &&
     (!extension || extension.status === 'idle' || extension.status === 'error' || extension.status === 'cancelled');
@@ -124,7 +126,7 @@ export function CoupangCatalogImportPanel() {
               )}
             </div>
             <p className="mt-0.5 text-xs font-medium text-slate-600">
-              Wing의 상품·옵션·이미지를 DB에 순차 반영하고 완료 후 목록을 갱신합니다.
+              Wing의 상품·옵션·이미지를 모두 수집한 뒤 한 번에 반영합니다.
             </p>
             {server && (
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold text-slate-600" aria-live="polite">
@@ -207,7 +209,7 @@ export function CoupangCatalogImportPanel() {
             </button>
           )}
         </div>
-        {collectionSession && (
+        {collectionSession && server?.status === 'running' && (
           <BrowserCollectionRunControls
             session={collectionSession}
             onWebRestart={handleStart}
@@ -222,7 +224,7 @@ export function CoupangCatalogImportPanel() {
 
 function readCollectionRunId(): string | null {
   if (typeof window === 'undefined') return null;
-  const parsed = BrowserCollectionRunIdSchema.safeParse(
+  const parsed = CoupangCatalogCollectionRunSchema.shape.id.safeParse(
     new URLSearchParams(window.location.search).get('collectionRun'),
   );
   return parsed.success ? parsed.data : null;
@@ -230,7 +232,7 @@ function readCollectionRunId(): string | null {
 
 function phaseLabel(phase: string): string {
   if (phase === 'discovery') return '상품 목록 확인';
-  if (phase === 'hydration') return '상품 상세 수집 · 카드 반영 중';
+  if (phase === 'hydration') return '상품 상세 수집';
   if (phase === 'ready_to_finalize') return 'DB 반영 준비';
   if (phase === 'publishing') return 'DB 반영 중';
   return '완료';
