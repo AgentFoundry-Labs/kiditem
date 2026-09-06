@@ -20,7 +20,6 @@
   const RECOVERABLE_EXTENSION_PRODUCERS = new Set([
     "advertising.ad_sync",
     "advertising.scrape_targets",
-    "advertising.wing_rank",
     "channels.coupang_catalog",
   ]);
   const UUID_PATTERN =
@@ -243,9 +242,7 @@
       }
 
       await sessions.cancel(runId, { closeManagedTab: true });
-      if (session.producer === "advertising.wing_rank") {
-        await options.cancelWingRank(runId, ownerEnvironmentId);
-      } else if (session.producer === "advertising.keyword_rank") {
+      if (session.producer === "advertising.keyword_rank") {
         await options.cancelKeywordRank(runId, ownerEnvironmentId);
       } else if (session.producer === "advertising.competitor_catalog") {
         await options.cancelCompetitorCatalog(runId, ownerEnvironmentId);
@@ -274,12 +271,7 @@
         );
       }
 
-      await sessions.restart(
-        runId,
-        session.producer === "advertising.wing_rank"
-          ? { closeManagedTab: true }
-          : undefined,
-      );
+      await sessions.restart(runId);
       try {
         if (session.producer === "advertising.scrape_targets") {
           const targets = await options.loadScheduledTargets(session.environmentId);
@@ -288,14 +280,6 @@
             runId,
             startedAt: now(),
             startIndex: 0,
-            sessionStarted: true,
-            environmentId: session.environmentId,
-          });
-        } else if (session.producer === "advertising.wing_rank") {
-          await options.startWingRank({
-            forceRestart: true,
-            runId,
-            restartStrategy: "extension",
             sessionStarted: true,
             environmentId: session.environmentId,
           });

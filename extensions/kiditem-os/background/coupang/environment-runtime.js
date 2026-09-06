@@ -4,8 +4,6 @@
   const TAB_BINDINGS_KEY = 'kiditem_coupang_environment_tab_bindings_v1';
   const SCHEDULED_ALARMS = Object.freeze([
     'auto-scrape',
-    'keyword-rank-check',
-    'wing-sales-rank-resume',
     'coupang-keyword-serp-rank',
     'kiditem-coupang-catalog-import-step',
   ]);

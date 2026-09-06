@@ -59,10 +59,12 @@ test('namespaces state and scheduled alarms by environment', () => {
   assert.equal(runtime.stateKey('kiditem_rank_check', 'local'), 'kiditem_rank_check:local');
   assert.equal(runtime.alarmName('auto-scrape', 'office'), 'auto-scrape:office');
   assert.deepEqual(
-    JSON.parse(JSON.stringify(runtime.parseAlarm('keyword-rank-check:local'))),
-    { base: 'keyword-rank-check', environmentId: 'local' },
+    JSON.parse(JSON.stringify(runtime.parseAlarm('auto-scrape:local'))),
+    { base: 'auto-scrape', environmentId: 'local' },
   );
-  assert.equal(runtime.parseAlarm('keyword-rank-check:preview'), null);
+  assert.equal(runtime.parseAlarm('auto-scrape:preview'), null);
+  assert.equal(runtime.parseAlarm('keyword-rank-check:local'), null);
+  assert.equal(runtime.parseAlarm('wing-sales-rank-resume:local'), null);
 });
 
 test('binds marketplace tabs to one explicit connected environment', async () => {

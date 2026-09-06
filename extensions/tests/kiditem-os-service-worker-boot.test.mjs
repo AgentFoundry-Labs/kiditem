@@ -29,18 +29,22 @@ function createFakeChrome() {
   const createdTabs = [];
   const externalMessageListeners = [];
   const connectExternalListeners = [];
+  const installedListeners = [];
+  const createdAlarms = [];
   const noopEvent = () => ({ addListener() {}, removeListener() {} });
   return {
     storage,
     createdTabs,
     externalMessageListeners,
     connectExternalListeners,
+    installedListeners,
+    createdAlarms,
     chrome: {
       runtime: {
         id: 'kiditem-os-test',
         lastError: null,
         getManifest: () => manifest,
-        onInstalled: noopEvent(),
+        onInstalled: { addListener: (listener) => installedListeners.push(listener) },
         onStartup: noopEvent(),
         onConnect: noopEvent(),
         onMessage: noopEvent(),
@@ -51,7 +55,7 @@ function createFakeChrome() {
           addListener: (listener) => connectExternalListeners.push(listener),
         },
       },
-      alarms: { create() {}, clear() {}, onAlarm: noopEvent() },
+      alarms: { create: (name) => createdAlarms.push(name), clear() {}, onAlarm: noopEvent() },
       storage: {
         local: {
           async get(key, callback) {
@@ -173,6 +177,33 @@ function externalRequest(fake, message) {
     assert.equal(responders, 1);
   });
 }
+
+test('retired Wing rank shell actions have no public worker responder', async () => {
+  const requests = [];
+  const { fake } = bootServiceWorker({ fetch: async (url) => {
+    requests.push(String(url));
+    return { ok: true, status: 200, json: async () => ({ targets: [] }) };
+  } });
+  for (const action of ['runWingSalesRankCheck', 'cancelWingSalesRankCheck', 'getWingSalesRankCheckStatus']) {
+    const responses = [];
+    const responders = fake.externalMessageListeners.filter((listener) =>
+      listener({ action, runId: 'retired-wing-run' },
+        { url: 'http://localhost:3000/advertising/keyword-rank' },
+        (response) => responses.push(response)) === true);
+    assert.equal(responders.length, 0, action);
+    await new Promise(setImmediate);
+    assert.deepEqual(responses, [], action);
+  }
+  assert.deepEqual(requests, []);
+  assert.deepEqual(fake.createdTabs, []);
+});
+
+test('retired Wing rank shell schedules are not installed', async () => {
+  const { fake } = bootServiceWorker();
+  for (const listener of fake.installedListeners) await listener({ reason: 'update' });
+  assert.equal(fake.createdAlarms.some((name) =>
+    name.includes('keyword-rank-check') || name.includes('wing-sales-rank-resume')), false);
+});
 
 // Exercise the production collector from the fully loaded worker. Only Chrome
 // browser IO and time are simulated; capture, pagination and normalization run.

@@ -95,7 +95,6 @@ function createRuntime(initialSessions = []) {
         staleRunId: 'newer-run',
       };
     },
-    cancelWingRank: async (runId) => calls.push(['cancelWingRank', runId]),
     cancelCatalog: async (runId) => calls.push(['cancelCatalog', runId]),
     cancelKeywordRank: async (runId) => calls.push(['cancelKeywordRank', runId]),
     cancelCompetitorCatalog: async (runId) => calls.push(['cancelCompetitorCatalog', runId]),
@@ -106,7 +105,6 @@ function createRuntime(initialSessions = []) {
     startScheduledScrape: async (input) => {
       calls.push(['startScheduledScrape', input.startIndex]);
     },
-    startWingRank: async (input) => calls.push(['startWingRank', input.forceRestart]),
     restartCatalog: async (runId) => calls.push(['restartCatalog', runId]),
   });
   return { calls, controller, sessionsById };
@@ -517,4 +515,15 @@ test('worker reload turns an unrecoverable advertising sync into actionable atte
     ['attention', 'stale-ad-sync', 'manual_confirmation'],
   ]);
   assert.equal(sessionsById.get('stale-ad-sync').status, 'attention_required');
+});
+
+test('worker reload does not resume retired Wing rank sessions', async () => {
+  const original = session({
+    runId: 'old-wing', producer: 'advertising.wing_rank',
+    restartStrategy: 'extension',
+  });
+  const { calls, controller, sessionsById } = createRuntime([original]);
+  await controller.recover();
+  assert.deepEqual(calls, []);
+  assert.deepEqual(sessionsById.get('old-wing'), original);
 });

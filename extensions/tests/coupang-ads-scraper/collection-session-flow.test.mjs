@@ -104,7 +104,6 @@ test('handles generic collection controls before producer actions', () => {
   }
   assert.match(collectionRunsSource, /restartStrategy !== ["']extension["']/);
   assert.match(collectionRunsSource, /reason:\s*["']manual_confirmation["']/);
-  assert.match(collectionRunsSource, /forceRestart:\s*true/);
   assert.match(collectionRunsSource, /options\.restartCatalog/);
   // 취소 구현은 그대로 쿠팡 도메인이 갖고, 레지스트리를 통해 dispatch 가 부른다.
   assert.match(
@@ -242,38 +241,15 @@ test('web restart handlers preserve the requested run id and use the shared begi
     worker,
     /msg\.action === "runCoupangKeywordRankCheck"[\s\S]*?startCoupangKeywordRankCheck\(\{\s*runId:\s*msg\.runId/s,
   );
-  assert.match(
-    worker,
-    /msg\.action === "runWingSalesRankCheck"[\s\S]*?startWingSalesRankCheck\(\{\s*runId:\s*msg\.runId/s,
-  );
-  for (const [name, nextName] of [
-    ['startCoupangKeywordRankCheck', 'runCoupangKeywordRankBatch'],
-    ['startWingSalesRankCheck', 'runWingSalesRankBatch'],
-  ]) {
-    const source = functionSource(name, nextName);
-    assert.match(source, /collectionRuns\.beginWebCollection\(/);
-    if (name === 'startWingSalesRankCheck') {
-      assert.match(
-        source,
-        /options\.restartStrategy === "extension"[\s\S]*?collectionSessions\.start\([\s\S]*?restartStrategy:\s*"extension"/,
-      );
-    } else {
-      assert.doesNotMatch(source, /collectionSessions\.start\(/);
-    }
-  }
-  const resume = functionSource(
-    'resumeInterruptedWingSalesRankCheck',
-    'checkCoupangKeywordRank',
-  );
-  assert.match(resume, /collectionRuns\.restart\(status\.runId, environmentId\)/);
-  assert.doesNotMatch(resume, /startWingSalesRankCheck\(/);
+  const source = functionSource('startCoupangKeywordRankCheck', 'runCoupangKeywordRankBatch');
+  assert.match(source, /collectionRuns\.beginWebCollection\(/);
+  assert.doesNotMatch(source, /collectionSessions\.start\(/);
 });
 
 test('shared producers declare stable collection modes and opaque input owners', () => {
   assert.match(worker, /function stableInputFingerprint\(/);
   for (const [name, nextName, mode] of [
     ['searchWingCatalogProducts', 'searchCoupangKeywordSuggestions', 'single_catalog'],
-    ['startWingSalesRankCheck', 'runWingSalesRankBatch', 'batch'],
     ['checkCoupangKeywordRank', 'startCoupangKeywordRankCheck', 'single_serp'],
     ['startCoupangKeywordRankCheck', 'runCoupangKeywordRankBatch', 'all_trackers'],
   ]) {
@@ -315,12 +291,10 @@ test('stale domain state only yields to a restartable generic same-run session',
   assert.equal(context.canRestart(stored, 'run-b', { runId: 'run-b', status: 'failed' }), false);
   assert.equal(context.canRestart(stored, 'run-a', null), false);
 
-  for (const [name, nextName] of [
-    ['startWingSalesRankCheck', 'runWingSalesRankBatch'],
-    ['startCoupangKeywordRankCheck', 'runCoupangKeywordRankBatch'],
-  ]) {
-    assert.match(functionSource(name, nextName), /canRestartStoredDomainRun\(/);
-  }
+  assert.match(
+    functionSource('startCoupangKeywordRankCheck', 'runCoupangKeywordRankBatch'),
+    /canRestartStoredDomainRun\(/,
+  );
 });
 
 test('scrape-target web restarts bind the run to a stable target owner', () => {
@@ -555,143 +529,6 @@ test('cancellation during initial target fetch cannot be overwritten by pre-batc
     assert.equal(status.status, 'cancelled');
     assert.deepEqual(calls, ['cancel-owner']);
   }
-
-  for (const fetchResult of ['error', 'empty']) {
-    let cancelled = false;
-    let status = null;
-    const calls = [];
-    const wingContext = vm.createContext({
-      console,
-      Date,
-      WING_RANK_STALE_AFTER_MS: 60_000,
-      RANK_CHECK_STATUS_KEY: 'wing-status',
-      RANK_CHECK_CANCEL_KEY: 'wing-cancel',
-      getStorage: async () => ({ 'wing-status': status }),
-      collectionRuns: {
-        createRunId: () => 'wing-run',
-        beginWebCollection: async () => {
-          cancelled = false;
-          return 'wing-run';
-        },
-      },
-      isWingSalesRankCancelled: async () => cancelled,
-      authedFetch: async () => {
-        cancelled = true;
-        if (fetchResult === 'error') throw new Error('target fetch failed');
-        return { ok: true, json: async () => ({ targets: [] }) };
-      },
-      markStoredCollectionCancelled: async () => {
-        calls.push('cancel-owner');
-        status = { runId: 'wing-run', status: 'cancelled', cancelled: true };
-      },
-      chrome: {
-        storage: {
-          local: {
-            remove: async () => undefined,
-            set: async (next) => {
-              status = next['wing-status'];
-              calls.push(`status:${status.status}`);
-            },
-          },
-        },
-      },
-      collectionSessions: {
-        start: async () => undefined,
-        fail: async () => calls.push('fail'),
-        succeed: async () => calls.push('succeed'),
-        progress: async () => calls.push('progress'),
-      },
-      runWingSalesRankBatch: () => {
-        calls.push('batch');
-        return Promise.resolve();
-      },
-    });
-    vm.runInContext(
-      `${functionSource('canRestartStoredDomainRun', 'stableInputFingerprint')}\n` +
-      `${functionSource('startWingSalesRankCheck', 'runWingSalesRankBatch')}\n` +
-        'globalThis.startWingBatch = startWingSalesRankCheck;',
-      wingContext,
-    );
-
-    const result = await wingContext.startWingBatch();
-    assert.equal(result.cancelled, true);
-    assert.equal(cancelled, true);
-    assert.equal(status.status, 'cancelled');
-    assert.deepEqual(calls, ['cancel-owner']);
-  }
-
-});
-
-test('Wing cancellation skips rank sync and wins the terminal status race', async () => {
-  let cancelled = false;
-  const calls = [];
-  const context = vm.createContext({
-    console,
-    setInterval: () => 1,
-    clearInterval: () => undefined,
-    RANK_CHECK_STATUS_KEY: 'wing-status',
-    RANK_CHECK_CANCEL_KEY: 'wing-cancel',
-    chrome: {
-      runtime: { lastError: null, getPlatformInfo: () => undefined },
-      storage: {
-        local: {
-          remove: async () => calls.push('remove-cancel-key'),
-          set: async (next) => calls.push(`status:${next['wing-status'].status}`),
-        },
-      },
-    },
-    isWingSalesRankCancelled: async () => cancelled,
-    searchWingCatalogProducts: async () => {
-      calls.push('search');
-      cancelled = true;
-      return { success: true, tabId: 41, rows: [], pages: [] };
-    },
-    sortWingCatalogRowsBySales: () => [],
-    postWingSalesRankSync: async () => {
-      calls.push('sync');
-      return { success: true };
-    },
-    clampNumber: () => 1,
-    randomDelayMs: () => 0,
-    sleep: async () => undefined,
-    removeTab: async () => calls.push('remove-tab'),
-    markStoredCollectionCancelled: async () => calls.push('cancel-owner'),
-    collectionSessions: {
-      progress: async () => calls.push('progress'),
-      cancel: async () => calls.push('cancel-session'),
-      succeed: async () => calls.push('succeed'),
-    },
-    notifyDashboard: () => calls.push('notify'),
-    WING_CATALOG_MAX_PAGES: 5,
-  });
-  vm.runInContext(
-    `${functionSource('runWingSalesRankBatch', 'isWingSalesRankCancelled')}\n` +
-      'globalThis.runWingBatch = runWingSalesRankBatch;',
-    context,
-  );
-
-  const result = await context.runWingBatch(
-    [{ keyword: '문구', productCount: 1, vendorItemIds: [] }],
-    1,
-    'wing-run',
-    123,
-  );
-  assert.equal(result.cancelled, true);
-  assert.equal(calls.includes('sync'), false);
-  assert.equal(calls.includes('succeed'), false);
-  assert.ok(calls.includes('cancel-session'));
-
-  cancelled = false;
-  calls.length = 0;
-  context.chrome.storage.local.remove = async () => {
-    calls.push('remove-cancel-key');
-    cancelled = true;
-  };
-  const terminalResult = await context.runWingBatch([], 0, 'wing-run', 123);
-  assert.equal(terminalResult.cancelled, true);
-  assert.ok(calls.includes('status:done'));
-  assert.ok(calls.includes('cancel-owner'));
-  assert.equal(calls.includes('succeed'), false);
 });
 
 test('automatic collectors clean up owned tabs and replace a missing shared Wing tab', async () => {
@@ -708,7 +545,6 @@ test('automatic collectors clean up owned tabs and replace a missing shared Wing
     clampNumber: () => 1,
     collectionRuns: {
       beginWebCollection: async () => 'wing-run',
-      attachTab: async () => wingCalls.push('attach'),
       requireAttention: async () => wingCalls.push('attention'),
       isCancelled: async () => wingCancelled,
     },
@@ -726,6 +562,7 @@ test('automatic collectors clean up owned tabs and replace a missing shared Wing
     normalizeWingCatalogProduct: () => null,
     sleep: async () => undefined,
     collectionSessions: {
+      attachTab: async () => wingCalls.push('attach'),
       fail: async () => wingCalls.push('fail'),
       succeed: async () => wingCalls.push('succeed'),
     },
