@@ -1,11 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
-import type { PrismaClient } from '@prisma/client';
-import type {
-  CoupangCatalogProductV1,
-  PutCoupangCatalogChunkRequest,
-} from '@kiditem/shared/coupang-catalog-snapshot';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { AlertsRepository } from '../../alerts/alerts.repository';
+import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../../ai/adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -22,6 +19,11 @@ import {
   ChannelCatalogCollectionService,
   hashCatalogChunkPayload,
 } from '../application/service/channel-catalog-collection.service';
+import type {
+  CoupangCatalogProductV1,
+  PutCoupangCatalogChunkRequest,
+} from '@kiditem/shared/coupang-catalog-snapshot';
+import type { PrismaClient } from '@prisma/client';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -32,12 +34,14 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    const alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
     const publisher = new ChannelCatalogPublicationRepositoryAdapter(
       prisma as unknown as PrismaService,
       new AiCatalogMediaPublicationRepositoryAdapter(),
+      alerts,
     );
     collection = new ChannelCatalogCollectionService(
-      new ChannelCatalogCollectionRepositoryAdapter(prisma as unknown as PrismaService),
+      new ChannelCatalogCollectionRepositoryAdapter(prisma as unknown as PrismaService, alerts),
       publisher,
     );
   });
@@ -62,7 +66,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
   });
 
   it('publishes channel identities and media without creating operating products', async () => {
-    const result = await publish(await createCollectionRun(prisma), [product('P-1', 'S-1')]);
+    const result = await publish(randomUUID(), [product('P-1', 'S-1')]);
 
     const listing = await prisma.channelListing.findFirstOrThrow({
       where: {
@@ -114,9 +118,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       },
     });
 
-    await expect(
-      publish(await createCollectionRun(prisma), [product('P-1', 'S-1')]),
-    ).resolves.toMatchObject({
+    await expect(publish(randomUUID(), [product('P-1', 'S-1')])).resolves.toMatchObject({
       duplicate: false,
       changes: {
         createdProductCount: 1,
@@ -126,10 +128,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
   });
 
   it('preserves a confirmed product link and direct option components on recollection', async () => {
-    await publish(await createCollectionRun(prisma), [
-      product('P-1', 'S-1'),
-      product('P-2', 'S-2'),
-    ]);
+    await publish(randomUUID(), [product('P-1', 'S-1'), product('P-2', 'S-2')]);
     const before = await prisma.channelListing.findFirstOrThrow({
       where: { channelAccountId: ACCOUNT_ID, externalId: 'P-1' },
       include: { options: true },
@@ -167,9 +166,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       },
     });
 
-    await publish(await createCollectionRun(prisma), [
-      product('P-1', 'S-1', { displayName: '수정된 노출명' }),
-    ]);
+    await publish(randomUUID(), [product('P-1', 'S-1', { displayName: '수정된 노출명' })]);
 
     const after = await prisma.channelListing.findUniqueOrThrow({
       where: { id: before.id },
@@ -198,8 +195,8 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
   });
 
   it('publishes a new identical capture without duplicating canonical identities', async () => {
-    const first = await publish(await createCollectionRun(prisma), [product('P-1', 'S-1')]);
-    const repeated = await publish(await createCollectionRun(prisma), [product('P-1', 'S-1')]);
+    const first = await publish(randomUUID(), [product('P-1', 'S-1')]);
+    const repeated = await publish(randomUUID(), [product('P-1', 'S-1')]);
 
     expect(repeated.sourceImportRunId).not.toBe(first.sourceImportRunId);
     expect(repeated.duplicate).toBe(false);
@@ -208,32 +205,24 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
   });
 
   it('advances mapping generation for active identity changes but not metadata-only or rejected publication', async () => {
-    await publish(await createCollectionRun(prisma), [product('P-1', 'S-1')]);
+    await publish(randomUUID(), [product('P-1', 'S-1')]);
     await expect(mappingGeneration()).resolves.toBe(1n);
 
-    await publish(await createCollectionRun(prisma), [
-      product('P-1', 'S-1', { displayName: '메타데이터만 변경' }),
-    ]);
+    await publish(randomUUID(), [product('P-1', 'S-1', { displayName: '메타데이터만 변경' })]);
     await expect(mappingGeneration()).resolves.toBe(1n);
 
-    await publish(await createCollectionRun(prisma), [
-      product('P-1', 'S-1'),
-      product('P-2', 'S-2'),
-    ]);
+    await publish(randomUUID(), [product('P-1', 'S-1'), product('P-2', 'S-2')]);
     await expect(mappingGeneration()).resolves.toBe(2n);
 
-    await publish(await createCollectionRun(prisma), [product('P-1', 'S-1')]);
+    await publish(randomUUID(), [product('P-1', 'S-1')]);
     await expect(mappingGeneration()).resolves.toBe(3n);
 
-    await publish(await createCollectionRun(prisma), [
-      product('P-1', 'S-1'),
-      product('P-2', 'S-2'),
-    ]);
+    await publish(randomUUID(), [product('P-1', 'S-1'), product('P-2', 'S-2')]);
     await expect(mappingGeneration()).resolves.toBe(4n);
 
-    await expect(
-      publish(await createCollectionRun(prisma), [product('P-3', 'S-1')]),
-    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(publish(randomUUID(), [product('P-3', 'S-1')])).rejects.toBeInstanceOf(
+      ConflictException,
+    );
     await expect(mappingGeneration()).resolves.toBe(4n);
     await expect(
       prisma.masterProductAbcFormulaState.findUnique({
@@ -244,20 +233,28 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
   });
 
   it('rejects an external option moving to another parent and rolls back', async () => {
-    await publish(await createCollectionRun(prisma), [product('P-1', 'S-1')]);
-    await expect(
-      publish(await createCollectionRun(prisma), [product('P-2', 'S-1')]),
-    ).rejects.toBeInstanceOf(ConflictException);
+    await publish(randomUUID(), [product('P-1', 'S-1')]);
+    await expect(publish(randomUUID(), [product('P-2', 'S-1')])).rejects.toBeInstanceOf(
+      ConflictException,
+    );
 
     expect(await prisma.channelListing.count({ where: { externalId: 'P-2' } })).toBe(0);
   });
 
-  async function publish(collectionRunId: string, products: ReturnType<typeof product>[]) {
+  async function publish(key: string, products: ReturnType<typeof product>[]) {
+    const permit = await collection.start({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      idempotencyKey: key,
+      request: { collectorVersion: 'wing-inventory-v1' },
+    });
     const scope = {
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
-      runId: collectionRunId,
+      runId: permit.attemptId,
+      attemptToken: permit.attemptToken,
     };
     const manifest = {
       totalItems: products.length,
@@ -321,23 +318,6 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     return state?.mappingGeneration ?? 0n;
   }
 });
-
-async function createCollectionRun(prisma: PrismaClient): Promise<string> {
-  const run = await prisma.channelScrapeRun.create({
-    data: {
-      organizationId: TEST_ORGANIZATION_ID,
-      channelAccountId: ACCOUNT_ID,
-      clientRunKey: randomUUID(),
-      channel: 'coupang',
-      source: 'coupang_wing_catalog_browser',
-      pageType: 'catalog_full_snapshot',
-      status: 'running',
-      parserVersion: 'wing-inventory-v1',
-      metaJson: { phase: 'ready_to_finalize' },
-    },
-  });
-  return run.id;
-}
 
 function product(
   externalProductId: string,

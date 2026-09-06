@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { CoupangCatalogCollectionRun } from '@kiditem/shared/coupang-catalog-snapshot';
 import {
   buildCoupangCatalogProgress,
   resolveCoupangCatalogError,
 } from './coupang-catalog-progress';
+import type { CoupangCatalogCollectionRun } from '@kiditem/shared/coupang-catalog-snapshot';
 
 describe('Coupang catalog progress', () => {
   it('shows private staged progress without claiming canonical publication', () => {
@@ -47,7 +47,7 @@ describe('Coupang catalog progress', () => {
 
   it('reports completed publication without a negative ETA', () => {
     const progress = buildCoupangCatalogProgress(collectionRun({
-      status: 'completed',
+      state: 'COMPLETE',
       phase: 'finished',
       discoveredProducts: 10,
       hydratedProducts: 10,
@@ -65,20 +65,20 @@ describe('Coupang catalog progress', () => {
 
   it('does not project a continuing collection rate or ETA for a failed owner', () => {
     expect(buildCoupangCatalogProgress(collectionRun({
-      status: 'failed', discoveredProducts: 100, hydratedProducts: 40,
+      state: 'FAILED', discoveredProducts: 100, hydratedProducts: 40,
     }), Date.parse('2026-07-14T00:30:00Z'))).toMatchObject({
       rateLabel: null, etaLabel: null, percent: 40,
       publicationDetailsLabel: '수집 중에는 기존 상품 데이터 유지',
     });
   });
 
-  it('hides a previous server attempt error while the browser collection is active', () => {
+  it('shows the current owner error even when stale browser activity remains', () => {
     expect(resolveCoupangCatalogError({
       browserActive: true,
       extensionError: null,
       startError: null,
       serverError: 'active user tab is collection-protected',
-    })).toBeNull();
+    })).toBe('active user tab is collection-protected');
 
     expect(resolveCoupangCatalogError({
       browserActive: false,
@@ -91,7 +91,7 @@ describe('Coupang catalog progress', () => {
 
 function collectionRun(
   overrides: Partial<{
-    status: CoupangCatalogCollectionRun['status'];
+    state: CoupangCatalogCollectionRun['state'];
     phase: CoupangCatalogCollectionRun['phase'];
     discoveredProducts: number;
     hydratedProducts: number;
@@ -101,10 +101,17 @@ function collectionRun(
   }> = {},
 ): CoupangCatalogCollectionRun {
   return {
-    id: '00000000-0000-4000-8000-000000000001',
+    attemptId: '00000000-0000-4000-8000-000000000001',
     channelAccountId: '00000000-0000-4000-8000-000000000002',
-    clientRunKey: '00000000-0000-4000-8000-000000000003',
-    status: overrides.status ?? 'running',
+    idempotencyKey: '00000000-0000-4000-8000-000000000003',
+    state: overrides.state ?? 'RUNNING',
+    expiresAt: '2026-07-15T00:00:00.000Z',
+    plan: {
+      channelAccountId: '00000000-0000-4000-8000-000000000002',
+      collectorVersion: 'wing-inventory-v1', vendorId: 'A001',
+      listUrl: 'https://wing.coupang.com/list', detailUrl: 'https://wing.coupang.com/detail',
+      publicationRevision: '0',
+    },
     phase: overrides.phase ?? 'hydration',
     collectorVersion: 'wing-inventory-v1',
     manifest: {

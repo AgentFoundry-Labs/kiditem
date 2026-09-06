@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CoupangCatalogCollectionRunSchema,
+  CoupangCatalogCollectionPermitSchema,
   CoupangCatalogDiscoveryPageV1Schema,
   CoupangCatalogManifestConfirmationV1Schema,
   CoupangCatalogProductDetailsChunkV1Schema,
@@ -207,19 +208,20 @@ describe('Coupang catalog snapshot contracts', () => {
 
   it('validates start and resumable status responses', () => {
     expect(StartCoupangCatalogCollectionRequestSchema.parse({
-      clientRunKey,
       collectorVersion: 'wing-inventory-v1',
-    }).clientRunKey).toBe(clientRunKey);
+    }).collectorVersion).toBe('wing-inventory-v1');
     expect(() => StartCoupangCatalogCollectionRequestSchema.parse({
       clientRunKey: 'not-a-uuid',
       collectorVersion: '',
     })).toThrow();
 
     const parsed = CoupangCatalogCollectionRunSchema.parse({
-      id: runId,
+      attemptId: runId,
       channelAccountId: accountId,
-      clientRunKey,
-      status: 'running',
+      idempotencyKey: clientRunKey,
+      state: 'RUNNING',
+      expiresAt: '2026-07-15T00:00:00.000Z',
+      plan: { channelAccountId: accountId, vendorId: 'V1', collectorVersion: 'wing-inventory-v1', listUrl: 'https://wing.coupang.com/list', detailUrl: 'https://wing.coupang.com/detail', publicationRevision: '0' },
       phase: 'hydration',
       collectorVersion: 'wing-inventory-v1',
       manifest,
@@ -249,6 +251,8 @@ describe('Coupang catalog snapshot contracts', () => {
       finishedAt: null,
     });
     expect(parsed.missing.productIds).toEqual(['10002']);
+    expect(CoupangCatalogCollectionPermitSchema.parse({ attemptId: runId, attemptToken: clientRunKey, state: parsed.state, expiresAt: parsed.expiresAt, plan: parsed.plan }).attemptToken).toBe(clientRunKey);
+    expect(CoupangCatalogCollectionRunSchema.parse({ ...parsed, attemptToken: clientRunKey })).not.toHaveProperty('attemptToken');
     expect(parsed.progress.publishedProducts).toBe(1);
     expect(parsed.progress.lastPublishedAt).toBe('2026-07-14T00:00:30.000Z');
     expect(() => CoupangCatalogCollectionRunSchema.parse({

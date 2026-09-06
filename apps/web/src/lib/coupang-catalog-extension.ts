@@ -1,4 +1,8 @@
-import type { CoupangCatalogBrowserStatus } from '@kiditem/shared/coupang-catalog-snapshot';
+import {
+  CoupangCatalogBrowserStatusSchema,
+  type CoupangCatalogBrowserStatus,
+  type CoupangCatalogCollectionPermit,
+} from '@kiditem/shared/coupang-catalog-snapshot';
 import {
   detectExtensionId,
   isChromeExtensionRuntimeAvailable,
@@ -25,8 +29,7 @@ export const COUPANG_CATALOG_EXTENSION_RELOAD_REQUIRED =
   'KIDITEM 쿠팡 확장프로그램이 이전 버전입니다. chrome://extensions에서 새로고침한 뒤 다시 시도하세요.';
 
 export async function startCoupangCatalogBrowser(input: {
-  channelAccountId: string;
-  runId: string;
+  permit: CoupangCatalogCollectionPermit;
 }): Promise<string> {
   if (!isChromeExtensionRuntimeAvailable()) {
     throw new Error('쿠팡 상품 수집은 Chrome에서 실행해주세요.');
@@ -39,7 +42,7 @@ export async function startCoupangCatalogBrowser(input: {
   });
   if (
     ping?.capabilities?.coupangCatalogSnapshot !== true ||
-    ping.capabilities.browserCollectionSessions !== true ||
+    ping.capabilities.coupangCatalogSourceAttempts !== true ||
     !isVersionAtLeast(ping.version, COUPANG_CATALOG_EXTENSION_MIN_VERSION)
   ) {
     throw new Error(COUPANG_CATALOG_EXTENSION_RELOAD_REQUIRED);
@@ -47,8 +50,7 @@ export async function startCoupangCatalogBrowser(input: {
   await transferExtensionAuthTo(extensionId);
   const started = await sendToExtension<ExtensionResponse>(extensionId, {
     action: 'startCoupangCatalogImport',
-    channelAccountId: input.channelAccountId,
-    runId: input.runId,
+    permit: input.permit,
   });
   if (started?.success === false) {
     throw new Error(started.error || '쿠팡 상품 수집을 시작하지 못했습니다.');
@@ -56,14 +58,16 @@ export async function startCoupangCatalogBrowser(input: {
   return extensionId;
 }
 
-export function getCoupangCatalogBrowserStatus(
+export async function getCoupangCatalogBrowserStatus(
   extensionId: string,
-  runId: string,
+  attemptId: string,
 ): Promise<CoupangCatalogBrowserStatus> {
-  return sendToExtension<CoupangCatalogBrowserStatus>(extensionId, {
+  const status = CoupangCatalogBrowserStatusSchema.parse(await sendToExtension(extensionId, {
     action: 'getCoupangCatalogImportStatus',
-    runId,
-  });
+    attemptId,
+  }));
+  if (status.attemptId !== attemptId) throw new Error('쿠팡 수집 시도 응답이 일치하지 않습니다.');
+  return status;
 }
 
 function isVersionAtLeast(

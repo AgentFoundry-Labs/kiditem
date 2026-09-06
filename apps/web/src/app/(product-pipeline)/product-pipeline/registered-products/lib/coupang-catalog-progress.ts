@@ -17,10 +17,10 @@ export function buildCoupangCatalogProgress(
 ): CoupangCatalogProgressView {
   const progress = run.progress;
   const total = Math.max(run.manifest?.totalItems ?? 0, progress.discoveredProducts);
-  const finished = run.status === 'completed';
+  const finished = run.state === 'COMPLETE';
   const remaining = Math.max(0, total - progress.hydratedProducts);
   const elapsedMs = nowMs - new Date(run.createdAt).getTime();
-  const ratePerMinute = run.status === 'running' && elapsedMs > 0 && progress.hydratedProducts > 0
+  const ratePerMinute = run.state === 'RUNNING' && elapsedMs > 0 && progress.hydratedProducts > 0
     ? progress.hydratedProducts / (elapsedMs / 60_000)
     : 0;
   const etaMinutes = !finished && remaining > 0 && ratePerMinute > 0
@@ -56,6 +56,7 @@ export function resolveCoupangCatalogError(input: {
   startError: string | null;
   serverError: string | null;
 }): string | null {
+  if (input.serverError) return input.serverError;
   if (input.startError) return input.startError;
   if (input.browserActive) return null;
   return input.extensionError || input.serverError;

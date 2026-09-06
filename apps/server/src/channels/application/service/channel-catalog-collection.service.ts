@@ -3,6 +3,8 @@ import { BadRequestException, ConflictException, Inject, Injectable } from '@nes
 import {
   CoupangCatalogCollectionErrorRequestSchema,
   CoupangCatalogCollectionRunSchema,
+  CoupangCatalogCollectionPermitSchema,
+  CoupangCatalogCollectionPlanSchema,
   CoupangCatalogDiscoveryPageV1Schema,
   CoupangCatalogManifestConfirmationV1Schema,
   CoupangCatalogProductDetailsChunkV1Schema,
@@ -11,11 +13,11 @@ import {
   StartCoupangCatalogCollectionRequestSchema,
   type CoupangCatalogCollectionPhase,
   type CoupangCatalogCollectionRun,
+  type CoupangCatalogCollectionPermit,
   type CoupangCatalogManifestV1,
   type CoupangCatalogProductV1,
 } from '@kiditem/shared/coupang-catalog-snapshot';
-import type { ZodType } from 'zod';
-import type { ChannelCatalogCollectionPort } from '../port/in/channel-catalog-collection.port';
+import { z, type ZodType } from 'zod';
 import {
   CHANNEL_CATALOG_COLLECTION_REPOSITORY_PORT,
   type ChannelCatalogCollectionChunkRecord,
@@ -26,6 +28,7 @@ import {
   CHANNEL_CATALOG_PUBLICATION_PORT,
   type ChannelCatalogPublicationPort,
 } from '../port/out/repository/channel-catalog-publication.port';
+import type { ChannelCatalogCollectionPort } from '../port/in/channel-catalog-collection.port';
 
 type CanonicalProduct = { ordinal: number; product: CoupangCatalogProductV1 };
 
@@ -40,19 +43,21 @@ export class ChannelCatalogCollectionService implements ChannelCatalogCollection
 
   async start(
     input: Parameters<ChannelCatalogCollectionPort['start']>[0],
-  ): Promise<CoupangCatalogCollectionRun> {
+  ): Promise<CoupangCatalogCollectionPermit> {
     const request = parseRequest(StartCoupangCatalogCollectionRequestSchema, input.request);
     const run = await this.repository.startOrResume({
       organizationId: input.organizationId,
       userId: input.userId,
       channelAccountId: input.channelAccountId,
-      clientRunKey: request.clientRunKey,
+      idempotencyKey: parseRequest(z.string().uuid(), input.idempotencyKey),
       collectorVersion: request.collectorVersion,
     });
-    return this.getStatus({
-      organizationId: input.organizationId,
-      channelAccountId: input.channelAccountId,
-      runId: run.id,
+    return CoupangCatalogCollectionPermitSchema.parse({
+      attemptId: run.id,
+      attemptToken: run.attemptToken,
+      state: effectiveState(run),
+      expiresAt: run.expiresAt.toISOString(),
+      plan: run.plan,
     });
   }
 
@@ -77,6 +82,7 @@ export class ChannelCatalogCollectionService implements ChannelCatalogCollection
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
       runId: input.runId,
+      attemptToken: input.attemptToken,
       kind: request.kind,
       sequence: request.sequence,
       checksum: request.checksum,
@@ -86,15 +92,16 @@ export class ChannelCatalogCollectionService implements ChannelCatalogCollection
     return this.getStatus(input);
   }
 
-  async recordError(
-    input: Parameters<ChannelCatalogCollectionPort['recordError']>[0],
+  async fail(
+    input: Parameters<ChannelCatalogCollectionPort['fail']>[0],
   ): Promise<CoupangCatalogCollectionRun> {
     const request = parseRequest(CoupangCatalogCollectionErrorRequestSchema, input.request);
-    await this.repository.recordRecoverableError({
+    await this.repository.markFailed({
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
       runId: input.runId,
-      error: { ...request, recoverable: true },
+      attemptToken: input.attemptToken,
+      error: request,
     });
     return this.getStatus(input);
   }
@@ -104,39 +111,14 @@ export class ChannelCatalogCollectionService implements ChannelCatalogCollection
   ): Promise<CoupangCatalogCollectionRun> {
     const request = parseRequest(FinalizeCoupangCatalogCollectionRequestSchema, input.request);
     const run = await this.repository.getOwnedRunWithChunks(input);
-    if (run.status === 'completed') {
-      if (jsonRecord(run.metaJson)?.snapshotHash !== request.snapshotHash) {
-        throw new ConflictException('Completed collection has a different snapshot hash');
-      }
-      return buildCollectionStatus(run);
-    }
-    if (run.status !== 'running') {
-      throw new ConflictException(`Cannot finalize a collection that is ${run.status}`);
-    }
-
-    let snapshot: CompleteSnapshot;
-    try {
-      snapshot = assembleCompleteSnapshot(run.chunks);
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        try {
-          await this.repository.recordRecoverableError({
-            organizationId: input.organizationId,
-            channelAccountId: input.channelAccountId,
-            runId: input.runId,
-            error: {
-              code: 'incomplete_snapshot',
-              message: error.message,
-              phase: 'ready_to_finalize',
-              recoverable: true,
-            },
-          });
-        } catch {
-          // Preserve the completeness error if another worker changed the run.
-        }
-      }
-      throw error;
-    }
+    if (!input.attemptToken || input.attemptToken !== run.attemptToken)
+      throw new ConflictException('Catalog attempt token mismatch');
+    if (
+      run.status === 'completed' &&
+      jsonRecord(run.metaJson)?.snapshotHash !== request.snapshotHash
+    )
+      throw new ConflictException('Completed collection has a different snapshot hash');
+    const snapshot = assembleCompleteSnapshot(run.chunks);
     const serverHash = hashCoupangCatalogSnapshot(snapshot.products);
     if (request.snapshotHash !== serverHash) {
       throw new BadRequestException('Snapshot hash does not match the server canonical snapshot');
@@ -146,7 +128,9 @@ export class ChannelCatalogCollectionService implements ChannelCatalogCollection
       organizationId: input.organizationId,
       userId: input.userId,
       channelAccountId: input.channelAccountId,
-      collectionRunId: input.runId,
+      collectionRunId: run.collectionRunId,
+      attemptId: input.runId,
+      attemptToken: input.attemptToken,
       snapshotHash: serverHash,
       chunkSetHash: hashCatalogChunkReceipts(run.chunks),
     });
@@ -159,6 +143,17 @@ type CompleteSnapshot = {
   products: CanonicalProduct[];
 };
 
+function effectiveState(run: {
+  status: string;
+  expiresAt: Date;
+}): 'RUNNING' | 'COMPLETE' | 'FAILED' {
+  return run.status === 'completed'
+    ? 'COMPLETE'
+    : run.status === 'failed' || run.expiresAt.getTime() <= Date.now()
+      ? 'FAILED'
+      : 'RUNNING';
+}
+
 function buildCollectionStatus(
   run: ChannelCatalogCollectionWithChunks,
 ): CoupangCatalogCollectionRun {
@@ -166,10 +161,8 @@ function buildCollectionStatus(
   const metadata = jsonRecord(run.metaJson) ?? {};
   const error = jsonRecord(run.errorJson);
   const publication = jsonRecord(metadata.publication);
-  const clientRunKey = run.clientRunKey;
-  if (!clientRunKey) {
-    throw new ConflictException('Browser collection run is missing its clientRunKey');
-  }
+  const effective = effectiveState(run);
+  const plan = CoupangCatalogCollectionPlanSchema.parse(run.plan);
 
   const phase = derivePhase(run.status, state, metadata);
   const readySnapshotHash =
@@ -177,13 +170,14 @@ function buildCollectionStatus(
       ? hashCoupangCatalogSnapshot(assembleCompleteSnapshot(run.chunks).products)
       : null;
   return CoupangCatalogCollectionRunSchema.parse({
-    id: run.id,
+    attemptId: run.id,
+    idempotencyKey: run.idempotencyKey,
     channelAccountId: run.channelAccountId,
-    clientRunKey,
-    status: run.status,
+    state: effective,
+    plan,
+    expiresAt: run.expiresAt.toISOString(),
     phase,
-    collectorVersion:
-      typeof metadata.collectorVersion === 'string' ? metadata.collectorVersion : 'unknown',
+    collectorVersion: plan.collectorVersion,
     manifest: state.manifest,
     progress: {
       discoveryPagesStored: state.discoveryPages.size,
@@ -214,14 +208,22 @@ function buildCollectionStatus(
     },
     snapshotHash:
       typeof metadata.snapshotHash === 'string' ? metadata.snapshotHash : readySnapshotHash,
-    error: error
-      ? {
-          code: stringValue(error.code, 'collection_error'),
-          message: stringValue(error.message, 'Collection failed'),
-          phase: phaseValue(error.phase, phase),
-          recoverable: error.recoverable !== false,
-        }
-      : null,
+    error:
+      run.status === 'running' && effective === 'FAILED'
+        ? {
+            code: 'ATTEMPT_EXPIRED',
+            message: 'Catalog attempt expired',
+            phase,
+            recoverable: false,
+          }
+        : error
+          ? {
+              code: stringValue(error.code, 'collection_error'),
+              message: stringValue(error.message, 'Collection failed'),
+              phase: phaseValue(error.phase, phase),
+              recoverable: false,
+            }
+          : null,
     publication:
       publication && typeof publication.sourceImportRunId === 'string'
         ? {

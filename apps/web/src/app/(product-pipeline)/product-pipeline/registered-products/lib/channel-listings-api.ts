@@ -1,8 +1,12 @@
-import { apiClient } from '@/lib/api-client';
-import type {
-  CoupangCatalogCollectionRun,
-  StartCoupangCatalogCollectionRequest,
+import {
+  CoupangCatalogCollectionPermitSchema,
+  CoupangCatalogCollectionRunSchema,
+  type CoupangCatalogCollectionErrorRequest,
+  type CoupangCatalogCollectionPermit,
+  type CoupangCatalogCollectionRun,
+  type StartCoupangCatalogCollectionRequest,
 } from '@kiditem/shared/coupang-catalog-snapshot';
+import { apiClient } from '@/lib/api-client';
 
 export type RegisteredListingSort = 'newest' | 'oldest' | 'name_asc';
 
@@ -84,23 +88,43 @@ export const channelListingsApi = {
   listAccounts(): Promise<ChannelAccountOption[]> {
     return apiClient.get<ChannelAccountOption[]>('/api/channels/accounts');
   },
-  startCoupangCatalogCollection(
+  async startCoupangCatalogCollection(
     channelAccountId: string,
     request: StartCoupangCatalogCollectionRequest,
-  ): Promise<CoupangCatalogCollectionRun> {
-    return apiClient.post<CoupangCatalogCollectionRun>(
+    idempotencyKey: string,
+  ): Promise<CoupangCatalogCollectionPermit> {
+    const permit = CoupangCatalogCollectionPermitSchema.parse(await apiClient.post(
       `/api/channels/accounts/${encodeURIComponent(channelAccountId)}` +
-        '/catalog-imports/coupang-wing/runs',
+        '/catalog-imports/coupang-wing/attempts',
       request,
-    );
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    ));
+    if (permit.plan.channelAccountId !== channelAccountId) throw new Error('쿠팡 수집 계정 응답이 일치하지 않습니다.');
+    return permit;
   },
-  getCoupangCatalogCollection(
+  async getCoupangCatalogCollection(
     channelAccountId: string,
-    runId: string,
+    attemptId: string,
   ): Promise<CoupangCatalogCollectionRun> {
-    return apiClient.get<CoupangCatalogCollectionRun>(
+    const owner = CoupangCatalogCollectionRunSchema.parse(await apiClient.get(
       `/api/channels/accounts/${encodeURIComponent(channelAccountId)}` +
-        `/catalog-imports/coupang-wing/runs/${encodeURIComponent(runId)}`,
+        `/catalog-imports/coupang-wing/attempts/${encodeURIComponent(attemptId)}`,
+    ));
+    if (owner.attemptId !== attemptId || owner.channelAccountId !== channelAccountId ||
+        owner.plan.channelAccountId !== channelAccountId) throw new Error('쿠팡 수집 시도 응답이 일치하지 않습니다.');
+    return owner;
+  },
+  async failCoupangCatalogCollection(
+    channelAccountId: string,
+    attemptId: string,
+    attemptToken: string,
+    request: CoupangCatalogCollectionErrorRequest,
+  ): Promise<void> {
+    await apiClient.post(
+      `/api/channels/accounts/${encodeURIComponent(channelAccountId)}` +
+        `/catalog-imports/coupang-wing/attempts/${encodeURIComponent(attemptId)}/fail`,
+      request,
+      { headers: { 'x-source-attempt-token': attemptToken } },
     );
   },
 };

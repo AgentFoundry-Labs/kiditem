@@ -2,9 +2,13 @@ import type { CoupangCatalogChunkKind } from '@kiditem/shared/coupang-catalog-sn
 
 export interface ChannelCatalogCollectionRunRecord {
   id: string;
+  collectionRunId: string;
   organizationId: string;
   channelAccountId: string;
-  clientRunKey: string | null;
+  attemptToken: string;
+  idempotencyKey: string;
+  expiresAt: Date;
+  plan: unknown;
   status: string;
   rowCount: number;
   errorCount: number;
@@ -35,7 +39,7 @@ export interface ChannelCatalogCollectionRepositoryPort {
     organizationId: string;
     userId: string;
     channelAccountId: string;
-    clientRunKey: string;
+    idempotencyKey: string;
     collectorVersion: string;
   }): Promise<ChannelCatalogCollectionRunRecord>;
 
@@ -49,6 +53,7 @@ export interface ChannelCatalogCollectionRepositoryPort {
     organizationId: string;
     channelAccountId: string;
     runId: string;
+    attemptToken: string;
     kind: CoupangCatalogChunkKind;
     sequence: number;
     checksum: string;
@@ -56,18 +61,12 @@ export interface ChannelCatalogCollectionRepositoryPort {
     payload: unknown;
   }): Promise<{ stored: boolean; chunk: ChannelCatalogCollectionChunkRecord }>;
 
-  recordRecoverableError(input: {
-    organizationId: string;
-    channelAccountId: string;
-    runId: string;
-    error: unknown;
-  }): Promise<ChannelCatalogCollectionRunRecord>;
-
   markFailed(input: {
     organizationId: string;
     channelAccountId: string;
     runId: string;
-    error: unknown;
+    attemptToken: string;
+    error: { code: string; message: string; phase: string };
   }): Promise<ChannelCatalogCollectionRunRecord>;
 }
 

@@ -507,6 +507,39 @@ retired generic-session export errors. No full boot or real-provider QA is
 claimed. Owner token/fixed-expiry/terminal-Alert convergence remains the next
 catalog slice; this storage checkpoint does not complete Task3 or the plan.
 
+**Wing catalog owner checkpoint (2026-09-06):** The same `SourceImportRun`
+now owns begin, the fixed 24-hour permit and terminal receipt. Its linked
+collection row is only private chunk storage. The final transaction fences
+the active account and frozen publication revision (including file imports),
+then commits the canonical catalog and source Alert together. Same-key replay
+recovers the permit; active conflicts identify the current attempt. Expired
+reads are side-effect-free, and the next admission retires the expired owner.
+Cancellation is FAILED / USER_CANCELLED without a new actionable Alert.
+
+The Catalog web consumer now polls the owner and local browser progress only;
+it neither creates Alert state nor relies on generic execution controls. Lost
+begin/dispatch ACK reuses the saved key, and cancellation settles the owner
+before best-effort local cleanup. Canonical cache invalidation occurs once
+after COMPLETE. The logged-in Wing vendor remains unverified by the existing
+extractor; frozen server identity is not evidence of browser account identity.
+
+The extension now transports the permit directly, persists an immutable pending
+terminal body and uses the existing small wire helper. Removed the old Catalog
+execution shell. Local leftovers without valid permits cannot block admission;
+a different previous attempt is replaced only after its exact owner is terminal.
+Fixed expiry stops automatic retry, preserving uncertain receipts for explicit
+owner reconciliation. Original URLs, 20-product chunks, five extraction tries,
+500ms delays and normalized output are covered by characterization tests.
+
+Final root combined disposable PostgreSQL 35 passed. The same large fixture
+measured 55 SQL / 1238ms for new publication and 46 SQL / 3810ms for refresh.
+Root web 37, shared 10, server unit/controller 11, extension 433 plus actual
+worker 2, shared build, scoped lint/syntax and adapter-copy checks passed.
+Fresh whole builds still fail on server 3 / web 7 retired generic-session
+exports. The cutover scanner retains 707 legacy references, zero unowned
+producers and zero source-to-ABC references. This bounded Catalog integration
+does not certify real-provider QA, operating data, Task3 or the overall cutover.
+
 - [ ] **Step 1: Add failing no-Operation assertions to existing owner acceptance tests**
 
 ```ts

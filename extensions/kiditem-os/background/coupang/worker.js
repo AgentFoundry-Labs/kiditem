@@ -103,11 +103,6 @@ const collectionRuns = KidItemCollectionRuns.create({
   cancelScrape: (runId, environmentId) =>
     collectionWindowFor(environmentId).cancelRun(runId),
   cancelCompetitorCatalog: requestCoupangCompetitorCatalogCancellation,
-  cancelCatalog: (runId, environmentId) =>
-    KidItemCoupangCatalogImport.cancel(
-      runId,
-      coupangCatalogImportDependencies(environmentId),
-    ),
   loadScheduledTargets: loadScheduledScrapeTargets,
   startScheduledScrape: (input) =>
     handleScrapeTargets(input.targets, input.runId, input.startedAt, {
@@ -116,16 +111,7 @@ const collectionRuns = KidItemCollectionRuns.create({
       sessionStarted: input.sessionStarted,
       environmentId: input.environmentId,
     }),
-  restartCatalog: (runId, environmentId) =>
-    KidItemCoupangCatalogImport.restart(
-      runId,
-      coupangCatalogImportDependencies(environmentId),
-    ),
-  startCatalog: (message, environmentId) =>
-    KidItemCoupangCatalogImport.start(
-      message,
-      coupangCatalogImportDependencies(environmentId),
-  ),
+
 });
 const profitabilitySourceOwner = KidItemProfitabilitySourceOwner.create({
   sessions: collectionSessions,
@@ -634,7 +620,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   // 이 도메인의 capabilities 는 파일 끝의 KidItemDomains.register 로 넘긴다.
 
   if (msg.action === "startCoupangCatalogImport") {
-    collectionRuns.startCatalog(msg, environmentId)
+    KidItemCoupangCatalogImport.start(msg, coupangCatalogImportDependencies(environmentId))
       .then((result) => sendResponse(result))
       .catch((e) =>
         sendResponse({
@@ -647,17 +633,17 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
 
   if (msg.action === "getCoupangCatalogImportStatus") {
     KidItemCoupangCatalogImport.getStatus(
-      typeof msg.runId === "string" ? msg.runId : null,
+      typeof msg.attemptId === "string" ? msg.attemptId : null,
       coupangCatalogImportDependencies(environmentId),
     )
       .then((result) => sendResponse(result))
-      .catch((e) => sendResponse({ status: "error", runId: msg.runId, error: e?.message || "쿠팡 상품 수집 상태 조회 실패" }));
+      .catch((e) => sendResponse({ attemptId: msg.attemptId, active: false, attention: null, error: e?.message || "쿠팡 상품 수집 상태 조회 실패" }));
     return true;
   }
 
   if (msg.action === "cancelCoupangCatalogImport") {
     KidItemCoupangCatalogImport.cancel(
-      typeof msg.runId === "string" ? msg.runId : null,
+      typeof msg.attemptId === "string" ? msg.attemptId : null,
       coupangCatalogImportDependencies(environmentId),
     )
       .then((result) => sendResponse(result))
@@ -789,6 +775,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
 function coupangCatalogImportDependencies(environmentId) {
   adsEnvironmentContext.requireEnvironment(environmentId);
   return {
+    environmentId,
     authedFetch: (path, init) => authedFetch(environmentId, path, init),
     alarmName: coupangEnvironment.alarmName(
       "kiditem-coupang-catalog-import-step",
@@ -4006,6 +3993,7 @@ KidItemDomains.register({
     wingCatalogSalesRankCancel: true,
     wingCatalogSalesRankSource: "wing-pre-matching-sales-28d",
     coupangCatalogSnapshot: true,
+    coupangCatalogSourceAttempts: true,
     coupangCatalogSnapshotSource: "wing-inventory-v1",
     coupangReviewCollection: true,
     coupangReviewCollectionSource: "wing-cs-product-review",
@@ -4018,6 +4006,9 @@ KidItemDomains.register({
   },
   cancelCollectionSession: async (runId, environmentId) => {
     const session = await collectionSessions.getOwned(runId, environmentId);
+    if (session?.producer === "channels.coupang_catalog") {
+      return KidItemCoupangCatalogImport.cancel(runId, coupangCatalogImportDependencies(environmentId));
+    }
     if (session?.producer === "advertising.competitor_seller_identity") {
       return sellerIdentitySourceOwner.cancel({ environmentId, attemptId: runId });
     }

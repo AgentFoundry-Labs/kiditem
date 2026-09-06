@@ -1,12 +1,12 @@
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import type { ChannelCatalogCollectionRepositoryPort } from '../../port/out/repository/channel-catalog-collection.repository.port';
-import type { ChannelCatalogPublicationPort } from '../../port/out/repository/channel-catalog-publication.port';
 import {
   ChannelCatalogCollectionService,
   hashCatalogChunkPayload,
   hashCoupangCatalogSnapshot,
 } from '../channel-catalog-collection.service';
+import type { ChannelCatalogCollectionRepositoryPort } from '../../port/out/repository/channel-catalog-collection.repository.port';
+import type { ChannelCatalogPublicationPort } from '../../port/out/repository/channel-catalog-publication.port';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = '00000000-0000-4000-8000-000000000002';
@@ -23,8 +23,8 @@ describe('ChannelCatalogCollectionService', () => {
       organizationId: ORGANIZATION_ID,
       userId: USER_ID,
       channelAccountId: ACCOUNT_ID,
+      idempotencyKey: CLIENT_RUN_KEY,
       request: {
-        clientRunKey: CLIENT_RUN_KEY,
         collectorVersion: 'wing-inventory-v1',
       },
     });
@@ -33,13 +33,12 @@ describe('ChannelCatalogCollectionService', () => {
       organizationId: ORGANIZATION_ID,
       userId: USER_ID,
       channelAccountId: ACCOUNT_ID,
-      clientRunKey: CLIENT_RUN_KEY,
+      idempotencyKey: CLIENT_RUN_KEY,
       collectorVersion: 'wing-inventory-v1',
     });
     expect(result).toMatchObject({
-      id: RUN_ID,
-      phase: 'discovery',
-      progress: { storedChunks: 0 },
+      attemptId: RUN_ID,
+      state: 'RUNNING',
     });
   });
 
@@ -301,6 +300,7 @@ function ownedInput() {
     organizationId: ORGANIZATION_ID,
     channelAccountId: ACCOUNT_ID,
     runId: RUN_ID,
+    attemptToken: CLIENT_RUN_KEY,
   };
 }
 
@@ -315,8 +315,6 @@ function makeRepository() {
     putChunk: vi
       .fn<ChannelCatalogCollectionRepositoryPort['putChunk']>()
       .mockResolvedValue({ stored: true, chunk: {} as never }),
-    recordRecoverableError:
-      vi.fn<ChannelCatalogCollectionRepositoryPort['recordRecoverableError']>(),
     markFailed: vi.fn<ChannelCatalogCollectionRepositoryPort['markFailed']>(),
   };
 }
@@ -335,9 +333,20 @@ function runRecord() {
   const timestamp = new Date('2026-07-14T00:00:00.000Z');
   return {
     id: RUN_ID,
+    collectionRunId: RUN_ID,
+    attemptToken: CLIENT_RUN_KEY,
+    expiresAt: new Date('2099-01-01T00:00:00Z'),
+    plan: {
+      collectorVersion: 'wing-inventory-v1',
+      listUrl: 'https://wing.coupang.com/list',
+      detailUrl: 'https://wing.coupang.com/detail',
+      channelAccountId: ACCOUNT_ID,
+      vendorId: 'V1',
+      publicationRevision: '0',
+    },
     organizationId: ORGANIZATION_ID,
     channelAccountId: ACCOUNT_ID,
-    clientRunKey: CLIENT_RUN_KEY,
+    idempotencyKey: CLIENT_RUN_KEY,
     status: 'running',
     rowCount: 0,
     errorCount: 0,

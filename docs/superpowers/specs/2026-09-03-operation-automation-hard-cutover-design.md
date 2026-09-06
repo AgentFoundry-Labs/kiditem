@@ -405,6 +405,22 @@ operating clone before cutover. A timeout increase alone is not acceptance.
 The fixed-token/expiry, immutable replay, and terminal/Alert contracts still
 apply. Collector inputs and normalized output remain unchanged.
 
+Begin creates the existing `SourceImportRun` as the sole attempt authority.
+Its linked `ChannelScrapeRun` is private chunk storage, not another lifecycle;
+its status is neither read as terminal authority nor synchronized. The permit
+freezes the original collector URLs, server account/vendor identity and current
+completed publication revision, including file imports. Final publication
+rechecks the active account and that revision under the publication locks.
+The browser's current extractor does not prove the logged-in vendor identity;
+server account validation must not be reported as provider-account verification.
+
+The attempt has a fixed 24-hour lifetime, without heartbeat or renewal. This
+covers the known 1,000-product navigation waits with headroom, not an unbounded
+catalog duration guarantee. Expired reads derive FAILED without writing; the
+next admission retires the expired attempt and its Alert atomically. Same-key
+begin returns the original permit. Explicit USER_CANCELLED is terminal FAILED
+but neither creates a failure Alert nor resolves an older source failure.
+
 Browser snapshot equality is not attempt identity. A new collection must
 publish even if its content matches an older snapshot (A → B → A); only the
 same collection's terminal receipt is an idempotent replay. Browser publication

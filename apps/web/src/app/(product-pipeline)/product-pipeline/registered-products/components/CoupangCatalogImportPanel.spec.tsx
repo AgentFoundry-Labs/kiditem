@@ -1,196 +1,135 @@
-import type { BrowserCollectionSessionView } from '@kiditem/shared/browser-collection-session';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { queryKeys } from '@/lib/query-keys';
-
-const RUN_ID = '06d1a75b-cbe6-4510-9e8a-2926a2aac321';
-const ACCOUNT_ID = '00000000-0000-4000-8000-000000000001';
-const mocks = vi.hoisted(() => ({
-  listAccounts: vi.fn(),
-  useCatalogImport: vi.fn(),
-  sendControl: vi.fn(),
-  syncAlert: vi.fn(),
-  updateCache: vi.fn(),
-  toastSuccess: vi.fn(),
-  toastError: vi.fn(),
-}));
-
-vi.mock('sonner', () => ({
-  toast: {
-    success: mocks.toastSuccess,
-    error: mocks.toastError,
-  },
-}));
-
-vi.mock('../hooks/useCoupangCatalogImport', () => ({
-  useCoupangCatalogImport: mocks.useCatalogImport,
-}));
-
-vi.mock('../lib/channel-listings-api', () => ({
-  channelListingsApi: { listAccounts: mocks.listAccounts },
-}));
-
-vi.mock('@/lib/browser-collection-session', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/browser-collection-session')>()),
-  sendBrowserCollectionControl: mocks.sendControl,
-  syncBrowserCollectionAlert: mocks.syncAlert,
-  updateBrowserCollectionSessionCache: mocks.updateCache,
-}));
-
-vi.mock('@/components/browser-collection/BrowserCollectionRunControls', () => ({
-  BrowserCollectionRunControls: ({ showCancel }: { showCancel?: boolean }) => (
-    <div data-testid="run-controls" data-show-cancel={String(showCancel)} />
-  ),
-}));
-
+import { beforeEach, expect, it, vi } from 'vitest';
 import { CoupangCatalogImportPanel } from './CoupangCatalogImportPanel';
 
-function session(): BrowserCollectionSessionView {
-  return {
-    runId: RUN_ID,
-    producer: 'channels.coupang_catalog',
-    classification: 'background_preferred',
-    status: 'running',
-    attempt: 1,
-    restartStrategy: 'extension',
-    progress: {
-      current: 400,
-      total: 1_228,
-      completed: 400,
-      failed: 0,
-      label: 'Wing 상품 상세 수집',
-    },
-    inputIdentity: { channelAccountId: ACCOUNT_ID },
-    attention: null,
-    startedAt: 1,
-    updatedAt: 2,
-    finishedAt: null,
-  };
+const ATTEMPT_ID = '06d1a75b-cbe6-4510-9e8a-2926a2aac321';
+const ACCOUNT_ID = '00000000-0000-4000-8000-000000000001';
+const OTHER_ACCOUNT = '00000000-0000-4000-8000-000000000002';
+const mocks = vi.hoisted(() => ({
+  listAccounts: vi.fn(), useCatalogImport: vi.fn(),
+  start: vi.fn(), cancel: vi.fn(), openAttention: vi.fn(),
+  toastSuccess: vi.fn(), toastError: vi.fn(), toastInfo: vi.fn(),
+}));
+vi.mock('sonner', () => ({
+  toast: { success: mocks.toastSuccess, error: mocks.toastError, info: mocks.toastInfo },
+}));
+vi.mock('../hooks/useCoupangCatalogImport', () => ({ useCoupangCatalogImport: mocks.useCatalogImport }));
+vi.mock('../lib/channel-listings-api', () => ({ channelListingsApi: { listAccounts: mocks.listAccounts } }));
+
+function setup() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={client}><CoupangCatalogImportPanel /></QueryClientProvider>);
 }
+function current() { return mocks.useCatalogImport.getMockImplementation()!(); }
 
-function cancelledSession(): BrowserCollectionSessionView {
-  return {
-    ...session(),
-    status: 'cancelled',
-    updatedAt: 3,
-    finishedAt: 3,
-  };
-}
-
-describe('CoupangCatalogImportPanel', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    window.history.replaceState(null, '', '/');
-    mocks.listAccounts.mockResolvedValue([
-      { id: ACCOUNT_ID, channel: 'coupang', name: 'Coupang Wing', isPrimary: true },
-    ]);
-    mocks.sendControl.mockResolvedValue(cancelledSession());
-    mocks.syncAlert.mockResolvedValue(undefined);
-    mocks.useCatalogImport.mockReturnValue({
-      activeRun: { channelAccountId: ACCOUNT_ID, runId: RUN_ID },
-      serverStatus: {
-        id: RUN_ID,
-        status: 'running',
-        phase: 'hydration',
-        manifest: { totalItems: 1_228 },
-        progress: {
-          discoveredProducts: 1_228,
-          hydratedProducts: 400,
-          publishedProducts: 0,
-          publishedOptionCount: 0,
-          publishedMediaCount: 0,
-          firstPublishedAt: null,
-        },
-        createdAt: '2026-07-15T00:00:00.000Z',
-        error: null,
-        publication: null,
-      },
-      extensionStatus: { runId: RUN_ID, status: 'running' },
-      collectionSession: { data: session() },
-      isStarting: false,
-      startError: null,
-      start: vi.fn(),
-      reset: vi.fn(),
-    });
-  });
-
-  it('keeps a collecting status button visible with cancellation beside it', async () => {
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <CoupangCatalogImportPanel />
-      </QueryClientProvider>,
-    );
-
-    expect(await screen.findByRole('button', { name: '수집 중' })).toBeDisabled();
-    expect(screen.getByText('상세 수집 400 / 1,228')).toBeInTheDocument();
-    expect(screen.getByText('전체 수집 후 한 번에 반영')).toBeInTheDocument();
-    expect(screen.getByText('수집 중에는 기존 상품 데이터 유지')).toBeInTheDocument();
-    expect(screen.queryByText(/카드 반영 중/)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '수집 중단' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '수집 재개' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('run-controls')).toHaveAttribute(
-      'data-show-cancel',
-      'false',
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: '수집 중단' }));
-    await waitFor(() => {
-      expect(mocks.sendControl).toHaveBeenCalledWith(
-        RUN_ID,
-        'cancelCollectionSession',
-      );
-    });
-    expect(mocks.syncAlert).toHaveBeenCalled();
-  });
-
-  it.each([[RUN_ID, RUN_ID], ['invalid-run-id', null]])(
-    'validates a source-owned collection deep link: %s', async (value, expected) => {
-      window.history.replaceState(null, '', `/?collectionRun=${value}`);
-      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-      render(<QueryClientProvider client={client}><CoupangCatalogImportPanel /></QueryClientProvider>);
-      await waitFor(() => expect(mocks.useCatalogImport).toHaveBeenCalledWith(ACCOUNT_ID, expected));
+beforeEach(() => {
+  vi.resetAllMocks();
+  window.history.replaceState(null, '', '/');
+  mocks.listAccounts.mockResolvedValue([
+    { id: ACCOUNT_ID, channel: 'coupang', name: 'Coupang Wing', isPrimary: true },
+  ]);
+  mocks.start.mockResolvedValue(undefined);
+  mocks.cancel.mockResolvedValue(undefined);
+  mocks.openAttention.mockResolvedValue(undefined);
+  mocks.useCatalogImport.mockReturnValue({
+    activeAttempt: { channelAccountId: ACCOUNT_ID, attemptId: ATTEMPT_ID },
+    serverStatus: {
+      attemptId: ATTEMPT_ID, state: 'RUNNING', phase: 'hydration',
+      manifest: { totalItems: 1_228 },
+      progress: { discoveredProducts: 1_228, hydratedProducts: 400,
+        publishedProducts: 0, publishedOptionCount: 0, publishedMediaCount: 0 },
+      createdAt: '2026-07-15T00:00:00.000Z', error: null, publication: null,
     },
-  );
-
-  it('uses committed owner completion even if local browser progress has not caught up', async () => {
-    const current = mocks.useCatalogImport.getMockImplementation()!();
-    mocks.useCatalogImport.mockReturnValue({
-      ...current,
-      serverStatus: { ...current.serverStatus, status: 'completed', phase: 'finished' },
-    });
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={client}><CoupangCatalogImportPanel /></QueryClientProvider>);
-    await waitFor(() => expect(screen.getByRole('button', { name: '다시 동기화' })).toBeEnabled());
-    expect(screen.queryByRole('button', { name: '수집 중' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '수집 중단' })).not.toBeInTheDocument();
+    extensionStatus: { attemptId: ATTEMPT_ID, active: true, attention: null },
+    isStarting: false, isStopping: false, startError: null, readError: null,
+    start: mocks.start, cancel: mocks.cancel, openAttention: mocks.openAttention,
   });
+});
 
-  it('treats an asynchronous cancellation response as a submitted stop request', async () => {
-    mocks.sendControl.mockResolvedValueOnce(null);
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
-    render(
-      <QueryClientProvider client={queryClient}>
-        <CoupangCatalogImportPanel />
-      </QueryClientProvider>,
-    );
+it('keeps compact staged progress and an owner cancel button beside collection activity', async () => {
+  setup();
+  expect(await screen.findByRole('button', { name: '수집 중' })).toBeDisabled();
+  expect(screen.getByText('상세 수집 400 / 1,228')).toBeInTheDocument();
+  expect(screen.getByText('전체 수집 후 한 번에 반영')).toBeInTheDocument();
+  expect(screen.getByText('수집 중에는 기존 상품 데이터 유지')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '수집 재개' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '수집 중단' }));
+  await waitFor(() => expect(mocks.cancel).toHaveBeenCalledTimes(1));
+  expect(mocks.toastSuccess).not.toHaveBeenCalled();
+});
 
-    fireEvent.click(await screen.findByRole('button', { name: '수집 중단' }));
+it('honors the exact linked account instead of a different primary account without auto-starting', async () => {
+  window.history.replaceState(null, '', `/?collectionAttempt=${ATTEMPT_ID}&channelAccountId=${OTHER_ACCOUNT}`);
+  mocks.listAccounts.mockResolvedValue([
+    { id: ACCOUNT_ID, channel: 'coupang', name: 'Primary', isPrimary: true },
+    { id: OTHER_ACCOUNT, channel: 'coupang', name: 'Linked' },
+  ]);
+  setup();
+  expect(mocks.useCatalogImport.mock.calls[0]).toEqual([OTHER_ACCOUNT, ATTEMPT_ID]);
+  await waitFor(() => expect(screen.getByRole('combobox')).toHaveValue(OTHER_ACCOUNT));
+  expect(mocks.start).not.toHaveBeenCalled();
+});
 
-    await waitFor(() => {
-      expect(mocks.toastSuccess).toHaveBeenCalledWith(
-        '쿠팡 상품 수집 중단을 요청했습니다.',
-      );
-    });
-    expect(mocks.toastError).not.toHaveBeenCalled();
-    expect(invalidate).toHaveBeenCalledWith({
-      queryKey: queryKeys.browserCollection.session(RUN_ID),
-    });
+it.each([
+  `?collectionAttempt=invalid&channelAccountId=${ACCOUNT_ID}`,
+  `?collectionAttempt=${ATTEMPT_ID}&channelAccountId=invalid`,
+  `?collectionAttempt=${ATTEMPT_ID}`,
+  `?collectionRun=${ATTEMPT_ID}&channelAccountId=${ACCOUNT_ID}`,
+])('does not use invalid or retired deep-link correlation: %s', async (query) => {
+  window.history.replaceState(null, '', '/' + query);
+  setup();
+  await waitFor(() => expect(mocks.useCatalogImport).toHaveBeenLastCalledWith(ACCOUNT_ID, null));
+  expect(mocks.start).not.toHaveBeenCalled();
+});
+
+it('uses COMPLETE alone for success and repeats neither toast nor collecting controls for stale local activity', async () => {
+  mocks.useCatalogImport.mockReturnValue({
+    ...current(), serverStatus: { ...current().serverStatus, state: 'COMPLETE', phase: 'finished' },
+    startError: new Error('lost start ACK'),
+    extensionStatus: { attemptId: ATTEMPT_ID, active: true, attention: null, error: 'stale browser error' },
   });
+  const view = setup();
+  await waitFor(() => expect(screen.getByRole('button', { name: '다시 동기화' })).toBeEnabled());
+  expect(screen.queryByRole('button', { name: '수집 중' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '수집 중단' })).not.toBeInTheDocument();
+  expect(screen.queryByText('lost start ACK')).not.toBeInTheDocument();
+  expect(screen.queryByText('stale browser error')).not.toBeInTheDocument();
+  expect(mocks.toastSuccess).toHaveBeenCalledTimes(1);
+  view.rerender(<QueryClientProvider client={new QueryClient()}><CoupangCatalogImportPanel /></QueryClientProvider>);
+  expect(mocks.toastSuccess).toHaveBeenCalledTimes(1);
+});
+
+it('shows FAILED owner error over stale browser activity and keeps attention explicitly clickable', async () => {
+  mocks.useCatalogImport.mockReturnValue({
+    ...current(), serverStatus: { ...current().serverStatus, state: 'FAILED', error: { message: 'owner expired' } },
+    extensionStatus: { attemptId: ATTEMPT_ID, active: true,
+      attention: { reason: 'login_required', message: 'Wing 로그인 확인', canOpenTab: true } },
+  });
+  setup();
+  expect(screen.getByText('owner expired')).toBeInTheDocument();
+  expect(screen.getByText('Wing 로그인 확인')).toBeInTheDocument();
+  expect(mocks.openAttention).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '확인 탭 열기' }));
+  await waitFor(() => expect(mocks.openAttention).toHaveBeenCalledTimes(1));
+  expect(screen.queryByRole('button', { name: '수집 중' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '수집 재개' })).not.toBeInTheDocument();
+  expect(mocks.toastSuccess).not.toHaveBeenCalled();
+});
+
+it('allows owner cancellation and explicit resume when the extension is unavailable', async () => {
+  mocks.useCatalogImport.mockReturnValue({ ...current(), extensionStatus: null });
+  setup();
+  expect(await screen.findByRole('button', { name: '수집 중단' })).toBeEnabled();
+  fireEvent.click(await screen.findByRole('button', { name: '수집 재개' }));
+  await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(1));
+  expect(mocks.toastSuccess).not.toHaveBeenCalled();
+});
+
+it('surfaces uncertain cancellation without a browser-ACK success claim', async () => {
+  mocks.cancel.mockRejectedValue(new Error('owner status unknown'));
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: '수집 중단' }));
+  await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith('owner status unknown'));
+  expect(mocks.toastSuccess).not.toHaveBeenCalled();
 });

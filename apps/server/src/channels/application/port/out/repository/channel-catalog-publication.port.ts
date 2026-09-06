@@ -10,6 +10,8 @@ export interface ChannelCatalogPublicationPort {
     userId: string;
     channelAccountId: string;
     collectionRunId: string;
+    attemptId: string;
+    attemptToken: string;
     snapshotHash: string;
     chunkSetHash: string;
   }): Promise<ChannelCatalogPublicationResult>;

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
+import { BrowserCollectionAttentionSchema } from './browser-collection-session.js';
 
 export const COUPANG_CATALOG_COLLECTOR_VERSION = 'wing-inventory-v1';
 export const COUPANG_CATALOG_BROWSER_FILE_NAME = 'browser-extension:coupang-wing:v1';
@@ -287,9 +288,8 @@ export type PutCoupangCatalogChunkRequest = z.infer<
 >;
 
 export const StartCoupangCatalogCollectionRequestSchema = z.object({
-  clientRunKey: z.string().uuid(),
   collectorVersion: z.string().trim().min(1).max(100),
-});
+}).strict();
 export type StartCoupangCatalogCollectionRequest = z.infer<
   typeof StartCoupangCatalogCollectionRequestSchema
 >;
@@ -303,7 +303,24 @@ export type CoupangCatalogCollectionErrorRequest = z.infer<
   typeof CoupangCatalogCollectionErrorRequestSchema
 >;
 
-export const CoupangCatalogCollectionStatusSchema = z.enum(['running', 'completed', 'failed']);
+export const CoupangCatalogCollectionStatusSchema = z.enum(['RUNNING', 'COMPLETE', 'FAILED']);
+export const CoupangCatalogCollectionPlanSchema = z.object({
+  collectorVersion: z.string().min(1).max(100),
+  listUrl: z.string().url(),
+  detailUrl: z.string().url(),
+  channelAccountId: z.string().uuid(),
+  vendorId: z.string().min(1),
+  publicationRevision: z.string().regex(/^\d+$/),
+}).strict();
+export type CoupangCatalogCollectionPlan = z.infer<typeof CoupangCatalogCollectionPlanSchema>;
+export const CoupangCatalogCollectionPermitSchema = z.object({
+  attemptId: z.string().uuid(),
+  attemptToken: z.string().uuid(),
+  state: CoupangCatalogCollectionStatusSchema,
+  expiresAt: zIsoDate,
+  plan: CoupangCatalogCollectionPlanSchema,
+}).strict();
+export type CoupangCatalogCollectionPermit = z.infer<typeof CoupangCatalogCollectionPermitSchema>;
 export const CoupangCatalogCollectionPhaseSchema = z.enum([
   'discovery',
   'hydration',
@@ -316,10 +333,12 @@ export type CoupangCatalogCollectionPhase = z.infer<
 >;
 
 export const CoupangCatalogCollectionRunSchema = z.object({
-  id: z.string().uuid(),
+  attemptId: z.string().uuid(),
+  idempotencyKey: z.string().uuid(),
   channelAccountId: z.string().uuid(),
-  clientRunKey: z.string().uuid(),
-  status: CoupangCatalogCollectionStatusSchema,
+  state: CoupangCatalogCollectionStatusSchema,
+  expiresAt: zIsoDate,
+  plan: CoupangCatalogCollectionPlanSchema,
   phase: CoupangCatalogCollectionPhaseSchema,
   collectorVersion: z.string().min(1),
   manifest: CoupangCatalogManifestV1Schema.nullable(),
@@ -369,23 +388,23 @@ export type FinalizeCoupangCatalogCollectionRequest = z.infer<
 export const CoupangCatalogBrowserCommandSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('startCoupangCatalogImport'),
-    channelAccountId: z.string().uuid(),
-    runId: z.string().uuid(),
-  }),
+    permit: CoupangCatalogCollectionPermitSchema,
+  }).strict(),
   z.object({
     action: z.literal('getCoupangCatalogImportStatus'),
-    runId: z.string().uuid(),
-  }),
+    attemptId: z.string().uuid(),
+  }).strict(),
   z.object({
     action: z.literal('cancelCoupangCatalogImport'),
-    runId: z.string().uuid(),
-  }),
+    attemptId: z.string().uuid(),
+  }).strict(),
 ]);
 export type CoupangCatalogBrowserCommand = z.infer<typeof CoupangCatalogBrowserCommandSchema>;
 
 export const CoupangCatalogBrowserStatusSchema = z.object({
-  runId: z.string().uuid(),
-  status: z.enum(['idle', 'running', 'done', 'error', 'cancelled']),
+  attemptId: z.string().uuid(),
+  active: z.boolean(),
+  attention: BrowserCollectionAttentionSchema.nullable(),
   phase: CoupangCatalogCollectionPhaseSchema.optional(),
   currentPage: z.number().int().nonnegative().optional(),
   totalPages: z.number().int().nonnegative().optional(),
@@ -393,5 +412,5 @@ export const CoupangCatalogBrowserStatusSchema = z.object({
   discoveredProducts: z.number().int().nonnegative().optional(),
   uploadedChunks: z.number().int().nonnegative().optional(),
   error: z.string().optional(),
-});
+}).strict();
 export type CoupangCatalogBrowserStatus = z.infer<typeof CoupangCatalogBrowserStatusSchema>;

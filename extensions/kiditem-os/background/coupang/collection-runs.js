@@ -20,7 +20,6 @@
   const RECOVERABLE_EXTENSION_PRODUCERS = new Set([
     "advertising.ad_sync",
     "advertising.scrape_targets",
-    "channels.coupang_catalog",
   ]);
   const UUID_PATTERN =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -182,37 +181,6 @@
       };
     }
 
-    async function startCatalog(message, environmentId) {
-      if (
-        typeof message?.runId !== "string" ||
-        !UUID_PATTERN.test(message.runId)
-      ) {
-        throw new Error("Server-issued collection run ID is required");
-      }
-      const runId = message.runId;
-      await sessions.start({
-        runId,
-        environmentId,
-        producer: "channels.coupang_catalog",
-        classification: "background_preferred",
-        restartStrategy: "extension",
-        inputIdentity: {
-          runId,
-          channelAccountId:
-            typeof message?.channelAccountId === "string"
-              ? message.channelAccountId
-              : null,
-          startedAt: now(),
-        },
-      });
-      try {
-        return await options.startCatalog(message, environmentId);
-      } catch (error) {
-        await sessions.fail(runId);
-        throw error;
-      }
-    }
-
     async function cancel(runId, environmentId) {
       if (typeof runId !== "string" || !runId) {
         return { success: false, cancelled: false, error: "runId required" };
@@ -236,11 +204,6 @@
           }
         );
       }
-      if (session.producer === "channels.coupang_catalog") {
-        await options.cancelCatalog(runId, ownerEnvironmentId);
-        return { success: true, cancelled: true, runId };
-      }
-
       await sessions.cancel(runId, { closeManagedTab: true });
       if (session.producer === "advertising.competitor_catalog") {
         await options.cancelCompetitorCatalog(runId, ownerEnvironmentId);
@@ -281,8 +244,6 @@
             sessionStarted: true,
             environmentId: session.environmentId,
           });
-        } else if (session.producer === "channels.coupang_catalog") {
-          await options.restartCatalog(runId, session.environmentId);
         } else {
           throw new Error("Collection restart source is no longer valid");
         }
@@ -365,7 +326,6 @@
       requireAttention,
       resolveScrapeTargetProducer,
       restart,
-      startCatalog,
       validateScrapeTargets,
     });
   }

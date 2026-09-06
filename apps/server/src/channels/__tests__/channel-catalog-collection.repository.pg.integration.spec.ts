@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { AlertsRepository } from '../../alerts/alerts.repository';
+import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ChannelCatalogCollectionRepositoryAdapter } from '../adapter/out/repository/channel-catalog-collection.repository.adapter';
-import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -12,6 +12,8 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
+import type { PrismaClient } from '@prisma/client';
+import type { PrismaService } from '../../prisma/prisma.service';
 
 const WING_ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const SECOND_WING_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
@@ -26,6 +28,7 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
     await prisma.$connect();
     repository = new ChannelCatalogCollectionRepositoryAdapter(
       prisma as unknown as PrismaService,
+      new SourceFailureAlerts(new AlertsRepository(prisma as never)),
     );
   });
 
@@ -40,26 +43,26 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
   });
 
   it('resumes the same client run only inside the owning organization and account', async () => {
-    const clientRunKey = randomUUID();
+    const idempotencyKey = randomUUID();
     const first = await repository.startOrResume({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
       channelAccountId: WING_ACCOUNT_ID,
-      clientRunKey,
+      idempotencyKey,
       collectorVersion: '1.0.0',
     });
     const resumed = await repository.startOrResume({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
       channelAccountId: WING_ACCOUNT_ID,
-      clientRunKey,
+      idempotencyKey,
       collectorVersion: '1.0.0',
     });
     const secondAccount = await repository.startOrResume({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
       channelAccountId: SECOND_WING_ACCOUNT_ID,
-      clientRunKey,
+      idempotencyKey: randomUUID(),
       collectorVersion: '1.0.0',
     });
 
@@ -83,13 +86,15 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
       },
     });
 
-    await expect(repository.startOrResume({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      channelAccountId: WING_ACCOUNT_ID,
-      clientRunKey: randomUUID(),
-      collectorVersion: '1.0.0',
-    })).resolves.toMatchObject({ status: 'running' });
+    await expect(
+      repository.startOrResume({
+        organizationId: TEST_ORGANIZATION_ID,
+        userId: TEST_USER_ID,
+        channelAccountId: WING_ACCOUNT_ID,
+        idempotencyKey: randomUUID(),
+        collectorVersion: '1.0.0',
+      }),
+    ).resolves.toMatchObject({ status: 'running' });
   });
 
   it('stores raw chunks in JSONB and makes same-checksum retries idempotent', async () => {
@@ -98,6 +103,7 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId: WING_ACCOUNT_ID,
       runId: run.id,
+      attemptToken: run.attemptToken,
       kind: 'discovery_page' as const,
       sequence: 1,
       checksum: 'a'.repeat(64),
@@ -107,13 +113,18 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
       },
     };
 
-    await expect(repository.putChunk(input)).resolves.toMatchObject({ stored: true });
-    await expect(repository.putChunk(input)).resolves.toMatchObject({ stored: false });
+    await expect(repository.putChunk(input)).resolves.toMatchObject({
+      stored: true,
+    });
+    await expect(repository.putChunk(input)).resolves.toMatchObject({
+      stored: false,
+    });
 
     const stored = await repository.getOwnedRunWithChunks({
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId: WING_ACCOUNT_ID,
       runId: run.id,
+      attemptToken: run.attemptToken,
     });
     expect(stored.chunks).toHaveLength(1);
     expect(stored.chunks[0]).toMatchObject({
@@ -130,6 +141,7 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId: WING_ACCOUNT_ID,
       runId: run.id,
+      attemptToken: run.attemptToken,
       kind: 'product_details' as const,
       sequence: 3,
       itemCount: 1,
@@ -137,16 +149,16 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
     };
 
     await repository.putChunk({ ...base, checksum: 'a'.repeat(64) });
-    await expect(
-      repository.putChunk({ ...base, checksum: 'b'.repeat(64) }),
-    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(repository.putChunk({ ...base, checksum: 'b'.repeat(64) })).rejects.toBeInstanceOf(
+      ConflictException,
+    );
   });
 
   it.each(['completed', 'failed'])('rejects writes after a run is %s', async (status) => {
     const run = await startRun(repository);
-    await prisma.channelScrapeRun.update({
+    await prisma.sourceImportRun.update({
       where: { id: run.id },
-      data: { status, finishedAt: new Date() },
+      data: { status, importedAt: new Date() },
     });
 
     await expect(
@@ -154,6 +166,7 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: WING_ACCOUNT_ID,
         runId: run.id,
+        attemptToken: run.attemptToken,
         kind: 'manifest_confirmation',
         sequence: 1,
         checksum: 'c'.repeat(64),
@@ -169,7 +182,7 @@ async function startRun(repository: ChannelCatalogCollectionRepositoryAdapter) {
     organizationId: TEST_ORGANIZATION_ID,
     userId: TEST_USER_ID,
     channelAccountId: WING_ACCOUNT_ID,
-    clientRunKey: randomUUID(),
+    idempotencyKey: randomUUID(),
     collectorVersion: '1.0.0',
   });
 }

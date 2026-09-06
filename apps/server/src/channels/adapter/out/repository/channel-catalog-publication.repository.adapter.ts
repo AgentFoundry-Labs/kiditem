@@ -1,13 +1,6 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Inject,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
-  COUPANG_CATALOG_BROWSER_FILE_NAME,
   PutCoupangCatalogChunkRequestSchema,
   type CoupangCatalogProductV1,
 } from '@kiditem/shared/coupang-catalog-snapshot';
@@ -16,7 +9,7 @@ import {
   CATALOG_MEDIA_PUBLICATION_PORT,
   type CatalogMediaPublicationPort,
 } from '../../../application/port/out/cross-domain/catalog-media-publication.port';
-import { resolveCoupangVendorId } from '../../../domain/coupang-account-identity';
+import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import {
   advanceProductMappingGeneration,
   lockProductMapping,
@@ -27,6 +20,14 @@ import {
   hashCatalogChunkReceipts,
   hashCoupangCatalogSnapshot,
 } from '../../../application/service/channel-catalog-collection.service';
+import {
+  assertCatalogRunning,
+  assertCatalogPublicationPlan,
+  catalogAlertKey,
+  catalogWhere,
+  lockCatalogAccount,
+  lockCatalogAttempt,
+} from './channel-catalog-attempt-fence';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
 import type {
   ChannelCatalogPublicationPort,
@@ -40,39 +41,50 @@ const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 } as const;
 
 type PublishInput = Parameters<ChannelCatalogPublicationPort['publish']>[0];
 
-type LockedCollectionRun = {
-  id: string;
-  status: string;
-  sourceImportRunId: string | null;
-  metaJson: Prisma.JsonValue | null;
-};
-
 @Injectable()
 export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalogPublicationPort {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(CATALOG_MEDIA_PUBLICATION_PORT)
     private readonly media: CatalogMediaPublicationPort,
+    private readonly alerts: SourceFailureAlerts,
   ) {}
 
   publish(input: PublishInput): Promise<ChannelCatalogPublicationResult> {
     return this.prisma.$transaction(async (tx) => {
       await lockProductMapping(tx, input.organizationId);
-      await lockAccount(tx, input.organizationId, input.channelAccountId);
-      const collectionRun = await lockCollectionRun(tx, input);
-      if (collectionRun.status === 'completed') {
-        const metadata = jsonRecord(collectionRun.metaJson);
+      await lockCatalogAccount(tx, input);
+      const sourceRun = await lockCatalogAttempt(tx, {
+        ...input,
+        runId: input.attemptId,
+      });
+      if (sourceRun.status === 'completed') {
+        const metadata = jsonRecord(sourceRun.qualityReport);
         if (
           metadata?.snapshotHash !== input.snapshotHash ||
           metadata?.chunkSetHash !== input.chunkSetHash
         ) {
           throw new ConflictException('Completed collection has a different final receipt');
         }
-        return completedCollectionResult(collectionRun);
+        const publication = jsonRecord(metadata?.publication);
+        if (!publication) throw new ConflictException('Catalog publication receipt is missing');
+        return {
+          sourceImportRunId: sourceRun.id,
+          duplicate: false,
+          changes: numberRecord(publication.changes),
+        };
       }
-      if (collectionRun.status !== 'running') {
-        throw new ConflictException(`Cannot publish a collection that is ${collectionRun.status}`);
-      }
+      assertCatalogRunning(sourceRun);
+      const staging = await tx.channelScrapeRun.findFirst({
+        where: {
+          id: input.collectionRunId,
+          organizationId: input.organizationId,
+          channelAccountId: input.channelAccountId,
+          sourceImportRunId: sourceRun.id,
+          source: COLLECTION_SOURCE,
+        },
+      });
+      if (!staging) throw new NotFoundException('Catalog staging container not found');
 
       const chunks = await tx.channelScrapeChunk.findMany({
         where: {
@@ -101,24 +113,9 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
       if (hashCoupangCatalogSnapshot(products) !== input.snapshotHash) {
         throw new ConflictException('Staged catalog snapshot changed before publication');
       }
-      await assertActiveCoupangAccount(tx, input.organizationId, input.channelAccountId);
+      await assertCatalogPublicationPlan(tx, input, sourceRun.plan);
 
       const optionCount = products.reduce((sum, item) => sum + item.product.options.length, 0);
-      const sourceRun = await tx.sourceImportRun.create({
-        data: {
-          organizationId: input.organizationId,
-          sourceType: SOURCE_TYPE,
-          channelAccountId: input.channelAccountId,
-          fileName: COUPANG_CATALOG_BROWSER_FILE_NAME,
-          fileHash: null,
-          contentChecksum: input.snapshotHash,
-          status: 'running',
-          rowCount: optionCount,
-          createdBy: input.userId,
-        },
-        select: { id: true },
-      });
-
       const upserted = await upsertCoupangCatalogRows(tx, this.media, {
         organizationId: input.organizationId,
         userId: input.userId,
@@ -156,14 +153,6 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
       }
 
       const publicationSequence = await nextPublicationSequence(tx, input.organizationId);
-      await tx.sourceImportRun.update({
-        where: { id: sourceRun.id, organizationId: input.organizationId },
-        data: {
-          status: 'completed',
-          importedAt: new Date(),
-          publicationSequence,
-        },
-      });
       const result = {
         sourceImportRunId: sourceRun.id,
         duplicate: false,
@@ -173,7 +162,35 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
           deactivatedSkuCount: deactivatedOptions.count,
         },
       };
-      await completeCollectionRun(tx, input, collectionRun.metaJson, result);
+      assertCatalogRunning(sourceRun);
+      const completed = await tx.sourceImportRun.updateMany({
+        where: {
+          ...catalogWhere(input),
+          id: sourceRun.id,
+          status: 'running',
+          attemptToken: input.attemptToken,
+          expiresAt: { gt: new Date() },
+        },
+        data: {
+          status: 'completed',
+          importedAt: new Date(),
+          rowCount: optionCount,
+          publicationSequence,
+          contentChecksum: input.snapshotHash,
+          qualityReport: {
+            snapshotHash: input.snapshotHash,
+            chunkSetHash: input.chunkSetHash,
+            publication: result,
+          },
+        },
+      });
+      if (completed.count !== 1)
+        throw new ConflictException('Catalog attempt lost its publication fence');
+      await this.alerts.resolveSourceFailure(tx, {
+        organizationId: input.organizationId,
+        dedupeKey: catalogAlertKey(input.channelAccountId),
+        attemptId: sourceRun.id,
+      });
       return result;
     }, TRANSACTION_OPTIONS);
   }
@@ -224,116 +241,6 @@ async function upsertCoupangCatalogRows(
       ...media,
     },
   };
-}
-
-async function lockAccount(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  channelAccountId: string,
-): Promise<void> {
-  const accountLockKey = `channel-catalog-publication:${organizationId}:${SOURCE_TYPE}:${channelAccountId}`;
-  await tx.$queryRaw`
-    SELECT pg_advisory_xact_lock(hashtextextended(${accountLockKey}, 0))::text AS "lock"
-  `;
-}
-
-async function lockCollectionRun(
-  tx: Prisma.TransactionClient,
-  input: Pick<PublishInput, 'organizationId' | 'channelAccountId' | 'collectionRunId'>,
-): Promise<LockedCollectionRun> {
-  const rows = await tx.$queryRaw<LockedCollectionRun[]>`
-    SELECT
-      id,
-      status,
-      source_import_run_id AS "sourceImportRunId",
-      meta_json AS "metaJson"
-    FROM channel_scrape_runs
-    WHERE id = ${input.collectionRunId}::uuid
-      AND organization_id = ${input.organizationId}::uuid
-      AND channel_account_id = ${input.channelAccountId}::uuid
-      AND channel = ${CHANNEL}
-      AND source = ${COLLECTION_SOURCE}
-    FOR UPDATE
-  `;
-  const run = rows[0];
-  if (!run) throw new NotFoundException('Coupang catalog collection run not found');
-  return run;
-}
-
-async function assertActiveCoupangAccount(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  channelAccountId: string,
-): Promise<void> {
-  const account = await tx.channelAccount.findFirst({
-    where: { id: channelAccountId, organizationId, status: 'active' },
-    select: { channel: true, externalAccountId: true, vendorId: true },
-  });
-  if (!account) throw new NotFoundException('Active channel account not found');
-  if (account.channel !== CHANNEL) {
-    throw new BadRequestException('Coupang catalog publication requires channel=coupang');
-  }
-  assertCanonicalAccount(account);
-}
-
-async function completeCollectionRun(
-  tx: Prisma.TransactionClient,
-  input: PublishInput,
-  existingMeta: Prisma.JsonValue | null,
-  result: ChannelCatalogPublicationResult,
-): Promise<void> {
-  const metadata = jsonRecord(existingMeta) ?? {};
-  const completed = await tx.channelScrapeRun.updateMany({
-    where: {
-      id: input.collectionRunId,
-      organizationId: input.organizationId,
-      channelAccountId: input.channelAccountId,
-      channel: CHANNEL,
-      source: COLLECTION_SOURCE,
-      status: 'running',
-    },
-    data: {
-      status: 'completed',
-      sourceImportRunId: result.sourceImportRunId,
-      finishedAt: new Date(),
-      metaJson: {
-        ...metadata,
-        phase: 'finished',
-        snapshotHash: input.snapshotHash,
-        chunkSetHash: input.chunkSetHash,
-        publication: {
-          sourceImportRunId: result.sourceImportRunId,
-          duplicate: result.duplicate,
-          changes: result.changes,
-        },
-      } as Prisma.InputJsonValue,
-      errorJson: Prisma.DbNull,
-    },
-  });
-  if (completed.count !== 1) {
-    throw new ConflictException('Coupang catalog collection lost its publication fence');
-  }
-}
-
-function completedCollectionResult(run: LockedCollectionRun): ChannelCatalogPublicationResult {
-  const publication = jsonRecord(jsonRecord(run.metaJson)?.publication);
-  if (!run.sourceImportRunId || !publication) {
-    throw new ConflictException('Completed collection is missing publication metadata');
-  }
-  return {
-    sourceImportRunId: run.sourceImportRunId,
-    duplicate: publication.duplicate === true,
-    changes: numberRecord(publication.changes),
-  };
-}
-
-function assertCanonicalAccount(account: {
-  externalAccountId: string | null;
-  vendorId: string | null;
-}): void {
-  if (!resolveCoupangVendorId(account)) {
-    throw new BadRequestException('Coupang account requires a vendor identity');
-  }
 }
 
 async function nextPublicationSequence(

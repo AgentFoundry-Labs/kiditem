@@ -55,7 +55,7 @@ function createFakeChrome() {
           addListener: (listener) => connectExternalListeners.push(listener),
         },
       },
-      alarms: { create: (name) => createdAlarms.push(name), clear() {}, onAlarm: noopEvent() },
+      alarms: { create: (name) => createdAlarms.push(name), clear(_name, callback) { callback?.(true); return Promise.resolve(true); }, onAlarm: noopEvent() },
       storage: {
         local: {
           async get(key, callback) {
@@ -177,6 +177,77 @@ function externalRequest(fake, message) {
     assert.equal(responders, 1);
   });
 }
+
+const catalogPermit = {
+  attemptId: '11111111-1111-4111-8111-111111111111',
+  attemptToken: '22222222-2222-4222-8222-222222222222',
+  state: 'RUNNING',
+  expiresAt: '2030-01-02T00:00:00.000Z',
+  plan: {
+    collectorVersion: 'wing-inventory-v1',
+    listUrl: 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/list?searchKeywordType=ALL&searchKeywords=&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&shippingFeeSearchType=ALL&displayCategoryCodes=&listingStartTime=null&listingEndTime=null&saleEndDateSearchType=ALL&bundledShippingSearchType=ALL&upBundling=ALL&displayDeletedProduct=false&shippingMethod=ALL&exposureStatus=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=50&page=1',
+    detailUrl: 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/modify',
+    channelAccountId: '33333333-3333-4333-8333-333333333333',
+    vendorId: 'A00000000', publicationRevision: '0',
+  },
+};
+
+test('catalog owner permit reaches the real worker/session and a committed receipt does not recollect', async () => {
+  const requests = [];
+  const { fake } = bootServiceWorker({ fetch: async (url, init) => {
+    // The unrelated legacy bootstrap poll is removed by the aggregate cutover.
+    if (!String(url).includes('/catalog-imports/')) return { ok: true, status: 200, json: async () => ({}) };
+    requests.push({ url: String(url), method: init?.method ?? 'GET' });
+    return { ok: true, status: 200, json: async () => ({
+      attemptId: catalogPermit.attemptId, state: 'COMPLETE',
+      channelAccountId: catalogPermit.plan.channelAccountId,
+      expiresAt: catalogPermit.expiresAt, plan: catalogPermit.plan,
+      phase: 'finished', progress: { hydratedProducts: 0, discoveredProducts: 0 },
+      publication: { sourceImportRunId: catalogPermit.attemptId },
+    }) };
+  } });
+  fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
+  const result = await externalRequest(fake, { action: 'startCoupangCatalogImport', permit: catalogPermit });
+  assert.equal(result.success, true, result.error);
+  assert.equal(result.attemptId, catalogPermit.attemptId);
+  assert.equal(result.active, false);
+  assert.equal(requests.length, 1, JSON.stringify(requests));
+  assert.ok(requests[0].url.endsWith(`/attempts/${catalogPermit.attemptId}`));
+  assert.equal(requests[0].method, 'GET');
+  assert.deepEqual(fake.createdTabs, []);
+  const sessions = await externalRequest(fake, { action: 'listCollectionSessions' });
+  assert.ok(!JSON.stringify(sessions).includes(catalogPermit.attemptId));
+});
+
+test('catalog generic cancellation reconciles the exact web-failed owner without a legacy session restart', async () => {
+  const requests = [];
+  const { fake, context } = bootServiceWorker({ fetch: async (url, init) => {
+    if (!String(url).includes('/catalog-imports/')) return { ok: true, json: async () => ({}) };
+    requests.push({ url: String(url), method: init?.method || 'GET' });
+    return { ok: true, json: async () => ({
+      attemptId: catalogPermit.attemptId, channelAccountId: catalogPermit.plan.channelAccountId,
+      state: 'FAILED', plan: catalogPermit.plan, expiresAt: catalogPermit.expiresAt,
+      error: { code: 'USER_CANCELLED', message: '취소' },
+    }) };
+  } });
+  fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
+  fake.storage['kiditem_coupang_catalog_import:local'] = {
+    attemptId: catalogPermit.attemptId, channelAccountId: catalogPermit.plan.channelAccountId,
+    permit: catalogPermit, status: 'running', phase: 'discovery',
+  };
+  await vm.runInContext('collectionSessions.start(' + JSON.stringify({
+    attemptId: catalogPermit.attemptId, environmentId: 'local', producer: 'channels.coupang_catalog',
+  }) + ')', context);
+  const result = await externalRequest(fake, { action: 'cancelCollectionSession', attemptId: catalogPermit.attemptId });
+  assert.equal(result.success, true, result.error);
+  assert.equal(result.active, false);
+  assert.equal(result.cancelled, true);
+  assert.ok(requests.length > 0);
+  assert.ok(requests.every(r => r.method === 'GET' && r.url.endsWith('/attempts/' + catalogPermit.attemptId)));
+  assert.deepEqual(fake.createdTabs, []);
+  const sessions = await externalRequest(fake, { action: 'listCollectionSessions' });
+  assert.ok(!JSON.stringify(sessions).includes(catalogPermit.attemptId));
+});
 
 test('retired Wing and SERP rank shells have no public worker responder', async () => {
   const requests = [];

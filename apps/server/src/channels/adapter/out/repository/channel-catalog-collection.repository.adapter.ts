@@ -1,127 +1,153 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { COUPANG_CATALOG_BROWSER_FILE_NAME } from '@kiditem/shared/coupang-catalog-snapshot';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import type {
-  ChannelCatalogCollectionChunkRecord,
-  ChannelCatalogCollectionRepositoryPort,
-  ChannelCatalogCollectionRunRecord,
-  ChannelCatalogCollectionWithChunks,
-} from '../../../application/port/out/repository/channel-catalog-collection.repository.port';
-import { resolveCoupangVendorId } from '../../../domain/coupang-account-identity';
-
-const CHANNEL = 'coupang';
-const SOURCE = 'coupang_wing_catalog_browser';
-const PAGE_TYPE = 'catalog_full_snapshot';
+import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
+import { hashCatalogChunkPayload } from '../../../application/service/channel-catalog-collection.service';
+import {
+  assertCatalogRunning,
+  catalogAccountVendor,
+  catalogAlertKey,
+  catalogPublicationRevision,
+  catalogWhere,
+  CATALOG_DETAIL_URL,
+  CATALOG_LIST_URL,
+  CATALOG_PARSER,
+  CATALOG_SOURCE,
+  CATALOG_STAGING_SOURCE,
+  lockCatalogAccount,
+  lockCatalogAttempt,
+} from './channel-catalog-attempt-fence';
+import type { ChannelCatalogCollectionRepositoryPort } from '../../../application/port/out/repository/channel-catalog-collection.repository.port';
 
 type StartInput = Parameters<ChannelCatalogCollectionRepositoryPort['startOrResume']>[0];
-type OwnedRunInput = Parameters<ChannelCatalogCollectionRepositoryPort['getOwnedRunWithChunks']>[0];
-type PutChunkInput = Parameters<ChannelCatalogCollectionRepositoryPort['putChunk']>[0];
-type ErrorInput = Parameters<ChannelCatalogCollectionRepositoryPort['recordRecoverableError']>[0];
-
-type LockedRun = {
-  id: string;
-  status: string;
-};
+type OwnedInput = Parameters<ChannelCatalogCollectionRepositoryPort['getOwnedRunWithChunks']>[0];
+type PutInput = Parameters<ChannelCatalogCollectionRepositoryPort['putChunk']>[0];
+type FailInput = Parameters<ChannelCatalogCollectionRepositoryPort['markFailed']>[0];
 
 @Injectable()
 export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalogCollectionRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
-
-  async startOrResume(input: StartInput): Promise<ChannelCatalogCollectionRunRecord> {
-    await this.assertActiveWingAccount(input.organizationId, input.channelAccountId);
-
-    const existing = await this.findByClientRunKey(input);
-    if (existing) return existing;
-
-    try {
-      return await this.prisma.channelScrapeRun.create({
-        data: {
-          organizationId: input.organizationId,
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly alerts: SourceFailureAlerts,
+  ) {}
+  async startOrResume(input: StartInput) {
+    return this.prisma
+      .$transaction(async (tx) => {
+        await lockCatalogAccount(tx, input);
+        const requestFingerprint = hashCatalogChunkPayload({
           channelAccountId: input.channelAccountId,
-          clientRunKey: input.clientRunKey,
-          channel: CHANNEL,
-          source: SOURCE,
-          pageType: PAGE_TYPE,
-          status: 'running',
-          parserVersion: input.collectorVersion,
-          metaJson: {
-            phase: 'discovery',
-            collectorVersion: input.collectorVersion,
-            createdBy: input.userId,
+          collectorVersion: input.collectorVersion,
+        });
+        const existing = await tx.sourceImportRun.findFirst({
+          where: {
+            organizationId: input.organizationId,
+            sourceType: CATALOG_SOURCE,
+            idempotencyKey: input.idempotencyKey,
           },
-        },
-        select: runSelect,
-      });
-    } catch (error) {
-      if (!isUniqueConstraintError(error)) throw error;
-      const raced = await this.findByClientRunKey(input);
-      if (!raced) throw error;
-      return raced;
-    }
-  }
-
-  async getOwnedRunWithChunks(input: OwnedRunInput): Promise<ChannelCatalogCollectionWithChunks> {
-    const run = await this.prisma.channelScrapeRun.findFirst({
-      where: ownedRunWhere(input),
-      select: {
-        ...runSelect,
-        chunks: {
-          orderBy: [{ kind: 'asc' }, { sequence: 'asc' }],
-          select: chunkSelect,
-        },
-      },
-    });
-    if (!run) throw new NotFoundException('Coupang catalog collection run not found');
-    return run;
-  }
-
-  async putChunk(
-    input: PutChunkInput,
-  ): Promise<{ stored: boolean; chunk: ChannelCatalogCollectionChunkRecord }> {
-    return this.prisma.$transaction(async (tx) => {
-      const locked = await tx.$queryRaw<LockedRun[]>`
-        SELECT id, status
-        FROM channel_scrape_runs
-        WHERE id = ${input.runId}::uuid
-          AND organization_id = ${input.organizationId}::uuid
-          AND channel_account_id = ${input.channelAccountId}::uuid
-          AND channel = ${CHANNEL}
-          AND source = ${SOURCE}
-        FOR UPDATE
-      `;
-      const run = locked[0];
-      if (!run) {
-        throw new NotFoundException('Coupang catalog collection run not found');
-      }
-      if (run.status !== 'running') {
-        throw new ConflictException(`Cannot write a chunk after collection is ${run.status}`);
-      }
-
-      const existing = await tx.channelScrapeChunk.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          scrapeRunId: input.runId,
-          kind: input.kind,
-          sequence: input.sequence,
-        },
-        select: chunkSelect,
-      });
-      if (existing) {
-        if (existing.checksum !== input.checksum) {
-          throw new ConflictException('Chunk coordinate already exists with a different checksum');
+        });
+        if (existing) {
+          if (
+            existing.channelAccountId !== input.channelAccountId ||
+            existing.parserVersion !== CATALOG_PARSER ||
+            existing.requestFingerprint !== requestFingerprint
+          )
+            throw new ConflictException('Idempotency-Key has a different catalog input');
+          return readOwned(tx, { ...input, runId: existing.id });
         }
+        const vendorId = await catalogAccountVendor(tx, input);
+        const active = await tx.sourceImportRun.findMany({
+          where: { ...catalogWhere(input), status: 'running' },
+        });
+        for (const previous of active) {
+          if (previous.expiresAt && previous.expiresAt.getTime() > Date.now())
+            throw new ConflictException({
+              code: 'ATTEMPT_IN_PROGRESS',
+              attemptId: previous.id,
+              message: `이미 수집 중인 시도(${previous.id})가 있습니다. 해당 수집 상태를 확인해주세요.`,
+            });
+          // Serialize expiration with uploads as well as terminal publication.
+          const locked = await lockCatalogAttempt(tx, {
+            ...input,
+            runId: previous.id,
+            attemptToken: previous.attemptToken,
+          });
+          if (locked.status === 'running')
+            await this.saveFailure(tx, {
+              ...input,
+              runId: previous.id,
+              attemptToken: previous.attemptToken,
+              error: {
+                code: 'ATTEMPT_EXPIRED',
+                message: 'Catalog attempt expired',
+                phase: 'discovery',
+              },
+            });
+        }
+        const generation = await tx.sourceImportRun.aggregate({
+          where: catalogWhere(input),
+          _max: { freshnessGeneration: true },
+        });
+        const plan = {
+          collectorVersion: input.collectorVersion,
+          listUrl: CATALOG_LIST_URL,
+          detailUrl: CATALOG_DETAIL_URL,
+          channelAccountId: input.channelAccountId,
+          vendorId,
+          publicationRevision: (await catalogPublicationRevision(tx, input)).toString(),
+        };
+        const owner = await tx.sourceImportRun.create({
+          data: {
+            ...catalogWhere(input),
+            fileName: COUPANG_CATALOG_BROWSER_FILE_NAME,
+            status: 'running',
+            idempotencyKey: input.idempotencyKey,
+            requestFingerprint,
+            plan,
+            createdBy: input.userId,
+            freshnessGeneration: (generation._max.freshnessGeneration ?? 0n) + 1n,
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          },
+        });
+        await tx.channelScrapeRun.create({
+          data: {
+            organizationId: input.organizationId,
+            channelAccountId: input.channelAccountId,
+            sourceImportRunId: owner.id,
+            channel: 'coupang',
+            source: CATALOG_STAGING_SOURCE,
+            pageType: 'catalog_full_snapshot',
+            parserVersion: input.collectorVersion,
+          },
+        });
+        return readOwned(tx, { ...input, runId: owner.id });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')
+          throw new ConflictException('Idempotency-Key has a different catalog input');
+        throw error;
+      });
+  }
+  getOwnedRunWithChunks(input: OwnedInput) {
+    return readOwned(this.prisma, input);
+  }
+  putChunk(input: PutInput) {
+    return this.prisma.$transaction(async (tx) => {
+      const owner = await lockCatalogAttempt(tx, input);
+      assertCatalogRunning(owner);
+      const run = await readOwned(tx, input);
+      const existing = run.chunks.find(
+        (chunk) => chunk.kind === input.kind && chunk.sequence === input.sequence,
+      );
+      if (existing) {
+        if (existing.checksum !== input.checksum)
+          throw new ConflictException('Chunk coordinate already exists with a different checksum');
         return { stored: false, chunk: existing };
       }
-
       const chunk = await tx.channelScrapeChunk.create({
         data: {
           organizationId: input.organizationId,
-          scrapeRunId: input.runId,
+          scrapeRunId: run.collectionRunId,
           kind: input.kind,
           sequence: input.sequence,
           checksum: input.checksum,
@@ -130,108 +156,53 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
         },
         select: chunkSelect,
       });
-      await tx.channelScrapeRun.update({
-        where: { id: input.runId },
-        data: {
-          rowCount: { increment: input.itemCount },
-          errorJson: Prisma.DbNull,
-        },
-      });
+      assertCatalogRunning(owner);
       return { stored: true, chunk };
     });
   }
-
-  async recordRecoverableError(input: ErrorInput): Promise<ChannelCatalogCollectionRunRecord> {
-    return this.updateRunningRun(input, {
-      errorCount: { increment: 1 },
-      errorJson: input.error as Prisma.InputJsonValue,
+  async markFailed(input: FailInput) {
+    return this.prisma.$transaction(async (tx) => {
+      await lockCatalogAccount(tx, input);
+      const owner = await lockCatalogAttempt(tx, input);
+      const checksum = hashCatalogChunkPayload(input.error);
+      if (owner.status === 'failed' && owner.contentChecksum === checksum)
+        return readOwned(tx, input);
+      assertCatalogRunning(owner);
+      await this.saveFailure(tx, input);
+      return readOwned(tx, input);
     });
   }
-
-  async markFailed(input: ErrorInput): Promise<ChannelCatalogCollectionRunRecord> {
-    return this.updateRunningRun(input, {
-      status: 'failed',
-      finishedAt: new Date(),
-      errorCount: { increment: 1 },
-      errorJson: input.error as Prisma.InputJsonValue,
-    });
-  }
-
-  private async updateRunningRun(
-    input: ErrorInput,
-    data: Prisma.ChannelScrapeRunUpdateManyMutationInput,
-  ): Promise<ChannelCatalogCollectionRunRecord> {
-    const updated = await this.prisma.channelScrapeRun.updateMany({
-      where: { ...ownedRunWhere(input), status: 'running' },
-      data,
-    });
-    if (updated.count === 0) {
-      const current = await this.prisma.channelScrapeRun.findFirst({
-        where: ownedRunWhere(input),
-        select: runSelect,
-      });
-      if (!current) {
-        throw new NotFoundException('Coupang catalog collection run not found');
-      }
-      throw new ConflictException(`Cannot update a collection after it is ${current.status}`);
-    }
-    const run = await this.prisma.channelScrapeRun.findFirst({
-      where: ownedRunWhere(input),
-      select: runSelect,
-    });
-    if (!run) throw new NotFoundException('Coupang catalog collection run not found');
-    return run;
-  }
-
-  private findByClientRunKey(input: StartInput) {
-    return this.prisma.channelScrapeRun.findFirst({
+  private async saveFailure(tx: Prisma.TransactionClient, input: FailInput) {
+    const changed = await tx.sourceImportRun.updateMany({
       where: {
-        organizationId: input.organizationId,
-        channelAccountId: input.channelAccountId,
-        source: SOURCE,
-        clientRunKey: input.clientRunKey,
+        ...catalogWhere(input),
+        id: input.runId,
+        status: 'running',
+        attemptToken: input.attemptToken,
       },
-      select: runSelect,
+      data: {
+        status: 'failed',
+        importedAt: new Date(),
+        errorCode: input.error.code,
+        errorMessage: input.error.message,
+        qualityReport: { error: input.error },
+        contentChecksum: hashCatalogChunkPayload(input.error),
+      },
     });
-  }
-
-  private async assertActiveWingAccount(
-    organizationId: string,
-    channelAccountId: string,
-  ): Promise<void> {
-    const account = await this.prisma.channelAccount.findFirst({
-      where: { id: channelAccountId, organizationId, status: 'active' },
-      select: { channel: true, externalAccountId: true, vendorId: true },
-    });
-    if (!account) throw new NotFoundException('Active channel account not found');
-    if (account.channel !== CHANNEL) {
-      throw new BadRequestException(
-        'Coupang Wing catalog collection requires a channel=coupang account',
-      );
-    }
-    if (!resolveCoupangVendorId(account)) {
-      throw new BadRequestException('Coupang channel account requires a vendor identity');
-    }
+    if (changed.count !== 1) throw new ConflictException('Catalog attempt lost its failure fence');
+    if (input.error.code !== 'USER_CANCELLED')
+      await this.alerts.upsertSourceFailure(tx, {
+        organizationId: input.organizationId,
+        dedupeKey: catalogAlertKey(input.channelAccountId),
+        sourceType: CATALOG_SOURCE,
+        attemptId: input.runId,
+        severity: 'error',
+        title: 'Wing catalog collection failed',
+        message: input.error.message,
+        href: `/product-pipeline/registered-products?collectionAttempt=${input.runId}&channelAccountId=${input.channelAccountId}`,
+      });
   }
 }
-
-const runSelect = {
-  id: true,
-  organizationId: true,
-  channelAccountId: true,
-  clientRunKey: true,
-  status: true,
-  rowCount: true,
-  errorCount: true,
-  startedAt: true,
-  createdAt: true,
-  updatedAt: true,
-  finishedAt: true,
-  metaJson: true,
-  errorJson: true,
-  sourceImportRunId: true,
-} as const;
-
 const chunkSelect = {
   id: true,
   kind: true,
@@ -240,17 +211,58 @@ const chunkSelect = {
   itemCount: true,
   payload: true,
 } as const;
-
-function ownedRunWhere(input: { organizationId: string; channelAccountId: string; runId: string }) {
+async function readOwned(tx: Prisma.TransactionClient, input: OwnedInput) {
+  const owner = await tx.sourceImportRun.findFirst({
+    where: { ...catalogWhere(input), id: input.runId },
+    include: {
+      channelScrapeRuns: {
+        where: {
+          organizationId: input.organizationId,
+          channelAccountId: input.channelAccountId,
+          source: CATALOG_STAGING_SOURCE,
+        },
+        include: {
+          chunks: {
+            orderBy: [{ kind: 'asc' }, { sequence: 'asc' }],
+            select: chunkSelect,
+          },
+        },
+      },
+    },
+  });
+  const staging = owner?.channelScrapeRuns[0];
+  if (!owner || !staging || !owner.expiresAt || !owner.idempotencyKey)
+    throw new NotFoundException('Catalog attempt not found');
   return {
-    id: input.runId,
-    organizationId: input.organizationId,
+    id: owner.id,
+    collectionRunId: staging.id,
+    organizationId: owner.organizationId,
     channelAccountId: input.channelAccountId,
-    channel: CHANNEL,
-    source: SOURCE,
-  } as const;
+    idempotencyKey: owner.idempotencyKey,
+    attemptToken: owner.attemptToken,
+    expiresAt: owner.expiresAt,
+    plan: owner.plan,
+    status: owner.status,
+    rowCount: owner.rowCount,
+    errorCount: owner.errorCode ? 1 : 0,
+    startedAt: owner.createdAt,
+    createdAt: owner.createdAt,
+    updatedAt: owner.updatedAt,
+    finishedAt: owner.importedAt,
+    metaJson: owner.qualityReport,
+    errorJson: owner.errorCode
+      ? {
+          code: owner.errorCode,
+          message: owner.errorMessage,
+          ...jsonRecord(jsonRecord(owner.qualityReport)?.error),
+        }
+      : null,
+    sourceImportRunId: owner.id,
+    chunks: staging.chunks,
+  };
 }
-
-function isUniqueConstraintError(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+function jsonRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }

@@ -95,7 +95,6 @@ function createRuntime(initialSessions = []) {
         staleRunId: 'newer-run',
       };
     },
-    cancelCatalog: async (runId) => calls.push(['cancelCatalog', runId]),
     cancelCompetitorCatalog: async (runId) => calls.push(['cancelCompetitorCatalog', runId]),
     loadScheduledTargets: async () => {
       calls.push(['loadScheduledTargets']);
@@ -104,7 +103,6 @@ function createRuntime(initialSessions = []) {
     startScheduledScrape: async (input) => {
       calls.push(['startScheduledScrape', input.startIndex]);
     },
-    restartCatalog: async (runId) => calls.push(['restartCatalog', runId]),
   });
   return { calls, controller, sessionsById };
 }
@@ -182,22 +180,6 @@ test('web restart requires manual confirmation without replaying stored input', 
 
   assert.deepEqual(calls, [
     ['attention', 'web-run', 'manual_confirmation'],
-  ]);
-});
-
-test('cancel dispatches to the producer owner after cancelling the generic session', async () => {
-  const { calls, controller } = createRuntime([
-    session({
-      runId: 'catalog',
-      producer: 'channels.coupang_catalog',
-      restartStrategy: 'extension',
-    }),
-  ]);
-
-  await controller.cancel('catalog');
-
-  assert.deepEqual(calls, [
-    ['cancelCatalog', 'catalog'],
   ]);
 });
 
@@ -516,4 +498,12 @@ test('worker reload does not resume retired Wing rank sessions', async () => {
   await controller.recover();
   assert.deepEqual(calls, []);
   assert.deepEqual(sessionsById.get('old-wing'), original);
+});
+
+test('worker reload leaves Catalog attempts to the permit-owned runtime without legacy restart', async () => {
+  const original = session({ runId: 'catalog', producer: 'channels.coupang_catalog', restartStrategy: 'extension' });
+  const { calls, controller, sessionsById } = createRuntime([original]);
+  await controller.recover();
+  assert.deepEqual(calls, []);
+  assert.deepEqual(sessionsById.get('catalog'), original);
 });

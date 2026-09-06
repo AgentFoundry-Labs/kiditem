@@ -2,15 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CoupangCatalogCollectionRunSchema } from '@kiditem/shared/coupang-catalog-snapshot';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Database, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
-import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
-import {
-  sendBrowserCollectionControl,
-  syncBrowserCollectionAlert,
-  updateBrowserCollectionSessionCache,
-} from '@/lib/browser-collection-session';
 import { formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
 import { useCoupangCatalogImport } from '../hooks/useCoupangCatalogImport';
@@ -21,7 +15,6 @@ import {
 import { channelListingsApi } from '../lib/channel-listings-api';
 
 export function CoupangCatalogImportPanel() {
-  const queryClient = useQueryClient();
   const accountsQuery = useQuery({
     queryKey: queryKeys.channelAccounts.active(),
     queryFn: () => channelListingsApi.listAccounts(),
@@ -31,82 +24,63 @@ export function CoupangCatalogImportPanel() {
     () => (accountsQuery.data ?? []).filter((account) => account.channel === 'coupang'),
     [accountsQuery.data],
   );
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
-  const [isStopping, setIsStopping] = useState(false);
-  const [linkedRunId] = useState(readCollectionRunId);
-  const catalogImport = useCoupangCatalogImport(selectedAccountId, linkedRunId);
-  const completedToastRef = useRef<string | null>(null);
+  const [linkedAttempt] = useState(readCollectionAttempt);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(linkedAttempt?.channelAccountId ?? null);
+  const catalogImport = useCoupangCatalogImport(selectedAccountId, linkedAttempt?.attemptId ?? null);
+  const completedToasts = useRef(new Set<string>());
 
   useEffect(() => {
     if (selectedAccountId || coupangAccounts.length === 0) return;
-    const resumed = catalogImport.activeRun
-      ? coupangAccounts.find((account) => account.id === catalogImport.activeRun?.channelAccountId)
+    const resumed = catalogImport.activeAttempt
+      ? coupangAccounts.find((account) => account.id === catalogImport.activeAttempt?.channelAccountId)
       : null;
     const preferred = resumed ?? coupangAccounts.find((account) => account.isPrimary) ?? coupangAccounts[0];
     setSelectedAccountId(preferred.id);
-  }, [catalogImport.activeRun, coupangAccounts, selectedAccountId]);
+  }, [catalogImport.activeAttempt, coupangAccounts, selectedAccountId]);
 
   useEffect(() => {
     const status = catalogImport.serverStatus;
-    if (status?.status !== 'completed' || completedToastRef.current === status.id) return;
-    completedToastRef.current = status.id;
+    if (status?.state !== 'COMPLETE' || completedToasts.current.has(status.attemptId)) return;
+    completedToasts.current.add(status.attemptId);
     toast.success('쿠팡 상품 수집과 DB 반영이 완료되었습니다.');
   }, [catalogImport.serverStatus]);
 
   const server = catalogImport.serverStatus;
   const extension = catalogImport.extensionStatus;
-  const collectionSession = catalogImport.collectionSession.data;
-  const isComplete = server?.status === 'completed';
-  const isRunning = server?.status === 'running' && extension?.status === 'running';
-  const browserActive =
-    server?.status === 'running' && (
-      collectionSession?.status === 'running' ||
-      collectionSession?.status === 'attention_required'
-    );
-  const isCollecting = browserActive || isRunning;
-  const canResume = server?.status === 'running' &&
-    (!extension || extension.status === 'idle' || extension.status === 'error' || extension.status === 'cancelled');
+  const isComplete = server?.state === 'COMPLETE';
+  const isRunning = server?.state === 'RUNNING';
+  const isCollecting = isRunning && extension?.active === true;
+  const canResume = isRunning && !extension?.active;
+  const attention = !isComplete ? extension?.attention : null;
   const progress = server ? buildCoupangCatalogProgress(server, Date.now()) : null;
-  const error = resolveCoupangCatalogError({
-    browserActive,
+  const error = isComplete ? null : resolveCoupangCatalogError({
+    browserActive: isCollecting,
     extensionError: extension?.error ?? null,
-    startError: errorMessage(catalogImport.startError),
+    startError: errorMessage(catalogImport.startError) ?? errorMessage(catalogImport.readError),
     serverError: server?.error?.message ?? null,
   });
 
   const handleStart = async () => {
     try {
       await catalogImport.start();
-      toast.success(canResume ? '쿠팡 상품 수집을 재개했습니다.' : '쿠팡 상품 수집을 시작했습니다.');
+      toast.info(canResume ? '쿠팡 상품 수집을 재개했습니다.' : '쿠팡 상품 수집을 시작했습니다.');
     } catch (cause) {
       toast.error(errorMessage(cause) || '쿠팡 상품 수집을 시작하지 못했습니다.');
     }
   };
 
   const handleStop = async () => {
-    const runId = collectionSession?.runId ?? server?.id ?? catalogImport.activeRun?.runId;
-    if (!runId || isStopping) return;
-    setIsStopping(true);
     try {
-      const response = await sendBrowserCollectionControl(
-        runId,
-        'cancelCollectionSession',
-      );
-      if (response?.status === 'cancelled') {
-        updateBrowserCollectionSessionCache(queryClient, response);
-        await syncBrowserCollectionAlert(response);
-        toast.success('쿠팡 상품 수집을 중단했습니다.');
-      } else {
-        await queryClient.invalidateQueries({
-          queryKey: queryKeys.browserCollection.session(runId),
-        });
-        toast.success('쿠팡 상품 수집 중단을 요청했습니다.');
-      }
+      await catalogImport.cancel();
+      toast.info('쿠팡 수집 서버 상태를 확인했습니다.');
     } catch (cause) {
       toast.error(errorMessage(cause) || '쿠팡 상품 수집을 중단하지 못했습니다.');
-    } finally {
-      setIsStopping(false);
     }
+  };
+
+  const handleAttention = async () => {
+    try { await catalogImport.openAttention(); }
+    catch (cause) { toast.error(errorMessage(cause) || '확인 탭을 열지 못했습니다.'); }
   };
 
   return (
@@ -121,7 +95,7 @@ export function CoupangCatalogImportPanel() {
               <h2 className="text-sm font-black text-slate-900">쿠팡 등록상품 가져오기</h2>
               {server && (
                 <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-emerald-700">
-                  {phaseLabel(server.phase)}
+                  {server.state === 'FAILED' ? '수집 실패' : isComplete ? '완료' : phaseLabel(server.phase)}
                 </span>
               )}
             </div>
@@ -148,7 +122,7 @@ export function CoupangCatalogImportPanel() {
                 {isComplete && <span className="text-emerald-700">DB 반영 완료</span>}
               </div>
             )}
-            {server?.status === 'running' && progress && progress.percent > 0 && (
+            {isRunning && progress && progress.percent > 0 && (
               <div className="mt-2 h-1.5 w-full max-w-xl overflow-hidden rounded-full bg-emerald-100">
                 <div
                   className="h-full rounded-full bg-emerald-500 transition-[width]"
@@ -165,7 +139,7 @@ export function CoupangCatalogImportPanel() {
             aria-label="쿠팡 채널 계정"
             value={selectedAccountId ?? ''}
             onChange={(event) => setSelectedAccountId(event.target.value || null)}
-            disabled={isRunning || catalogImport.isStarting || coupangAccounts.length === 0}
+            disabled={isRunning || (!!catalogImport.activeAttempt && !server) || catalogImport.isStarting || coupangAccounts.length === 0}
             className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700 disabled:opacity-60"
           >
             {coupangAccounts.length === 0 && <option value="">쿠팡 계정 없음</option>}
@@ -174,30 +148,19 @@ export function CoupangCatalogImportPanel() {
             ))}
           </select>
           {isCollecting ? (
-            <>
               <button
                 type="button"
                 disabled
                 className="flex h-8 items-center gap-1.5 rounded-md bg-emerald-100 px-3 text-xs font-bold text-emerald-700"
               >
                 <Loader2 size={13} className="animate-spin" />
-                {collectionSession?.status === 'attention_required' ? '확인 필요' : '수집 중'}
+                {attention ? '확인 필요' : '수집 중'}
               </button>
-              <button
-                type="button"
-                onClick={() => void handleStop()}
-                disabled={isStopping}
-                className="flex h-8 items-center gap-1.5 rounded-md border border-red-200 bg-white px-3 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-60"
-              >
-                {isStopping && <Loader2 size={13} className="animate-spin" />}
-                수집 중단
-              </button>
-            </>
           ) : (
             <button
               type="button"
               onClick={handleStart}
-              disabled={!selectedAccountId || catalogImport.isStarting}
+              disabled={!selectedAccountId || catalogImport.isStarting || catalogImport.isStopping}
               className="flex h-8 items-center gap-1.5 rounded-md bg-emerald-600 px-3 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-60"
             >
               {catalogImport.isStarting ? (
@@ -208,25 +171,41 @@ export function CoupangCatalogImportPanel() {
               {canResume ? '수집 재개' : isComplete ? '다시 동기화' : 'Wing에서 가져오기'}
             </button>
           )}
+          {isRunning && (
+            <button
+              type="button"
+              onClick={() => void handleStop()}
+              disabled={catalogImport.isStopping || catalogImport.isStarting}
+              className="flex h-8 items-center gap-1.5 rounded-md border border-red-200 bg-white px-3 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-60"
+            >
+              {catalogImport.isStopping && <Loader2 size={13} className="animate-spin" />}
+              수집 중단
+            </button>
+          )}
         </div>
-        {collectionSession && server?.status === 'running' && (
-          <BrowserCollectionRunControls
-            session={collectionSession}
-            onWebRestart={handleStart}
-            className="basis-full"
-            showCancel={false}
-          />
+        {attention && (
+          <div className="flex basis-full items-center gap-2 text-xs text-amber-800">
+            <span>{attention.message}</span>
+            {attention.canOpenTab && (
+              <button type="button" onClick={() => void handleAttention()} className="font-bold underline">
+                확인 탭 열기
+              </button>
+            )}
+          </div>
         )}
       </div>
     </section>
   );
 }
 
-function readCollectionRunId(): string | null {
+function readCollectionAttempt(): { attemptId: string; channelAccountId: string } | null {
   if (typeof window === 'undefined') return null;
-  const parsed = CoupangCatalogCollectionRunSchema.shape.id.safeParse(
-    new URLSearchParams(window.location.search).get('collectionRun'),
-  );
+  const query = new URLSearchParams(window.location.search);
+  const parsed = CoupangCatalogCollectionRunSchema.pick({
+    attemptId: true, channelAccountId: true,
+  }).safeParse({
+    attemptId: query.get('collectionAttempt'), channelAccountId: query.get('channelAccountId'),
+  });
   return parsed.success ? parsed.data : null;
 }
 
@@ -235,7 +214,7 @@ function phaseLabel(phase: string): string {
   if (phase === 'hydration') return '상품 상세 수집';
   if (phase === 'ready_to_finalize') return 'DB 반영 준비';
   if (phase === 'publishing') return 'DB 반영 중';
-  return '완료';
+  return '서버 확인 중';
 }
 
 function errorMessage(value: unknown): string | null {

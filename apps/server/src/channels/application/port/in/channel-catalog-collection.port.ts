@@ -2,6 +2,7 @@ import type {
   CoupangCatalogChunkKind,
   CoupangCatalogCollectionErrorRequest,
   CoupangCatalogCollectionRun,
+  CoupangCatalogCollectionPermit,
   FinalizeCoupangCatalogCollectionRequest,
   PutCoupangCatalogChunkRequest,
   StartCoupangCatalogCollectionRequest,
@@ -12,8 +13,9 @@ export interface ChannelCatalogCollectionPort {
     organizationId: string;
     userId: string;
     channelAccountId: string;
+    idempotencyKey: string;
     request: StartCoupangCatalogCollectionRequest;
-  }): Promise<CoupangCatalogCollectionRun>;
+  }): Promise<CoupangCatalogCollectionPermit>;
 
   getStatus(input: {
     organizationId: string;
@@ -26,15 +28,17 @@ export interface ChannelCatalogCollectionPort {
     userId: string;
     channelAccountId: string;
     runId: string;
+    attemptToken: string;
     kind: CoupangCatalogChunkKind;
     sequence: number;
     request: PutCoupangCatalogChunkRequest;
   }): Promise<CoupangCatalogCollectionRun>;
 
-  recordError(input: {
+  fail(input: {
     organizationId: string;
     channelAccountId: string;
     runId: string;
+    attemptToken: string;
     request: CoupangCatalogCollectionErrorRequest;
   }): Promise<CoupangCatalogCollectionRun>;
 
@@ -43,10 +47,9 @@ export interface ChannelCatalogCollectionPort {
     userId: string;
     channelAccountId: string;
     runId: string;
+    attemptToken: string;
     request: FinalizeCoupangCatalogCollectionRequest;
   }): Promise<CoupangCatalogCollectionRun>;
 }
 
-export const CHANNEL_CATALOG_COLLECTION_PORT = Symbol(
-  'CHANNEL_CATALOG_COLLECTION_PORT',
-);
+export const CHANNEL_CATALOG_COLLECTION_PORT = Symbol('CHANNEL_CATALOG_COLLECTION_PORT');

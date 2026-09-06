@@ -104,7 +104,6 @@ test('handles generic collection controls before producer actions', () => {
   }
   assert.match(collectionRunsSource, /restartStrategy !== ["']extension["']/);
   assert.match(collectionRunsSource, /reason:\s*["']manual_confirmation["']/);
-  assert.match(collectionRunsSource, /options\.restartCatalog/);
   // 취소 구현은 그대로 쿠팡 도메인이 갖고, 레지스트리를 통해 dispatch 가 부른다.
   assert.match(
     worker,
@@ -209,15 +208,14 @@ test('automatic collectors contain no direct focus primitives', () => {
   }
   assert.match(catalog, /requireAttention/);
   assert.match(catalog, /clearAlarm\(dependencies\)/);
-  assert.match(catalog, /attention_required/);
 });
 
 test('automatic collectors never reuse or navigate a user-active tab', () => {
   assert.match(worker, /before\?\.active && options\.allowActive !== true/);
   assert.match(worker, /throw new Error\(["']active user tab is collection-protected["']\)/);
   assert.doesNotMatch(worker, /\.catch\(\(\) => reusableTab\)/);
-  assert.match(catalog, /dependencies\.collectionWindow\.getOrCreate\(\s*state\.runId/);
-  assert.match(catalog, /dependencies\.collectionWindow\.navigate\(\s*state\.runId/);
+  assert.match(catalog, /dependencies\.collectionWindow\.getOrCreate\(\s*state\.attemptId/);
+  assert.match(catalog, /dependencies\.collectionWindow\.navigate\(\s*state\.attemptId/);
   assert.doesNotMatch(catalog, /chrome\.tabs\.create\(/);
   assert.doesNotMatch(catalog, /chrome\.tabs\.update\(/);
   assert.doesNotMatch(catalog, /chrome\.tabs\.remove\(/);
