@@ -30,6 +30,7 @@ function createHarness(sourceTargets: readonly unknown[] = targets) {
     getSellerTargets: vi.fn(async () => ({ targets: sourceTargets })),
   };
   const attempts = {
+    replayAttempt: vi.fn(async () => null),
     beginAttempt: vi.fn(async (input) => ({
       attemptId: '10000000-0000-4000-8000-000000000001',
       attemptToken: '20000000-0000-4000-8000-000000000001',

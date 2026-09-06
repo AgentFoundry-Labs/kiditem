@@ -272,6 +272,8 @@ describe('keyword and competitor browser-operation contracts', () => {
     };
     expect(AdvertisingCompetitorCatalogBatchSchema.parse({ catalogs: [catalog] }))
       .toEqual({ catalogs: [catalog] });
+    const rankCatalog = { ...catalog, collectedProductCount: 500, products: Array.from({ length: 500 }, (_, index) => ({ ...catalog.products[0], sourceRank: index + 1 })) };
+    expect(AdvertisingCompetitorCatalogBatchSchema.parse({ catalogs: [rankCatalog] }).catalogs[0].products).toHaveLength(500);
     for (const invalid of [
       { catalogs: [] },
       { catalogs: [{ ...catalog, sellerId: 'seller id' }] },
@@ -279,7 +281,8 @@ describe('keyword and competitor browser-operation contracts', () => {
       { catalogs: [{ ...catalog, products: [] }] },
       { catalogs: [{ ...catalog, url: 'https://example.com' }] },
       { catalogs: Array.from({ length: 21 }, () => catalog) },
-      { catalogs: [{ ...catalog, products: Array.from({ length: 101 }, () => catalog.products[0]) }] },
+      { catalogs: [{ ...catalog, collectedProductCount: 501, products: Array.from({ length: 501 }, () => catalog.products[0]) }] },
+      { catalogs: [{ ...catalog, products: [{ ...catalog.products[0], sourceRank: 501 }] }] },
     ]) {
       expect(AdvertisingCompetitorCatalogBatchSchema.safeParse(invalid).success)
         .toBe(false);

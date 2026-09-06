@@ -3,7 +3,6 @@
 
   const PRODUCER = "advertising.competitor_catalog";
   const MAX_TARGETS = 20;
-  const TERMINAL_RETRIES = 3;
 
   function ownerError(code, message, status = null) {
     const error = new Error(message);
@@ -19,16 +18,19 @@
     return value.trim();
   }
 
-  function responseBody(response) {
-    return response?.json?.().catch(() => null) ?? Promise.resolve(null);
-  }
-
   function normalizedInput(value) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       throw ownerError("INVALID_COMPETITOR_CATALOG_SCOPE", "Invalid competitor catalog scope.");
     }
     if (value.target === "all" && Object.keys(value).length === 1) {
       return { target: "all" };
+    }
+    if (value.target === "rank_enrichment"
+      && Object.keys(value).every((key) => key === "target" || key === "excludeCompletedAttemptId")) {
+      if (value.excludeCompletedAttemptId === undefined) return { target: "rank_enrichment" };
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.excludeCompletedAttemptId)) {
+        return { target: "rank_enrichment", excludeCompletedAttemptId: value.excludeCompletedAttemptId };
+      }
     }
     if (
       value.target === "seller_id"
@@ -43,7 +45,18 @@
 
   function sameInput(left, right) {
     return left.target === right.target
-      && (left.target === "all" || left.sellerId === right.sellerId);
+      && left.sellerId === right.sellerId
+      && left.excludeCompletedAttemptId === right.excludeCompletedAttemptId;
+  }
+
+  function parseStart(message) {
+    if (!message || message.action !== "collectAdvertisingCompetitorCatalog") {
+      throw ownerError("INVALID_COMPETITOR_CATALOG_SCOPE", "Invalid competitor catalog collection request.");
+    }
+    const { action, idempotencyKey, ...input } = message;
+    const key = text(idempotencyKey, "INVALID_IDEMPOTENCY_KEY");
+    if (idempotencyKey.length > 128) throw ownerError("INVALID_IDEMPOTENCY_KEY", "Invalid idempotency key.");
+    return { idempotencyKey: key, input: normalizedInput(input) };
   }
 
   function targetFrom(value) {
@@ -107,10 +120,11 @@
     return {
       success: false,
       attemptId: plan.attemptId,
-      terminalState: "FAILED",
-      retryRequired: true,
-      errorCode: "COMPETITOR_CATALOG_RETRY_REQUIRED",
-      error: "The previous competitor catalog attempt failed. Start a new retry from KidItem.",
+      terminalState: plan.state,
+      ...(plan.state === "FAILED" ? { retryRequired: true } : {}),
+      errorCode: plan.state === "RUNNING" ? "SOURCE_RESULT_UNCONFIRMED"
+        : plan.errorCode || "COMPETITOR_CATALOG_RETRY_REQUIRED",
+      error: plan.errorMessage || "The competitor catalog result must be checked in KidItem before retrying.",
     };
   }
 
@@ -131,7 +145,14 @@
     ) {
       throw new Error("Competitor catalog source-owner dependencies are required.");
     }
-    const request = options.request;
+    const sourcePath = "/api/ads/competitor-catalogs/attempts";
+    const wire = root.KidItemSourcingAttemptWire.create({
+      sourcePath, requestFailureMessage: "Competitor catalog owner request failed",
+    });
+    const connection = (environmentId) => ({
+      apiBase: "", headers: { "Content-Type": "application/json" },
+      request: (path, init) => options.request(environmentId, path, init),
+    });
     const sessions = options.sessions;
     const activeExecutions = new Map();
 
@@ -147,16 +168,7 @@
     }
 
     async function requestJson(environmentId, path, init) {
-      const response = await request(environmentId, path, init);
-      const body = await responseBody(response);
-      if (!response?.ok) {
-        throw ownerError(
-          "COMPETITOR_CATALOG_OWNER_REQUEST_FAILED",
-          body?.message || `Competitor catalog owner request failed (${response?.status || 0}).`,
-          response?.status || null,
-        );
-      }
-      return body;
+      return wire.requestJson(connection(environmentId), path, init);
     }
 
     async function begin(environmentId, input) {
@@ -216,28 +228,17 @@
     }
 
     async function sendTerminalRequest(environmentId, plan, { method, suffix, body }) {
-      const path = `/api/ads/competitor-catalogs/attempts/${encodeURIComponent(plan.attemptId)}${suffix}`;
-      const payload = JSON.stringify(body);
-      for (let attempt = 0; attempt < TERMINAL_RETRIES; attempt += 1) {
-        try {
-          await requestJson(environmentId, path, {
-            method,
-            headers: {
-              "Content-Type": "application/json",
-              "x-source-attempt-token": plan.attemptToken,
-            },
-            body: payload,
-          });
-          return;
-        } catch (error) {
-          const retryable = !Number.isInteger(error?.status) || error.status >= 500;
-          if (!retryable || attempt === TERMINAL_RETRIES - 1) throw error;
+      return wire.terminal(connection(environmentId), plan, { method, suffix, body }, (value) => {
+        const terminal = value?.latestAttempt;
+        if (terminal?.attemptId !== plan.attemptId || !["COMPLETE", "FAILED"].includes(terminal.state)) {
+          throw ownerError("SOURCE_RESULT_UNCONFIRMED", "The exact catalog attempt result was not returned.");
         }
-      }
+        return terminal;
+      });
     }
 
     async function terminalSubmit(environmentId, plan, catalogs) {
-      await sendTerminalRequest(environmentId, plan, {
+      return sendTerminalRequest(environmentId, plan, {
         method: "PUT",
         suffix: "",
         body: { catalogs },
@@ -250,12 +251,11 @@
         "COMPETITOR_CATALOG_COLLECTION_FAILED",
         "Competitor catalog collection failed.",
       );
-      await sendTerminalRequest(environmentId, plan, {
+      return sendTerminalRequest(environmentId, plan, {
         method: "POST",
         suffix: "/fail",
         body: failure,
       });
-      return failure;
     }
 
     async function clearTerminalAttempt(environmentId, attemptId, tabId) {
@@ -271,6 +271,7 @@
     async function execute(environmentId, plan) {
       let completed = 0;
       let collectionTabId = null;
+      let submittingCapture = false;
       try {
         const catalogs = [];
         for (const target of plan.targets) {
@@ -290,6 +291,7 @@
               environmentId,
               attemptId: plan.attemptId,
               target,
+              targetMode: plan.input.target,
               collectionTabId,
             });
           } catch (error) {
@@ -343,37 +345,26 @@
             "Competitor catalog collection did not prove every frozen seller target.",
           );
         }
-        await terminalSubmit(environmentId, plan, catalogs);
+        submittingCapture = true;
+        const terminal = await terminalSubmit(environmentId, plan, catalogs);
         await clearTerminalAttempt(environmentId, plan.attemptId, collectionTabId);
         return {
-          success: true,
-          attemptId: plan.attemptId,
-          terminalState: "COMPLETE",
-          capturedTargetCount: catalogs.length,
+          ...terminalReplayResult(terminal),
+          ...(terminal.state === "COMPLETE" ? { capturedTargetCount: catalogs.length } : {}),
         };
       } catch (error) {
-        let terminalState = "RUNNING";
-        let failure = failureFrom(
-          error,
-          "COMPETITOR_CATALOG_COLLECTION_FAILED",
-          "Competitor catalog collection failed.",
-        );
-        try {
-          failure = await terminalFail(environmentId, plan, error);
-          terminalState = "FAILED";
-          await clearTerminalAttempt(environmentId, plan.attemptId, collectionTabId);
-        } catch {
-          // Preserve the bounded local correlation for recovery. It can only
-          // read/replay this server attempt, never invent a replacement.
+        // Missing PUT acknowledgement is not proof of capture failure. A new
+        // /fail is allowed only after a definitive pre-publication rejection.
+        let terminal = submittingCapture
+          ? await readAttemptControl(environmentId, plan.attemptId, plan.input).catch(() => null) : null;
+        if (!submittingCapture || (terminal?.state === "RUNNING" && [400, 422].includes(error?.status))) {
+          terminal = await terminalFail(environmentId, plan, error).catch(() => null);
+          terminal ??= await readAttemptControl(environmentId, plan.attemptId, plan.input).catch(() => null);
         }
-        return {
-          success: false,
-          attemptId: plan.attemptId,
-          terminalState,
-          ...(terminalState === "FAILED" ? { retryRequired: true } : {}),
-          errorCode: failure.code,
-          error: failure.message,
-        };
+        if (terminal && terminal.state !== "RUNNING") {
+          await clearTerminalAttempt(environmentId, plan.attemptId, collectionTabId);
+        }
+        return terminalReplayResult(terminal || { attemptId: plan.attemptId, state: "RUNNING" });
       }
     }
 
@@ -448,5 +439,5 @@
     return Object.freeze({ cancel, recover, run });
   }
 
-  root.KidItemCompetitorCatalogSourceOwner = Object.freeze({ create });
+  root.KidItemCompetitorCatalogSourceOwner = Object.freeze({ create, parseStart });
 })(globalThis);

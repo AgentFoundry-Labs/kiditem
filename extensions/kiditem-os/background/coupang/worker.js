@@ -3698,6 +3698,7 @@ function isExpectedTab(tab, options = {}) {
   if (!options.expectedUrl) return true;
   const currentUrl = tab.url || "";
   if (matchesExpectedWingPage(currentUrl, options.expectedUrl)) return true;
+  if (options.sawNavigation && currentUrl === options.expectedUrl) return true;
   if (options.sawNavigation && isWingInventoryUrl(currentUrl)) return true;
   if (options.previousUrl && currentUrl === options.previousUrl) return false;
   return Boolean(currentUrl && !isWingInventoryUrl(currentUrl));
@@ -4362,6 +4363,7 @@ async function collectAdvertisingCompetitorCatalogTarget({
   environmentId,
   attemptId,
   target,
+  targetMode,
   collectionTabId,
 }) {
   let tabId = collectionTabId;
@@ -4372,13 +4374,19 @@ async function collectAdvertisingCompetitorCatalogTarget({
       throw new Error("competitor_catalog_tab_unavailable");
     }
     await coupangEnvironment.bindTab(tabId, environmentId);
-    await collectionSessions.attachTab(attemptId, tab);
+    await collectionSessions.attachTab(attemptId, { tabId, windowId: tab.windowId });
   }
   const catalogs = await collectCoupangSellerCatalogs(tabId, [target], 1);
-  const catalog = sanitizeAdvertisingCompetitorCatalog(
-    Array.isArray(catalogs) ? catalogs[0] : null,
-    target,
-  );
+  const captured = Array.isArray(catalogs) ? catalogs[0] : null;
+  let catalog;
+  if (targetMode === "rank_enrichment" && captured) {
+    // Rank enrichment has always retained the extractor's 500 rows and nulls.
+    // Selection-only metadata is not part of the owner capture document.
+    const { priorityScore, overlapProductCount, ...evidence } = captured;
+    catalog = evidence;
+  } else {
+    catalog = sanitizeAdvertisingCompetitorCatalog(captured, target);
+  }
   if (!catalog) {
     return {
       success: false,
@@ -4619,45 +4627,6 @@ function parseAdvertisingProfitabilityStart(message) {
   return { idempotencyKey: message.idempotencyKey.trim() };
 }
 
-function parseAdvertisingCompetitorCatalogStart(message) {
-  if (!message || typeof message !== "object" || Array.isArray(message)) {
-    throw new Error("Invalid competitor catalog collection request");
-  }
-  if (
-    message.action === "collectAdvertisingCompetitorCatalog"
-    && message.target === "all"
-    && typeof message.idempotencyKey === "string"
-    && message.idempotencyKey.trim().length > 0
-    && message.idempotencyKey.length <= 128
-    && Object.keys(message).every((key) =>
-      key === "action" || key === "idempotencyKey" || key === "target",
-    )
-  ) {
-    return {
-      idempotencyKey: message.idempotencyKey.trim(),
-      input: { target: "all" },
-    };
-  }
-  if (
-    message.action === "collectAdvertisingCompetitorCatalog"
-    && message.target === "seller_id"
-    && typeof message.idempotencyKey === "string"
-    && message.idempotencyKey.trim().length > 0
-    && message.idempotencyKey.length <= 128
-    && typeof message.sellerId === "string"
-    && /^[A-Za-z0-9_-]{1,80}$/.test(message.sellerId.trim())
-    && Object.keys(message).every((key) =>
-      key === "action" || key === "idempotencyKey" || key === "target" || key === "sellerId",
-    )
-  ) {
-    return {
-      idempotencyKey: message.idempotencyKey.trim(),
-      input: { target: "seller_id", sellerId: message.sellerId.trim() },
-    };
-  }
-  throw new Error("Invalid competitor catalog collection request");
-}
-
 // ── 통합 서비스워커 등록 ──
 // producer 접두사로 이 도메인이 만든 수집 세션을 식별한다.
 KidItemDomains.register({
@@ -4723,7 +4692,7 @@ KidItemDomains.register({
         ),
     },
     collectAdvertisingCompetitorCatalog: {
-      validate: parseAdvertisingCompetitorCatalogStart,
+      validate: KidItemCompetitorCatalogSourceOwner.parseStart,
       handle: ({ idempotencyKey, input }, environmentId) =>
         KidItemWorkerKeepAlive.during(
           competitorCatalogSourceOwner.run({

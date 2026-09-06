@@ -445,6 +445,19 @@ remains independent of already-published per-keyword SERP results. Conservative
 failure for a legitimately absent seller identity remains an explicit limitation
 until actual provider evidence can establish a reliable absence predicate.
 
+The retained optional post-SERP sequence stays initial seller catalogs → seller
+identities → newly identified seller catalogs. Each phase is a direct source
+owner call, not a persisted parent/child workflow. Catalog `target: rank_enrichment` may
+reference `excludeCompletedAttemptId`: the owner excludes only the exact same-
+organization COMPLETE rank-enrichment catalog receipt's frozen seller IDs from the original
+days30/top20 selection, then freezes the remainder. Failed or uncertain earlier
+publication stops later enrichment without rolling back completed keyword SERPs.
+Keys identify these direct calls and do not become a second status authority.
+Preserve the two existing bounds: standalone all/seller_id catalogs retain100
+products, while the original SERP enrichment retains500. The shared envelope may
+accept500, but the owner validates the concrete frozen input's original bound.
+No new collector limit, selector, partial-success proof or retry policy is added.
+
 - [ ] **Step 1: Add failing no-Operation assertions to existing owner acceptance tests**
 
 ```ts

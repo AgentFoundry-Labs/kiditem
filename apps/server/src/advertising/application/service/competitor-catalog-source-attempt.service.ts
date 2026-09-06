@@ -6,6 +6,7 @@ import {
 import {
   AdvertisingCompetitorCatalogBatchSchema,
 } from '@kiditem/shared/sourcing';
+import { z } from 'zod';
 import {
   COMPETITOR_CATALOG_SOURCE_ATTEMPT_REPOSITORY_PORT,
   type CompetitorCatalogAttemptInput,
@@ -37,6 +38,8 @@ export class CompetitorCatalogSourceAttemptService {
       throw new BadRequestException('INVALID_IDEMPOTENCY_KEY');
     }
     const request = normalizeInput(input.input);
+    const replay = await this.attempts.replayAttempt({ organizationId, idempotencyKey, input: request });
+    if (replay) return replay;
     const selected = await this.tracking.getSellerTargets(organizationId, 30, TARGET_LIMIT);
     const targets = selectTargets(selected.targets, request);
     return this.attempts.beginAttempt({
@@ -110,6 +113,12 @@ function normalizeInput(value: CompetitorCatalogAttemptInput): CompetitorCatalog
     throw new BadRequestException('INVALID_COMPETITOR_CATALOG_SCOPE');
   }
   if (value.target === 'all') return { target: 'all' };
+  if (value.target === 'rank_enrichment') {
+    if (value.excludeCompletedAttemptId === undefined) return { target: 'rank_enrichment' };
+    const reference = z.string().uuid().safeParse(value.excludeCompletedAttemptId);
+    if (!reference.success) throw new BadRequestException('INVALID_COMPETITOR_CATALOG_SCOPE');
+    return { target: 'rank_enrichment', excludeCompletedAttemptId: reference.data };
+  }
   if (value.target === 'seller_id') {
     const sellerId = requiredText(value.sellerId, 'INVALID_COMPETITOR_SELLER_ID');
     if (!/^[A-Za-z0-9_-]+$/u.test(sellerId) || sellerId.length > 80) {

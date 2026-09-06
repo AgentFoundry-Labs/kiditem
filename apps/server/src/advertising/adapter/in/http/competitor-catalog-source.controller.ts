@@ -16,6 +16,7 @@ import { CompetitorCatalogSourceAttemptService } from '../../../application/serv
 
 const AttemptStartSchema = z.discriminatedUnion('target', [
   z.object({ target: z.literal('all') }).strict(),
+  z.object({ target: z.literal('rank_enrichment'), excludeCompletedAttemptId: z.string().uuid().optional() }).strict(),
   z.object({
     target: z.literal('seller_id'),
     sellerId: z.string().trim().min(1).max(80).regex(/^[A-Za-z0-9_-]+$/u),

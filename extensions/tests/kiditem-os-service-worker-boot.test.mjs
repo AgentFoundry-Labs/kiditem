@@ -210,6 +210,11 @@ test('retired Wing rank shell schedules are not installed', async () => {
 function bootRankCollector(pages, { loadFailureAt, redirectAt, fetch } = {}) {
   const { fake, context } = bootServiceWorker({ fetch });
   const urls = [], delays = [];
+  const updatedListeners = new Set();
+  fake.chrome.tabs.onUpdated = {
+    addListener: (listener) => updatedListeners.add(listener),
+    removeListener: (listener) => updatedListeners.delete(listener),
+  };
   let tab;
   fake.chrome.tabs.create = (properties, callback) => {
     urls.push(properties.url);
@@ -231,16 +236,23 @@ function bootRankCollector(pages, { loadFailureAt, redirectAt, fetch } = {}) {
       tab = { ...tab, ...properties,
         url: urls.length === redirectAt ? 'https://login.coupang.com/' : properties.url };
       callback?.(tab);
+      queueMicrotask(() => {
+        for (const listener of updatedListeners) listener(tab.id, { status: 'loading' }, tab);
+        for (const listener of updatedListeners) listener(tab.id, { status: 'complete' }, tab);
+      });
     }
     return Promise.resolve(tab);
   };
-  fake.chrome.scripting.executeScript = async ({ func }) => {
+  fake.chrome.scripting.executeScript = async ({ func, args = [] }) => {
     const page = pages[urls.length - 1];
     if (page instanceof Error) throw page;
     if (typeof page === 'string') {
       const dom = new JSDOM(page, { url: tab.url, runScripts: 'outside-only' });
       try {
-        return [{ result: vm.runInContext(`(${func.toString()})()`, dom.getInternalVMContext()) }];
+        dom.window.collectorArgs = args;
+        dom.window.scrollTo = () => {};
+        dom.window.setTimeout = (callback, ms) => { delays.push(ms); queueMicrotask(callback); return 1; };
+        return [{ result: await vm.runInContext(`(${func.toString()})(...collectorArgs)`, dom.getInternalVMContext()) }];
       } finally { dom.window.close(); }
     }
     return [{ result: page }];
@@ -304,6 +316,86 @@ function bootWingSearch(responses, { fetch } = {}) {
     })));
   } };
 }
+
+test('competitor catalog source preserves standalone100 and SERP enrichment500 through the real DOM collector', { timeout: 3000 }, async (t) => {
+  for (const targetMode of ['all', 'rank_enrichment']) await t.test(targetMode, async () => {
+    const attemptId = '11111111-1111-4111-8111-111111111111';
+    const target = { keyword: '문구', sellerId: 'A123', sellerName: '문구마켓', sellerStoreUrl: 'https://shop.coupang.com/A123' };
+    const html = '<button>최신순</button>' + Array.from({ length: 500 }, (_, i) =>
+      `<a href="/vp/products/${i + 1}?vendorItemId=${i + 1000}"><span class="name">연필 ${i + 1}</span><span class="price-value">1,200</span></a>`).join('');
+    const uploads = [];
+    const closes = [];
+    const h = bootRankCollector([html, html], { fetch: async (url, init) => {
+      if (!String(url).includes('/competitor-catalogs/')) return { ok: true, json: async () => ({}) };
+      if (init.method === 'PUT') {
+        uploads.push(JSON.parse(init.body));
+        return { ok: true, json: async () => ({ latestAttempt: { attemptId, state: 'COMPLETE' } }) };
+      }
+      assert.equal(init.method, 'POST');
+      assert.deepEqual(JSON.parse(init.body), { target: targetMode });
+      return { ok: true, json: async () => ({ attemptId, state: 'RUNNING',
+        attemptToken: '22222222-2222-4222-8222-222222222222', expiresAt: new Date(Date.now() + 600_000).toISOString(),
+        input: { target: targetMode }, targets: [target],
+      }) };
+    } });
+    h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
+    h.fake.chrome.tabs.remove = async (id, callback) => { closes.push(id); callback?.(); };
+    const result = await externalRequest(h.fake, { action: 'collectAdvertisingCompetitorCatalog', idempotencyKey: 'catalog-key', target: targetMode });
+    assert.equal(result.terminalState, 'COMPLETE', result.error);
+    const count = targetMode === 'all' ? 100 : 500;
+    assert.equal(uploads.length, 1);
+    assert.equal(uploads[0].catalogs[0].products.length, count);
+    assert.equal(uploads[0].catalogs[0].collectedProductCount, count);
+    assert.deepEqual(uploads[0].catalogs[0].products.at(-1), { sourceRank: count,
+      productId: String(count), itemId: null, vendorItemId: String(count + 999),
+      name: `연필 ${count}`, priceKrw: 1200, reviewCount: targetMode === 'all' ? 0 : null, imageUrl: null,
+      link: `https://shop.coupang.com/vp/products/${count}?vendorItemId=${count + 999}`,
+    });
+    assert.deepEqual(h.urls, [target.sellerStoreUrl, target.sellerStoreUrl]);
+    assert.deepEqual(h.delays, [1200, 1200]);
+    assert.deepEqual(closes, [41], 'source completion closes its owned tab');
+  });
+});
+
+test('competitor catalog reconciles terminal acknowledgements with the exact owner, never a contradictory failure', async (t) => {
+  for (const scenario of ['lost complete ACK', 'unconfirmed ACK', 'server failed', 'newer attempt response']) await t.test(scenario, async () => {
+    const attemptId = '11111111-1111-4111-8111-111111111111';
+    const target = { keyword: '문구', sellerId: 'A123', sellerName: '문구마켓', sellerStoreUrl: 'https://shop.coupang.com/A123' };
+    const capture = { products: [{ sourceRank: 1, productId: '11', itemId: null, vendorItemId: '101',
+      name: '연필', priceKrw: null, reviewCount: null, imageUrl: null, link: 'https://www.coupang.com/vp/products/11' }], totalProductCount: 1 };
+    const calls = [];
+    const h = bootRankCollector([null, capture], { fetch: async (url, init) => {
+      if (!String(url).includes('/competitor-catalogs/')) return { ok: true, json: async () => ({}) };
+      calls.push({ method: init.method, url: String(url), body: init.body });
+      if (String(url).endsWith('/fail')) return { ok: true, json: async () => ({ latestAttempt: { attemptId, state: 'FAILED' } }) };
+      if (init.method === 'PUT') {
+        if (scenario.includes('ACK')) throw new Error('network response lost');
+        return { ok: true, json: async () => ({ latestAttempt: {
+          attemptId: scenario === 'newer attempt response' ? '33333333-3333-4333-8333-333333333333' : attemptId,
+          state: 'FAILED',
+        } }) };
+      }
+      return { ok: true, json: async () => ({ attemptId,
+        state: init.method === 'GET' && scenario !== 'unconfirmed ACK' ? 'COMPLETE' : 'RUNNING',
+        attemptToken: '22222222-2222-4222-8222-222222222222', expiresAt: new Date(Date.now() + 600_000).toISOString(),
+        input: { target: 'rank_enrichment' }, targets: [target],
+      }) };
+    } });
+    h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
+    h.fake.chrome.tabs.remove = async (_id, callback) => callback?.();
+    const result = await externalRequest(h.fake, { action: 'collectAdvertisingCompetitorCatalog', target: 'rank_enrichment', idempotencyKey: 'ack-key' });
+    assert.equal(calls.some((call) => call.url.endsWith('/fail')), false);
+    const state = scenario === 'server failed' ? 'FAILED' : scenario === 'unconfirmed ACK' ? 'RUNNING' : 'COMPLETE';
+    assert.equal(result.terminalState, state);
+    assert.equal(result.success, state === 'COMPLETE');
+    if (scenario !== 'server failed') assert.equal(calls.filter((call) => call.method === 'GET').length, 1);
+    if (state === 'RUNNING') assert.equal(result.errorCode, 'SOURCE_RESULT_UNCONFIRMED');
+    const puts = calls.filter((call) => call.method === 'PUT');
+    assert.ok(puts.length >= 1 && puts.length <= 3);
+    assert.equal(new Set(puts.map((call) => call.body)).size, 1, 'retries preserve the exact captured artifact');
+    assert.equal(h.urls.length, 2, 'terminal retries do not recollect');
+  });
+});
 
 test('seller identity source dispatch preserves frozen targets, DOM extraction, dedupe and field mapping', async () => {
   const attemptId = '11111111-1111-4111-8111-111111111111';

@@ -7,6 +7,9 @@ const source = await readFile(
   new URL('../../kiditem-os/background/coupang/competitor-catalog-source-owner.js', import.meta.url),
   'utf8',
 );
+const wireSource = await readFile(
+  new URL('../../kiditem-os/background/sourcing/source-attempt-wire.js', import.meta.url), 'utf8',
+);
 const worker = await readFile(
   new URL('../../kiditem-os/background/coupang/worker.js', import.meta.url),
   'utf8',
@@ -103,12 +106,13 @@ function createHarness(options = {}) {
       if (terminalFailures <= (options.failTerminalTimes ?? 0)) {
         return new Response(JSON.stringify({ message: 'temporary failure' }), { status: 503 });
       }
-      return new Response('{}', { status: 200 });
+      return new Response(JSON.stringify({ latestAttempt: { attemptId: ATTEMPT_ID, state: 'FAILED', errorCode: body.code, errorMessage: body.message } }), { status: 200 });
     }
-    return new Response('{}', { status: 200 });
+    return new Response(JSON.stringify({ latestAttempt: { attemptId: ATTEMPT_ID, state: 'COMPLETE' } }), { status: 200 });
   };
   const context = vm.createContext({ Date, Error, JSON, Map, Promise, Response, Set, String, URL });
   context.globalThis = context;
+  vm.runInContext(wireSource, context);
   vm.runInContext(source, context);
   const owner = context.KidItemCompetitorCatalogSourceOwner.create({
     sessions,
@@ -215,7 +219,7 @@ test('returns a replayed terminal plan without recollecting a completed or faile
 
 test('registers only the direct allowlisted action and routes cancellation to the owner', () => {
   assert.match(worker, /collectAdvertisingCompetitorCatalog:\s*\{/);
-  assert.match(worker, /validate:\s*parseAdvertisingCompetitorCatalogStart/);
+  assert.equal(/validate:\s*KidItemCompetitorCatalogSourceOwner\.parseStart/.test(worker), true);
   assert.match(worker, /competitorCatalogSourceOwner\.run\(\{/);
   assert.match(worker, /competitorCatalogSourceOwner\.cancel\(\{/);
   assert.doesNotMatch(worker, /advertising\.collect_competitor_catalog/);

@@ -6,6 +6,7 @@ export const COMPETITOR_CATALOG_SOURCE_ATTEMPT_REPOSITORY_PORT = Symbol(
 
 export type CompetitorCatalogAttemptInput =
   | { target: 'all' }
+  | { target: 'rank_enrichment'; excludeCompletedAttemptId?: string }
   | { target: 'seller_id'; sellerId: string };
 
 export interface CompetitorCatalogTargetPlan {
@@ -53,6 +54,11 @@ export interface CompetitorCatalogSubmission {
 }
 
 export interface CompetitorCatalogSourceAttemptRepositoryPort {
+  replayAttempt(input: {
+    organizationId: string;
+    idempotencyKey: string;
+    input: CompetitorCatalogAttemptInput;
+  }): Promise<CompetitorCatalogAttemptPlan | null>;
   beginAttempt(input: {
     organizationId: string;
     idempotencyKey: string;

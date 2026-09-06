@@ -6,6 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { z } from 'zod';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
@@ -59,13 +60,30 @@ export class CompetitorCatalogSourceAttemptRepositoryAdapter
     private readonly keywordRankIngest: KeywordRankIngestHandler,
   ) {}
 
+  replayAttempt(input: {
+    organizationId: string;
+    idempotencyKey: string;
+    input: CompetitorCatalogAttemptInput;
+  }): Promise<CompetitorCatalogAttemptPlan | null> {
+    const request = normalizeInput(input.input);
+    return this.prisma.$transaction(async (tx) => {
+      await lockCompetitorCatalogSource(tx, input.organizationId);
+      const existing = await findAttemptByIdempotency(
+        tx, input.organizationId, input.idempotencyKey,
+      );
+      return existing
+        ? this.replayStoredAttempt(tx, existing, request, new Date())
+        : null;
+    }, mutationTransactionOptions());
+  }
+
   async beginAttempt(input: {
     organizationId: string;
     idempotencyKey: string;
     input: CompetitorCatalogAttemptInput;
     targets: readonly CompetitorCatalogTargetPlan[];
   }): Promise<CompetitorCatalogAttemptPlan> {
-    const plan: StoredAttemptPlan = {
+    let plan: StoredAttemptPlan = {
       input: normalizeInput(input.input),
       targets: normalizeTargets(input.targets),
     };
@@ -78,15 +96,31 @@ export class CompetitorCatalogSourceAttemptRepositoryAdapter
         input.idempotencyKey,
       );
       if (existing) {
-        const existingPlan = parseAttemptPlan(existing.plan);
-        if (!sameInput(existingPlan.input, plan.input)) {
-          throw new ConflictException('SOURCE_IDEMPOTENCY_KEY_REUSED');
+        return this.replayStoredAttempt(tx, existing, plan.input, now);
+      }
+
+      if (plan.input.target === 'rank_enrichment' && plan.input.excludeCompletedAttemptId) {
+        const completed = await tx.sourceImportRun.findFirst({
+          where: {
+            id: plan.input.excludeCompletedAttemptId,
+            organizationId: input.organizationId,
+            sourceType: COMPETITOR_CATALOG_SOURCE_TYPE,
+            parserVersion: COMPETITOR_CATALOG_SOURCE_PARSER_VERSION,
+            status: DB_COMPLETE,
+          },
+        });
+        if (!completed) {
+          throw new UnprocessableEntityException('COMPETITOR_CATALOG_EXCLUSION_NOT_COMPLETE');
         }
-        if (dbState(existing.status) === DB_RUNNING && hasExpired(existing, now)) {
-          await this.expireAttempt(tx, existing);
-          return publicPlan(existing, existingPlan, 'FAILED');
+        const completedPlan = parseAttemptPlan(completed.plan);
+        if (completedPlan.input.target !== 'rank_enrichment') {
+          throw new UnprocessableEntityException('COMPETITOR_CATALOG_EXCLUSION_NOT_COMPLETE');
         }
-        return publicPlan(existing, existingPlan);
+        const excluded = new Set(completedPlan.targets.map((target) => target.sellerId));
+        plan = {
+          ...plan,
+          targets: plan.targets.filter((target) => !excluded.has(target.sellerId)),
+        };
       }
 
       const expired = await tx.sourceImportRun.findMany({
@@ -159,6 +193,21 @@ export class CompetitorCatalogSourceAttemptRepositoryAdapter
       });
       return publicPlan(run, plan);
     }, mutationTransactionOptions());
+  }
+
+  private async replayStoredAttempt(
+    tx: Transaction,
+    existing: SourceAttempt,
+    input: CompetitorCatalogAttemptInput,
+    now: Date,
+  ) {
+    const plan = parseAttemptPlan(existing.plan);
+    if (!sameInput(plan.input, input)) throw new ConflictException('SOURCE_IDEMPOTENCY_KEY_REUSED');
+    if (dbState(existing.status) === DB_RUNNING && hasExpired(existing, now)) {
+      await this.expireAttempt(tx, existing);
+      return publicPlan(existing, plan, 'FAILED');
+    }
+    return publicPlan(existing, plan);
   }
 
   async readAttemptControl(input: {
@@ -446,7 +495,15 @@ function validateSubmission(
   }
   const planned = new Map(plan.targets.map((target) => [target.sellerId, target]));
   const seen = new Set<string>();
+  const productLimit = plan.input.target === 'rank_enrichment' ? 500 : 100;
   for (const catalog of catalogs) {
+    if (
+      catalog.products.length > productLimit
+      || catalog.collectedProductCount > productLimit
+      || catalog.products.some((product) => product.sourceRank > productLimit)
+    ) {
+      throw new UnprocessableEntityException('COMPETITOR_CATALOG_PRODUCT_LIMIT');
+    }
     const target = planned.get(catalog.sellerId);
     if (!target || seen.has(catalog.sellerId)) {
       throw new UnprocessableEntityException('COMPETITOR_CATALOG_TARGET_NOT_PLANNED');
@@ -534,9 +591,7 @@ function qualityReport(
 
 function serializeAttemptPlan(plan: StoredAttemptPlan): Prisma.InputJsonObject {
   return {
-    input: plan.input.target === 'all'
-      ? { target: 'all' }
-      : { target: 'seller_id', sellerId: plan.input.sellerId },
+    input: { ...plan.input },
     targets: plan.targets.map((target) => ({
       sellerId: target.sellerId,
       sellerName: target.sellerName,
@@ -578,6 +633,11 @@ function parseInput(value: unknown): CompetitorCatalogAttemptInput | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
   if (row.target === 'all') return { target: 'all' };
+  if (row.target === 'rank_enrichment') {
+    if (row.excludeCompletedAttemptId === undefined) return { target: 'rank_enrichment' };
+    const reference = z.string().uuid().safeParse(row.excludeCompletedAttemptId);
+    return reference.success ? { target: 'rank_enrichment', excludeCompletedAttemptId: reference.data } : null;
+  }
   if (row.target !== 'seller_id') return null;
   const sellerId = cleanText(row.sellerId);
   if (!sellerId || sellerId.length > 80 || !/^[A-Za-z0-9_-]+$/u.test(sellerId)) return null;
@@ -621,8 +681,10 @@ function cleanText(value: unknown): string | null {
 }
 
 function sameInput(left: CompetitorCatalogAttemptInput, right: CompetitorCatalogAttemptInput): boolean {
-  return left.target === right.target
-    && (left.target === 'all' || (right.target === 'seller_id' && left.sellerId === right.sellerId));
+  if (left.target === 'all') return right.target === 'all';
+  if (left.target === 'rank_enrichment') return right.target === 'rank_enrichment'
+    && left.excludeCompletedAttemptId === right.excludeCompletedAttemptId;
+  return right.target === 'seller_id' && left.sellerId === right.sellerId;
 }
 
 function normalizeKeyword(value: string): string {

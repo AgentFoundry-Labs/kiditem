@@ -104,7 +104,7 @@ const CoupangSellerIdSchema = z.string()
 
 const AdvertisingCompetitorCatalogProductSchema = z
   .object({
-    sourceRank: z.number().int().min(1).max(100),
+    sourceRank: z.number().int().min(1).max(500),
     productId: z.string().trim().min(1).max(200).nullable(),
     itemId: z.string().trim().min(1).max(200).nullable(),
     vendorItemId: z.string().trim().min(1).max(200).nullable(),
@@ -145,11 +145,11 @@ export const AdvertisingCompetitorCatalogItemSchema = z
     sellerName: z.string().trim().min(1).max(300),
     sellerStoreUrl: CoupangSellerStoreUrlSchema,
     totalProductCount: BoundedCountSchema.nullable(),
-    collectedProductCount: z.number().int().min(1).max(100),
+    collectedProductCount: z.number().int().min(1).max(500),
     isTruncated: z.boolean(),
     sort: z.literal('newest'),
     capturedAt: InstantSchema,
-    products: z.array(AdvertisingCompetitorCatalogProductSchema).min(1).max(100),
+    products: z.array(AdvertisingCompetitorCatalogProductSchema).min(1).max(500),
   })
   .strict()
   .superRefine((value, context) => {
