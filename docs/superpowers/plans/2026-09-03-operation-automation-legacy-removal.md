@@ -422,6 +422,29 @@ not a new collection policy, extra worker, permission to access operating data,
 or proof that a retained source is complete. Existing collector inputs and
 outputs remain the characterization authority until a conflict is resolved.
 
+**Seller-identity implementation decision (2026-09-06):** Use one Advertising
+snapshot attempt for the existing post-SERP days30/limit200 target selection,
+not a durable attempt per product. The collector still visits/deduplicates the
+same targets, retries extraction as before, and returns the same successful
+identity rows. Its existing null result cannot prove normal absence: a missing
+seller anchor and a failed/blocked page are indistinguishable. Do not add a new
+extractor or fabricate empty evidence. The owner publishes only when all
+eligible frozen target identities are present; otherwise it records FAILED /
+`IDENTITY_EVIDENCE_INCOMPLETE`, retaining previous COMPLETE data. This is the
+approved new source-publication policy, not a collector-policy rewrite.
+Server-selected zero targets may complete as an explicitly empty source;
+invalid target URLs are excluded with counts rather than visited.
+
+The fixed expiry is5 minutes plus1 minute per unique eligible product, covering
+the existing45-second navigation, up to two1.2-second render waits and at most
+1.5-second inter-product delay with headroom. No heartbeat or collector timeout
+change is introduced. Reuse SourceImportRun and ChannelScrapeSnapshot for
+immutable capture and the existing enrichment/keyword transaction locks for
+serving updates plus terminal/Alert atomicity. Existing optional enrichment
+remains independent of already-published per-keyword SERP results. Conservative
+failure for a legitimately absent seller identity remains an explicit limitation
+until actual provider evidence can establish a reliable absence predicate.
+
 - [ ] **Step 1: Add failing no-Operation assertions to existing owner acceptance tests**
 
 ```ts

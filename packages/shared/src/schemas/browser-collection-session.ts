@@ -11,6 +11,7 @@ export const BROWSER_COLLECTION_PRODUCERS = [
   'advertising.wing_rank',
   'advertising.keyword_rank',
   'advertising.competitor_catalog',
+  'advertising.competitor_seller_identity',
   'channels.coupang_catalog',
   'sourcing.wing_catalog',
   'sourcing.1688_trend',

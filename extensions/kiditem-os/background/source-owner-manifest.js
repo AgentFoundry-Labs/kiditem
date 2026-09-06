@@ -5,6 +5,7 @@ export const SOURCE_OWNER_BY_PRODUCER = Object.freeze({
   "advertising.ad_sync": "advertising",
   "advertising.profitability_import": "advertising",
   "advertising.competitor_catalog": "advertising",
+  "advertising.competitor_seller_identity": "advertising",
   "advertising.keyword_rank": "advertising",
   "advertising.scrape_targets": "advertising",
   "advertising.wing_rank": "advertising",

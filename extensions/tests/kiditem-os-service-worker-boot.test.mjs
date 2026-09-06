@@ -274,6 +274,160 @@ function bootWingSearch(responses, { fetch } = {}) {
   } };
 }
 
+test('seller identity source dispatch preserves frozen targets, DOM extraction, dedupe and field mapping', async () => {
+  const attemptId = '11111111-1111-4111-8111-111111111111';
+  const targets = [
+    { keyword: '연필', productKey: '101', productId: '11', vendorItemId: '101', link: 'https://www.coupang.com/vp/products/11?itemId=7' },
+    { keyword: '문구', productKey: '101', productId: '11', vendorItemId: '101', link: 'https://www.coupang.com/vp/products/11?itemId=8' },
+    { keyword: '지우개', productKey: '22', productId: '22', vendorItemId: null, link: 'https://www.coupang.com/vp/products/22' },
+  ];
+  const uploads = [];
+  const h = bootRankCollector([null,
+    '<a href="https://shop.coupang.com/vid/A123?source=detail">문구마켓 판매자 상품 보러가기</a>',
+    '<a href="https://shop.coupang.com/B456">완구마켓 판매자 상품 보러가기</a>',
+  ], { fetch: async (url, init) => {
+    if (!String(url).includes('/competitor-seller-identities/')) return { ok: true, status: 200, json: async () => ({}) };
+    if (String(url).endsWith('/fail')) {
+      const failure = JSON.parse(init.body);
+      return { ok: true, status: 200, json: async () => ({ attemptId, state: 'FAILED', errorCode: failure.code, errorMessage: failure.message }) };
+    }
+    assert.equal(String(url).endsWith(`/attempts/${attemptId}`), true);
+    if (init.method === 'PUT') {
+      uploads.push(JSON.parse(init.body));
+      assert.equal(new Headers(init.headers).get('x-source-attempt-token'), '22222222-2222-4222-8222-222222222222');
+      return { ok: true, status: 200, json: async () => ({ attemptId, state: 'COMPLETE', itemCount: 3 }) };
+    }
+    assert.equal(init.method, 'GET');
+    return { ok: true, status: 200, json: async () => ({ attemptId,
+      attemptToken: '22222222-2222-4222-8222-222222222222', state: 'RUNNING',
+      expiresAt: new Date(Date.now() + 600_000).toISOString(),
+      plan: { sourceType: 'coupang_competitor_seller_identity', parserVersion: 'seller-identity-v1', days: 30, limit: 200, targets },
+    }) };
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
+  h.fake.chrome.tabs.remove = async (_id, callback) => callback?.();
+  const result = await externalRequest(h.fake, { action: 'collectAdvertisingSellerIdentities', attemptId });
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { success: true, attemptId, terminalState: 'COMPLETE', itemCount: 3 });
+  assert.equal(uploads.length, 1);
+  assert.deepEqual(uploads[0].identities.map(({ capturedAt, ...identity }) => identity), [
+    { keyword: '연필', productKey: '101', productId: '11', vendorItemId: '101', link: 'https://www.coupang.com/vp/products/11?itemId=7', sellerName: '문구마켓', sellerId: 'A123', sellerStoreUrl: 'https://shop.coupang.com/vid/A123' },
+    { keyword: '문구', productKey: '101', productId: '11', vendorItemId: '101', link: 'https://www.coupang.com/vp/products/11?itemId=8', sellerName: '문구마켓', sellerId: 'A123', sellerStoreUrl: 'https://shop.coupang.com/vid/A123' },
+    { keyword: '지우개', productKey: '22', productId: '22', vendorItemId: null, link: 'https://www.coupang.com/vp/products/22', sellerName: '완구마켓', sellerId: 'B456', sellerStoreUrl: 'https://shop.coupang.com/B456' },
+  ]);
+  assert.ok(Number.isFinite(Date.parse(uploads[0].capturedAt)));
+  assert.ok(uploads[0].identities.every((row) => Number.isFinite(Date.parse(row.capturedAt))));
+  assert.deepEqual(h.urls, ['about:blank', targets[0].link, targets[2].link]);
+  assert.deepEqual(h.delays, [1200, 900, 1200]);
+  const rejected = await externalRequest(h.fake, { action: 'collectAdvertisingSellerIdentities', attemptId, targets: [] });
+  assert.equal(rejected.success, false);
+  assert.equal(uploads.length, 1, 'client-supplied targets are rejected before IO');
+});
+
+test('seller identity source retains two null reads and later successful rows without claiming an empty result', async () => {
+  const attemptId = '11111111-1111-4111-8111-111111111111';
+  const targets = [1, 2].map((id) => ({ keyword: '연필', productKey: String(id), productId: String(id),
+    vendorItemId: null, link: `https://www.coupang.com/vp/products/${id}` }));
+  const uploads = [];
+  const h = bootRankCollector([null, '<p>판매자 확인 불가</p>',
+    '<a href="https://shop.coupang.com/A123">문구마켓</a>',
+  ], { fetch: async (url, init) => {
+    if (!String(url).includes('/competitor-seller-identities/')) return { ok: true, json: async () => ({}) };
+    assert.equal(String(url).endsWith(`/attempts/${attemptId}`), true);
+    if (init.method === 'PUT') {
+      uploads.push(JSON.parse(init.body));
+      return { ok: true, json: async () => ({ attemptId, state: 'FAILED', itemCount: 0,
+        errorCode: 'IDENTITY_EVIDENCE_INCOMPLETE', errorMessage: 'Missing product evidence.' }) };
+    }
+    return { ok: true, json: async () => ({ attemptId, state: 'RUNNING',
+      attemptToken: '22222222-2222-4222-8222-222222222222', expiresAt: new Date(Date.now() + 600_000).toISOString(),
+      plan: { sourceType: 'coupang_competitor_seller_identity', parserVersion: 'seller-identity-v1', days: 30, limit: 200, targets },
+    }) };
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
+  h.fake.chrome.tabs.remove = async (_id, callback) => callback?.();
+  const result = await externalRequest(h.fake, { action: 'collectAdvertisingSellerIdentities', attemptId });
+  assert.equal(result.terminalState, 'FAILED');
+  assert.equal(result.errorCode, 'IDENTITY_EVIDENCE_INCOMPLETE');
+  assert.deepEqual(h.urls, ['about:blank', ...targets.map((target) => target.link)]);
+  assert.deepEqual(h.delays, [1200, 1200, 900, 1200]);
+  assert.equal(uploads.length, 1);
+  assert.deepEqual(uploads[0].identities.map(({ productKey }) => productKey), ['2']);
+});
+
+test('seller identity source publishes a server-confirmed empty plan without opening a provider tab', async () => {
+  const attemptId = '11111111-1111-4111-8111-111111111111';
+  const uploads = [];
+  const h = bootRankCollector([], { fetch: async (url, init) => {
+    if (!String(url).includes('/competitor-seller-identities/')) return { ok: true, json: async () => ({}) };
+    if (init.method === 'PUT') {
+      uploads.push(JSON.parse(init.body));
+      return { ok: true, json: async () => ({ attemptId, state: 'COMPLETE', itemCount: 0 }) };
+    }
+    assert.equal(init.method, 'GET');
+    return { ok: true, json: async () => ({ attemptId, state: 'RUNNING',
+      attemptToken: '22222222-2222-4222-8222-222222222222', expiresAt: new Date(Date.now() + 300_000).toISOString(),
+      plan: { sourceType: 'coupang_competitor_seller_identity', parserVersion: 'seller-identity-v1', days: 30, limit: 200, targets: [] },
+    }) };
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
+  const result = await externalRequest(h.fake, { action: 'collectAdvertisingSellerIdentities', attemptId });
+  assert.equal(result.terminalState, 'COMPLETE');
+  assert.equal(result.itemCount, 0);
+  assert.deepEqual(h.urls, []);
+  assert.equal(uploads.length, 1);
+  assert.deepEqual(uploads[0].identities, []);
+});
+
+test('seller identity source stops provider IO and publication after confirmed cancellation or fixed expiry', async (t) => {
+  for (const stop of ['cancel', 'expire']) await t.test(stop, async () => {
+    const attemptId = '11111111-1111-4111-8111-111111111111';
+    const targets = [1, 2].map((id) => ({ keyword: '연필', productKey: String(id), productId: String(id),
+      vendorItemId: null, link: `https://www.coupang.com/vp/products/${id}` }));
+    let state = 'RUNNING';
+    const writes = [];
+    const expires = Date.now() + 600_000;
+    const h = bootRankCollector([null, '<a href="https://shop.coupang.com/A123">문구마켓</a>',
+      '<a href="https://shop.coupang.com/B456">완구마켓</a>',
+    ], { fetch: async (url, init) => {
+      if (!String(url).includes('/competitor-seller-identities/')) return { ok: true, json: async () => ({}) };
+      if (init.method !== 'GET') {
+        writes.push({ method: init.method, body: JSON.parse(init.body) });
+        state = 'FAILED';
+      }
+      return { ok: true, json: async () => ({ attemptId, state,
+        errorCode: state === 'FAILED' ? (stop === 'cancel' ? 'COLLECTION_CANCELLED' : 'SOURCE_ATTEMPT_EXPIRED') : null,
+        attemptToken: '22222222-2222-4222-8222-222222222222', expiresAt: new Date(expires).toISOString(),
+        plan: { sourceType: 'coupang_competitor_seller_identity', parserVersion: 'seller-identity-v1', days: 30, limit: 200, targets },
+      }) };
+    } });
+    h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
+    let entered, release;
+    const extracting = new Promise((resolve) => { entered = resolve; });
+    const resume = new Promise((resolve) => { release = resolve; });
+    const extract = h.fake.chrome.scripting.executeScript;
+    let injections = 0;
+    h.fake.chrome.scripting.executeScript = async (...args) => { injections++; entered(); await resume; return extract(...args); };
+    h.fake.chrome.tabs.remove = async (_id, callback) => { assert.equal(state, 'FAILED'); callback?.(); };
+    const collecting = externalRequest(h.fake, { action: 'collectAdvertisingSellerIdentities', attemptId });
+    await extracting;
+    try {
+      if (stop === 'cancel') {
+        const cancelled = await externalRequest(h.fake, { action: 'cancelCollectionSession', attemptId });
+        assert.equal(cancelled.terminalState, 'FAILED');
+      } else {
+        vm.runInContext(`Date.now = () => ${expires + 1}`, h.context);
+      }
+    } finally { release(); }
+    const result = await collecting;
+    assert.equal(result.terminalState, 'FAILED');
+    assert.equal(injections, 1, 'no extraction after cancellation or expiry');
+    assert.deepEqual(h.urls, ['about:blank', targets[0].link], 'no next product IO');
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].method, 'POST', 'no partial success submission after cancellation or expiry');
+    if (stop === 'cancel') assert.equal(writes[0].body.code, 'COLLECTION_CANCELLED');
+  });
+});
+
 test('Wing rank source dispatch transports the frozen plan with original sales sorting and observed page proof', async () => {
   const attemptId = '11111111-1111-4111-8111-111111111111';
   const attemptToken = '22222222-2222-4222-8222-222222222222';

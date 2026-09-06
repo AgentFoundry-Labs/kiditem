@@ -5,6 +5,8 @@
       type: "coupang_keyword_serp", parser: "keyword-serp-v1", maxPages: 3, errorPrefix: "SERP" },
     wing: { action: "collectAdvertisingWingRank", producer: "advertising.wing_rank",
       type: "coupang_wing_rank", parser: "wing-rank-v1", maxPages: 5, errorPrefix: "WING_RANK" },
+    identity: { action: "collectAdvertisingSellerIdentities", producer: "advertising.competitor_seller_identity",
+      type: "coupang_competitor_seller_identity", parser: "seller-identity-v1", errorPrefix: "SELLER_IDENTITY" },
   };
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -37,7 +39,8 @@
   function create({ kind, chrome, request, collect, sessions }) {
     const source = SOURCES[kind];
     if (!source) throw new Error("Unknown rank source");
-    const path = `/api/ads/keyword-rank/${kind}/attempts`;
+    const path = kind === "identity" ? "/api/ads/competitor-seller-identities/attempts"
+      : `/api/ads/keyword-rank/${kind}/attempts`;
     const inFlight = new Map();
     const wire = root.KidItemSourcingAttemptWire.create({
       chrome, sourcePath: path, requestFailureMessage: "키워드 순위 저장 결과를 확인하지 못했습니다",
@@ -56,23 +59,34 @@
       const attempt = await read();
       if (attempt.state !== "RUNNING") return result(attempt);
       const plan = attempt.plan;
+      const validTarget = kind === "identity"
+        ? plan?.days === 30 && plan.limit === 200 && Array.isArray(plan.targets)
+          && plan.targets.length <= 200 && plan.targets.every((target) =>
+            typeof target?.keyword === "string" && target.keyword.trim()
+            && typeof target.productKey === "string" && target.productKey.trim()
+            && typeof target.link === "string")
+        : typeof plan?.keyword === "string" && plan.keyword.trim()
+          && Number.isInteger(plan.maxPages) && plan.maxPages >= 1 && plan.maxPages <= source.maxPages;
       if (!UUID.test(attempt.attemptToken || "")
         || plan?.sourceType !== source.type || plan.parserVersion !== source.parser
-        || typeof plan.keyword !== "string" || !plan.keyword.trim()
-        || !Number.isInteger(plan.maxPages) || plan.maxPages < 1 || plan.maxPages > source.maxPages
+        || !validTarget
         || !Number.isFinite(Date.parse(attempt.expiresAt)) || Date.parse(attempt.expiresAt) <= Date.now()) {
         throw new Error(`INVALID_OR_EXPIRED_${source.errorPrefix}_PLAN`);
       }
       await sessions.start({ environmentId, attemptId, producer: source.producer });
       let capture;
       try {
-        capture = await collect(plan.keyword, plan.maxPages, { environmentId, attemptId });
+        capture = kind === "identity"
+          ? await collect(plan.targets, { environmentId, attemptId, expiresAt: attempt.expiresAt })
+          : await collect(plan.keyword, plan.maxPages, { environmentId, attemptId });
       } catch (error) {
         capture = { success: false, error: error?.message };
       }
       if (capture?.cancelled) return result(await read());
       const submission = capture?.success === true
-        ? { method: "PUT", suffix: "", body: {
+        ? { method: "PUT", suffix: "", body: kind === "identity" ? {
+          capturedAt: new Date().toISOString(), identities: capture.identities,
+        } : {
           keyword: plan.keyword, capturedAt: new Date().toISOString(),
           pagesScanned: capture.pagesScanned, items: capture.items,
           ...(kind === "wing" ? {

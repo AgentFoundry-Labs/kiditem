@@ -181,6 +181,13 @@ const wingRankSourceOwner = KidItemKeywordRankSourceOwner.create({
   request: (environmentId, path, init) => authedFetch(environmentId, path, init),
   collect: captureWingRank,
 });
+const sellerIdentitySourceOwner = KidItemKeywordRankSourceOwner.create({
+  kind: "identity",
+  chrome,
+  sessions: collectionSessions,
+  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
+  collect: captureSellerIdentities,
+});
 const wingFormReadiness = KidItemWingFormReadiness.create({ chrome });
 const wingImageFetch = KidItemWingImageFetch.create({
   runtimeId: chrome.runtime.id,
@@ -3041,10 +3048,41 @@ async function captureCoupangKeywordSerp(keyword, maxPages, options = {}) {
   };
 }
 
+async function captureSellerIdentities(targets, { environmentId, attemptId, expiresAt }) {
+  const assertActive = async () => {
+    if (!(await collectionSessions.getOwned(attemptId, environmentId))) {
+      throw Object.assign(new Error("판매자 확인이 취소되었습니다"), { cancelled: true });
+    }
+    if (Date.now() >= Date.parse(expiresAt)) throw new Error("판매자 확인 수집 기한이 만료되었습니다");
+  };
+  try {
+    await assertActive();
+    if (!targets.length) return { success: true, identities: [] };
+    const tab = await createTab({ url: "about:blank", active: false });
+    await collectionSessions.attachTab(attemptId, {
+      tabId: tab.id, windowId: tab.windowId, closeOnCancel: true,
+    });
+    await coupangEnvironment.bindTab(tab.id, environmentId);
+    const identities = await resolveCoupangCompetitorSellerIdentities(tab.id, targets,
+      ({ processed, targetCount }) => collectionSessions.progress(attemptId, {
+        current: processed, total: targetCount, completed: processed, failed: 0,
+        label: "겹치는 상품 판매자 확인",
+      }),
+      assertActive,
+    );
+    await assertActive();
+    return { success: true, identities };
+  } catch (error) {
+    if (error?.cancelled) return { success: false, cancelled: true };
+    throw error;
+  }
+}
+
 async function resolveCoupangCompetitorSellerIdentities(
   tabId,
   targets,
   onProgress = null,
+  assertActive = async () => {},
 ) {
   if (!tabId) return [];
   const detailsByProduct = new Map();
@@ -3057,6 +3095,7 @@ async function resolveCoupangCompetitorSellerIdentities(
   );
   let processed = 0;
   for (const target of targets) {
+    await assertActive();
     if (!isCoupangProductDetailUrl(target?.link)) continue;
     const detailKey = buildCoupangProductDetailKey(target);
     let detail = detailsByProduct.get(detailKey);
@@ -3065,24 +3104,29 @@ async function resolveCoupangCompetitorSellerIdentities(
         const loaded = await updateTabAndWait(tabId, target.link, {
           active: false,
         });
+        await assertActive();
         if (!loaded) throw new Error("상품 상세 페이지 로딩 실패");
         const current = await getTab(tabId).catch(() => null);
         if (!isCoupangProductDetailUrl(current?.url || "")) {
           throw new Error("상품 상세가 아닌 페이지로 이동했습니다");
         }
         await sleep(COUPANG_PRODUCT_DETAIL_RENDER_DELAY_MS);
+        await assertActive();
         detail = await executeCoupangSellerDetailExtraction(tabId);
         if (!detail) {
           await sleep(COUPANG_PRODUCT_DETAIL_RENDER_DELAY_MS);
+          await assertActive();
           detail = await executeCoupangSellerDetailExtraction(tabId);
         }
       } catch (error) {
+        await assertActive();
         console.warn(
           "[KIDITEM] 겹치는 상품 판매자 확인 실패:",
           error?.message || error,
         );
         detail = null;
       }
+      await assertActive();
       detailsByProduct.set(detailKey, detail);
       processed += 1;
       if (typeof onProgress === "function") {
@@ -5224,6 +5268,12 @@ KidItemDomains.register({
     [WING_FORM_PORT_NAME]: (port) => handleWingFormPort(port),
   },
   externalActions: {
+    collectAdvertisingSellerIdentities: {
+      validate: (message) => KidItemKeywordRankSourceOwner.parseStart(message, "identity"),
+      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
+        sellerIdentitySourceOwner.run({ environmentId, attemptId }),
+      ),
+    },
     collectAdvertisingWingRankBatch: {
       validate: (message) => parseWingRankBatchMessage(message, "collectAdvertisingWingRankBatch"),
       handle: ({ idempotencyKey }, environmentId) => startWingRankSourceBatch({ environmentId, idempotencyKey }),
@@ -5287,6 +5337,7 @@ KidItemDomains.register({
     },
   },
   capabilities: {
+    sellerIdentitySourceOwnerV1: true,
     keywordSerpSourceOwnerV1: true,
     wingRankSourceOwnerV1: true,
     profitabilityAdvertisingSourceOwnerV1: true,
@@ -5322,6 +5373,9 @@ KidItemDomains.register({
   },
   cancelCollectionSession: async (runId, environmentId) => {
     const session = await collectionSessions.getOwned(runId, environmentId);
+    if (session?.producer === "advertising.competitor_seller_identity") {
+      return sellerIdentitySourceOwner.cancel({ environmentId, attemptId: runId });
+    }
     if (session?.producer === "advertising.keyword_rank") {
       return keywordSerpSourceOwner.cancel({ environmentId, attemptId: runId });
     }
