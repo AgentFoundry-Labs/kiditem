@@ -16,6 +16,7 @@ import { AdKeywordAgentController } from "./adapter/in/http/ad-keyword-agent.con
 import { KeywordRankController } from "./adapter/in/http/keyword-rank.controller";
 import { KeywordSerpSourceController } from "./adapter/in/http/keyword-serp-source.controller";
 import { WingRankSourceController } from "./adapter/in/http/wing-rank-source.controller";
+import { SellerIdentitySourceController } from "./adapter/in/http/seller-identity-source.controller";
 import { CompetitorTrackingController } from "./adapter/in/http/competitor-tracking.controller";
 import { CompetitorCatalogSourceController } from "./adapter/in/http/competitor-catalog-source.controller";
 import { WingTrackedProductController } from "./adapter/in/http/wing-tracked-product.controller";
@@ -36,6 +37,7 @@ import { ChannelTargetDailyRepositoryAdapter } from "./adapter/out/repository/ch
 import { KeywordRankRepositoryAdapter } from "./adapter/out/repository/keyword-rank.repository.adapter";
 import { KeywordSerpSourceRepository } from "./adapter/out/repository/keyword-serp-source.repository";
 import { WingRankSourceRepository } from "./adapter/out/repository/wing-rank-source.repository";
+import { SellerIdentitySourceRepository } from "./adapter/out/repository/seller-identity-source.repository";
 import { WingTrackedProductRepositoryAdapter } from "./adapter/out/repository/wing-tracked-product.repository.adapter";
 import { WingTrackedProductSourceAttemptRepositoryAdapter } from "./adapter/out/repository/wing-tracked-product-source-attempt.repository.adapter";
 import { CompetitorCatalogSourceAttemptRepositoryAdapter } from "./adapter/out/repository/competitor-catalog-source-attempt.repository.adapter";
@@ -198,6 +200,7 @@ const REPOSITORY_PORT_BINDINGS = [
     KeywordRankController,
     KeywordSerpSourceController,
     WingRankSourceController,
+    SellerIdentitySourceController,
     CompetitorTrackingController,
     CompetitorCatalogSourceController,
     WingTrackedProductController,
@@ -220,6 +223,7 @@ const REPOSITORY_PORT_BINDINGS = [
     KeywordRankRepositoryAdapter,
     KeywordSerpSourceRepository,
     WingRankSourceRepository,
+    SellerIdentitySourceRepository,
     WingTrackedProductRepositoryAdapter,
     WingTrackedProductSourceAttemptRepositoryAdapter,
     CompetitorCatalogSourceAttemptRepositoryAdapter,

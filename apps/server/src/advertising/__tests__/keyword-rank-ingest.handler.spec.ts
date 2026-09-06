@@ -283,6 +283,7 @@ describe("KeywordRankIngestHandler", () => {
     const result = await handler.executeSellerIdentities(
       payload,
       "organization-1",
+      "identity-source-1",
     );
 
     const mutation = repo.mutateLatestSerpSnapshot.mock.calls[0][0];
@@ -296,6 +297,7 @@ describe("KeywordRankIngestHandler", () => {
       sellerId: "seller-1",
       sellerStoreUrl: "https://shop.coupang.com/seller-1",
       sellerIdentityCapturedAt: "2026-07-14T03:30:00.000Z",
+      sellerIdentitySourceImportRunId: "identity-source-1",
     });
     expect(savedItems[1]).toMatchObject({
       vendorItemId: "not-selected",

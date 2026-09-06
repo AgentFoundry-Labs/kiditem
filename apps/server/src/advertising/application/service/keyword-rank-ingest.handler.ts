@@ -287,6 +287,7 @@ export class KeywordRankIngestHandler {
   async executeSellerIdentities(
     payload: ExtensionSyncDto,
     organizationId: string,
+    sourceImportRunId: string,
   ) {
     const byKeyword = new Map<string, Array<Record<string, unknown>>>();
     for (const entry of payload.data ?? []) {
@@ -361,6 +362,7 @@ export class KeywordRankIngestHandler {
               sellerId: cleanString(identity.sellerId),
               sellerStoreUrl: cleanString(identity.sellerStoreUrl),
               sellerIdentityCapturedAt: capturedAt.toISOString(),
+              sellerIdentitySourceImportRunId: sourceImportRunId,
             };
           });
           if (resolvedProductCount === 0) return null;
