@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { ConversationService } from './conversation.service';
 import { AgentOsRuntimeError } from '../../domain/agent-os.errors';
-import { CONVERSATION_TURN_ID_FACTORY } from '../port/in/capability/conversation.port';
+import {
+  CONVERSATION_ID_FACTORY,
+  CONVERSATION_TURN_ID_FACTORY,
+} from '../port/in/capability/conversation.port';
 import { GATEWAY_CONVERSATION_PORT } from '../port/out/gateway-conversation.port';
 import type { GatewayConversationPort } from '../port/out/gateway-conversation.port';
 import type { ConversationEventHistoryPort } from '../port/out/history/conversation-event-history.port';
@@ -91,8 +94,9 @@ function createService(
   gateway: GatewayConversationPort,
   nextTurnId: () => string,
   eventHistory: ConversationEventHistoryPort = readyEventHistory(),
+  nextConversationId: () => string = () => GENERAL_CONVERSATION.id,
 ): ConversationService {
-  return new ConversationService(gateway, eventHistory, nextTurnId);
+  return new ConversationService(gateway, eventHistory, nextConversationId, nextTurnId);
 }
 
 describe('ConversationService', () => {
@@ -103,6 +107,7 @@ describe('ConversationService', () => {
         ConversationService,
         { provide: GATEWAY_CONVERSATION_PORT, useValue: gateway },
         { provide: CONVERSATION_EVENT_HISTORY_PORT, useValue: readyEventHistory() },
+        { provide: CONVERSATION_ID_FACTORY, useValue: () => GENERAL_CONVERSATION.id },
         { provide: CONVERSATION_TURN_ID_FACTORY, useValue: () => 'turn-1' },
       ],
     }).compile();
@@ -120,20 +125,24 @@ describe('ConversationService', () => {
     expect(gateway.list).toHaveBeenCalledWith(OWNER);
   });
 
-  it('creates the browser-selected immutable identity and accepts only the five fixed Agent keys', async () => {
+  it('assigns server conversation IDs and accepts only the five fixed Agent keys', async () => {
     const gateway = readyGateway();
-    const service = createService(gateway, () => 'turn-1');
+    const conversationIds = ['conversation-general', 'conversation-sourcing', 'conversation-invalid'];
+    const service = createService(
+      gateway,
+      () => 'turn-1',
+      readyEventHistory(),
+      () => conversationIds.shift() ?? 'conversation-extra',
+    );
 
     await service.create({
       ...OWNER,
-      conversationId: 'conversation-general',
       runtime: 'codex_cli',
       agentKey: null,
       title: 'General planning',
     });
     await service.create({
       ...OWNER,
-      conversationId: 'conversation-sourcing',
       runtime: 'codex_cli',
       agentKey: 'sourcing',
       title: 'Sourcing planning',
@@ -155,7 +164,6 @@ describe('ConversationService', () => {
     });
     await expect(service.create({
       ...OWNER,
-      conversationId: 'conversation-invalid',
       runtime: 'codex_cli',
       agentKey: 'operator',
       title: 'Invalid Agent',
@@ -180,14 +188,12 @@ describe('ConversationService', () => {
 
     await firstApi.create({
       ...OWNER,
-      conversationId: GENERAL_CONVERSATION.id,
       runtime: 'codex_cli',
       agentKey: null,
       title: GENERAL_CONVERSATION.title,
     });
     await expect(firstApi.create({
       ...sameOrganizationUser,
-      conversationId: GENERAL_CONVERSATION.id,
       runtime: 'codex_cli',
       agentKey: null,
       title: GENERAL_CONVERSATION.title,

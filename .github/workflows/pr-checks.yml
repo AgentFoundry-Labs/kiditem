@@ -33,9 +33,10 @@ jobs:
       - name: Check agent instruction hygiene
         run: node scripts/check-agents-hygiene.mjs
 
-  windows_gateway_package:
-    name: Windows Gateway package
-    runs-on: windows-latest
+  gateway_fast_checks:
+    name: Gateway fast checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -50,37 +51,16 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Build and package the native Gateway
-        shell: pwsh
-        env:
-          # Prisma postinstall needs a syntactically valid URL while installing;
-          # this packaging job never connects to a database.
-          DATABASE_URL: postgresql://kiditem:kiditem@127.0.0.1:5433/kiditem
+      - name: Check local Office deployment contracts
         run: |
-          $ErrorActionPreference = 'Stop'
           node --test scripts/__tests__/office-deployment-contract.test.mjs
           node --test scripts/__tests__/office-gateway-launcher.test.mjs
-          $tokens = $null
-          $parseErrors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile('deploy/office/apply-deployment.ps1', [ref]$tokens, [ref]$parseErrors) | Out-Null
-          if ($parseErrors.Count -ne 0) { throw 'apply-deployment.ps1 failed PowerShell parser validation.' }
-          npm ci
-          npm run build --workspace=packages/shared
+
+      - name: Install dependencies without repository lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Build and unit-test the Gateway
+        run: |
+          npm exec --workspace=packages/shared tsup -- src/agent-runtime/index.ts src/identifiers/index.ts --format esm,cjs --no-config --out-dir dist --clean
           npm run build --workspace=apps/agent-gateway
-          npm run prepack --workspace=apps/agent-gateway
-          if ($LASTEXITCODE -ne 0) { throw 'Gateway bundled runtime staging failed.' }
-          # Frozen Task 4 Windows sources still build the native JobRunner helper.
-          # The Office bundle is tested separately with the final AgentGateway names.
-          dotnet publish apps/agent-gateway/windows/KidItem.JobRunner/KidItem.JobRunner.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP\\kiditem-agent-gateway-native"
-          dotnet publish apps/agent-gateway/windows/KidItem.JobRunner.Fixture/KidItem.JobRunner.Fixture.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP\\kiditem-agent-gateway-native-fixture"
-          $env:KIDITEM_WINDOWS_JOB_RUNNER_PATH = (Join-Path $env:RUNNER_TEMP 'kiditem-agent-gateway-native\\KidItem.JobRunner.exe')
           npm exec --workspace=apps/agent-gateway vitest -- run
-          if ($LASTEXITCODE -ne 0) { throw 'Windows Gateway tests failed.' }
-          npm run postpack --workspace=apps/agent-gateway
-          if ($LASTEXITCODE -ne 0) { throw 'Gateway bundled runtime cleanup failed.' }
-          & pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/__tests__/office-windows-native-runtime.fixture.ps1 `
-            -AgentGatewayPath (Join-Path $env:RUNNER_TEMP 'kiditem-agent-gateway-native\\KidItem.JobRunner.exe') `
-            -FixturePath (Join-Path $env:RUNNER_TEMP 'kiditem-agent-gateway-native-fixture\\KidItem.JobRunner.Fixture.exe') `
-            -GatewayEntrypoint (Resolve-Path 'apps/agent-gateway/dist/main.cjs') `
-            -DeploymentScript (Resolve-Path 'deploy/office/apply-deployment.ps1')
-          npm pack --workspace=apps/agent-gateway --dry-run

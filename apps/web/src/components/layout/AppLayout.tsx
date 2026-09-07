@@ -59,6 +59,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const launcherRef = useRef<HTMLElement | null>(null);
   const authenticatedIdentityRef = useRef<string | null>(null);
   const activeConversationId = useConversationSurfaceState((state) => state.activeConversationId);
+  const pendingConversationDraft = useConversationSurfaceState((state) => state.pendingDraft);
   const resetConversationSurface = useConversationSurfaceState((state) => state.reset);
   const authenticatedIdentity = auth.status === 'ready' && auth.user?.organizationId
     ? { userId: auth.user.id, organizationId: auth.user.organizationId }
@@ -173,7 +174,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       selectRightSurface('ai_chat');
       return;
     }
-    if (activeConversationId) {
+    if (activeConversationId || pendingConversationDraft) {
       selectRightSurface('ai_chat');
       return;
     }

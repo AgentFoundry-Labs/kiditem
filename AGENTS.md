@@ -55,10 +55,9 @@ processing, listing, and operations.
 - Release and schema decisions follow
   [release-train-versioning.md](docs/runbooks/release-train-versioning.md) and
   [prisma/AGENTS.md](prisma/AGENTS.md#data--migration-flow).
-- GitHub Actions is the only Office release entrypoint. Deployment-surface
-  changes follow
-  [deployment-architecture.md](docs/runbooks/deployment-architecture.md) and
-  keep its regression gates aligned.
+- Final Office releases deploy exact `origin/release/office`; incident refs are
+  provisional. Follow [office-deploy.md](docs/runbooks/office-deploy.md) for
+  promotion, live alignment, local build, cutover, and reconciliation.
 
 ## Verification
 
@@ -77,11 +76,9 @@ contract.
 
 ## Git And Pull Requests
 
-- `main`, `develop`, and `release/office` are protected. Regular work
-  branches from and targets `develop`; promotions flow `develop` to
-  `main`.
-- Never delete, prune, or classify `release/office` as stale. Every checkout
-  keeps a local branch tracking `origin/release/office`.
+- Treat `main`, `develop`, and `release/office` as protected shared branches.
+  Office promotes `develop -> release/office`; incident hotfixes target release
+  first, then move forward to `develop`. Never delete or prune `release/office`.
 - Use the repository branch/commit naming in the
   [AI collaboration runbook](docs/runbooks/ai-collaboration.md). Squash normal
   PRs; use merge commits for `develop`/`main` sync and promotion. Never

@@ -36,7 +36,7 @@ describe('conversation API', () => {
 
     await listConversations();
     await createConversation({
-      conversationId: 'conversation-1', runtime: 'codex_cli', agentKey: null, title: 'General',
+      runtime: 'codex_cli', agentKey: null, title: 'General',
     });
     await getConversationPreferences();
     await setConversationPreference({
@@ -47,7 +47,7 @@ describe('conversation API', () => {
 
     expect(apiClient.get).toHaveBeenNthCalledWith(1, '/api/agent-os/conversations');
     expect(apiClient.post).toHaveBeenNthCalledWith(1, '/api/agent-os/conversations', {
-      conversationId: 'conversation-1', runtime: 'codex_cli', agentKey: null, title: 'General',
+      runtime: 'codex_cli', agentKey: null, title: 'General',
     });
     expect(apiClient.get).toHaveBeenNthCalledWith(2, '/api/agent-os/conversation-preferences');
     expect(apiClient.put).toHaveBeenCalledWith('/api/agent-os/conversation-preferences', {
@@ -66,7 +66,7 @@ describe('conversation API', () => {
 
   it('rejects malformed create and preference payloads before they leave the browser boundary', async () => {
     await expect(createConversation({
-      conversationId: '', runtime: 'codex_cli', agentKey: null, title: 'General',
+      runtime: 'codex_cli', agentKey: null, title: '   ',
     })).rejects.toThrow();
     await expect(setConversationPreference({
       context: 'general', runtime: 'codex_cli', model: '', reasoningEffort: 'low',

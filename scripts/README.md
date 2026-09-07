@@ -43,6 +43,7 @@ npm run test:scripts
 | `scripts/dev-data.ts` | dev data bundle CLI | `npm run data:dev:*` |
 | `scripts/generate-prisma-erd.mjs` | Prisma ERD markdown generator | `npm run db:erd` |
 | `scripts/local-agent-gateway.mjs` | macOS local Gateway operator entrypoint; starts only the generated protected config or logs a bundled Codex/Claude provider into its isolated home | `npm run dev:gateway`, `npm run gateway:login:codex`, `npm run gateway:login:claude`, `docs/runbooks/local-development.md` |
+| `scripts/office-deploy.mjs` | Windows Office operator entrypoint; final releases use aligned `origin/release/office`, explicitly authorized incident refs are provisional, and status reports release/runtime drift | `npm run deploy:office:local`, `npm run deploy:office:status`, `npm run deploy:office:rollback`, `docs/runbooks/office-deploy.md` |
 | `scripts/manage-extension-release.mjs` | deterministic universal Chrome-extension bundle packager and manual GitHub Release publisher | `npm run extension:release`, `docs/runbooks/extension-releases.md` |
 | `scripts/run-data-migrations.ts` | durable data migration runner; migration units live under root `VERSION` release folders such as `scripts/data-migrations/v0.1.0/`, record `data_migration_runs` ledger rows, and export/restore the hash-bound ledger baseline for an authoritative reset | `npm run data:migrate`, `docs/runbooks/release-train-versioning.md` |
 | `scripts/safe-prisma-db-push.mjs` | local `db:push` wrapper that blocks whole-schema `--force-reset`; the guarded production rebuild workflow keeps its direct Prisma entrypoint | `npm run db:push` |
@@ -50,6 +51,7 @@ npm run test:scripts
 | `scripts/seed-order-collection-mall-accounts.ts` | confirmation-gated, organization-scoped order-collection mall credential seed; encrypts complete `ID/PW/URL` triples into `ChannelAccount` and never creates a runtime env fallback | `npm run seed:order-collection-malls`, `docs/runbooks/environment-variables.md` |
 | `scripts/qa-agent-os-clean-cutover.mjs` | provisions a guarded isolated PostgreSQL cutover fixture, verifies the one-model schema, and can serve the macOS browser-QA stack with the built-in stdin-only auth/business seed without exposing database credentials | `npm run qa:agent-os:clean-cutover` |
 | `scripts/smoke-interaction-os.mjs` | exercises Gateway readiness, provider conversation/history, the five stateless MCP tools, one read, and one approval-pending mutation without executing it | `npm run smoke:interaction-os` |
+| `scripts/run-local-development.mjs` | macOS local runtime orchestrator; completes idempotent setup and isolated Codex authentication before starting Core and Gateway together, with sibling cleanup on exit | `npm run dev:all`, `docs/runbooks/local-development.md` |
 | `scripts/setup-macos-development.mjs` | idempotent fresh-clone setup for local env examples, protected Gateway config/token/home, Git hooks, and locked npm dependencies; never applies schema or stores provider credentials | `npm run setup:macos`, `docs/runbooks/local-development.md` |
 
 ## Support Files

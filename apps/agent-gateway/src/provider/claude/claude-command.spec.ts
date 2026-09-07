@@ -36,7 +36,9 @@ describe('buildClaudeTurnCommand', () => {
         channel_operations: expect.objectContaining({ prompt: expect.stringContaining('KidItem Channel Operations Agent') }),
         advertising: expect.objectContaining({ prompt: expect.stringContaining('KidItem Advertising Agent') }),
       }));
-      expect(first.env).toMatchObject({ HOME: '/gateway/login', USER: 'gateway-user' });
+      expect(first.env).toMatchObject({ HOME: '/gateway/login' });
+      if (process.platform === 'darwin') expect(first.env).toMatchObject({ USER: 'gateway-user' });
+      else expect(first.env).not.toHaveProperty('USER');
       expect(first.env).not.toHaveProperty('CLAUDE_CONFIG_DIR');
     } finally {
       vi.unstubAllEnvs();

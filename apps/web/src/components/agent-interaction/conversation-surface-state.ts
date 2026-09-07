@@ -16,7 +16,7 @@ export interface ConversationSelection {
 }
 
 export interface NewConversationDraft {
-  conversationId: string;
+  draftId: string;
   agentKey: AgentConversationKey | null;
   provider: ConversationRuntime | null;
   model: string | null;
@@ -38,9 +38,10 @@ interface ConversationSurfaceState {
   selectConversation(conversation: ConversationSelection): void;
   openConversation(input: NewConversationRequest): NewConversationDraft;
   ensureDraft(input: NewConversationRequest): NewConversationDraft | null;
-  updateDraft(patch: Partial<Omit<NewConversationDraft, 'conversationId'>>): void;
+  updateDraft(patch: Partial<Omit<NewConversationDraft, 'draftId'>>): void;
   discardDraft(): void;
-  completePromotedDraft(conversationId: string): void;
+  promoteDraft(draftId: string, conversation: ConversationSelection): void;
+  completePromotedDraft(draftId: string): void;
   openSettings(trigger?: HTMLElement | null): void;
   closeSettings(): void;
   reset(): void;
@@ -57,6 +58,7 @@ const initialState = {
 >;
 
 let settingsTrigger: HTMLElement | null = null;
+let draftSequence = 0;
 
 /** Ephemeral navigation intent only; provider history remains outside browser state. */
 export const useConversationSurfaceState = create<ConversationSurfaceState>((set) => ({
@@ -66,20 +68,16 @@ export const useConversationSurfaceState = create<ConversationSurfaceState>((set
     activeConversationId: null,
     pendingDraft: null,
   }),
-  selectConversation: (conversation) => set((state) => ({
+  selectConversation: (conversation) => set({
     selectedContext: conversation.agentKey,
     activeConversationId: conversation.id,
-    // Promotion retains its source draft long enough for the coordinator to
-    // prevent a response-loss/reconnect replay. Selecting another item drops it.
-    pendingDraft: state.pendingDraft?.conversationId === conversation.id
-      ? state.pendingDraft
-      : null,
-  })),
+    pendingDraft: null,
+  }),
   openConversation: (input) => {
     const draft = createDraft(input);
     set({
       selectedContext: input.fixedAgentKey,
-      activeConversationId: draft.conversationId,
+      activeConversationId: null,
       pendingDraft: draft,
     });
     if (useStore.getState().activeRightSurface !== 'ai_chat') {
@@ -90,16 +88,14 @@ export const useConversationSurfaceState = create<ConversationSurfaceState>((set
   ensureDraft: (input) => {
     let draft: NewConversationDraft | null = null;
     set((state) => {
-      if (state.activeConversationId !== null) {
-        draft = state.pendingDraft?.conversationId === state.activeConversationId
-          ? state.pendingDraft
-          : null;
+      if (state.activeConversationId !== null || state.pendingDraft) {
+        draft = state.activeConversationId === null ? state.pendingDraft : null;
         return state;
       }
       draft = createDraft(input);
       return {
         selectedContext: input.fixedAgentKey,
-        activeConversationId: draft.conversationId,
+        activeConversationId: null,
         pendingDraft: draft,
       };
     });
@@ -113,14 +109,17 @@ export const useConversationSurfaceState = create<ConversationSurfaceState>((set
       selectedContext: pendingDraft.agentKey,
     };
   }),
-  discardDraft: () => set((state) => ({
-    activeConversationId: state.pendingDraft?.conversationId === state.activeConversationId
-      ? null
-      : state.activeConversationId,
-    pendingDraft: null,
-  })),
-  completePromotedDraft: (conversationId) => set((state) => (
-    state.pendingDraft?.conversationId === conversationId
+  discardDraft: () => set({ pendingDraft: null }),
+  promoteDraft: (draftId, conversation) => set((state) => (
+    state.pendingDraft?.draftId === draftId
+      ? {
+          selectedContext: conversation.agentKey,
+          activeConversationId: conversation.id,
+        }
+      : state
+  )),
+  completePromotedDraft: (draftId) => set((state) => (
+    state.pendingDraft?.draftId === draftId
       ? { pendingDraft: null }
       : state
   )),
@@ -144,17 +143,14 @@ export function openConversation(input: NewConversationRequest): NewConversation
   return useConversationSurfaceState.getState().openConversation(input);
 }
 
-function reserveConversationId(): string {
-  const randomUUID = globalThis.crypto?.randomUUID;
-  if (typeof randomUUID !== 'function') throw new Error('conversation_id_unavailable');
-  const conversationId = randomUUID.call(globalThis.crypto);
-  if (!conversationId) throw new Error('conversation_id_unavailable');
-  return conversationId;
+function reserveDraftId(): string {
+  draftSequence += 1;
+  return `draft-${draftSequence}`;
 }
 
 function createDraft(input: NewConversationRequest): NewConversationDraft {
   return {
-    conversationId: reserveConversationId(),
+    draftId: reserveDraftId(),
     agentKey: input.fixedAgentKey,
     provider: null,
     model: null,

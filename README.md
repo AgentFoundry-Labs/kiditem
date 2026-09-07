@@ -32,10 +32,8 @@ npm run db:push
 # 새 DB에 로컬 로그인 사용자/조직을 만들고 비밀번호를 안전하게 입력합니다.
 npm run dev:bootstrap-user -- --email you@example.com
 
-# KidItem 전용 provider home에 Codex를 로그인합니다.
-npm run gateway:login:codex
-
-# Web + API/Operation worker + native Agent Gateway
+# setup을 재확인하고, 필요할 때만 격리된 Codex 인증을 연 뒤,
+# Web + API/Operation worker + native Agent Gateway를 시작합니다.
 npm run dev:all
 ```
 
@@ -55,12 +53,13 @@ npm run dev:all
 |---|---|
 | `npm run setup:macos` | 누락된 local env와 보호된 Gateway config/token/home을 만들고, 의존성이 없으면 `npm ci` 실행 |
 | `npm run dev:core` | Next.js + NestJS API/Operation worker |
-| `npm run dev:gateway` | Gateway를 빌드하고 생성된 macOS config로 실행 |
-| `npm run dev:all` | Core + Gateway |
+| `npm run dev:gateway` | 인증 상태를 비대화형으로 확인한 뒤 Gateway를 빌드하고 실행 |
+| `npm run dev:all` | setup → 필요시 Codex 인증 → Core + Gateway를 순서대로 실행 |
 | `npm run dev` | Next.js만 실행 |
 | `npm run dev:server` | NestJS API만 실행 |
 | `npm run dev:agents` | 선택적 Python Agent 서버만 실행(별도 Python 3.11+ venv 필요) |
-| `npm run gateway:login:codex` | 격리된 KidItem provider home에 bundled Codex 로그인 |
+| `npm run gateway:auth:codex` | 격리된 Codex 인증을 확인하고 필요할 때만 로그인 실행 |
+| `npm run gateway:login:codex` | 문제 복구를 위해 bundled Codex 로그인 흐름을 강제로 실행 |
 | `npm run gateway:login:claude` | 격리된 KidItem provider home에 bundled Claude 로그인(선택) |
 | `npm run dev:bootstrap-user` | loopback 개발 DB에 로그인 사용자/조직/membership 생성 또는 갱신 |
 | `npm run db:studio` | Prisma Studio |

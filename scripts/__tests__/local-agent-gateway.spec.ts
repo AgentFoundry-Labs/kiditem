@@ -4,8 +4,11 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   buildLocalGatewayStartCommand,
+  buildProviderAuthStatusCommand,
   buildProviderLoginCommand,
+  commandSucceeds,
   defaultMacosGatewayConfigPath,
+  ensureProviderAuthentication,
   loadLocalGatewayConfig,
 } from '../local-agent-gateway.mjs';
 
@@ -55,6 +58,107 @@ describe('local Agent Gateway operator commands', () => {
     expect(claude.executable).toBe(join(fixture.runtimeRoot, 'node_modules/@anthropic-ai/claude-code/bin/claude.exe'));
     expect(claude.args).toEqual(['auth', 'login']);
     expect(claude.env.HOME).toBe(fixture.loginRoot);
+  });
+
+  it('builds provider auth-status commands from the same bundled isolated boundary', async () => {
+    const fixture = await gatewayFixture();
+    const codex = buildProviderAuthStatusCommand({
+      provider: 'codex', config: fixture.config, platform: 'darwin',
+      processExecPath: '/usr/local/bin/node', environment: { PATH: '/usr/bin', USER: 'developer' },
+    });
+    expect(codex).toMatchObject({
+      executable: '/usr/local/bin/node',
+      args: [join(fixture.runtimeRoot, 'node_modules/@openai/codex/bin/codex.js'), 'login', 'status'],
+      cwd: fixture.runtimeRoot,
+    });
+    expect(codex.env).toMatchObject({
+      HOME: fixture.loginRoot,
+      CODEX_HOME: join(fixture.loginRoot, '.codex'),
+      USER: 'developer',
+    });
+
+    const claude = buildProviderAuthStatusCommand({
+      provider: 'claude', config: fixture.config, platform: 'darwin',
+      processExecPath: '/usr/local/bin/node', environment: { PATH: '/usr/bin', USER: 'developer' },
+    });
+    expect(claude.args).toEqual(['auth', 'status', '--json']);
+  });
+
+  it('bounds noninteractive provider status checks and suppresses their output', () => {
+    let received: unknown;
+    const result = commandSucceeds({
+      executable: '/usr/local/bin/node',
+      args: ['provider.js', 'login', 'status'],
+      cwd: '/runtime',
+      env: { HOME: '/provider-home' },
+    }, {
+      spawnSyncImpl: (_executable, _args, options) => {
+        received = options;
+        return { status: 0 } as never;
+      },
+    });
+
+    expect(result).toBe(true);
+    expect(received).toMatchObject({
+      cwd: '/runtime',
+      env: { HOME: '/provider-home' },
+      stdio: 'ignore',
+      timeout: 10_000,
+      killSignal: 'SIGTERM',
+    });
+  });
+
+  it.each([
+    { error: Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }), status: null },
+    { error: new Error('spawn failed'), status: null },
+    { status: null, signal: 'SIGTERM' },
+  ])('fails status checks closed on timeout, spawn failure, or signal exit', (spawnResult) => {
+    expect(() => commandSucceeds({
+      executable: '/usr/local/bin/node',
+      args: ['provider.js', 'login', 'status'],
+      cwd: '/runtime',
+      env: { HOME: '/provider-home' },
+    }, {
+      spawnSyncImpl: () => spawnResult as never,
+    })).toThrow('gateway_provider_status_check_failed');
+  });
+
+  it('skips interactive login when the isolated provider home is authenticated', () => {
+    const events: string[] = [];
+
+    expect(ensureProviderAuthentication({
+      status: () => { events.push('status'); return true; },
+      login: () => { events.push('login'); },
+      interactive: true,
+    })).toEqual({ loginStarted: false });
+    expect(events).toEqual(['status']);
+  });
+
+  it('runs login once and verifies the isolated provider home afterward', () => {
+    const events: string[] = [];
+
+    expect(ensureProviderAuthentication({
+      status: () => { events.push('status'); return events.length > 2; },
+      login: () => { events.push('login'); },
+      interactive: true,
+    })).toEqual({ loginStarted: true });
+    expect(events).toEqual(['status', 'login', 'status']);
+  });
+
+  it('fails closed without launching login from a non-interactive start check', () => {
+    expect(() => ensureProviderAuthentication({
+      status: () => false,
+      login: () => { throw new Error('login_must_not_run'); },
+      interactive: false,
+    })).toThrow('gateway_provider_unauthenticated');
+  });
+
+  it('fails authentication when login does not produce a valid isolated session', () => {
+    expect(() => ensureProviderAuthentication({
+      status: () => false,
+      login: () => undefined,
+      interactive: true,
+    })).toThrow('gateway_provider_auth_failed');
   });
 
   it('starts only the built Gateway entrypoint with the selected protected config', async () => {

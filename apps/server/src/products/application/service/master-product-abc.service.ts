@@ -1,5 +1,6 @@
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import type { ProductAbcRecalculationResult } from '@kiditem/shared/product-abc';
+import type { ActiveOperationAttemptTransaction } from '../../../operations/application/port/active-browser-attempt-transaction';
 import {
   MASTER_PRODUCT_PROFITABILITY_READ_PORT,
   type MasterProductProfitabilityEvidence,
@@ -17,9 +18,18 @@ import {
   MASTER_PRODUCT_ABC_REPOSITORY_PORT,
   type MasterProductAbcFormulaStateRecord,
   type MasterProductAbcRepositoryPort,
+  type PublishMasterProductAbcEvaluationsInput,
 } from '../port/out/repository/master-product-abc.repository.port';
 
 const MAX_PUBLICATION_ATTEMPTS = 2;
+
+export interface MasterProductAbcRecalculationControls {
+  signal?: AbortSignal;
+  checkpoint?: (stage: string) => Promise<void>;
+  withinActiveOperationAttemptFence?: <T>(
+    callback: (transaction: ActiveOperationAttemptTransaction) => Promise<T>,
+  ) => Promise<T>;
+}
 
 @Injectable()
 export class MasterProductAbcService {
@@ -40,12 +50,21 @@ export class MasterProductAbcService {
   }
 
   /** Rebuilds active products from persisted source facts and the frozen formula. */
-  async recalculate(organizationId: string): Promise<ProductAbcRecalculationResult> {
+  async recalculate(
+    organizationId: string,
+    controls: MasterProductAbcRecalculationControls = {},
+  ): Promise<ProductAbcRecalculationResult> {
     for (let attempt = 0; attempt < MAX_PUBLICATION_ATTEMPTS; attempt += 1) {
+      await cancellableCheckpoint(controls, 'reading_formula');
       const calculatedAt = new Date();
       const asOfDate = completedKstCalendarDate(calculatedAt);
       let state = await this.repository.getFormulaState(organizationId);
-      state = await this.ensureInitialFormula({ organizationId, state, asOfDate, calculatedAt });
+      await cancellableCheckpoint(controls, 'reading_evidence');
+      state = await this.ensureInitialFormula(
+        { organizationId, state, asOfDate, calculatedAt },
+        controls,
+      );
+      await cancellableCheckpoint(controls, 'reading_evidence');
       const activeIds = await this.repository.listSellingMasterProductIds(organizationId);
       const [evidence, previous] = await Promise.all([
         activeIds.length === 0
@@ -58,6 +77,7 @@ export class MasterProductAbcService {
           }),
         this.repository.findCurrentEvaluations({ organizationId, masterProductIds: activeIds }),
       ]);
+      await cancellableCheckpoint(controls, 'calculating_abc');
       const evaluated = new Map(evidence.map((row) => [row.masterProductId, evaluateMasterProductAbc({
         evidence: row,
         formula: state.formula,
@@ -65,13 +85,19 @@ export class MasterProductAbcService {
         previousNormalEvaluation: previous.get(row.masterProductId),
       })] as const));
       const evaluations = applyMasterProductAbcQuantiles(evaluated);
-      const published = await this.repository.publishEvaluations({
+      const publication: PublishMasterProductAbcEvaluationsInput = {
         organizationId,
         expectedFormulaStateRevision: state.revision,
         formulaVersionId: state.formulaVersionId,
         evaluations,
         reason: 'AUTOMATIC_PROFITABILITY_RECALCULATION',
-      });
+      };
+      await cancellableCheckpoint(controls, 'publishing_abc');
+      const published = controls.withinActiveOperationAttemptFence
+        ? await controls.withinActiveOperationAttemptFence((transaction) =>
+            this.repository.publishEvaluationsInAttempt(transaction, publication))
+        : await this.repository.publishEvaluations(publication);
+      controls.signal?.throwIfAborted();
       if (!published.stale) return resultFor(evaluations, published.changedProductCount);
     }
     throw new ConflictException('MasterProduct ABC formula changed during recalculation');
@@ -82,26 +108,41 @@ export class MasterProductAbcService {
     state: MasterProductAbcFormulaStateRecord;
     asOfDate: Date;
     calculatedAt: Date;
-  }): Promise<MasterProductAbcFormulaStateRecord> {
+  }, controls: MasterProductAbcRecalculationControls): Promise<MasterProductAbcFormulaStateRecord> {
     if (input.state.formula) return input.state;
     const historical = await this.profitability.readMany({
       organizationId: input.organizationId,
       asOfDate: input.asOfDate,
       scope: 'HISTORICAL_CALIBRATION',
     });
+    await cancellableCheckpoint(controls, 'calibrating_formula');
     const formula = createFixedProductAbcFormula({
       observations: formulaObservations(historical),
       version: 1,
       activatedAt: input.calculatedAt,
     });
     if (!formula) return input.state;
-    const stored = await this.repository.ensureInitialFormula({
+    const ensureInput = {
       organizationId: input.organizationId,
       expectedRevision: input.state.revision,
       formula: formula.formula,
-    });
+    };
+    const stored = controls.withinActiveOperationAttemptFence
+      ? await controls.withinActiveOperationAttemptFence((transaction) =>
+          this.repository.ensureInitialFormulaInAttempt(transaction, ensureInput))
+      : await this.repository.ensureInitialFormula(ensureInput);
+    controls.signal?.throwIfAborted();
     return stored.state;
   }
+}
+
+async function cancellableCheckpoint(
+  controls: MasterProductAbcRecalculationControls,
+  stage: string,
+): Promise<void> {
+  controls.signal?.throwIfAborted();
+  await controls.checkpoint?.(stage);
+  controls.signal?.throwIfAborted();
 }
 
 function formulaObservations(

@@ -7,10 +7,13 @@ import {
   type ProductAbcFormulaSummary,
 } from '@kiditem/shared/product-abc';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import type { ActiveOperationAttemptTransaction } from '../../../../operations/application/port/active-browser-attempt-transaction';
 import { listSellingMasterProductIds } from './selling-master-product.query';
 import type {
   MasterProductAbcFormulaStateRecord,
   MasterProductAbcRepositoryPort,
+  EnsureInitialMasterProductAbcFormulaInput,
+  PublishMasterProductAbcEvaluationsInput,
 } from '../../../application/port/out/repository/master-product-abc.repository.port';
 
 @Injectable()
@@ -85,12 +88,23 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
     return state ? stateRecord(state) : { revision: 0, formulaVersionId: null, formula: null };
   }
 
-  async ensureInitialFormula(input: {
-    organizationId: string;
-    expectedRevision: number;
-    formula: ProductAbcFormulaSummary;
-  }): Promise<{ state: MasterProductAbcFormulaStateRecord; created: boolean; stale: boolean }> {
-    return this.prisma.$transaction(async (tx) => {
+  async ensureInitialFormula(
+    input: EnsureInitialMasterProductAbcFormulaInput,
+  ): Promise<{ state: MasterProductAbcFormulaStateRecord; created: boolean; stale: boolean }> {
+    return this.prisma.$transaction((tx) => this.ensureInitialFormulaTx(tx, input));
+  }
+
+  ensureInitialFormulaInAttempt(
+    transaction: ActiveOperationAttemptTransaction,
+    input: EnsureInitialMasterProductAbcFormulaInput,
+  ): Promise<{ state: MasterProductAbcFormulaStateRecord; created: boolean; stale: boolean }> {
+    return this.ensureInitialFormulaTx(asTransaction(transaction), input);
+  }
+
+  private async ensureInitialFormulaTx(
+    tx: Prisma.TransactionClient,
+    input: EnsureInitialMasterProductAbcFormulaInput,
+  ): Promise<{ state: MasterProductAbcFormulaStateRecord; created: boolean; stale: boolean }> {
       await lockOrganization(tx, input.organizationId);
       const current = await tx.masterProductAbcFormulaState.findUnique({
         where: { organizationId: input.organizationId },
@@ -131,7 +145,6 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
         include: { activeFormulaVersion: true },
       });
       return { state: stateRecord(next), created: true, stale: false };
-    });
   }
 
   async findCurrentEvaluations(input: {
@@ -150,14 +163,23 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
     }));
   }
 
-  async publishEvaluations(input: {
-    organizationId: string;
-    expectedFormulaStateRevision: number;
-    formulaVersionId: string | null;
-    evaluations: ReadonlyMap<string, ProductAbcEvaluation>;
-    reason: string;
-  }): Promise<{ changedProductCount: number; stale: boolean }> {
-    return this.prisma.$transaction(async (tx) => {
+  async publishEvaluations(
+    input: PublishMasterProductAbcEvaluationsInput,
+  ): Promise<{ changedProductCount: number; stale: boolean }> {
+    return this.prisma.$transaction((tx) => this.publishEvaluationsTx(tx, input));
+  }
+
+  publishEvaluationsInAttempt(
+    transaction: ActiveOperationAttemptTransaction,
+    input: PublishMasterProductAbcEvaluationsInput,
+  ): Promise<{ changedProductCount: number; stale: boolean }> {
+    return this.publishEvaluationsTx(asTransaction(transaction), input);
+  }
+
+  private async publishEvaluationsTx(
+    tx: Prisma.TransactionClient,
+    input: PublishMasterProductAbcEvaluationsInput,
+  ): Promise<{ changedProductCount: number; stale: boolean }> {
       await lockOrganization(tx, input.organizationId);
       const state = await tx.masterProductAbcFormulaState.findUnique({
         where: { organizationId: input.organizationId },
@@ -238,7 +260,6 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
         });
       }
       return { changedProductCount: changed.length + cleared.count, stale: false };
-    });
   }
 }
 
@@ -429,6 +450,12 @@ function decimalOrNull(value: number | null): Prisma.Decimal | null {
 
 function bigIntOrNull(value: string | null): bigint | null {
   return value && /^\d+$/.test(value) ? BigInt(value) : null;
+}
+
+function asTransaction(
+  transaction: ActiveOperationAttemptTransaction,
+): Prisma.TransactionClient {
+  return transaction as unknown as Prisma.TransactionClient;
 }
 
 function decimalToFinite(value: Prisma.Decimal | null): number | null {

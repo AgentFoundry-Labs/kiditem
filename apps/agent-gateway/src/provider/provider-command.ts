@@ -55,6 +55,7 @@ export function providerEnvironment(input: Readonly<{
   return Object.freeze({
     PATH: process.env.PATH ?? '',
     HOME: input.home,
+    ...(process.platform === 'win32' ? windowsBootstrapEnvironment(process.env) : {}),
     ...(input.providerHome ? { [input.providerHome.key]: input.providerHome.path } : {}),
     ...(input.includeMacosUserIdentity ? { USER: user } : {}),
     CODEX_MCP_PROTOCOL_VERSION: GATEWAY_RUNTIME_TRAIN.mcpProtocolRevision,
@@ -63,4 +64,17 @@ export function providerEnvironment(input: Readonly<{
     CODEX_DISABLE_AUTO_UPDATE: '1',
     DISABLE_AUTOUPDATER: '1',
   });
+}
+
+function windowsBootstrapEnvironment(source: NodeJS.ProcessEnv): Readonly<Record<string, string>> {
+  const allowed = new Set(['SYSTEMROOT', 'WINDIR', 'COMSPEC', 'TEMP', 'TMP']);
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(source)) {
+    const canonicalKey = key.toLocaleUpperCase('en-US');
+    if (!allowed.has(canonicalKey) || !value) continue;
+    const existing = result[canonicalKey];
+    if (existing !== undefined && existing !== value) throw new Error('provider_windows_environment_ambiguous');
+    result[canonicalKey] = value;
+  }
+  return result;
 }

@@ -2,7 +2,7 @@
 
 // The scheduled task invokes this stable, ACL-protected launcher rather than
 // a versioned Gateway path. It accepts only the fixed Office current pointer,
-// validates that pointer, and loads the selected immutable Gateway in-process.
+// validates that pointer, and loads the selected exact-SHA Gateway in-process.
 // It intentionally has no general command/argument forwarding surface.
 const fs = require('node:fs');
 const path = require('node:path');
@@ -33,7 +33,7 @@ function assertRegularDirectory(directoryPath, fsApi) {
 
 /**
  * Resolves the only permitted launch: the stable task's exact current pointer
- * to one immutable `releases/<gitSha>` package. The optional inputs exist for
+ * to one exact-SHA `releases/<gitSha>` package. The optional inputs exist for
  * portable filesystem-contract tests; production does not expose them.
  */
 function resolveGatewayLaunch(input = {}) {

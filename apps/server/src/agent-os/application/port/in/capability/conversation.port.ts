@@ -1,5 +1,5 @@
 import type {
-  CreateConversationCommand,
+  CreateConversationRequest,
   ConversationPreferences,
   ConversationSummary,
   GatewayProviderReadiness,
@@ -36,7 +36,7 @@ export interface ConversationLiveTurn {
 
 export interface ConversationPort {
   list(input: ConversationOwner): Promise<ConversationSummary[]>;
-  create(input: ConversationOwner & CreateConversationCommand): Promise<ConversationSummary>;
+  create(input: ConversationOwner & CreateConversationRequest): Promise<ConversationSummary>;
   preferences(owner: ConversationOwner): Promise<ConversationPreferences>;
   setPreference(input: ConversationOwner & SetConversationPreferenceCommand): Promise<ConversationPreferences>;
   /** Verifies the authenticated organization can access a descriptor before adapter-local replay/start. */
@@ -57,5 +57,7 @@ export interface ConversationPort {
 
 export const CONVERSATION_PORT = Symbol('CONVERSATION_PORT');
 /** Injectable UUID factory keeps the transient facade independently testable. */
+export type ConversationIdFactory = () => string;
+export const CONVERSATION_ID_FACTORY = Symbol('CONVERSATION_ID_FACTORY');
 export type ConversationTurnIdFactory = () => string;
 export const CONVERSATION_TURN_ID_FACTORY = Symbol('CONVERSATION_TURN_ID_FACTORY');

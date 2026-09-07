@@ -31,6 +31,8 @@ RUN npm ci \
 
 FROM deps AS builder
 
+ENV NODE_OPTIONS=--max-old-space-size=4096
+
 ARG NEXT_PUBLIC_API_URL=
 
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}

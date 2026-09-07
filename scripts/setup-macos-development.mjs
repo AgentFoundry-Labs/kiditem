@@ -21,7 +21,8 @@ export function assertMacosDevelopmentRuntime({
   nodeVersion = process.versions.node,
 } = {}) {
   if (platform !== 'darwin') throw new Error('setup_macos_platform_required');
-  if (nodeVersion !== RECOMMENDED_NODE_VERSION) throw new Error('setup_node_version_mismatch');
+  const supportedNodeMajor = RECOMMENDED_NODE_VERSION.split('.')[0];
+  if (nodeVersion.split('.')[0] !== supportedNodeMajor) throw new Error('setup_node_version_mismatch');
 }
 
 export function macosGatewayPaths(home = homedir()) {
@@ -65,7 +66,13 @@ export async function setupMacosDevelopmentFiles({
     createdEnvFiles.push(targetRelative);
   }
 
-  for (const directory of [gateway.root, dirname(gateway.tokenFile), gateway.stateRoot, gateway.loginRoot]) {
+  for (const directory of [
+    gateway.root,
+    dirname(gateway.tokenFile),
+    gateway.stateRoot,
+    gateway.loginRoot,
+    join(gateway.loginRoot, '.codex'),
+  ]) {
     await mkdir(directory, { recursive: true, mode: 0o700 });
     await chmod(directory, 0o700);
   }
@@ -182,7 +189,6 @@ async function main() {
     'Next: docker compose up -d --wait',
     'Then: npm run db:push',
     'Then: npm run dev:bootstrap-user -- --email <email>',
-    'Then: npm run gateway:login:codex',
     'Run: npm run dev:all',
     '',
   ].join('\n'));

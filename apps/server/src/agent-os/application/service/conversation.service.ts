@@ -3,12 +3,14 @@ import {
   AgentKeySchema,
   type ConversationPreferences,
   type ConversationSummary,
-  type CreateConversationCommand,
+  type CreateConversationRequest,
   type SetConversationPreferenceCommand,
 } from '@kiditem/shared/agent-runtime';
 import { AgentOsRuntimeError } from '../../domain/agent-os.errors';
 import {
   type ConversationCoordinates,
+  CONVERSATION_ID_FACTORY,
+  type ConversationIdFactory,
   type ConversationLiveTurn,
   type ConversationOwner,
   type ConversationPort,
@@ -31,7 +33,7 @@ interface StoredTurn extends ConversationTurnCoordinates {
   interruptRequested: boolean;
 }
 
-type CreateConversationInput = ConversationOwner & CreateConversationCommand;
+type CreateConversationInput = ConversationOwner & CreateConversationRequest;
 
 type StartConversationInput = ConversationCoordinates & {
   turnId?: string;
@@ -54,6 +56,8 @@ export class ConversationService implements ConversationPort {
     private readonly gateway: GatewayConversationPort,
     @Inject(CONVERSATION_EVENT_HISTORY_PORT)
     private readonly eventHistory: ConversationEventHistoryPort,
+    @Inject(CONVERSATION_ID_FACTORY)
+    private readonly nextConversationId: ConversationIdFactory,
     @Inject(CONVERSATION_TURN_ID_FACTORY)
     private readonly nextTurnId: ConversationTurnIdFactory,
   ) {}
@@ -71,14 +75,16 @@ export class ConversationService implements ConversationPort {
     assertOwner(input);
     assertCreateInput(input);
     const agentKey = parseAgent(input.agentKey);
+    const conversationId = this.nextConversationId();
+    if (!validIdentifier(conversationId)) throw new AgentOsRuntimeError('conversation_id_required');
     const summary = await this.gateway.create({
       ...copyOwner(input),
-      conversationId: input.conversationId,
+      conversationId,
       runtime: input.runtime,
       agentKey,
       title: input.title,
     });
-    if (summary.id !== input.conversationId) throw new AgentOsRuntimeError('conversation_not_found');
+    if (summary.id !== conversationId) throw new AgentOsRuntimeError('conversation_not_found');
     assertAgent(summary.agentKey);
     return summary;
   }
@@ -272,7 +278,6 @@ function assertTurnSettings(input: StartConversationInput): void {
 }
 
 function assertCreateInput(input: CreateConversationInput): void {
-  if (!validIdentifier(input.conversationId)) throw new AgentOsRuntimeError('conversation_id_required');
   if (!validIdentifier(input.title)) throw new AgentOsRuntimeError('conversation_title_required');
 }
 
