@@ -25,6 +25,9 @@
 | CoupangWingSalesRankDailySnapshot | `coupang_wing_sales_rank_daily_snapshots` | Wing 상품 매칭 API의 키워드별 최근 28일 판매량순에서 자사 vendorItemId가 차지한 일별 순위. salesRank null은 수집 범위 밖이며 판매량·조회·매출 지표도 같은 Wing 응답에서 저장한다. |
 | CoupangWingTrackedProduct | `coupang_wing_tracked_products` | 쿠팡 Wing 카탈로그 경쟁상품 추적 대상. 상품분석(wing-catalog)에서 사용자가 추적 등록한 카탈로그 상품(자사/경쟁 무관). sourceKeyword = 지표 갱신 시 재검색할 키워드. |
 | CoupangWingTrackedProductDailySnapshot | `coupang_wing_tracked_product_daily_snapshots` | 쿠팡 Wing 추적상품 일별 지표 스냅샷(상품×일자당 최신본 upsert). Wing 카탈로그 28일 지표(클릭 pv·판매·매출·전환) + 판매가·리뷰. |
+| MallListingProfile | `mall_listing_profiles` | 몰 계정별 송신 프로필(배송/반품/출고지/판매정책). 사방넷 부가정보와 달리 복제·대량 적용·삭제가 가능하다. |
+| ProductCertification | `product_certifications` | KC/어린이제품 인증. 유효기간이 지난 인증은 송신 게이트에서 차단한다. certType='none'은 '해당 없음'을 운영자가 명시적으로 선언한 상태다. |
+| ProductNoticeAttribute | `product_notice_attributes` | 상품정보고시. 미충족이면 송신을 시작하지 않는다 — 사방넷은 몰이 거절한 뒤에야 알려줬다. channel 이 있으면 그 몰 전용 override. |
 | RocketPoCatalogLine | `rocket_po_catalog_lines` | Normalized Rocket PO line and confirmation-workbook evidence owned by one completed catalog snapshot. |
 | RocketPoCatalogSnapshot | `rocket_po_catalog_snapshots` | Completed Coupang Rocket PO collection evidence that can be reopened without another provider collection. Inventory capacity is never stored here. |
 | SellpiaManualMatchAlias | `sellpia_manual_match_aliases` | Exact normalized marketplace-title evidence linking one historical Sellpia manual match to an active physical SKU and positive unit quantity. |
@@ -383,6 +386,52 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  MallListingProfile {
+    String id PK
+    String organizationId FK
+    String channelAccountId FK
+    String name
+    Boolean isDefault
+    Boolean isActive
+    Json shippingJson
+    Json returnJson
+    Json addressJson
+    String asPhone
+    String categoryCode
+    String namePrefix
+    String nameSuffix
+    String descriptionHeaderHtml
+    String descriptionFooterHtml
+    Json extraJson
+    DateTime deletedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ProductCertification {
+    String id PK
+    String organizationId FK
+    String masterProductId FK
+    String certType
+    String certNumber
+    String certAgency
+    Int targetAgeMonths
+    DateTime validFrom
+    DateTime validTo
+    String documentUrl
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ProductNoticeAttribute {
+    String id PK
+    String organizationId FK
+    String masterProductId FK
+    String noticeCategory
+    Json attributesJson
+    String channel
+    String source
+    DateTime createdAt
+    DateTime updatedAt
+  }
   RocketPoCatalogLine {
     String id PK
     String organizationId FK
@@ -536,6 +585,12 @@ erDiagram
 | CoupangWingSalesRankDailySnapshot | organization | references external | Core | Organization |
 | CoupangWingTrackedProduct | organization | references external | Core | Organization |
 | CoupangWingTrackedProductDailySnapshot | organization | references external | Core | Organization |
+| MallListingProfile | channelAccount | references external | Core | ChannelAccount |
+| MallListingProfile | organization | references external | Core | Organization |
+| ProductCertification | masterProduct | references external | Core | MasterProduct |
+| ProductCertification | organization | references external | Core | Organization |
+| ProductNoticeAttribute | masterProduct | references external | Core | MasterProduct |
+| ProductNoticeAttribute | organization | references external | Core | Organization |
 | RocketPoCatalogLine | organization | references external | Core | Organization |
 | RocketPoCatalogSnapshot | channelAccount | references external | Core | ChannelAccount |
 | RocketPoCatalogSnapshot | organization | references external | Core | Organization |

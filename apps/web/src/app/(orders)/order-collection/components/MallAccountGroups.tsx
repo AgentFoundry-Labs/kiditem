@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Loader2, Truck, Upload } from 'lucide-react';
+import { GripVertical, Loader2, Truck, Upload } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
 import { isTrackingSupportedMall } from '../lib/icecream-tracking-api';
 import {
@@ -13,6 +13,9 @@ import type { FailedMallReason } from '../hooks/use-order-activity-events';
 
 interface MallAccountGroupsProps {
   accounts: OrderCollectionMallAccount[];
+  /** 카드 손잡이를 끌어 순서를 바꾼다. 없으면 손잡이를 감춘다. */
+  onMoveMall?: (mallKey: string, direction: -1 | 1) => void;
+  onDropMall?: (sourceMallKey: string, targetMallKey: string) => void;
   stats: Map<string, MallCollectionStat>;
   failedMallReasonByKey?: Map<string, FailedMallReason>;
   selectedMall: OrderCollectionMallAccount | null | undefined;
@@ -32,6 +35,8 @@ interface MallAccountGroupsProps {
 
 export function MallAccountGroups({
   accounts,
+  onMoveMall,
+  onDropMall,
   stats,
   failedMallReasonByKey,
   selectedMall,
@@ -53,9 +58,14 @@ export function MallAccountGroups({
         data-testid="mall-account-card-grid"
         className="grid min-w-[720px] grid-cols-5 gap-3"
       >
-        {accounts.map((account) => (
+        {accounts.map((account, index) => (
           <MallAccountCard
             key={account.key}
+            position={index + 1}
+            isFirst={index === 0}
+            isLast={index === accounts.length - 1}
+            onMoveMall={onMoveMall}
+            onDropMall={onDropMall}
             account={account}
             collectionStat={stats.get(account.key)}
             failedReason={failedMallReasonByKey?.get(account.key)}
@@ -77,8 +87,15 @@ export function MallAccountGroups({
   );
 }
 
+
 interface MallAccountCardProps {
   account: OrderCollectionMallAccount;
+  /** 손잡이 툴팁에 쓰는 현재 순번(1부터). */
+  position: number;
+  isFirst: boolean;
+  isLast: boolean;
+  onMoveMall?: (mallKey: string, direction: -1 | 1) => void;
+  onDropMall?: (sourceMallKey: string, targetMallKey: string) => void;
   collectionStat: MallCollectionStat | undefined;
   failedReason: FailedMallReason | undefined;
   isOpen: boolean;
@@ -97,6 +114,11 @@ interface MallAccountCardProps {
 
 function MallAccountCard({
   account,
+  position,
+  isFirst,
+  isLast,
+  onMoveMall,
+  onDropMall,
   collectionStat,
   failedReason,
   isOpen,
@@ -126,9 +148,40 @@ function MallAccountCard({
   // 수집 버튼은 달력 없이 곧바로 수집한다(둘을 섞지 않는다).
   const cardOpensCalendar = collectable && Boolean(onOpenCalendar);
 
+  // 카드 아무 데나 잡아 끌리면 수집·설정 클릭과 헷갈린다. 손잡이를 누른 동안만
+  // draggable 을 켜서 손잡이로만 순서가 바뀌게 한다.
+  const reorderable = Boolean(onDropMall);
+  const [dragArmed, setDragArmed] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+
   return (
     <article
       aria-label={`${account.name} 계정 카드`}
+      draggable={dragArmed}
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', account.key);
+      }}
+      onDragEnd={() => {
+        setDragArmed(false);
+        setDragOver(false);
+      }}
+      onDragOver={reorderable
+        ? (event) => {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+            setDragOver(true);
+          }
+        : undefined}
+      onDragLeave={reorderable ? () => setDragOver(false) : undefined}
+      onDrop={reorderable
+        ? (event) => {
+            event.preventDefault();
+            setDragOver(false);
+            const sourceKey = event.dataTransfer.getData('text/plain');
+            if (sourceKey && sourceKey !== account.key) onDropMall?.(sourceKey, account.key);
+          }
+        : undefined}
       onClick={cardOpensCalendar && !isCollecting
         ? (event) => {
             // 설정·수집·송장업로드 같은 내부 버튼 클릭까지 삼키지 않는다.
@@ -145,10 +198,34 @@ function MallAccountCard({
             ? 'border-slate-200 hover:border-purple-300'
             : 'border-slate-100 bg-slate-50/40',
         isOpen && 'ring-1 ring-purple-300',
+        dragOver && 'ring-2 ring-purple-400',
+        dragArmed && 'opacity-60',
       )}
     >
       <div className="flex min-w-0 items-center justify-between gap-1.5">
         <div className="flex min-w-0 items-center gap-1.5">
+          {reorderable ? (
+            <button
+              type="button"
+              aria-label={`${account.name} 순서 ${position}번 — 끌어서 옮기기`}
+              title="끌어서 순서 변경 (방향키로도 이동)"
+              onMouseDown={() => setDragArmed(true)}
+              onMouseUp={() => setDragArmed(false)}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowLeft' && !isFirst) {
+                  event.preventDefault();
+                  onMoveMall?.(account.key, -1);
+                }
+                if (event.key === 'ArrowRight' && !isLast) {
+                  event.preventDefault();
+                  onMoveMall?.(account.key, 1);
+                }
+              }}
+              className="-ml-1 flex-none cursor-grab rounded p-0.5 text-slate-300 transition-colors hover:text-slate-500 active:cursor-grabbing"
+            >
+              <GripVertical size={13} />
+            </button>
+          ) : null}
           <span
             className={cn(
               'h-1.5 w-1.5 flex-none rounded-full',

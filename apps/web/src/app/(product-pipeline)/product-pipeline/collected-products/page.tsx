@@ -46,6 +46,15 @@ import {
   type WingSellpiaSelection,
 } from './lib/wing-registration-flow';
 import {
+  fillKidsnoteRegistrationForm,
+  prepareKidsnoteRegistration,
+} from '../_shared/lib/kidsnote-registration-api';
+import {
+  KIDSNOTE_CATEGORY_PRESET,
+  KIDSNOTE_DEFAULT_CATEGORY,
+  type KidsnoteCategoryKey,
+} from '../_shared/lib/kidsnote-registration-form';
+import {
   emptyStateCopyForSourceFilter,
   platformForSourceFilter,
   type SourcingSourceFilter,
@@ -69,6 +78,8 @@ export default function SourcingPage() {
   const [wingDraft, setWingDraft] = useState<WingRegistrationDraft | null>(null);
   const [wingSubmitting, setWingSubmitting] = useState(false);
   const [wingSubmissionError, setWingSubmissionError] = useState<string | null>(null);
+  const [kidsnoteRegistering, setKidsnoteRegistering] = useState(false);
+  const [kidsnoteCategory, setKidsnoteCategory] = useState<KidsnoteCategoryKey>(KIDSNOTE_DEFAULT_CATEGORY);
   const wingPreparation = useWingRegistrationPreparation({
     onReady: (draft) => {
       setWingSubmissionError(null);
@@ -314,6 +325,40 @@ export default function SourcingPage() {
     }
   };
 
+  /**
+   * 키즈노트 상품등록 폼을 열어 자동으로 채운다.
+   *
+   * 제출하지 않는다. 키즈노트 등록은 몰 승인이 붙는 신청이라 열린 탭에서 사람이
+   * 확인하고 눌러야 한다. 그래서 성공 토스트도 "등록됨"이 아니라 "채웠음"이다.
+   */
+  const handleModalKidsnoteRegister = async () => {
+    const ids = [...quickProcessTargetIds];
+    if (ids.length === 0 || kidsnoteRegistering) return;
+    setKidsnoteRegistering(true);
+    try {
+      const { draft } = await prepareKidsnoteRegistration(ids[0]!);
+      const result = await fillKidsnoteRegistrationForm(draft, { category: kidsnoteCategory });
+      if (!result.ok) throw new Error(result.error ?? '키즈노트 폼을 채우지 못했습니다.');
+      const remaining = [...result.warnings, ...result.manualSteps];
+      toast.success('키즈노트 상품등록 폼을 채웠어요', {
+        description: remaining.length > 0
+          ? `열린 탭에서 확인 후 등록하세요. ${remaining.join(' ')}`
+          : '열린 탭에서 확인 후 등록하세요. 제출은 하지 않았습니다.',
+      });
+      if (ids.length > 1) {
+        toast.info('키즈노트는 한 번에 1개씩 등록합니다', {
+          description: `선택한 ${ids.length}개 중 첫 상품만 열었습니다.`,
+        });
+      }
+      setQuickProcessModalOpen(false);
+      setQuickProcessTargetIds([]);
+    } catch (err) {
+      toast.error(wingErrorMessage(err, '키즈노트 상품등록에 실패했습니다.'));
+    } finally {
+      setKidsnoteRegistering(false);
+    }
+  };
+
   const completeExternalWingRegistration = async ({
     candidateId,
     executionId,
@@ -492,6 +537,10 @@ export default function SourcingPage() {
         onClose={closeQuickProcessModal}
         onConfirm={(task) => quickProcessMutation.mutate({ ids: quickProcessTargetIds, task })}
         onWingRegister={handleModalWingRegister}
+        kidsnoteRegistering={kidsnoteRegistering}
+        kidsnoteCategory={kidsnoteCategory}
+        onKidsnoteCategoryChange={setKidsnoteCategory}
+        onKidsnoteRegister={() => void handleModalKidsnoteRegister()}
       />
 
       <WingRegistrationConfirmDialog
@@ -520,6 +569,10 @@ function QuickProcessSelectedDialog({
   onClose,
   onConfirm,
   onWingRegister,
+  kidsnoteRegistering,
+  kidsnoteCategory,
+  onKidsnoteCategoryChange,
+  onKidsnoteRegister,
 }: {
   open: boolean;
   targetCount: number;
@@ -530,6 +583,10 @@ function QuickProcessSelectedDialog({
   onClose: () => void;
   onConfirm: (task: QuickProcessTask) => void;
   onWingRegister: () => void;
+  kidsnoteRegistering: boolean;
+  kidsnoteCategory: KidsnoteCategoryKey;
+  onKidsnoteCategoryChange: (category: KidsnoteCategoryKey) => void;
+  onKidsnoteRegister: () => void;
 }) {
   if (!open) return null;
   const previewProducts = targetProducts.slice(0, 6);
@@ -635,6 +692,36 @@ function QuickProcessSelectedDialog({
           </button>
           <p className="mt-1.5 text-center text-[11px] font-semibold text-slate-400">
             고정 카테고리 확인 · WING 상품등록 페이지를 열어 직접 입력
+          </p>
+
+          <div className="mt-3 flex gap-2">
+            <select
+              value={kidsnoteCategory}
+              onChange={(event) => onKidsnoteCategoryChange(event.target.value as KidsnoteCategoryKey)}
+              disabled={kidsnoteRegistering}
+              aria-label="키즈노트 분류"
+              className="w-52 shrink-0 rounded-lg border border-slate-200 px-2 py-3 text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 disabled:opacity-50"
+            >
+              {Object.keys(KIDSNOTE_CATEGORY_PRESET).map((category) => (
+                <option key={category} value={category}>{category}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={onKidsnoteRegister}
+              disabled={targetCount === 0 || isSubmitting || kidsnoteRegistering}
+              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-3 text-sm font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {kidsnoteRegistering ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <Store size={15} />
+              )}
+              {kidsnoteRegistering ? '키즈노트 폼 채우는 중' : '키즈노트 상품 등록'}
+            </button>
+          </div>
+          <p className="mt-1.5 text-center text-[11px] font-semibold text-slate-400">
+            폼만 채웁니다 · 중·소분류와 배송정책은 열린 탭에서 선택 후 직접 제출
           </p>
         </div>
 

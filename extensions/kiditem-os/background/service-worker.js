@@ -45,6 +45,7 @@ importScripts(
   "orders/sellpia-manual-match.js",
   "orders/sellpia-post-processing.js",
   "orders/coupang-po-session.js",
+  "orders/kidsnote-product-register.js",
   "orders/rocket-po-collection.js",
   // 소싱 도메인 모듈
   "sourcing/url-policy.js",

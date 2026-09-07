@@ -88,7 +88,7 @@ export function requireRenderedDetailImage(
   return rendered.imageUrl;
 }
 
-async function prepareSavedCandidateDetailImage(
+export async function prepareSavedCandidateDetailImage(
   candidateId: string,
   detail: ProductDetailResponse,
 ): Promise<DetailPageClientRenderPrepareResponse> {

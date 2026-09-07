@@ -148,6 +148,7 @@ test("a login tab stays open without stealing focus when automatic login needs a
       ICECREAM_MALL_URL: "https://example.invalid/icecream",
       KIDKIDS_ORDER_URL: "https://example.invalid/kidkids",
       KIDSNOTE_ORDER_URL: "https://example.invalid/kidsnote",
+      LOTTEON_LOGIN_URL: "https://example.invalid/lotteon-login",
       KKOMANGSE_ORDER_URL: "https://example.invalid/kkomangse",
       ONCHANNEL_ORDER_URL: "https://example.invalid/onch",
       TEACHERVILLE_ORDER_URL: "https://example.invalid/teacher-mall",

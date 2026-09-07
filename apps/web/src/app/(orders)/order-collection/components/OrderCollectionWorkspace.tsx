@@ -22,6 +22,7 @@ import { OrderCollectionDailyPanel } from './OrderCollectionDailyPanel';
 import { OrderCollectionPipeline } from './OrderCollectionPipeline';
 import { OrderUploadModal } from './OrderUploadModal';
 import { useOrderActivityEvents } from '../hooks/use-order-activity-events';
+import { useMallOrderDrag } from '../hooks/use-mall-order-drag';
 import {
   AUTO_INTERVAL_OPTIONS_MIN,
   useOrderAutoDetect,
@@ -333,6 +334,11 @@ export function OrderCollectionWorkspace() {
   const refreshMallAccounts = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.orders.collectionMalls() });
   }, [queryClient]);
+
+  const mallOrder = useMallOrderDrag({
+    mallAccounts,
+    onSaved: refreshMallAccounts,
+  });
 
   useEffect(() => {
     historyRef.current = history;
@@ -848,8 +854,10 @@ export function OrderCollectionWorkspace() {
         enabledMallCount={enabledMallCount}
         failedMallCount={failedMallAccounts.length}
         failedMallReasonByKey={failedMallReasonByKey}
-        mallAccounts={mallAccounts}
+        mallAccounts={mallOrder.accounts}
         mallCollectionStats={mallStatsByKey}
+        onMoveMall={mallOrder.move}
+        onDropMall={mallOrder.drop}
         onReconcileSellpia={() => void handleReconcileWithSellpia({})}
         reconciling={reconciling}
         reconcileCheckedAt={sellpiaReconcile?.checkedAt ?? null}

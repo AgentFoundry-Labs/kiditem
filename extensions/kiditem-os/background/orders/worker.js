@@ -644,6 +644,8 @@ async function collectMarketplaceOrdersForOperation(account, collectionDate, col
       return collectArt09Orders(collectionDate, collection);
     case "haebub-mall":
       return collectHaebeopOrders({ date: collectionDate }, collection);
+    case "11st":
+      return collect11stOrders(collectionDate, collection);
     default:
       return {
         success: false,
@@ -1046,11 +1048,14 @@ const ONCHANNEL_TAB_MATCHES = ["https://www.onch3.co.kr/*"];
 const KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/management.htm";
 const KIDKIDS_TAB_MATCHES = ["https://partner.kidkids.net/*"];
 const LOTTEON_ORDER_URL = "https://store.lotteon.com/cm/main/index_SO.wsp";
+const LOTTEON_LOGIN_URL = "https://store.lotteon.com/cm/main/login_SO.wsp";
 const LOTTEON_TAB_MATCHES = ["https://store.lotteon.com/*"];
 const GSSHOP_ORDER_URL = "https://partners.gsshop.com/logistics/partner-logistics-mng";
 const GSSHOP_TAB_MATCHES = ["https://partners.gsshop.com/*"];
 const ALWAYZ_ORDER_URL = "https://alwayzseller.ilevit.com/shippings";
 const ALWAYZ_TAB_MATCHES = ["https://alwayzseller.ilevit.com/*"];
+const ELEVENST_ORDER_URL = "https://msoffice.11st.co.kr/cx/delivery";
+const ELEVENST_TAB_MATCHES = ["https://msoffice.11st.co.kr/*", "https://soffice.11st.co.kr/*"];
 const KAKAO_ORDER_URL = "https://shopping-seller.kakao.com/order/seller/store-order/integrate/list";
 const KAKAO_TAB_MATCHES = ["https://shopping-seller.kakao.com/*"];
 // 보리보리/하프클럽 협력사(TRICYCLE seller-club) 주문/배송관리
@@ -1126,6 +1131,24 @@ const ICECREAM_EXCLUDED_DELIVERY_STATUSES = [
   "회수완료",
 ];
 
+// 몰 상품등록. 주문수집이 이미 키즈노트 세션·탭을 소유하므로 그 옆에 둔다.
+// 폼만 채우고 제출은 사람이 한다.
+//
+// 첫 호출에서 만든다. 워커 로드 시점에 만들면 이 액션을 쓰지 않는 경로(테스트 하니스
+// 포함)까지 모듈 전역을 요구하게 된다.
+let kidsnoteProductRegisterInstance = null;
+function kidsnoteProductRegister() {
+  if (!kidsnoteProductRegisterInstance) {
+    kidsnoteProductRegisterInstance = KidItemKidsnoteProductRegister.create({
+      chrome,
+      fetch: (...args) => fetch(...args),
+      interactiveTabs,
+      tabReason: INTERACTIVE_TAB_REASONS.MALL_PRODUCT_REGISTER,
+    });
+  }
+  return kidsnoteProductRegisterInstance;
+}
+
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   const senderEnvironment = ordersEnvironmentContext.resolveSender(sender);
   if (!senderEnvironment) {
@@ -1153,6 +1176,11 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   // ping 은 통합 서비스워커가 처리한다. 도메인 워커가 각자 응답하면 세 리스너가
   // 같은 메시지에 경쟁 응답하게 된다. 이 도메인의 cancel/finalize 구현과
   // capabilities 는 파일 끝의 KidItemDomains.register 로 넘긴다.
+
+  // 키즈노트 상품등록 폼 자동 채움. 제출하지 않으므로 몰에 부작용이 없다.
+  if (msg?.action === "registerToKidsnoteForm") {
+    return respond(kidsnoteProductRegister().register(msg));
+  }
 
   if (msg?.action === "collectSellpiaInventory") {
     return respond(sellpiaInventoryLifecycle.run(
@@ -1569,6 +1597,14 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       msg,
       KidItemOrderCollectionLifecycle.createIdentity("always", msg.date),
       (collection) => collectAlwayzOrders(collection),
+    ));
+  }
+
+  if (msg?.action === "collect11stOrders") {
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity("11st", msg.date),
+      (collection) => collect11stOrders(msg.date, collection),
     ));
   }
 
@@ -2943,8 +2979,9 @@ async function collectLotteonOrders(collection) {
   const { tab, created } = await findOrCreateLotteonTab();
   if (!tab?.id) return { success: false, error: "롯데ON(store.lotteon.com) 탭을 열 수 없습니다." };
   await attachOrderCollectionTab(collection, tab, created);
-  // 롯데ON 판매자센터는 SPA + 토큰(sessionStorage.AuthToken)/SSO 로그인이라 확장이 ID/비번을 자동 입력할 수
-  // 없다(캡차·통합회원 로그인). 미로그인이면 로그인 탭을 앞으로 띄워 사용자가 직접 로그인하도록 안내한다.
+  // 수집 자체는 sessionStorage.AuthToken 을 쓰지만, 로그인 화면은 평범한 ID/비번 폼이라
+  // ensureMallLoggedIn 이 먼저 자동 로그인을 시도한다. 그래도 미로그인이면 여기서 로그인 탭을
+  // 앞으로 띄워 사용자가 직접 로그인하도록 안내한다.
   let loginNeeded = false;
   try {
     await waitForTabReady(tab.id);
@@ -6019,18 +6056,20 @@ async function ensureMallLogin(tabId, credentials, mallKey = null) {
     } catch (e) {
       /* 프레임 아직 준비 안 됨 — 재시도 */
     }
-    if (results.some((r) => r.state === "submitted")) {
+    const submitted = results.find((r) => r.state === "submitted");
+    if (submitted) {
       await delay(1500);
       await waitForTabReady(tabId); // 로그인 후 리다이렉트 정착
       await delay(1200);
-      return { success: true, submitted: true };
+      return { success: true, submitted: true, method: submitted.method || null };
     }
     // 어느 프레임에서도 로그인 폼이 없으면 이미 로그인된 상태로 간주.
     // 키드키즈는 management.htm 로드가 끝난 뒤 클라이언트 리다이렉트로 로그인 페이지를
     // 여는 구간이 있어, 첫 no-login-form 을 성공으로 처리하면 자동 로그인을 건너뛴다.
     if (results.length && results.every((r) => r.state === "no-login-form")) {
       if (mallKey !== "kidkids") {
-        return { success: true, submitted: false };
+        // 이미 로그인된 세션이라 폼이 없다. 저장된 비밀번호를 검증한 것이 아니다.
+        return { success: true, submitted: false, reason: "already_signed_in" };
       }
 
       let currentUrl = "";
@@ -6062,7 +6101,7 @@ async function ensureMallLogin(tabId, credentials, mallKey = null) {
       } else if (isKidkidsManagementUrl) {
         kidkidsManagementStableSince ??= Date.now();
         if (Date.now() - kidkidsManagementStableSince >= 5000) {
-          return { success: true, submitted: false };
+          return { success: true, submitted: false, reason: "already_signed_in" };
         }
       } else {
         kidkidsManagementStableSince = null;
@@ -6096,7 +6135,7 @@ async function ensureMallLogin(tabId, credentials, mallKey = null) {
       error: "키드키즈 로그인 상태를 제한시간 안에 확인하지 못했습니다. 열린 탭에서 로그인 후 다시 수집해 주세요.",
     };
   }
-  return { success: true, submitted: false }; // 폼 못 봄 → 이미 로그인 간주
+  return { success: true, submitted: false, reason: "already_signed_in" }; // 폼 못 봄
 }
 
 // 수집 전 자동 로그인 보장: 몰 주문/홈 URL 을 백그라운드로 열어(미로그인 시 로그인 페이지로 리다이렉트)
@@ -6115,7 +6154,7 @@ function ensureMallLoginWithLifecycle(message) {
 
 async function ensureMallLoggedIn(mallKey, credentials, collection = null) {
   if (!credentials || !credentials.loginId || !credentials.password) {
-    return { success: true, submitted: false };
+    return { success: true, submitted: false, reason: "no_credentials" };
   }
   const urls = {
     kidsnote: KIDSNOTE_ORDER_URL,
@@ -6129,11 +6168,16 @@ async function ensureMallLoggedIn(mallKey, credentials, collection = null) {
     "icecream-mall": ICECREAM_MALL_URL,
     "teacher-mall": TEACHERVILLE_ORDER_URL,
     "gs-shop": GSSHOP_ORDER_URL,
-    // 롯데ON(SSO/AuthToken)·카카오(토큰)·올웨이즈(JWT localStorage)는 채울 로그인 폼이 없어
-    // form-fill 자동로그인이 불가능하다. 각 collector 가 미로그인을 감지해 "로그인 필요"로 안내한다.
+    // 롯데ON 은 <form> 없는 WebSquare 화면이지만 사용자ID/비밀번호 input 과
+    // <a id="mf_btn_login">로그인</a> 이 실재해 form-fill 이 가능하다(2026-09-01 DOM 확인).
+    "lotte-on": LOTTEON_LOGIN_URL,
+    // 카카오(토큰)·올웨이즈(JWT localStorage)는 채울 로그인 폼이 없어 form-fill 자동로그인이
+    // 불가능하다. 각 collector 가 미로그인을 감지해 "로그인 필요"로 안내한다.
   };
   const url = urls[mallKey];
-  if (!url) return { success: true, submitted: false }; // 자동 로그인 미지원 몰
+  // 폼 자동 로그인이 불가능한 몰. 시도하지 않았다는 사실을 호출부가 알아야
+  // "확인됨" 으로 잘못 표시하지 않는다.
+  if (!url) return { success: true, submitted: false, reason: "unsupported_mall" };
   const tab = await chrome.tabs.create({ url, active: false }); // 백그라운드
   if (!tab?.id) return { success: false, error: "자동 로그인 탭을 열 수 없습니다." };
   if (collection) {
@@ -6259,8 +6303,9 @@ function autoSubmitIcecreamMallLogin(credentials) {
   }
   setInputValue(passwordInput, credentials.password);
 
-  if (triggerLogin(passwordInput)) {
-    return { state: "submitted" };
+  const method = triggerLogin(passwordInput);
+  if (method) {
+    return { state: "submitted", method };
   }
   return { state: "incomplete", reason: "submit-not-found" };
 
@@ -6326,43 +6371,120 @@ function autoSubmitIcecreamMallLogin(credentials) {
     });
   }
 
-  // 1) onclick 에 doLogin 이 든 컨트롤 → 2) 텍스트가 "로그인" → 3) form submit 순으로 시도.
+  // 로그인 실행. 앞쪽일수록 확실한 신호라 순서를 지킨다. 이미 동작하던 몰의 경로(1~3)를
+  // 건드리지 않고 뒤에 폴백만 덧붙였다. 성공하면 어떤 경로였는지 문자열로 돌려준다
+  // (어느 몰이 어느 방법으로 눌리는지 알아야 "안 눌림"을 진단할 수 있다).
   function triggerLogin(anchor) {
+    // 1) onclick 에 로그인 핸들러가 든 컨트롤
     const byHandler = Array.from(
       document.querySelectorAll("a,button,input[type='button'],[role='button'],[onclick]"),
     )
       .filter(isVisibleControl)
-      .find((el) => /dologin/i.test(el.getAttribute("onclick") || ""));
+      .find((el) => /do_?login|fn_?login|go_?login|login_?proc|loginsubmit/i.test(
+        el.getAttribute("onclick") || "",
+      ));
     if (byHandler) {
       byHandler.click();
-      return true;
+      return "onclick-handler";
     }
 
     const form = anchor.closest("form");
+
+    // 2) 텍스트가 정확히 "로그인"/"login"
     const byText = findLoginControl(form || document) || (form ? findLoginControl(document) : null);
     if (byText) {
       byText.click();
-      return true;
+      return "exact-text";
     }
 
+    // 3) form 안의 submit 컨트롤 / form submit
     if (form) {
       const submitControl = Array.from(
         form.querySelectorAll("input[type='submit'],button[type='submit']"),
       ).filter(isVisibleControl)[0];
       if (submitControl) {
         submitControl.click();
-        return true;
+        return "form-submit-control";
       }
       if (form.requestSubmit) {
         form.requestSubmit();
-        return true;
+        return "form-request-submit";
       }
       if (form.submit) {
         form.submit();
-        return true;
+        return "form-submit";
       }
     }
-    return false;
+
+    // 4) 텍스트 느슨한 일치 — "로그인하기", "Sign in" 등. 링크·안내문을 누르지 않도록
+    //    부정 목록으로 거른다("로그인 FAQ", "아이디 찾기", "비밀번호 재설정" …).
+    const byLooseText = findLoginControlLoose(form || document);
+    if (byLooseText) {
+      byLooseText.click();
+      return "loose-text";
+    }
+
+    // 5) id/class/name 에 login 이 든 버튼 (아이콘만 있는 버튼 대응)
+    const byAttribute = Array.from(
+      document.querySelectorAll(
+        "button[id*='login' i],button[class*='login' i],a[id*='login' i],a[class*='login' i]," +
+          "input[type='image'][id*='login' i],input[type='button'][id*='login' i]",
+      ),
+    ).filter(isVisibleControl).filter((el) => !isLoginDecoy(el))[0];
+    if (byAttribute) {
+      byAttribute.click();
+      return "attribute-match";
+    }
+
+    // 6) 마지막 수단 — 비밀번호 칸에서 Enter. 폼이 없는 SPA 로그인 화면 다수가
+    //    keydown 을 듣는다. 네이티브 폼 제출은 신뢰 이벤트가 아니라 못 하므로
+    //    3) 이 실패한 뒤에만 온다.
+    for (const type of ["keydown", "keypress", "keyup"]) {
+      anchor.dispatchEvent(
+        new KeyboardEvent(type, {
+          key: "Enter",
+          code: "Enter",
+          keyCode: 13,
+          which: 13,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    }
+    return "password-enter";
+  }
+
+  /** 로그인 버튼이 아닌데 "로그인" 글자가 든 것들. 누르면 엉뚱한 데로 간다. */
+  function isLoginDecoy(el) {
+    const text = String(el.textContent || el.value || "").replace(/\s+/g, " ").trim();
+    return /faq|찾기|재설정|회원가입|가입|안내|문의|고객센터|간편|sns|카카오톡|네이버로|자동\s*로그인/i
+      .test(text);
+  }
+
+  function findLoginControlLoose(root) {
+    return (
+      Array.from(
+        root.querySelectorAll(
+          "a,button,input[type='button'],input[type='submit'],input[type='image'],[role='button'],[onclick]",
+        ),
+      )
+        .filter(isVisibleControl)
+        .filter((el) => !isLoginDecoy(el))
+        .find((control) => {
+          const text = String(
+            control.textContent ||
+              control.value ||
+              control.getAttribute("title") ||
+              control.getAttribute("alt") ||
+              control.getAttribute("aria-label") ||
+              "",
+          )
+            .replace(/\s+/g, " ")
+            .trim();
+          if (!text || text.length > 12) return false; // 긴 문장은 버튼이 아니다
+          return /로그인|login|sign\s?in|접속하기/i.test(text);
+        }) || null
+    );
   }
 
   function findLoginControl(root) {
@@ -7876,6 +7998,9 @@ KidItemDomains.register({
     uploadDomeggookTracking: true,
     uploadOnchTracking: true,
     uploadKidkidsTracking: true,
+    // 키즈노트 상품등록 폼 자동 채움(제출은 사람이 한다).
+    kidsnoteFormRegister: true,
+    kidsnoteFormRegisterSource: "kidsnote-product-register-fill",
     collectHaebeopOrders: true,
     sellpiaPostTransfer: true,
     sellpiaAutoInvoice: true,
@@ -7889,3 +8014,162 @@ KidItemDomains.register({
   finalizeCollectionSession: (runId, status, message, environmentId) =>
     finalizeOrdersCollectionSession(runId, status, message, environmentId),
 });
+
+// ── 11번가(11st) 주문 수집 ─────────────────────────────────────────────────────
+// 데스크톱 셀러오피스(soffice)는 React 껍데기 + ExtJS 레거시 iframe 하이브리드라 스크랩이
+// 지저분하다. 대신 모바일 셀러오피스(msoffice)가 같은 세션 쿠키로 도는 **순수 JSON API** 라
+// 그쪽을 쓴다. 응답이 EUC-KR 이므로 반드시 arrayBuffer + TextDecoder('euc-kr') 로 읽는다.
+//
+// 목록(shippingManager2)에는 주소·연락처가 없어 주문마다 상세(getOrderDetail2)를 한 번 더
+// 부른다(N+1). 11번가 호출 상한이 비공개라 상세 호출 사이에 간격을 둔다.
+async function findOrCreate11stTab() {
+  const tabs = await chrome.tabs.query({ url: ELEVENST_TAB_MATCHES });
+  if (tabs[0]?.id) return { tab: tabs[0], created: false }; // 로그인된 기존 탭 재사용
+  const tab = await chrome.tabs.create({ url: ELEVENST_ORDER_URL, active: false }); // 백그라운드
+  return { tab, created: true };
+}
+
+async function collect11stOrders(dateFilter, collection) {
+  const { tab, created } = await findOrCreate11stTab();
+  if (!tab?.id) return { success: false, error: "11번가 셀러오피스(msoffice.11st.co.kr) 탭을 열 수 없습니다." };
+  await attachOrderCollectionTab(collection, tab, created);
+  let keepOpen = false;
+  try {
+    await waitForTabReady(tab.id);
+    const injected = await withTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: scrape11stOrders,
+        args: [dateFilter || ""],
+      }),
+      180000,
+      "11번가 주문 수집 시간이 초과되었습니다.",
+    );
+    const result = injected[0]?.result ?? { success: false, error: "11번가 화면에 접근하지 못했습니다." };
+    if (!result.success && result.pendingLogin) keepOpen = true;
+    return result;
+  } catch (e) {
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("11번가"); }
+    return mallGenericErrorResult("11번가", e);
+  } finally {
+    if (created && tab.id && !keepOpen) {
+      try {
+        await chrome.tabs.remove(tab.id);
+      } catch {
+        /* 이미 닫힘 — 무시 */
+      }
+    }
+  }
+}
+
+/**
+ * msoffice 페이지 컨텍스트에서 실행. 세션 쿠키로 JSON API 를 직접 호출한다.
+ *
+ * 수집 상태는 **결제완료(202)** 다. 보리보리에서 겪은 것처럼 상태코드를 잘못 잡으면
+ * 늘 빈 목록이 나오므로 여기서 바꾸지 말 것.
+ */
+async function scrape11stOrders(dateFilter) {
+  const API = "https://msoffice.11st.co.kr/cx/api/11ed";
+  const pad = (n) => String(n).padStart(2, "0");
+  const ymd = (d) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // 응답이 EUC-KR 이라 text() 로 읽으면 한글이 깨진다.
+  async function postForm(path, params) {
+    const body = new URLSearchParams(params).toString();
+    const res = await fetch(`${API}${path}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+      body,
+    });
+    const text = new TextDecoder("euc-kr").decode(await res.arrayBuffer());
+    try {
+      return { ok: res.ok, status: res.status, json: JSON.parse(text) };
+    } catch {
+      return { ok: false, status: res.status, json: null, raw: text.slice(0, 200) };
+    }
+  }
+
+  const loginResult = {
+    success: false,
+    pendingLogin: true,
+    error:
+      "11번가 셀러오피스에 로그인되어 있지 않습니다. 열린 11번가 탭에서 로그인한 뒤 다시 '수집하기'를 눌러주세요.",
+  };
+
+  try {
+    const now = new Date();
+    let from;
+    let to;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateFilter || "")) {
+      from = to = dateFilter.replace(/-/g, "");
+    } else {
+      // 기본 최근 7일 — 발송 전 주문이 며칠 누적돼도 놓치지 않게.
+      const start = new Date(now);
+      start.setDate(start.getDate() - 7);
+      from = ymd(start);
+      to = ymd(now);
+    }
+
+    const listParams = {
+      shBuyerType: "01",
+      shBuyerText: "",
+      shBuyerTextInput: "",
+      shProductStat: "202", // 결제완료
+      statusFilter: "202",
+      shDateFrom: from,
+      shDateTo: to,
+      shDateType: "01",
+      start: "0",
+      limit: "200",
+      isPaging: "Y",
+      listType: "orderingLogistics",
+      shDelayReport: "",
+      shPurchaseConfirm: "",
+      shToday: "",
+      shDelay: "",
+    };
+
+    const list = await postForm("/escrow/shippingManager2", listParams);
+    if (!list.json) return { ...loginResult, error: `11번가 주문 목록 응답을 읽지 못했습니다. (HTTP ${list.status})` };
+    if (list.json.success === false) {
+      if (/로그인/.test(String(list.json.msg || ""))) return loginResult;
+      return { success: false, error: `11번가 주문 조회 실패: ${list.json.msg || "알 수 없는 오류"}` };
+    }
+
+    const rows = Array.isArray(list.json.data)
+      ? list.json.data
+      : Array.isArray(list.json.list)
+        ? list.json.list
+        : Array.isArray(list.json.rows)
+          ? list.json.rows
+          : [];
+    if (rows.length === 0) {
+      return { success: true, orders: [], count: 0, dateFrom: from, dateTo: to };
+    }
+
+    // 주소·연락처는 목록에 없다. 주문별 상세를 이어붙인다.
+    const orders = [];
+    for (const row of rows) {
+      const ordNo = row.ORD_NO ?? row.ordNo;
+      const ordPrdSeq = row.ORD_PRD_SEQ ?? row.ordPrdSeq;
+      const dlvNo = row.DLV_NO ?? row.dlvNo;
+      let detail = null;
+      if (ordNo != null) {
+        const res = await postForm("/escrow/getOrderDetail2", {
+          ordNo: String(ordNo),
+          ordPrdSeq: String(ordPrdSeq ?? ""),
+          dlvNo: String(dlvNo ?? ""),
+        });
+        detail = res.json?.data ?? res.json ?? null;
+        await delay(250); // 호출 상한이 비공개라 보수적으로 간격을 둔다
+      }
+      orders.push({ ...row, __detail: detail });
+    }
+
+    return { success: true, orders, count: orders.length, dateFrom: from, dateTo: to };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}

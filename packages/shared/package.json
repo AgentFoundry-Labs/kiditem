@@ -130,6 +130,11 @@
       "import": "./dist/channel-sku-availability.js",
       "require": "./dist/channel-sku-availability.cjs"
     },
+    "./mall-publishing": {
+      "types": "./dist/mall-publishing.d.ts",
+      "import": "./dist/mall-publishing.js",
+      "require": "./dist/mall-publishing.cjs"
+    },
     "./inventory-availability": {
       "types": "./dist/inventory-availability.d.ts",
       "import": "./dist/inventory-availability.js",
@@ -351,6 +356,9 @@
       ],
       "channel-sku-availability": [
         "dist/channel-sku-availability.d.ts"
+      ],
+      "mall-publishing": [
+        "dist/mall-publishing.d.ts"
       ],
       "inventory-availability": [
         "dist/inventory-availability.d.ts"

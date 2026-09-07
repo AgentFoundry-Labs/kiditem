@@ -336,6 +336,7 @@ erDiagram
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelListingDeletionOperation |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelScrapeRun |
+| ChannelAccount | channelAccount | referenced by external | Channels | MallListingProfile |
 | ChannelAccount | channelAccount | referenced by external | Channels | RocketPoCatalogSnapshot |
 | ChannelAccount | channelAccount | referenced by external | Orders | Order |
 | ChannelAccount | channelAccount | referenced by external | Orders | OrderReturn |
@@ -363,6 +364,8 @@ erDiagram
 | ChannelListingOption | listingOption | referenced by external | Orders | OrderLineItem |
 | ChannelListingOption | listingOption | referenced by external | Orders | OrderReturnLineItem |
 | ChannelListingOptionInventoryComponent | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
+| MasterProduct | masterProduct | referenced by external | Channels | ProductCertification |
+| MasterProduct | masterProduct | referenced by external | Channels | ProductNoticeAttribute |
 | MasterProduct | masterProduct | referenced by external | Inventory | SellpiaInventorySku |
 | MasterProduct | provenanceMasterProduct | referenced by external | Sourcing | SourcingCandidate |
 | Organization | organization | referenced by external | Advertising | AdAction |
@@ -408,6 +411,9 @@ erDiagram
 | Organization | organization | referenced by external | Channels | CoupangWingSalesRankDailySnapshot |
 | Organization | organization | referenced by external | Channels | CoupangWingTrackedProduct |
 | Organization | organization | referenced by external | Channels | CoupangWingTrackedProductDailySnapshot |
+| Organization | organization | referenced by external | Channels | MallListingProfile |
+| Organization | organization | referenced by external | Channels | ProductCertification |
+| Organization | organization | referenced by external | Channels | ProductNoticeAttribute |
 | Organization | organization | referenced by external | Channels | RocketPoCatalogLine |
 | Organization | organization | referenced by external | Channels | RocketPoCatalogSnapshot |
 | Organization | organization | referenced by external | Channels | SellpiaManualMatchAlias |

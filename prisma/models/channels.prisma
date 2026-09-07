@@ -827,3 +827,96 @@ model ChannelListingDeletionOperation {
   @@index([organizationId, status, createdAt])
   @@map("channel_listing_deletion_operations")
 }
+
+// ── 몰별 상품등록·품절 송신 (Phase 0: 프로필/고시/KC 뼈대) ─────────────────────
+//
+// 사방넷의 '쇼핑몰 부가정보' + '속성정보(상품정보고시)' 자리다. 고시·KC 는 물리적
+// 상품 속성처럼 보이지만 실제로는 몰 송신 게이트를 통과하기 위한 데이터이고
+// 몰별 override(`channel`)를 갖기 때문에 Channels 가 소유한다.
+
+/// @namespace Channels
+/// @describe 몰 계정별 송신 프로필(배송/반품/출고지/판매정책). 사방넷 부가정보와 달리 복제·대량 적용·삭제가 가능하다.
+model MallListingProfile {
+  id               String @id @default(uuid()) @db.Uuid
+  organizationId   String @map("organization_id") @db.Uuid
+  channelAccountId String @map("channel_account_id") @db.Uuid
+
+  name      String
+  isDefault Boolean @default(false) @map("is_default")
+  isActive  Boolean @default(true) @map("is_active")
+
+  shippingJson          Json?   @map("shipping_json") @db.JsonB
+  returnJson            Json?   @map("return_json") @db.JsonB
+  addressJson           Json?   @map("address_json") @db.JsonB
+  asPhone               String? @map("as_phone")
+  categoryCode          String? @map("category_code")
+  namePrefix            String? @map("name_prefix")
+  nameSuffix            String? @map("name_suffix")
+  descriptionHeaderHtml String? @map("description_header_html")
+  descriptionFooterHtml String? @map("description_footer_html")
+  extraJson             Json?   @map("extra_json") @db.JsonB
+
+  /// 사방넷은 부가정보 삭제 자체가 불가했다. 여기서는 soft delete 로 되돌릴 수 있게 둔다.
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization   Organization   @relation("MallListingProfileOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount ChannelAccount @relation("ChannelAccountMallListingProfiles", fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, channelAccountId, name], map: "mall_listing_profiles_org_account_name_key")
+  @@unique([organizationId, channelAccountId], map: "mall_listing_profiles_default_key", where: raw("is_default = true AND deleted_at IS NULL"))
+  @@index([organizationId, channelAccountId])
+  @@map("mall_listing_profiles")
+}
+
+/// @namespace Channels
+/// @describe 상품정보고시. 미충족이면 송신을 시작하지 않는다 — 사방넷은 몰이 거절한 뒤에야 알려줬다. channel 이 있으면 그 몰 전용 override.
+model ProductNoticeAttribute {
+  id              String @id @default(uuid()) @db.Uuid
+  organizationId  String @map("organization_id") @db.Uuid
+  masterProductId String @map("master_product_id") @db.Uuid
+
+  noticeCategory String  @map("notice_category")
+  attributesJson Json    @map("attributes_json") @db.JsonB
+  /// null = 모든 몰 기본값. 값이 있으면 해당 몰 override(사방넷 '쇼핑몰별 속성설정').
+  channel        String?
+  /// 'manual' | 'coupang_backfill' — 추론으로 채운 행을 운영자가 구분할 수 있어야 한다.
+  source         String  @default("manual")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization  Organization  @relation("ProductNoticeAttributeOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  masterProduct MasterProduct @relation("MasterProductNoticeAttributes", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, masterProductId, noticeCategory, channel], map: "product_notice_attributes_org_product_category_channel_key")
+  @@index([organizationId, masterProductId])
+  @@map("product_notice_attributes")
+}
+
+/// @namespace Channels
+/// @describe KC/어린이제품 인증. 유효기간이 지난 인증은 송신 게이트에서 차단한다. certType='none'은 '해당 없음'을 운영자가 명시적으로 선언한 상태다.
+model ProductCertification {
+  id              String @id @default(uuid()) @db.Uuid
+  organizationId  String @map("organization_id") @db.Uuid
+  masterProductId String @map("master_product_id") @db.Uuid
+
+  certType        String    @map("cert_type")
+  certNumber      String?   @map("cert_number")
+  certAgency      String?   @map("cert_agency")
+  targetAgeMonths Int?      @map("target_age_months")
+  validFrom       DateTime? @map("valid_from") @db.Date
+  validTo         DateTime? @map("valid_to") @db.Date
+  documentUrl     String?   @map("document_url")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization  Organization  @relation("ProductCertificationOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  masterProduct MasterProduct @relation("MasterProductCertifications", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, masterProductId, certType, certNumber], map: "product_certifications_org_product_type_number_key")
+  @@index([organizationId, masterProductId])
+  @@map("product_certifications")
+}

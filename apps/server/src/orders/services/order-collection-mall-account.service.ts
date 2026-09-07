@@ -33,6 +33,13 @@ const ORDER_COLLECTION_MALLS = [
   { key: 'teacher-mall', name: '티쳐몰' },
   { key: 'gs-shop', name: 'GS샵' },
   { key: 'coupang-direct', name: '쿠팡직배송' },
+  { key: 'gmarket', name: '지마켓' },
+  { key: 'auction', name: '옥션' },
+  { key: '11st', name: '11번가' },
+  { key: 'smartstore', name: '스마트스토어' },
+  { key: 'ssg', name: '신세계' },
+  { key: 'thirtymall', name: '떠리몰' },
+  { key: 'yoons', name: '윤선생' },
 ] as const;
 
 type OrderCollectionMallKey = (typeof ORDER_COLLECTION_MALLS)[number]['key'];
@@ -48,6 +55,8 @@ export interface OrderCollectionMallAccount {
   siteUrl: string | null;
   memo: string | null;
   passwordUpdatedAt: string | null;
+  /** 주문수집 화면 카드 순서. null 이면 카탈로그 기본 순서. */
+  sortOrder: number | null;
   updatedAt: string | null;
 }
 
@@ -80,10 +89,78 @@ export class OrderCollectionMallAccountService {
     });
     const byKey = new Map(rows.map((row) => [row.externalAccountId, row]));
 
-    return ORDER_COLLECTION_MALLS.map((mall) => {
-      const account = byKey.get(mall.key);
-      return toMallAccount(mall.key, mall.name, account ?? null);
+    // 저장된 순서가 먼저, 없으면 카탈로그 순서. 같은 순번은 카탈로그 순서로 안정 정렬.
+    return ORDER_COLLECTION_MALLS.map((mall, catalogIndex) => ({
+      catalogIndex,
+      account: toMallAccount(mall.key, mall.name, byKey.get(mall.key) ?? null),
+    }))
+      .sort((left, right) =>
+        (left.account.sortOrder ?? Number.MAX_SAFE_INTEGER)
+          - (right.account.sortOrder ?? Number.MAX_SAFE_INTEGER)
+        || left.catalogIndex - right.catalogIndex)
+      .map(({ account }) => account);
+  }
+
+  /**
+   * 주문수집 화면 카드 순서를 저장한다.
+   *
+   * 보내온 키는 0..n-1 순번을 받고, 빠진 키는 순번을 비워 카탈로그 기본 순서로
+   * 되돌아간다. 카탈로그에 몰이 새로 늘어도 예전 화면이 보낸 목록이 거부되지
+   * 않도록 부분 목록을 허용한다.
+   */
+  async reorder(
+    organizationId: string,
+    mallKeys: unknown,
+  ): Promise<OrderCollectionMallAccount[]> {
+    const orderedKeys = normalizeMallKeyOrder(mallKeys);
+    const rows = await this.prisma.channelAccount.findMany({
+      where: {
+        organizationId,
+        channel: ORDER_COLLECTION_CHANNEL,
+        externalAccountId: { in: ORDER_COLLECTION_MALLS.map((mall) => mall.key) },
+      },
     });
+    const byKey = new Map(rows.map((row) => [row.externalAccountId, row]));
+    const nextSortOrderByKey = new Map(orderedKeys.map((key, index) => [key, index]));
+
+    const writes = ORDER_COLLECTION_MALLS.flatMap((mall) => {
+      const nextSortOrder = nextSortOrderByKey.get(mall.key) ?? null;
+      const existing = byKey.get(mall.key) ?? null;
+      const existingConfig = toJsonRecord(existing?.config);
+      const existingOrderConfig = readOrderCollectionConfig(existingConfig);
+      if (readNumber(existingOrderConfig.sortOrder) === nextSortOrder) return [];
+      const nextConfig = {
+        ...existingConfig,
+        [ORDER_COLLECTION_CONFIG_KEY]: {
+          ...(existingOrderConfig as Prisma.InputJsonObject),
+          sortOrder: nextSortOrder,
+        },
+      } satisfies Prisma.InputJsonObject;
+      return [{ mall, existing, nextConfig }];
+    });
+    if (writes.length === 0) return this.list(organizationId);
+
+    await this.prisma.$transaction(
+      writes.map(({ mall, existing, nextConfig }) =>
+        existing
+          ? this.prisma.channelAccount.update({
+              where: { id: existing.id },
+              data: { config: nextConfig },
+            })
+          : this.prisma.channelAccount.create({
+              data: {
+                organizationId,
+                channel: ORDER_COLLECTION_CHANNEL,
+                name: mall.name,
+                externalAccountId: mall.key,
+                // 순서만 담은 행이다. enabled 기본값(true)과 같은 뜻으로 맞춘다.
+                status: 'configured',
+                isPrimary: false,
+                config: nextConfig,
+              },
+            })),
+    );
+    return this.list(organizationId);
   }
 
   async update(
@@ -125,6 +202,8 @@ export class OrderCollectionMallAccountService {
         passwordUpdatedAt,
         siteUrl,
         memo,
+        // 계정 저장이 카드 순서를 지우지 않도록 그대로 넘긴다.
+        sortOrder: readNumber(existingOrderConfig.sortOrder),
       },
     } satisfies Prisma.InputJsonObject;
 
@@ -212,6 +291,7 @@ function toMallAccount(
     siteUrl: readString(config.siteUrl),
     memo: readString(config.memo),
     passwordUpdatedAt: readString(config.passwordUpdatedAt),
+    sortOrder: readNumber(config.sortOrder),
     updatedAt: account?.updatedAt.toISOString() ?? null,
   };
 }
@@ -243,6 +323,28 @@ function readString(value: unknown): string | null {
 
 function readBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function normalizeMallKeyOrder(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new BadRequestException('몰 순서는 배열이어야 합니다.');
+  }
+  const keys: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      throw new BadRequestException('몰 키는 문자열이어야 합니다.');
+    }
+    const key = findMall(entry).key;
+    if (keys.includes(key)) {
+      throw new BadRequestException('몰 순서에 같은 몰이 두 번 들어 있습니다.');
+    }
+    keys.push(key);
+  }
+  return keys;
 }
 
 function envelopeToJson(envelope: EncryptedCredentialEnvelope): Prisma.InputJsonObject {

@@ -46,6 +46,12 @@ describe('Sidebar product pipeline navigation', () => {
         ['/product-hub/matching', '상품 매칭'],
         ['/reviews', '리뷰 관리'],
       ]],
+      ['쇼핑몰 관리', [
+        ['/mall-settings', '쇼핑몰 계정'],
+        ['/mall-listings', '상품 등록'],
+        ['/mall-availability', '품절 관리'],
+        ['/mall-tasks', '송신 내역'],
+      ]],
       ['주문관리', [
         ['/order-collection', '주문수집'],
         ['/rocket-orders', '쿠팡 로켓'],

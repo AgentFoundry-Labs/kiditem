@@ -96,7 +96,12 @@ export interface OrderCollectionExtensionRun {
 
 export interface MallLoginEnsureResult extends OrderCollectionFailureResponse {
   success: boolean;
+  /** 실제로 아이디·비밀번호를 채우고 로그인 버튼까지 눌렀는가. */
   submitted?: boolean;
+  /** submitted 가 false 인 이유. 저장된 비밀번호를 검증하지 못한 경우다. */
+  reason?: 'unsupported_mall' | 'already_signed_in' | 'no_credentials';
+  /** 로그인 버튼을 어떤 방법으로 눌렀는가. 몰별로 어느 경로가 먹는지 진단에 쓴다. */
+  method?: string | null;
 }
 
 export async function finalizeOrderCollectionSession(

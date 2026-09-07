@@ -242,6 +242,31 @@ export function createBrowserMallCollector({
     return rows;
   };
 
+  /**
+   * 11번가 — 수집만 하고 셀피아 변환은 아직 하지 않는다.
+   *
+   * 셀피아에 11번가 양식(`om_excelformed = "11st"`, 판매처 코드 514)이 이미 있는데,
+   * 그 양식이 요구하는 **정확한 컬럼 목록을 아직 확인하지 못했다**. 다른 몰 사례를 보면
+   * (도매꾹·티처몰·롯데ON·GS샵) 셀피아 내장 양식은 그 몰이 직접 내려주는 주문 엑셀을
+   * 그대로 올리는 passthrough 다. 그래서 컬럼을 추측해 파일을 만들면 셀피아가 거부한다.
+   *
+   * 확정 방법: 11번가 셀러오피스에서 주문 엑셀을 한 번 내려받아 **헤더 행**만 확인하면 된다.
+   * 그때까지는 수집이 실제로 되는지(건수·필드)만 확인할 수 있게 열어둔다.
+   */
+  const generateElevenStOrders = async (run: OrderCollectionExtensionRun): Promise<number> => {
+    const { collectElevenStOrdersFromExtension } = await import('./eleven-st-orders-api');
+    await ensureMallLogin('11st', run);
+    const orders = await collectElevenStOrdersFromExtension(collectionDateOf(run), run);
+    if (orders.length === 0) {
+      toastNoNewOrders('11번가');
+      return 0;
+    }
+    toast.warning(`11번가 주문 ${formatNumber(orders.length)}건을 수집했습니다.`, {
+      description: '셀피아 업로드 양식(11st)이 아직 확정되지 않아 변환 파일은 만들지 않았습니다.',
+    });
+    return 0;
+  };
+
   const generateHaebeopSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
     const { collectHaebeopOrdersFromExtension, convertHaebeopToSellpiaFile } = await import(
       './haebeop-orders-api'
@@ -279,8 +304,10 @@ export function createBrowserMallCollector({
     const { collectLotteonXlsxFromExtension, convertLotteonToSellpiaFile } = await import(
       './lotteon-orders-api'
     );
-    // 롯데ON은 통합회원 SSO/토큰 로그인이라 form-fill 자동로그인 불가 — 미로그인 시 collectLotteon 이
-    // 로그인 탭을 띄우고 "로그인 필요"로 안내한다.
+    // 로그인 화면(login_SO.wsp)은 <form> 없는 WebSquare 지만 사용자ID/비밀번호 input 과
+    // <a id="mf_btn_login">로그인</a> 이 실재해 form-fill 이 된다(2026-09-01 DOM 확인).
+    // 자동 로그인이 실패하면 collectLotteon 이 로그인 탭을 띄우고 "로그인 필요"로 안내한다.
+    await ensureMallLogin('lotte-on', run);
     const { xlsxBase64, fileName } = await collectLotteonXlsxFromExtension(run);
     let result: Awaited<ReturnType<typeof convertLotteonToSellpiaFile>>;
     try {
@@ -682,6 +709,7 @@ export function createBrowserMallCollector({
     if (account.key === 'teacher-mall') return resultFor(await generateTeachervilleSellpia(resolvedRun), today);
     if (account.key === 'art09') return resultFor(await generateArt09Csv(resolvedRun), today);
     if (account.key === 'haebub-mall') return resultFor(await generateHaebeopSellpia(resolvedRun), today);
+    if (account.key === '11st') return resultFor(await generateElevenStOrders(resolvedRun), today);
     if (!isBrowserCollectableMall(account)) {
       throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
     }

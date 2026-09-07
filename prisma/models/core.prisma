@@ -128,6 +128,11 @@ model Organization {
   channelRegistrationOwnerIdempotencyReceipts ChannelRegistrationOwnerIdempotencyReceipt[] @relation("ChannelRegistrationOwnerIdempotencyReceiptOrganization")
   channelListingDeletionOperations        ChannelListingDeletionOperation[]        @relation("ChannelListingDeletionOperationOrganization")
 
+  // Channels — 몰별 상품등록·품절 송신 (Phase 0)
+  mallListingProfiles                     MallListingProfile[]                     @relation("MallListingProfileOrganization")
+  productNoticeAttributes                 ProductNoticeAttribute[]                 @relation("ProductNoticeAttributeOrganization")
+  productCertifications                   ProductCertification[]                   @relation("ProductCertificationOrganization")
+
   // Channels — market-data snapshots (Wave C0)
   channelScrapeRuns                  ChannelScrapeRun[]
   channelScrapeChunks                ChannelScrapeChunk[]
@@ -343,6 +348,7 @@ model ChannelAccount {
   rocketPurchaseConfirmations      RocketPurchaseConfirmation[]
   rocketPoCatalogSnapshots         RocketPoCatalogSnapshot[]
   sourcingLaunchCandidates         SourcingLaunchCandidate[]
+  mallListingProfiles              MallListingProfile[]              @relation("ChannelAccountMallListingProfiles")
 
   @@unique([organizationId, channel, externalAccountId])
   @@unique([id, organizationId], map: "channel_accounts_id_org_key")
@@ -454,6 +460,8 @@ model MasterProduct {
   inventorySkus        SellpiaInventorySku[]          @relation("MasterProductInventorySkus")
   abcEvaluation        MasterProductAbcEvaluation?
   abcGradeHistories    MasterProductAbcGradeHistory[]
+  noticeAttributes     ProductNoticeAttribute[]       @relation("MasterProductNoticeAttributes")
+  certifications       ProductCertification[]         @relation("MasterProductCertifications")
 
   @@unique([organizationId, code])
   @@unique([originChannelListingId, organizationId])

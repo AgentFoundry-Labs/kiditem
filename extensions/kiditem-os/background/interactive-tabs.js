@@ -13,6 +13,7 @@
     SHIPMENT_DOWNLOAD: "shipment_download",
     TRACKING_MUTATION: "tracking_mutation",
     MANUAL_PRODUCT_COLLECTION: "manual_product_collection",
+    MALL_PRODUCT_REGISTER: "mall_product_register",
   });
   const allowedReasons = new Set(Object.values(reasons));
 

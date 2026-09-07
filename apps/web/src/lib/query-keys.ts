@@ -263,6 +263,17 @@ export const queryKeys = {
     list: (params: Record<string, string>) =>
       [...queryKeys.channelSkuAvailability.lists(), params] as const,
   },
+  mallPublishing: {
+    all: ['mallPublishing'] as const,
+    manifests: () => [...queryKeys.mallPublishing.all, 'manifests'] as const,
+    targets: () => [...queryKeys.mallPublishing.all, 'targets'] as const,
+    profiles: (mallKey?: string) =>
+      [...queryKeys.mallPublishing.all, 'profiles', mallKey ?? 'all'] as const,
+    preflight: (params: Record<string, string>) =>
+      [...queryKeys.mallPublishing.all, 'preflight', params] as const,
+    availabilityPreview: (params: Record<string, string>) =>
+      [...queryKeys.mallPublishing.all, 'availability-preview', params] as const,
+  },
   coupangAccount: {
     all: ['coupangAccount'] as const,
     settings: () => [...queryKeys.coupangAccount.all, 'settings'] as const,
