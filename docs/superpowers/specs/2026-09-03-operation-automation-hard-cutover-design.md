@@ -1478,6 +1478,16 @@ approved execution and publication changes; the score formula stays fixed.
   status panel retains per-source coverage, missing dates and existing
   explicit collection entrypoints. Its reference numbers are mock data;
   replace its unavailable-profit placeholder with real partial aggregation.
+
+  > **2026-09-11 정정 — data-status 패널 철회.** 사용자가 렌더된 화면을 보고
+  > 오른쪽 data-status 패널을 철회했다. 대시보드는 develop의 구성으로 돌아가고,
+  > 값별 산출 근거는 패널이 아니라 각 값에 붙는 **도움말 기호**로 제공한다.
+  > 누락 날짜를 화면에 나열하지 않는다 — 도움말 뒤에 둔다.
+  >
+  > 근거를 발행한다는 요구 자체는 그대로다. 바뀐 것은 그것을 어디에 어떻게
+  > 보여주는가뿐이다. 패널 안에 있던 수집 진입점(Wing 일별 트래픽)은 삭제하지
+  > 않고 기존 "데이터 수집" 버튼이 여는 readiness 모달로 옮긴다 — 웹 전체에
+  > 다른 진입점이 없고 스케줄러도 없어(KID-43) 지우면 수집이 불가능해진다.
 - Reporting scope: analytics/dashboard, its Sellpia sales read model, their
   focused shared dashboard contract and dashboard UI. Related source/ABC
   owner changes follow the amendment below; unrelated cleanup stays excluded.
