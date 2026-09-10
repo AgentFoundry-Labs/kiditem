@@ -1,5 +1,4 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { ProductAbcReadModelSchema } from '@kiditem/shared/product-abc';
 import {
   CATALOG_DISPLAY_MEDIA_PORT,
   type CatalogDisplayMediaPort,
@@ -10,9 +9,10 @@ import {
   type InventoryAvailabilityPort,
 } from '../../inventory/application/port/in/stock/inventory-availability.port';
 import { PrismaService } from '../../prisma/prisma.service';
-import { MASTER_PRODUCT_PROFITABILITY_READ_PORT, type ProfitabilityEvidence, type ProfitabilityEvidenceSnapshot } from '../../finance/application/port/in/master-product-profitability-read.port';
-import { productAbcEvaluation } from '../../products/mapper/product-abc-evaluation.mapper';
-import { productAbcDisplayStatus } from '../../products/domain/product-abc-display-status';
+import {
+  PRODUCT_ABC_READ_PORT,
+  type ProductAbcReadPort,
+} from '../../products/application/port/in/product-abc-read.port';
 import {
   projectSellpiaProductInventory,
   resolveSellpiaProductInventoryRows,
@@ -29,8 +29,8 @@ export class SellpiaProductInventoryReader {
     private readonly inventory: InventoryAvailabilityPort,
     @Inject(CATALOG_DISPLAY_MEDIA_PORT)
     private readonly catalogDisplayMedia: CatalogDisplayMediaPort,
-    @Inject(MASTER_PRODUCT_PROFITABILITY_READ_PORT)
-    private readonly evidence: ProfitabilityEvidence,
+    @Inject(PRODUCT_ABC_READ_PORT)
+    private readonly productAbc: ProductAbcReadPort,
   ) {}
 
   async project(
@@ -50,49 +50,26 @@ export class SellpiaProductInventoryReader {
             code: true,
             name: true,
             createdAt: true,
-            abcEvaluation: { include: { formulaVersion: true } },
           },
         },
       },
     });
-    const kst = new Date(Date.now() + 9 * 60 * 60 * 1_000);
-    const targetCutoff = new Date(Date.UTC(
-      kst.getUTCFullYear(),
-      kst.getUTCMonth(),
-      kst.getUTCDate() - 1,
-    )).toISOString().slice(0, 10);
-    const [evidence, state] = await Promise.all([
-      this.evidence.load({ organizationId, targetCutoff }),
-      this.prisma.masterProductAbcFormulaState.findUnique({ where: { organizationId } }),
-    ]);
-    const currentById = new Map(evidence.products.map((product) => [product.masterProductId, product]));
+    // ABC belongs to Products: this read names the inventory products it
+    // resolved and displays the status Products published for them, rather
+    // than deriving one against a cutoff of its own (ADR 0002).
+    const abcSnapshot = await this.productAbc.readAbc({
+      organizationId,
+      masterProductIds: [...new Set(candidates.flatMap((candidate) =>
+        candidate.masterProduct ? [candidate.masterProduct.id] : []))],
+    });
+    const abcByProductId = new Map(abcSnapshot.products.map((product) =>
+      [product.masterProductId, product.abc] as const));
     const resolved = resolveSellpiaProductInventoryRows(products, candidates);
     const canonicalProductBySkuId = new Map(candidates.flatMap((candidate) => {
       const product = candidate.masterProduct;
       if (!product) return [];
-      const evaluation = productAbcEvaluation(product.abcEvaluation);
-      const abcGrade = evaluation?.abcGrade ?? null;
-      const mappingValid = currentById.get(product.id)?.mappingValid ?? false;
-      const abc = ProductAbcReadModelSchema.parse({
-        abcGrade,
-        evaluation,
-        displayStatus: productAbcDisplayStatus(evaluation !== null, mappingValid, {
-          ...evidence.sources, actualCutoff: evidence.actualCutoff,
-        }, currentById.get(product.id)?.saleStartDate ?? null),
-        formulaRevision: state?.formulaRevision ?? 0,
-        publicationRevision: state?.publicationRevision ?? 0,
-        officialCutoffDate: evaluation?.gradeBasisCutoffDate ?? state?.officialCutoffDate?.toISOString().slice(0, 10) ?? null,
-        publishedAt: state?.publishedAt ?? null,
-        actualCutoffDate: evidence.actualCutoff,
-        sources: {
-          sellpia: sourceView(evidence, 'sellpia'),
-          advertising: sourceView(evidence, 'advertising'),
-          mapping: {
-            status: !mappingValid ? 'UNMAPPED' : evidence.mappingGeneration === null ? 'STALE' : 'READY',
-            mappingGeneration: evidence.mappingGeneration,
-          },
-        },
-      });
+      const abc = abcByProductId.get(product.id);
+      if (!abc) return [];
       return [[candidate.id, {
         sellpiaInventorySkuId: candidate.id,
         masterProductId: product.id,
@@ -183,22 +160,6 @@ export class SellpiaProductInventoryReader {
     });
     return { availability, projection };
   }
-}
-
-function sourceView(evidence: ProfitabilityEvidenceSnapshot, source: 'sellpia' | 'advertising') {
-  const status = evidence.sources[source];
-  const manifest = evidence.sourceVector[source];
-  return {
-    status: status.status,
-    sourceImportRunId: manifest.sourceImportRunId,
-    generation: manifest.publicationSequence,
-    coverageStartDate: manifest.coverageStartDate,
-    coverageEndDate: manifest.coverageEndDate,
-    actualCutoffDate: status.actualCutoff,
-    capturedAt: manifest.capturedAt,
-    latestAttemptState: status.latestAttemptState,
-    errorCode: status.errorCode,
-  };
 }
 
 type DestinationOptionTarget = CatalogDisplayMediaTarget & {

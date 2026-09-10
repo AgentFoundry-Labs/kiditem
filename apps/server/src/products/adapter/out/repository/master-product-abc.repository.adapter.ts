@@ -7,9 +7,11 @@ import {
 import { lockProductMapping } from '../../../../common/product-mapping-generation';
 import { readProductSaleAgeEvidence } from '../../../../common/product-sale-age';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { productAbcEvaluation } from '../../../mapper/product-abc-evaluation.mapper';
 import { listSellingMasterProductIds } from './selling-master-product.query';
 import type {
   MasterProductAbcCandidateRecord,
+  MasterProductAbcEvaluationRecord,
   MasterProductAbcFormulaStateRecord,
   MasterProductAbcSourceFence,
   ProductAbcPublicationInput,
@@ -29,6 +31,7 @@ type FormulaStateRow = Readonly<{
   formulaRevision: number;
   publicationRevision: number;
   officialCutoffDate: CalendarValue;
+  publishedAt: Date | null;
   publishedSellpiaSourceImportRunId: string | null;
   publishedAdvertisingSourceImportRunId: string | null;
   publishedMappingGeneration: string | null;
@@ -71,6 +74,25 @@ export class MasterProductAbcRepositoryAdapter implements ProductAbcRepositoryPo
 
   async listCurrentAbcTargetIds(organizationId: string): Promise<readonly string[]> {
     return listSellingMasterProductIds(this.prisma, organizationId);
+  }
+
+  async listEvaluations(
+    organizationId: string,
+    masterProductIds: readonly string[],
+  ): Promise<readonly MasterProductAbcEvaluationRecord[]> {
+    if (masterProductIds.length === 0) return [];
+    const rows = await this.prisma.masterProduct.findMany({
+      where: { organizationId, id: { in: [...masterProductIds] } },
+      orderBy: { id: 'asc' },
+      select: {
+        id: true,
+        abcEvaluation: { include: { formulaVersion: true } },
+      },
+    });
+    return rows.map((row) => ({
+      masterProductId: row.id,
+      evaluation: productAbcEvaluation(row.abcEvaluation),
+    } satisfies MasterProductAbcEvaluationRecord));
   }
 
   async publish(input: ProductAbcPublicationInput): Promise<MasterProductAbcPublicationResult> {
@@ -414,6 +436,7 @@ async function readFormulaState(
            s.formula_revision AS "formulaRevision",
            s.publication_revision AS "publicationRevision",
            s.official_cutoff_date AS "officialCutoffDate",
+           s.published_at AS "publishedAt",
            s.published_sellpia_source_import_run_id AS "publishedSellpiaSourceImportRunId",
            s.published_advertising_source_import_run_id AS "publishedAdvertisingSourceImportRunId",
            s.published_mapping_generation::text AS "publishedMappingGeneration",
@@ -436,6 +459,7 @@ function stateRecord(row: FormulaStateRow): MasterProductAbcFormulaStateRecord {
     formulaRevision: row.formulaRevision,
     publicationRevision: row.publicationRevision,
     officialCutoffDate: dateKey(row.officialCutoffDate),
+    publishedAt: row.publishedAt?.toISOString() ?? null,
     publishedSellpiaSourceImportRunId: row.publishedSellpiaSourceImportRunId,
     publishedAdvertisingSourceImportRunId: row.publishedAdvertisingSourceImportRunId,
     publishedMappingGeneration: row.publishedMappingGeneration,
@@ -451,6 +475,7 @@ function emptyState(organizationId: string): MasterProductAbcFormulaStateRecord 
     formulaRevision: 0,
     publicationRevision: 0,
     officialCutoffDate: null,
+    publishedAt: null,
     publishedSellpiaSourceImportRunId: null,
     publishedAdvertisingSourceImportRunId: null,
     publishedMappingGeneration: null,

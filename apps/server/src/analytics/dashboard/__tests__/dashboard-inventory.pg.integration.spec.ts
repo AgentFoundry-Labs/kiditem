@@ -5,6 +5,10 @@ import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/ada
 import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
 import { SellpiaProfitabilitySourceService } from '../../sellpia-product-sales/sellpia-profitability-source.service';
 import { MASTER_PRODUCT_PROFITABILITY_READ_PORT } from '../../../finance/application/port/in/master-product-profitability-read.port';
+import { MasterProductAbcRepositoryAdapter } from '../../../products/adapter/out/repository/master-product-abc.repository.adapter';
+import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from '../../../products/application/port/out/repository/master-product-abc.repository.port';
+import { PRODUCT_ABC_READ_PORT } from '../../../products/application/port/in/product-abc-read.port';
+import { ProductAbcReadService } from '../../../products/application/service/product-abc-read.service';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { AlertsRepository } from '../../../alerts/alerts.repository';
 import { DashboardInventoryService } from '../application/service/dashboard-inventory.service';
@@ -45,6 +49,10 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       providers: [
         DashboardInventoryService,
         { provide: MASTER_PRODUCT_PROFITABILITY_READ_PORT, useValue: evidence },
+        MasterProductAbcRepositoryAdapter,
+        { provide: MASTER_PRODUCT_ABC_REPOSITORY_PORT, useExisting: MasterProductAbcRepositoryAdapter },
+        ProductAbcReadService,
+        { provide: PRODUCT_ABC_READ_PORT, useExisting: ProductAbcReadService },
         DashboardInventoryRepositoryAdapter,
         { provide: PrismaService, useValue: prisma },
         { provide: DASHBOARD_INVENTORY_REPOSITORY_PORT, useExisting: DashboardInventoryRepositoryAdapter },

@@ -17,11 +17,9 @@ import {
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import { buildPerListingMetrics } from '../../../../../common/per-listing-profit';
 import {
-  MASTER_PRODUCT_PROFITABILITY_READ_PORT,
-  type ProfitabilityEvidence,
-  type ProfitabilityEvidenceSnapshot,
-} from '../../../../../finance/application/port/in/master-product-profitability-read.port';
-import { productAbcDisplayStatus } from '../../../../../products/domain/product-abc-display-status';
+  PRODUCT_ABC_READ_PORT,
+  type ProductAbcReadPort,
+} from '../../../../../products/application/port/in/product-abc-read.port';
 import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
 import type {
   DashboardInventoryRepositoryPort,
@@ -40,8 +38,8 @@ export class DashboardInventoryRepositoryAdapter
 {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(MASTER_PRODUCT_PROFITABILITY_READ_PORT)
-    private readonly evidence: ProfitabilityEvidence,
+    @Inject(PRODUCT_ABC_READ_PORT)
+    private readonly productAbc: ProductAbcReadPort,
   ) {}
 
   async countActiveProductsByGrade(
@@ -65,24 +63,21 @@ export class DashboardInventoryRepositoryAdapter
   async countActiveProductsByAbcStatus(
     organizationId: string,
   ): Promise<AbcStatusCounts> {
-    const kst = new Date(Date.now() + 9 * 60 * 60 * 1_000);
-    const targetCutoff = new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), 0)).toISOString().slice(0, 10);
-    const [rows, evidence] = await Promise.all([
-      this.prisma.masterProduct.findMany({
-        where: { organizationId, isActive: true },
-        select: { id: true, abcEvaluation: { select: { id: true } } },
-      }),
-      this.evidence.load({ organizationId, targetCutoff }),
-    ]);
-    const products = new Map(evidence.products.map((product) => [product.masterProductId, product]));
+    // Which products are active is this read model's question; what ABC status
+    // each of them carries is Products'. The dashboard names the population and
+    // counts the published answer — it does not choose an evidence cutoff of
+    // its own (ADR 0002).
+    const active = await this.prisma.masterProduct.findMany({
+      where: { organizationId, isActive: true },
+      select: { id: true },
+    });
+    const snapshot = await this.productAbc.readAbc({
+      organizationId,
+      masterProductIds: active.map((row) => row.id),
+    });
     const counts = new Map<AbcStatusCountRow['displayStatus'], number>();
-    for (const row of rows) {
-      const displayStatus = productAbcDisplayStatus(
-        row.abcEvaluation !== null,
-        products.get(row.id)?.mappingValid ?? false,
-        { ...evidence.sources, actualCutoff: evidence.actualCutoff },
-        products.get(row.id)?.saleStartDate ?? null,
-      );
+    for (const product of snapshot.products) {
+      const displayStatus = product.abc.displayStatus;
       counts.set(displayStatus, (counts.get(displayStatus) ?? 0) + 1);
     }
     return {
@@ -90,9 +85,9 @@ export class DashboardInventoryRepositoryAdapter
       // The evaluation's own as-of, published beside the counts so the read
       // model never has to guess how old a stored grade is.
       evaluatedAsOf: {
-        targetCutoff,
-        actualCutoff: evidence.actualCutoff,
-        capturedAt: latestCapturedAt(evidence),
+        targetCutoff: snapshot.targetCutoff,
+        actualCutoff: snapshot.actualCutoff,
+        capturedAt: snapshot.capturedAt,
       },
     } satisfies AbcStatusCounts;
   }
@@ -319,22 +314,6 @@ export class DashboardInventoryRepositoryAdapter
       ),
     } satisfies AGradeReviewRow));
   }
-}
-
-/**
- * The newest capture time across the source generations behind one
- * profitability evidence snapshot. A snapshot is only as recently observed as
- * its most recent source read, and either source may publish none.
- */
-function latestCapturedAt(evidence: ProfitabilityEvidenceSnapshot): string | null {
-  const captures = [
-    evidence.sourceVector.sellpia.capturedAt,
-    evidence.sourceVector.advertising.capturedAt,
-  ].filter((value): value is string => value !== null);
-  return captures.reduce<string | null>(
-    (latest, value) => (latest === null || value > latest ? value : latest),
-    null,
-  );
 }
 
 function rawSaleStatus(value: unknown): string | null {

@@ -3,10 +3,13 @@ import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-ab
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
 import { SellpiaProductInventoryReader } from '../sellpia-product-inventory-reader';
+import { stubProductAbcRead } from '../../../products/__tests__/test-helpers/product-abc-read.stub';
 
 const ORGANIZATION_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 
-function makePrisma() {
+function makePrisma(
+  publishedGrades: Readonly<Record<string, 'A' | 'B' | 'C' | null>> = {},
+) {
   const findMany = vi.fn(async () => [] as unknown[]);
   const inventoryFindMany = vi.fn(async () => [] as unknown[]);
   const destinationFindMany = vi.fn(async () => [] as unknown[]);
@@ -27,7 +30,7 @@ function makePrisma() {
     prisma as never,
     { findBySkuIds: inventoryAvailability } as never,
     { findDisplayMedia: vi.fn(async () => new Map()) } as never,
-    missingEvidence(),
+    stubProductAbcRead(publishedGrades),
   );
   const Service = SellpiaProductSalesService as unknown as new (
     prisma: unknown,
@@ -222,7 +225,6 @@ describe('SellpiaProductSalesService.getSummary', () => {
             code: true,
             name: true,
             createdAt: true,
-            abcEvaluation: { include: { formulaVersion: true } },
           },
         },
       },
@@ -256,7 +258,7 @@ describe('SellpiaProductSalesService.getSummary', () => {
       inventoryFindMany,
       inventoryAvailability,
       destinationFindMany,
-    } = makePrisma();
+    } = makePrisma({ 'master-a': 'A', 'master-c': 'C' });
     findMany.mockResolvedValueOnce([
       row({ productCode: 'SKU-1', yearMonth: '2026-06', orderQty: 10 }),
       row({ productCode: 'SKU-2', yearMonth: '2026-06', orderQty: 20 }),
@@ -467,14 +469,7 @@ function collectedInventory(
   };
 }
 
-function missingEvidence() {
-  const source = { sourceImportRunId: null, publicationSequence: null, mappingGeneration: null, coverageStartDate: null, coverageEndDate: null, capturedAt: null };
-  const status = { status: 'MISSING' as const, actualCutoff: null, latestAttemptState: null, errorCode: null };
-  return { load: async () => ({
-    targetCutoff: '2026-06-30', actualCutoff: null, mappingGeneration: null, contributionBasis: null,
-    sources: { sellpia: status, advertising: status }, sourceVector: { sellpia: source, advertising: source }, products: [],
-  }) };
-}
+
 
 function storedEvaluation(abcGrade: 'A' | 'B' | 'C') {
   const decimal = (value: number) => new Prisma.Decimal(value);

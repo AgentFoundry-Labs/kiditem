@@ -3,6 +3,8 @@ import { AlertsRepository } from '../../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
+import { MasterProductAbcRepositoryAdapter } from '../../../products/adapter/out/repository/master-product-abc.repository.adapter';
+import { ProductAbcReadService } from '../../../products/application/service/product-abc-read.service';
 import { SellpiaProfitabilitySourceService } from '../sellpia-profitability-source.service';
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
 import { SellpiaProductInventoryReader } from '../sellpia-product-inventory-reader';
@@ -46,7 +48,9 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
         prismaService,
         inventory,
         { findDisplayMedia: async () => new Map() },
-        evidence,
+        new ProductAbcReadService(
+          new MasterProductAbcRepositoryAdapter(prismaService), evidence,
+        ),
       ),
     );
     profitFactReader = new SellpiaMasterProductProfitFactReader(prismaService);

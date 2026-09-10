@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SellpiaProductInventoryReader } from './sellpia-product-inventory-reader';
+import { stubMissingProductAbcRead } from '../../products/__tests__/test-helpers/product-abc-read.stub';
 
 describe('SellpiaProductInventoryReader display-media enrichment', () => {
   it('batches one request per destination channel option and retains the returned image', async () => {
@@ -29,7 +30,7 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
         snapshot: { collected: true, generation: '1', verifiedAt: '2026-07-17T00:00:00.000Z' },
         items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, availableStock: 10, isActive: true, generation: '1' }],
       })),
-    } as never, { findDisplayMedia }, missingEvidence());
+    } as never, { findDisplayMedia }, stubMissingProductAbcRead());
 
     const result = await reader.project('org-1', [{
       key: 'SKU-1',
@@ -80,7 +81,7 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
         snapshot: { collected: true, generation: '1', verifiedAt: '2026-07-17T00:00:00.000Z' },
         items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, availableStock: 10, isActive: true, generation: '1' }],
       })),
-    } as never, { findDisplayMedia: vi.fn(async () => { throw new Error('unavailable'); }) }, missingEvidence());
+    } as never, { findDisplayMedia: vi.fn(async () => { throw new Error('unavailable'); }) }, stubMissingProductAbcRead());
     const warn = vi.spyOn((reader as never as { logger: { warn: () => void } }).logger, 'warn').mockImplementation(() => undefined);
 
     const result = await reader.project('org-1', [{
@@ -138,12 +139,4 @@ function listing() {
   };
 }
 
-function missingEvidence() {
-  const source = { sourceImportRunId: null, publicationSequence: null, mappingGeneration: null, coverageStartDate: null, coverageEndDate: null, capturedAt: null };
-  const status = { status: 'MISSING' as const, actualCutoff: null, latestAttemptState: null, errorCode: null };
-  return { load: async () => ({
-    targetCutoff: '2026-08-31', actualCutoff: null, mappingGeneration: null, contributionBasis: null,
-    sources: { sellpia: status, advertising: status }, sourceVector: { sellpia: source, advertising: source },
-    products: [],
-  }) };
-}
+

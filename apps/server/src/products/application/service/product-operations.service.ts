@@ -11,7 +11,6 @@ import {
   type ProductOperationsListSummary,
 } from '@kiditem/shared/product-operations';
 import {
-  ProductAbcReadModelSchema,
   type ProductAbcContributionAnalytics,
   type ProductAbcContributionOverview,
   type ProductAbcContributionProduct,
@@ -47,7 +46,10 @@ import {
   MASTER_PRODUCT_CONTRIBUTION_READ_PORT,
   type MasterProductContributionReadPort,
 } from '../../../finance/application/port/in/master-product-contribution-read.port';
-import { productAbcDisplayStatus } from '../../domain/product-abc-display-status';
+import {
+  buildProductAbcReadModel,
+  type ProductAbcSourceEvidence,
+} from '../../domain/product-abc-read-model';
 import type { ProductOperationsPort } from '../port/in/product-operations.port';
 
 @Injectable()
@@ -413,58 +415,53 @@ function enrichAbc<T extends {
 ) {
   const current = status.products.find(({ masterProductId }) =>
     masterProductId === product.id);
-  const mappingStatus = current?.mappingValid === false
-    ? 'UNMAPPED' as const
-    : status.mappingReady
-      ? 'READY' as const
-      : 'STALE' as const;
-  const displayStatus = productAbcDisplayStatus(
-    product.abcEvaluation !== null,
-    current?.mappingValid !== false,
-    status,
-    current?.saleStartDate ?? null,
-  );
   return {
     ...product,
-    abc: ProductAbcReadModelSchema.parse({
-      abcGrade: product.abcGrade,
+    abc: buildProductAbcReadModel({
       evaluation: product.abcEvaluation,
-      displayStatus,
-      formulaRevision: status.formulaState.formulaRevision,
-      publicationRevision: status.formulaState.publicationRevision,
-      officialCutoffDate: status.formulaState.officialCutoff,
-      publishedAt: status.formulaState.publishedAt,
-      actualCutoffDate: status.actualCutoff,
-      sources: {
-        sellpia: abcSource(status.sellpia, status.sourceVector.sellpia),
-        advertising: abcSource(
+      mappingValid: current?.mappingValid !== false,
+      saleStartDate: current?.saleStartDate ?? null,
+      evidence: {
+        actualCutoff: status.actualCutoff,
+        // Evidence carries a mapping generation only while it agrees with the
+        // organization's current one; `mappingReady` is that agreement.
+        mappingGeneration: status.mappingReady
+          ? status.formulaState.mappingGeneration
+          : null,
+        sellpia: abcSourceEvidence(status.sellpia, status.sourceVector.sellpia),
+        advertising: abcSourceEvidence(
           status.advertising,
           status.sourceVector.advertising,
         ),
-        mapping: {
-          status: mappingStatus,
-          mappingGeneration: status.formulaState.mappingGeneration,
-        },
+      },
+      formulaState: {
+        formulaRevision: status.formulaState.formulaRevision,
+        publicationRevision: status.formulaState.publicationRevision,
+        officialCutoffDate: status.formulaState.officialCutoff,
+        publishedAt: status.formulaState.publishedAt,
+        mappingGeneration: status.formulaState.mappingGeneration,
       },
     }),
     contribution,
   };
 }
 
-function abcSource(
+function abcSourceEvidence(
   status: ProductOperationsDataStatusFacts['sellpia'],
   manifest: ProductOperationsAbcSourceManifest | null,
-) {
+): ProductAbcSourceEvidence {
   return {
     status: status.status,
+    actualCutoff: status.actualCutoff,
+    latestAttemptState: status.latestAttemptState,
+    errorCode: status.errorCode,
     sourceImportRunId: manifest?.sourceImportRunId ?? null,
     generation: manifest?.generation ?? null,
     coverageStartDate: manifest?.coverageStartDate ?? null,
     coverageEndDate: manifest?.coverageEndDate ?? null,
-    actualCutoffDate: status.actualCutoff,
-    capturedAt: status.capturedAt,
-    latestAttemptState: status.latestAttemptState,
-    errorCode: status.errorCode,
+    capturedAt: status.capturedAt instanceof Date
+      ? status.capturedAt.toISOString()
+      : status.capturedAt,
   };
 }
 

@@ -82,5 +82,9 @@ owns physical stock quantities.
   impact are separate reporting metrics. They never alter `abcGrade`.
 - Evaluation/publication is organization-locked so an older snapshot cannot
   overwrite a newer completed publication.
+- Products owns the ABC evidence cutoff — the latest closed KST day — and
+  derives display status once. Consumers read the published per-product view
+  through `PRODUCT_ABC_READ_PORT`; no reader picks a cutoff of its own
+  ([ADR 0002](../../../../docs/adr/0002-products-owns-abc-display-status.md)).
 - Thumbnail analysis quality grades remain AI registration evidence and are
   independent from automatic product ABC.

@@ -16,6 +16,7 @@ import {
   type ProductAbcPublicationInput,
 } from '../port/out/repository/master-product-abc.repository.port';
 import { productAbcSaleAgeDays } from '@kiditem/shared/product-abc';
+import { productAbcEvidenceCutoff } from '../../domain/product-abc-display-status';
 import type {
   MasterProductAbcRecalculationInput,
   MasterProductAbcRecalculationPort,
@@ -46,7 +47,7 @@ export class MasterProductAbcService implements MasterProductAbcRecalculationPor
     }
 
     const calculatedAt = new Date();
-    const targetCutoff = latestClosedKstDate(calculatedAt);
+    const targetCutoff = productAbcEvidenceCutoff(calculatedAt);
     const targetProductIds = uniqueSorted(
       await this.repository.listCurrentAbcTargetIds(input.organizationId),
     );
@@ -206,13 +207,6 @@ function assertOrganizationId(organizationId: string): void {
 }
 
 /** Latest closed KST calendar date; ABC includes this partial cutoff month. */
-function latestClosedKstDate(now: Date): string {
-  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1_000);
-  return new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate() - 1))
-    .toISOString()
-    .slice(0, 10);
-}
-
 function uniqueSorted(values: readonly string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }

@@ -7,6 +7,7 @@ import {
   type SourceGenerationView,
 } from '../../../../finance/application/port/in/master-product-profitability-read.port';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { productAbcEvidenceCutoff } from '../../../domain/product-abc-display-status';
 import { listSellingMasterProductIds } from './selling-master-product.query';
 import type {
   ProductOperationsDataStatusFacts,
@@ -37,7 +38,7 @@ implements ProductOperationsDataStatusRepositoryPort {
     organizationId: string,
     periodDays: ProductOperationsPeriodDays,
   ): Promise<ProductOperationsDataStatusFacts> {
-    const cutoffDate = yesterdayKst();
+    const cutoffDate = productAbcEvidenceCutoff(new Date());
     const periodStart = utcCalendarDate(addCalendarDays(cutoffDate, -(periodDays - 1)));
     // Read the cheap status inputs first, then open the profitability snapshot.
     // The latter fans out to repeatable-read source transactions; keeping it
@@ -197,11 +198,6 @@ function minimumCutoff(left: string | null, right: string | null): string | null
 
 function isAbcGrade(value: string | null): value is 'A' | 'B' | 'C' {
   return value === 'A' || value === 'B' || value === 'C';
-}
-
-function yesterdayKst(now = new Date()): string {
-  const shifted = new Date(now.getTime() + (9 * 60 * 60 * 1_000) - 86_400_000);
-  return shifted.toISOString().slice(0, 10);
 }
 
 function addCalendarDays(date: string, days: number): string {

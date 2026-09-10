@@ -60,7 +60,10 @@ boundary with HTTP and persistence adapters around Prisma-free orchestration.
   per-listing math lives in `/api/profit-loss`.
 - Inventory ABC counts, calculation statuses, contribution-profit totals,
   formula context, and Top Products read Products' stored
-  `MasterProduct.abcGrade` plus current evaluation snapshot. A/B/C ratios use
+  `MasterProduct.abcGrade` plus current evaluation snapshot. Display statuses
+  come from Products through `PRODUCT_ABC_READ_PORT`; this read model names the
+  product population and counts the published answer, and never chooses an ABC
+  evidence cutoff. A/B/C ratios use
   classified products only; observation, source-stale, mapping, recalculation,
   and calculation-error states do not become C or unclassified. Dashboard never
   recalculates contribution profit or owns ABC policy mutations.

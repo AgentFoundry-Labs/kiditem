@@ -12,8 +12,7 @@ import { ProductRecipeComponentCandidateService } from './application/service/pr
 import { CategoriesModule } from './categories/categories.module';
 import { MasterProductAbcService } from './application/service/master-product-abc.service';
 import { MASTER_PRODUCT_ABC_RECALCULATION_PORT } from './application/port/in/master-product-abc-recalculation.port';
-import { MasterProductAbcRepositoryAdapter } from './adapter/out/repository/master-product-abc.repository.adapter';
-import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from './application/port/out/repository/master-product-abc.repository.port';
+import { ProductAbcReadModule } from './product-abc-read.module';
 import { ProductOperationsDataStatusService } from './application/service/product-operations-data-status.service';
 import { ProductOperationsDataStatusRepositoryAdapter } from './adapter/out/repository/product-operations-data-status.repository.adapter';
 import { PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT } from './application/port/out/repository/product-operations-data-status.repository.port';
@@ -23,7 +22,14 @@ import { PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT } from './application/port/
 import { PRODUCTS_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capability/products-capability-composition.port';
 
 @Module({
-  imports: [CategoriesModule, InventoryModule, AnalyticsModule, FinanceModule, AiModule],
+  imports: [
+    CategoriesModule,
+    InventoryModule,
+    AnalyticsModule,
+    FinanceModule,
+    AiModule,
+    ProductAbcReadModule,
+  ],
   controllers: [ProductAbcController, ProductOperationsController],
   providers: [
     ProductOperationsService,
@@ -33,7 +39,6 @@ import { PRODUCTS_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capa
     MasterProductAbcService,
     ProductsListingGenerationCapabilityAdapter,
     ProductsCapabilityCompositionAdapter,
-    MasterProductAbcRepositoryAdapter,
     ProductOperationsRepositoryAdapter,
     {
       provide: PRODUCT_OPERATIONS_REPOSITORY_PORT,
@@ -42,10 +47,6 @@ import { PRODUCTS_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capa
     {
       provide: PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT,
       useExisting: ProductOperationsDataStatusRepositoryAdapter,
-    },
-    {
-      provide: MASTER_PRODUCT_ABC_REPOSITORY_PORT,
-      useExisting: MasterProductAbcRepositoryAdapter,
     },
     {
       provide: MASTER_PRODUCT_ABC_RECALCULATION_PORT,

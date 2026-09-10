@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ProfitabilityEvidenceModule } from '../../finance/profitability-evidence.module';
+import { ProductAbcReadModule } from '../../products/product-abc-read.module';
 import { InventoryModule } from '../../inventory/inventory.module';
 import { AiModule } from '../../ai/ai.module';
 import { MASTER_PRODUCT_PROFIT_FACT_READ_PORT } from '../application/port/in/master-product-profit-fact-read.port';
@@ -13,7 +13,12 @@ import { SellpiaProfitabilitySourceModule } from './sellpia-profitability-source
 // Sellpia 상품별 이익현황(stat_prd_profit)의 source-owned publication + read.
 // PrismaModule 은 @Global 이므로 별도 import 불필요.
 @Module({
-  imports: [InventoryModule, AiModule, SellpiaProfitabilitySourceModule, ProfitabilityEvidenceModule],
+  imports: [
+    InventoryModule,
+    AiModule,
+    SellpiaProfitabilitySourceModule,
+    ProductAbcReadModule,
+  ],
   controllers: [SellpiaProductSalesController],
   providers: [
     SellpiaProductSalesService,

@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { DashboardModule } from '../dashboard.module';
 import { DashboardCapabilityModule } from '../dashboard-capability.module';
 import { AdvertisingModule } from '../../../advertising/advertising.module';
-import { ProfitabilityEvidenceModule } from '../../../finance/profitability-evidence.module';
+import { ProductAbcReadModule } from '../../../products/product-abc-read.module';
 import { PrismaModule } from '../../../prisma/prisma.module';
 import { DashboardController } from '../adapter/in/http/dashboard.controller';
 // adapter/out/repository
@@ -51,7 +51,7 @@ describe('DashboardModule capability wiring', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, DashboardModule) ?? [];
     expect(imports).toEqual([DashboardCapabilityModule]);
     expect(Reflect.getMetadata(IMPORTS_KEY, DashboardCapabilityModule) ?? [])
-      .toEqual([PrismaModule, ProfitabilityEvidenceModule, AdvertisingModule]);
+      .toEqual([PrismaModule, ProductAbcReadModule, AdvertisingModule]);
     expect(Reflect.getMetadata(CONTROLLERS_KEY, DashboardCapabilityModule) ?? [])
       .toEqual([]);
   });
