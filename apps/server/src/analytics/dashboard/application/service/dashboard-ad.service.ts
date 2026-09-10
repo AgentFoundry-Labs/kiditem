@@ -87,10 +87,11 @@ export class DashboardAdService {
         kstDayStart(anchor).getTime() - 30 * 24 * 60 * 60 * 1000,
       );
 
-      // Order aggregates read the selected calendar verbatim; owner ad reads
-      // follow the preset-clipping rule, which keeps a custom range exact.
+      // Order aggregates read the selected calendar verbatim; owner ad and Wing
+      // reads follow the closed-day clipping rule, which keeps a custom range
+      // exact and takes its month from the anchor.
       const orderPeriods = resolveDashboardPeriod(ctx, anchor, 'order_timestamps');
-      const adPeriods = resolveDashboardPeriod(ctx, anchor, 'ads_preset_clipped');
+      const closedDayPeriods = resolveDashboardPeriod(ctx, anchor, 'closed_day_clipped');
 
       const [
         curMonthProfit,
@@ -109,12 +110,15 @@ export class DashboardAdService {
         this.profitCalculation.calculateForRange(organizationId, orderPeriods.selected),
         this.profitCalculation.calculateForRange(organizationId, orderPeriods.previousSelected),
         this.wingAdSummary.fetchCurrentMonthSummary(organizationId, year, month, monthStart),
-        this.wingTrafficRepository.aggregateCoupangAds(organizationId, adPeriods.month),
-        this.wingTrafficRepository.aggregateCoupangAds(organizationId, adPeriods.previousMonth),
-        this.wingTrafficRepository.aggregateCoupangAds(organizationId, adPeriods.selected),
-        this.wingTrafficRepository.aggregateCoupangAds(organizationId, adPeriods.previousSelected),
+        this.wingTrafficRepository.aggregateCoupangAds(organizationId, closedDayPeriods.month),
+        this.wingTrafficRepository.aggregateCoupangAds(organizationId, closedDayPeriods.previousMonth),
+        this.wingTrafficRepository.aggregateCoupangAds(organizationId, closedDayPeriods.selected),
+        this.wingTrafficRepository.aggregateCoupangAds(organizationId, closedDayPeriods.previousSelected),
         this.wingTrafficRepository.fetchDailyAds(organizationId, thirtyDaysAgo),
-        this.wingTrafficRepository.aggregateTraffic(organizationId, orderPeriods.month),
+        // Wing evidence behind `effectivePeriod` reads the same month window
+        // `/api/dashboard/sales` reads. Two endpoints labelling one month must
+        // decide `revenueSource` from one period, not from two.
+        this.wingTrafficRepository.aggregateTraffic(organizationId, closedDayPeriods.month),
         this.wingTrafficRepository.findLatestDataDate(organizationId),
       ]);
 
@@ -142,9 +146,9 @@ export class DashboardAdService {
       // Account ad KPIs are calculated from owner-published account rows, so
       // their basis is the ad window's own coverage. Ratios that mix in order
       // or Wing revenue use the exact intersection of both sources' dates.
-      const monthAdBasis = adEvidence(adPeriods.month, monthlyMetrics, coupangAdsCurMonth);
-      const rangeAdBasis = adEvidence(adPeriods.selected, rangeMetrics, coupangAdsCurRange);
-      const prevRangeAdBasis = adEvidence(adPeriods.previousSelected, rangePrev, coupangAdsPrevRange);
+      const monthAdBasis = adEvidence(closedDayPeriods.month, monthlyMetrics, coupangAdsCurMonth);
+      const rangeAdBasis = adEvidence(closedDayPeriods.selected, rangeMetrics, coupangAdsCurRange);
+      const prevRangeAdBasis = adEvidence(closedDayPeriods.previousSelected, rangePrev, coupangAdsPrevRange);
       const rangeRevenueBasis = adRateRevenueEvidence(
         orderPeriods.selected,
         rangeProfitCur,

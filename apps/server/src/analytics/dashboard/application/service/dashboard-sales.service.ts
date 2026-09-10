@@ -106,9 +106,11 @@ export class DashboardSalesService {
       const startedAt = Date.now();
       const { year, month, monthStart, todayStart, todayEnd } = ctx;
       // Two closure rules, one resolver: order aggregates read the selected
-      // calendar verbatim, Wing/Coupang reads only closed KST days.
+      // calendar verbatim, Wing/Coupang read only closed KST days. Both take
+      // the month from the anchor, so the advertising shown under a month
+      // heading is always that month's.
       const orderPeriods = resolveDashboardPeriod(ctx, ctx.anchor, 'order_timestamps');
-      const wingPeriods = resolveDashboardPeriod(ctx, ctx.anchor, 'wing_closed_day');
+      const closedDayPeriods = resolveDashboardPeriod(ctx, ctx.anchor, 'closed_day_clipped');
 
       const [
         curMonth,
@@ -145,12 +147,12 @@ export class DashboardSalesService {
         ),
         this.fetchMonthlyTrend(organizationId, monthStart, ctx.anchor),
         this.wingAdSummary.fetchCurrentMonthSummary(organizationId, year, month, monthStart),
-        this.wingTrafficRepository.aggregateTraffic(organizationId, wingPeriods.month),
-        this.wingTrafficRepository.aggregateTraffic(organizationId, wingPeriods.previousMonth),
-        this.wingTrafficRepository.aggregateTraffic(organizationId, wingPeriods.selected),
-        this.wingTrafficRepository.aggregateTraffic(organizationId, wingPeriods.previousSelected),
-        this.wingTrafficRepository.aggregateCoupangAds(organizationId, wingPeriods.month),
-        this.wingTrafficRepository.aggregateCoupangAds(organizationId, wingPeriods.previousMonth),
+        this.wingTrafficRepository.aggregateTraffic(organizationId, closedDayPeriods.month),
+        this.wingTrafficRepository.aggregateTraffic(organizationId, closedDayPeriods.previousMonth),
+        this.wingTrafficRepository.aggregateTraffic(organizationId, closedDayPeriods.selected),
+        this.wingTrafficRepository.aggregateTraffic(organizationId, closedDayPeriods.previousSelected),
+        this.wingTrafficRepository.aggregateCoupangAds(organizationId, closedDayPeriods.month),
+        this.wingTrafficRepository.aggregateCoupangAds(organizationId, closedDayPeriods.previousMonth),
         this.wingTrafficRepository.findLatestDataDate(organizationId),
       ]);
 
@@ -181,8 +183,8 @@ export class DashboardSalesService {
       });
 
       const [coupangAdsForRange, coupangAdsForPrevRange] = await Promise.all([
-        this.wingTrafficRepository.aggregateCoupangAds(organizationId, wingPeriods.selected),
-        this.wingTrafficRepository.aggregateCoupangAds(organizationId, wingPeriods.previousSelected),
+        this.wingTrafficRepository.aggregateCoupangAds(organizationId, closedDayPeriods.selected),
+        this.wingTrafficRepository.aggregateCoupangAds(organizationId, closedDayPeriods.previousSelected),
       ]);
       const curMonthProfit = reconcileCollectedAdSpend(curMonth, coupangAdsMonth);
       const prevMonthProfit = reconcileCollectedAdSpend(prevMonth, coupangAdsPrevMonth);
@@ -194,28 +196,28 @@ export class DashboardSalesService {
       // sources, and a multi-source metric uses their exact intersection.
       const monthEvidence = salesEvidence({
         orderPeriod: orderPeriods.month,
-        wingPeriod: wingPeriods.month,
+        wingPeriod: closedDayPeriods.month,
         profit: curMonthProfit,
         wing: wingTrafficMonth,
         observedAt: coupangAdsMonth.lastObservedAt,
       });
       const prevMonthEvidence = salesEvidence({
         orderPeriod: orderPeriods.previousMonth,
-        wingPeriod: wingPeriods.previousMonth,
+        wingPeriod: closedDayPeriods.previousMonth,
         profit: prevMonthProfit,
         wing: wingTrafficPrevMonth,
         observedAt: coupangAdsPrevMonth.lastObservedAt,
       });
       const rangeEvidence = salesEvidence({
         orderPeriod: orderPeriods.selected,
-        wingPeriod: wingPeriods.selected,
+        wingPeriod: closedDayPeriods.selected,
         profit: rangeCurProfit,
         wing: wingTrafficRange,
         observedAt: coupangAdsForRange.lastObservedAt,
       });
       const prevRangeEvidence = salesEvidence({
         orderPeriod: orderPeriods.previousSelected,
-        wingPeriod: wingPeriods.previousSelected,
+        wingPeriod: closedDayPeriods.previousSelected,
         profit: rangePrevProfit,
         wing: wingTrafficPrevRange,
         observedAt: coupangAdsForPrevRange.lastObservedAt,
@@ -228,18 +230,18 @@ export class DashboardSalesService {
         useWingRange,
       );
       const conversionRateBasis = periodEvidence({
-        selectedDates: wingPeriods.selected.selectedDates,
+        selectedDates: closedDayPeriods.selected.selectedDates,
         includedDates: trafficKpi.conversionRate === null
           ? []
           : windowCoverageDates(
-            wingPeriods.selected.selectedDates,
+            closedDayPeriods.selected.selectedDates,
             wingTrafficRange.coverage,
             wingTrafficRange.isCollected,
           ),
         // A reconciliation mismatch is evidence that was read and refused,
         // which is not the same as a date the owner never collected.
         invalidDates: mismatchedTrafficMetrics(wingTrafficRange, ['views', 'orders'])
-          ? wingPeriods.selected.selectedDates
+          ? closedDayPeriods.selected.selectedDates
           : [],
         sources: [WING_TRAFFIC_SOURCE],
         observedAt: wingTrafficRange.lastObservedAt,

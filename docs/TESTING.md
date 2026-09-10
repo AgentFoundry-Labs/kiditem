@@ -189,6 +189,28 @@ replay·drift·race는 owner integration test가 각각 소유한다.
 객체를 만들고 반환값을 검증한다. Prisma 호출 shape 검증은 scanner나 real
 Postgres integration 으로 더 정확히 검증할 수 있으면 추가하지 않는다.
 
+### Mock 이 어댑터를 흉내내기 시작하면 Tier 3 로 올린다
+
+Repository port 는 "외부 side effect 협력자"가 아니다. DB 판정이 필요한
+동작은 Tier 3 의 real Postgres 가 이미 덮는다.
+
+판정 기준: **테스트가 옳으려면 mock 이 어댑터의 읽기 의미를 흉내내야 하는가.**
+그렇다면 그 테스트는 Tier 3 에 속한다. mock 을 더 똑똑하게 만드는 것은
+어댑터의 두 번째 구현을 테스트 없이 쓰는 일이다.
+
+구체적 신호:
+
+- 어설션이 **요청 인자에 따라 달라져야 하는데** port 를 `mockResolvedValue`
+  로 고정했다. 어떤 창을 물어도 같은 값이 돌아오므로 창 버그를 잡을 수 없고,
+  서로 다른 창을 요청한 두 소비자가 같은 답을 받아 **틀린 이유로 통과**한다.
+- 이를 고치려 `mockImplementation` 안에 날짜 필터·커버리지·정렬처럼 어댑터가
+  하는 판정을 다시 구현하게 된다.
+- 기본값 `0` 과 관측된 `0`, 없는 행과 빈 결과처럼 **DB 만이 구별하는 상태**를
+  어설션한다.
+
+이때는 mock 을 고치지 말고 `*.pg.integration.spec.ts` 로 옮긴다. 남는 unit
+테스트는 어댑터를 거치지 않는 순수 판정만 담당한다.
+
 ## 기존 테스트 정리 기준
 
 리팩터링 PR 은 기존 테스트도 함께 정리할 수 있다. 단, 삭제는 "테스트가
@@ -198,6 +220,7 @@ Postgres integration 으로 더 정확히 검증할 수 있으면 추가하지 �
 정리 대상:
 
 - 구현 세부에 강결합된 mock interaction 테스트
+- 어댑터의 읽기 의미를 mock 안에 재구현해야 성립하는 테스트 (Tier 3 로 이동)
 - 파일 이동/메서드 추출 이후 public behavior를 검증하지 못하는 테스트
 - scanner, typecheck, build가 이미 더 안정적으로 보장하는 wiring 테스트
 - 같은 user journey를 여러 mock spec이 중복 검증하는 테스트

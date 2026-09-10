@@ -113,4 +113,35 @@ describe('buildEffectivePeriod', () => {
 
     expect(period.revenueSource).toBe('mixed');
   });
+
+  // `adSource` selection given already-resolved inputs. Which windows produce
+  // those inputs is a database question, answered by
+  // `__tests__/effective-period-source-agreement.pg.integration.spec.ts`;
+  // this is only the branch rule, so it takes plain values and no mock.
+  describe('adSource', () => {
+    const ctx = buildDashboardContext(
+      'month',
+      undefined,
+      undefined,
+      new Date('2026-07-15T03:00:00.000Z'),
+    );
+    const adSourceFor = (adCost: number, ads: { hasData: boolean }) =>
+      buildEffectivePeriod(ctx, null, { ...NO_PROFIT, adCost }, NO_WING, ads).adSource;
+
+    it('names no source when neither an order ad cost nor account evidence exists', () => {
+      expect(adSourceFor(0, NO_ADS)).toBe('none');
+    });
+
+    it('names the complete account range on its own', () => {
+      expect(adSourceFor(0, { hasData: true })).toBe('coupang_ads');
+    });
+
+    it('names orders when only the order side carries an ad cost', () => {
+      expect(adSourceFor(12_000, NO_ADS)).toBe('orders');
+    });
+
+    it('reports mixed when both carry ad evidence', () => {
+      expect(adSourceFor(12_000, { hasData: true })).toBe('mixed');
+    });
+  });
 });

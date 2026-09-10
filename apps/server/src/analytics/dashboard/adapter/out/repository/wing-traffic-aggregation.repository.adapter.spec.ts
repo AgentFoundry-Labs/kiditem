@@ -489,7 +489,7 @@ describe('WingTrafficAggregationRepositoryAdapter Coupang ads read', () => {
       periodOf(
         new Date('2026-06-30T15:00:00.000Z'),
         new Date('2026-07-03T15:00:00.000Z'),
-        { anchor: new Date('2026-07-02T03:00:00.000Z'), sourceClass: 'ads_preset_clipped' },
+        { anchor: new Date('2026-07-02T03:00:00.000Z'), sourceClass: 'closed_day_clipped' },
       ),
     );
 

@@ -12,8 +12,12 @@ boundary with HTTP and persistence adapters around Prisma-free orchestration.
   Services and adapters read a resolved period; they do not re-derive
   business-date keys, enumerate dates, or clip a window of their own.
 - `DashboardSourceClass` enumerates the closure rules — `order_timestamps`,
-  `wing_closed_day`, `ads_preset_clipped`. Add a class there rather than a
-  switch in a service.
+  `closed_day_clipped`. Add a class there rather than a switch in a service.
+- Every month window is the anchor's calendar month. `closed_day_clipped` clips
+  it forward to the last closed KST business day, so on the 1st it is empty and
+  the affected cards publish an unavailable value. Do not widen that window,
+  fall back to the previous month, or special-case the 1st
+  ([ADR 0001](../../../../../docs/adr/0001-dashboard-month-window-is-anchor-clipped.md)).
 - The window cutoff comes from `DashboardContext.anchor` through
   `ResolvedDashboardPeriod`. Period-aware code never reads the wall clock, so
   an injected anchor stays authoritative down to the outgoing adapter.
