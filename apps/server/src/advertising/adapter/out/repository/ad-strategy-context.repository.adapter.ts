@@ -106,6 +106,9 @@ export class AdStrategyContextRepositoryAdapter
       this.loadChannelStateByListing(organizationId, listings),
     ]);
 
+    // Only listings whose profit is measured enter the strategy context. A
+    // listing with incomplete ad coverage is absent rather than carrying a
+    // profit rate derived from a partial ad sum (ADR-0003).
     const profitRateByListing = new Map<string, number>(
       liveMetrics.map((metric) => [metric.listingId, metric.profitRate]),
     );

@@ -11,7 +11,7 @@ import { PLDataSchema, SalesAnalysisDataSourcesSchema } from '@kiditem/shared/fi
 import { ChannelDashboardSummarySchema } from '@kiditem/shared/channel-dashboard';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
-import { cn, formatNumber, timeAgo } from "@/lib/utils";
+import { cn, formatNumber, sumOrUnavailable, timeAgo } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
 import { friendlyError } from "@/lib/api-error";
 import {
@@ -92,10 +92,11 @@ function ProfitLossContent() {
   const ordersEmpty = dataSources?.orders?.count === 0;
 
   const filtered = useMemo(() => data.filter((d) => {
+    // An unavailable profit rate answers none of the three profit filters.
     const matchesProfitFilter =
-      filter === "minus" ? d.profitRate < 0
-        : filter === "low" ? d.profitRate >= 0 && d.profitRate <= 3
-          : filter === "normal" ? d.profitRate > 3
+      filter === "minus" ? d.profitRate !== null && d.profitRate < 0
+        : filter === "low" ? d.profitRate !== null && d.profitRate >= 0 && d.profitRate <= 3
+          : filter === "normal" ? d.profitRate !== null && d.profitRate > 3
             : true;
     const matchesGrade =
       selectedGrades.length === 0 || selectedGrades.includes((d.grade || "").toUpperCase());
@@ -108,6 +109,9 @@ function ProfitLossContent() {
       const left = a[sortField];
       const right = b[sortField];
       if (left === right) return 0;
+      // An unavailable value has no place on the scale — it sorts last either way.
+      if (left === null) return 1;
+      if (right === null) return -1;
       return sortDirection === 'asc' ? (left > right ? 1 : -1) : (left < right ? 1 : -1);
     });
   }, [filtered, sortField, sortDirection]);
@@ -133,10 +137,14 @@ function ProfitLossContent() {
     );
   };
 
+  // Revenue never depends on ad coverage. A profit or ad-cost total that would
+  // have to skip an unavailable row is itself unavailable, not a smaller number.
   const totalRevenue = sorted.reduce((s, d) => s + d.revenue, 0);
-  const totalProfit = sorted.reduce((s, d) => s + d.netProfit, 0);
-  const totalAdCost = sorted.reduce((s, d) => s + d.adCost, 0);
-  const overallRate = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+  const totalProfit = sumOrUnavailable(sorted.map((d) => d.netProfit));
+  const totalAdCost = sumOrUnavailable(sorted.map((d) => d.adCost));
+  const overallRate = totalProfit === null || totalRevenue <= 0
+    ? null
+    : (totalProfit / totalRevenue) * 100;
 
   const handleExcel = async () => {
     try {

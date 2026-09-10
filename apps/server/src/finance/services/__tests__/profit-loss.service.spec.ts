@@ -6,15 +6,35 @@ import { ProfitLossService } from '../profit-loss.service';
 //   channelListingDailySnapshot.groupBy(['listingId'], _sum.adSpend)
 // `adRows` shape uses `_sum.adSpend` (daily-fact additive ad column),
 // not legacy `ad.groupBy._sum.spend`.
+// ADR-0003: the helper issues two groupBy calls against the same coverage
+// filter — one by listingId (spend + covered day count) and one by businessDate
+// (the window's ad-collection calendar). `collectedDates` defaults to a calendar
+// as wide as the best-covered listing, i.e. every seeded listing is complete.
 function makePrisma(
   orders: unknown[],
-  opts: { returnLineItems?: unknown[]; adRows?: unknown[] } = {},
+  opts: {
+    returnLineItems?: unknown[];
+    adRows?: { listingId: string; _sum: { adSpend: number }; _count?: number }[];
+    collectedDates?: unknown[];
+  } = {},
 ) {
+  const adRows = opts.adRows ?? [];
+  const collectedDates = opts.collectedDates
+    ?? Array.from(
+      { length: adRows.reduce((max, row) => Math.max(max, row._count ?? 1), 0) },
+      (_, index) => ({ businessDate: new Date(Date.UTC(2026, 3, index + 1)) }),
+    );
   return {
     order: { findMany: vi.fn().mockResolvedValue(orders) },
     orderReturnLineItem: { findMany: vi.fn().mockResolvedValue(opts.returnLineItems ?? []) },
     channelListingDailySnapshot: {
-      groupBy: vi.fn().mockResolvedValue(opts.adRows ?? []),
+      groupBy: vi.fn().mockImplementation((args: { by: string[] }) =>
+        Promise.resolve(
+          args.by[0] === 'businessDate'
+            ? collectedDates
+            : adRows.map((row) => ({ _count: 1, ...row })),
+        ),
+      ),
     },
   } as any;
 }

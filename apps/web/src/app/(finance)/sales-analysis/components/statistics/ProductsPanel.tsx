@@ -55,22 +55,26 @@ export function ProductsPanel({ products, page, onPageChange }: ProductsPanelPro
                   <td
                     className={cn(
                       'text-right tabular-nums',
-                      product.netProfit < 0 ? 'text-red-600' : 'text-green-600',
+                      product.netProfit === null
+                        ? 'text-slate-400'
+                        : product.netProfit < 0 ? 'text-red-600' : 'text-green-600',
                     )}
                   >
-                    {formatKRW(product.netProfit)}원
+                    {product.netProfit === null ? '-' : `${formatKRW(product.netProfit)}원`}
                   </td>
                   <td
                     className={cn(
                       'text-right tabular-nums font-semibold',
-                      product.profitRate < 0
-                        ? 'text-red-600'
-                        : product.profitRate <= 0.03
-                          ? 'text-amber-600'
-                          : 'text-green-600',
+                      product.profitRate === null
+                        ? 'text-slate-400'
+                        : product.profitRate < 0
+                          ? 'text-red-600'
+                          : product.profitRate <= 0.03
+                            ? 'text-amber-600'
+                            : 'text-green-600',
                     )}
                   >
-                    {formatPercent(product.profitRate * 100)}
+                    {formatPercent(product.profitRate === null ? null : product.profitRate * 100)}
                   </td>
                 </tr>
               );

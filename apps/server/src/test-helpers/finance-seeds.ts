@@ -344,6 +344,12 @@ export async function seedReturn(
  * so call sites observe `getTrend(...).adCost` /
  * `salesAnalysis.totalCost` numbers from this seed.
  *
+ * The row carries ad provenance by default, matching what the real ingest
+ * writer records: coverage-aware readers (ADR-0003) only count `adSpend` from a
+ * row whose `adCoverageStatus`/`adObservedAt` say the source reported it. Pass
+ * `collected: false` to seed the uncollected row an unfiltered `SUM(adSpend)`
+ * cannot tell apart from a measured zero.
+ *
  * Returns the daily-fact row ID.
  */
 export async function seedAd(
@@ -353,6 +359,7 @@ export async function seedAd(
     listingId: string;
     date: string;              // ISO date string (e.g. '2026-04-15')
     spend: number;
+    collected?: boolean;
   },
 ): Promise<string> {
   const listing = await prisma.channelListing.findFirstOrThrow({
@@ -363,6 +370,15 @@ export async function seedAd(
     },
   });
   const businessDate = new Date(opts.date);
+  // Mirrors `ChannelListingDailyRepositoryAdapter`: a reported non-zero value is
+  // OBSERVED, a reported zero is CONFIRMED_ZERO, and both carry an observation
+  // timestamp. An uncollected row carries neither.
+  const adProvenance = opts.collected === false
+    ? { adCoverageStatus: null, adObservedAt: null }
+    : {
+        adCoverageStatus: opts.spend !== 0 ? 'OBSERVED' : 'CONFIRMED_ZERO',
+        adObservedAt: businessDate,
+      };
   const row = await prisma.channelListingDailySnapshot.upsert({
     where: {
       organizationId_listingId_businessDate: {
@@ -378,8 +394,9 @@ export async function seedAd(
       externalId: listing.externalId,
       businessDate,
       adSpend: opts.spend,
+      ...adProvenance,
     },
-    update: { adSpend: opts.spend },
+    update: { adSpend: opts.spend, ...adProvenance },
     select: { id: true },
   });
   return row.id;

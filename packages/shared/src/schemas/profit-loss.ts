@@ -24,10 +24,12 @@ export const PLDataSchema = z.object({
   cogs: z.number().int(),
   commission: z.number().int(),
   shippingCost: z.number().int(),
-  adCost: z.number().int(),
+  // Unavailable (`null`) when the listing's ad coverage is incomplete for the
+  // period — ADR-0003. Not a zero, and not a smaller profit.
+  adCost: z.number().int().nullable(),
   otherCost: z.number().int(),
-  netProfit: z.number().int(),
-  profitRate: z.number(),
+  netProfit: z.number().int().nullable(),
+  profitRate: z.number().nullable(),
   orderCount: z.number().int(),
   returnCount: z.number().int(),
 });

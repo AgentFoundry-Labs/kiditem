@@ -46,16 +46,18 @@ export function GradesPanel({ grades }: GradesPanelProps) {
                 <span
                   className={cn(
                     'font-semibold tabular-nums',
-                    grade.profit < 0 ? 'text-red-600' : 'text-green-600',
+                    grade.profit === null
+                      ? 'text-slate-400'
+                      : grade.profit < 0 ? 'text-red-600' : 'text-green-600',
                   )}
                 >
-                  {formatKRW(grade.profit)}원
+                  {grade.profit === null ? '-' : `${formatKRW(grade.profit)}원`}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-[var(--text-secondary)]">광고비</span>
                 <span className="font-semibold tabular-nums text-amber-600">
-                  {formatKRW(grade.adCost)}원
+                  {grade.adCost === null ? '-' : `${formatKRW(grade.adCost)}원`}
                 </span>
               </div>
             </div>

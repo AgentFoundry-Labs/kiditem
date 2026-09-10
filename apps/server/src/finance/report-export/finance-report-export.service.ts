@@ -333,12 +333,15 @@ function filterAndSortProfitLoss(
   const profitFilter: ProfitLossFilter = query.profitFilter ?? 'all';
   const grades = query.grades?.split(',') ?? [];
   const filtered = rows.filter((row) => {
+    // A row whose profit is unavailable (ADR-0003) is not known to be
+    // loss-making, low-margin or healthy, so it answers none of the three
+    // profit filters. Only the unfiltered export still carries it.
     const matchesProfit = profitFilter === 'minus'
-      ? row.profitRate < 0
+      ? row.profitRate !== null && row.profitRate < 0
       : profitFilter === 'low'
-        ? row.profitRate >= 0 && row.profitRate <= 3
+        ? row.profitRate !== null && row.profitRate >= 0 && row.profitRate <= 3
         : profitFilter === 'normal'
-          ? row.profitRate > 3
+          ? row.profitRate !== null && row.profitRate > 3
           : true;
     const matchesGrade = grades.length === 0
       || grades.includes((row.grade ?? '').toUpperCase());
@@ -351,6 +354,10 @@ function filterAndSortProfitLoss(
     const a = left[sortField];
     const b = right[sortField];
     if (a === b) return 0;
+    // An unavailable value has no position on the scale, so it sorts last in
+    // both directions rather than being ordered as if it were a zero.
+    if (a === null) return 1;
+    if (b === null) return -1;
     return query.sortDirection === 'asc'
       ? (a > b ? 1 : -1)
       : (a < b ? 1 : -1);

@@ -2,12 +2,17 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { PLData } from '@kiditem/shared/finance';
 import { PrismaService } from '../../prisma/prisma.service';
 import { kstMonthStart } from '../../common/kst';
-import { buildPerListingMetrics } from '../../common/per-listing-profit';
+import { buildPerListingProfit } from '../../common/per-listing-profit';
 
 /**
  * Live aggregation.
  * Plan F1 T1 — per-listing core extracted to common/per-listing-profit.ts so dashboard
- * can share the math. This service adds returnCount + maps PerListingMetrics → PLData.
+ * can share the math. This service adds returnCount + maps PerListingProfit → PLData.
+ *
+ * This is the precise per-listing surface named in ADR-0003, so it publishes an
+ * unavailable profit for a listing whose ad coverage is incomplete rather than
+ * one computed from a partial ad sum. Rows still sort by revenue, which is
+ * always measured.
  */
 @Injectable()
 export class ProfitLossService {
@@ -25,7 +30,7 @@ export class ProfitLossService {
     const to = kstMonthStart(year, month + 1);
 
     const [metrics, returnRows] = await Promise.all([
-      buildPerListingMetrics(this.prisma, organizationId, from, to),
+      buildPerListingProfit(this.prisma, organizationId, from, to),
       this.prisma.orderReturnLineItem.findMany({
         where: {
           organizationId,
@@ -74,6 +79,7 @@ export class ProfitLossService {
       year,
       month,
       listingCount: rows.length,
+      unavailableProfitCount: rows.filter((row) => row.netProfit === null).length,
       latencyMs: Date.now() - startedAt,
     });
 

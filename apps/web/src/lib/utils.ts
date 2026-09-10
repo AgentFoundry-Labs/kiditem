@@ -107,6 +107,24 @@ export function getGradeColor(grade: string): string {
   }
 }
 
+/**
+ * Totals a column that may be unavailable.
+ *
+ * A total over a set containing an unavailable member is itself unavailable —
+ * skipping that member would present a smaller number as if it were the whole.
+ * Pair with `formatKRW`/`formatPercent`, which render `null` as '-'.
+ */
+export function sumOrUnavailable(
+  values: readonly (number | null)[],
+): number | null {
+  let total = 0;
+  for (const value of values) {
+    if (value === null) return null;
+    total += value;
+  }
+  return total;
+}
+
 export function getProfitColor(rate: number | null | undefined): string {
   if (rate == null) return 'text-slate-400';
   if (rate < 0) return 'text-red-600 font-bold';

@@ -8,6 +8,13 @@ import { kstBusinessDate } from './kst';
  *   - finance/profit-loss (PLData rows, plus returnCount + extra metadata)
  *   - dashboard/dashboard-inventory (warnings.minusProducts / lowProfitProducts / highAdProducts)
  *
+ * ADR-0003: the ad read is coverage-aware. `ChannelListingDailySnapshot.adSpend`
+ * is `Int @default(0)`, so summing it unfiltered makes an uncollected day and a
+ * genuinely zero-spend day identical. This module filters on the same evidence
+ * columns Advertising's `master-product-ad-spend-read` uses, and yields an
+ * unavailable profit rather than a partial sum. Top-N contribution ranking is
+ * exempt and keeps its own unfiltered 30% approximation.
+ *
  * Pure function (no @Injectable). Uses live aggregation:
  *   - I3 canonical: revenue = SUM(OrderLineItem.totalPrice)
  *   - I7 multi-tenant: every Prisma call scoped by organizationId
@@ -21,7 +28,15 @@ import { kstBusinessDate } from './kst';
  * Excluded order statuses: ['cancelled', 'returned', 'refunded'] — same as
  * profit-loss.service and profit-calculator.ts.
  */
-export interface PerListingMetrics {
+/**
+ * One listing's settled profit over a window.
+ *
+ * `adCost`, `netProfit` and `profitRate` are **unavailable** (`null`) when the
+ * listing's ad coverage is incomplete for the window — see ADR-0003. A partial
+ * ad sum is not a smaller ad cost, and a profit computed from one is not a
+ * smaller profit; it is a fabricated number.
+ */
+export interface PerListingProfit {
   listingId: string;
   externalId: string;
   channelName: string | null;
@@ -36,24 +51,54 @@ export interface PerListingMetrics {
   costOfGoods: number;
   commission: number;
   shippingCost: number;
-  adCost: number;
+  adCost: number | null;
   otherCost: number;
+  netProfit: number | null;
+  profitRate: number | null;
+  orderCount: number;
+}
+
+/** A `PerListingProfit` whose ad coverage was complete, so its profit is measured. */
+export interface PerListingMetrics extends PerListingProfit {
+  adCost: number;
   netProfit: number;
   profitRate: number;
-  orderCount: number;
 }
 
 const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
 
-export async function buildPerListingMetrics(
+/**
+ * The ad evidence a `ChannelListingDailySnapshot` row must carry before its
+ * `adSpend` counts as a measurement. Identical to Advertising's
+ * `master-product-ad-spend-read` filter (ADR-0003): `adSpend` is
+ * `Int @default(0)`, so an uncollected row is otherwise indistinguishable from
+ * a confirmed-zero one.
+ */
+function measuredAdCoverageWhere(organizationId: string, from: Date, to: Date) {
+  return {
+    organizationId,
+    businessDate: { gte: from, lt: to },
+    adCoverageStatus: { in: ['OBSERVED', 'CONFIRMED_ZERO'] },
+    adObservedAt: { not: null },
+  };
+}
+
+/** Narrows to the listings whose ad coverage was complete. */
+export function hasMeasuredProfit(
+  row: PerListingProfit,
+): row is PerListingMetrics {
+  return row.adCost !== null && row.netProfit !== null && row.profitRate !== null;
+}
+
+export async function buildPerListingProfit(
   prisma: PrismaService,
   organizationId: string,
   from: Date,
   to: Date,
-): Promise<PerListingMetrics[]> {
+): Promise<PerListingProfit[]> {
   const businessDateFrom = kstBusinessDate(from);
   const businessDateTo = kstBusinessDate(to);
-  const [orders, adRows] = await Promise.all([
+  const [orders, adByListing, collectedDates, observedListings] = await Promise.all([
     prisma.order.findMany({
       where: {
         organizationId,
@@ -112,13 +157,28 @@ export async function buildPerListingMetrics(
         },
       },
     }),
-    // Listing-level ad spend aggregates from
-    // `ChannelListingDailySnapshot.adSpend` over the same `[from, to)` window.
-    // Caller signature is unchanged; the result columns (`adCost` per listing)
-    // remain populated by the map below.
+    // Listing-level ad spend over the same `[from, to)` window, counting only
+    // rows that carry ad evidence. `(organizationId, listingId, businessDate)`
+    // is unique, so the group's row count is this listing's covered day count.
     prisma.channelListingDailySnapshot.groupBy({
       by: ['listingId'],
       _sum: { adSpend: true },
+      _count: true,
+      where: measuredAdCoverageWhere(organizationId, businessDateFrom, businessDateTo),
+    }),
+    // The window's ad-collection calendar: the business dates on which the ad
+    // source reported anything at all. A listing the source did report, but
+    // that is absent on one of these dates, has a hole in its evidence.
+    prisma.channelListingDailySnapshot.groupBy({
+      by: ['businessDate'],
+      where: measuredAdCoverageWhere(organizationId, businessDateFrom, businessDateTo),
+    }),
+    // Listings the daily-fact source touched at all in the window, with or
+    // without ad provenance. A listing present here but absent from the
+    // coverage-filtered read was reported without its ad metrics — that is
+    // missing evidence, not an absent source.
+    prisma.channelListingDailySnapshot.groupBy({
+      by: ['listingId'],
       where: {
         organizationId,
         businessDate: { gte: businessDateFrom, lt: businessDateTo },
@@ -202,17 +262,45 @@ export async function buildPerListingMetrics(
     }
   }
 
-  const adCostMap = new Map<string, number>(
-    adRows.map((r) => [r.listingId, r._sum.adSpend ?? 0]),
+  const collectedDayCount = collectedDates.length;
+  const adEvidenceByListing = new Map(
+    adByListing.map((r) => [
+      r.listingId,
+      { spend: r._sum?.adSpend ?? 0, coveredDays: r._count },
+    ]),
   );
 
+  const observedListingIds = new Set(observedListings.map((r) => r.listingId));
+
+  /**
+   * A listing the daily-fact source never touched in this window has a
+   * **not-applied** ad cost — nothing was ever asked about it, so zero is a
+   * satisfied input rather than a missing one.
+   *
+   * Once the source has touched a listing, its ad evidence must cover every
+   * date on the window's ad-collection calendar. A listing short of that is
+   * **missing** those dates, whether the rows are absent or present without ad
+   * provenance. A present-but-unmarked row is the case an unfiltered
+   * `SUM(adSpend)` silently reads as a measured zero.
+   */
+  const resolveAdCost = (listingId: string): number | null => {
+    if (!observedListingIds.has(listingId)) return 0;
+    const evidence = adEvidenceByListing.get(listingId);
+    const coveredDays = evidence?.coveredDays ?? 0;
+    return coveredDays === collectedDayCount ? evidence?.spend ?? 0 : null;
+  };
+
   return Array.from(groups.values()).map((g) => {
-    const adCost = adCostMap.get(g.listingId) ?? 0;
+    const adCost = resolveAdCost(g.listingId);
     const costOfGoods = Math.round(g.costOfGoods);
     const commission = Math.round(g.commission);
     const otherCost = Math.round(g.otherCost);
-    const netProfit = g.revenue - costOfGoods - commission - g.shippingCost - adCost - otherCost;
-    const profitRate = g.revenue > 0 ? Math.round((netProfit / g.revenue) * 1000) / 10 : 0;
+    const netProfit = adCost === null
+      ? null
+      : g.revenue - costOfGoods - commission - g.shippingCost - adCost - otherCost;
+    const profitRate = netProfit === null
+      ? null
+      : g.revenue > 0 ? Math.round((netProfit / g.revenue) * 1000) / 10 : 0;
     return {
       listingId: g.listingId,
       externalId: g.externalId,
@@ -233,6 +321,25 @@ export async function buildPerListingMetrics(
       netProfit,
       profitRate,
       orderCount: g.orderIds.size,
-    } satisfies PerListingMetrics;
+    } satisfies PerListingProfit;
   });
+}
+
+/**
+ * Per-listing rows whose profit is measured.
+ *
+ * A listing with incomplete ad coverage is **withheld** rather than published
+ * with a partial sum — the same rule ABC applies when advertising evidence is
+ * not ready. Use this for counts and rollups that cannot express an unavailable
+ * value; use `buildPerListingProfit` wherever a reader sees one listing's own
+ * profit and can be shown that it is unavailable.
+ */
+export async function buildPerListingMetrics(
+  prisma: PrismaService,
+  organizationId: string,
+  from: Date,
+  to: Date,
+): Promise<PerListingMetrics[]> {
+  const rows = await buildPerListingProfit(prisma, organizationId, from, to);
+  return rows.filter(hasMeasuredProfit);
 }

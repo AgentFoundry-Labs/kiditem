@@ -210,6 +210,11 @@ describe('AdStrategy flow (PG integration)', () => {
         adClicks: params.clicks ?? 0,
         adImpressions: params.impressions ?? 0,
         adConversions: params.conversions ?? 0,
+        // Ad provenance, as the real ingest writer records it. Coverage-aware
+        // readers (ADR-0003) count `adSpend` only from a row the ad source is
+        // known to have reported.
+        adCoverageStatus: params.spend !== 0 ? 'OBSERVED' : 'CONFIRMED_ZERO',
+        adObservedAt: date,
       },
     });
   }

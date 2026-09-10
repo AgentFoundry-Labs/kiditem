@@ -83,6 +83,9 @@ export class SalesPlansService {
         _sum: { totalPrice: true },
         _count: { id: true },
       }),
+      // `actualProfit` is a stored scalar with no way to say "unavailable", so
+      // it totals the listings whose profit is measured and withholds the rest
+      // (ADR-0003) rather than folding in a partial ad sum.
       buildPerListingMetrics(this.prisma, organizationId, from, to),
     ]);
     const actualProfit = metrics.reduce((sum, metric) => sum + metric.netProfit, 0);

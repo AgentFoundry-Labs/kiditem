@@ -4,7 +4,7 @@ import type {
   SettlementReconcileResponse,
 } from '@kiditem/shared/settlements';
 import { PrismaService } from '../../prisma/prisma.service';
-import { buildPerListingMetrics } from '../../common/per-listing-profit';
+import { buildPerListingProfit } from '../../common/per-listing-profit';
 import { kstMonthStart } from '../../common/kst';
 import { CreateSettlementDto, UpdateSettlementDto } from './dto';
 
@@ -57,7 +57,10 @@ export class SettlementsService {
     //    SUM(total_price)::bigint — 단일 월 매출이 int32 (~21억 KRW) 초과 가능성 (대형 셀러).
     //    bigint → Number() 로 안전 변환 (2^53 이하 보장).
     const [metrics, rows] = await Promise.all([
-      buildPerListingMetrics(this.prisma, organizationId, from, to),
+      // Reconciliation compares revenue, which never depends on ad coverage, so
+      // every listing stays in the detail list. Only `plNetProfit` can be
+      // unavailable (ADR-0003); dropping the row would hide a revenue mismatch.
+      buildPerListingProfit(this.prisma, organizationId, from, to),
       this.prisma.$queryRaw<
         Array<{
           listing_id: string;

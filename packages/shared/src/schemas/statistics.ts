@@ -14,8 +14,11 @@ import { zIsoDate } from './common.js';
 export const StatisticsOverviewSchema = z.object({
   totalRevenue: z.number().int(),
   totalOrders: z.number().int(),
-  totalProfit: z.number().int(),
-  avgMargin: z.number(),
+  // A rollup over a listing whose ad coverage is incomplete is itself
+  // unavailable (ADR-0003). Revenue and order counts never depend on ad
+  // coverage, so they stay complete.
+  totalProfit: z.number().int().nullable(),
+  avgMargin: z.number().nullable(),
   totalProducts: z.number().int(),
 });
 export type StatisticsOverview = z.infer<typeof StatisticsOverviewSchema>;
@@ -33,10 +36,11 @@ export const StatisticsProductRowSchema = z.object({
   grade: z.string().nullable(),
   thumbnailUrl: z.string().nullable(),
   totalRevenue: z.number().int(),
-  netProfit: z.number().int(),
+  // Unavailable when the listing's ad coverage is incomplete (ADR-0003).
+  netProfit: z.number().int().nullable(),
   orderCount: z.number().int(),
-  profitRate: z.number(),
-  margin: z.number(),
+  profitRate: z.number().nullable(),
+  margin: z.number().nullable(),
 });
 export type StatisticsProductRow = z.infer<typeof StatisticsProductRowSchema>;
 
@@ -47,7 +51,7 @@ export const StatisticsCategoryRowSchema = z.object({
   name: z.string(),
   revenue: z.number().int(),
   orders: z.number().int(),
-  profit: z.number().int(),
+  profit: z.number().int().nullable(),
   count: z.number().int(),
 });
 export type StatisticsCategoryRow = z.infer<typeof StatisticsCategoryRowSchema>;
@@ -57,10 +61,10 @@ export type StatisticsCategoryRow = z.infer<typeof StatisticsCategoryRowSchema>;
 export const StatisticsGradeRowSchema = z.object({
   grade: z.string(),
   revenue: z.number().int(),
-  profit: z.number().int(),
+  profit: z.number().int().nullable(),
   count: z.number().int(),
   productCount: z.number().int(),
-  adCost: z.number().int(),
+  adCost: z.number().int().nullable(),
 });
 export type StatisticsGradeRow = z.infer<typeof StatisticsGradeRowSchema>;
 

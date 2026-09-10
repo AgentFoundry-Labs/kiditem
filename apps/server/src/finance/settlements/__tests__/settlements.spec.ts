@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
-import { buildPerListingMetrics } from '../../../common/per-listing-profit';
+import { buildPerListingProfit } from '../../../common/per-listing-profit';
 import { SettlementsService } from '../settlements.service';
 
 vi.mock('../../../common/per-listing-profit', () => ({
-  buildPerListingMetrics: vi.fn(),
+  buildPerListingProfit: vi.fn(),
 }));
 
-const mockedBuildPerListingMetrics = vi.mocked(buildPerListingMetrics);
+const mockedBuildPerListingProfit = vi.mocked(buildPerListingProfit);
 
 function makePrisma() {
   return {
@@ -57,8 +57,8 @@ describe('SettlementsService', () => {
   beforeEach(() => {
     prisma = makePrisma();
     service = new SettlementsService(prisma as any);
-    mockedBuildPerListingMetrics.mockReset();
-    mockedBuildPerListingMetrics.mockResolvedValue([]);
+    mockedBuildPerListingProfit.mockReset();
+    mockedBuildPerListingProfit.mockResolvedValue([]);
   });
 
   describe('findAll', () => {
@@ -115,7 +115,7 @@ describe('SettlementsService', () => {
 
   describe('reconcile', () => {
     it('tolerance: matched when diff <= 100', async () => {
-      mockedBuildPerListingMetrics.mockResolvedValue([baseMetric]);
+      mockedBuildPerListingProfit.mockResolvedValue([baseMetric]);
       prisma.$queryRaw.mockResolvedValue([
         { listing_id: baseMetric.listingId, total_price: 10_050n, order_count: 5n },
       ]);
@@ -132,7 +132,7 @@ describe('SettlementsService', () => {
     });
 
     it('tolerance: minor_diff when 100 < diff <= 1000', async () => {
-      mockedBuildPerListingMetrics.mockResolvedValue([baseMetric]);
+      mockedBuildPerListingProfit.mockResolvedValue([baseMetric]);
       prisma.$queryRaw.mockResolvedValue([
         { listing_id: baseMetric.listingId, total_price: 10_500n, order_count: 5n },
       ]);
@@ -145,7 +145,7 @@ describe('SettlementsService', () => {
     });
 
     it('tolerance: mismatch when diff > 1000', async () => {
-      mockedBuildPerListingMetrics.mockResolvedValue([baseMetric]);
+      mockedBuildPerListingProfit.mockResolvedValue([baseMetric]);
       prisma.$queryRaw.mockResolvedValue([
         { listing_id: baseMetric.listingId, total_price: 12_000n, order_count: 5n },
       ]);
@@ -157,7 +157,7 @@ describe('SettlementsService', () => {
     });
 
     it('returns empty details and zero summary when live metrics are empty', async () => {
-      mockedBuildPerListingMetrics.mockResolvedValue([]);
+      mockedBuildPerListingProfit.mockResolvedValue([]);
       prisma.$queryRaw.mockResolvedValue([]);
 
       const result = await service.reconcile('c1', '2025-03');
@@ -178,7 +178,7 @@ describe('SettlementsService', () => {
     });
 
     it('converts bigint SUM to Number in Number() conversion', async () => {
-      mockedBuildPerListingMetrics.mockResolvedValue([
+      mockedBuildPerListingProfit.mockResolvedValue([
         {
           ...baseMetric,
           revenue: 3_000_000_000,
@@ -203,8 +203,8 @@ describe('SettlementsService', () => {
     it('uses KST month window and aligns refunded exclusion with live helper', async () => {
       await service.reconcile('c1', '2025-03');
 
-      expect(mockedBuildPerListingMetrics).toHaveBeenCalledTimes(1);
-      expect(mockedBuildPerListingMetrics).toHaveBeenCalledWith(
+      expect(mockedBuildPerListingProfit).toHaveBeenCalledTimes(1);
+      expect(mockedBuildPerListingProfit).toHaveBeenCalledWith(
         prisma as any,
         'c1',
         new Date('2025-02-28T15:00:00.000Z'),
@@ -223,7 +223,7 @@ describe('SettlementsService', () => {
     });
 
     it('propagates aggregation failures to the synchronous caller', async () => {
-      mockedBuildPerListingMetrics.mockRejectedValueOnce(new Error('aggregation failed'));
+      mockedBuildPerListingProfit.mockRejectedValueOnce(new Error('aggregation failed'));
 
       await expect(service.reconcile('c1', '2025-03')).rejects.toThrow(
         'aggregation failed',
