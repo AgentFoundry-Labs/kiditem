@@ -5,12 +5,84 @@ import {
   SellpiaProductSalesRowSchema,
   SellpiaProductSalesSummarySchema,
 } from '../dashboard';
+import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '../product-abc';
 
 const INVENTORY_SKU_ID = '11111111-1111-4111-8111-111111111111';
 const MASTER_PRODUCT_ID = '22222222-2222-4222-8222-222222222222';
 const CHANNEL_LISTING_OPTION_ID = '33333333-3333-4333-8333-333333333333';
 const CHANNEL_LISTING_ID = '44444444-4444-4444-8444-444444444444';
+const SELLPIA_SOURCE_IMPORT_RUN_ID = '55555555-5555-4555-8555-555555555555';
+const ADVERTISING_SOURCE_IMPORT_RUN_ID = '66666666-6666-4666-8666-666666666666';
+const GRADE_BASIS_CUTOFF_DATE = '2026-07-17';
 
+/** A published grade-A product: the shape the ABC producer emits for READY. */
+const abcReadyEvaluation = {
+  abcGrade: 'A' as const,
+  weightedRevenue: 200,
+  weightedOrderTimeSupplyCost: 100,
+  weightedAdvertisingSpend: 0,
+  weightedOperatingProfit: 100,
+  operatingProfitVelocity30: 50,
+  operatingMargin: 0.5,
+  lossPersistence: 0,
+  profitScore: 80,
+  marginScore: 80,
+  consistencyScore: 90,
+  economicScore: 82,
+  validObservationDays: 60,
+  formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+  formulaRevision: 2,
+  publicationRevision: 4,
+  gradeBasisCutoffDate: GRADE_BASIS_CUTOFF_DATE,
+  saleStartDate: '2026-06-01',
+  sellpiaSourceImportRunId: SELLPIA_SOURCE_IMPORT_RUN_ID,
+  advertisingSourceImportRunId: ADVERTISING_SOURCE_IMPORT_RUN_ID,
+  sellpiaGeneration: '7',
+  advertisingGeneration: '7',
+  mappingGeneration: '4',
+  calculatedAt: '2026-07-18T00:00:00.000Z',
+};
+
+const abcReady = {
+  abcGrade: 'A' as const,
+  evaluation: abcReadyEvaluation,
+  displayStatus: 'READY' as const,
+  formulaRevision: 2,
+  publicationRevision: 4,
+  officialCutoffDate: GRADE_BASIS_CUTOFF_DATE,
+  publishedAt: '2026-07-18T00:00:00.000Z',
+  actualCutoffDate: GRADE_BASIS_CUTOFF_DATE,
+  sources: {
+    sellpia: {
+      status: 'READY' as const,
+      sourceImportRunId: SELLPIA_SOURCE_IMPORT_RUN_ID,
+      generation: '7',
+      coverageStartDate: '2025-06-12',
+      coverageEndDate: GRADE_BASIS_CUTOFF_DATE,
+      actualCutoffDate: GRADE_BASIS_CUTOFF_DATE,
+      capturedAt: '2026-07-18T00:00:00.000Z',
+      latestAttemptState: 'COMPLETE' as const,
+      errorCode: null,
+    },
+    advertising: {
+      status: 'READY' as const,
+      sourceImportRunId: ADVERTISING_SOURCE_IMPORT_RUN_ID,
+      generation: '7',
+      coverageStartDate: '2025-06-12',
+      coverageEndDate: GRADE_BASIS_CUTOFF_DATE,
+      actualCutoffDate: GRADE_BASIS_CUTOFF_DATE,
+      capturedAt: '2026-07-18T00:00:00.000Z',
+      latestAttemptState: 'COMPLETE' as const,
+      errorCode: null,
+    },
+    mapping: { status: 'READY' as const, mappingGeneration: '4' },
+  },
+};
+
+// Retired pre-read-model Evaluation shape. It survives only because the
+// pending "published, observing, and unclassified" test below still describes
+// the three-way distinction the read model no longer expresses; that test is
+// blocked on a product decision, so neither it nor this literal is rewritten.
 const abcEvaluation = {
   abcGrade: 'A' as const,
   calculationStatus: 'READY' as const,
@@ -77,8 +149,7 @@ const destination = {
   externalOptionId: 'option-1',
   optionName: '기본 옵션',
   unitsPerSale: 1,
-  abcGrade: 'A',
-  abcEvaluation,
+  abc: abcReady,
   displayImage: {
     url: 'https://image.coupangcdn.com/catalog.jpg',
     source: 'channel_catalog',
@@ -119,8 +190,7 @@ function salesRow() {
         masterProductId: MASTER_PRODUCT_ID,
         masterProductCode: 'MP-1',
         masterProductName: '재고 상품',
-        abcGrade: 'A',
-        abcEvaluation,
+        abc: abcReady,
       },
       destinations: [destination],
     },
@@ -228,12 +298,8 @@ describe('Sellpia product-sales inventory contracts', () => {
         READY: 1,
         INSUFFICIENT_EVIDENCE: 0,
         SOURCE_UNMAPPED: 0,
-        CALIBRATION_PENDING: 0,
-        RECALCULATING: 0,
         SELLPIA_SOURCE_STALE: 0,
         AD_SOURCE_STALE: 0,
-        ORDERS_SOURCE_STALE: 0,
-        CALCULATION_ERROR: 0,
       },
       abcContributionProfitByGrade: { A: 100, B: 0, C: 0 },
       classifiedProductCount: 1,

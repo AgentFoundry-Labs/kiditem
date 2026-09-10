@@ -1,11 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import url from 'node:url';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import { BrowserCollectionSessionViewSchema } from './browser-collection-session';
 
 const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_ATTEMPT_ID = '22222222-2222-4222-8222-222222222222';
+// Anchor on this spec's own location so the adapter loads from any working
+// directory (package dir, repo root, `--root packages/shared`).
+const REPOSITORY_ROOT = path.resolve(
+  path.dirname(url.fileURLToPath(import.meta.url)),
+  '../../../..',
+);
 const adapterPaths = [
   // The three former extensions are now one loadable root (`kiditem-os`) with
   // a single generated copy of the shared collection-session adapter.
@@ -36,7 +43,7 @@ function loadManager(relativePath: string) {
     scripting: { async executeScript() {} },
   };
   const context = vm.createContext({ chrome, console, structuredClone });
-  const filename = path.resolve(process.cwd(), '../..', relativePath);
+  const filename = path.resolve(REPOSITORY_ROOT, relativePath);
   vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
   const adapter = context.KidItemCollectionSession as {
     create(options: Record<string, unknown>): {
