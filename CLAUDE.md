@@ -118,7 +118,24 @@ contract.
 - Use [the PR template](.github/PULL_REQUEST_TEMPLATE.md), including DB and
   backfill decisions, and read the live body back after editing.
 - Before waiting for checks, run the reconstruction and release-contract guards
-  against the intended base. Share PRs that change CLAUDE.md.
+  against the intended base.
+
+## Agent skills
+
+### Issue tracker
+
+Linear (team `Kiditem`); GitHub Issues are not a task ledger.
+See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles map to Linear statuses, not new labels.
+See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Multi-context: `CONTEXT-MAP.md` points at one `CONTEXT.md` per workspace.
+See `docs/agents/domain.md`.
 
 ## Task Routing
 

@@ -6,13 +6,50 @@ rows plus raw SQL on order line items, and falls back to Wing/Drive replay
 daily facts when order data is absent. Keep this as a read-only reporting
 boundary with HTTP and persistence adapters around Prisma-free orchestration.
 
+## Period Resolution
+
+- `domain/period/dashboard-period` owns every selection-to-window decision.
+  Services and adapters read a resolved period; they do not re-derive
+  business-date keys, enumerate dates, or clip a window of their own.
+- `DashboardSourceClass` enumerates the closure rules — `order_timestamps`,
+  `wing_closed_day`, `ads_preset_clipped`. Add a class there rather than a
+  switch in a service.
+- The window cutoff comes from `DashboardContext.anchor` through
+  `ResolvedDashboardPeriod`. Period-aware code never reads the wall clock, so
+  an injected anchor stays authoritative down to the outgoing adapter.
+
+## Calculation Evidence
+
+- Build every published `metricBasis` entry with the `@kiditem/shared/dashboard`
+  builders through `domain/evidence`. Status, `partial`, the
+  included/missing partition and matched offsets are derived there; never
+  hand-assemble a basis literal or pass a status.
+- `domain/evidence/dashboard-source` owns the source vocabulary. Add a name
+  there rather than repeating a string literal in a service.
+- A metric uses the maximal valid dates of its own required sources;
+  a multi-source metric uses `intersectBases`, and a ratio uses one basis for
+  numerator and denominator.
+- Read `ProfitSourceCoverage.adEvidence`, not `adDates.length`: under
+  `NOT_APPLIED` the basis names orders alone.
+- `unverified` means a required read failed. Evidence read and refused is
+  `invalidDates`; nothing collected is `missingDates`.
+- A published basis describes the value actually published. A source this
+  read model refused contributes no included date.
+- Inventory, product-count, warning and ABC values publish a `snapshot` basis
+  through `snapshotEvidence`, carrying the owner result's actual as-of against
+  the as-of the read needed. Do not give them a period basis.
+- Publish a key for every value a reader displays. A value with no owner
+  evidence publishes an `unavailable` snapshot; an omitted key and an absent
+  basis are indistinguishable to the reader, which blanks the card.
+
 ## Source-Of-Truth Rules
 
 - Compute revenue as `SUM(OrderLineItem.totalPrice)`; `Order.totalPrice` and
   `Order.quantity` are not revenue sources.
 - Shipping cost accumulates from `Order.shippingPrice` once per order.
 - Ad metrics aggregate additive columns; ratios recompute caller-side through
-  `domain/util/percent`.
+  `domain/util/percent`, which returns `null` when a ratio has no measurable
+  base. Publish that as unavailable; a missing base is never a measured `0`.
 - Wing/Drive replay fallback only activates when the order-based path produces
   zero revenue.
 - Top-N ranking uses the documented 30% margin approximation; precise
