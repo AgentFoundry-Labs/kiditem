@@ -4,8 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 DEFAULT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || pwd)"
 KIDITEM_ROOT="${KIDITEM_ROOT:-$DEFAULT_ROOT}"
-SKILLS_DIR="$KIDITEM_ROOT/.agents/skills"
-SOURCES_DIR="$KIDITEM_ROOT/tools/codex/skills"
+SOURCES_DIR="$KIDITEM_ROOT/skills"
+# Both harnesses discover skills from their own directory; the sources are shared.
+DISCOVERY_DIRS=(".agents/skills" ".claude/skills")
+LINK_PREFIX="../../skills"
 CODEX_BIN="${CODEX_BIN:-$(command -v codex || true)}"
 VERIFY_ONLY=0
 
@@ -13,8 +15,10 @@ usage() {
   cat <<'EOF'
 Usage: update-local-skills.sh [--verify-only]
 
-Reconciles KidItem-owned skills into .agents/skills. Shared development skills
-are managed globally by development@agent-skill-hub and are not touched here.
+Reconciles KidItem-owned skills into .agents/skills (Codex) and .claude/skills
+(Claude Code). Shared development skills are managed by
+development@agent-skill-hub, which links into the same directories; this script
+owns only its own ../../skills/* links and leaves every other entry alone.
 
   --verify-only  Check project-local links and prompt discovery without changes.
 
@@ -40,38 +44,39 @@ require_dir() {
 }
 
 reconcile_project_skills() {
+  local skills_dir="$1"
   local entry name source link target found=0
 
   if [ "$VERIFY_ONLY" -eq 1 ]; then
-    require_dir "$SKILLS_DIR"
+    require_dir "$skills_dir"
   else
-    mkdir -p "$SKILLS_DIR"
+    mkdir -p "$skills_dir"
   fi
 
-  for entry in "$SKILLS_DIR"/*; do
+  # Drop links this script owns whose source is gone. Anything else in the
+  # directory belongs to another owner (the shared profile) and is preserved.
+  for entry in "$skills_dir"/*; do
     [ -e "$entry" ] || [ -L "$entry" ] || continue
+    [ -L "$entry" ] || continue
+    case "$(readlink "$entry")" in "$LINK_PREFIX"/*) ;; *) continue ;; esac
     name="$(basename "$entry")"
     source="$SOURCES_DIR/$name"
     [ -f "$source/SKILL.md" ] && continue
-    if [ ! -L "$entry" ]; then
-      echo "Unexpected real path in project skill discovery: $entry" >&2
-      exit 1
-    fi
     if [ "$VERIFY_ONLY" -eq 1 ]; then
-      echo "Unexpected project skill link: $entry -> $(readlink "$entry")" >&2
+      echo "Stale KidItem skill link: $entry -> $(readlink "$entry")" >&2
       exit 1
     fi
     unlink "$entry"
   done
 
   log ""
-  log "== KidItem-owned skills =="
+  log "== KidItem-owned skills -> $skills_dir =="
   for source in "$SOURCES_DIR"/*; do
     [ -f "$source/SKILL.md" ] || continue
     found=$((found + 1))
     name="$(basename "$source")"
-    link="$SKILLS_DIR/$name"
-    target="../../tools/codex/skills/$name"
+    link="$skills_dir/$name"
+    target="$LINK_PREFIX/$name"
 
     if [ "$VERIFY_ONLY" -eq 0 ]; then
       if [ -e "$link" ] && [ ! -L "$link" ]; then
@@ -106,6 +111,12 @@ verify_prompt_scope() {
   log "== fresh Codex prompt scope =="
   local prompt_skills source name
   prompt_skills="$(cd "$KIDITEM_ROOT" && "$CODEX_BIN" debug prompt-input probe 2>/dev/null | perl -pe 's/\\n/\n/g' | grep -E '^- ' || true)"
+  # Claude Code reads the same links, so a Codex CLI that will not start is a
+  # warning about one consumer, not a failed reconciliation.
+  if [ -z "$prompt_skills" ]; then
+    log "Skipped: the Codex CLI produced no prompt scope (not installed, not signed in, or misconfigured)."
+    return 0
+  fi
   for source in "$SOURCES_DIR"/*; do
     [ -f "$source/SKILL.md" ] || continue
     name="$(basename "$source")"
@@ -121,8 +132,10 @@ require_dir "$KIDITEM_ROOT"
 require_dir "$SOURCES_DIR"
 log "== $(basename "$KIDITEM_ROOT") =="
 git -C "$KIDITEM_ROOT" status --short --branch
-reconcile_project_skills
+for discovery in "${DISCOVERY_DIRS[@]}"; do
+  reconcile_project_skills "$KIDITEM_ROOT/$discovery"
+done
 verify_prompt_scope
 
 log ""
-log "Done. Start a fresh Codex task to refresh injected skill metadata."
+log "Done. Start a fresh agent session to refresh injected skill metadata."
