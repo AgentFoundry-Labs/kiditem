@@ -9,6 +9,7 @@ import { MasterProductAbcService } from '../../../products/application/service/m
 import { AlertsRepository } from '../../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
+import { AdAccountDailyKpiSourceRepository } from '../../../advertising/adapter/out/repository/ad-account-daily-kpi-source.repository';
 import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
 import { SellpiaProfitabilitySourceService } from '../../sellpia-product-sales/sellpia-profitability-source.service';
 import { DashboardInventoryRepositoryAdapter } from '../adapter/out/repository/dashboard-inventory.repository.adapter';
@@ -37,7 +38,12 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     const productAbc = new ProductAbcReadService(
       new MasterProductAbcRepositoryAdapter(prisma as never), evidence,
     );
-    dashboard = new DashboardInventoryService(new DashboardInventoryRepositoryAdapter(prisma as never, productAbc));
+    dashboard = new DashboardInventoryService(new DashboardInventoryRepositoryAdapter(
+      prisma as never,
+      productAbc,
+      // The real advertising owner against the same Postgres.
+      new AdAccountDailyKpiSourceRepository(prisma as never, alerts),
+    ));
     inventory = new SellpiaProductInventoryReader(prisma as never,
       new InventoryAvailabilityService(new InventoryAvailabilityRepositoryAdapter(prisma as never)),
       { findDisplayMedia: async () => new Map() }, productAbc);

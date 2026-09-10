@@ -2,6 +2,8 @@ import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD, PRODUCT_ABC_ABSOLUTE_CURRENT_PAYL
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
+import { AdAccountDailyKpiSourceRepository } from '../../../advertising/adapter/out/repository/ad-account-daily-kpi-source.repository';
+import { AD_ACCOUNT_DAILY_KPI_READ_PORT } from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
 import { SellpiaProfitabilitySourceService } from '../../sellpia-product-sales/sellpia-profitability-source.service';
 import { MASTER_PRODUCT_PROFITABILITY_READ_PORT } from '../../../finance/application/port/in/master-product-profitability-read.port';
@@ -14,6 +16,7 @@ import { AlertsRepository } from '../../../alerts/alerts.repository';
 import { DashboardInventoryService } from '../application/service/dashboard-inventory.service';
 import { buildDashboardContext } from '../domain/context';
 import { businessDateText } from '../domain/period/dashboard-period';
+import { kstMonthEnd } from '../../../common/kst';
 import { DashboardInventoryRepositoryAdapter } from '../adapter/out/repository/dashboard-inventory.repository.adapter';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-inventory.repository.port';
@@ -30,6 +33,7 @@ import {
   setupChannelListing,
   seedOrderWithLineItems,
   seedAd,
+  seedPublishedAdAccountDay,
 } from '../../../test-helpers/finance-seeds';
 import type { PrismaClient } from '@prisma/client';
 
@@ -55,6 +59,13 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         { provide: PRODUCT_ABC_READ_PORT, useExisting: ProductAbcReadService },
         DashboardInventoryRepositoryAdapter,
         { provide: PrismaService, useValue: prisma },
+        // The real advertising owner, against the same Postgres. Whether the
+        // account published anything for the window is a fact only rows can
+        // hold, so a stub here would decide the very thing under test.
+        {
+          provide: AD_ACCOUNT_DAILY_KPI_READ_PORT,
+          useValue: new AdAccountDailyKpiSourceRepository(prisma as never, alerts),
+        },
         { provide: DASHBOARD_INVENTORY_REPOSITORY_PORT, useExisting: DashboardInventoryRepositoryAdapter },
       ],
     }).compile();
@@ -73,6 +84,67 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
   function midMonth(): Date {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 15, 3, 0, 0);
+  }
+
+  /** A `YYYY-MM-DD` business date inside the anchor's KST month. */
+  function adDay(dayOfMonth: number): string {
+    return `${businessDateText(new Date()).slice(0, 7)}-${String(dayOfMonth).padStart(2, '0')}`;
+  }
+
+  /** The three warning counts drawn from per-listing profit. */
+  const PER_LISTING_KEYS = [
+    'warnings.minusProducts',
+    'warnings.lowProfitProducts',
+    'warnings.highAdProducts',
+  ] as const;
+
+  /** The two that read no advertising evidence at all. */
+  const AD_FREE_KEYS = [
+    'warnings.outOfStockSkus',
+    'warnings.mappingAttentionSkus',
+  ] as const;
+
+  /**
+   * A listing that sold at a loss this month: revenue 50_000 against an 80_000
+   * cost, 10% commission and 5_000 shipping. It is loss-making for any ad
+   * cost, so whether it reaches `minusProducts` depends only on whether its ad
+   * cost is a measurement.
+   */
+  async function seedLossListingOnChannel(channel: string, tag: string): Promise<string> {
+    const { id: masterId } = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: `M-T-${tag}`, name: `Master ${tag}`, abcGrade: 'A',
+    });
+    const { id: optionId } = await setupProductOption(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, masterId,
+      sku: `SKU-T-${tag}`, costPrice: 80_000, commissionRate: 0.1, otherCost: 0,
+    });
+    const { listingId, listingOptionId } = await setupChannelListing(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, masterId,
+      channel, externalId: `EXT-T-${tag}`,
+      optionId, externalOptionId: `VI-T-${tag}`,
+    });
+    await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      externalOrderId: `INV-T-${tag}-1`,
+      orderedAt: midMonth().toISOString(),
+      shippingPrice: 5_000,
+      lineItems: [{ quantity: 1, totalPrice: 50_000, optionId, listingOptionId }],
+    });
+    return listingId;
+  }
+
+  /**
+   * Advertising published a complete account day inside the window, so the
+   * per-listing calendar — rather than an account that published nothing —
+   * decides each listing's coverage. Without this, the owner answers `MISSING`
+   * and every listing is withheld no matter what its own rows say.
+   */
+  async function publishAdAccountDay(date: string, adSpend: number): Promise<void> {
+    await seedPublishedAdAccountDay(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      date,
+      adSpend,
+    });
   }
 
   /**
@@ -319,7 +391,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID, masterId,
       sku: 'SKU-T-LOSS', costPrice: 80_000, commissionRate: 0.1, otherCost: 0,
     });
-    const { listingOptionId } = await setupChannelListing(prisma, {
+    const { listingId, listingOptionId } = await setupChannelListing(prisma, {
       organizationId: TEST_ORGANIZATION_ID, masterId,
       channel: 'coupang', externalId: 'EXT-T-LOSS',
       optionId, externalOptionId: 'VI-T-LOSS',
@@ -330,6 +402,14 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       orderedAt: midMonth().toISOString(),
       shippingPrice: 5_000,
       lineItems: [{ quantity: 1, totalPrice: 50_000, optionId, listingOptionId }],
+    });
+    // The listing is loss-making at any ad cost, but it only reaches the count
+    // once its ad cost is measured: the account published an explicit zero for
+    // the day and the listing carries the matching confirmed-zero row.
+    const lossDay = midMonth().toISOString().slice(0, 10);
+    await publishAdAccountDay(lossDay, 0);
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId, date: lossDay, spend: 0,
     });
 
     const ctx = buildDashboardContext();
@@ -375,6 +455,9 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID, listingId: cList.listingId,
       date: midMonth().toISOString().slice(0, 10), spend: 20_000,
     });
+    // The account published that day, so listings A and B — which the
+    // listing-level source never reported — are genuinely unadvertised.
+    await publishAdAccountDay(midMonth().toISOString().slice(0, 10), 20_000);
 
     const ctx = buildDashboardContext();
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
@@ -411,61 +494,21 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
   describe('warning counts over a partly measurable population', () => {
     const AD_DAYS = [5, 6] as const;
 
-    /** A `YYYY-MM-DD` business date inside the anchor's KST month. */
-    function adDay(dayOfMonth: number): string {
-      return `${businessDateText(new Date()).slice(0, 7)}-${String(dayOfMonth).padStart(2, '0')}`;
-    }
+    const seedLossListing = (tag: string) => seedLossListingOnChannel('coupang', tag);
 
     /**
-     * A listing that sold at a loss this month: revenue 50_000 against a
-     * 80_000 cost, 10% commission and 5_000 shipping. It is loss-making for
-     * any ad cost, so whether it reaches `minusProducts` depends only on
-     * whether its ad evidence is complete.
+     * Record ad evidence for a listing on each named day of the month, and
+     * publish the matching account day. A hole in the per-listing calendar
+     * only means anything once the account itself published something.
      */
-    async function seedLossListing(tag: string): Promise<string> {
-      const { id: masterId } = await setupMaster(prisma, {
-        organizationId: TEST_ORGANIZATION_ID, code: `M-T-${tag}`, name: `Master ${tag}`, abcGrade: 'A',
-      });
-      const { id: optionId } = await setupProductOption(prisma, {
-        organizationId: TEST_ORGANIZATION_ID, masterId,
-        sku: `SKU-T-${tag}`, costPrice: 80_000, commissionRate: 0.1, otherCost: 0,
-      });
-      const { listingId, listingOptionId } = await setupChannelListing(prisma, {
-        organizationId: TEST_ORGANIZATION_ID, masterId,
-        channel: 'coupang', externalId: `EXT-T-${tag}`,
-        optionId, externalOptionId: `VI-T-${tag}`,
-      });
-      await seedOrderWithLineItems(prisma, {
-        organizationId: TEST_ORGANIZATION_ID,
-        externalOrderId: `INV-T-${tag}-1`,
-        orderedAt: midMonth().toISOString(),
-        shippingPrice: 5_000,
-        lineItems: [{ quantity: 1, totalPrice: 50_000, optionId, listingOptionId }],
-      });
-      return listingId;
-    }
-
-    /** Record ad evidence for a listing on each named day of the month. */
     async function seedAdDays(listingId: string, days: readonly number[]): Promise<void> {
       for (const day of days) {
         await seedAd(prisma, {
           organizationId: TEST_ORGANIZATION_ID, listingId, date: adDay(day), spend: 1_000,
         });
+        await publishAdAccountDay(adDay(day), 1_000);
       }
     }
-
-    /** The three warning counts drawn from per-listing profit. */
-    const PER_LISTING_KEYS = [
-      'warnings.minusProducts',
-      'warnings.lowProfitProducts',
-      'warnings.highAdProducts',
-    ] as const;
-
-    /** The two that read no advertising evidence at all. */
-    const AD_FREE_KEYS = [
-      'warnings.outOfStockSkus',
-      'warnings.mappingAttentionSkus',
-    ] as const;
 
     it('T6: counts the listings it could measure and says how many it withheld', async () => {
       const covered = await seedLossListing('COVERED');
@@ -540,6 +583,127 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       for (const key of AD_FREE_KEYS) {
         expect(result.metricBasis?.[key], key).toMatchObject({
           status: 'current', partial: false, withheldCount: 0,
+        });
+      }
+    });
+  });
+
+  /**
+   * KID-45 — an empty per-listing ad calendar is produced both by an
+   * organization that runs no ads and by a window whose ad collection failed
+   * entirely. Only Advertising's account-level publication separates them, so
+   * these read through its own repository against Postgres: no stub can hold
+   * the difference between an account row that exists and one that does not.
+   */
+  describe('account-level advertising evidence', () => {
+    it('withholds every listing when the advertising account published nothing', async () => {
+      // An active Coupang account exists (the listing is on one) and the
+      // window carries no published account day at all.
+      await seedLossListingOnChannel('coupang', 'ACCT-MISSING');
+
+      const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+
+      // Absent evidence, not an ad cost of zero: the loss-making listing is
+      // withheld and the cards blank rather than reporting a computed profit.
+      expect(result.warnings.minusProducts).toBe(0);
+      for (const key of PER_LISTING_KEYS) {
+        expect(result.metricBasis?.[key], key).toMatchObject({
+          kind: 'snapshot',
+          asOf: null,
+          status: 'unavailable',
+          partial: false,
+          withheldCount: 1,
+        });
+      }
+      for (const key of AD_FREE_KEYS) {
+        expect(result.metricBasis?.[key], key).toMatchObject({
+          status: 'current', partial: false, withheldCount: 0,
+        });
+      }
+    });
+
+    /**
+     * Every business date in the dashboard's month window. `ctx.monthStart` /
+     * `ctx.monthEnd` are the whole KST calendar month, so "covers the window"
+     * means an account row on each of these dates.
+     */
+    function everyWindowDay(): string[] {
+      const month = businessDateText(new Date()).slice(0, 7);
+      const dayCount = Number(kstMonthEnd(month).slice(8));
+      return Array.from({ length: dayCount }, (_, index) => adDay(index + 1));
+    }
+
+    it('counts a measured zero when a confirmed-zero account covers every date in the window', async () => {
+      // An organization with an advertising account that ran no campaigns.
+      // The ad report is empty on every date, so `flushListingAdMetrics` writes
+      // no listing rows at all and the per-listing calendar is empty — the
+      // same shape a total collection failure leaves behind.
+      await seedLossListingOnChannel('coupang', 'ACCT-ZERO-FULL');
+      for (const day of everyWindowDay()) {
+        await publishAdAccountDay(day, 0);
+      }
+
+      const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+
+      // The account proved zero spend on every date the window asked about, so
+      // the loss-making listing has a measured ad cost of 0 and a computed
+      // profit. Blanking it would discard a fact the owner established.
+      expect(result.warnings.minusProducts).toBe(1);
+      expect(result.warnings.highAdProducts).toBe(0);
+      for (const key of PER_LISTING_KEYS) {
+        expect(result.metricBasis?.[key], key).toMatchObject({
+          kind: 'snapshot',
+          asOf: businessDateText(buildDashboardContext().anchor),
+          status: 'current',
+          partial: false,
+          withheldCount: 0,
+        });
+      }
+    });
+
+    it('withholds when a confirmed-zero account covers only part of the window', async () => {
+      // The same all-zero rows, one date short. `CONFIRMED_ZERO` describes the
+      // rows the owner returned and claims nothing about the dates it never
+      // reached, so the missing date is spend nobody looked for.
+      await seedLossListingOnChannel('coupang', 'ACCT-ZERO-PARTIAL');
+      for (const day of everyWindowDay().slice(0, -1)) {
+        await publishAdAccountDay(day, 0);
+      }
+
+      const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+
+      expect(result.warnings.minusProducts).toBe(0);
+      for (const key of PER_LISTING_KEYS) {
+        expect(result.metricBasis?.[key], key).toMatchObject({
+          kind: 'snapshot',
+          asOf: null,
+          status: 'unavailable',
+          partial: false,
+          withheldCount: 1,
+        });
+      }
+      for (const key of AD_FREE_KEYS) {
+        expect(result.metricBasis?.[key], key).toMatchObject({
+          status: 'current', partial: false, withheldCount: 0,
+        });
+      }
+    });
+
+    it('counts a measured zero when the organization has no advertising account', async () => {
+      // The same fixture on a channel with no Coupang advertising account:
+      // no collection can exist, so zero is a satisfied input.
+      await seedLossListingOnChannel('naver', 'ACCT-NOT-APPLIED');
+
+      const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+
+      expect(result.warnings.minusProducts).toBe(1);
+      expect(result.warnings.highAdProducts).toBe(0);
+      for (const key of PER_LISTING_KEYS) {
+        expect(result.metricBasis?.[key], key).toMatchObject({
+          kind: 'snapshot',
+          status: 'current',
+          partial: false,
+          withheldCount: 0,
         });
       }
     });

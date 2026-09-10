@@ -7,7 +7,14 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { kstInclusiveDaysStart, kstMonthStart } from '../../../../common/kst';
-import { buildPerListingMetrics } from '../../../../common/per-listing-profit';
+import {
+  buildPerListingMetrics,
+  readAccountAdEvidence,
+} from '../../../../common/per-listing-profit';
+import {
+  AD_ACCOUNT_DAILY_KPI_READ_PORT,
+  type AdAccountDailyKpiReadPort,
+} from '../../../application/port/in/ad-account-daily-kpi-source.port';
 import { classifyDailyTrafficFact } from '@kiditem/shared/advertising';
 import { periodBounds, type AdPeriod } from '../../../domain/ad-metrics';
 import {
@@ -41,6 +48,8 @@ export class AdStrategyContextRepositoryAdapter
     private readonly prisma: PrismaService,
     @Inject(ADVERTISING_REVIEW_LISTING_STATS_PORT)
     private readonly reviewStatsRead: AdvertisingReviewListingStatsPort,
+    @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
+    private readonly adAccountDailyKpiRead: AdAccountDailyKpiReadPort,
   ) {}
 
   async loadStrategyContext(
@@ -95,12 +104,18 @@ export class AdStrategyContextRepositoryAdapter
     const [liveMetrics, channelStateByListing] = await Promise.all([
       listingIds.length === 0
         ? Promise.resolve([])
-        : buildPerListingMetrics(
+        : readAccountAdEvidence(
+            this.adAccountDailyKpiRead,
+            organizationId,
+            monthWindow.from,
+            monthWindow.to,
+          ).then((accountAdEvidence) => buildPerListingMetrics(
             this.prisma,
             organizationId,
             monthWindow.from,
             monthWindow.to,
-          ).then((rows) =>
+            accountAdEvidence,
+          )).then((rows) =>
             rows.filter((row) => listingIdSet.has(row.listingId)),
           ),
       this.loadChannelStateByListing(organizationId, listings),

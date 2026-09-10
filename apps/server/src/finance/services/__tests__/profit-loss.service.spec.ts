@@ -1,5 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { AdAccountDailyKpiPublishedEvidence } from '@kiditem/shared/advertising';
+import type { AdAccountDailyKpiReadPort } from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 import { ProfitLossService } from '../profit-loss.service';
+
+/**
+ * Advertising's answer for the window. Whether the account published anything
+ * is the owner's word, so these cases state it instead of letting an empty
+ * listing calendar stand in for "no ads".
+ */
+function adEvidence(
+  evidence: AdAccountDailyKpiPublishedEvidence,
+): AdAccountDailyKpiReadPort {
+  return {
+    readPublished: vi.fn().mockResolvedValue({
+      channelAccountId: null,
+      evidence,
+      rows: [],
+    }),
+  };
+}
 
 // Hard rewrite Phase H3a/H3b — service composes:
 //   order.findMany + orderReturnLineItem.findMany +
@@ -78,7 +97,9 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
       { id: 'oA3', shippingPrice: 3000, lineItems: [mkLineItem(l2, { quantity: 1, totalPrice: 5000, costPrice: 3000, commissionRate: 0.1, otherCost: 0 })] },
     ];
     const prisma = makePrisma(orders);
-    const service = new ProfitLossService(prisma);
+    // No ad rows are seeded here, so the case being described is an
+    // organization that does not advertise, not one whose collection failed.
+    const service = new ProfitLossService(prisma, adEvidence('NOT_APPLIED'));
     const result = await service.findAll('companyA', 2026, 4);
     expect(prisma.order.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ organizationId: 'companyA' }),
@@ -98,7 +119,9 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
       ],
     }];
     const prisma = makePrisma(orders);
-    const service = new ProfitLossService(prisma);
+    // No ad rows are seeded here, so the case being described is an
+    // organization that does not advertise, not one whose collection failed.
+    const service = new ProfitLossService(prisma, adEvidence('NOT_APPLIED'));
     const result = await service.findAll('companyA', 2026, 4);
     expect(result).toHaveLength(1);
     expect(result[0].shippingCost).toBe(3000);
@@ -116,7 +139,9 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
       ],
     }];
     const prisma = makePrisma(orders);
-    const service = new ProfitLossService(prisma);
+    // No ad rows are seeded here, so the case being described is an
+    // organization that does not advertise, not one whose collection failed.
+    const service = new ProfitLossService(prisma, adEvidence('NOT_APPLIED'));
     const result = await service.findAll('companyA', 2026, 4);
     const a = result.find(r => r.listingId === 'la')!;
     const b = result.find(r => r.listingId === 'lb')!;
@@ -129,7 +154,9 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     const l = { id: 'l1', externalId: 'ext-1', channelName: 'coupang', master: { id: 'm1', code: 'M1', legacyCode: 'LEG-1', name: 'Product1', category: 'kids', abcGrade: 'A', thumbnailUrl: 'https://x.com/1.jpg' } };
     const orders = [{ id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(l, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.108, otherCost: 0 })] }];
     const prisma = makePrisma(orders);
-    const service = new ProfitLossService(prisma);
+    // No ad rows are seeded here, so the case being described is an
+    // organization that does not advertise, not one whose collection failed.
+    const service = new ProfitLossService(prisma, adEvidence('NOT_APPLIED'));
     const [row] = await service.findAll('companyA', 2026, 4);
     expect(row).toMatchObject({
       listingId: 'l1',
@@ -153,7 +180,9 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
 
   it('empty orders → empty array', async () => {
     const prisma = makePrisma([]);
-    const service = new ProfitLossService(prisma);
+    // No ad rows are seeded here, so the case being described is an
+    // organization that does not advertise, not one whose collection failed.
+    const service = new ProfitLossService(prisma, adEvidence('NOT_APPLIED'));
     const result = await service.findAll('companyA', 2026, 4);
     expect(result).toEqual([]);
   });
@@ -162,7 +191,9 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     const l = { id: 'l1', externalId: 'e1', channelName: 'coupang', master: { id: 'm1', code: 'M1', legacyCode: null, name: 'P1', category: null, abcGrade: null, thumbnailUrl: null } };
     const orders = [{ id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(l, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] }];
     const prisma = makePrisma(orders, { returnLineItems: [], adRows: [] });
-    const service = new ProfitLossService(prisma);
+    // No ad rows are seeded here, so the case being described is an
+    // organization that does not advertise, not one whose collection failed.
+    const service = new ProfitLossService(prisma, adEvidence('NOT_APPLIED'));
     const [row] = await service.findAll('companyA', 2026, 4);
     expect(row.returnCount).toBe(0);
     expect(row.adCost).toBe(0);
@@ -179,7 +210,9 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
       ]},
     ];
     const prisma = makePrisma(orders);
-    const service = new ProfitLossService(prisma);
+    // No ad rows are seeded here, so the case being described is an
+    // organization that does not advertise, not one whose collection failed.
+    const service = new ProfitLossService(prisma, adEvidence('NOT_APPLIED'));
     const [row] = await service.findAll('companyA', 2026, 4);
     expect(row.orderCount).toBe(3);
   });
@@ -193,7 +226,9 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
       { orderLineItem: null },
     ];
     const prisma = makePrisma(orders, { returnLineItems });
-    const service = new ProfitLossService(prisma);
+    // No ad rows are seeded here, so the case being described is an
+    // organization that does not advertise, not one whose collection failed.
+    const service = new ProfitLossService(prisma, adEvidence('NOT_APPLIED'));
     const [row] = await service.findAll('companyA', 2026, 4);
     expect(row.returnCount).toBe(2);
     expect(prisma.orderReturnLineItem.findMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -211,7 +246,7 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     const orders = [{ id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(l, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] }];
     const adRows = [{ listingId: 'l1', _sum: { adSpend: 1500 } }];
     const prisma = makePrisma(orders, { adRows });
-    const service = new ProfitLossService(prisma);
+    const service = new ProfitLossService(prisma, adEvidence('OBSERVED'));
     const [row] = await service.findAll('companyA', 2026, 4);
     expect(row.adCost).toBe(1500);
     expect(row.netProfit).toBe(10000 - 5000 - 1000 - 3000 - 1500 - 0);

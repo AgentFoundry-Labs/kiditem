@@ -4,6 +4,10 @@ import { NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { SalesPlansService } from '../sales-plans.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { AdAccountDailyKpiSourceRepository } from '../../../advertising/adapter/out/repository/ad-account-daily-kpi-source.repository';
+import { AD_ACCOUNT_DAILY_KPI_READ_PORT } from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
+import { SourceFailureAlerts } from '../../../alerts/alerts.service';
+import { AlertsRepository } from '../../../alerts/alerts.repository';
 import {
   makeTestPrisma,
   resetDb,
@@ -17,6 +21,7 @@ import {
   setupChannelListing,
   seedOrderWithLineItems,
   seedAd,
+  seedPublishedAdAccountDay,
 } from '../../../test-helpers/finance-seeds';
 
 describe('Sales-plans flow (PG integration)', () => {
@@ -63,6 +68,15 @@ describe('Sales-plans flow (PG integration)', () => {
       providers: [
         SalesPlansService,
         { provide: PrismaService, useValue: prisma },
+        // The real advertising owner against the same Postgres: whether the
+        // account published anything for the window is a fact only rows hold.
+        {
+          provide: AD_ACCOUNT_DAILY_KPI_READ_PORT,
+          useValue: new AdAccountDailyKpiSourceRepository(
+            prisma as never,
+            new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+          ),
+        },
       ],
     }).compile();
     service = m.get(SalesPlansService);
@@ -273,6 +287,12 @@ describe('Sales-plans flow (PG integration)', () => {
         date: '2026-04-10',
         spend: 2_000,
       });
+      // Advertising published that day, so the listing's own coverage decides.
+      await seedPublishedAdAccountDay(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        date: '2026-04-10',
+        adSpend: 2_000,
+      });
 
       const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID);
 
@@ -344,6 +364,22 @@ describe('Sales-plans flow (PG integration)', () => {
         }],
       });
 
+      // The listing sold in both months and advertising confirmed zero spend
+      // on each side of the boundary, so both profits are measurements.
+      for (const date of ['2026-04-30', '2026-05-01']) {
+        await seedAd(prisma, {
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: fixture.listing.listingId,
+          date,
+          spend: 0,
+        });
+        await seedPublishedAdAccountDay(prisma, {
+          organizationId: TEST_ORGANIZATION_ID,
+          date,
+          adSpend: 0,
+        });
+      }
+
       const apriled = await service.syncActuals(aprilPlan.id, TEST_ORGANIZATION_ID);
       expect(apriled.actualRevenue).toBe(10_000);
       expect(apriled.actualOrders).toBe(1);
@@ -409,6 +445,21 @@ describe('Sales-plans flow (PG integration)', () => {
         date: '2026-04-10',
         spend: 1_000_000,
       });
+      // TEST's own advertising confirmed zero spend that day; the foreign
+      // organization's million must not become TEST's ad cost.
+      await seedAd(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: ownFixture.listing.listingId,
+        date: '2026-04-10',
+        spend: 0,
+      });
+      for (const organizationId of [TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID]) {
+        await seedPublishedAdAccountDay(prisma, {
+          organizationId,
+          date: '2026-04-10',
+          adSpend: organizationId === TEST_ORGANIZATION_ID ? 0 : 1_000_000,
+        });
+      }
 
       const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID);
       expect(synced.actualRevenue).toBe(50_000);

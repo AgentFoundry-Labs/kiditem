@@ -45,11 +45,23 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
     }),
   });
 
+  // These fixtures carry no listings, so `loadStrategyContext` short-circuits
+  // before it asks the owner anything. The adapter still requires the port, and
+  // leaving it out only compiles because the Prisma mock is cast.
+  const buildAdAccountKpiMock = () => ({
+    readPublished: vi.fn().mockResolvedValue({
+      channelAccountId: null,
+      evidence: 'NOT_APPLIED',
+      rows: [],
+    }),
+  });
+
   it('returns the StrategyContext keys agreed with the strategy services', async () => {
     const prismaMock = buildPrismaMock();
     const adapter = new AdStrategyContextRepositoryAdapter(
       prismaMock as any,
       buildReviewStatsMock(),
+      buildAdAccountKpiMock() as any,
     );
     const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
 
@@ -74,6 +86,7 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
     const adapter = new AdStrategyContextRepositoryAdapter(
       prismaMock as any,
       buildReviewStatsMock(),
+      buildAdAccountKpiMock() as any,
     );
     const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
 
@@ -89,6 +102,7 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
     const adapter = new AdStrategyContextRepositoryAdapter(
       prismaMock as any,
       buildReviewStatsMock(),
+      buildAdAccountKpiMock() as any,
     );
     const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
 
@@ -144,6 +158,7 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
     const adapter = new AdStrategyContextRepositoryAdapter(
       prismaMock as any,
       buildReviewStatsMock(),
+      buildAdAccountKpiMock() as any,
     );
     const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
 
@@ -166,6 +181,7 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
     const adapter = new AdStrategyContextRepositoryAdapter(
       prismaMock as any,
       reviewStatsMock,
+      buildAdAccountKpiMock() as any,
     );
     const recentSince = new Date('2026-05-01T00:00:00.000Z');
     const trafficSince = new Date('2026-05-02T00:00:00.000Z');
@@ -195,6 +211,7 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
     const adapter = new AdStrategyContextRepositoryAdapter(
       prismaMock as any,
       buildReviewStatsMock(),
+      buildAdAccountKpiMock() as any,
     );
     const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
 

@@ -1,8 +1,15 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { PLData } from '@kiditem/shared/finance';
 import { PrismaService } from '../../prisma/prisma.service';
 import { kstMonthStart } from '../../common/kst';
-import { buildPerListingProfit } from '../../common/per-listing-profit';
+import {
+  buildPerListingProfit,
+  readAccountAdEvidence,
+} from '../../common/per-listing-profit';
+import {
+  AD_ACCOUNT_DAILY_KPI_READ_PORT,
+  type AdAccountDailyKpiReadPort,
+} from '../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 
 /**
  * Live aggregation.
@@ -13,12 +20,20 @@ import { buildPerListingProfit } from '../../common/per-listing-profit';
  * unavailable profit for a listing whose ad coverage is incomplete rather than
  * one computed from a partial ad sum. Rows still sort by revenue, which is
  * always measured.
+ *
+ * Whether advertising applies to this organization at all is Advertising's
+ * answer, read here from its published account-daily evidence for the same
+ * month window.
  */
 @Injectable()
 export class ProfitLossService {
   private readonly logger = new Logger(ProfitLossService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
+    private readonly adAccountDailyKpiRead: AdAccountDailyKpiReadPort,
+  ) {}
 
   async findAll(
     organizationId: string,
@@ -29,8 +44,15 @@ export class ProfitLossService {
     const from = kstMonthStart(year, month);
     const to = kstMonthStart(year, month + 1);
 
+    const accountAdEvidence = await readAccountAdEvidence(
+      this.adAccountDailyKpiRead,
+      organizationId,
+      from,
+      to,
+    );
+
     const [metrics, returnRows] = await Promise.all([
-      buildPerListingProfit(this.prisma, organizationId, from, to),
+      buildPerListingProfit(this.prisma, organizationId, from, to, accountAdEvidence),
       this.prisma.orderReturnLineItem.findMany({
         where: {
           organizationId,

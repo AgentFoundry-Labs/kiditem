@@ -15,6 +15,7 @@ import {
   TEST_ORGANIZATION_ID,
   OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
+import { seedPublishedAdAccountDay } from '../../test-helpers/finance-seeds';
 
 describe('AdStrategy flow (PG integration)', () => {
   let prisma: PrismaClient;
@@ -219,6 +220,18 @@ describe('AdStrategy flow (PG integration)', () => {
     });
   }
 
+  /**
+   * Advertising published today's account day. Per-listing profit is withheld
+   * for the whole window when the account published nothing (KID-45), so a
+   * test that expects a measured profit rate has to say the account reported.
+   */
+  async function publishAdAccountToday(organizationId: string, adSpend: number) {
+    const today = new Date();
+    const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+      + `-${String(today.getDate()).padStart(2, '0')}`;
+    await seedPublishedAdAccountDay(prisma, { organizationId, date, adSpend });
+  }
+
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
@@ -304,6 +317,7 @@ describe('AdStrategy flow (PG integration)', () => {
         impressions: 10000,
         conversions: 10,
       });
+      await publishAdAccountToday(TEST_ORGANIZATION_ID, 2_000);
 
       const rules = await service.getRules('14d', TEST_ORGANIZATION_ID);
 

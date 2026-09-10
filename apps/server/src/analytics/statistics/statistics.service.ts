@@ -1,7 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { buildPerListingProfit } from '../../common/per-listing-profit';
+import {
+  buildPerListingProfit,
+  readAccountAdEvidence,
+} from '../../common/per-listing-profit';
 import { kstMonthStart } from '../../common/kst';
+import {
+  AD_ACCOUNT_DAILY_KPI_READ_PORT,
+  type AdAccountDailyKpiReadPort,
+} from '../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 import type {
   StatisticsOverview,
   StatisticsProductRow,
@@ -39,7 +46,11 @@ function totalOrUnavailable(values: readonly (number | null)[]): number | null {
 
 @Injectable()
 export class StatisticsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
+    private readonly adAccountDailyKpiRead: AdAccountDailyKpiReadPort,
+  ) {}
 
   private resolveWindow(period?: string) {
     if (period) {
@@ -63,9 +74,19 @@ export class StatisticsService {
     };
   }
 
-  private getListingMetrics(organizationId: string, period?: string) {
+  /**
+   * Whether advertising applies to this window at all is Advertising's answer,
+   * not one this read model may infer from an empty listing calendar.
+   */
+  private async getListingMetrics(organizationId: string, period?: string) {
     const { from, to } = this.resolveWindow(period);
-    return buildPerListingProfit(this.prisma, organizationId, from, to);
+    const accountAdEvidence = await readAccountAdEvidence(
+      this.adAccountDailyKpiRead,
+      organizationId,
+      from,
+      to,
+    );
+    return buildPerListingProfit(this.prisma, organizationId, from, to, accountAdEvidence);
   }
 
   async overview(organizationId: string, period?: string) {

@@ -15,11 +15,18 @@ import {
   resolveChannelListingSaleStatus,
 } from '@kiditem/shared/channel-listing';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import { buildPerListingMetricsCoverage } from '../../../../../common/per-listing-profit';
+import {
+  buildPerListingMetricsCoverage,
+  readAccountAdEvidence,
+} from '../../../../../common/per-listing-profit';
 import {
   PRODUCT_ABC_READ_PORT,
   type ProductAbcReadPort,
 } from '../../../../../products/application/port/in/product-abc-read.port';
+import {
+  AD_ACCOUNT_DAILY_KPI_READ_PORT,
+  type AdAccountDailyKpiReadPort,
+} from '../../../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
 import type {
   DashboardInventoryRepositoryPort,
@@ -40,6 +47,8 @@ export class DashboardInventoryRepositoryAdapter
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_ABC_READ_PORT)
     private readonly productAbc: ProductAbcReadPort,
+    @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
+    private readonly adAccountDailyKpiRead: AdAccountDailyKpiReadPort,
   ) {}
 
   async countActiveProductsByGrade(
@@ -171,12 +180,21 @@ export class DashboardInventoryRepositoryAdapter
   ): Promise<DashboardPerListingMetricsResult> {
     // Which listings the ad source actually covered is the helper's rule
     // (ADR-0003); this adapter only carries its answer, including how many
-    // listings it withheld, across the port.
+    // listings it withheld, across the port. Whether advertising applies to
+    // the organization at all is Advertising's answer, read here for the same
+    // window rather than inferred from an empty listing calendar.
+    const accountAdEvidence = await readAccountAdEvidence(
+      this.adAccountDailyKpiRead,
+      organizationId,
+      monthStart,
+      monthEnd,
+    );
     const { metrics, withheldListings } = await buildPerListingMetricsCoverage(
       this.prisma,
       organizationId,
       monthStart,
       monthEnd,
+      accountAdEvidence,
     );
     return { rows: metrics, withheldListings };
   }

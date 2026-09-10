@@ -3,11 +3,24 @@ import { BadRequestException } from '@nestjs/common';
 import { buildPerListingProfit } from '../../../common/per-listing-profit';
 import { SettlementsService } from '../settlements.service';
 
-vi.mock('../../../common/per-listing-profit', () => ({
+// Only the per-listing aggregation is faked. `readAccountAdEvidence` stays
+// real so the window this service asks the advertising owner about is the one
+// it actually passes to the aggregation.
+vi.mock('../../../common/per-listing-profit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../common/per-listing-profit')>()),
   buildPerListingProfit: vi.fn(),
 }));
 
 const mockedBuildPerListingProfit = vi.mocked(buildPerListingProfit);
+
+/** An organization with no advertising account: ad cost is a genuine zero. */
+const notAppliedAdRead = {
+  readPublished: vi.fn().mockResolvedValue({
+    channelAccountId: null,
+    evidence: 'NOT_APPLIED',
+    rows: [],
+  }),
+};
 
 function makePrisma() {
   return {
@@ -56,7 +69,7 @@ describe('SettlementsService', () => {
 
   beforeEach(() => {
     prisma = makePrisma();
-    service = new SettlementsService(prisma as any);
+    service = new SettlementsService(prisma as any, notAppliedAdRead);
     mockedBuildPerListingProfit.mockReset();
     mockedBuildPerListingProfit.mockResolvedValue([]);
   });
@@ -209,7 +222,15 @@ describe('SettlementsService', () => {
         'c1',
         new Date('2025-02-28T15:00:00.000Z'),
         new Date('2025-03-31T15:00:00.000Z'),
+        { evidence: 'NOT_APPLIED', coversWindow: false },
       );
+      // The advertising owner is asked about the same window, in the inclusive
+      // business dates its published range uses.
+      expect(notAppliedAdRead.readPublished).toHaveBeenCalledWith({
+        organizationId: 'c1',
+        from: '2025-03-01',
+        to: '2025-03-31',
+      });
 
       const [strings, organizationId, from, to] = prisma.$queryRaw.mock.calls[0] ?? [];
       expect([organizationId, from, to]).toEqual([

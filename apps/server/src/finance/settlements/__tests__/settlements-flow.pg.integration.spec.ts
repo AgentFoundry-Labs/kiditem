@@ -4,6 +4,10 @@ import { BadRequestException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { SettlementsService } from '../settlements.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { AdAccountDailyKpiSourceRepository } from '../../../advertising/adapter/out/repository/ad-account-daily-kpi-source.repository';
+import { AD_ACCOUNT_DAILY_KPI_READ_PORT } from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
+import { SourceFailureAlerts } from '../../../alerts/alerts.service';
+import { AlertsRepository } from '../../../alerts/alerts.repository';
 import {
   makeTestPrisma,
   resetDb,
@@ -17,6 +21,7 @@ import {
   setupChannelListing,
   seedOrderWithLineItems,
   seedAd,
+  seedPublishedAdAccountDay,
 } from '../../../test-helpers/finance-seeds';
 
 describe('Settlements flow (PG integration)', () => {
@@ -63,6 +68,15 @@ describe('Settlements flow (PG integration)', () => {
       providers: [
         SettlementsService,
         { provide: PrismaService, useValue: prisma },
+        // The real advertising owner against the same Postgres: whether the
+        // account published anything for the window is a fact only rows hold.
+        {
+          provide: AD_ACCOUNT_DAILY_KPI_READ_PORT,
+          useValue: new AdAccountDailyKpiSourceRepository(
+            prisma as never,
+            new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+          ),
+        },
       ],
     }).compile();
     service = m.get(SettlementsService);
@@ -105,6 +119,13 @@ describe('Settlements flow (PG integration)', () => {
         listingId: fixture.listing.listingId,
         date: '2026-03-15T00:00:00.000Z',
         spend: 2_000,
+      });
+      // Advertising published that day, so the listing's own coverage is what
+      // decides whether its profit is a measurement.
+      await seedPublishedAdAccountDay(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        date: '2026-03-15',
+        adSpend: 2_000,
       });
 
       const result = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');

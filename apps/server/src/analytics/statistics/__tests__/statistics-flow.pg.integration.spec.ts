@@ -3,6 +3,10 @@ import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import { StatisticsService } from '../statistics.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { AdAccountDailyKpiSourceRepository } from '../../../advertising/adapter/out/repository/ad-account-daily-kpi-source.repository';
+import { AD_ACCOUNT_DAILY_KPI_READ_PORT } from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
+import { SourceFailureAlerts } from '../../../alerts/alerts.service';
+import { AlertsRepository } from '../../../alerts/alerts.repository';
 import {
   IDOR_SENTINEL,
   OTHER_ORGANIZATION_ID,
@@ -13,6 +17,7 @@ import {
 } from '../../../test-helpers/real-prisma';
 import {
   seedAd,
+  seedPublishedAdAccountDay,
   seedOrderWithLineItems,
   setupChannelListing,
   setupMaster,
@@ -31,6 +36,15 @@ describe('Statistics flow (PG integration)', () => {
       providers: [
         StatisticsService,
         { provide: PrismaService, useValue: prisma },
+        // The real advertising owner against the same Postgres: whether the
+        // account published anything for the window is a fact only rows hold.
+        {
+          provide: AD_ACCOUNT_DAILY_KPI_READ_PORT,
+          useValue: new AdAccountDailyKpiSourceRepository(
+            prisma as never,
+            new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+          ),
+        },
       ],
     }).compile();
 
@@ -199,6 +213,14 @@ describe('Statistics flow (PG integration)', () => {
       listingId: listingL2.listingId,
       date: '2026-04-15',
       spend: 1_000,
+    });
+    // Advertising published that day at account level, so the listing-level
+    // calendar is what decides coverage rather than an account that published
+    // nothing.
+    await seedPublishedAdAccountDay(prisma, {
+      organizationId,
+      date: '2026-04-15',
+      adSpend: 4_000,
     });
 
     return {

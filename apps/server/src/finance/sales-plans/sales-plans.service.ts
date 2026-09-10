@@ -1,14 +1,25 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { buildPerListingMetrics } from '../../common/per-listing-profit';
+import {
+  buildPerListingMetrics,
+  readAccountAdEvidence,
+} from '../../common/per-listing-profit';
 import { kstMonthStart } from '../../common/kst';
+import {
+  AD_ACCOUNT_DAILY_KPI_READ_PORT,
+  type AdAccountDailyKpiReadPort,
+} from '../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 import { CreateSalesPlanDto, UpdateSalesPlanDto } from './dto';
 
 const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
 
 @Injectable()
 export class SalesPlansService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
+    private readonly adAccountDailyKpiRead: AdAccountDailyKpiReadPort,
+  ) {}
 
   private resolveWindow(period: string) {
     const [year, month] = period.split('-').map(Number);
@@ -69,6 +80,12 @@ export class SalesPlansService {
     }
 
     const { from, to } = this.resolveWindow(plan.period);
+    const accountAdEvidence = await readAccountAdEvidence(
+      this.adAccountDailyKpiRead,
+      organizationId,
+      from,
+      to,
+    );
 
     const [orderAgg, metrics] = await Promise.all([
       this.prisma.order.aggregate({
@@ -86,7 +103,7 @@ export class SalesPlansService {
       // `actualProfit` is a stored scalar with no way to say "unavailable", so
       // it totals the listings whose profit is measured and withholds the rest
       // (ADR-0003) rather than folding in a partial ad sum.
-      buildPerListingMetrics(this.prisma, organizationId, from, to),
+      buildPerListingMetrics(this.prisma, organizationId, from, to, accountAdEvidence),
     ]);
     const actualProfit = metrics.reduce((sum, metric) => sum + metric.netProfit, 0);
 

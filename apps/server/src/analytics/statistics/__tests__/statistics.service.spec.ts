@@ -2,11 +2,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildPerListingProfit } from '../../../common/per-listing-profit';
 import { StatisticsService } from '../statistics.service';
 
-vi.mock('../../../common/per-listing-profit', () => ({
+// Only the per-listing aggregation is faked. `readAccountAdEvidence` stays
+// real so the window this service asks the advertising owner about is the one
+// it actually passes to the aggregation.
+vi.mock('../../../common/per-listing-profit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../common/per-listing-profit')>()),
   buildPerListingProfit: vi.fn(),
 }));
 
 const mockedBuildPerListingProfit = vi.mocked(buildPerListingProfit);
+
+/** An organization with no advertising account: ad cost is a genuine zero. */
+const notAppliedAdRead = {
+  readPublished: vi.fn().mockResolvedValue({
+    channelAccountId: null,
+    evidence: 'NOT_APPLIED',
+    rows: [],
+  }),
+};
 
 function makePrisma() {
   return {
@@ -51,7 +64,7 @@ describe('StatisticsService', () => {
 
   beforeEach(() => {
     prisma = makePrisma();
-    service = new StatisticsService(prisma as any);
+    service = new StatisticsService(prisma as any, notAppliedAdRead);
     mockedBuildPerListingProfit.mockReset();
     mockedBuildPerListingProfit.mockResolvedValue([]);
   });
@@ -76,7 +89,15 @@ describe('StatisticsService', () => {
         'organization-1',
         new Date('2026-03-31T15:00:00.000Z'),
         new Date('2026-04-30T15:00:00.000Z'),
+        { evidence: 'NOT_APPLIED', coversWindow: false },
       );
+      // The advertising owner is asked about the same window, in the inclusive
+      // business dates its published range uses.
+      expect(notAppliedAdRead.readPublished).toHaveBeenCalledWith({
+        organizationId: 'organization-1',
+        from: '2026-04-01',
+        to: '2026-04-30',
+      });
       expect(prisma.order.count).toHaveBeenCalledWith({
         where: {
           organizationId: 'organization-1',
@@ -112,7 +133,13 @@ describe('StatisticsService', () => {
         'organization-1',
         new Date(0),
         new Date('2026-04-30T15:00:00.000Z'),
+        { evidence: 'NOT_APPLIED', coversWindow: false },
       );
+      expect(notAppliedAdRead.readPublished).toHaveBeenCalledWith({
+        organizationId: 'organization-1',
+        from: '1970-01-01',
+        to: '2026-04-30',
+      });
       expect(prisma.order.count).toHaveBeenCalledWith({
         where: {
           organizationId: 'organization-1',

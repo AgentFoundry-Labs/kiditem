@@ -3,11 +3,24 @@ import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { buildPerListingMetrics } from '../../../common/per-listing-profit';
 import { SalesPlansService } from '../sales-plans.service';
 
-vi.mock('../../../common/per-listing-profit', () => ({
+// Only the per-listing aggregation is faked. `readAccountAdEvidence` stays
+// real so the window this service asks the advertising owner about is the one
+// it actually passes to the aggregation.
+vi.mock('../../../common/per-listing-profit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../common/per-listing-profit')>()),
   buildPerListingMetrics: vi.fn(),
 }));
 
 const mockedBuildPerListingMetrics = vi.mocked(buildPerListingMetrics);
+
+/** An organization with no advertising account: ad cost is a genuine zero. */
+const notAppliedAdRead = {
+  readPublished: vi.fn().mockResolvedValue({
+    channelAccountId: null,
+    evidence: 'NOT_APPLIED',
+    rows: [],
+  }),
+};
 
 /**
  * Plan B2c.orders T9 — sales-plans IDOR 3건 + KST boundary.
@@ -37,7 +50,7 @@ describe('SalesPlansService', () => {
 
   beforeEach(() => {
     prisma = makePrisma();
-    service = new SalesPlansService(prisma as any);
+    service = new SalesPlansService(prisma as any, notAppliedAdRead);
     mockedBuildPerListingMetrics.mockReset();
     mockedBuildPerListingMetrics.mockResolvedValue([]);
   });
@@ -173,6 +186,7 @@ describe('SalesPlansService', () => {
         'organization-1',
         window.gte,
         window.lt,
+        { evidence: 'NOT_APPLIED', coversWindow: false },
       );
     });
 
@@ -275,6 +289,7 @@ describe('SalesPlansService', () => {
         'organization-1',
         window.gte,
         window.lt,
+        { evidence: 'NOT_APPLIED', coversWindow: false },
       );
     });
   });
