@@ -1435,6 +1435,17 @@ requirements after this cutover.
 
 ## 2026-09-10 approved amendment — dashboard partial aggregation
 
+> **Settled decisions have moved to ADRs.** This amendment stays as the record
+> of what was approved; where an ADR covers one of its decisions the ADR is
+> authoritative and wins on conflict.
+>
+> - [ADR-0001](../../adr/0001-dashboard-month-window-is-anchor-clipped.md) —
+>   every dashboard month window is the anchor's month clipped to closed days
+> - [ADR-0003](../../adr/0003-per-listing-profit-reads-ad-coverage.md) —
+>   per-listing profit reads ad coverage; Top-N ranking is exempt
+> - [ADR-0004](../../adr/0004-snapshot-publishes-withheld-count.md) —
+>   a snapshot value publishes its withheld count instead of a nullable measure
+
 This amendment supersedes the dashboard's whole-period-or-null display policy.
 The user selected visual option 2 and explicitly applied the policy to every
 dashboard card, chart, table, derived metric, comparison and snapshot/status
@@ -1479,6 +1490,15 @@ validity, failed reads and rendered card/chart/table basis labels. Source
 owner, extension and browser-lifetime acceptance remains separately required.
 
 ## 2026-09-10 approved amendment — valid historical evidence and source units
+
+> **Settled decisions have moved to ADRs.** This amendment stays as the record
+> of what was approved; where an ADR covers one of its decisions the ADR is
+> authoritative and wins on conflict.
+>
+> - [ADR-0002](../../adr/0002-products-owns-abc-display-status.md) —
+>   Products owns and publishes the ABC display status
+> - [ADR-0005](../../adr/0005-abc-admits-evidence-on-compatibility.md) —
+>   ABC admits evidence on compatibility; the official cutoff never moves backward
 
 The user explicitly extends the previous reporting-only scope to Products'
 ABC execution/publication and source-owner confirmation where current gates

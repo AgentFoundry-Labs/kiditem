@@ -22,8 +22,10 @@ processing, listing, and operations.
 - Keep one primary business responsibility per change. Cross-domain edits are
   allowed only when required by a named interface, migration, shared guard, or
   incident fix; identify the affected owners and exclude unrelated cleanup.
-- Keep durable plans/specs in `docs/superpowers/` and generated agent output
-  out of git. Research existing OSS before introducing architecture.
+- Record a settled decision as an ADR in `docs/adr/`; keep in-flight design in
+  `docs/superpowers/specs/` and generated agent output out of git. An ADR wins
+  over a spec on conflict. Research existing OSS before introducing
+  architecture.
 - Use the [AI collaboration runbook](docs/runbooks/ai-collaboration.md) for
   issue intake, external-agent coordination, PR handoff, merge, and checkout
   cleanup.
