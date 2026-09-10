@@ -112,46 +112,6 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
     },
   );
 
-  it('never moves an official result back to an older cutoff', async () => {
-    const { productId, skuCode } = await seedSellingProduct(prisma);
-    await seedFormulaState(prisma);
-    const recent = await collectSources(prisma, { skuCode, daysAgo: 2 });
-    const published = await abcService(prisma).recalculate({ organizationId: TEST_ORGANIZATION_ID });
-    expect(published).toMatchObject({ outcome: 'PUBLISHED', officialCutoff: recent.cutoff });
-
-    // A remap retires the generations behind the settled grade, and the only
-    // collection that completed under the new mapping reaches an older cutoff.
-    await prisma.masterProductAbcFormulaState.update({
-      where: { organizationId: TEST_ORGANIZATION_ID },
-      data: { mappingGeneration: 1n },
-    });
-    const older = await collectSources(prisma, { skuCode, daysAgo: 40 });
-    expect(older.cutoff < recent.cutoff).toBe(true);
-
-    const result = await abcService(prisma).recalculate({ organizationId: TEST_ORGANIZATION_ID });
-
-    expect(result).toMatchObject({
-      outcome: 'SOURCE_NOT_READY',
-      // The retained result exposes its own cutoff next to the older cutoff
-      // the current evidence reaches.
-      officialCutoff: recent.cutoff,
-      actualCutoff: older.cutoff,
-    });
-    await expect(prisma.masterProductAbcFormulaState.findUniqueOrThrow({
-      where: { organizationId: TEST_ORGANIZATION_ID },
-    })).resolves.toMatchObject({
-      publicationRevision: 1,
-      officialCutoffDate: new Date(`${recent.cutoff}T00:00:00.000Z`),
-    });
-    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
-      .resolves.toMatchObject({ abcGrade: 'A' });
-    await expect(prisma.masterProductAbcEvaluation.findFirstOrThrow({
-      where: { organizationId: TEST_ORGANIZATION_ID, masterProductId: productId },
-    })).resolves.toMatchObject({
-      gradeBasisCutoffDate: new Date(`${recent.cutoff}T00:00:00.000Z`),
-    });
-  });
-
   it('refuses a grade for a hole inside the selected evaluation period', async () => {
     const { productId, skuCode } = await seedSellingProduct(prisma);
     await seedFormulaState(prisma);

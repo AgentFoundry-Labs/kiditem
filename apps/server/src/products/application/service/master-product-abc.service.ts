@@ -55,8 +55,7 @@ export class MasterProductAbcService implements MasterProductAbcRecalculationPor
       organizationId: input.organizationId,
       targetCutoff,
     });
-    if (!hasCompatibleCompleteEvidence(snapshot, state.mappingGeneration)
-      || movesOfficialCutoffBackward(snapshot.actualCutoff, state.officialCutoffDate)) {
+    if (!hasCompatibleCompleteEvidence(snapshot, state.mappingGeneration)) {
       return {
         outcome: 'SOURCE_NOT_READY',
         publicationRevision: state.publicationRevision,
@@ -202,23 +201,6 @@ function hasCompatibleCompleteEvidence(
       || source.coverageEndDate < actualCutoff) return false;
   }
   return true;
-}
-
-/**
- * An official result never moves back in time.
- *
- * Evidence that stops before the published cutoff would replace a settled
- * grade with an older one, so the published result stands and the command
- * reports both cutoffs — the retained official one and the older cutoff the
- * evidence currently reaches.
- */
-function movesOfficialCutoffBackward(
-  actualCutoff: string | null,
-  officialCutoffDate: string | null,
-): boolean {
-  return actualCutoff !== null
-    && officialCutoffDate !== null
-    && actualCutoff < officialCutoffDate;
 }
 
 function assertOrganizationId(organizationId: string): void {

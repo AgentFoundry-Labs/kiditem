@@ -13,14 +13,11 @@ import type {
   MasterProductAbcCandidateRecord,
   MasterProductAbcEvaluationRecord,
   MasterProductAbcFormulaStateRecord,
-  MasterProductAbcSourceFence,
   ProductAbcPublicationInput,
   ProductAbcRepositoryPort,
   MasterProductAbcPublicationResult,
 } from '../../../application/port/out/repository/master-product-abc.repository.port';
 
-const SELLPIA_SOURCE_TYPE = 'sellpia_product_profitability';
-const ADVERTISING_SOURCE_TYPE = 'coupang_ad_profitability';
 const PUBLICATION_INSERT_CHUNK = 1_000;
 
 type CalendarValue = Date | string | null;
@@ -37,19 +34,6 @@ type FormulaStateRow = Readonly<{
   publishedMappingGeneration: string | null;
   mappingGeneration: string;
   formulaJson: Prisma.JsonValue | null;
-}>;
-
-type SourceRunRow = Readonly<{
-  sourceImportRunId: string;
-  publicationSequence: string | null;
-  mappingGeneration: string | null;
-  coverageStartDate: CalendarValue;
-  coverageEndDate: CalendarValue;
-  expiresAt: CalendarValue;
-}>;
-
-type SourceFence = Readonly<{
-  complete: SourceRunRow | null;
 }>;
 
 type ExistingAbcRow = Readonly<{
@@ -121,27 +105,17 @@ async function publishTx(
 
   const formula = ProductAbcFormulaPayloadSchema.parse(state.formulaJson);
 
-  const [sellpia, advertising] = await Promise.all([
-    readSourceFence(tx, input.organizationId, SELLPIA_SOURCE_TYPE),
-    readSourceFence(tx, input.organizationId, ADVERTISING_SOURCE_TYPE),
-  ]);
-  if (!sourceFenceMatches(sellpia, input.sourceFences.sellpia)
-    || !sourceFenceMatches(advertising, input.sourceFences.advertising)) {
-    return inputChanged();
-  }
+  // A self-consistency check on a compound input, in the same class as
+  // sourceSelectionsMatchMapping: the cutoff the caller declares must be the
+  // one its own selected coverage and target cutoff produce. It is worth
+  // keeping because input.actualCutoff is written to official_cutoff_date and
+  // drives readProductSaleAgeEvidence below.
   const actualCutoff = minCalendarDate(
-    dateKey(sellpia.complete?.coverageEndDate ?? null),
-    dateKey(advertising.complete?.coverageEndDate ?? null),
+    dateKey(input.sourceFences.sellpia.selectedComplete.coverageEndDate),
+    dateKey(input.sourceFences.advertising.selectedComplete.coverageEndDate),
     input.targetCutoff,
   );
-  // The cutoff the committed source rows still reach must be the one the
-  // caller evaluated. It may legitimately stop short of the desired cutoff;
-  // the official result only may not move backward from there.
   if (actualCutoff !== input.actualCutoff) {
-    return inputChanged();
-  }
-  const officialCutoff = dateKey(state.officialCutoffDate);
-  if (officialCutoff !== null && officialCutoff > actualCutoff) {
     return inputChanged();
   }
 
@@ -185,8 +159,8 @@ async function publishTx(
     UPDATE master_product_abc_formula_states
     SET publication_revision = ${nextPublicationRevision},
         official_cutoff_date = ${atUtcDate(actualCutoff)}::date,
-        published_sellpia_source_import_run_id = ${sellpia.complete!.sourceImportRunId}::uuid,
-        published_advertising_source_import_run_id = ${advertising.complete!.sourceImportRunId}::uuid,
+        published_sellpia_source_import_run_id = ${input.sourceFences.sellpia.selectedComplete.sourceImportRunId}::uuid,
+        published_advertising_source_import_run_id = ${input.sourceFences.advertising.selectedComplete.sourceImportRunId}::uuid,
         published_mapping_generation = ${BigInt(input.mappingGeneration)}::bigint,
         published_at = ${input.calculatedAt}::timestamptz,
         updated_at = NOW()
@@ -387,29 +361,6 @@ async function readExistingAbcRows(
   `);
 }
 
-async function readSourceFence(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  sourceType: string,
-): Promise<SourceFence> {
-  const complete = await tx.$queryRaw<SourceRunRow[]>(Prisma.sql`
-    SELECT id AS "sourceImportRunId",
-           publication_sequence::text AS "publicationSequence",
-           mapping_generation::text AS "mappingGeneration",
-           coverage_start_date AS "coverageStartDate",
-           coverage_end_date AS "coverageEndDate",
-           expires_at AS "expiresAt"
-    FROM source_import_runs
-    WHERE organization_id = ${organizationId}::uuid
-      AND source_type = ${sourceType}
-      AND status = 'completed'
-      AND publication_sequence IS NOT NULL
-    ORDER BY publication_sequence DESC, id DESC
-    LIMIT 1
-  `);
-  return { complete: complete[0] ?? null };
-}
-
 async function readFormulaState(
   db: PrismaService | Prisma.TransactionClient,
   organizationId: string,
@@ -482,36 +433,6 @@ function sourceSelectionsMatchMapping(input: ProductAbcPublicationInput): boolea
     selectedComplete.sourceImportRunId !== null
     && selectedComplete.publicationSequence !== null
     && selectedComplete.mappingGeneration === input.mappingGeneration);
-}
-
-/**
- * Fences the published generation, not the collection batch.
- *
- * The evaluated generation must still be the newest complete publication the
- * source owner exposes, with an unchanged manifest — that is what a real
- * source correction or replacement moves. A newer attempt that is still
- * RUNNING, or that FAILED, publishes no generation and so leaves this
- * evidence valid.
- */
-function sourceFenceMatches(
-  current: SourceFence,
-  expected: MasterProductAbcSourceFence,
-): boolean {
-  const complete = current.complete;
-  const selected = expected.selectedComplete;
-  return complete !== null
-    && complete.sourceImportRunId === selected.sourceImportRunId
-    && sourceRunMatchesView(complete, selected);
-}
-
-function sourceRunMatchesView(
-  run: SourceRunRow,
-  view: MasterProductAbcSourceFence['selectedComplete'],
-): boolean {
-  return run.publicationSequence === view.publicationSequence
-    && run.mappingGeneration === view.mappingGeneration
-    && dateKey(run.coverageStartDate) === view.coverageStartDate
-    && dateKey(run.coverageEndDate) === view.coverageEndDate;
 }
 
 function candidateSetIsValid(

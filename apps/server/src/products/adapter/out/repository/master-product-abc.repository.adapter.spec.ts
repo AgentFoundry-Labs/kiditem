@@ -88,35 +88,4 @@ describe('MasterProductAbcRepositoryAdapter', () => {
     ]);
     expect(tx.masterProduct.updateMany).not.toHaveBeenCalled();
   });
-
-  it('does not open a second transaction for a CAS miss from the source vector', async () => {
-    let queryCount = 0;
-    const tx = {
-      $queryRaw: vi.fn(async () => {
-        queryCount += 1;
-        if (queryCount === 5) return [stateRow()];
-        if (queryCount === 6) return [{
-          sourceImportRunId: '00000000-0000-4000-8000-000000000099',
-          publicationSequence: '99',
-          mappingGeneration: '7',
-          coverageStartDate: new Date('2026-01-01T00:00:00.000Z'),
-          coverageEndDate: new Date('2026-08-31T00:00:00.000Z'),
-          status: 'completed',
-          expiresAt: null,
-        }];
-        return [];
-      }),
-      masterProductAbcEvaluation: { deleteMany: vi.fn(), createMany: vi.fn() },
-      masterProduct: { updateMany: vi.fn() },
-      channelListing: { findMany: vi.fn(async () => []) },
-    };
-    const prisma = {
-      $transaction: vi.fn(async (work) => work(tx)),
-    };
-    const repository = new MasterProductAbcRepositoryAdapter(prisma as never);
-
-    await expect(repository.publish(publication())).resolves.toEqual({ outcome: 'INPUT_CHANGED' });
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(tx.masterProductAbcEvaluation.deleteMany).not.toHaveBeenCalled();
-  });
 });

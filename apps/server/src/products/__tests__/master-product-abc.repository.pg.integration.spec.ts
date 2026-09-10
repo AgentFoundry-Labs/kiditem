@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Prisma, type PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
 import { AlertsRepository } from '../../alerts/alerts.repository';
@@ -191,55 +191,6 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
       .resolves.toMatchObject({ abcGrade: 'A' });
   });
 
-  it('waits for a source terminalization lock before comparing its source fence', async () => {
-    const { productId, formulaVersionId, sources } = await fixture(prisma);
-    const blocker = makeTestPrisma();
-    await blocker.$connect();
-
-    let release!: () => void;
-    const releaseSignal = new Promise<void>((resolve) => { release = resolve; });
-    let acquired!: () => void;
-    const acquiredSignal = new Promise<void>((resolve) => { acquired = resolve; });
-    const sourceRunId = sources.sellpia.selectedComplete.sourceImportRunId!;
-    const sourceLockKey = `kiditem.sellpia-product-profitability:${TEST_ORGANIZATION_ID}`;
-
-    const blockerTransaction = blocker.$transaction(async (tx) => {
-      await tx.$queryRaw(Prisma.sql`
-        SELECT pg_advisory_xact_lock(hashtextextended(${sourceLockKey}, 0::bigint))::text AS "lock"
-      `);
-      // Simulate a source owner terminalizing a newer generation while ABC is
-      // waiting for the same lock. The source mutation commits before ABC can
-      // re-read its fence.
-      await tx.sourceImportRun.update({
-        where: { id: sourceRunId },
-        data: { publicationSequence: 999n },
-      });
-      acquired();
-      await releaseSignal;
-    });
-    await acquiredSignal;
-
-    const publicationPromise = repository.publish(publication({
-      formulaVersionId,
-      sourceFences: sources,
-      targetProductIds: [productId],
-      candidates: [candidate(productId, sources, 'A')],
-    }));
-
-    try {
-      await expect(Promise.race([
-        publicationPromise.then(() => 'PUBLISHED' as const),
-        new Promise<'WAITING'>((resolve) => setTimeout(() => resolve('WAITING'), 50)),
-      ])).resolves.toBe('WAITING');
-    } finally {
-      release();
-      await blockerTransaction;
-      await blocker.$disconnect();
-    }
-
-    await expect(publicationPromise).resolves.toEqual({ outcome: 'INPUT_CHANGED' });
-  });
-
   it('rejects complete source generations from an older mapping generation', async () => {
     const { productId, formulaVersionId, sources } = await fixture(prisma);
     await prisma.masterProductAbcFormulaState.update({
@@ -343,54 +294,43 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     },
   );
 
-  it('rejects a source generation replaced by a newer complete publication', async () => {
-    const { productId, formulaVersionId, sources } = await fixture(prisma);
-    await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'sellpia_product_profitability',
-        status: 'completed',
-        idempotencyKey: `abc-corrected-${randomUUID()}`,
-        publicationSequence: 9_999n,
-        mappingGeneration: 0n,
-        coverageStartDate: new Date('2026-01-01T00:00:00.000Z'),
-        coverageEndDate: new Date(`${CUTOFF}T00:00:00.000Z`),
-      },
+  // Publication verifies the evaluated generation's identity as
+  // given; it does not re-select the current generation. A newer complete
+  // generation landing between the caller's evaluation and the commit is
+  // freshness, not invalidity, so the evaluated pair still publishes and the
+  // next recalculation picks the newer one up.
+  it('publishes evaluated generations a newer complete publication has superseded', async () => {
+    const { productId, skuCode, formulaVersionId, sources } = await fixture(prisma);
+    const newer = await publishSources(prisma, skuCode);
+    const [newerSellpia, newerAdvertising] = await Promise.all([
+      prisma.sourceImportRun.findUniqueOrThrow({ where: { id: newer.sellpiaRunId } }),
+      prisma.sourceImportRun.findUniqueOrThrow({ where: { id: newer.advertisingRunId } }),
+    ]);
+    expect(newerSellpia.publicationSequence)
+      .toBeGreaterThan(BigInt(sources.sellpia.selectedComplete.publicationSequence!));
+    expect(newerAdvertising.publicationSequence)
+      .toBeGreaterThan(BigInt(sources.advertising.selectedComplete.publicationSequence!));
+
+    await expect(repository.publish(publication({
+      formulaVersionId,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [candidate(productId, sources, 'A')],
+    }))).resolves.toMatchObject({ outcome: 'PUBLISHED', publicationRevision: 1 });
+
+    // The persisted provenance is the generation the caller evaluated, never
+    // the newer one it never read.
+    await expect(prisma.masterProductAbcFormulaState.findUniqueOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toMatchObject({
+      publishedSellpiaSourceImportRunId: sources.sellpia.selectedComplete.sourceImportRunId,
+      publishedAdvertisingSourceImportRunId: sources.advertising.selectedComplete.sourceImportRunId,
     });
-
-    await expect(repository.publish(publication({
-      formulaVersionId,
-      sourceFences: sources,
-      targetProductIds: [productId],
-      candidates: [candidate(productId, sources, 'A')],
-    }))).resolves.toEqual({ outcome: 'INPUT_CHANGED' });
-  });
-
-  it('rejects a candidate cutoff older than the official publication', async () => {
-    const { productId, formulaVersionId, sources } = await fixture(prisma);
-    await repository.publish(publication({
-      formulaVersionId,
-      sourceFences: sources,
-      targetProductIds: [productId],
-      candidates: [candidate(productId, sources, 'A')],
-    }));
-    const state = await repository.getFormulaState(TEST_ORGANIZATION_ID);
-
-    await expect(repository.publish(publication({
-      formulaVersionId,
-      expectedPublicationRevision: state.publicationRevision,
-      targetCutoff: '2026-07-31',
-      actualCutoff: '2026-07-31',
-      sourceFences: sources,
-      targetProductIds: [productId],
-      candidates: [{
-        ...candidate(productId, sources, 'A'),
-        gradeBasisCutoffDate: '2026-07-31',
-      }],
-    }))).resolves.toEqual({ outcome: 'INPUT_CHANGED' });
-    await expect(repository.getFormulaState(TEST_ORGANIZATION_ID)).resolves.toMatchObject({
-      publicationRevision: 1,
-      officialCutoffDate: CUTOFF,
+    await expect(prisma.masterProductAbcEvaluation.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, masterProductId: productId },
+    })).resolves.toMatchObject({
+      sellpiaSourceImportRunId: sources.sellpia.selectedComplete.sourceImportRunId,
+      advertisingSourceImportRunId: sources.advertising.selectedComplete.sourceImportRunId,
     });
   });
 
@@ -476,6 +416,7 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
 
 async function fixture(prisma: PrismaClient): Promise<{
   productId: string;
+  skuCode: string;
   formulaVersionId: string;
   sources: ProductAbcPublicationInput['sourceFences'];
 }> {
@@ -505,6 +446,7 @@ async function fixture(prisma: PrismaClient): Promise<{
   ]);
   return {
     productId: product.productId,
+    skuCode: product.skuCode,
     formulaVersionId: formulaVersion.id,
     sources: {
       sellpia: { selectedComplete: sourceView(sellpiaRun) },
