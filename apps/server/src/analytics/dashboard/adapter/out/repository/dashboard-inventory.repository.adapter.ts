@@ -15,7 +15,7 @@ import {
   resolveChannelListingSaleStatus,
 } from '@kiditem/shared/channel-listing';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import { buildPerListingMetrics } from '../../../../../common/per-listing-profit';
+import { buildPerListingMetricsCoverage } from '../../../../../common/per-listing-profit';
 import {
   PRODUCT_ABC_READ_PORT,
   type ProductAbcReadPort,
@@ -26,7 +26,7 @@ import type {
   AbcContributionRow,
   AbcStatusCountRow,
   AbcStatusCounts,
-  DashboardPerListingMetrics,
+  DashboardPerListingMetricsResult,
   GradeCountRow,
   GradeChangeRow,
   AGradeReviewRow,
@@ -164,12 +164,21 @@ export class DashboardInventoryRepositoryAdapter
     });
   }
 
-  fetchPerListingMetrics(
+  async fetchPerListingMetrics(
     organizationId: string,
     monthStart: Date,
     monthEnd: Date,
-  ): Promise<DashboardPerListingMetrics[]> {
-    return buildPerListingMetrics(this.prisma, organizationId, monthStart, monthEnd);
+  ): Promise<DashboardPerListingMetricsResult> {
+    // Which listings the ad source actually covered is the helper's rule
+    // (ADR-0003); this adapter only carries its answer, including how many
+    // listings it withheld, across the port.
+    const { metrics, withheldListings } = await buildPerListingMetricsCoverage(
+      this.prisma,
+      organizationId,
+      monthStart,
+      monthEnd,
+    );
+    return { rows: metrics, withheldListings };
   }
 
   countOutOfStockMasterProducts(organizationId: string): Promise<number> {

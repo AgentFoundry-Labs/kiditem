@@ -239,6 +239,15 @@ export interface DashboardSnapshotBasisInput {
    * producer that read something is the normal case.
    */
   measured?: boolean;
+  /**
+   * Members of the population this value names that could not be measured and
+   * were therefore left out of it — the snapshot counterpart of a period's
+   * missing dates. A count over a population with a hole in it is a real
+   * number over a smaller set, not a smaller number, so the hole travels
+   * beside the value rather than silently shrinking it. Defaults to `0`: a
+   * producer that withheld nothing counted everything.
+   */
+  withheldCount?: number;
 }
 
 /**
@@ -261,6 +270,12 @@ function deriveSnapshotStatus(
   return asOf >= requiredAsOf ? 'current' : 'stale';
 }
 
+/** A withheld population is a count of members, so anything else is none. */
+function withheldMembers(value: number | null | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 0;
+  return Math.floor(value);
+}
+
 /**
  * Build one snapshot basis for a value that reads a stored owner result.
  *
@@ -269,6 +284,15 @@ function deriveSnapshotStatus(
  * instead of an included/missing date partition they never had. This is that
  * constructor — the snapshot counterpart of `buildPeriodBasis`, deriving the
  * same way from what a producer measured rather than taking a status.
+ *
+ * Partiality is derived here too, and deliberately does not live in `status`.
+ * A snapshot's status answers "how old is this value"; `partial` answers "how
+ * much of the population entered it". They are independent, so a count read
+ * this morning stays `current` while declaring that some members were
+ * withheld — the amendment's "non-empty valid subsets display numbers with
+ * partial status". A producer whose valid subset is empty says so with
+ * `measured: false`, which is the empty-computable-subset case that displays
+ * no data; a value that does not exist is never called partly counted.
  */
 export function buildSnapshotBasis(
   input: DashboardSnapshotBasisInput,
@@ -278,6 +302,9 @@ export function buildSnapshotBasis(
   // An absent owner result has no date to be as-of, so a caller's stale
   // as-of cannot survive `measured: false`.
   const asOf = measured ? calendarDateOrNull(input.asOf) : null;
+  // The withheld population survives `measured: false` because it is why
+  // there is no value; only the claim that a value was partly counted does not.
+  const withheldCount = withheldMembers(input.withheldCount);
 
   return {
     kind: 'snapshot',
@@ -285,6 +312,8 @@ export function buildSnapshotBasis(
     observedAt: measured ? toIsoOrNull(input.observedAt) : null,
     sources: requireSources(input.sources),
     status: deriveSnapshotStatus(asOf, requiredAsOf, measured),
+    partial: measured && withheldCount > 0,
+    withheldCount,
   };
 }
 

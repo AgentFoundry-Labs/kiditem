@@ -3,10 +3,16 @@ import {
   type DashboardMetricBasisMap,
   type DashboardComparisonBasis,
   type DashboardPeriodBasis,
+  type DashboardSnapshotBasis,
 } from '@kiditem/shared/dashboard';
 import { cn } from '@/lib/utils';
 
-export type { DashboardMetricBasis, DashboardComparisonBasis, DashboardPeriodBasis };
+export type {
+  DashboardMetricBasis,
+  DashboardComparisonBasis,
+  DashboardPeriodBasis,
+  DashboardSnapshotBasis,
+};
 
 /** Any dashboard summary that may publish an additive basis map. */
 export type MetricBasisCarrier = { metricBasis?: DashboardMetricBasisMap } | null | undefined;
@@ -81,6 +87,23 @@ function snapshotStatusText(status: 'current' | 'stale' | 'unavailable' | 'unkno
   return '상태 미상';
 }
 
+/**
+ * A snapshot's age and its population coverage are separate facts, so this
+ * reads beside the status rather than replacing it: a count read today can be
+ * current and still have left members out. The number is what makes "partial"
+ * mean something — the snapshot counterpart of a period's missing dates.
+ *
+ * A withheld population that is not partial is one whose every member was
+ * withheld, which is why the value is unavailable — so the same number reads
+ * as the reason the card is blank rather than as a qualifier on a number.
+ */
+function snapshotCoverageText(basis: DashboardSnapshotBasis): string | null {
+  if (basis.withheldCount === 0) return null;
+  return basis.partial
+    ? `부분 집계 · 근거 부족 ${basis.withheldCount}건 제외`
+    : `근거 부족 ${basis.withheldCount}건`;
+}
+
 function periodEvidenceText(basis: DashboardPeriodBasis): string {
   const evidence = `${basis.status === 'complete' ? '집계 완료' : basis.status === 'partial' ? '부분 집계' : basis.status === 'unverified' ? '날짜 근거 확인 필요' : '데이터 없음'} · ${dateCount(basis)}/${basis.targetDays}일 · ${rangeText(basis)}`;
   const failure = queryFailureText(basis);
@@ -91,7 +114,8 @@ export function basisSummary(basis: DashboardMetricBasis | null): string {
   if (!basis) return '근거 정보 없음';
   if (basis.kind === 'snapshot') {
     const asOf = basis.asOf ?? '기준 시점 확인 불가';
-    return `스냅샷 ${snapshotStatusText(basis.status)} · 기준시점 ${asOf} · ${sourceText(basis.sources)}`;
+    const coverage = snapshotCoverageText(basis);
+    return `스냅샷 ${snapshotStatusText(basis.status)}${coverage ? ` · ${coverage}` : ''} · 기준시점 ${asOf} · ${sourceText(basis.sources)}`;
   }
   if (basis.kind === 'comparison') {
     return basis.status === 'comparable'

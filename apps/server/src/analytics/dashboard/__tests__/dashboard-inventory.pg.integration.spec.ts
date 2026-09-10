@@ -396,4 +396,152 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       });
     }
   });
+
+  /**
+   * Advertising coverage decides whether a listing's profit is a measurement,
+   * and that lives in `ChannelListingDailySnapshot` rows — so these seed the
+   * coverage shape in Postgres rather than choosing a metrics list. Each case
+   * uses the same two loss-making listings and only moves which business dates
+   * carry ad evidence.
+   *
+   * The window's ad calendar is every business date the source reported on for
+   * *any* listing; a listing short of that calendar has a hole in its own
+   * evidence and is withheld from the counts.
+   */
+  describe('warning counts over a partly measurable population', () => {
+    const AD_DAYS = [5, 6] as const;
+
+    /** A `YYYY-MM-DD` business date inside the anchor's KST month. */
+    function adDay(dayOfMonth: number): string {
+      return `${businessDateText(new Date()).slice(0, 7)}-${String(dayOfMonth).padStart(2, '0')}`;
+    }
+
+    /**
+     * A listing that sold at a loss this month: revenue 50_000 against a
+     * 80_000 cost, 10% commission and 5_000 shipping. It is loss-making for
+     * any ad cost, so whether it reaches `minusProducts` depends only on
+     * whether its ad evidence is complete.
+     */
+    async function seedLossListing(tag: string): Promise<string> {
+      const { id: masterId } = await setupMaster(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, code: `M-T-${tag}`, name: `Master ${tag}`, abcGrade: 'A',
+      });
+      const { id: optionId } = await setupProductOption(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, masterId,
+        sku: `SKU-T-${tag}`, costPrice: 80_000, commissionRate: 0.1, otherCost: 0,
+      });
+      const { listingId, listingOptionId } = await setupChannelListing(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, masterId,
+        channel: 'coupang', externalId: `EXT-T-${tag}`,
+        optionId, externalOptionId: `VI-T-${tag}`,
+      });
+      await seedOrderWithLineItems(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalOrderId: `INV-T-${tag}-1`,
+        orderedAt: midMonth().toISOString(),
+        shippingPrice: 5_000,
+        lineItems: [{ quantity: 1, totalPrice: 50_000, optionId, listingOptionId }],
+      });
+      return listingId;
+    }
+
+    /** Record ad evidence for a listing on each named day of the month. */
+    async function seedAdDays(listingId: string, days: readonly number[]): Promise<void> {
+      for (const day of days) {
+        await seedAd(prisma, {
+          organizationId: TEST_ORGANIZATION_ID, listingId, date: adDay(day), spend: 1_000,
+        });
+      }
+    }
+
+    /** The three warning counts drawn from per-listing profit. */
+    const PER_LISTING_KEYS = [
+      'warnings.minusProducts',
+      'warnings.lowProfitProducts',
+      'warnings.highAdProducts',
+    ] as const;
+
+    /** The two that read no advertising evidence at all. */
+    const AD_FREE_KEYS = [
+      'warnings.outOfStockSkus',
+      'warnings.mappingAttentionSkus',
+    ] as const;
+
+    it('T6: counts the listings it could measure and says how many it withheld', async () => {
+      const covered = await seedLossListing('COVERED');
+      const holed = await seedLossListing('HOLED');
+      await seedAdDays(covered, AD_DAYS);
+      await seedAdDays(holed, [AD_DAYS[0]]);
+
+      const ctx = buildDashboardContext();
+      const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
+
+      // A real count over the listings that could be measured — one of the two
+      // loss-making listings, because the other's ad evidence has a hole.
+      expect(result.warnings.minusProducts).toBe(1);
+      for (const key of PER_LISTING_KEYS) {
+        expect(result.metricBasis?.[key], key).toMatchObject({
+          kind: 'snapshot',
+          asOf: businessDateText(ctx.anchor),
+          // Partial coverage is not staleness: the read is still as-of today.
+          status: 'current',
+          partial: true,
+          withheldCount: 1,
+        });
+      }
+      // Out-of-stock and mapping attention have no advertising input, so they
+      // never inherit another value's incomplete population.
+      for (const key of AD_FREE_KEYS) {
+        expect(result.metricBasis?.[key], key).toMatchObject({
+          status: 'current', partial: false, withheldCount: 0,
+        });
+      }
+    });
+
+    it('T7: a fully covered population counts every listing with no partial signal', async () => {
+      const first = await seedLossListing('FULL-A');
+      const second = await seedLossListing('FULL-B');
+      await seedAdDays(first, AD_DAYS);
+      await seedAdDays(second, AD_DAYS);
+
+      const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+
+      expect(result.warnings.minusProducts).toBe(2);
+      for (const key of [...PER_LISTING_KEYS, ...AD_FREE_KEYS]) {
+        expect(result.metricBasis?.[key], key).toMatchObject({
+          status: 'current', partial: false, withheldCount: 0,
+        });
+      }
+    });
+
+    it('T8: an empty measurable subset publishes no value rather than a counted zero', async () => {
+      // Each listing covers a date the other does not, so the window's ad
+      // calendar has two dates and neither listing covers both.
+      const first = await seedLossListing('HOLE-A');
+      const second = await seedLossListing('HOLE-B');
+      await seedAdDays(first, [AD_DAYS[0]]);
+      await seedAdDays(second, [AD_DAYS[1]]);
+
+      const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+
+      expect(result.warnings.minusProducts).toBe(0);
+      for (const key of PER_LISTING_KEYS) {
+        // Nothing was measurable, so this zero is an absence rather than a
+        // count. `unavailable` is what makes the card blank instead of
+        // claiming no listing is loss-making.
+        expect(result.metricBasis?.[key], key).toMatchObject({
+          kind: 'snapshot',
+          asOf: null,
+          status: 'unavailable',
+          partial: false,
+          withheldCount: 2,
+        });
+      }
+      for (const key of AD_FREE_KEYS) {
+        expect(result.metricBasis?.[key], key).toMatchObject({
+          status: 'current', partial: false, withheldCount: 0,
+        });
+      }
+    });
+  });
 });

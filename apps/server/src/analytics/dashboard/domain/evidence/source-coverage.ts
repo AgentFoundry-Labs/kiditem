@@ -120,6 +120,12 @@ export interface SnapshotEvidenceInput {
   sources: readonly DashboardSourceName[];
   /** Whether an owner result backs the value; a counted zero still does. */
   measured?: boolean;
+  /**
+   * Members of the counted population the owner could not measure and left
+   * out. A value whose whole population was withheld has an empty computable
+   * subset and is reported with `measured: false` instead.
+   */
+  withheldCount?: number;
 }
 
 /**

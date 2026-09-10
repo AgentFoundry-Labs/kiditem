@@ -442,7 +442,32 @@ describe('buildSnapshotBasis', () => {
     const basis = buildSnapshotBasis(input);
 
     expect(DashboardSnapshotBasisSchema.safeParse(basis).success).toBe(true);
-    expect(basis).toMatchObject({ kind: 'snapshot', asOf, status });
+    // None of these producers withheld anything, so each value counted the
+    // whole population it names.
+    expect(basis).toMatchObject({
+      kind: 'snapshot', asOf, status, partial: false, withheldCount: 0,
+    });
+  });
+
+  it('declares a partly counted population without ageing the value', () => {
+    // Coverage and freshness are independent: a count read today stays
+    // `current` while saying it left members out.
+    expect(buildSnapshotBasis({
+      asOf: '2026-09-10',
+      requiredAsOf: '2026-09-10',
+      sources: ['orders'],
+      withheldCount: 2,
+    })).toMatchObject({ status: 'current', partial: true, withheldCount: 2 });
+  });
+
+  it('explains an absent value by what was withheld without calling it partly counted', () => {
+    // An empty measurable subset has no value to be partly counted, so the
+    // withheld population is the reason rather than a qualifier.
+    expect(buildSnapshotBasis({
+      sources: ['orders'],
+      measured: false,
+      withheldCount: 4,
+    })).toMatchObject({ status: 'unavailable', partial: false, withheldCount: 4 });
   });
 
   it('keeps the capture time of the result it read', () => {

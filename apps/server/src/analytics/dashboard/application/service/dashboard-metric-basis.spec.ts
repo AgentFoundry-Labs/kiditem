@@ -514,9 +514,10 @@ describe('dashboard inventory metricBasis', () => {
     repository.findAbcFormula.mockResolvedValue(null);
     repository.findUnreadAlerts.mockResolvedValue([]);
     repository.countActiveProducts.mockResolvedValue(5);
-    repository.fetchPerListingMetrics.mockResolvedValue([
-      { revenue: 1_000, adCost: 300, netProfit: -200, profitRate: -20 },
-    ]);
+    repository.fetchPerListingMetrics.mockResolvedValue({
+      rows: [{ revenue: 1_000, adCost: 300, netProfit: -200, profitRate: -20 }],
+      withheldListings: 0,
+    });
     repository.countOutOfStockMasterProducts.mockResolvedValue(3);
     repository.getSellingChannelMappingSummary.mockResolvedValue({
       linkedMasterProductCount: 4,
@@ -569,6 +570,8 @@ describe('dashboard inventory metricBasis', () => {
       observedAt: expect.any(String),
       sources: ['orders', 'channel_listings'],
       status: 'current',
+      partial: false,
+      withheldCount: 0,
     });
     expect(result.metricBasis?.['warnings.outOfStockSkus']).toMatchObject({
       sources: ['sellpia_inventory'],
@@ -609,6 +612,8 @@ describe('dashboard inventory metricBasis', () => {
       observedAt: '2026-09-02T00:00:00.000Z',
       sources: ['products', 'product_abc'],
       status: 'current',
+      partial: false,
+      withheldCount: 0,
     });
     expect(result.metricBasis?.['abcStatusCount.READY'])
       .toEqual(result.metricBasis?.['gradeCount.A']);

@@ -128,6 +128,8 @@ const successInv = {
       observedAt: null,
       sources: ['sellpia'],
       status: 'current',
+      partial: false,
+      withheldCount: 0,
     },
     'warnings.mappingAttentionSkus': {
       kind: 'snapshot',
@@ -135,6 +137,8 @@ const successInv = {
       observedAt: null,
       sources: ['sellpia'],
       status: 'current',
+      partial: false,
+      withheldCount: 0,
     },
   },
 };

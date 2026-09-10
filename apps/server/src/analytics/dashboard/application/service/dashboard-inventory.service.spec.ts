@@ -30,7 +30,7 @@ function repository(
     findAbcFormula: vi.fn().mockResolvedValue(null),
     findUnreadAlerts: vi.fn().mockResolvedValue([]),
     countActiveProducts: vi.fn().mockResolvedValue(0),
-    fetchPerListingMetrics: vi.fn().mockResolvedValue([]),
+    fetchPerListingMetrics: vi.fn().mockResolvedValue({ rows: [], withheldListings: 0 }),
     countOutOfStockMasterProducts: vi.fn().mockResolvedValue(0),
     getSellingChannelMappingSummary: vi.fn().mockResolvedValue({
       linkedMasterProductCount: 0,

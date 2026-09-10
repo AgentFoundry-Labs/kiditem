@@ -59,11 +59,31 @@ export interface AGradeReviewRow {
   reviewCount: number;
 }
 
+/**
+ * One listing whose profit is measured. Every field is a number because a
+ * listing whose advertising evidence was incomplete never reaches this shape
+ * — it is withheld upstream and counted in `withheldListings` instead. That
+ * keeps the warning thresholds total functions over real measurements: a
+ * nullable `netProfit` here would silently fail every `< 0` comparison and
+ * produce the same counts with no signal that anything was missing.
+ */
 export interface DashboardPerListingMetrics {
   revenue: number;
   adCost: number;
   netProfit: number;
   profitRate: number;
+}
+
+/**
+ * The measured listings together with the size of the population they were
+ * drawn from that could not be measured. The counts and their evidence come
+ * from one read, so they travel as one result — the same reason
+ * `AbcStatusCounts` carries its own `evaluatedAsOf`.
+ */
+export interface DashboardPerListingMetricsResult {
+  rows: DashboardPerListingMetrics[];
+  /** Listings withheld for incomplete advertising coverage. */
+  withheldListings: number;
 }
 
 export interface SellingChannelMappingSummary {
@@ -83,7 +103,7 @@ export interface DashboardInventoryRepositoryPort {
     organizationId: string,
     monthStart: Date,
     monthEnd: Date,
-  ): Promise<DashboardPerListingMetrics[]>;
+  ): Promise<DashboardPerListingMetricsResult>;
   countOutOfStockMasterProducts(organizationId: string): Promise<number>;
   getSellingChannelMappingSummary(
     organizationId: string,

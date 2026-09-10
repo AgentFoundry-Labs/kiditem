@@ -67,12 +67,27 @@ export const DashboardPeriodBasisSchema = z.object({
   observedAt: zIsoDate.nullable(),
 }).strict();
 
+/**
+ * Evidence basis for one stored-owner-result value. `status` is the value's
+ * age; `partial` is its population coverage, and the two are independent — a
+ * count read this morning can be `current` and still have left members out.
+ * `withheldCount` is the snapshot counterpart of a period's `missingDates`:
+ * the members that could not be measured, so a partial count says how partial
+ * instead of only that it is.
+ *
+ * Derived by `buildSnapshotBasis` in `schemas/dashboard-basis.ts`, the one
+ * constructor the server authors these payloads with.
+ */
 export const DashboardSnapshotBasisSchema = z.object({
   kind: z.literal('snapshot'),
   asOf: DashboardCalendarDateSchema.nullable(),
   observedAt: zIsoDate.nullable(),
   sources: z.array(z.string().trim().min(1)).min(1),
   status: DashboardSnapshotBasisStatusSchema,
+  /** Whether the value counted only part of the population it names. */
+  partial: z.boolean(),
+  /** Population members left out because they could not be measured. */
+  withheldCount: z.number().int().nonnegative(),
 }).strict();
 
 export const DashboardComparisonBasisSchema = z.object({

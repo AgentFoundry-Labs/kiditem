@@ -76,6 +76,8 @@ describe('dashboard schemas', () => {
       observedAt: null,
       sources: ['stored_abc_evaluation'],
       status: 'unknown',
+      partial: false,
+      withheldCount: 0,
     }).status).toBe('unknown');
   });
 

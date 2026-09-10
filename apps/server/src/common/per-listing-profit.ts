@@ -326,13 +326,44 @@ export async function buildPerListingProfit(
 }
 
 /**
- * Per-listing rows whose profit is measured.
+ * The measured per-listing rows, and how much of the window's population they
+ * left out. A caller that publishes a calculation basis needs both: the count
+ * it can compute, and the fact that it counted a subset.
+ */
+export interface PerListingMetricsCoverage {
+  /** Listings whose ad coverage was complete, so their profit is measured. */
+  metrics: PerListingMetrics[];
+  /** Listings withheld because their ad coverage was incomplete. */
+  withheldListings: number;
+}
+
+/**
+ * Per-listing rows whose profit is measured, with the withheld population.
  *
  * A listing with incomplete ad coverage is **withheld** rather than published
  * with a partial sum — the same rule ABC applies when advertising evidence is
- * not ready. Use this for counts and rollups that cannot express an unavailable
- * value; use `buildPerListingProfit` wherever a reader sees one listing's own
- * profit and can be shown that it is unavailable.
+ * not ready. Withholding shrinks the population a rollup counts, so the size
+ * of what was withheld is evidence about the rollup and travels with it;
+ * `withheldListings > 0` with an empty `metrics` is an empty computable
+ * subset, not a counted zero.
+ *
+ * Use `buildPerListingProfit` wherever a reader sees one listing's own profit
+ * and can be shown that it is unavailable.
+ */
+export async function buildPerListingMetricsCoverage(
+  prisma: PrismaService,
+  organizationId: string,
+  from: Date,
+  to: Date,
+): Promise<PerListingMetricsCoverage> {
+  const rows = await buildPerListingProfit(prisma, organizationId, from, to);
+  const metrics = rows.filter(hasMeasuredProfit);
+  return { metrics, withheldListings: rows.length - metrics.length };
+}
+
+/**
+ * The measured projection alone, for callers that publish no calculation
+ * basis and so have nowhere to say a listing was withheld.
  */
 export async function buildPerListingMetrics(
   prisma: PrismaService,
@@ -340,6 +371,6 @@ export async function buildPerListingMetrics(
   from: Date,
   to: Date,
 ): Promise<PerListingMetrics[]> {
-  const rows = await buildPerListingProfit(prisma, organizationId, from, to);
-  return rows.filter(hasMeasuredProfit);
+  const coverage = await buildPerListingMetricsCoverage(prisma, organizationId, from, to);
+  return coverage.metrics;
 }

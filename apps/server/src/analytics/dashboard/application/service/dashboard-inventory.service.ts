@@ -8,6 +8,7 @@ import {
   DASHBOARD_INVENTORY_REPOSITORY_PORT,
   type AbcEvaluationAsOf,
   type DashboardInventoryRepositoryPort,
+  type DashboardPerListingMetricsResult,
   type GradeChangeRow,
 } from '../port/out/repository/dashboard-inventory.repository.port';
 import type {
@@ -132,17 +133,21 @@ export class DashboardInventoryService {
 
       // warnings — F1 live aggregation via PerListingMetrics
       // No profitLoss table reads; helper provides identical shape.
+      // Every row here is a measured listing; the ones whose advertising
+      // evidence was incomplete were withheld and are counted separately, so
+      // these thresholds never compare against a fabricated number.
+      const measuredListings = perListingMetrics.rows;
 
       // minusProducts: netProfit < 0
-      const minusProducts = perListingMetrics.filter((m) => m.netProfit < 0).length;
+      const minusProducts = measuredListings.filter((m) => m.netProfit < 0).length;
 
       // lowProfitProducts: profitRate >= 0 && profitRate <= 3 (percentage; helper emits 1-decimal percent)
-      const lowProfitProducts = perListingMetrics.filter(
+      const lowProfitProducts = measuredListings.filter(
         (m) => m.profitRate >= 0 && m.profitRate <= 3,
       ).length;
 
       // highAdProducts: revenue > 0 && adCost > 0 && (adCost/revenue) * 100 > 15
-      const highAdProducts = perListingMetrics.filter(
+      const highAdProducts = measuredListings.filter(
         (m) => m.revenue > 0 && m.adCost > 0 && (m.adCost / m.revenue) * 100 > 15,
       ).length;
       const mappingAttentionSkus = (
@@ -192,7 +197,7 @@ export class DashboardInventoryService {
         alerts: unreadAlerts,
         warnings,
         gradeChanges: this.computeGradeChanges(gradeChangesRows),
-        metricBasis: this.buildMetricBasis(ctx, evaluatedAsOf),
+        metricBasis: this.buildMetricBasis(ctx, evaluatedAsOf, perListingMetrics),
       } satisfies DashboardInventorySummary;
     } catch (error) {
       this.logger.error('Failed to get inventory summary', error);
@@ -222,6 +227,7 @@ export class DashboardInventoryService {
   private buildMetricBasis(
     ctx: DashboardContext,
     evaluatedAsOf: AbcEvaluationAsOf,
+    perListingMetrics: DashboardPerListingMetricsResult,
   ): DashboardMetricBasisMap | undefined {
     // A live current-state read is its own snapshot: it is as-of the business
     // date it ran on, which is exactly the as-of the reader asked for.
@@ -249,7 +255,25 @@ export class DashboardInventoryService {
     // Per-listing profit warnings read order rows for revenue and settlement
     // cost, and channel listing daily snapshots for listing-level ad spend —
     // not Advertising's account KPI rows, so not `coupang_ads`.
-    const perListing = live(ORDERS_SOURCE, CHANNEL_LISTINGS_SOURCE);
+    //
+    // A listing whose advertising evidence had a hole is withheld rather than
+    // counted from a partial ad sum, so these three counts can be drawn from
+    // fewer listings than the month actually sold. That is a real number over
+    // a smaller population, which the amendment displays with partial status
+    // — but only while some listing survived. A window whose every listing was
+    // withheld has an empty computable subset: its zero is not a counted zero,
+    // so the value is unavailable and the cards blank rather than claiming no
+    // product is loss-making.
+    const measuredListingCount = perListingMetrics.rows.length;
+    const withheldListingCount = perListingMetrics.withheldListings;
+    const perListing = snapshotEvidence({
+      asOf: readAsOf,
+      requiredAsOf: readAsOf,
+      observedAt: ctx.now,
+      sources: [ORDERS_SOURCE, CHANNEL_LISTINGS_SOURCE],
+      measured: measuredListingCount > 0 || withheldListingCount === 0,
+      withheldCount: withheldListingCount,
+    });
     // Mapping attention counts listing options against their inventory SKUs.
     const mapping = live(CHANNEL_LISTINGS_SOURCE, SELLPIA_INVENTORY_SOURCE);
     // The linked/unlinked split walks that mapping through to the active

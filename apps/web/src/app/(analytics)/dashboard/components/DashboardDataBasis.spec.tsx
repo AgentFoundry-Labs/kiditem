@@ -45,6 +45,8 @@ describe('DashboardDataBasis', () => {
       observedAt: '2026-09-04T00:00:00.000Z',
       sources: ['inventory_snapshot'],
       status: 'stale',
+      partial: false,
+      withheldCount: 0,
     };
 
     render(<DashboardDataBasis basis={snapshot} />);
@@ -96,7 +98,46 @@ describe('DashboardDataBasis', () => {
       observedAt: null,
       sources: ['inventory_snapshot'],
       status: 'unknown',
+      partial: false,
+      withheldCount: 0,
     })).toBe(true);
+  });
+
+  it('says how much of the population a partial snapshot left out', () => {
+    const partialSnapshot: DashboardMetricBasis = {
+      kind: 'snapshot',
+      asOf: '2026-09-10',
+      observedAt: null,
+      sources: ['orders', 'channel_listings'],
+      status: 'current',
+      partial: true,
+      withheldCount: 2,
+    };
+
+    render(<DashboardDataBasis basis={partialSnapshot} />);
+
+    // A non-empty valid subset keeps its number on screen; only the coverage
+    // is qualified, and the count is what makes "partial" mean something.
+    expect(basisHasValues(partialSnapshot)).toBe(true);
+    expect(screen.getByTestId('dashboard-data-basis')).toHaveTextContent('스냅샷 현재');
+    expect(screen.getByTestId('dashboard-data-basis')).toHaveTextContent('부분 집계 · 근거 부족 2건 제외');
+  });
+
+  it('names the withheld population as the reason an unavailable snapshot has no number', () => {
+    const emptySubset: DashboardMetricBasis = {
+      kind: 'snapshot',
+      asOf: null,
+      observedAt: null,
+      sources: ['orders', 'channel_listings'],
+      status: 'unavailable',
+      partial: false,
+      withheldCount: 2,
+    };
+
+    // Nothing was measurable, so the card blanks — and says why rather than
+    // leaving the reader with a bare "사용 불가".
+    expect(basisHasValues(emptySubset)).toBe(false);
+    expect(basisSummary(emptySubset)).toContain('근거 부족 2건');
   });
 
   it('distinguishes a failed source query from an ordinary empty period', () => {
