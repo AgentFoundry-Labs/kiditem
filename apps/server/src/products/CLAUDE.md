@@ -66,8 +66,8 @@ owns physical stock quantities.
 - Evaluation requires a selling product, valid mapping, complete Sellpia
   profitability coverage, `ORDER_TIME_SUPPLY_COST`, VAT provenance, a verified
   sale age of at least 30 days at the evaluation cutoff, and advertising evidence of `OBSERVED`,
-  `CONFIRMED_ZERO`, or `NOT_APPLIED`. Missing or stale Sellpia, mapping, or
-  advertising evidence produces no publication; it is never zero-filled or
+  `CONFIRMED_ZERO`, or `NOT_APPLIED`. Missing or incompatible Sellpia, mapping,
+  or advertising evidence produces no publication; it is never zero-filled or
   synthesized as C. An existing normal grade remains visible while the source
   is stale. Judge data sufficiency by completeness and validity of the selected
   evaluation period, separately from sale age; there is no minimum evidence-day
@@ -80,8 +80,14 @@ owns physical stock quantities.
   the approved ABC design/spec.
 - Revenue and operating-profit contribution, rank, cumulative share, and loss
   impact are separate reporting metrics. They never alter `abcGrade`.
+- Validity and freshness are distinct. Publication uses the newest cutoff every
+  compatible complete source reaches, so evidence that lags the latest closed
+  day still publishes at its own actual cutoff, and a newer RUNNING or FAILED
+  collection alone does not invalidate a compatible complete source. Persist
+  and display that actual cutoff separately from the desired latest cutoff.
 - Evaluation/publication is organization-locked so an older snapshot cannot
-  overwrite a newer completed publication.
+  overwrite a newer completed publication, and publication never moves the
+  official cutoff backward.
 - Products owns the ABC evidence cutoff — the latest closed KST day — and
   derives display status once. Consumers read the published per-product view
   through `PRODUCT_ABC_READ_PORT`; no reader picks a cutoff of its own
