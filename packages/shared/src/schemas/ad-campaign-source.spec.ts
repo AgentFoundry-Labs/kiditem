@@ -112,10 +112,15 @@ describe('campaign source wire', () => {
         explicitEmpty: false,
       },
     };
-    expect(AdCampaignSourceReceiptInputSchema.parse(receipt).proof).toMatchObject({
-      kind: 'product_sales_api',
-      expectedGroupIds: ['456'],
-      totalAdCount: 1,
+    // `proof` belongs to some members of the `kind` union, not all of them, so
+    // assert through the parsed receipt rather than reaching into a property the
+    // union does not carry.
+    expect(AdCampaignSourceReceiptInputSchema.parse(receipt)).toMatchObject({
+      proof: {
+        kind: 'product_sales_api',
+        expectedGroupIds: ['456'],
+        totalAdCount: 1,
+      },
     });
     expect(AdCampaignSourceReceiptInputSchema.safeParse({
       ...receipt,
