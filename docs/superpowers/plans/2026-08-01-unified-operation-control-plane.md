@@ -72,7 +72,7 @@ OperationRun 읽기 전용 투영이 포함된다.
 
 ## 기존 설계와의 관계
 
-이 계획은 docs/superpowers/specs/2026-07-14-background-browser-collection-session-design.md의 다음 두 전제를 대체한다.
+이 계획은 docs/superpowers/specs/archive/2026-07-14-background-browser-collection-session-design.md의 다음 두 전제를 대체한다.
 
 - Server-central browser command queue가 비목표라는 결정
 - 로그인된 KidItem 웹 탭이 항상 열려 있어야 한다는 운영 가정
@@ -183,7 +183,7 @@ Native owner adapter가 위 상태로 명시적으로 매핑한다. WorkflowRun.
 - Create: apps/server/src/operations/__tests__/operations-boundary.spec.ts
 - Modify: AGENTS.md
 - Modify: docs/ARCHITECTURE.md
-- Modify: docs/superpowers/specs/2026-07-14-background-browser-collection-session-design.md
+- Modify: docs/superpowers/specs/archive/2026-07-14-background-browser-collection-session-design.md
 
 - [ ] **Step 1: 새 owner 문서화 실패 테스트 작성**
 
@@ -244,7 +244,7 @@ Run: rtk npm exec --workspace=apps/server vitest -- run src/operations/__tests__
 Expected: PASS.
 
 ~~~bash
-rtk git add AGENTS.md docs/ARCHITECTURE.md docs/superpowers/specs/2026-07-14-background-browser-collection-session-design.md apps/server/src/operations
+rtk git add AGENTS.md docs/ARCHITECTURE.md docs/superpowers/specs/archive/2026-07-14-background-browser-collection-session-design.md apps/server/src/operations
 rtk git commit -m "docs: define unified operations platform boundary"
 ~~~
 

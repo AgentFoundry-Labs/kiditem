@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Implement the approved design in [`docs/superpowers/specs/2026-07-16-master-product-operations-inventory-design.md`](../specs/2026-07-16-master-product-operations-inventory-design.md). If code and design disagree, stop and resolve the design rather than silently inventing another ownership model.
+- Implement the approved design in [`docs/superpowers/specs/archive/2026-07-16-master-product-operations-inventory-design.md`](../specs/archive/2026-07-16-master-product-operations-inventory-design.md). If code and design disagree, stop and resolve the design rather than silently inventing another ownership model.
 - Keep the five Tasks below as the review boundaries. The checkbox steps inside a Task are implementation checkpoints, not separate delegated Tasks.
 - Preserve the current uncommitted Sellpia order-transmission/freshness work and the UI-restoration work. Never use `git reset`, `git checkout --`, or broad restore commands; inspect overlapping diffs before every edit.
 - Do not migrate or preserve the legacy staging `MasterProduct`/`ProductOption` rows. This is an unshipped `0.1.19` correction; rebuild development data after the final schema is present.

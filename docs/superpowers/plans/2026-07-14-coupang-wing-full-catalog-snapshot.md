@@ -43,7 +43,7 @@ The source design remains authoritative for product behavior, completeness, tena
 
 Source design:
 
-- [Coupang Wing full catalog snapshot design](/Users/yhc125/workspace/kiditem/docs/superpowers/specs/2026-07-13-coupang-wing-full-catalog-snapshot-design.md)
+- [Coupang Wing full catalog snapshot design](/Users/yhc125/workspace/kiditem/docs/superpowers/specs/archive/2026-07-13-coupang-wing-full-catalog-snapshot-design.md)
 
 ## Plan Set and Execution Order
 

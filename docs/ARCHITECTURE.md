@@ -249,7 +249,7 @@ arbitrary UUID strings:
   services recheck the complete resource graph.
 
 AgentOS resource patterns and the Operation relationship are normative in the
-[Interaction OS design](docs/superpowers/specs/2026-08-13-ai-chat-interactive-response-design.md#71-identifier-and-resource-name-system).
+[Interaction OS design](docs/superpowers/specs/archive/2026-08-13-ai-chat-interactive-response-design.md#71-identifier-and-resource-name-system).
 The scheme follows Google AIP-122/123/133/151/155 resource and request
 separation while retaining this repository's native Prisma UUID convention.
 

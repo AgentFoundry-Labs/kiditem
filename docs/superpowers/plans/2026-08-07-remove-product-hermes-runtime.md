@@ -379,7 +379,7 @@ rtk git commit -m "refactor: make Agent OS MCP provider neutral"
 - Modify: `apps/server/.env.example`
 - Modify: `deploy/staging/env/api.env.example`
 - Modify: `docs/runbooks/environment-variables.md`
-- Modify: `docs/superpowers/specs/2026-06-04-agent-os-execution-canvas-design.md`
+- Modify: `docs/superpowers/specs/archive/2026-06-04-agent-os-execution-canvas-design.md`
 - Delete: `docs/runbooks/agent-os-hermes-runtime.md`
 - Delete: `docs/superpowers/specs/2026-05-29-agent-os-operator-backbone-design.md`
 
@@ -436,7 +436,7 @@ rtk git rm docs/superpowers/specs/2026-05-29-agent-os-operator-backbone-design.m
 
 - [ ] **Step 4: execution canvas spec를 provider-neutral로 갱신**
 
-`docs/superpowers/specs/2026-06-04-agent-os-execution-canvas-design.md`에서 세 곳을 다음처럼 바꾼다.
+`docs/superpowers/specs/archive/2026-06-04-agent-os-execution-canvas-design.md`에서 세 곳을 다음처럼 바꾼다.
 
 ```text
 what the Operator and leaf agents actually did while the user continues

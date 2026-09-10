@@ -1421,7 +1421,7 @@ there is no new Worker, screen, or extension collector.
 
 This design supersedes the live-contract portions of:
 
-- `docs/superpowers/specs/2026-08-01-automatic-product-profitability-abc-design.md`;
+- `docs/superpowers/specs/archive/2026-08-01-automatic-product-profitability-abc-design.md`;
 - `docs/superpowers/plans/2026-08-01-automatic-product-profitability-abc.md`;
 - `docs/superpowers/plans/2026-08-01-unified-operation-control-plane.md`;
 - the Operation-backed execution sections of the 2026-07-14 browser collection

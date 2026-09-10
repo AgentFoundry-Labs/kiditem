@@ -15,7 +15,7 @@
 
 ## Global Constraints
 
-- The approved authority is `docs/superpowers/specs/2026-07-12-sellpia-authoritative-inventory-cutover-design.md`.
+- The approved authority is `docs/superpowers/specs/archive/2026-07-12-sellpia-authoritative-inventory-cutover-design.md`.
 - `develop` is the 0.1.7 base. Produce, merge, and deploy 0.1.8 before starting the deployable 0.1.9 release; do the same before 0.1.10.
 - Do not stage, rename, delete, or embed the operator workbooks under `docs/references/`. The current deleted/untracked workbook state is user-owned.
 - Shared staging/production databases are never reset. A local reset is allowed only after the effective target is proven local.

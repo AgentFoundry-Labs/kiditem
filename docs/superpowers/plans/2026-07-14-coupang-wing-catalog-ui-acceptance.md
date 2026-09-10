@@ -307,7 +307,7 @@ rtk git commit -m "refactor: remove legacy Coupang image sync"
 
 **Files:**
 
-- Modify: `docs/superpowers/specs/2026-07-13-coupang-wing-full-catalog-snapshot-design.md`
+- Modify: `docs/superpowers/specs/archive/2026-07-13-coupang-wing-full-catalog-snapshot-design.md`
 - Create: `docs/runbooks/coupang-wing-catalog-import.md`
 - Modify: `apps/server/src/channels/AGENTS.md`
 - Modify: `apps/server/src/ai/AGENTS.md`
@@ -339,7 +339,7 @@ rtk git commit -m "refactor: remove legacy Coupang image sync"
 - [ ] Verify docs:
 
 ```bash
-rtk rg -n 'SourceImportChunk|ContentWorkspaceAsset|wing-browser-snapshot-v1\.json' docs/superpowers/specs/2026-07-13-coupang-wing-full-catalog-snapshot-design.md docs/runbooks/coupang-wing-catalog-import.md
+rtk rg -n 'SourceImportChunk|ContentWorkspaceAsset|wing-browser-snapshot-v1\.json' docs/superpowers/specs/archive/2026-07-13-coupang-wing-full-catalog-snapshot-design.md docs/runbooks/coupang-wing-catalog-import.md
 rtk git diff --check -- docs apps/server/src/channels/AGENTS.md apps/server/src/ai/AGENTS.md extensions/AGENTS.md
 ```
 
@@ -348,7 +348,7 @@ Expected: obsolete implementation names do not appear as active design authority
 - [ ] Commit:
 
 ```bash
-rtk git add docs/superpowers/specs/2026-07-13-coupang-wing-full-catalog-snapshot-design.md docs/runbooks/coupang-wing-catalog-import.md apps/server/src/channels/AGENTS.md apps/server/src/ai/AGENTS.md extensions/AGENTS.md
+rtk git add docs/superpowers/specs/archive/2026-07-13-coupang-wing-full-catalog-snapshot-design.md docs/runbooks/coupang-wing-catalog-import.md apps/server/src/channels/AGENTS.md apps/server/src/ai/AGENTS.md extensions/AGENTS.md
 rtk git commit -m "docs: document Wing catalog import operations"
 ```
 

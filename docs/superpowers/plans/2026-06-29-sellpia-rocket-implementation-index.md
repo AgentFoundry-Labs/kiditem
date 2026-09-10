@@ -21,7 +21,7 @@ The source spec covers multiple subsystems, so writing-plans scope check splits 
 
 Source material:
 
-- `/Users/yhc125/workspace/kiditem/docs/superpowers/specs/2026-06-28-sellpia-rocket-inventory-sync-design.md`
+- `/Users/yhc125/workspace/kiditem/docs/superpowers/specs/archive/2026-06-28-sellpia-rocket-inventory-sync-design.md`
 - `/Users/yhc125/workspace/kiditem/docs/superpowers/plans/2026-06-28-sellpia-inventory-import.md`
 - `/Users/yhc125/workspace/kiditem/docs/references/exported-list.xlsx`
 

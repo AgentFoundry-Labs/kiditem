@@ -22,7 +22,7 @@
 
 ## Implementation Constraints
 
-- Implement the approved design in [`docs/superpowers/specs/2026-08-01-automatic-product-profitability-abc-design.md`](../specs/2026-08-01-automatic-product-profitability-abc-design.md). If implementation pressure exposes a design conflict, amend and re-approve the design before changing the business policy.
+- Implement the approved design in [`docs/superpowers/specs/archive/2026-08-01-automatic-product-profitability-abc-design.md`](../specs/archive/2026-08-01-automatic-product-profitability-abc-design.md). If implementation pressure exposes a design conflict, amend and re-approve the design before changing the business policy.
 - Treat the existing ABC commits on this feature branch as unshipped intermediate work. Remove their cumulative 70/90 share thresholds, fixed 30/90/180/360-day selection, lifecycle, provisional/official distinction, and manual criteria selection rather than preserving those concepts in compatibility DTOs.
 - Do not review every Task. Use focused contract tests at each Task boundary and one final integration QA after all Tasks are complete.
 - Keep the computation deterministic. No ABC workflow may create an Agent OS run or require an LLM judgment.

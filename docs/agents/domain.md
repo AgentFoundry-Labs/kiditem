@@ -53,6 +53,21 @@ and the rule is directional:
 Plans under `docs/superpowers/plans/` are execution records, not decisions, and
 are outside this migration.
 
+### Migrate on touch, not in bulk
+
+`docs/superpowers/specs/` holds only the specs marked `**Status:** ACTIVE`.
+Everything else lives in `docs/superpowers/specs/archive/`, so what is still
+being implemented is visible at a glance.
+
+Extract an archived spec's settled decisions into an ADR **when you next work
+in that area**, not in a sweep. Most of those designs are already implemented,
+which makes the code the truth and an ADR restating it something nobody reads.
+An ADR earns its place where a future reader will ask "why is it like this",
+and that question arrives when someone touches the area — not before.
+
+An archived spec is a historical record. Do not edit one to reflect a decision
+made later; write the ADR instead.
+
 ## Contexts
 
 Each workspace with its own `CLAUDE.md` is a context. See `CONTEXT-MAP.md`.

@@ -3,7 +3,7 @@
 > **Status (2026-08-25): Superseded.** Do not execute this plan. Its
 > per-Attempt non-persistent CLI lifecycle and Task/Attempt authority were
 > replaced by the provider-native conversation and Host Agent Gateway design in
-> `docs/superpowers/specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md`.
+> `docs/superpowers/specs/archive/2026-08-23-kid-25-agent-os-clean-contraction-design.md`.
 > The replacement implementation sequence will live in the primary KID-25 plan;
 > this file is retained temporarily as historical context only.
 
@@ -25,7 +25,7 @@ This plan is the runtime/deployment implementation authority for:
 /Users/dev125/.codex/worktrees/e5b4/kiditem
 branch: codex/kid-25-copilotkit-interaction-os
 primary design:
-  docs/superpowers/specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md
+  docs/superpowers/specs/archive/2026-08-23-kid-25-agent-os-clean-contraction-design.md
 ```
 
 It completely replaces the earlier version of this file that launched CLIs
