@@ -83,61 +83,6 @@ const abcReady = {
 // pending "published, observing, and unclassified" test below still describes
 // the three-way distinction the read model no longer expresses; that test is
 // blocked on a product decision, so neither it nor this literal is rewritten.
-const abcEvaluation = {
-  abcGrade: 'A' as const,
-  calculationStatus: 'READY' as const,
-  rawScore: 80,
-  adjustedScore: 75,
-  reliability: 0.8,
-  weightedRevenue: 200,
-  weightedOrderTimeCogs: 100,
-  weightedAdSpend: 0,
-  weightedContributionProfit: 100,
-  profitVelocity30: 50,
-  weightedContributionMargin: 0.5,
-  lossRecurrence: 0,
-  paidOrderCount: 40,
-  observationDays: 60,
-  firstValidPaidSaleAt: '2026-06-01T00:00:00.000Z',
-  formula: {
-    formulaKey: 'ABC_V1' as const,
-    version: 1,
-    calculationCodeChecksum: 'a'.repeat(64),
-    formulaChecksum: 'a'.repeat(64),
-    activatedAt: '2026-07-18T00:00:00.000Z',
-    halfLifeDays: 90,
-    weights: { profit: 0.5, margin: 0.3, persistence: 0.2 },
-    dayShrinkK: 30,
-    cutoffs: { cToB: 45, bToA: 70 },
-    normalizationKnots: {
-      profitVelocity: [{ value: 0, score: 0 }],
-      contributionMargin: [{ value: 0, score: 0 }],
-      lossRecurrence: [{ value: 0, score: 100 }],
-    },
-    trainingRange: { from: '2025-07-01', to: '2026-07-17' },
-    sampleCount: 100,
-    foldCount: 3,
-    calibrationMetrics: { meanSpearmanRankCorrelation: 0.7, meanExplainedVariance: 0.6, gradeChurnRate: 0.1 },
-  },
-  sourceFreshness: {
-    evaluationCutoffDate: '2026-07-17',
-    sellpia: { status: 'READY' as const, coverageStartDate: '2025-06-12', coverageEndDate: '2026-07-17', capturedAt: '2026-07-18T00:00:00.000Z' },
-    advertising: { status: 'CONFIRMED_ZERO' as const, coverageStartDate: '2025-06-12', coverageEndDate: '2026-07-17', capturedAt: '2026-07-18T00:00:00.000Z' },
-    orders: { status: 'NOT_APPLIED' as const, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
-    mapping: { status: 'READY' as const, inventoryGeneration: '4', verifiedAt: '2026-07-18T00:00:00.000Z' },
-  },
-  costBreakdown: {
-    recognizedRevenue: { amount: 200, status: 'OBSERVED' as const },
-    orderTimeCogs: { amount: 100, status: 'OBSERVED' as const },
-    advertisingSpend: { amount: 0, status: 'CONFIRMED_ZERO' as const },
-    marketplaceCommission: { amount: 0, status: 'NOT_APPLIED' as const },
-    outboundFulfillment: { amount: 0, status: 'NOT_APPLIED' as const },
-    returnLoss: { amount: 0, status: 'NOT_APPLIED' as const },
-    otherVariableCost: { amount: 0, status: 'NOT_APPLIED' as const },
-  },
-  statusDetail: null,
-  calculatedAt: '2026-07-18T00:00:00.000Z',
-};
 
 const destination = {
   masterProductId: MASTER_PRODUCT_ID,
@@ -224,22 +169,27 @@ describe('Sellpia product-sales inventory contracts', () => {
     expect(SellpiaProductInventoryResolutionSchema.parse(matched)).toEqual(matched);
   });
 
-  it('keeps published, observing, and unclassified destinations distinguishable', () => {
-    const observingEvaluation = {
-      ...abcEvaluation,
+  it('keeps a graded destination, a stale one that keeps its grade, and an unclassified one distinguishable', () => {
+    // A stale source does not erase a published grade. The Evaluation and the
+    // grade stay; `displayStatus` is what says the source has moved on.
+    const stale = { ...abcReady, displayStatus: 'AD_SOURCE_STALE' as const };
+    // `NEW` and `INSUFFICIENT_EVIDENCE` retain no Evaluation at all. There is
+    // no state that keeps an Evaluation without a grade: `ProductAbcEvaluation`
+    // always carries one, so an ungraded product has nothing to retain.
+    const unclassified = {
+      ...abcReady,
       abcGrade: null,
-      calculationStatus: 'INSUFFICIENT_EVIDENCE' as const,
-      rawScore: null,
-      adjustedScore: null,
-      reliability: null,
-      weightedContributionProfit: null,
-      formula: null,
+      evaluation: null,
+      officialCutoffDate: null,
+      displayStatus: 'INSUFFICIENT_EVIDENCE' as const,
     };
-    expect(SellpiaProductDestinationSchema.parse(destination)).toMatchObject({ abcGrade: 'A' });
-    expect(SellpiaProductDestinationSchema.parse({ ...destination, abcGrade: null, abcEvaluation: observingEvaluation }))
-      .toMatchObject({ abcEvaluation: { calculationStatus: 'INSUFFICIENT_EVIDENCE' } });
-    expect(SellpiaProductDestinationSchema.parse({ ...destination, abcGrade: null, abcEvaluation: null }))
-      .toMatchObject({ abcEvaluation: null });
+
+    expect(SellpiaProductDestinationSchema.parse(destination).abc)
+      .toMatchObject({ abcGrade: 'A', displayStatus: 'READY' });
+    expect(SellpiaProductDestinationSchema.parse({ ...destination, abc: stale }).abc)
+      .toMatchObject({ abcGrade: 'A', displayStatus: 'AD_SOURCE_STALE' });
+    expect(SellpiaProductDestinationSchema.parse({ ...destination, abc: unclassified }).abc)
+      .toMatchObject({ abcGrade: null, evaluation: null, displayStatus: 'INSUFFICIENT_EVIDENCE' });
   });
 
   it('requires a read-only channel catalog display image shape when present', () => {
