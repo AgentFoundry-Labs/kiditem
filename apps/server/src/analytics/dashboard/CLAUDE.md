@@ -42,6 +42,10 @@ boundary with HTTP and persistence adapters around Prisma-free orchestration.
 - Inventory, product-count, warning and ABC values publish a `snapshot` basis
   through `snapshotEvidence`, carrying the owner result's actual as-of against
   the as-of the read needed. Do not give them a period basis.
+- A snapshot value counts a population. Pass `withheldCount` for the members
+  the owner could not measure, which makes the basis partial without ageing
+  it, and `measured: false` when none were measurable so the card blanks
+  instead of publishing an uncounted zero.
 - Publish a key for every value a reader displays. A value with no owner
   evidence publishes an `unavailable` snapshot; an omitted key and an absent
   basis are indistinguishable to the reader, which blanks the card.
